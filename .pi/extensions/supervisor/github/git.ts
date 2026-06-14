@@ -135,7 +135,7 @@ export async function commitAndPush(
 		const commitResult = await pi.exec("git", ["commit", "-m", message], { cwd });
 		if (commitResult.code !== 0) {
 			const output = (commitResult.stderr || "") + (commitResult.stdout || "");
-			if (output.includes("nothing to commit")) {
+			if (output.includes("nothing to commit") || output.includes("no changes added to commit")) {
 				log.info("git", "Nothing to commit — still pushing (branch may not exist on remote)");
 			} else {
 				log.warn("git", "git commit failed", {
