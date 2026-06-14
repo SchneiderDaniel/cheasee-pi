@@ -30,10 +30,10 @@ export class LoggerPipeline {
 	private sessionName: string | undefined;
 	private mode: string | undefined;
 
-	constructor(gate: SessionLoggerGate) {
+	constructor(gate: SessionLoggerGate, files?: FileOps) {
 		this.gate = gate;
 		this.stats = createSessionStats();
-		this.files = createFileOps();
+		this.files = files ?? createFileOps();
 	}
 
 	/** Expose stats for testing / snapshot access. */
@@ -94,7 +94,14 @@ export class LoggerPipeline {
 		this.stats.seedStats(sm);
 
 		this.sessionsDir = path.resolve(sm.getCwd(), ".pi", "sessions");
-		await this.files.ensureSymlink(this.sessionFile!, this.sessionsDir);
+		try {
+			await this.files.ensureSymlink(this.sessionFile!, this.sessionsDir);
+		} catch (err) {
+			console.error(`[session-logger] Failed to create session symlink: ${(err as Error).message}`);
+			this.sessionFile = undefined;
+			this.sessionsDir = undefined;
+			return;
+		}
 
 		// Recovery: scan all .jsonl files in sessions dir for missing .md/.metadata.json.
 		// If session_shutdown didn't fire (crash, kill, race), we catch up now.

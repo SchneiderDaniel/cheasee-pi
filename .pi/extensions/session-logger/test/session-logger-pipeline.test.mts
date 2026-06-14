@@ -9,8 +9,9 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { LoggerPipeline, beginSession } from "../pipeline.ts";
+import type { FileOps } from "../files.ts";
 import type { SessionLoggerGate } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -408,5 +409,309 @@ describe("LoggerPipeline onSessionStart", () => {
 		});
 		assert.strictEqual(pipeline.getSessionName(), undefined);
 		assert.strictEqual(pipeline.getMode(), undefined);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// LoggerPipeline — onSessionStart ensureSymlink error handling
+// ---------------------------------------------------------------------------
+
+function createMockFileOps(
+	ensureSymlinkImpl?: (sessionFile: string, sessionsDir: string) => Promise<void>,
+): FileOps & { ensureSymlinkCalls: number } {
+	let calls = 0;
+	return {
+		ensureSymlink: async (sessionFile: string, sessionsDir: string) => {
+			calls++;
+			if (ensureSymlinkImpl) {
+				return ensureSymlinkImpl(sessionFile, sessionsDir);
+			}
+		},
+		ensureMdSymlink: async () => {},
+		ensureLatestMetadataSymlink: async () => {},
+		writeMetadata: async () => {},
+		writeSessionReport: async () => {},
+		get ensureSymlinkCalls() {
+			return calls;
+		},
+	};
+}
+
+function createSessionStartCtxWithFile(overrides?: {
+	sessionFile?: string;
+	cwd?: string;
+	entries?: any[];
+}): any {
+	const hasFile = "sessionFile" in (overrides ?? {});
+	return {
+		mode: "tui",
+		sessionManager: {
+			getSessionFile: () => (hasFile ? overrides!.sessionFile : "/tmp/.pi/session.jsonl"),
+			getCwd: () => overrides?.cwd ?? "/tmp",
+			getEntries: () => overrides?.entries ?? [],
+		},
+	};
+}
+
+describe("LoggerPipeline onSessionStart — ensureSymlink error handling", () => {
+	it("ensureSymlink succeeds — sessionFile and sessionsDir are set", async () => {
+		const gate = createGate(true);
+		const mockFiles = createMockFileOps(async () => {});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const ctx = createSessionStartCtxWithFile({
+			sessionFile: "/tmp/.pi/session.jsonl",
+			cwd: "/tmp",
+		});
+
+		await pipeline.onSessionStart({}, ctx);
+
+		assert.strictEqual(pipeline.getSessionFile(), "/tmp/.pi/session.jsonl");
+		assert.strictEqual(pipeline.getSessionsDir(), "/tmp/.pi/sessions");
+		assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
+	});
+
+	it("ensureSymlink throws EACCES — gracefully degrades", async () => {
+		const gate = createGate(true);
+		const e = new Error("EACCES: permission denied");
+		(e as NodeJS.ErrnoException).code = "EACCES";
+		const mockFiles = createMockFileOps(async () => {
+			throw e;
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
+			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
+			assert.ok(
+				(mockConsoleError.mock.calls[0].arguments[0] as string).includes("[session-logger]"),
+			);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("ensureSymlink throws ENOSPC — gracefully degrades", async () => {
+		const gate = createGate(true);
+		const e = new Error("ENOSPC: no space left on device");
+		(e as NodeJS.ErrnoException).code = "ENOSPC";
+		const mockFiles = createMockFileOps(async () => {
+			throw e;
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
+			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("ensureSymlink throws EROFS — gracefully degrades", async () => {
+		const gate = createGate(true);
+		const e = new Error("EROFS: read-only file system");
+		(e as NodeJS.ErrnoException).code = "EROFS";
+		const mockFiles = createMockFileOps(async () => {
+			throw e;
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("ensureSymlink throws EIO — gracefully degrades", async () => {
+		const gate = createGate(true);
+		const e = new Error("EIO: input/output error");
+		(e as NodeJS.ErrnoException).code = "EIO";
+		const mockFiles = createMockFileOps(async () => {
+			throw e;
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("ensureSymlink throws generic Error — gracefully degrades", async () => {
+		const gate = createGate(true);
+		const mockFiles = createMockFileOps(async () => {
+			throw new Error("generic I/O failure");
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
+			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
+			assert.ok(
+				(mockConsoleError.mock.calls[0].arguments[0] as string).includes("generic I/O failure"),
+			);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("sessionFile undefined — early return before ensureSymlink", async () => {
+		const gate = createGate(true);
+		const mockFiles = createMockFileOps(async () => {});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const ctx = createSessionStartCtxWithFile({
+			sessionFile: undefined,
+		});
+
+		await pipeline.onSessionStart({}, ctx);
+
+		assert.strictEqual(pipeline.getSessionFile(), undefined);
+		assert.strictEqual(pipeline.getSessionsDir(), undefined);
+		assert.strictEqual(mockFiles.ensureSymlinkCalls, 0, "ensureSymlink should NOT be called");
+	});
+
+	it("gate disabled — beginSession returns false, ensureSymlink NOT called", async () => {
+		const gate = createGate(false);
+		const mockFiles = createMockFileOps(async () => {});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const ctx = createSessionStartCtxWithFile({
+			sessionFile: "/tmp/.pi/session.jsonl",
+		});
+
+		await pipeline.onSessionStart({}, ctx);
+
+		assert.strictEqual(pipeline.getSessionFile(), undefined);
+		assert.strictEqual(mockFiles.ensureSymlinkCalls, 0, "ensureSymlink should NOT be called");
+	});
+
+	it("after ensureSymlink failure — downstream handlers still work as no-ops", async () => {
+		const gate = createGate(true);
+		const mockFiles = createMockFileOps(async () => {
+			throw new Error("EACCES: permission denied");
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		// Call onSessionStart — it will fail
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+				cwd: "/tmp",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			// After failure, sessionFile/sessionsDir are undefined
+			assert.strictEqual(pipeline.getSessionFile(), undefined);
+			assert.strictEqual(pipeline.getSessionsDir(), undefined);
+
+			// Downstream handlers should still not throw
+			pipeline.onSessionCompact();
+			pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
+			pipeline.onThinkingLevelSelect({ level: "high" });
+			pipeline.onTurnStart({ turnIndex: 0 });
+			pipeline.onTurnEnd();
+			pipeline.onMessageEnd({
+				message: { role: "assistant", usage: { input: 10, output: 5, totalTokens: 15 } },
+			});
+			pipeline.onToolExecutionStart({ toolCallId: "c1", toolName: "bash" });
+			pipeline.onToolExecutionEnd({
+				toolCallId: "c1",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+			pipeline.onToolCall({
+				toolName: "read",
+				input: { path: "/tmp/test.txt" },
+			} as any);
+
+			// All should resolve without throwing (handlers are no-ops when sessionFile is undefined)
+			// Actually, the handlers gate on sessionEnabled, not sessionFile.
+			// But gate.sessionEnabled is still true — so handlers will execute.
+			// The stats should still be updated because gate is still enabled.
+			const snap = pipeline.getStats().getSnapshot();
+			assert.strictEqual(snap.compactionCount, 1);
+			assert.strictEqual(snap.modelChanges.length, 1);
+			assert.strictEqual(snap.toolExecutions.length, 1);
+		} finally {
+			mockConsoleError.mock.restore();
+		}
+	});
+
+	it("console.error includes session-logger prefix and error message", async () => {
+		const gate = createGate(true);
+		const mockFiles = createMockFileOps(async () => {
+			throw new Error("ENOSPC: disk full");
+		});
+		const pipeline = new LoggerPipeline(gate, mockFiles);
+
+		const mockConsoleError = mock.method(console, "error");
+		try {
+			const ctx = createSessionStartCtxWithFile({
+				sessionFile: "/tmp/.pi/session.jsonl",
+			});
+
+			await pipeline.onSessionStart({}, ctx);
+
+			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
+			const msg = mockConsoleError.mock.calls[0].arguments[0] as string;
+			assert.ok(msg.includes("[session-logger]"), "should have session-logger prefix");
+			assert.ok(msg.includes("ENOSPC"), "should include error code");
+		} finally {
+			mockConsoleError.mock.restore();
+		}
 	});
 });
