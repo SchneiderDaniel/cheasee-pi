@@ -28,10 +28,16 @@ function isBashSearchOrRead(cmd: string): boolean {
 	if (!cmd) return false;
 	const low = cmd.toLowerCase();
 	// Check piped grep/rg from file-reading commands only
-	if (/^(cat|head|tail|less|more)\s/.test(low) && (low.includes("| grep") || low.includes("| rg")))
-		return true;
+	if (/^(cat|head|tail|less|more)\s/.test(low) && /\|\s*grep\b|\|\s*rg\b/.test(low)) return true;
 	// Check file read commands
-	if (low.startsWith("cat ") || low.startsWith("head ") || low.startsWith("tail ")) return true;
+	if (
+		low.startsWith("cat ") ||
+		low.startsWith("head ") ||
+		low.startsWith("tail ") ||
+		low.startsWith("less ") ||
+		low.startsWith("more ")
+	)
+		return true;
 	// Check using rg/grep/find as primary command
 	if (low.startsWith("grep ") || low.startsWith("rg ") || low.startsWith("find ")) return true;
 	return false;

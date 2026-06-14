@@ -2,12 +2,21 @@
 // pi.registerMessageRenderer() callback + TUI rendering helpers.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { SupervisorMessageDetails } from "../config/types.ts";
-import { Container, Spacer, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Container,
+	Markdown,
+	Spacer,
+	Text,
+	truncateToWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
 
 export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, options: any, theme: any) => {
+		const { expanded } = options || { expanded: false };
 		const details = message.details as SupervisorMessageDetails | undefined;
 		if (!details && typeof message.content === "string") {
 			return new Text(message.content, 1, 1);
@@ -56,8 +65,13 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			c.addChild(new Text(fit(theme.fg("dim", details.summaryLine)), 1, 0));
 		}
 
+		// Collapsed view: only show header, stats, audit, summary (no thinking/text/raw)
+		if (!expanded) return c;
+
+		// ─── Expanded view ─────────────────────────────────────
+
 		// Task prompt (expanded view only)
-		if (options?.expanded && details.taskPrompt !== undefined) {
+		if (details.taskPrompt !== undefined) {
 			c.addChild(new Spacer(1));
 			c.addChild(new Text(fit(theme.fg("dim", "── Task ──")), 1, 0));
 			if (details.taskPrompt.length > 0) {
@@ -82,13 +96,13 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			}
 		}
 
-		// Thinking output (expanded view)
+		// Thinking output
 		if (details.hasThinking && details.thinkingOutput) {
 			c.addChild(new Spacer(1));
 			c.addChild(new Text(fit(theme.fg("dim", "── Thinking ──")), 1, 0));
 			const thinkingLines = details.thinkingOutput.split("\n");
 			for (const line of thinkingLines) {
-				if (!line.trim()) continue; // Skip empty lines — avoid ANSI-colored space rows
+				if (!line.trim()) continue;
 				const styled = theme.fg("dim", line);
 				for (const wrapped of wrapTextWithAnsi(styled, w)) {
 					c.addChild(new Text(wrapped, 1, 0));
@@ -96,43 +110,23 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			}
 		}
 
-		// Text output (word-wrapped, color-coded by event type)
+		// Text output rendered as Markdown
 		if (details.textOutput) {
 			c.addChild(new Spacer(1));
-			const outputLines = details.textOutput.split("\n");
-			for (const line of outputLines) {
-				if (!line.trim()) continue; // Skip empty lines
-				let styledLine: string;
-				if (line.startsWith("🔧 ")) {
-					styledLine = theme.fg("toolTitle", line);
-				} else if (line.startsWith("✓ ")) {
-					styledLine = theme.fg("success", line);
-				} else if (line.startsWith("✗ ")) {
-					styledLine = theme.fg("error", line);
-				} else if (line.startsWith("💭 ")) {
-					styledLine = theme.fg("dim", line);
-				} else if (line.startsWith("📋 ")) {
-					styledLine = theme.fg("dim", line);
-				} else {
-					styledLine = line;
-				}
-				for (const wrapped of wrapTextWithAnsi(styledLine, w)) {
-					c.addChild(new Text(wrapped, 1, 0));
-				}
-			}
+			const mdTheme = getMarkdownTheme();
+			c.addChild(new Markdown(details.textOutput, 1, 0, mdTheme));
 		}
 
 		// Raw output section (if available)
 		if (details.hasRawOutput && details.rawOutput) {
 			c.addChild(new Spacer(1));
 			c.addChild(new Text(fit(theme.fg("dim", "── Raw Output ──")), 1, 0));
-			// Show first 500 chars as preview, truncate with ...
 			const preview =
 				details.rawOutput.length > 500
 					? details.rawOutput.slice(0, 500) + "..."
 					: details.rawOutput;
 			for (const line of preview.split("\n")) {
-				if (!line.trim()) continue; // Skip empty lines
+				if (!line.trim()) continue;
 				const styled = theme.fg("dim", line);
 				for (const wrapped of wrapTextWithAnsi(styled, w)) {
 					c.addChild(new Text(wrapped, 1, 0));

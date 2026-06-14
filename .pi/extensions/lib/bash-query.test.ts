@@ -88,6 +88,32 @@ describe("isBashSearch", () => {
 		assert.strictEqual(isBashSearch("more file | grep foo"), true);
 	});
 
+	// ── Bug fix: pipe grep/rg with variant spacing ──
+
+	it("piped file→grep: cat file |  grep foo (two spaces after pipe) → true", () => {
+		assert.strictEqual(isBashSearch("cat file |  grep foo"), true);
+	});
+
+	it("piped file→grep: cat file |grep foo (no space after pipe) → true", () => {
+		assert.strictEqual(isBashSearch("cat file |grep foo"), true);
+	});
+
+	it("piped file→rg: cat file |  rg foo (two spaces after pipe) → true", () => {
+		assert.strictEqual(isBashSearch("cat file |  rg foo"), true);
+	});
+
+	it("piped file→rg: cat file |rg foo (no space after pipe) → true", () => {
+		assert.strictEqual(isBashSearch("cat file |rg foo"), true);
+	});
+
+	it("pipe grep word boundary: cat file | grepped → false (prefix match)", () => {
+		assert.strictEqual(isBashSearch("cat file | grepped"), false);
+	});
+
+	it("pipe rg word boundary: cat file | rgfoo → false (prefix match)", () => {
+		assert.strictEqual(isBashSearch("cat file | rgfoo"), false);
+	});
+
 	it("command-output pipe: git branch | grep feature → false", () => {
 		assert.strictEqual(isBashSearch("git branch -a | grep feature"), false);
 	});
@@ -206,6 +232,10 @@ describe("isBashSearchOrRead", () => {
 
 	it("piped file→grep: cat file | grep foo → true", () => {
 		assert.strictEqual(isBashSearchOrRead("cat file | grep foo"), true);
+	});
+
+	it("piped file→grep variant spacing: cat file |  grep foo → true (cross-check)", () => {
+		assert.strictEqual(isBashSearchOrRead("cat file |  grep foo"), true);
 	});
 
 	it("tail -f log | grep error → true (piped read→grep)", () => {

@@ -243,7 +243,11 @@ describe("index.ts — session_shutdown trust gate", () => {
 
 describe("index.ts — named exports", () => {
 	it("createSessionLoggerGate is a function and returns gate with defaults", () => {
-		assert.strictEqual(typeof createSessionLoggerGate, "function", "createSessionLoggerGate should be a function");
+		assert.strictEqual(
+			typeof createSessionLoggerGate,
+			"function",
+			"createSessionLoggerGate should be a function",
+		);
 		const gate = createSessionLoggerGate();
 		assert.strictEqual(gate.enabledForNextSession, true);
 		assert.strictEqual(gate.sessionEnabled, true);
@@ -255,7 +259,11 @@ describe("index.ts — named exports", () => {
 	});
 
 	it("toggleSessionLoggerGate toggles and sets gate", () => {
-		assert.strictEqual(typeof toggleSessionLoggerGate, "function", "toggleSessionLoggerGate should be a function");
+		assert.strictEqual(
+			typeof toggleSessionLoggerGate,
+			"function",
+			"toggleSessionLoggerGate should be a function",
+		);
 		const gate = createSessionLoggerGate();
 		const result = toggleSessionLoggerGate(gate);
 		assert.strictEqual(result, false, "toggle should flip from true to false");
@@ -274,7 +282,11 @@ describe("index.ts — named exports", () => {
 	});
 
 	it("beginSessionLoggerSession is a function and copies enabledForNextSession", () => {
-		assert.strictEqual(typeof beginSessionLoggerSession, "function", "beginSessionLoggerSession should be a function");
+		assert.strictEqual(
+			typeof beginSessionLoggerSession,
+			"function",
+			"beginSessionLoggerSession should be a function",
+		);
 		const gate = createSessionLoggerGate();
 		const result = beginSessionLoggerSession(gate);
 		assert.strictEqual(result, true);
@@ -282,7 +294,11 @@ describe("index.ts — named exports", () => {
 	});
 
 	it("getSessionLoggerState returns sessionEnabled when gate is provided", () => {
-		assert.strictEqual(typeof getSessionLoggerState, "function", "getSessionLoggerState should be a function");
+		assert.strictEqual(
+			typeof getSessionLoggerState,
+			"function",
+			"getSessionLoggerState should be a function",
+		);
 		const gate = createSessionLoggerGate();
 		const state = getSessionLoggerState(gate);
 		assert.strictEqual(state, true);
@@ -299,6 +315,50 @@ describe("index.ts — named exports", () => {
 	});
 
 	it("generateMissingReports is a function (re-exported)", () => {
-		assert.strictEqual(typeof generateMissingReports, "function", "generateMissingReports should be a function");
+		assert.strictEqual(
+			typeof generateMissingReports,
+			"function",
+			"generateMissingReports should be a function",
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Wiring resilience — session_start handler should not propagate rejection
+// ---------------------------------------------------------------------------
+
+describe("index.ts — session_start handler resilience", () => {
+	it("handler resolves normally when pipeline handles errors internally", async () => {
+		const { pi, handlers } = createMockPi();
+		defaultExport(pi);
+
+		const handler = handlers.find((h) => h.event === "session_start")!;
+		const ctx = createSessionStartCtx({
+			sessionFile: "/tmp/.pi/session.jsonl",
+			cwd: "/tmp",
+		});
+
+		// After fix, pipeline.onSessionStart handles ensureSymlink errors internally
+		// so the handler should resolve without throwing
+		await assert.doesNotReject(async () => {
+			await handler.fn({}, ctx);
+		});
+	});
+
+	it("handler does not crash on session_start when pi.getSessionName is missing", async () => {
+		const { pi, handlers } = createMockPi({
+			getSessionName: undefined as unknown as () => string | undefined,
+		});
+		defaultExport(pi);
+
+		const handler = handlers.find((h) => h.event === "session_start")!;
+		const ctx = createSessionStartCtx({
+			sessionFile: "/tmp/.pi/session.jsonl",
+			cwd: "/tmp",
+		});
+
+		await assert.doesNotReject(async () => {
+			await handler.fn({}, ctx);
+		});
 	});
 });
