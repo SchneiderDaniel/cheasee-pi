@@ -21,6 +21,7 @@ import {
 	postIssueComment,
 } from "../github/index.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
+import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
 import { runAgent, runAgentSubprocess } from "../agent/runner.ts";
 import {
 	WORKFLOW,
@@ -377,6 +378,24 @@ export async function handleSupervisorCommand(
 			getDebugLogger().info("handler", "Crash cleanup handlers registered (SIGTERM/SIGINT)");
 		}
 
+		// ── Extension Directory Discovery ──────────────────────────────
+		// Read extension directories for scope derivation.
+		// Non-blocking — if read fails, scope will just not match custom labels.
+		let extensionDirs: string[] = [];
+		try {
+			const lsResult = await pi.exec("ls", [".pi/extensions/"], { cwd: ctx.cwd });
+			extensionDirs = (lsResult.stdout || "")
+				.split("\n")
+				.filter(Boolean)
+				.map((d: string) => d.replace(/\/$/, ""));
+		} catch {
+			// Non-blocking — scope derivation won't match custom extension labels
+			extensionDirs = [];
+		}
+		getDebugLogger().info("handler", "Extension directories discovered", {
+			dirs: extensionDirs,
+		});
+
 		for (let i = 0; i < MAX_PIPELINE_LOOPS; i++) {
 			ctx.ui.notify(`Issue #${issueNum}: "${issueTitle}" — Status: ${loopStatus}`, "info");
 			getDebugLogger().info("handler", `Pipeline iteration ${i + 1}`, {
@@ -447,6 +466,21 @@ export async function handleSupervisorCommand(
 				break;
 			}
 
+			// ── Scope Derivation ─────────────────────────────────────────
+			// Derive issue scope from labels for file-scope enforcement.
+			// When no scope-mapped label exists, scope is null (no restriction — backward compat).
+			const currentScope = deriveScopeFromLabels(loopFilteredData.labels || [], extensionDirs);
+			// Derive scope paths for git add -- <paths> from scope string
+			// Returns undefined when scope is null or "*.md" (no git add restriction).
+			const currentScopePaths: string[] | undefined =
+				currentScope && currentScope !== "*.md" ? [currentScope] : undefined;
+
+			getDebugLogger().info("handler", "Scope derived from labels", {
+				labels: loopFilteredData.labels,
+				scope: currentScope,
+				scopePaths: currentScopePaths,
+			});
+
 			// Deduplication gate: skip researcher if findings already exist
 			if (agentName === "researcher" && shouldSkipResearcher(loopStatus, loopFilteredData)) {
 				ctx.ui.notify(
@@ -506,6 +540,65 @@ export async function handleSupervisorCommand(
 			ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
 			const timeoutMs = resolveTimeoutMs(agentName, config.agentTimeoutsMin!);
 
+			// ── Pre-Dispatch Scope Check ─────────────────────────────────
+			// For developer/auditor agents: check if any files outside the
+			// issue scope were already modified on the worktree branch.
+			// This catches scope violations from prior pipeline runs or
+			// agent sessions that modified files across unrelated extensions.
+			// Prevents token waste by aborting before agent dispatch.
+			if (
+				worktreePath &&
+				currentScope !== null &&
+				(agentName === "developer" || agentName === "auditor")
+			) {
+				try {
+					const diffResult = await pi.exec(
+						"git",
+						[
+							"diff",
+							"--name-only",
+							`${config.remote || "origin"}/${config.defaultBranch || "main"}..HEAD`,
+						],
+						{ cwd: worktreePath },
+					);
+
+					const changedFiles = (diffResult.stdout || "").split("\n").filter(Boolean);
+					const unexpectedFiles = changedFiles.filter((f: string) => !isInScope(f, currentScope));
+
+					if (unexpectedFiles.length > 0) {
+						const msg = `ABORT: ${unexpectedFiles.length} file(s) changed outside issue scope:\n${unexpectedFiles.join("\n")}\n\nPipeline stopped.`;
+						ctx.ui.notify(msg, "error");
+						getDebugLogger().error("handler", "Pre-dispatch scope check failed", {
+							scope: currentScope,
+							unexpectedFiles,
+						});
+						try {
+							await postIssueComment(pi, issueNum, config.repo, msg);
+						} catch (commentErr: unknown) {
+							collector?.push(
+								"handler",
+								"warn",
+								`Failed to post scope violation comment: ${
+									commentErr instanceof Error ? commentErr.message : String(commentErr)
+								}`,
+							);
+						}
+						stopReason = `ABORT: scope violation — ${unexpectedFiles.length} file(s) outside "${currentScope}"`;
+						break;
+					}
+				} catch (diffErr: unknown) {
+					// Diff check failure is non-fatal — log and continue
+					const diffMsg = diffErr instanceof Error ? diffErr.message : String(diffErr);
+					getDebugLogger().warn(
+						"handler",
+						"Pre-dispatch git diff failed — continuing without scope check",
+						{
+							error: diffMsg,
+						},
+					);
+				}
+			}
+
 			// Build task
 			const dupContext: string | undefined =
 				agentName === "auditor"
@@ -560,6 +653,7 @@ export async function handleSupervisorCommand(
 				deadContext,
 				stageState.gateFailureContext,
 				systemPromptOptions,
+				currentScope ?? undefined,
 			);
 
 			getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
@@ -670,6 +764,7 @@ export async function handleSupervisorCommand(
 					collector,
 					gateRejected,
 					notify,
+					currentScopePaths,
 				);
 				if (!continuePipeline) {
 					stopReason = `commitAndPush failed for ${agentName}`;

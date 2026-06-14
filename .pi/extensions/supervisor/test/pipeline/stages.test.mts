@@ -878,7 +878,7 @@ describe("handleBacklogTransition()", () => {
 
 		// Verify the gh project item-edit call was made
 		assert.ok(calls.length >= 1);
-		const ghCall = calls.find((c) => c.cmd === "gh");
+		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCall, "setItemStatus should call gh");
 		assert.ok(ghCall!.args.includes("item_123"));
 		assert.ok(ghCall!.args.includes("project_456"));
@@ -938,7 +938,7 @@ describe("applyStatusTransition()", () => {
 		assert.equal(result, "Audit");
 
 		// Verify gh was called
-		const ghCall = calls.find((c) => c.cmd === "gh");
+		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCall, "setItemStatus should call gh");
 	});
 
@@ -1001,7 +1001,9 @@ describe("handlePostAgentSuccess()", () => {
 
 		assert.equal(success, true, "architect comment post succeeds — pipeline should continue");
 		// Should call gh issue comment
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("issue"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
 		assert.ok(ghCall, "should call gh issue comment for architect");
 	});
 
@@ -1059,7 +1061,9 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "test-designer success — pipeline should continue");
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("issue"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
 		assert.ok(ghCall, "should call gh issue comment for test-designer");
 	});
 
@@ -1092,7 +1096,9 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "researcher success — pipeline should continue");
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("issue"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
 		assert.ok(ghCall, "should call gh issue comment for researcher");
 	});
 
@@ -1432,7 +1438,9 @@ describe("handlePostAgentSuccess()", () => {
 
 		assert.equal(success, true, "auditor — pipeline should continue");
 		// Should call gh issue comment
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post audit approval comment");
 	});
 
@@ -1472,18 +1480,15 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post audit rejection comment");
 	});
 
-	it("handles auditor output with no COMMENT_BODY marker using deterministic fallback — returns true", async () => {
+	it("handles auditor output with no COMMENT_BODY marker and no JSON — no comment posted, pipeline continues", async () => {
 		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment fallback
-			],
-			calls,
-		);
+		const pi = createMockPi([], calls);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1510,8 +1515,14 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
-		assert.ok(ghCall, "should post fallback comment");
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
+		assert.equal(
+			ghCall,
+			undefined,
+			"no comment posted when output has no JSON and no COMMENT_BODY marker",
+		);
 	});
 
 	it("does not post comment for developer (no comment body extraction needed)", async () => {
@@ -1694,10 +1705,14 @@ describe("handlePostAgentSuccess()", () => {
 
 		assert.equal(success, true, "gate rejection should still allow pipeline to continue");
 		// Should call gh issue comment
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post gate rejection comment");
 		// Verify the comment body contains gate rejection info
-		const commentIdx = calls.findIndex((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const commentIdx = calls.findIndex(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(commentIdx >= 0, "comment should be posted");
 	});
 
@@ -1744,7 +1759,9 @@ describe("handlePostAgentSuccess()", () => {
 
 		assert.equal(success, true);
 		// Gate rejection should still be posted even though auditor said REJECTED
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post gate rejection comment");
 	});
 
@@ -1783,7 +1800,9 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true);
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post normal approval comment");
 	});
 
@@ -1822,23 +1841,25 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true);
-		const ghCall = calls.find((c) => c.cmd === "gh" && c.args.includes("comment"));
+		const ghCall = calls.find(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
+		);
 		assert.ok(ghCall, "should post normal rejection comment");
 	});
 
-// ─── Tests: MAX_PIPELINE_LOOPS constant ───────────────────────────
+	// ─── Tests: MAX_PIPELINE_LOOPS constant ───────────────────────────
 
-describe("MAX_PIPELINE_LOOPS", () => {
-	it("is a positive integer", () => {
-		assert.equal(typeof MAX_PIPELINE_LOOPS, "number");
-		assert.ok(MAX_PIPELINE_LOOPS > 0);
-	});
+	describe("MAX_PIPELINE_LOOPS", () => {
+		it("is a positive integer", () => {
+			assert.equal(typeof MAX_PIPELINE_LOOPS, "number");
+			assert.ok(MAX_PIPELINE_LOOPS > 0);
+		});
 
-	it("equals 20", () => {
-		// Explicit value check — changing this has implications for loop limits
-		assert.equal(MAX_PIPELINE_LOOPS, 20);
+		it("equals 20", () => {
+			// Explicit value check — changing this has implications for loop limits
+			assert.equal(MAX_PIPELINE_LOOPS, 20);
+		});
 	});
-});
 });
 
 // ─── Tests: createStageState() ────────────────────────────────────
@@ -2006,5 +2027,122 @@ describe("hasBranchCommits()", () => {
 		const rangeArg = revListArgs.find((a: string) => a.includes(".."));
 		assert.ok(rangeArg, "should contain a range with ..");
 		assert.equal(rangeArg, "main..my-feature", "range should be baseBranch..headBranch");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 6: handlePostAgentSuccess — scopePaths passthrough
+// ---------------------------------------------------------------------------
+
+describe("handlePostAgentSuccess — scopePaths passthrough", () => {
+	it("developer with scopePaths passes them to commitAndPush", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			],
+			calls,
+		);
+		const result: AgentRunResult = {
+			agentName: "developer",
+			success: true,
+			output: JSON.stringify({ action: "COMPLETE", agentName: "developer", commentBody: "Done" }),
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "developer",
+				commentBody: "Done",
+			}),
+			textOnly: "COMPLETE",
+			toolCount: 5,
+			tokenCount: 100,
+			durationMs: 5000,
+			summaryLine: "Implemented feature",
+			errorOutput: "",
+		};
+		const filteredData: FilteredIssueData = {
+			body: "",
+			comments: [],
+		};
+		const success = await handlePostAgentSuccess(
+			pi,
+			createMockCtx(),
+			result,
+			"developer",
+			42,
+			mockConfig,
+			filteredData,
+			"/repo/worktree",
+			"my-branch",
+			"Fix bug",
+			undefined, // collector
+			undefined, // gateRejected
+			{ info: () => {}, error: () => {} }, // notify
+			[".pi/extensions/supervisor/"], // scopePaths
+		);
+		assert.equal(success, true);
+		// First git call should be git add -- <paths> not git add -A
+		const addCall = calls.find((c) => c.cmd === "git" && c.args[0] === "add");
+		assert.ok(addCall, "git add should be called");
+		if (addCall) {
+			assert.equal(addCall.args[1], "--", "Second arg should be -- when scopePaths provided");
+			assert.deepEqual(
+				addCall.args.slice(2),
+				[".pi/extensions/supervisor/"],
+				"Subsequent args should be the scope paths",
+			);
+		}
+	});
+
+	it("developer without scopePaths still calls commitAndPush with git add -A (backward compat)", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" }, // git add -A
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			],
+			calls,
+		);
+		const result: AgentRunResult = {
+			agentName: "developer",
+			success: true,
+			output: JSON.stringify({ action: "COMPLETE", agentName: "developer", commentBody: "Done" }),
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "developer",
+				commentBody: "Done",
+			}),
+			textOnly: "COMPLETE",
+			toolCount: 5,
+			tokenCount: 100,
+			durationMs: 5000,
+			summaryLine: "Implemented feature",
+			errorOutput: "",
+		};
+		const filteredData: FilteredIssueData = {
+			body: "",
+			comments: [],
+		};
+		const success = await handlePostAgentSuccess(
+			pi,
+			createMockCtx(),
+			result,
+			"developer",
+			42,
+			mockConfig,
+			filteredData,
+			"/repo/worktree",
+			"my-branch",
+			"Fix bug",
+		);
+		assert.equal(success, true);
+		// First git call should be git add -A (no scopePaths)
+		const addCall = calls.find((c) => c.cmd === "git" && c.args[0] === "add");
+		assert.ok(addCall, "git add should be called");
+		if (addCall) {
+			assert.deepEqual(addCall.args, ["add", "-A"], "Should use git add -A when no scopePaths");
+		}
 	});
 });
