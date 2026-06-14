@@ -4,7 +4,7 @@
 // Also exports cleanupOnExit(…) for direct testing of the cleanup logic.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DebugLogger } from "../config/debug.ts";
+import type { DebugLogger } from "../lib/debug.ts";
 import type { NotifyFn } from "./helpers.ts";
 import { cleanupWorktree } from "./worktree.ts";
 import type { Result } from "./result.ts";

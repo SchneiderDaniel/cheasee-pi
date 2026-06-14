@@ -2,8 +2,8 @@
 
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { createWatchdog } from "../config/watchdog.ts";
-import type { WatchdogOptions, WatchdogHandle } from "../config/watchdog.ts";
+import { createWatchdog } from "../lib/watchdog.ts";
+import type { WatchdogOptions, WatchdogHandle } from "../lib/watchdog.ts";
 
 // ─── createWatchdog ──────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	normalizeEscapes,
 } from "../agent/output.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────
 

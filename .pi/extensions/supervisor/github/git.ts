@@ -3,7 +3,7 @@
 // pushBranch and commitAndPush return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "../pipeline/result.ts";
 import type { NotifyFn } from "../pipeline/helpers.ts";
 

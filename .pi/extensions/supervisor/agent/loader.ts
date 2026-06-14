@@ -4,7 +4,7 @@
 
 import type { ParsedAgent, AgentFrontmatter } from "../config/types.ts";
 import { readFileSync } from "node:fs";
-import { buildAgentSystemPrompt } from "../config/shared-prompts.ts";
+import { buildAgentSystemPrompt } from "../lib/shared-prompts.ts";
 
 const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 

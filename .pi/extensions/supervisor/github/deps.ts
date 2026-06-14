@@ -5,7 +5,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DepsResult, GhTimelineResponse } from "../config/types.ts";
 import { ghGraphQL } from "./gh-client.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Parse Timeline Response ─────────────────────────────────────
 

@@ -83,7 +83,7 @@ import {
 	getDebugLogger,
 	setDebugLogger,
 	resetDebugLogger,
-} from "../config/debug.ts";
+} from "../lib/debug.ts";
 
 /**
  * Main supervisor handler — processes a GitHub issue through the full Kanban pipeline.

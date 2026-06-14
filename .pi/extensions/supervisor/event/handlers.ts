@@ -10,7 +10,7 @@ import type { AgentRunState } from "../config/types.ts";
 import type { NormalizedEvent, HandlerResult } from "./types.ts";
 import { phasePriority } from "./types.ts";
 import { pushLog } from "../agent/stream.ts";
-import { extractTextFromContent } from "../config/formatting.ts";
+import { extractTextFromContent } from "../lib/formatting.ts";
 
 // ─── Re-export phasePriority for backward compat ─────────────────
 

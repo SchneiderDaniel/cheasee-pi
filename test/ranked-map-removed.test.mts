@@ -24,7 +24,7 @@ const MODIFIED_FILES = [
 	".pi/extensions/ripgrep-search/internal.ts",
 	".pi/extensions/ripgrep-search/index.ts",
 	".pi/extensions/ripgrep-search/args.ts",
-	".pi/extensions/supervisor/config/shared-prompts.ts",
+	".pi/extensions/supervisor/lib/shared-prompts.ts",
 	".pi/extensions/agent-harness/lib/harness-rules.ts",
 	".pi/extensions/session-advice/advisor.ts",
 ];
@@ -168,7 +168,7 @@ describe("ranked_map extension removal", () => {
 
 		it("shared-prompts.ts uses ripgrep_search + structural_search guidance", () => {
 			const content = readFileSync(
-				join(ROOT, ".pi/extensions/supervisor/config/shared-prompts.ts"),
+				join(ROOT, ".pi/extensions/supervisor/lib/shared-prompts.ts"),
 				"utf-8",
 			);
 			assert.ok(content.includes("ripgrep_search"), "shared-prompts should mention ripgrep_search");

@@ -5,7 +5,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolve as resolvePath } from "node:path";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 

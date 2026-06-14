@@ -13,7 +13,7 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveSkillPaths, resolveSkillPathsWithFs } from "../config/extensions.ts";
+import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
 import {
 	buildAgentTask,
 	generateBranchName,

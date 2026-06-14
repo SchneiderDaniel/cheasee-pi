@@ -4,7 +4,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PrConflictInfo } from "../config/types.ts";
 import { gh, ghJson } from "./gh-client.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 
 // ─── Check PR Conflicts ──────────────────────────────────────────

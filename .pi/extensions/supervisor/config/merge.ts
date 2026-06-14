@@ -3,7 +3,7 @@
 
 import type { MergeResult } from "./types.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getDebugLogger } from "./debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 
 export async function tryAutoMerge(
 	worktreePath: string,

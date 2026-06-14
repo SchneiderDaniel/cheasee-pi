@@ -6,7 +6,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, DebugLogger } from "../config/types.ts";
 import { resolve as resolvePath } from "node:path";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { generateBranchName } from "../agent/task.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import {
