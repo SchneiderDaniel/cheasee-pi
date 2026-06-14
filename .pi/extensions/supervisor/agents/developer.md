@@ -26,8 +26,6 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments 
 
 - **READ ALL trusted comments** in the Trusted Comments section before starting. Every comment from every trusted author contains context you need. Architecture, test plan, audit feedback, and other critical information all come through trusted comments.
 - **TEST FIRST: write the test, watch it fail, then write the code. Never reverse this order.**
-- **The TDD gate enforces this deterministically** — the pipeline reverts your implementation files, runs tests, and checks they fail. If tests pass without implementation (tautological tests) or no tests exist, the gate returns you to Implementation with the failure reason.
-- **Write tests that test the new code** — the gate also verifies that test files import or reference functions/classes from the implementation files.
 - **NEVER** add comments to the GitHub issue — your output is code only
 - **NEVER** change the issue status — the supervisor handles that
 - **NEVER** merge to main or create pull requests

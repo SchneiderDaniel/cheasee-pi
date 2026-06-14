@@ -205,15 +205,15 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 		);
 	});
 
-	it("TDD gate still posts comment and returns note on failure", () => {
+	it("Dead code gate still posts comment and returns note on failure", () => {
 		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
 		assert.ok(
-			src.includes("## 🔴 TDD Gate — Implementation Rejected"),
-			"TDD gate comment format unchanged",
+			src.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
+			"Dead code gate comment format unchanged",
 		);
 		assert.ok(
-			src.includes('nextStatus: "Implementation"') && src.includes("note: msg"),
-			"TDD gate returns Implementation with note",
+			src.includes('nextStatus: "Implementation"') && src.includes("note: `"),
+			"Dead code gate returns Implementation with note",
 		);
 	});
 
@@ -240,9 +240,6 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 
 	it("pre-transition hooks step.hooks check still includes all hook types", () => {
 		const src = readHandlerSource();
-		assert.ok(
-			src.includes(`["ci", "tsc", "lsp", "dup", "tdd", "trace"]`),
-			"step.hooks check unchanged",
-		);
+		assert.ok(src.includes(`["ci", "tsc", "lsp", "dup", "trace"]`), "step.hooks check unchanged");
 	});
 });

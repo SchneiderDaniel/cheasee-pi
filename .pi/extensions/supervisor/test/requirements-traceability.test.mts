@@ -1147,7 +1147,7 @@ describe("Pipeline wiring — workflow config", () => {
 
 	it("'trace' is a valid hook value in WorkflowStep type", () => {
 		// Type-level check: if this compiles, the type union includes "trace"
-		const hook: ("tsc" | "lsp" | "ci" | "dup" | "tdd" | "trace")[] = ["trace"];
+		const hook: ("tsc" | "lsp" | "ci" | "dup" | "trace")[] = ["trace"];
 		const implStep = WORKFLOW.find((s) => s.status === "Implementation");
 		assert.ok(implStep);
 		// Verify runtime: the hook union accepts "trace"
@@ -1161,8 +1161,8 @@ describe("Pipeline wiring — workflow config", () => {
 		assert.ok(implStep);
 		const hooks = implStep.hooks;
 		assert.ok(hooks);
-		// The .some((h) => ["ci", "tsc", "lsp", "dup", "tdd", "trace"].includes(h)) check
-		const allowedHooks: string[] = ["ci", "tsc", "lsp", "dup", "tdd", "trace"];
+		// The .some((h) => ["ci", "tsc", "lsp", "dup", "trace"].includes(h)) check
+		const allowedHooks: string[] = ["ci", "tsc", "lsp", "dup", "trace"];
 		for (const h of hooks) {
 			assert.ok(allowedHooks.includes(h), `Hook "${h}" must be in allowed set`);
 		}

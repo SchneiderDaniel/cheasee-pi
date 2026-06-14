@@ -106,13 +106,13 @@ const STOP_WORDS = new Set([
 	"them",
 ]);
 
-// ─── Import isTestableFile from tdd-gate.ts ─────────────────────────
+// ─── Import isTestableFile from file-classification.ts ─────────────
 
-import { isTestableFile as _isTestableFile } from "./tdd-gate.ts";
+import { isTestableFile as _isTestableFile } from "./file-classification.ts";
 
 /**
  * Check whether a source file is testable (should have a corresponding test file).
- * Re-exported from tdd-gate.ts for use by the test-parity check.
+ * Re-exported from file-classification.ts for use by the test-parity check.
  */
 export function isTestableFile(filePath: string): boolean {
 	return _isTestableFile(filePath);

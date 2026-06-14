@@ -1109,9 +1109,9 @@ export async function handleSupervisorCommand(
 				getDebugLogger().info("handler", "Feedback loop", { from: loopStatus, to: nextStatus });
 			}
 
-			// Pre-transition hooks (CI, TSC, LSP, duplicate code, TDD gate)
+			// Pre-transition hooks (CI, TSC, LSP, duplicate code)
 			let effectiveNextStatus = nextStatus;
-			if (step.hooks?.some((h) => ["ci", "tsc", "lsp", "dup", "tdd", "trace"].includes(h))) {
+			if (step.hooks?.some((h) => ["ci", "tsc", "lsp", "dup", "trace"].includes(h))) {
 				try {
 					getDebugLogger().info("handler", "Running pre-transition hooks", {
 						hooks: step.hooks,

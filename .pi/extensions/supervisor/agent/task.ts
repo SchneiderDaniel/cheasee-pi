@@ -239,7 +239,7 @@ export function buildAgentTask(
 	const researchBlock = researchFindings ? `\n### Research Findings\n\n${researchFindings}\n` : "";
 
 	// Build the gate failure context block (injected for developer when a pre-transition
-	// hook — CI, TDD gate, TSC checkpoint, LSP pre-audit — blocked the Implementation→Audit
+	// hook — CI, TSC checkpoint, LSP pre-audit — blocked the Implementation→Audit
 	// transition). Wrapped in XML tags for higher salience per Anthropic context engineering
 	// guidelines. Includes action items for git status/log to handle stale partial edits.
 	const gateFailureBlock = gateFailureContext

@@ -22,13 +22,12 @@ import { runDeadCodeCheck, buildDeadCodeContext } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import { runPackageSafetyAudit } from "../checks/package-safety.ts";
 import { postIssueComment } from "../github/index.ts";
-import { runTddGate } from "../checks/tdd-gate.ts";
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
 import { writeCheckpointFile } from "./state-checkpoint.ts";
 
 /**
  * Run ALL pre-transition checks during Implementation → Audit transition.
- * Includes CI gating, duplicate code check, package safety, TDD gate,
+ * Includes CI gating, duplicate code check, package safety,
  * requirements traceability, TSC checkpoint, and LSP pre-audit.
  *
  * Unlike previous behavior (short-circuit on first failure), this runs ALL
@@ -220,83 +219,6 @@ export async function runTscAndLspAudit(
 			getDebugLogger().warn("pipeline-audit", "Package safety check threw", {
 				error: safetyErr instanceof Error ? safetyErr.message : String(safetyErr),
 			});
-		}
-
-		// Step 3: TDD gate — deterministic test-first verification
-		// Blocks transition if tests weren't written first or test-fail-first fails.
-		// Runs after package safety check, before TSC/LSP.
-		ctx.ui.setStatus("supervisor", "Running TDD gate...");
-		getDebugLogger().info("pipeline-audit", "Running TDD gate", { worktreePath });
-		try {
-			const tddResult = await runTddGate(
-				execFn,
-				worktreePath,
-				config.defaultBranch || "main",
-				config.assertFunctionNames,
-			);
-
-			if (tddResult.status === "failed") {
-				const failedCheckNames = tddResult.checks
-					.filter((c) => !c.passed)
-					.map((c) => c.name)
-					.join(", ");
-				const msg = `TDD gate failed: ${failedCheckNames}. ${tddResult.rejectionReason || ""}`;
-				ctx.ui.notify(`TDD gate: ${msg} — continuing with other gates.`, "warning");
-				getDebugLogger().info("pipeline-audit", "TDD gate failed", {
-					failedChecks: failedCheckNames,
-					rejectionReason: tddResult.rejectionReason,
-				});
-				// Post issue comment with TDD failure details for developer feedback
-				try {
-					const commentLines = [
-						"## 🔴 TDD Gate — Implementation Rejected",
-						"",
-						"The deterministic TDD gate verified the changes and found issues:",
-						"",
-					];
-					for (const check of tddResult.checks) {
-						const icon = check.passed ? "✅" : "❌";
-						commentLines.push(
-							`${icon} **${check.name}**${check.detail ? ": " + check.detail : ""}`,
-						);
-					}
-					commentLines.push(
-						"",
-						"Please write tests following the **Test First** approach: write the test, watch it fail, then write the code.",
-					);
-					await postIssueComment(pi, issueNum, config.repo, commentLines.join("\n"));
-				} catch {
-					// Comment posting is best-effort
-				}
-
-				// Build detailed gate failure context for developer prompt
-				const detailLines = tddResult.checks
-					.map((c) => {
-						const icon = c.passed ? "✅" : "❌";
-						return `${icon} ${c.name}${c.detail ? ": " + c.detail : ""}`;
-					})
-					.join("\n");
-				const fullMsg = `TDD gate failed.\n\nChecks:\n${detailLines}\n\n${tddResult.rejectionReason || ""}`;
-				gateFailures.push(`--- TDD Gate ---\n${fullMsg}`);
-			}
-
-			if (tddResult.status === "error") {
-				ctx.ui.notify(
-					`TDD gate error: ${tddResult.rejectionReason || "unknown error"}. Proceeding to audit.`,
-					"info",
-				);
-				getDebugLogger().warn("pipeline-audit", "TDD gate error", {
-					rejectionReason: tddResult.rejectionReason,
-				});
-				// Non-blocking on error — proceed to audit
-			} else {
-				ctx.ui.notify("TDD gate passed — TDD cycle confirmed.", "info");
-				getDebugLogger().info("pipeline-audit", "TDD gate passed");
-			}
-		} catch (tddErr: unknown) {
-			const tddMsg = tddErr instanceof Error ? tddErr.message : String(tddErr);
-			ctx.ui.notify(`TDD gate threw: ${tddMsg}. Proceeding to audit.`, "warning");
-			getDebugLogger().warn("pipeline-audit", "TDD gate threw", { error: tddMsg });
 		}
 
 		// Step 4: Requirements traceability check (non-blocking — informational)
@@ -531,7 +453,7 @@ async function runLspPreAudit(
  * Uses `git reset --soft HEAD~1` to preserve changes as staged modifications
  * so the developer resumes with context intact when a pre-transition gate fails.
  *
- * Gate failures (dead code, CI, TDD, TSC, LSP) should NOT result in fresh context
+ * Gate failures (dead code, CI, TSC, LSP) should NOT result in fresh context
  * for the developer — only auditor rejections should. By uncommitting, the
  * worktree keeps the changes, and the developer sees them on next dispatch.
  *

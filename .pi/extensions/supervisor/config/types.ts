@@ -23,10 +23,6 @@ export interface SupervisorConfig {
 	agentTokenBudget?: number;
 	/** Hard cap on tool invocations per agent session. 0 = unlimited. */
 	maxToolCalls?: number;
-	/** Custom assertion function names for TDD gate.
-	 *  When set, checkTestAssertions and checkTestCoversSymbols will also
-	 *  recognize these function names as valid assertion patterns. */
-	assertFunctionNames?: string[];
 	/**
 	 * Minimum passing ratio (0.0–1.0) for audit score gate.
 	 * When the auditor approves but score < ceil(total * threshold), the gate
