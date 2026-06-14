@@ -64,7 +64,7 @@ export function isBashSearch(cmd: string): boolean {
 	// Piped file→grep: starts with file-read cmd and pipes to grep/rg
 	// Subsumes advisor.ts isPipedFileGrep()
 	for (const fileCmd of READ_CMDS) {
-		if (lower.startsWith(fileCmd + " ") && (lower.includes("| grep") || lower.includes("| rg"))) {
+		if (lower.startsWith(fileCmd + " ") && /\|\s*grep\b|\|\s*rg\b/.test(lower)) {
 			return true;
 		}
 	}

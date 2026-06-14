@@ -8,6 +8,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { analyzeSession } from "../advisor.ts";
+import { detectTurnInefficiency } from "../waste-signals/turn-inefficiency.ts";
 import type { SessionData, SessionEntry } from "../advisor.ts";
 
 // ---------------------------------------------------------------------------
@@ -644,6 +645,33 @@ describe("detectTurnInefficiency — Phase 2: Expand legitimate discovery tools 
 		const signals = analyzeSession(data);
 		const inefficient = signals.filter((s) => s.signal === "turn-inefficiency");
 		assert.strictEqual(inefficient.length, 0, "multiple discovery tools prevent flagging");
+	});
+
+	it("detectTurnInefficiency is exported and callable — runtime cross-check", () => {
+		assert.ok(Array.isArray(detectTurnInefficiency(makeSession([]))), "should return array");
+		assert.strictEqual(
+			detectTurnInefficiency(makeSession([])).length,
+			0,
+			"empty session should produce no signals",
+		);
+	});
+
+	it("variant pipe spacing: 15× cat file |  grep foo → search/read-like, NOT discovery → flagged", () => {
+		// Integration test: isBashSearchOrRead must detect "|  grep" (two spaces after pipe)
+		// to correctly classify this as search/read-like (not discovery). If the bug persists,
+		// this would be treated as discovery and NOT flagged.
+		const entries: SessionEntry[] = [readEntry("/repo/file.ts", 0)];
+		for (let i = 0; i < 15; i++) {
+			entries.push(nonDiscoveryBashEntry("cat file |  grep foo", 1));
+		}
+		const data = makeSession(entries);
+		const signals = analyzeSession(data);
+		const inefficient = signals.filter((s) => s.signal === "turn-inefficiency");
+		assert.strictEqual(
+			inefficient.length,
+			1,
+			"variant pipe spacing should be search/read-like, not discovery → should flag",
+		);
 	});
 });
 
