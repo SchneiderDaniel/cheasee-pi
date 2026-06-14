@@ -215,30 +215,29 @@ export class AgentHarness {
 				};
 			}
 
-			// ── 4. Read caching (mode-aware: bypass in non-UI modes) ──
+			// ── 4. Read caching (boolean-existence tracking with sessionTurn TTL) ──
 			else if (toolName === "read") {
 				const path = (args.path ?? "") as string;
 				if (path) {
 					const offset = (args.offset ?? 0) as number;
 					const limit = (args.limit ?? "") as number;
 					const cacheKey = `${path}|${offset}|${limit}`;
-					const cached = this.state.readCache.get(cacheKey, toolCallIndex, this.state.batchId);
+					const cached = this.state.readCache.get(cacheKey, sessionTurn, this.state.batchId);
 					if (cached) {
-						// Same-turn [pending] → pass through (let re-read happen)
-						if (cached.content === "[pending]" && cached.turn === toolCallIndex) {
+						// Same-turn → pass through (let re-read happen in same turn)
+						if (cached.turn === sessionTurn) {
 							// result stays null, pass through
 						} else if (!this.#hasUI) {
 							// Non-TUI mode: bypass read cache block, pass through
-							// Cache store still happens for non-UI reads (written below in else branch)
 						} else {
 							result = {
 								block: true,
-								reason: `Content cached from turn ${cached.turn} — use offset/limit to page or re-read after 3 turns.`,
+								reason: `Content cached from turn ${cached.turn} — use offset/limit to page or re-read after 6 turns.`,
 							};
 						}
 					} else {
-						// Store marker to track that this path+offset+limit was recently read
-						this.state.readCache.set(cacheKey, "[pending]", toolCallIndex, this.state.batchId);
+						// Store existence marker to track that this path+offset+limit was recently read
+						this.state.readCache.set(cacheKey, sessionTurn, this.state.batchId);
 					}
 				}
 			}
