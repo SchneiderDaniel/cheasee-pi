@@ -49,7 +49,10 @@ export interface LspInitializeResult {
 
 // ─── Type guards ─────────────────────────────────────────────────────
 
-import { isObject } from "./types.ts";
+/** Check if value is a non-null object (not array) */
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function isLspDiagnosticData(obj: unknown): obj is LspDiagnosticData {
 	return isObject(obj) && isObject(obj.range) && typeof obj.message === "string";
