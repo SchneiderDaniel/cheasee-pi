@@ -117,6 +117,7 @@ describe("commitAndPush() — Result<T>", () => {
 	it("stages all changes, commits, then pushes — returns { ok: true, value: true }", async () => {
 		const { pi, calls } = createMockPi([
 			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 			{ code: 0, stdout: "committed", stderr: "" }, // git commit
 			{ code: 0, stdout: "", stderr: "" }, // git push
 		]);
@@ -133,16 +134,18 @@ describe("commitAndPush() — Result<T>", () => {
 		if (result.ok) {
 			assert.equal(result.value, true);
 		}
-		assert.equal(calls.length, 3);
+		assert.equal(calls.length, 4);
 		assert.deepEqual(calls[0].args, ["add", "-A"]);
-		assert.deepEqual(calls[1].args, ["commit", "-m", "feat(#123): msg"]);
-		assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		assert.deepEqual(calls[1].args, ["diff", "--cached", "--quiet"]);
+		assert.deepEqual(calls[2].args, ["commit", "-m", "feat(#123): msg"]);
+		assert.deepEqual(calls[3].args, ["push", "origin", "feature"]);
 	});
 
 	it("resolves successfully when git commit returns 'nothing to commit' — calls pushBranch", async () => {
 		const { pi, calls } = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
-			{ code: 1, stdout: "", stderr: "nothing to commit" },
+			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
+			{ code: 1, stdout: "", stderr: "nothing to commit" }, // git commit
 			{ code: 0, stdout: "", stderr: "" }, // push succeeds
 		]);
 		const { notify } = createMockNotify();
@@ -151,21 +154,22 @@ describe("commitAndPush() — Result<T>", () => {
 		if (result.ok) {
 			assert.equal(result.value, true);
 		}
-		assert.equal(calls.length, 3);
-		assert.equal(calls[2].cmd, "git");
-		assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		assert.equal(calls.length, 4);
+		assert.equal(calls[3].cmd, "git");
+		assert.deepEqual(calls[3].args, ["push", "origin", "feature"]);
 	});
 
 	it("does not throw when nothing to commit and push succeeds — returns { ok: true }", async () => {
 		const { pi, calls } = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
-			{ code: 1, stdout: "", stderr: "nothing to commit" },
-			{ code: 0, stdout: "Everything up-to-date", stderr: "" },
+			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
+			{ code: 1, stdout: "", stderr: "nothing to commit" }, // git commit
+			{ code: 0, stdout: "Everything up-to-date", stderr: "" }, // git push
 		]);
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify);
 		assert.equal(result.ok, true);
-		assert.equal(calls.length, 3);
+		assert.equal(calls.length, 4);
 	});
 
 	it("returns { ok: false } when git add fails", async () => {
@@ -180,8 +184,9 @@ describe("commitAndPush() — Result<T>", () => {
 
 	it("returns { ok: false } when git commit fails with real error (not 'nothing to commit')", async () => {
 		const { pi } = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
-			{ code: 1, stdout: "", stderr: "fatal: bad config" },
+			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
+			{ code: 1, stdout: "", stderr: "fatal: bad config" }, // git commit
 		]);
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify);
@@ -193,21 +198,23 @@ describe("commitAndPush() — Result<T>", () => {
 
 	it("calls pushBranch even when nothing to commit (no short-circuit)", async () => {
 		const { pi, calls } = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
-			{ code: 1, stdout: "", stderr: "nothing to commit" },
-			{ code: 0, stdout: "Everything up-to-date", stderr: "" },
+			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
+			{ code: 1, stdout: "", stderr: "nothing to commit" }, // git commit
+			{ code: 0, stdout: "Everything up-to-date", stderr: "" }, // git push
 		]);
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify);
 		assert.equal(result.ok, true);
-		assert.equal(calls.length, 3, "should call push even when nothing to commit");
-		assert.equal(calls[2].cmd, "git");
-		assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		assert.equal(calls.length, 4, "should call push even when nothing to commit");
+		assert.equal(calls[3].cmd, "git");
+		assert.deepEqual(calls[3].args, ["push", "origin", "feature"]);
 	});
 
 	it("returns { ok: false } when push fails (after add+commit succeed)", async () => {
 		const { pi } = createMockPi([
 			{ code: 0, stdout: "", stderr: "" }, // git add
+			{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 			{ code: 0, stdout: "", stderr: "" }, // git commit
 			{ code: 1, stdout: "", stderr: "push failed: network error" }, // git push
 		]);
@@ -228,6 +235,7 @@ describe("commitAndPush() — Result<T>", () => {
 		it('scopePaths=["path/a", "path/b"] calls git add -- path/a path/b instead of git add -A', async () => {
 			const { pi, calls } = createMockPi([
 				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 				{ code: 0, stdout: "committed", stderr: "" }, // git commit
 				{ code: 0, stdout: "", stderr: "" }, // git push
 			]);
@@ -237,19 +245,25 @@ describe("commitAndPush() — Result<T>", () => {
 				"path/b",
 			]);
 			assert.equal(result.ok, true);
+			if (result.ok) {
+				assert.equal(result.value, true);
+			}
 			// First call should be git add -- <paths>, not git add -A
-			assert.equal(calls.length, 3);
+			assert.equal(calls.length, 4);
 			assert.equal(calls[0].cmd, "git");
 			assert.deepEqual(calls[0].args, ["add", "--", "path/a", "path/b"]);
 			assert.equal(calls[1].cmd, "git");
-			assert.deepEqual(calls[1].args, ["commit", "-m", "msg"]);
+			assert.deepEqual(calls[1].args, ["diff", "--cached", "--quiet"]);
 			assert.equal(calls[2].cmd, "git");
-			assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+			assert.deepEqual(calls[2].args, ["commit", "-m", "msg"]);
+			assert.equal(calls[3].cmd, "git");
+			assert.deepEqual(calls[3].args, ["push", "origin", "feature"]);
 		});
 
 		it("scopePaths=undefined calls git add -A (backward compat)", async () => {
 			const { pi, calls } = createMockPi([
 				{ code: 0, stdout: "", stderr: "" }, // git add -A
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 				{ code: 0, stdout: "committed", stderr: "" }, // git commit
 				{ code: 0, stdout: "", stderr: "" }, // git push
 			]);
@@ -263,6 +277,7 @@ describe("commitAndPush() — Result<T>", () => {
 		it("scopePaths=[] calls git add -A (fallback for empty array)", async () => {
 			const { pi, calls } = createMockPi([
 				{ code: 0, stdout: "", stderr: "" }, // git add -A
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 				{ code: 0, stdout: "committed", stderr: "" }, // git commit
 				{ code: 0, stdout: "", stderr: "" }, // git push
 			]);
@@ -284,6 +299,7 @@ describe("commitAndPush() — Result<T>", () => {
 		it("scopePaths with git add succeeds → commit called with same cwd", async () => {
 			const { pi, calls } = createMockPi([
 				{ code: 0, stdout: "", stderr: "" }, // git add
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
 				{ code: 0, stdout: "committed", stderr: "" }, // git commit
 				{ code: 0, stdout: "", stderr: "" }, // git push
 			]);
@@ -321,7 +337,8 @@ describe("commitAndPush() — Result<T>", () => {
 		it("scopePaths with nothing staged for commit → still pushes (branch push for remote existence)", async () => {
 			const { pi, calls } = createMockPi([
 				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
-				{ code: 1, stdout: "", stderr: "nothing to commit" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 0 = staged)
+				// commit skipped
 				{ code: 0, stdout: "", stderr: "" }, // git push
 			]);
 			const { notify } = createMockNotify();
@@ -329,9 +346,64 @@ describe("commitAndPush() — Result<T>", () => {
 				"path/a",
 			]);
 			assert.equal(result.ok, true);
+			if (result.ok) {
+				assert.equal(result.value, false, "value is false when staging is empty");
+			}
 			assert.equal(calls.length, 3);
 			assert.equal(calls[2].cmd, "git");
 			assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		});
+
+		it("scopePaths active, git diff --cached --quiet fails (>1) → returns { ok: false }", async () => {
+			const { pi } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 2, stdout: "", stderr: "fatal: bad revision" }, // git diff --cached --quiet fails
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"path/a",
+			]);
+			assert.equal(result.ok, false);
+			if (!result.ok) {
+				assert.ok(result.error.includes("git diff --cached failed"));
+			}
+		});
+
+		it("scopePaths active, empty staging (diff exit 0) + push fails → returns { ok: false }", async () => {
+			const { pi } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 0, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 0 = nothing staged)
+				// commit skipped
+				{ code: 1, stdout: "", stderr: "push failed: network" }, // git push fails
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"path/a",
+			]);
+			assert.equal(result.ok, false);
+			if (!result.ok) {
+				assert.ok(result.error.includes("git push failed"));
+			}
+		});
+
+		it("scopePaths active, diff exit 1 + commit emits 'no changes added to commit' → benign fallback", async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (exit 1 = staged)
+				{ code: 1, stdout: "", stderr: "no changes added to commit" }, // git commit fallback
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"path/a",
+			]);
+			assert.equal(result.ok, true);
+			if (result.ok) {
+				assert.equal(result.value, true);
+			}
+			assert.equal(calls.length, 4);
+			assert.equal(calls[3].cmd, "git");
+			assert.deepEqual(calls[3].args, ["push", "origin", "feature"]);
 		});
 	});
 });
