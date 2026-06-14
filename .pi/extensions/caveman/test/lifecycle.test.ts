@@ -10,7 +10,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConfigStore } from "../config.ts";
-import { resetSessionLevel, resolveSessionLevel, shouldAppendCavemanEntry } from "../session.ts";
+import {
+	resetSessionLevel,
+	resolveSessionLevel,
+	shouldAppendCavemanEntry,
+} from "../../lib/extension-state.ts";
 import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 import type { Level } from "../types.ts";
 
