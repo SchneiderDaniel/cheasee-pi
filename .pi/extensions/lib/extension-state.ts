@@ -62,6 +62,10 @@ export class ExtensionStateError extends Error {
 // Factory
 // ---------------------------------------------------------------------------
 
+// Global write queue shared across all store instances.
+// Prevents cross-instance races when two extensions write the same file.
+let globalWriteQueue: Promise<void> = Promise.resolve();
+
 /**
  * Create an extension state store with closure-encapsulated state.
  *
@@ -70,7 +74,6 @@ export class ExtensionStateError extends Error {
 export function createExtensionStateStore(statePath: string): ExtensionStateStore {
 	let state: Record<string, ExtensionStateValue> = {};
 	let loaded = false;
-	let saveQueue: Promise<void> = Promise.resolve();
 
 	const ensureStateLoaded = async (): Promise<void> => {
 		if (loaded) return;
@@ -90,13 +93,29 @@ export function createExtensionStateStore(statePath: string): ExtensionStateStor
 	};
 
 	const saveState = async (): Promise<void> => {
-		const snapshot = JSON.stringify(state, null, 2) + "\n";
-		// Chain with catch-guard so a failed task doesn't block subsequent tasks.
-		// The returned promise still propagates the error to the caller.
-		saveQueue = saveQueue
+		// Chain onto global write queue so ALL store instances share one
+		// serialized pipeline. This prevents cross-instance races where two
+		// stores writing the same file overwrite each other's keys.
+		const prevQueue = globalWriteQueue;
+		globalWriteQueue = prevQueue
 			.catch(() => {}) // Clear rejection so next task always runs
 			.then(async () => {
 				try {
+					// Read-modify-write: preserve keys from other store instances.
+					// Read current file, merge in-memory state on top, then write.
+					let current: Record<string, ExtensionStateValue> = {};
+					try {
+						const raw = await readFile(statePath, "utf8");
+						current = JSON.parse(raw);
+						if (typeof current !== "object" || current === null || Array.isArray(current)) {
+							current = {};
+						}
+					} catch {
+						// File missing or corrupt — start fresh
+					}
+
+					const merged = { ...current, ...state };
+					const snapshot = JSON.stringify(merged, null, 2) + "\n";
 					await mkdir(dirname(statePath), { recursive: true });
 					await writeFile(statePath, snapshot, "utf8");
 				} catch (err: unknown) {
@@ -106,7 +125,7 @@ export function createExtensionStateStore(statePath: string): ExtensionStateStor
 					);
 				}
 			});
-		return saveQueue;
+		return globalWriteQueue;
 	};
 
 	return {

@@ -1,6 +1,6 @@
 // ─── Tests: DebugLogger duplicate interface removal (GH #540) ──────
 // Verifies that DebugLogger interface is not redefined in config/types.ts
-// and that the re-export from config/debug.ts works correctly.
+// and that the re-export from lib/debug.ts works correctly.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -24,12 +24,12 @@ describe("DebugLogger — config/types.ts", () => {
 		);
 	});
 
-	it("has a re-export of DebugLogger from ./debug.ts", () => {
+	it("has a re-export of DebugLogger from ../lib/debug.ts", () => {
 		const source = readFileSync(typesPath, "utf-8");
 		const hasReExport =
-			source.includes('export type { DebugLogger } from "./debug.ts"') ||
-			source.includes('export type { DebugLogger } from "./debug.js"');
-		assert.ok(hasReExport, "config/types.ts must re-export DebugLogger type from ./debug.ts");
+			source.includes('export type { DebugLogger } from "../lib/debug.ts"') ||
+			source.includes('export type { DebugLogger } from "../lib/debug.js"');
+		assert.ok(hasReExport, "config/types.ts must re-export DebugLogger type from ../lib/debug.ts");
 	});
 });
 

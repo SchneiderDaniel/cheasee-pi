@@ -1147,6 +1147,7 @@ Contributions welcome — bug reports, feature requests, documentation improveme
 - ✅ API keys loaded from `.agent_env` (repo root), never committed
 - ✅ `.piignore` path blocking — block sensitive files from agent read/write/edit/bash
 - ✅ **npm package age gate** — agent refuses to install npm packages < 14 days old (typosquatting protection)
+- ✅ **Scope boundary enforcement** — pre-dispatch git diff check prevents agents from modifying files outside their issue scope. Issues with extension labels (e.g. `supervisor`, `agent-harness`) restrict file writes to `.pi/extensions/<name>/`. `documentation` label restricts to `*.md` files. No scope label = no restriction (backward compatible). Two-layer enforcement: hard git-diff gate in pipeline + prominent prompt injection.
 
 ### License
 

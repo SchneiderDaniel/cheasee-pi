@@ -2,7 +2,7 @@
 // Model resolution from agent config string via ModelRegistry + AuthStorage.
 // Extracted from agent-session-runner.ts to keep files modular.
 
-import { resolveTools } from "../config/extensions.ts";
+import { resolveTools } from "../lib/extensions.ts";
 import type { ParsedAgent } from "../config/types.ts";
 
 // ─── Model Resolution ───────────────────────────────────────────────

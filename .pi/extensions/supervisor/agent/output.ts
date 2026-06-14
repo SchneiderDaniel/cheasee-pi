@@ -4,7 +4,7 @@
 // No regex fallback, no text marker scanning, no lastIndexOf lookups.
 
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { isToolCallLine } from "../event/session-events.ts";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────

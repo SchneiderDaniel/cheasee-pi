@@ -3,7 +3,7 @@
 
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
 import { isToolCallLine } from "../event/session-events.ts";
-import type { AgentOutput } from "./types.ts";
+import type { AgentOutput } from "../config/types.ts";
 
 export function formatTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;

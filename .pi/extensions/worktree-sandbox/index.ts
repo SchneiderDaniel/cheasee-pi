@@ -51,12 +51,29 @@ function isPathSafe(target: string, sandboxRoot: string): boolean {
 	return isPathWithinSandbox(resolved, sandboxRoot);
 }
 
-function findUnsafeCd(command: string, sandboxRoot: string): string | null {
-	const cdRegex = /(?:^|&&|;|\|\|)\s*cd\s+(\S+)/g;
+export function findUnsafeCd(command: string, sandboxRoot: string): string | null {
+	// Match cd with optional argument, using negative lookahead to avoid
+	// capturing chain operators (&&, ||, ;, |) as cd targets.
+	// The lookahead and optional group work together:
+	//   - "cd subdir"   → \s+ matches space, lookahead passes, (\S+) captures "subdir"
+	//   - "cd && pwd"   → \s+ matches space, lookahead fails → group skipped → undefined → bare cd
+	//   - "cd" (EOL)    → \s+ fails (no space after cd), group skipped → undefined → bare cd
+	const cdRegex = /(?:^|&&|;|\|\|)\s*cd(?:\s+(?!&&|\|\||;|\|)(\S+))?/g;
 	let match: RegExpExecArray | null;
 	while ((match = cdRegex.exec(command)) !== null) {
-		const target = match[1]!;
+		const target = match[1]; // undefined when bare cd or when lookahead rejects chain operator
 		if (target === "-") continue;
+
+		// Bare cd goes to $HOME — block it
+		if (!target) {
+			return "<HOME>";
+		}
+
+		// Block shell expansions — they bypass static path resolution
+		if (target.includes("~") || target.includes("$") || target.includes("`")) {
+			return target;
+		}
+
 		if (!isPathSafe(target, sandboxRoot)) {
 			return target;
 		}

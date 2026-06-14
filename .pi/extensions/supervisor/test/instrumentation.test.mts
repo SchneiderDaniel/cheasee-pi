@@ -2,8 +2,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createInstrumenter, createInstrumenterSnapshot } from "../config/instrumentation.ts";
-import type { InstrumenterHandle, InstrumentSnapshot } from "../config/instrumentation.ts";
+import { createInstrumenter, createInstrumenterSnapshot } from "../lib/instrumentation.ts";
+import type { InstrumenterHandle, InstrumentSnapshot } from "../lib/instrumentation.ts";
 
 // ─── createInstrumenter ──────────────────────────────────────────
 

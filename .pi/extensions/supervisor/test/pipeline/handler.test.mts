@@ -141,6 +141,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const mergeCalls = calls.filter(
 			(c) =>
 				c.cmd === "gh" ||
+				c.cmd === "bash" ||
 				(c.cmd === "git" &&
 					(c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push")),
 		);
@@ -191,7 +192,9 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		// Both merge and cleanup calls present
 		const hasMerge = calls.some(
 			(c) =>
-				c.cmd === "gh" || (c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge")),
+				c.cmd === "gh" ||
+				c.cmd === "bash" ||
+				(c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge")),
 		);
 		const hasCleanup = calls.some((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.ok(hasMerge, "merge calls should be present");
@@ -256,7 +259,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		);
 
 		// No gh calls (no merge attempted)
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.equal(ghCalls.length, 0, "no merge/gh calls when not Done");
 
 		// Cleanup should still run
@@ -288,7 +291,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"worktree-git-issue-42-test",
 		);
 
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.equal(ghCalls.length, 0, "no merge/gh calls when agentResults empty");
 
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
@@ -319,7 +322,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		);
 
 		// Merge runs (makes gh call), but cleanup skips
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCalls.length > 0, "merge/gh calls should still run");
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.equal(cleanupCalls.length, 0, "no cleanup calls when worktreePath undefined");
@@ -347,7 +350,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			undefined, // no worktreeBranch
 		);
 
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCalls.length > 0, "merge/gh calls should still run");
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.equal(cleanupCalls.length, 0, "no cleanup calls when worktreeBranch undefined");
@@ -463,7 +466,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		);
 
 		// No gh calls = no merge
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.equal(ghCalls.length, 0, "no merge attempted when agentResults empty");
 
 		// No cleanup either since worktreePath is undefined

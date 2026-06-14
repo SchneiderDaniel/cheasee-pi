@@ -12,7 +12,7 @@ import { checkPrConflicts } from "../github/pr.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { runAgent } from "../agent/runner.ts";
 import { resolveTimeoutMs } from "../config/config.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
 /**

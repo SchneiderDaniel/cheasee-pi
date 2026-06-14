@@ -3,7 +3,7 @@
 // Extracted from agent-stream.ts to keep files modular.
 
 import type { AgentRunState } from "../config/types.ts";
-import { formatTokens, formatDuration } from "../config/formatting.ts";
+import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { formatToolCall } from "../event/session-events.ts";
 import { WIDGET_LINES, MAX_LIVE_THINKING } from "../agent/stream.ts";
 

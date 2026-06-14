@@ -4,7 +4,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorMessageDetails } from "../config/types.ts";
 import { Container, Spacer, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatTokens, formatDuration, getTermWidth, boldText } from "../config/formatting.ts";
+import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
 import { isToolCallLine } from "../event/session-events.ts";
 
 export function createMessageRenderer(pi: ExtensionAPI) {

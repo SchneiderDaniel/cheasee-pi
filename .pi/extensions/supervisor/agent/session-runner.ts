@@ -21,8 +21,8 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { getModel } from "@earendil-works/pi-ai";
-import { resolveExtensionPaths } from "../config/extensions.ts";
-import { formatDuration, extractSummaryLine } from "../config/formatting.ts";
+import { resolveExtensionPaths } from "../lib/extensions.ts";
+import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { pushLog } from "./stream.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { resolveModel, buildToolList } from "../session/model.ts";
@@ -31,11 +31,11 @@ import { buildAgentRunResult } from "../session/result.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import { createAgentRunState } from "./runner.ts";
 import { calculateIdleWarning, buildErrorNotificationContext } from "../config/diagnostics.ts";
-import { createWatchdog } from "../config/watchdog.ts";
-import type { WatchdogHandle } from "../config/watchdog.ts";
-import { createInstrumenter } from "../config/instrumentation.ts";
-import type { InstrumenterHandle } from "../config/instrumentation.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { createWatchdog } from "../lib/watchdog.ts";
+import type { WatchdogHandle } from "../lib/watchdog.ts";
+import { createInstrumenter } from "../lib/instrumentation.ts";
+import type { InstrumenterHandle } from "../lib/instrumentation.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 
 // ─── Main: runAgentInProcess ────────────────────────────────────────

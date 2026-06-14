@@ -8,14 +8,14 @@
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
-import { resolveTools, resolveExtensions, resolveSkillPaths } from "../config/extensions.ts";
-import { formatDuration, extractSummaryLine } from "../config/formatting.ts";
+import { resolveTools, resolveExtensions, resolveSkillPaths } from "../lib/extensions.ts";
+import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import { processJsonLine, filterStderr, pushLog } from "./stream.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { runAgentInProcess } from "./session-runner.ts";
 import { buildErrorNotificationContext } from "../config/diagnostics.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 
 // Re-export DEFAULT_AGENT_TIMEOUT_MS for backward compatibility

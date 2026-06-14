@@ -12,36 +12,8 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { readFileSync } from "node:fs";
-
-// ---------------------------------------------------------------------------
-// Helper: duplicate parseAgentFile validation logic for pure-unit testing
-// (agent-loader.ts has fs dependency for real parsing)
-// ---------------------------------------------------------------------------
-
-const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
-
-/** Parse frontmatter from raw .md content (same logic as agent-loader.ts) */
-function parseFrontmatter(content: string): Record<string, string> {
-	const config: Record<string, string> = {};
-	const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-	if (!match) return config;
-
-	for (const line of match[1]!.split("\n")) {
-		const kv = line.match(/^(\w[\w-]*)\s*:\s*(.+)$/);
-		if (kv) {
-			let val = kv[2]!.trim();
-			if (
-				(val.startsWith('"') && val.endsWith('"')) ||
-				(val.startsWith("'") && val.endsWith("'"))
-			) {
-				val = val.slice(1, -1);
-			}
-			config[kv[1]!] = val;
-		}
-	}
-	return config;
-}
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { VALID_THINKING_LEVELS, parseAgentFile } from "../agent/loader.ts";
 
 /** Validate thinking level — should be called after frontmatter parse */
 function validateThinking(thinking: unknown): void {
@@ -101,38 +73,38 @@ System prompt here
 
 describe("AgentFrontmatter thinking field — parsing", () => {
 	it("1.1: parses thinking: medium from frontmatter", () => {
-		const config = parseFrontmatter(agentWithThinking);
-		assert.strictEqual(config.name, "test-agent");
-		assert.strictEqual(config.thinking, "medium");
+		const { frontmatter } = parseFrontmatter(agentWithThinking);
+		assert.strictEqual(frontmatter.name, "test-agent");
+		assert.strictEqual(frontmatter.thinking, "medium");
 	});
 
 	it("1.2: missing thinking field → undefined", () => {
-		const config = parseFrontmatter(agentWithoutThinking);
-		assert.strictEqual(config.name, "test-agent");
-		assert.strictEqual(config.thinking, undefined);
+		const { frontmatter } = parseFrontmatter(agentWithoutThinking);
+		assert.strictEqual(frontmatter.name, "test-agent");
+		assert.strictEqual(frontmatter.thinking, undefined);
 	});
 
 	it("1.3: empty thinking string → empty string (treated as missing later)", () => {
-		const config = parseFrontmatter(agentWithEmptyThinking);
-		assert.strictEqual(config.thinking, "");
+		const { frontmatter } = parseFrontmatter(agentWithEmptyThinking);
+		assert.strictEqual(frontmatter.thinking, "");
 	});
 
 	it("1.4: thinking with different valid values", () => {
-		const configHigh = parseFrontmatter(`---
+		const { frontmatter: configHigh } = parseFrontmatter(`---
 name: a
 thinking: high
 ---
 p`);
 		assert.strictEqual(configHigh.thinking, "high");
 
-		const configOff = parseFrontmatter(`---
+		const { frontmatter: configOff } = parseFrontmatter(`---
 name: b
 thinking: off
 ---
 p`);
 		assert.strictEqual(configOff.thinking, "off");
 
-		const configXhigh = parseFrontmatter(`---
+		const { frontmatter: configXhigh } = parseFrontmatter(`---
 name: c
 thinking: xhigh
 ---
@@ -213,9 +185,9 @@ describe("thinking level validation", () => {
 	});
 
 	it("2.14: invalid thinking parsed from frontmatter should be rejectable", () => {
-		const config = parseFrontmatter(agentWithInvalidThinking);
-		assert.strictEqual(config.thinking, "turbo");
-		assert.throws(() => validateThinking(config.thinking));
+		const { frontmatter } = parseFrontmatter(agentWithInvalidThinking);
+		assert.strictEqual(frontmatter.thinking, "turbo");
+		assert.throws(() => validateThinking(frontmatter.thinking));
 	});
 });
 
@@ -301,26 +273,6 @@ describe("runAgent() thinking flag construction", () => {
 // Integration tests — parse each agent .md file and verify thinking field
 // ---------------------------------------------------------------------------
 
-function parseAgentFileThinking(filePath: string): string | undefined {
-	const content = readFileSync(filePath, "utf-8");
-	const match = content.match(/^---\n([\s\S]*?)\n---/);
-	if (!match) return undefined;
-	for (const line of match[1]!.split("\n")) {
-		const kv = line.match(/^thinking\s*:\s*(.+)$/);
-		if (kv) {
-			let val = kv[1]!.trim();
-			if (
-				(val.startsWith('"') && val.endsWith('"')) ||
-				(val.startsWith("'") && val.endsWith("'"))
-			) {
-				val = val.slice(1, -1);
-			}
-			return val;
-		}
-	}
-	return undefined;
-}
-
 describe("production agent files — thinking field", () => {
 	const agents = [
 		{ name: "architect", expected: "high" },
@@ -332,8 +284,8 @@ describe("production agent files — thinking field", () => {
 
 	for (const agent of agents) {
 		it(`${agent.name}.md has thinking: "${agent.expected}"`, () => {
-			const val = parseAgentFileThinking(`.pi/extensions/supervisor/agents/${agent.name}.md`);
-			assert.strictEqual(val, agent.expected);
+			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${agent.name}.md`);
+			assert.strictEqual(config.thinking, agent.expected);
 		});
 	}
 });
@@ -341,9 +293,9 @@ describe("production agent files — thinking field", () => {
 describe("production agent files — thinking validation passes for all", () => {
 	for (const agentName of ["architect", "researcher", "developer", "test-designer", "auditor"]) {
 		it(`${agentName}.md thinking passes validation`, () => {
-			const val = parseAgentFileThinking(`.pi/extensions/supervisor/agents/${agentName}.md`);
-			if (val !== undefined) {
-				assert.doesNotThrow(() => validateThinking(val));
+			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${agentName}.md`);
+			if (config.thinking !== undefined) {
+				assert.doesNotThrow(() => validateThinking(config.thinking));
 			}
 		});
 	}
