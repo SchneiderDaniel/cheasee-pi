@@ -7,6 +7,9 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import type { ExecFn, ExecResult } from "../types.ts";
 import webSearch, { formatResults } from "../index.ts";
 
@@ -42,6 +45,10 @@ function registerWebSearch(mockExec: ExecFn): any {
 	webSearch(mockPi as any);
 	return tool;
 }
+
+/** Temp directory for test cwds so ensureVenv can create .pi/. */
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "web-search-test-"));
+const tmp = (name: string) => path.join(tmpDir, name);
 
 // ===========================================================================
 // Module exports
@@ -108,7 +115,7 @@ describe("web_search.execute — parameter validation", () => {
 	it("(D) execute validates query parameter — empty query throws error", async () => {
 		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
 		await assert.rejects(
-			tool.execute("call1", { query: "" }, undefined, undefined, { cwd: "/test-empty" }),
+			tool.execute("call1", { query: "" }, undefined, undefined, { cwd: tmp("empty") }),
 			{ message: "Search query is empty" },
 		);
 	});
@@ -116,7 +123,7 @@ describe("web_search.execute — parameter validation", () => {
 	it("(D) execute validates query parameter — whitespace-only query throws error", async () => {
 		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
 		await assert.rejects(
-			tool.execute("call1", { query: "   " }, undefined, undefined, { cwd: "/test-ws" }),
+			tool.execute("call1", { query: "   " }, undefined, undefined, { cwd: tmp("ws") }),
 			{ message: "Search query is empty" },
 		);
 	});
@@ -128,21 +135,20 @@ describe("web_search.execute — parameter validation", () => {
 
 describe("web_search.execute — error paths with exec mocking", () => {
 	it("(D) execute throws on venv setup failure", async () => {
-		// All exec calls return code 1 → ensureWebSearchVenv returns null → throw
+		// All exec calls return code 1 → ensureVenv throws EnsureVenvError at create step
 		const tool = registerWebSearch(mockExecReturns({ code: 1, stdout: "", stderr: "no python3" }));
 		await assert.rejects(
 			tool.execute("call1", { query: "venv-test" }, undefined, undefined, {
-				cwd: "/test-venv-fail",
+				cwd: tmp("venv-fail"),
 			}),
-			{ message: /Python virtual environment/ },
+			{ name: "EnsureVenvError" },
 		);
 	});
 
 	it("(D) execute throws on search script non-zero exit", async () => {
-		// Calls: 1=python3 --version (ok), 2=venv ddgs check (ok), 3=bash script (fail)
+		// Calls: 1=ensureVenv verify check (passes), 2=bash search script (fail)
 		const tool = registerWebSearch(
 			mockExecSequence([
-				{ code: 0, stdout: "Python 3.11", stderr: "" },
 				{ code: 0, stdout: "ok", stderr: "" },
 				{ code: 1, stdout: "", stderr: "search error" },
 			]),
@@ -156,10 +162,9 @@ describe("web_search.execute — error paths with exec mocking", () => {
 	});
 
 	it("(D) execute throws on parse failure", async () => {
-		// Calls: 1=python3 --version (ok), 2=venv ddgs check (ok), 3=bash script (ok but unparseable stdout)
+		// Calls: 1=ensureVenv verify check (passes), 2=bash search script (unparseable)
 		const tool = registerWebSearch(
 			mockExecSequence([
-				{ code: 0, stdout: "Python 3.11", stderr: "" },
 				{ code: 0, stdout: "ok", stderr: "" },
 				{ code: 0, stdout: "no delimiters here", stderr: "" },
 			]),
@@ -203,8 +208,7 @@ describe("Cache functionality", () => {
 		let callCount = 0;
 		const mockExec: ExecFn = async () => {
 			callCount++;
-			if (callCount === 1) return { code: 0, stdout: "Python 3.11", stderr: "" };
-			if (callCount === 2) return { code: 0, stdout: "ok", stderr: "" };
+			if (callCount === 1) return { code: 0, stdout: "ok", stderr: "" };
 			// Search script succeeds with valid output (matches python-script.ts format)
 			const searchResults = [
 				{ title: "Cached", url: "https://example.com", snippet: "Cached result" },
@@ -220,7 +224,7 @@ describe("Cache functionality", () => {
 
 		// First call — should succeed and populate cache
 		const result1 = await tool.execute("call1", { query: "cache-test" }, undefined, undefined, {
-			cwd: "/test-cache",
+			cwd: tmp("cache-test"),
 		});
 		assert.equal(
 			result1.content[0].text,
@@ -229,9 +233,10 @@ describe("Cache functionality", () => {
 
 		// Second call with same query — should use cache, no additional exec calls
 		const result2 = await tool.execute("call2", { query: "cache-test" }, undefined, undefined, {
-			cwd: "/test-cache",
+			cwd: tmp("cache-test"),
 		});
 		assert.equal(result2.content[0].text, result1.content[0].text);
-		assert.equal(callCount, 3); // No extra exec calls on second invocation
+		// First call: verify check + search script = 2. Second call: cache hit, 0 additional.
+		assert.equal(callCount, 2);
 	});
 });
