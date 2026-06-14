@@ -401,3 +401,118 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 		);
 	});
 });
+
+// ===========================================================================
+// Phase 5: State checkpoint integration (pipeline state checkpoint for crash recovery)
+// ===========================================================================
+
+describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
+	it("imports writeCheckpointFile from state-checkpoint", () => {
+		const src = readAuditSource();
+		const importSection = src.substring(0, src.indexOf("export async function"));
+		assert.ok(
+			importSection.includes('import { writeCheckpointFile } from "./state-checkpoint.ts"'),
+			"should import writeCheckpointFile from state-checkpoint",
+		);
+	});
+
+	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before getRunTscCheckpoint()", () => {
+		const src = readAuditSource();
+		// Find the pre-tsc checkpoint write block
+		const preTscIdx = src.indexOf('checkpoint: "pre-tsc"');
+		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint write");
+
+		// The pre-tsc checkpoint should appear before getRunTscCheckpoint call
+		const getRunTscIdx = src.indexOf("await getRunTscCheckpoint()");
+		assert.ok(getRunTscIdx >= 0, "should have getRunTscCheckpoint() call");
+
+		// Extract section from pre-tsc checkpoint to getRunTscCheckpoint
+		const section = src.substring(preTscIdx, getRunTscIdx);
+		// The checkpoint write block should be followed by getRunTscCheckpoint
+		assert.ok(section.includes('checkpoint: "pre-tsc"'), "pre-tsc checkpoint block exists");
+		// Verify ordering: pre-tsc checkpoint comes BEFORE getRunTscCheckpoint
+		assert.ok(
+			preTscIdx < getRunTscIdx,
+			"pre-tsc checkpoint should be written before getRunTscCheckpoint() is called",
+		);
+	});
+
+	it("calls writeCheckpointFile with checkpoint 'pre-lsp' before runLspPreAudit()", () => {
+		const src = readAuditSource();
+		const preLspIdx = src.indexOf('checkpoint: "pre-lsp"');
+		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint write");
+
+		const runLspIdx = src.indexOf("await runLspPreAudit(issueNum");
+		assert.ok(runLspIdx >= 0, "should have runLspPreAudit() call");
+
+		assert.ok(
+			preLspIdx < runLspIdx,
+			"pre-lsp checkpoint should be written before runLspPreAudit() is called",
+		);
+	});
+
+	it("writeCheckpointFile('pre-tsc') passes correct state shape", () => {
+		const src = readAuditSource();
+		const preTscIdx = src.indexOf('checkpoint: "pre-tsc"');
+		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint");
+
+		// Find the writeCheckpointFile call containing pre-tsc
+		const callStart = src.lastIndexOf("writeCheckpointFile(ctx.cwd,", preTscIdx);
+		assert.ok(callStart >= 0, "writeCheckpointFile call exists for pre-tsc");
+
+		// Find closing ");" after the checkpoint
+		const closingParen = src.indexOf(");", preTscIdx);
+		assert.ok(closingParen >= 0, "should find closing paren for pre-tsc call");
+
+		const callSection = src.substring(callStart, closingParen + 2);
+
+		// Verify all required fields are present in the call block
+		assert.ok(callSection.includes("issueNum"), "should pass issueNum");
+		assert.ok(callSection.includes("checkpoint"), "should pass checkpoint");
+		assert.ok(callSection.includes("worktreePath"), "should pass worktreePath");
+		assert.ok(callSection.includes("worktreeBranch"), "should pass worktreeBranch");
+		assert.ok(callSection.includes("startedAt"), "should pass startedAt");
+		assert.ok(
+			callSection.includes("new Date().toISOString()"),
+			"should use new Date().toISOString() for startedAt",
+		);
+		assert.ok(callSection.includes("ctx.cwd"), "should use ctx.cwd as first arg");
+	});
+
+	it("writeCheckpointFile('pre-lsp') passes correct state shape", () => {
+		const src = readAuditSource();
+		const preLspIdx = src.indexOf('checkpoint: "pre-lsp"');
+		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint");
+
+		const callStart = src.lastIndexOf("writeCheckpointFile(ctx.cwd,", preLspIdx);
+		assert.ok(callStart >= 0, "writeCheckpointFile call exists for pre-lsp");
+
+		const closingParen = src.indexOf(");", preLspIdx);
+		assert.ok(closingParen >= 0, "should find closing paren for pre-lsp call");
+
+		const callSection = src.substring(callStart, closingParen + 2);
+
+		assert.ok(callSection.includes("issueNum"), "should pass issueNum");
+		assert.ok(callSection.includes("checkpoint"), "should pass checkpoint");
+		assert.ok(callSection.includes("worktreePath"), "should pass worktreePath");
+		assert.ok(callSection.includes("worktreeBranch"), "should pass worktreeBranch");
+		assert.ok(callSection.includes("startedAt"), "should pass startedAt");
+		assert.ok(callSection.includes("ctx.cwd"), "should use ctx.cwd as first arg");
+	});
+
+	it("writeCheckpointFile calls use ctx.cwd consistently", () => {
+		const src = readAuditSource();
+		const matches = src.match(/writeCheckpointFile\(ctx\.cwd,/g);
+		assert.equal(matches?.length ?? 0, 2, "should have exactly 2 writeCheckpointFile calls with ctx.cwd");
+	});
+	it("no old resolvePath(worktreePath, '..') pattern remains", () => {
+		const src = readAuditSource();
+		// Should not reference worktreePath for cwd in checkpoint writes
+		// (the old pattern used resolvePath(worktreePath, "..") )
+		const oldPattern = 'resolvePath(worktreePath, "..")';
+		assert.ok(
+			!src.includes(oldPattern),
+			"should not use resolvePath(worktreePath, '..') for checkpoint writes",
+		);
+	});
+});

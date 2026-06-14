@@ -35,6 +35,11 @@ import { buildPipelineSummary, validateAgentResult } from "../pipeline/output.ts
 import { handlePostPipelineMerge } from "../pipeline/merge.ts";
 import { createWorktree, installWorktreeDeps, cleanupWorktree } from "./worktree.ts";
 import {
+	writeCheckpointFile,
+	deleteCheckpointFile,
+	cleanupStalePipelineState,
+} from "./state-checkpoint.ts";
+import {
 	createCrashCleanup,
 	setupCrashCleanup,
 	type CrashCleanup,
@@ -306,6 +311,24 @@ export async function handleSupervisorCommand(
 		// This ensures temp files (researcher JSON findings) go to worktree, not main repo,
 		// and worktree-sandbox extension activates for all agents.
 		worktreeBranch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
+
+		// ── Stale State Cleanup ──────────────────────────────────────────
+		// Before creating a new worktree, clean up any stale checkpoints from
+		// crashed pipeline runs. Non-blocking — if cleanup fails, log warning
+		// and continue (startup should not fail because of stale cleanup).
+		{
+			const staleCleanupResult = await cleanupStalePipelineState(pi, ctx.cwd, config, notify);
+			if (!staleCleanupResult.ok) {
+				ctx.ui.notify(
+					`Warning: Stale worktree cleanup had errors: ${staleCleanupResult.error}`,
+					"warning",
+				);
+				getDebugLogger().warn("handler", "Stale worktree cleanup had errors", {
+					error: staleCleanupResult.error,
+				});
+			}
+		}
+
 		getDebugLogger().info("handler", "Creating worktree", {
 			branch: worktreeBranch,
 			base: config.worktreeBase,
@@ -449,6 +472,26 @@ export async function handleSupervisorCommand(
 					);
 					getDebugLogger().info("handler", `Research → ${nextStatus} (dedup gate)`);
 					continue;
+				}
+			}
+
+			// Write checkpoint before auditor dispatch (heavy/long-running operation)
+			if (agentName === "auditor" && worktreePath && worktreeBranch) {
+				const checkpointResult = writeCheckpointFile(ctx.cwd, {
+					issueNum,
+					checkpoint: "pre-auditor",
+					worktreePath,
+					worktreeBranch,
+					startedAt: new Date().toISOString(),
+				});
+				if (!checkpointResult.ok) {
+					ctx.ui.notify(
+						`Warning: Failed to write pre-auditor checkpoint: ${checkpointResult.error}`,
+						"warning",
+					);
+					getDebugLogger().warn("handler", "Failed to write pre-auditor checkpoint", {
+						error: checkpointResult.error,
+					});
 				}
 			}
 
@@ -920,6 +963,16 @@ export async function handleSupervisorCommand(
 				getDebugLogger().warn("handler", `Worktree cleanup on error failed: ${cleanResult.error}`);
 			}
 		}
+		// Delete checkpoint file on error (idempotent)
+		{
+			const delResult = deleteCheckpointFile(ctx.cwd);
+			if (!delResult.ok) {
+				getDebugLogger().warn(
+					"handler",
+					`Failed to delete checkpoint on error: ${delResult.error}`,
+				);
+			}
+		}
 		sendPipelineError(pi, ctx, agentResults, issueNum, issueTitle, config, errMsg);
 	} finally {
 		// Teardown signal handlers so they don't leak beyond pipeline
@@ -1003,6 +1056,11 @@ export async function handlePostPipeline(
 					getDebugLogger().warn("handler", `Worktree cleanup failed: ${cleanResult.error}`);
 				}
 			}
+		}
+		// Delete checkpoint file on pipeline completion (idempotent)
+		const delResult = deleteCheckpointFile(ctx.cwd);
+		if (!delResult.ok) {
+			getDebugLogger().warn("handler", `Failed to delete checkpoint: ${delResult.error}`);
 		}
 	}
 }

@@ -24,6 +24,7 @@ import { runPackageSafetyAudit } from "../checks/package-safety.ts";
 import { postIssueComment } from "../github/index.ts";
 import { runTddGate } from "../checks/tdd-gate.ts";
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
+import { writeCheckpointFile } from "./state-checkpoint.ts";
 
 /**
  * Run ALL pre-transition checks during Implementation → Audit transition.
@@ -341,6 +342,22 @@ export async function runTscAndLspAudit(
 		}
 
 		// Step 5: TSC checkpoint (Tier 2)
+		// Write checkpoint before TSC (heavy/long-running operation)
+		{
+			const checkpointResult = writeCheckpointFile(ctx.cwd, {
+				issueNum,
+				checkpoint: "pre-tsc",
+				worktreePath: worktreePath,
+				worktreeBranch: branch,
+				startedAt: new Date().toISOString(),
+			});
+			if (!checkpointResult.ok) {
+				ctx.ui.notify(
+					`Warning: Failed to write pre-TSC checkpoint: ${checkpointResult.error}`,
+					"warning",
+				);
+			}
+		}
 		const runTscCheckpointFn = await getRunTscCheckpoint();
 
 		if (runTscCheckpointFn) {
@@ -377,6 +394,22 @@ export async function runTscAndLspAudit(
 		}
 
 		// Step 5: LSP pre-audit (Tier 3)
+		// Write checkpoint before LSP (heavy/long-running operation)
+		{
+			const checkpointResult = writeCheckpointFile(ctx.cwd, {
+				issueNum,
+				checkpoint: "pre-lsp",
+				worktreePath: worktreePath,
+				worktreeBranch: branch,
+				startedAt: new Date().toISOString(),
+			});
+			if (!checkpointResult.ok) {
+				ctx.ui.notify(
+					`Warning: Failed to write pre-LSP checkpoint: ${checkpointResult.error}`,
+					"warning",
+				);
+			}
+		}
 		const lspResult = await runLspPreAudit(issueNum, issueTitle, config, pi, ctx, worktreePath);
 		getDebugLogger().info("pipeline-audit", "LSP pre-audit result", {
 			nextStatus: lspResult.nextStatus,
