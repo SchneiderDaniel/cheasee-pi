@@ -22,6 +22,7 @@ import type { ExtensionAPI, ToolCallEventResult } from "@earendil-works/pi-codin
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { parse } from "shell-quote";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -51,69 +52,237 @@ function isPathSafe(target: string, sandboxRoot: string): boolean {
 	return isPathWithinSandbox(resolved, sandboxRoot);
 }
 
+// ─── Shell-aware parsing ───────────────────────────────────────────
+
+/**
+ * Tokenize a shell command using shell-quote parse().
+ * Returns a flat array of tokens where:
+ * - Strings are literal words/arguments
+ * - { op: string } objects are operators (|, ||, &&, ;, >, >>, etc.)
+ * - { comment: string } objects are comments
+ * - Variables ($VAR) resolve to their env value (or "" if not in env)
+ */
+export function tokenizeCommand(cmd: string): ReturnType<typeof parse> {
+	return parse(cmd);
+}
+
+/**
+ * Check if a path token contains shell expansion syntax.
+ * Detects: $, `, ~, {, * which bash would expand before resolving paths.
+ */
+export function hasShellExpansion(token: string): boolean {
+	return /[\$`~{*]/.test(token);
+}
+
+/**
+ * Separator operators that start a new command in a shell pipeline.
+ */
+const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
+
+/**
+ * Shell-aware cd command safety check.
+ *
+ * Uses shell-quote parse() to correctly identify command boundaries
+ * (handling pipes, &&, ||, ; etc.) and extract cd targets with proper
+ * quoting awareness. Then applies hasShellExpansion and isPathSafe on
+ * each cd target.
+ *
+ * Handles all 5 identified bypass vectors:
+ * 1. Variable expansion ($HOME, $PWD/../../escape)
+ * 2. Command substitution ($(...), backticks)
+ * 3. Tilde expansion (~/escape)
+ * 4. Pipe prefix (echo | cd /escape)
+ * 5. Bare cd (cd, cd ; echo)
+ */
 export function findUnsafeCd(command: string, sandboxRoot: string): string | null {
-	// Match cd with optional argument, using negative lookahead to avoid
-	// capturing chain operators (&&, ||, ;, |) as cd targets.
-	// The lookahead and optional group work together:
-	//   - "cd subdir"   → \s+ matches space, lookahead passes, (\S+) captures "subdir"
-	//   - "cd && pwd"   → \s+ matches space, lookahead fails → group skipped → undefined → bare cd
-	//   - "cd" (EOL)    → \s+ fails (no space after cd), group skipped → undefined → bare cd
-	const cdRegex = /(?:^|&&|;|\|\|)\s*cd(?:\s+(?!&&|\|\||;|\|)(\S+))?/g;
-	let match: RegExpExecArray | null;
-	while ((match = cdRegex.exec(command)) !== null) {
-		const target = match[1]; // undefined when bare cd or when lookahead rejects chain operator
-		if (target === "-") continue;
+	const tokens = tokenizeCommand(command);
 
-		// Bare cd goes to $HOME — block it
-		if (!target) {
-			return "<HOME>";
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i]!;
+
+		// Skip non-string tokens (operators, comments)
+		if (typeof token !== "string") {
+			continue;
 		}
 
-		// Block shell expansions — they bypass static path resolution
-		if (target.includes("~") || target.includes("$") || target.includes("`")) {
-			return target;
-		}
+		// Check if this token starts a command (is a 'cd' command)
+		// A string starts a command if it's at position 0 or preceded by a separator
+		if (token === "cd") {
+			const isStart =
+				i === 0 ||
+				(typeof tokens[i - 1] === "object" &&
+					"op" in (tokens[i - 1] as { op: string }) &&
+					SEPARATORS.has((tokens[i - 1] as { op: string }).op));
 
-		if (!isPathSafe(target, sandboxRoot)) {
-			return target;
+			if (!isStart) {
+				continue; // 'cd' is not a command, e.g. path argument
+			}
+
+			// Find the next non-operator, non-comment token (the cd target)
+			let j = i + 1;
+			while (j < tokens.length) {
+				const nextToken = tokens[j]!;
+
+				if (typeof nextToken === "object" && "op" in nextToken) {
+					if (nextToken.op === "glob") {
+						// Glob pattern after cd is unsafe
+						return nextToken.pattern ?? command;
+					}
+					if (SEPARATORS.has(nextToken.op)) {
+						// Separator right after cd = bare cd (e.g., "cd ; echo")
+						return command;
+					}
+					// Skip other operators (like '(' in command sub)
+					j++;
+					continue;
+				}
+
+				if (typeof nextToken === "object" && "comment" in nextToken) {
+					// Comment after cd = bare cd
+					return command;
+				}
+
+				// After filtering objects, remaining type must be string
+				if (typeof nextToken !== "string") {
+					break;
+				}
+
+				// It's a string token — this is the cd target
+				if (nextToken === "") {
+					return command; // Unresolved variable ($VAR with no env value)
+				}
+
+				if (nextToken === "-") {
+					return "-"; // Previous directory — always potentially unsafe
+				}
+
+				if (hasShellExpansion(nextToken)) {
+					return nextToken; // Shell expansion syntax detected
+				}
+
+				if (!isPathSafe(nextToken, sandboxRoot)) {
+					return nextToken; // Path resolves outside sandbox
+				}
+
+				break; // This cd is safe
+			}
+
+			// If we reached end of tokens without finding a target, it's bare cd
+			if (j >= tokens.length) {
+				return command;
+			}
 		}
 	}
+
 	return null;
 }
 
 /**
- * Detect bash file writes to absolute paths outside the sandbox.
- * Catches: echo > /abs/path, cp /src /abs/dst, mv /src /abs/dst, touch /abs/file
+ * Shell-aware file-write safety check for bash commands.
+ *
+ * Detects:
+ * - Shell redirects: > file, >> file, 2> file, etc.
+ * - cp/mv destination paths (last non-flag argument)
+ * - touch target paths
+ *
+ * Uses shell-quote parse() for correct operator detection,
+ * then applies hasShellExpansion and isPathSafe on all identified
+ * destination paths.
  */
-function findUnsafeWriteInBash(command: string, sandboxRoot: string): string | null {
-	// Shell redirects: > /abs/path or >> /abs/path (with optional fd number like 2>)
-	const redirectRegex = /(?:^|[^a-zA-Z])(?:\d*[>]|[>][>])\s*(\/[^\s"'|;&]+)/g;
-	let match: RegExpExecArray | null;
-	while ((match = redirectRegex.exec(command)) !== null) {
-		const target = match[1]!;
-		if (!isPathSafe(target, sandboxRoot)) {
-			return target;
+export function findUnsafeWriteInBash(command: string, sandboxRoot: string): string | null {
+	const tokens = tokenizeCommand(command);
+
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i]!;
+
+		// ── Redirect detection ────────────────────────────────────
+		// Detect { op: ">" } or { op: ">>" } tokens
+		if (typeof token === "object" && "op" in token && (token.op === ">" || token.op === ">>")) {
+			// Next non-operator token is the redirect target
+			let j = i + 1;
+			while (j < tokens.length) {
+				const nextToken = tokens[j]!;
+
+				if (typeof nextToken === "object" && "op" in nextToken) {
+					if (nextToken.op === "glob") {
+						return nextToken.pattern ?? command;
+					}
+					if (SEPARATORS.has(nextToken.op)) {
+						break; // No target found before separator
+					}
+					j++;
+					continue;
+				}
+
+				if (typeof nextToken === "object" && "comment" in nextToken) {
+					break;
+				}
+
+				// After filtering objects, remaining type must be string
+				if (typeof nextToken !== "string") {
+					break;
+				}
+
+				// String token — this is the redirect target
+				if (nextToken === "") {
+					return command; // Unresolved variable
+				}
+
+				if (hasShellExpansion(nextToken)) {
+					return nextToken;
+				}
+
+				if (!isPathSafe(nextToken, sandboxRoot)) {
+					return nextToken;
+				}
+
+				break;
+			}
 		}
-	}
 
-	// cp destination: `cp <src> <dst>` — the last non-flag arg is the destination
-	const cpMatch = command.match(/\bcp\s+.*\s+(\/[^\s"'|;&]+)\s*$/);
-	if (cpMatch && !isPathSafe(cpMatch[1]!, sandboxRoot)) {
-		return cpMatch[1]!;
-	}
+		// ── cp/mv/touch command detection ─────────────────────────
+		if (typeof token === "string" && (token === "cp" || token === "mv" || token === "touch")) {
+			// Check if this is a command start
+			const isStart =
+				i === 0 ||
+				(typeof tokens[i - 1] === "object" &&
+					"op" in (tokens[i - 1] as { op: string }) &&
+					SEPARATORS.has((tokens[i - 1] as { op: string }).op));
 
-	// mv destination: same as cp
-	const mvMatch = command.match(/\bmv\s+.*\s+(\/[^\s"'|;&]+)\s*$/);
-	if (mvMatch && !isPathSafe(mvMatch[1]!, sandboxRoot)) {
-		return mvMatch[1]!;
-	}
+			if (!isStart) continue;
 
-	// touch path
-	const touchRegex = /\btouch\s+(\/[^\s"'|;&]+)/g;
-	while ((match = touchRegex.exec(command)) !== null) {
-		const target = match[1]!;
-		if (!isPathSafe(target, sandboxRoot)) {
-			return target;
+			// Find the last non-flag, non-operator, non-comment token
+			// For cp/mv: the last such token is the destination
+			// For touch: the last such token is the file to create
+			let lastTarget: string | null = null;
+
+			for (let j = i + 1; j < tokens.length; j++) {
+				const t = tokens[j]!;
+
+				if (typeof t === "object" && "op" in t) {
+					if (SEPARATORS.has(t.op)) break;
+					continue; // Skip non-separator operators
+				}
+
+				if (typeof t === "object" && "comment" in t) break;
+
+				if (typeof t === "string") {
+					if (t.startsWith("-")) continue; // Skip flags
+					lastTarget = t;
+				}
+			}
+
+			if (lastTarget !== null) {
+				if (lastTarget === "") {
+					return command; // Unresolved variable
+				}
+				if (hasShellExpansion(lastTarget)) {
+					return lastTarget;
+				}
+				if (!isPathSafe(lastTarget, sandboxRoot)) {
+					return lastTarget;
+				}
+			}
 		}
 	}
 
