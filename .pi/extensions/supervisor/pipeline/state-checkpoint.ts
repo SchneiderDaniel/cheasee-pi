@@ -25,7 +25,7 @@ import {
 	readdirSync,
 } from "node:fs";
 import { resolve, dirname, join } from "node:path";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import type { Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

@@ -7,7 +7,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatDuration, formatTokens } from "../config/formatting.ts";
+import { formatDuration, formatTokens } from "../lib/formatting.ts";
 
 // ---------------------------------------------------------------------------
 // Tests — formatTokens and formatDuration re-exports work

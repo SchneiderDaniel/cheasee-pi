@@ -16,7 +16,7 @@ import { generateBranchName } from "../agent/task.ts";
 import { createPullRequest, checkPrConflicts } from "../github/pr.ts";
 import { gh } from "../github/gh-client.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
 /**

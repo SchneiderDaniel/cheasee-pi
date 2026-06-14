@@ -82,7 +82,7 @@ export interface FilteredIssueData {
 }
 
 /** DebugLogger type — re-exported from debug.ts (canonical definition) */
-export type { DebugLogger } from "./debug.ts";
+export type { DebugLogger } from "../lib/debug.ts";
 
 /** Structured result returned by runAgent for rendering */
 export interface AgentRunResult {
