@@ -1,6 +1,8 @@
 .env
 .agent_env
 .pi/sessions
+.pi/supervisor-state.json
+.pi/state/session-extensions.json
 node_modules
 tmp
 ignore/
