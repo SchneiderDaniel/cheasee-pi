@@ -23,4 +23,16 @@ export interface OnUpdateCallback {
 export interface CrawlParams {
 	url: string;
 	maxPages: number;
+	maxTokens?: number;
 }
+
+export interface CrawledPage {
+	url: string;
+	markdown: string;
+	method: "lightweight" | "stealth";
+	rawLength: number;
+}
+
+export type CrawlResult =
+	| { success: true; results: CrawledPage[]; totalTokens: number }
+	| { success: false; error: string };

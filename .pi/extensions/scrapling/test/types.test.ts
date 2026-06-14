@@ -110,8 +110,8 @@ describe("venv-setup.ts — no local ExecFn, imports from types.ts", () => {
 	});
 
 	it("(D) venv-setup.ts imports ExecFn from ./types.ts", () => {
-		// New venv-setup.ts only imports ExecFn (not ExecResult)
-		const pattern = /import\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\/types(?:\.ts)?["']/;
+		const pattern =
+			/import\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\/types(?:\.[a-z]+)?["']/;
 		assert.ok(pattern.test(source), 'venv-setup.ts should import ExecFn from "./types"');
 	});
 });
@@ -123,7 +123,7 @@ describe("test/scrapling-script.test.ts — imports SCRAPLING_SCRIPT from ../pyt
 
 	it("(D) imports SCRAPLING_SCRIPT from ../python-script.ts", () => {
 		const pattern =
-			/import\s+\{[^}]*\bSCRAPLING_SCRIPT\b[^}]*\}\s*from\s+["']\.\.\/python-script(?:\.ts)?["']/;
+			/import\s+\{[^}]*\bSCRAPLING_SCRIPT\b[^}]*\}\s*from\s+["']\.\.\/python-script(?:\.[a-z]+)?["']/;
 		assert.ok(
 			pattern.test(source),
 			'test/scrapling-script.test.ts should import SCRAPLING_SCRIPT from "../python-script"',
@@ -138,7 +138,7 @@ describe("test/venv-setup-scrapling.test.ts — imports from ../venv-setup.ts", 
 
 	it("(D) imports ensureScraplingVenv from ../venv-setup.ts", () => {
 		const pattern =
-			/import\s+\{[^}]*\bensureScraplingVenv\b[^}]*\}\s*from\s+["']\.\.\/venv-setup(?:\.ts)?["']/;
+			/import\s+\{[^}]*\bensureScraplingVenv\b[^}]*\}\s*from\s+["']\.\.\/venv-setup(?:\.[a-z]+)?["']/;
 		assert.ok(
 			pattern.test(source),
 			'test/venv-setup-scrapling.test.ts should import ensureScraplingVenv from "../venv-setup"',
@@ -147,7 +147,7 @@ describe("test/venv-setup-scrapling.test.ts — imports from ../venv-setup.ts", 
 
 	it("(D) imports VENV_DIR from ../venv-setup.ts", () => {
 		const pattern =
-			/import\s+\{[^}]*\bVENV_DIR\b[^}]*\}\s*from\s+["']\.\.\/venv-setup(?:\.ts)?["']/;
+			/import\s+\{[^}]*\bVENV_DIR\b[^}]*\}\s*from\s+["']\.\.\/venv-setup(?:\.[a-z]+)?["']/;
 		assert.ok(
 			pattern.test(source),
 			'test/venv-setup-scrapling.test.ts should import VENV_DIR from "../venv-setup"',
@@ -166,5 +166,164 @@ describe("test/index.test.ts — no local ExecResult/ExecFn definitions", () => 
 
 	it("(D) test/index.test.ts no local full ExecFn type definition", () => {
 		assertNoLocalFullType(source, "ExecFn", "test/index.test.ts");
+	});
+});
+
+// ── Phase 6: types.ts — new CrawlResult/CrawledPage types ──
+
+describe("types.ts — CrawlResult and CrawledPage types", () => {
+	const source = readSource("types.ts");
+
+	it("(D) types.ts exports CrawledPage interface", () => {
+		assert.ok(
+			/export\s+interface\s+CrawledPage/.test(source),
+			"types.ts should export CrawledPage interface",
+		);
+	});
+
+	it("(D) CrawledPage has url: string", () => {
+		assert.ok(/^\s*url:\s*string;/m.test(source), "CrawledPage should have url: string");
+	});
+
+	it("(D) CrawledPage has markdown: string", () => {
+		assert.ok(/^\s*markdown:\s*string;/m.test(source), "CrawledPage should have markdown: string");
+	});
+
+	it("(D) CrawledPage has method discriminator (lightweight | stealth)", () => {
+		assert.ok(/method/.test(source), "CrawledPage should have method field");
+	});
+
+	it("(D) CrawledPage has rawLength: number", () => {
+		assert.ok(/rawLength/.test(source), "CrawledPage should have rawLength");
+	});
+
+	it("(D) types.ts exports CrawlResult type", () => {
+		assert.ok(
+			/export\s+type\s+CrawlResult/.test(source),
+			"types.ts should export CrawlResult type",
+		);
+	});
+
+	it("(D) CrawlResult is a discriminated union with success field", () => {
+		assert.ok(/\bsuccess\b/.test(source), "CrawlResult should have a success discriminator");
+	});
+
+	it("(D) CrawlResult has error branch with error: string", () => {
+		assert.ok(/error:\s*string/.test(source), "CrawlResult error branch should have error: string");
+	});
+
+	it("(D) CrawlResult has success branch with results: CrawledPage[]", () => {
+		assert.ok(
+			/CrawledPage\[\]/.test(source),
+			"CrawlResult success branch should have CrawledPage[]",
+		);
+	});
+
+	it("(D) CrawlParams extended with maxTokens field", () => {
+		assert.ok(/maxTokens/.test(source), "CrawlParams should have maxTokens field");
+	});
+});
+
+describe("crawler-engine.ts — CrawlerEngine interface", () => {
+	const source = readSource("crawler-engine.ts");
+
+	it("(D) crawler-engine.ts exports CrawlerEngine interface", () => {
+		assert.ok(
+			/export\s+interface\s+CrawlerEngine/.test(source),
+			"crawler-engine.ts should export CrawlerEngine",
+		);
+	});
+
+	it("(D) CrawlerEngine has crawl method returning Promise<CrawlResult>", () => {
+		assert.ok(
+			/Promise<CrawlResult>/.test(source),
+			"CrawlerEngine.crawl should return Promise<CrawlResult>",
+		);
+	});
+
+	it("(D) CrawlerEngine imports CrawlParams from types.ts", () => {
+		assert.ok(
+			source.includes("CrawlParams") && source.includes("./types"),
+			"crawler-engine.ts should import CrawlParams from ./types",
+		);
+	});
+
+	it("(D) CrawlerEngine imports CrawlResult from types.ts", () => {
+		assert.ok(
+			source.includes("CrawlResult") && source.includes("./types"),
+			"crawler-engine.ts should import CrawlResult from ./types",
+		);
+	});
+});
+
+describe("mock-adapter.ts — MockAdapter implements CrawlerEngine", () => {
+	const source = readSource("mock-adapter.ts");
+
+	it("(D) mock-adapter.ts exports MockAdapter class", () => {
+		assert.ok(
+			/export\s+class\s+MockAdapter/.test(source),
+			"mock-adapter.ts should export MockAdapter class",
+		);
+	});
+
+	it("(D) MockAdapter implements CrawlerEngine", () => {
+		assert.ok(
+			/implements\s+CrawlerEngine/.test(source),
+			"MockAdapter should implement CrawlerEngine",
+		);
+	});
+
+	it("(D) MockAdapter constructor accepts CrawlResult", () => {
+		assert.ok(
+			/constructor/.test(source) && /CrawlResult/.test(source),
+			"MockAdapter constructor should accept CrawlResult",
+		);
+	});
+
+	it("(D) MockAdapter imports from crawler-engine.ts", () => {
+		assert.ok(
+			source.includes("crawler-engine"),
+			"MockAdapter should import from crawler-engine.ts",
+		);
+	});
+
+	it("(D) MockAdapter imports from types.ts", () => {
+		assert.ok(source.includes("types"), "MockAdapter should import from types.ts");
+	});
+});
+
+describe("python-adapter.ts — PythonAdapter implements CrawlerEngine", () => {
+	const source = readSource("python-adapter.ts");
+
+	it("(D) python-adapter.ts exports PythonAdapter class", () => {
+		assert.ok(
+			/export\s+class\s+PythonAdapter/.test(source),
+			"python-adapter.ts should export PythonAdapter class",
+		);
+	});
+
+	it("(D) PythonAdapter implements CrawlerEngine", () => {
+		assert.ok(
+			/implements\s+CrawlerEngine/.test(source),
+			"PythonAdapter should implement CrawlerEngine",
+		);
+	});
+
+	it("(D) PythonAdapter imports from crawler-engine.ts", () => {
+		assert.ok(
+			source.includes("crawler-engine"),
+			"PythonAdapter should import from crawler-engine.ts",
+		);
+	});
+
+	it("(D) PythonAdapter imports SCRAPLING_SCRIPT from python-script.ts", () => {
+		assert.ok(
+			source.includes("python-script"),
+			"PythonAdapter should import from python-script.ts",
+		);
+	});
+
+	it("(D) PythonAdapter imports ensureScraplingVenv from venv-setup.ts", () => {
+		assert.ok(source.includes("venv-setup"), "PythonAdapter should import from venv-setup.ts");
 	});
 });
