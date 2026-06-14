@@ -144,6 +144,7 @@ export default function (pi: ExtensionAPI): void {
 	extState.setKey("advice", true);
 	extState.saveState().catch(() => {}); // Fire-and-forget on init
 
+	/** Persist the current enabled state to disk (best-effort, fire-and-forget). */
 	function syncAdviceState() {
 		extState.setKey("advice", enabled);
 		extState.saveState().catch((err) => {

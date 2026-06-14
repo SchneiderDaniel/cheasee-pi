@@ -178,6 +178,7 @@ export async function runAgentSubprocess(
 		"--tools",
 		tools,
 		...extFlags,
+		"--no-extensions",
 		"--no-skills",
 		...skillPaths.flatMap((p) => ["--skill", p]),
 		"--no-context-files",
