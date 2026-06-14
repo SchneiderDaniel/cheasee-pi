@@ -106,6 +106,80 @@ describe("handleToolExecutionStart", () => {
 		});
 		assert.equal(result.workingChange, false);
 	});
+
+	// ── New format tests (Phase 2) ──
+
+	it('formats bash with command: log entry is "$ npm test"', () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "bash",
+			args: { command: "npm test" },
+		});
+		assert.ok(state.fullLog.some((l) => l === "$ npm test"));
+	});
+
+	it('formats read with path: log entry is "read /x"', () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "read",
+			args: { path: "/x" },
+		});
+		assert.ok(state.fullLog.some((l) => l === "read /x"));
+	});
+
+	it('formats write with path+content: log entry is "write /x (1 line)"', () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "write",
+			args: { path: "/x", content: "abc" },
+		});
+		assert.ok(state.fullLog.some((l) => l === "write /x (1 line)"));
+	});
+
+	it("state.currentToolArgs still stores raw JSON string (unchanged)", () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "bash",
+			args: { command: "npm test" },
+		});
+		// currentToolArgs must be the raw JSON string, not the formatted output
+		assert.equal(state.currentToolArgs, '{"command":"npm test"}');
+	});
+
+	it("state.currentTool is still the raw tool name (unchanged)", () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "read",
+			args: { path: "/x" },
+		});
+		assert.equal(state.currentTool, "read");
+	});
+
+	it("unknown tool uses fallback format with JSON preview", () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "web_search",
+			args: { query: "typescript" },
+		});
+		const logEntry = state.fullLog.find((l) => l.includes("web_search:"));
+		assert.ok(logEntry, "log entry should contain web_search:");
+		assert.ok(logEntry!.includes("typescript"));
+	});
+
+	it("no args produces bare tool format", () => {
+		const state = createState();
+		handleToolExecutionStart(state, {
+			kind: "tool_execution_start",
+			toolName: "bash",
+		});
+		assert.ok(state.fullLog.some((l) => l === "$"));
+	});
 });
 
 // ─── handleToolExecutionEnd ───────────────────────────────────────

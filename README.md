@@ -521,6 +521,11 @@ tool calls and results, raw output (collapsed), and audit score. Failed sub-agen
 show error output. Sub-agent entries are clearly distinguished from primary
 turns via `### Agent:` heading level.
 
+Tool calls are formatted in native pi rendering style:
+`$ command` for bash, `read /path:1-10` for read, `write /path (N lines)` for write,
+`edit /path` for edit, `grep /pattern/` for search tools, `ls /path` for ls,
+`find /path` for find. Unknown tools fall back to `toolName: JSON-args` format.
+
 The report header includes the session **mode** (TUI, RPC, JSON, or print) when
 available, distinguishing interactive sessions from automated and CI sessions.
 If a session **name** was set via `--name`/`-n` CLI flag or `pi.setSessionName()`,

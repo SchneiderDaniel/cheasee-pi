@@ -10,6 +10,7 @@ import type { AgentRunState } from "../config/types.ts";
 import type { NormalizedEvent, HandlerResult } from "./types.ts";
 import { phasePriority } from "./types.ts";
 import { pushLog } from "../agent/stream.ts";
+import { formatToolCall } from "./session-events.ts";
 import { extractTextFromContent } from "../config/formatting.ts";
 
 // ─── Re-export phasePriority for backward compat ─────────────────
@@ -34,8 +35,10 @@ export function handleToolExecutionStart(
 	state.currentToolArgs = ev.args ? JSON.stringify(ev.args).slice(0, 200) : undefined;
 	state.lastToolName = ev.toolName;
 	state.phase = "tool";
-	const logArgs = ev.args ? JSON.stringify(ev.args).slice(0, 200) : "";
-	pushLog(state, `🔧 ${ev.toolName}${logArgs ? ` ${logArgs}` : ""}`);
+	pushLog(
+		state,
+		formatToolCall(ev.toolName, ev.args as Record<string, unknown> | null | undefined),
+	);
 	return { flush: true, workingChange: prevPhase !== "tool" };
 }
 

@@ -15,6 +15,7 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	normalizeEscapes,
 } from "../agent/output.ts";
+import { isToolCallLine } from "../event/session-events.ts";
 import { getDebugLogger } from "../config/debug.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────
@@ -375,8 +376,9 @@ export function extractAgentCommentBody(output: string): string | null {
 			.filter((line) => {
 				const trimmed = line.trim();
 				if (!trimmed) return true; // keep blank lines
-				// Skip tool/thinking/instrumentation lines
+				// Skip tool/thinking/instrumentation lines (old + new format)
 				if (METADATA_LINE_RE.test(trimmed)) return false;
+				if (isToolCallLine(trimmed)) return false;
 				// Skip reasoning/self-talk lines that indicate LLM internal monologue
 				if (REASONING_LINE_RE.test(trimmed)) return false;
 				return true;

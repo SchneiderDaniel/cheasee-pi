@@ -5,6 +5,7 @@
 
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../config/debug.ts";
+import { isToolCallLine } from "../event/session-events.ts";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────
 
@@ -228,11 +229,15 @@ function extractLastJson(raw: string): string {
 	// double-quotes in thinking content do NOT corrupt brace matching.
 	const metadataLineRe = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}]/u;
 	let braceCandidateRaw = fenceSearchText;
-	if (metadataLineRe.test(fenceSearchText)) {
+	// Check if any filtering is needed (either old-format metadata lines or new-format tool call lines)
+	const needsMetadataFilter = metadataLineRe.test(fenceSearchText);
+	const needsToolCallFilter = fenceSearchText.split("\n").some((l) => isToolCallLine(l));
+	if (needsMetadataFilter || needsToolCallFilter) {
 		const lines = fenceSearchText.split("\n");
 		const filteredLines: string[] = [];
 		for (const line of lines) {
-			if (!metadataLineRe.test(line.trimStart())) {
+			const trimmed = line.trimStart();
+			if (!metadataLineRe.test(trimmed) && !isToolCallLine(trimmed)) {
 				filteredLines.push(line);
 			}
 		}

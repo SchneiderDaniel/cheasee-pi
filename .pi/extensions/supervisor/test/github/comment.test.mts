@@ -10,6 +10,7 @@ import {
 	extractStructuredAuditOutput,
 	extractAgentCommentBody,
 } from "../../github/comment.ts";
+import { isToolCallLine } from "../../event/session-events.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -315,6 +316,122 @@ describe("extractAgentCommentBody()", () => {
 		const output = JSON.stringify({ action: "COMPLETE", agentName: "architect" });
 		const result = extractAgentCommentBody(output);
 		assert.equal(result, null);
+	});
+});
+
+// ─── Tests: extractAgentCommentBody — new-format tool line filtering (Phase 7) ──
+// stripNoise inside extractAgentCommentBody must filter new-format tool call lines.
+
+describe("extractAgentCommentBody — new-format tool line filtering", () => {
+	it("filters $ command lines from comment body (sufficient content to pass >=50 char guard)", () => {
+		// stripNoise has a >=50 char guard — content must be long enough after stripping
+		const output = [
+			"COMMENT_BODY:",
+			"## Architecture",
+			"$ npm test",
+			"$ echo hello",
+			"$ ls -la",
+			"",
+			"The architecture uses a clean layered design with clear separation of concerns.",
+			"Each layer has well-defined boundaries making the system maintainable.",
+			"Core components include event system, agent runners, and pipeline stages.",
+			"COMMENT_BODY_END",
+		].join("\n");
+		const result = extractAgentCommentBody(output);
+		assert.ok(result, "should extract comment body");
+		assert.ok(result!.includes("## Architecture"), "section heading preserved");
+		assert.ok(result!.includes("clean layered design"), "content preserved");
+		assert.ok(!result!.includes("$ npm test"), "$ command line filtered");
+		assert.ok(!result!.includes("$ echo hello"), "$ echo line filtered");
+		assert.ok(!result!.includes("$ ls -la"), "$ ls line filtered");
+	});
+
+	it("filters read/write/edit/grep/ls/find tool lines from comment body", () => {
+		const output = [
+			"COMMENT_BODY:",
+			"## Analysis",
+			"read /path/file.ts:10-30",
+			"write /path/file.ts (5 lines)",
+			"grep /pattern/ in /src",
+			"ls /home",
+			"",
+			"The analysis reveals several important findings across the codebase.",
+			"Each finding has been verified with concrete evidence and reproduction.",
+			"COMMENT_BODY_END",
+		].join("\n");
+		const result = extractAgentCommentBody(output);
+		assert.ok(result, "should extract comment body");
+		assert.ok(result!.includes("## Analysis"), "section heading preserved");
+		assert.ok(result!.includes("analysis reveals several important findings"), "content preserved");
+		assert.ok(!result!.includes("read /path/file.ts"), "read line filtered");
+		assert.ok(!result!.includes("write /path/file.ts"), "write line filtered");
+		assert.ok(!result!.includes("grep /pattern/"), "grep line filtered");
+		assert.ok(!result!.includes("ls /home"), "ls line filtered");
+	});
+
+	it("filters fallback format (web_search: ...) lines from comment body", () => {
+		const output = [
+			"COMMENT_BODY:",
+			'web_search: {"query":"typescript"}',
+			'ripgrep_search: {"pattern":"TODO"}',
+			"",
+			"Research results show that TypeScript interfaces are the preferred pattern.",
+			"Multiple codebases confirm this best practice across the ecosystem.",
+			"COMMENT_BODY_END",
+		].join("\n");
+		const result = extractAgentCommentBody(output);
+		assert.ok(result, "should extract comment body");
+		assert.ok(result!.includes("Research results show"), "content preserved");
+		assert.ok(!result!.includes("web_search:"), "fallback format line filtered");
+		assert.ok(!result!.includes("ripgrep_search:"), "ripgrep fallback line filtered");
+	});
+
+	it("filters old-format 🔧 lines (backward compat)", () => {
+		const output = [
+			"COMMENT_BODY:",
+			'🔧 read_file {"path":"/x"}',
+			"🔧 bash: npm test",
+			'🔧 search_code {"query":"foo"}',
+			"",
+			"The project has several important findings across the codebase.",
+			"Each finding has been verified with concrete evidence for accuracy.",
+			"COMMENT_BODY_END",
+		].join("\n");
+		const result = extractAgentCommentBody(output);
+		assert.ok(result, "should extract comment body");
+		assert.ok(result!.includes("important findings"), "content preserved");
+		assert.ok(!result!.includes("🔧 read_file"), "old-format read_file line filtered");
+		assert.ok(!result!.includes("🔧 bash"), "old-format bash line filtered");
+		assert.ok(!result!.includes("🔧 search_code"), "old-format search_code line filtered");
+	});
+
+	it("preserves regular non-tool content", () => {
+		const output = [
+			"COMMENT_BODY:",
+			"## Architecture",
+			"",
+			"This is the actual design document with multiple paragraphs describing the system.",
+			"It contains the full architecture description for the entire project structure.",
+			"",
+			"### Key Decisions",
+			"- Decision 1: Use TypeScript for type safety across all modules",
+			"- Decision 2: Node.js built-in test runner for deterministic testing",
+			"COMMENT_BODY_END",
+		].join("\n");
+		const result = extractAgentCommentBody(output);
+		assert.ok(result, "should extract comment body");
+		assert.ok(result!.includes("## Architecture"), "heading preserved");
+		assert.ok(result!.includes("actual design document"), "paragraph preserved");
+		assert.ok(result!.includes("- Decision 1"), "bullet point preserved");
+	});
+
+	it("handles $ as bare dollar sign (no space) — isToolCallLine returns true for bare $", () => {
+		// bare "$" is a tool call line and should be filtered
+		assert.equal(isToolCallLine("$"), true);
+	});
+
+	it("extractAgentCommentBody is a function", () => {
+		assert.equal(typeof extractAgentCommentBody, "function");
 	});
 });
 

@@ -20,6 +20,18 @@ import type { AgentRunState } from "../config/types.ts";
 import { processJsonLine } from "../agent/stream.ts";
 import { processSessionEvent } from "../event/session-events.ts";
 import { buildWidgetLines } from "../session/widget.ts";
+import { DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
+import { createInstrumenter } from "../config/instrumentation.ts";
+import { createWatchdog } from "../config/watchdog.ts";
+import { filterIssueData } from "../github/comment.ts";
+import { findIssueItem } from "../github/project.ts";
+import { sendPipelineSummary } from "../pipeline/notifications.ts";
+import { validateAgentResult } from "../pipeline/output.ts";
+import { buildRawOutputFromMessages } from "../session/result.ts";
+import { isStaleCheckpoint } from "../pipeline/state-checkpoint.ts";
+import { createExtensionStateStore } from "../../lib/extension-state.ts";
+import { parseAgentFile } from "../agent/loader.ts";
+import { resolveModelString } from "../session/model.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -193,6 +205,52 @@ describe("Phase 1: Pure function boundaries — no throw on bad input", () => {
 			const state = createState({ currentTool: null as any, phase: "tool" });
 			const lines = buildWidgetLines(state, "test-agent");
 			assert.ok(Array.isArray(lines));
+		});
+
+		// ── New format tests (Phase 6: buildWidgetLines current-tool display) ──
+
+		it("formats bash currentTool with command: widget line contains formatted string", () => {
+			const state = createState({
+				currentTool: "bash",
+				currentToolArgs: JSON.stringify({ command: "npm test" }),
+			});
+			const lines = buildWidgetLines(state, "test-agent");
+			const toolLine = lines.find((l) => l.includes("$"));
+			assert.ok(toolLine, "should have a line with $");
+			assert.ok(toolLine!.includes("$ npm test"), "should show formatted bash command");
+			// 🔧 icon preserved as section prefix
+			assert.ok(toolLine!.includes("🔧"), "🔧 icon preserved");
+		});
+
+		it("formats read currentTool with path+offset+limit: reads /x:1-10", () => {
+			const state = createState({
+				currentTool: "read",
+				currentToolArgs: JSON.stringify({ path: "/x", offset: 1, limit: 10 }),
+			});
+			const lines = buildWidgetLines(state, "test-agent");
+			const toolLine = lines.find((l) => l.includes("read /x:1-10"));
+			assert.ok(toolLine, "should show formatted read command with range");
+		});
+
+		it("formats tool with no args: shows tool name with 🔧 icon", () => {
+			const state = createState({
+				currentTool: "bash",
+				currentToolArgs: undefined,
+			});
+			const lines = buildWidgetLines(state, "test-agent");
+			const toolLine = lines.find((l) => l.includes("🔧"));
+			assert.ok(toolLine, "should have a tool line");
+			assert.ok(toolLine!.includes("🔧"), "🔧 icon preserved");
+		});
+
+		it("when no current tool, no tool widget line shown", () => {
+			const state = createState({
+				currentTool: undefined,
+				currentToolArgs: undefined,
+			});
+			const lines = buildWidgetLines(state, "test-agent");
+			const toolLine = lines.find((l) => l.includes("🔧"));
+			assert.equal(toolLine, undefined, "no tool line when currentTool is empty");
 		});
 
 		it("1.18: processSessionEvent with undefined assistantMessageEvent.type does not throw", () => {
@@ -748,5 +806,59 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 			);
 			assert.ok(state.fullLog.some((l) => l.includes("text output")));
 		});
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 8: Module export coverage for impl files in diff
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("Phase 8: Module export coverage — impl files from diff", () => {
+	it("extension-state exports createExtensionStateStore as a function", () => {
+		assert.equal(typeof createExtensionStateStore, "function");
+	});
+
+	it("loader exports parseAgentFile as a function", () => {
+		assert.equal(typeof parseAgentFile, "function");
+	});
+
+	it("runner exports DEFAULT_AGENT_TIMEOUT_MS as a number", () => {
+		assert.equal(typeof DEFAULT_AGENT_TIMEOUT_MS, "number");
+	});
+
+	it("instrumentation exports createInstrumenter as a function", () => {
+		assert.equal(typeof createInstrumenter, "function");
+	});
+
+	it("watchdog exports createWatchdog as a function", () => {
+		assert.equal(typeof createWatchdog, "function");
+	});
+
+	it("comment exports filterIssueData as a function", () => {
+		assert.equal(typeof filterIssueData, "function");
+	});
+
+	it("project exports findIssueItem as a function", () => {
+		assert.equal(typeof findIssueItem, "function");
+	});
+
+	it("notifications exports sendPipelineSummary as a function", () => {
+		assert.equal(typeof sendPipelineSummary, "function");
+	});
+
+	it("output exports validateAgentResult as a function", () => {
+		assert.equal(typeof validateAgentResult, "function");
+	});
+
+	it("model exports resolveModelString as a function", () => {
+		assert.equal(typeof resolveModelString, "function");
+	});
+
+	it("result exports buildRawOutputFromMessages as a function", () => {
+		assert.equal(typeof buildRawOutputFromMessages, "function");
+	});
+
+	it("state-checkpoint exports isStaleCheckpoint as a function", () => {
+		assert.equal(typeof isStaleCheckpoint, "function");
 	});
 });

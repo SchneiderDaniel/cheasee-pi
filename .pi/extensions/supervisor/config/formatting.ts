@@ -2,6 +2,7 @@
 // Pure formatting functions — no Pi API, no filesystem side effects.
 
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
+import { isToolCallLine } from "../event/session-events.ts";
 import type { AgentOutput } from "./types.ts";
 
 export function formatTokens(n: number): string {
@@ -81,7 +82,14 @@ export function extractSummaryLine(
 
 	const firstLine = textOutput
 		.split("\n")
-		.find((l) => l.trim() && !l.startsWith("🔧") && !l.startsWith("📋") && !l.startsWith("💭"));
+		.find(
+			(l) =>
+				l.trim() &&
+				!l.startsWith("🔧") &&
+				!l.startsWith("📋") &&
+				!l.startsWith("💭") &&
+				!isToolCallLine(l.trim()),
+		);
 	if (firstLine) {
 		return firstLine.trim().slice(0, 120);
 	}
