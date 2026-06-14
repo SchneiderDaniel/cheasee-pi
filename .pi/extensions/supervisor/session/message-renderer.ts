@@ -5,6 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorMessageDetails } from "../config/types.ts";
 import { Container, Spacer, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
+import { isToolCallLine } from "../event/session-events.ts";
 
 export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, _options: any, theme: any) => {
@@ -77,7 +78,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			for (const line of outputLines) {
 				if (!line.trim()) continue; // Skip empty lines
 				let styledLine: string;
-				if (line.startsWith("🔧 ")) {
+				if (isToolCallLine(line)) {
 					styledLine = theme.fg("toolTitle", line);
 				} else if (line.startsWith("✓ ")) {
 					styledLine = theme.fg("success", line);
