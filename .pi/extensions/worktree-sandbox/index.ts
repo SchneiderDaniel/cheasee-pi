@@ -80,39 +80,6 @@ export function hasShellExpansion(token: string): boolean {
 const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
 
 /**
- * Find the first command that contains shell expansion syntax anywhere.
- * Returns the suspicious token or null.
- *
- * Checks both:
- * 1. Parsed tokens from shell-quote (catches ~, {, *, backtick, $() tokens)
- * 2. Raw command string for $VAR syntax (shell-quote resolves $VAR to empty string,
- *    so the $ sign is lost in parsed output)
- */
-export function findSuspiciousArg(command: string, sandboxRoot: string): string | null {
-	const tokens = tokenizeCommand(command);
-
-	// Check parsed tokens for expansion syntax
-	for (const token of tokens) {
-		if (typeof token === "string") {
-			if (token !== "" && hasShellExpansion(token)) {
-				return token;
-			}
-		}
-		if (typeof token === "object" && "op" in token && token.op === "glob") {
-			return token.pattern ?? command;
-		}
-	}
-
-	// Check the raw command for variable expansion and command substitution
-	// that shell-quote resolves to empty string (e.g., $HOME, ${HOME}, $(...), `...`)
-	if (/[$`]/.test(command)) {
-		return command;
-	}
-
-	return null;
-}
-
-/**
  * Shell-aware cd command safety check.
  *
  * Uses shell-quote parse() to correctly identify command boundaries

@@ -7,8 +7,9 @@
  */
 
 import assert from "node:assert";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { parseAgentFile } from "../agent/loader.ts";
 
 // ---------------------------------------------------------------------------
 // resolveExtensions — duplicated from supervisor.ts for pure-unit testing
@@ -274,28 +275,6 @@ describe("edge cases", () => {
 // Integration test — verify existing agent .md files parse extensions field
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from "node:fs";
-
-function parseAgentFileExtensions(filePath: string): string | undefined {
-	const content = readFileSync(filePath, "utf-8");
-	const match = content.match(/^---\n([\s\S]*?)\n---/);
-	if (!match) return undefined;
-	for (const line of match[1]!.split("\n")) {
-		const kv = line.match(/^extensions\s*:\s*(.+)$/);
-		if (kv) {
-			let val = kv[1]!.trim();
-			if (
-				(val.startsWith('"') && val.endsWith('"')) ||
-				(val.startsWith("'") && val.endsWith("'"))
-			) {
-				val = val.slice(1, -1);
-			}
-			return val;
-		}
-	}
-	return undefined;
-}
-
 describe("production agent files — extensions field", () => {
 	const agents = [
 		{
@@ -320,8 +299,8 @@ describe("production agent files — extensions field", () => {
 
 	for (const agent of agents) {
 		it(`${agent.name}.md has extensions field matching expected`, () => {
-			const val = parseAgentFileExtensions(`.pi/extensions/supervisor/agents/${agent.name}.md`);
-			assert.strictEqual(val, agent.expected);
+			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${agent.name}.md`);
+			assert.strictEqual(config.extensions, agent.expected);
 		});
 	}
 
@@ -340,8 +319,8 @@ describe("production agent files — extensions field", () => {
 describe("production agents resolve without supervisor in output", () => {
 	for (const name of ["architect", "test-designer", "developer", "auditor"]) {
 		it(`${name} extensions resolve without supervisor, with context-info`, () => {
-			const val = parseAgentFileExtensions(`.pi/extensions/supervisor/agents/${name}.md`);
-			const result = resolveExtensions(val);
+			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${name}.md`);
+			const result = resolveExtensions(config.extensions);
 			// Must not contain --no-extensions (should have --extension flags)
 			assert.notStrictEqual(result[0], "--no-extensions");
 			// Must not contain "supervisor" in any path

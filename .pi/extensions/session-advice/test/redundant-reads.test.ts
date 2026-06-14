@@ -36,16 +36,106 @@ describe("detectRedundantReads", () => {
 	});
 
 	it("3 reads of same file across turns 0,1,2 → 2 signals (each pair within 2-turn window)", () => {
-		const data = makeSession([
-			readEntry("/repo/src/app.ts", 0),
-			readEntry("/repo/src/app.ts", 1),
-			readEntry("/repo/src/app.ts", 2),
-		]);
-		assert.strictEqual(
-			detectRedundantReads(data).length,
-			2,
-			"should produce 2 signals (1 per pair)",
+		const signals = detectRedundantReads(
+			makeSession([
+				readEntry("/repo/src/app.ts", 0),
+				readEntry("/repo/src/app.ts", 1),
+				readEntry("/repo/src/app.ts", 2),
+			]),
 		);
+		assert.strictEqual(signals.length, 2, "should produce 2 signals (1 per pair)");
+		// Each signal's wastedTokens covers disjoint entry sets — no double-count.
+		// Entry text is "/repo/src/app.ts" (15 chars) → ceil(15/4) = 4 tokens per entry.
+		assert.strictEqual(signals[0].wastedTokens, 4, "signal1: redundant entry at turn 1 = 4 tokens");
+		assert.strictEqual(signals[1].wastedTokens, 4, "signal2: redundant entry at turn 2 = 4 tokens");
+	});
+
+	it("3 reads with explicit assistantCost → no double-count", () => {
+		const signals = detectRedundantReads(
+			makeSession([
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 0,
+					assistantCost: 100,
+				},
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 1,
+					assistantCost: 200,
+				},
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 2,
+					assistantCost: 300,
+				},
+			]),
+		);
+		assert.strictEqual(signals.length, 2, "should produce 2 signals");
+		// Signal1: redundantEntries = [entry[1] (cost 200)] → wastedTokens = 200
+		// Signal2: redundantEntries = [entry[2] (cost 300)] → wastedTokens = 300
+		// No entry appears in both signals' redundantEntries.
+		assert.strictEqual(signals[0].wastedTokens, 200, "signal1: entry[1] cost = 200");
+		assert.strictEqual(signals[1].wastedTokens, 300, "signal2: entry[2] cost = 300");
+	});
+
+	it("4 reads of same file across turns 0,1,2,3 → 3 signals, each with one entry in redundantEntries", () => {
+		const signals = detectRedundantReads(
+			makeSession([
+				readEntry("/repo/src/app.ts", 0),
+				readEntry("/repo/src/app.ts", 1),
+				readEntry("/repo/src/app.ts", 2),
+				readEntry("/repo/src/app.ts", 3),
+			]),
+		);
+		assert.strictEqual(signals.length, 3, "should produce 3 signals");
+		// Each signal's redundantEntries contains exactly one entry.
+		// Signal1: redundant = [turn 0] → redundantEntries = [entry[1]]
+		// Signal2: redundant = [turn 1] (turn 0 reported) → redundantEntries = [entry[2]]
+		// Signal3: redundant = [turn 2] (turns 0,1 reported) → redundantEntries = [entry[3]]
+		for (let i = 0; i < 3; i++) {
+			assert.strictEqual(signals[i].occurrences, 1, `signal${i}: occurrences should be 1`);
+		}
+	});
+
+	it("exact 2-turn boundary: same file at turns 0 and 2 → 1 signal", () => {
+		const signals = detectRedundantReads(
+			makeSession([
+				readEntry("/repo/src/app.ts", 0),
+				{
+					type: "tool_use",
+					toolName: "bash",
+					args: { command: "npm test" },
+					text: "npm test",
+					turnIndex: 0,
+				},
+				readEntry("/repo/src/app.ts", 2),
+			]),
+		);
+		assert.strictEqual(signals.length, 1, "distance ≤ 2 should flag");
+		// redundantEntries = [entry[2]] only, entry[0] excluded
+		assert.strictEqual(signals[0].occurrences, 1, "should count 1 redundant occurrence");
+	});
+
+	it("gap then return: reads at turns 0, 3 (gap >2), 4 (within window of turn 3) → 1 signal", () => {
+		const signals = detectRedundantReads(
+			makeSession([
+				readEntry("/repo/src/app.ts", 0),
+				readEntry("/repo/src/app.ts", 3),
+				readEntry("/repo/src/app.ts", 4),
+			]),
+		);
+		assert.strictEqual(signals.length, 1, "only turn 4 is redundant with turn 3");
+		// redundantEntries = [entry[4]] — turn 3 is baseline, turn 4 is waste
+		assert.strictEqual(signals[0].occurrences, 1, "should count 1 redundant occurrence");
 	});
 
 	it("empty session → 0 signals", () => {

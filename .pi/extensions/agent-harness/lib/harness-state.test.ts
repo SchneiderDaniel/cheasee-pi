@@ -12,18 +12,27 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createHarnessState } from "./harness-state.ts";
+import { createHarnessState, CACHE_TTL_MS } from "./harness-state.ts";
 import { CACHE_TTL_TURNS } from "./harness-rules.ts";
 
 // ── HarnessState ──
 
 describe("HarnessState", () => {
+	it("createHarnessState exports the factory function", () => {
+		assert.equal(typeof createHarnessState, "function");
+	});
+
+	it("CACHE_TTL_MS exports a positive number", () => {
+		assert.equal(typeof CACHE_TTL_MS, "number");
+		assert.ok(CACHE_TTL_MS > 0);
+	});
+
 	it("createHarnessState returns isolated state", () => {
 		const s1 = createHarnessState();
 		const s2 = createHarnessState();
 
 		s1.toolCallIndex = 5;
-		s1.readCache.set("k", "v", 0);
+		s1.readCache.set("k", 0);
 
 		assert.equal(s2.toolCallIndex, 0);
 		assert.equal(s2.readCache.get("k", 0), null);
