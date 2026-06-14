@@ -14,39 +14,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { dirname } from "node:path";
-
-// ── Shared extension state writer ──
-
-function writeExtState(value: boolean): void {
-	try {
-		const statePath = ".pi/state/session-extensions.json";
-		fs.mkdirSync(dirname(statePath), { recursive: true });
-		let data: Record<string, boolean | null> = {};
-		try {
-			const raw = fs.readFileSync(statePath, "utf-8");
-			data = JSON.parse(raw);
-		} catch {
-			// Fresh file
-		}
-		data.advice = value;
-		fs.writeFileSync(statePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-	} catch {
-		// Best-effort
-	}
-}
-
-export function getSessionAdviceState(): boolean {
-	try {
-		const statePath = ".pi/state/session-extensions.json";
-		const raw = fs.readFileSync(statePath, "utf-8");
-		const data = JSON.parse(raw) as Record<string, boolean | null>;
-		return data.advice ?? true;
-	} catch {
-		return true;
-	}
-}
-
+import { ExtensionState, FileStore, SessionExtensionsSchema } from "../lib/extensionState.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AdvicePipeline } from "./advice-pipeline.ts";
 import {
@@ -150,6 +118,10 @@ function parseCommandArgsSimple(argv: string[]): PiArgs {
 
 const pipeline = new AdvicePipeline();
 
+// ── Shared extension state ──
+
+const sessionState = new ExtensionState(new FileStore(), SessionExtensionsSchema);
+
 export {
 	generateAdviceReport,
 	writeAdvice,
@@ -161,10 +133,10 @@ export {
 
 export default function (pi: ExtensionAPI): void {
 	let enabled = true;
-	writeExtState(true);
 
+	/** Persist the current enabled state to disk (best-effort, fire-and-forget). */
 	function syncAdviceState() {
-		writeExtState(enabled);
+		sessionState.set("advice", enabled).catch(() => {});
 	}
 
 	pi.registerCommand("session-advice", {

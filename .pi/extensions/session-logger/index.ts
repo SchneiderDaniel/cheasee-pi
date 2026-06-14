@@ -13,26 +13,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
-
-// ── Shared extension state writer (file-based to avoid dual-module hazard) ──
-
-function writeExtState(value: boolean): void {
-	try {
-		const statePath = ".pi/state/session-extensions.json";
-		fs.mkdirSync(path.dirname(statePath), { recursive: true });
-		let data: Record<string, boolean | null> = {};
-		try {
-			const raw = fs.readFileSync(statePath, "utf-8");
-			data = JSON.parse(raw);
-		} catch {
-			// Fresh file
-		}
-		data.logger = value;
-		fs.writeFileSync(statePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
-	} catch {
-		// Best-effort, don't crash extension
-	}
-}
+import { ExtensionState, FileStore, SessionExtensionsSchema } from "../lib/extensionState.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LoggerPipeline } from "./pipeline.ts";
 import { generateMissingReports } from "./report.ts";
@@ -74,14 +55,14 @@ export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined
  */
 export default function (pi: ExtensionAPI): void {
 	const gate = createSessionLoggerGate();
-	writeExtState(true);
+	sessionState.set("logger", true); // Skip await — best-effort, don't crash extension
 
 	pi.registerCommand("session-logger", {
 		description: "Toggle session report on/off (takes effect next session)",
 		handler: async (args, ctx) => {
 			const cmd = (args ?? "").trim().toLowerCase();
 			const enabled = toggleSessionLoggerGate(gate, cmd);
-			writeExtState(enabled);
+			await sessionState.set("logger", enabled);
 			ctx.ui.notify(`Session logger: ${enabled ? "ON" : "OFF"} (applies to next session)`, "info");
 		},
 	});
@@ -167,3 +148,7 @@ export default function (pi: ExtensionAPI): void {
 
 // Re-export for backward compatibility (existing tests import from index.ts)
 export { generateMissingReports };
+
+// ── Shared extension state ──
+
+const sessionState = new ExtensionState(new FileStore(), SessionExtensionsSchema);
