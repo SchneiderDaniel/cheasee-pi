@@ -79,6 +79,8 @@ export interface FilteredIssueData {
 	body: string;
 	/** Only comments from trusted codeowners */
 	comments: Array<{ author: string; body: string }>;
+	/** Issue labels (unfiltered — public metadata, not codeowner-gated) */
+	labels?: string[];
 }
 
 /** DebugLogger type — re-exported from debug.ts (canonical definition) */

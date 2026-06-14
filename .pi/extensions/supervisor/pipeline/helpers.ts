@@ -63,7 +63,7 @@ export async function fetchIssue(
 			"--repo",
 			config.repo,
 			"--json",
-			"number,title,body,author,comments",
+			"number,title,body,author,comments,labels",
 		]).then((r) => JSON.parse(r.stdout || "{}"));
 	} catch {
 		const msg = `Issue #${issueNum} not found in ${config.repo}`;
@@ -165,7 +165,7 @@ export async function fetchFreshIssueData(
 			"--repo",
 			config.repo,
 			"--json",
-			"number,title,body,author,comments",
+			"number,title,body,author,comments,labels",
 		]);
 		return filterIssueData(JSON.parse(raw.stdout || "{}"), config.codeowners);
 	} catch {
