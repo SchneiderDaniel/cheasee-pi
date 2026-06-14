@@ -409,4 +409,155 @@ describe("worktree-sandbox gates", () => {
 			assert.equal(result, undefined);
 		});
 	});
+
+	// ═════════════════════════════════════════════════════════════
+	// Phase 4: Integration through sandbox handler — bash tool
+	// ═════════════════════════════════════════════════════════════
+
+	describe("Phase 4: Integration — bash handler blocks unsafe commands", () => {
+		it("safe cd src passes through", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd src" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			// Not blocked — command is rewritten
+			assert.equal(result, undefined);
+			assert.ok((event.input.command as string).startsWith('cd "' + sandboxDir + '" &&'));
+		});
+
+		it("blocks cd to /etc", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd /etc" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("/etc"));
+		});
+
+		it("blocks cd with variable expansion $HOME", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd $HOME" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks cd with command substitution", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd $(echo /etc)" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks cd with tilde expansion", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd ~/escape" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks cd piped from echo", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "echo hi | cd /etc" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks bare cd", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cd" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks redirect to absolute path", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "echo hi > /etc/passwd" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks cp with variable destination", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "cp a $DEST" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks touch to absolute path", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "touch /etc/passwd" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("blocks combined unsafe command at first cd", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeEvent("bash", { command: "echo hi | cd $HOME && echo data > $OUTFILE" });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+	});
 });
