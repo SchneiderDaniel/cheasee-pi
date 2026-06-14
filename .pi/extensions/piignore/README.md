@@ -97,8 +97,21 @@ the handler treats the project as untrusted (fail-closed) and applies safe-defau
 ## Global Companion (Optional)
 
 The companion extension `global-companion.ts` participates in the `project_trust`
-event to warn about restrictive `.piignore` patterns before trust is granted.
-It does **not** make trust decisions — it only observes and warns.
+event to warn about potentially problematic `.piignore` patterns before trust is
+granted. It does **not** make trust decisions — it only observes and warns.
+
+### Detects
+
+- **Restrictive patterns** — `*`, `**`, `/`, `/*`, `/**` that match everything
+- **Unanchored generic directories** — `build/`, `dist/`, `tmp/`, `cache/`, `logs/`,
+  `node_modules/` and other commonly auto-generated directories that may block
+  important paths at any depth
+- **Broad file-type globs** — `*.log`, `*.db`, `*.sqlite`, `*.tar`, `*.zip`,
+  `*.lock` and other non-essential file types matched project-wide
+- **Name-heuristic patterns** — `**/*secret*`, `**/*token*`, `**/*password*`
+  and similar patterns that match based on filename substring heuristics
+
+All warnings are grouped into a single notification to avoid warning fatigue.
 
 ### Install
 
