@@ -26,6 +26,44 @@ describe("analyzeSession — dedup/merge", () => {
 		);
 	});
 
+	it("redundant-read merge: 3 reads with explicit costs → no double-count in wastedTokens", () => {
+		const signals = analyzeSession(
+			makeSession([
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 0,
+					assistantCost: 100,
+				},
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 1,
+					assistantCost: 200,
+				},
+				{
+					type: "tool_use",
+					toolName: "read",
+					args: { path: "/repo/src/app.ts" },
+					text: "/repo/src/app.ts",
+					turnIndex: 2,
+					assistantCost: 300,
+				},
+			]),
+		);
+		const merged = signals.filter((s) => s.signal === "redundant-read");
+		assert.strictEqual(merged.length, 1, "should merge into 1 signal");
+		// Signal1 had redundantEntries = [entry[1] (cost 200)], Signal2 had [entry[2] (cost 300)].
+		// After merge: wastedTokens = 200 + 300 = 500 (entry[1] counted once, entry[2] counted once).
+		// Without the fix, wastedTokens would be 700 (entry[1] double-counted in both signals).
+		assert.strictEqual(merged[0].wastedTokens, 500, "no double-count: 200 + 300 = 500");
+		assert.strictEqual(merged[0].occurrences, 2, "2 total redundant occurrences");
+	});
+
 	it("2 detectors produce different keys → 2 separate signals", () => {
 		const data = makeSession([
 			bashEntry("cat file | grep foo", 0),
