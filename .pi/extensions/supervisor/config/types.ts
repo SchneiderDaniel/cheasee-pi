@@ -171,6 +171,8 @@ export interface SupervisorMessageDetails {
 	hasRawOutput?: boolean;
 	/** Audit score extracted from auditor output, e.g. "5/6" */
 	auditScore?: string;
+	/** Task prompt given to the agent (displayed in expanded view) */
+	taskPrompt?: string;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────

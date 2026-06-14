@@ -875,6 +875,7 @@ export async function handleSupervisorCommand(
 					output: result.output,
 					summaryLine: result.summaryLine,
 					thinkingOutput: result.thinkingOutput,
+					taskPrompt: task,
 				},
 				auditInfo ? `${auditInfo.score.passing}/${auditInfo.score.total}` : undefined,
 			);
