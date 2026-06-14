@@ -7,6 +7,14 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { PipelineAgentResult, PrCreationResult } from "../../config/types.ts";
 import { handlePostPipeline } from "../../pipeline/handler.ts";
+import {
+	writeCheckpointFile,
+	deleteCheckpointFile,
+	readCheckpointFile,
+} from "../../pipeline/state-checkpoint.ts";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ─── Call tracking ────────────────────────────────────────────────
 
@@ -606,5 +614,178 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			(c) => c.cmd === "git" && (c.args[0] === "worktree" || c.args[0] === "branch"),
 		);
 		assert.ok(cleanupCalls.length > 0, "cleanup should run when no PR failure even in debug mode");
+	});
+
+	// ─── Phase 4: deleteCheckpointFile integration ─────────────────────
+
+	describe("handlePostPipeline — deleteCheckpointFile integration (Phase 4)", () => {
+		it("calls deleteCheckpointFile in finally block (state file deleted after run)", async () => {
+			// Create a temp dir with a state file
+			const tmpDir = mkdtempSync(join(tmpdir(), "handler-test-delete-"));
+			mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+
+			// Write a state file before calling handlePostPipeline
+			const stateResult = writeCheckpointFile(tmpDir, {
+				issueNum: 42,
+				checkpoint: "pre-auditor",
+				worktreePath: "/repo/../worktrees/worktree-git-issue-42-test",
+				worktreeBranch: "worktree-git-issue-42-test",
+				startedAt: new Date().toISOString(),
+			});
+			assert.equal(stateResult.ok, true);
+
+			const statePath = join(tmpDir, ".pi", "supervisor-state.json");
+			assert.equal(existsSync(statePath), true);
+
+			// Create ctx with tmpDir as cwd
+			const ctx = createMockCtx(true);
+			const ctxWithCwd = {
+				...ctx,
+				cwd: tmpDir,
+			} as unknown as ExtensionCommandContext;
+
+			// Run handlePostPipeline — merge skipped (non-Done status), cleanup runs
+			const calls: ExecCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "", stderr: "" }, // cleanup: git worktree remove
+					{ code: 0, stdout: "", stderr: "" }, // cleanup: git worktree prune
+					{ code: 0, stdout: "", stderr: "" }, // cleanup: git branch -D
+				],
+				calls,
+			);
+
+			await handlePostPipeline(
+				42,
+				"Test issue",
+				"Architecture", // not Done → merge skipped
+				[mockAgentResult],
+				mockConfig as any,
+				pi,
+				ctxWithCwd,
+				"/repo/../worktrees/worktree-git-issue-42-test",
+				"worktree-git-issue-42-test",
+			);
+
+			// State file should be deleted after handlePostPipeline runs
+			assert.equal(
+				existsSync(statePath),
+				false,
+				"state file should be deleted after handlePostPipeline",
+			);
+
+			// Cleanup temp dir
+			rmSync(tmpDir, { recursive: true, force: true });
+		});
+
+		it("deleteCheckpointFile runs even when handlePostPipelineMerge throws", async () => {
+			const tmpDir = mkdtempSync(join(tmpdir(), "handler-test-merge-throws-"));
+			mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+
+			// Write a state file before calling handlePostPipeline
+			const stateResult = writeCheckpointFile(tmpDir, {
+				issueNum: 42,
+				checkpoint: "pre-auditor",
+				worktreePath: "/repo/../worktrees/worktree-git-issue-42-test",
+				worktreeBranch: "worktree-git-issue-42-test",
+				startedAt: new Date().toISOString(),
+			});
+			assert.equal(stateResult.ok, true);
+
+			const statePath = join(tmpDir, ".pi", "supervisor-state.json");
+			assert.equal(existsSync(statePath), true);
+
+			const ctx = createMockCtx(true);
+			const ctxWithCwd = {
+				...ctx,
+				cwd: tmpDir,
+			} as unknown as ExtensionCommandContext;
+
+			// handlePostPipelineMerge will fail (gh pr list returns error)
+			const calls: ExecCall[] = [];
+			const pi = createMockPi(
+				[
+					// merge fails (gh pr list)
+					{ code: 1, stdout: "", stderr: "network error" },
+					// cleanup still runs
+					{ code: 0, stdout: "", stderr: "" },
+					{ code: 0, stdout: "", stderr: "" },
+					{ code: 0, stdout: "", stderr: "" },
+				],
+				calls,
+			);
+
+			await handlePostPipeline(
+				42,
+				"Test issue",
+				"Done",
+				[mockAgentResult],
+				mockConfig as any,
+				pi,
+				ctxWithCwd,
+				"/repo/../worktrees/worktree-git-issue-42-test",
+				"worktree-git-issue-42-test",
+			);
+
+			// State file should still be deleted (finally block runs)
+			assert.equal(
+				existsSync(statePath),
+				false,
+				"state file should be deleted even when merge throws",
+			);
+
+			rmSync(tmpDir, { recursive: true, force: true });
+		});
+
+		it("deleteCheckpointFile called in finally after cleanup completes", async () => {
+			const tmpDir = mkdtempSync(join(tmpdir(), "handler-test-order-"));
+			mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+
+			const stateResult = writeCheckpointFile(tmpDir, {
+				issueNum: 42,
+				checkpoint: "pre-tsc",
+				worktreePath: "/repo/../worktrees/worktree-git-issue-42-test",
+				worktreeBranch: "worktree-git-issue-42-test",
+				startedAt: new Date().toISOString(),
+			});
+			assert.equal(stateResult.ok, true);
+
+			const ctx = createMockCtx(true);
+			const ctxWithCwd = {
+				...ctx,
+				cwd: tmpDir,
+			} as unknown as ExtensionCommandContext;
+
+			const calls: ExecCall[] = [];
+			const pi = createMockPi(
+				[
+					// cleanup: git worktree remove
+					{ code: 0, stdout: "", stderr: "" },
+					// cleanup: git worktree prune
+					{ code: 0, stdout: "", stderr: "" },
+					// cleanup: git branch -D
+					{ code: 0, stdout: "", stderr: "" },
+				],
+				calls,
+			);
+
+			await handlePostPipeline(
+				42,
+				"Test issue",
+				"Architecture",
+				[mockAgentResult],
+				mockConfig as any,
+				pi,
+				ctxWithCwd,
+				"/repo/../worktrees/worktree-git-issue-42-test",
+				"worktree-git-issue-42-test",
+			);
+
+			// The state file should be deleted — verify by reading
+			const readResult = readCheckpointFile(tmpDir);
+			assert.equal(readResult, null, "state file should be deleted");
+
+			rmSync(tmpDir, { recursive: true, force: true });
+		});
 	});
 });
