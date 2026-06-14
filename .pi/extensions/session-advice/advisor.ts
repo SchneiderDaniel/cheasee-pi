@@ -9,7 +9,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { BashCommand } from "../agent-harness/lib/bash-command.ts";
+import { isBashSearch, isBashFileRead, isBashSearchOrRead } from "../lib/bash-query.ts";
 
 // ── Types ──
 
@@ -187,14 +187,6 @@ function shortPath(p: string): string {
 	return idx >= 0 ? p.slice(idx + 1) : p;
 }
 
-/** Check if a bash command pipes from a file-reading command to grep/rg. */
-function isPipedFileGrep(cmd: string): boolean {
-	const low = cmd.toLowerCase();
-	return (
-		/^(cat|head|tail|less|more)\s/.test(low) && (low.includes("| grep") || low.includes("| rg"))
-	);
-}
-
 function getEntryPath(e: SessionEntry): string {
 	return ((e.args?.path as string) ?? e.text ?? "") as string;
 }
@@ -308,7 +300,7 @@ function detectBashGrep(data: SessionData): WasteSignal[] {
 	for (const e of data.entries) {
 		if (e.toolName !== "bash") continue;
 		const cmd = e.text ?? "";
-		if (new BashCommand(cmd).isSearch() || isPipedFileGrep(cmd)) {
+		if (isBashSearch(cmd)) {
 			bashGrepCalls.push(e);
 		}
 	}
@@ -346,7 +338,7 @@ function detectBashCat(data: SessionData): WasteSignal[] {
 	for (const e of data.entries) {
 		if (e.toolName !== "bash") continue;
 		const cmd = e.text ?? "";
-		if (new BashCommand(cmd).isFileRead()) {
+		if (isBashFileRead(cmd)) {
 			bashReadCalls.push(e);
 		}
 	}
@@ -510,20 +502,6 @@ const DISCOVERY_TOOLS = new Set([
 	"web_crawl",
 	"ask_user",
 ]);
-
-/** True if a bash command is a search/read operation (grep, cat, head, tail). */
-function isBashSearchOrRead(cmd: string): boolean {
-	if (!cmd) return false;
-	const low = cmd.toLowerCase();
-	// Check piped grep/rg from file-reading commands only
-	if (/^(cat|head|tail|less|more)\s/.test(low) && (low.includes("| grep") || low.includes("| rg")))
-		return true;
-	// Check file read commands
-	if (low.startsWith("cat ") || low.startsWith("head ") || low.startsWith("tail ")) return true;
-	// Check using rg/grep/find as primary command
-	if (low.startsWith("grep ") || low.startsWith("rg ") || low.startsWith("find ")) return true;
-	return false;
-}
 
 /**
  * D7: Turn inefficiency — turns with 0 file changes but many tool calls.

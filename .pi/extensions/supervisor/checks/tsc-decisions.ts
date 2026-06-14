@@ -3,24 +3,15 @@
 // Pure function — no Pi API, no process spawning.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { TscDiagnostic } from "../../tsc-checkpoint/index.ts";
+import {
+	type TscDiagnostic,
+	type TscCheckpointResult,
+	type TscCheckpointDecision,
+	formatTscDiagnostics,
+} from "../../lib/tsc-types.ts";
 
-/**
- * Result from a tsc checkpoint run.
- */
-export interface TscCheckpointResult {
-	diagnostics: TscDiagnostic[];
-	hasErrors: boolean;
-}
-
-/**
- * Decision output for the pipeline.
- */
-export interface TscCheckpointDecision {
-	nextStatus: string;
-	note: string;
-	tscTriggered: boolean;
-}
+// Re-export for consumers that import from this module.
+export type { TscDiagnostic, TscCheckpointResult, TscCheckpointDecision };
 
 /**
  * Decide the next pipeline status based on tsc checkpoint result.
@@ -47,7 +38,6 @@ export async function determineTscCheckpointDecision(
 	}
 
 	if (result.hasErrors) {
-		const { formatTscDiagnostics } = await import("../../tsc-checkpoint/index.ts");
 		const formatted = formatTscDiagnostics(result.diagnostics);
 		return {
 			nextStatus: "Implementation",
