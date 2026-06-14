@@ -18,7 +18,12 @@ function shortPath(p: string): string {
  */
 export function detectRedundantReads(data: SessionData): WasteSignal[] {
 	const results: WasteSignal[] = [];
-	const reads: Array<{ path: string; turnIndex: number; entry: SessionEntry }> = [];
+	const reads: Array<{
+		path: string;
+		turnIndex: number;
+		entry: SessionEntry;
+		reported?: boolean;
+	}> = [];
 
 	for (const e of data.entries) {
 		if (e.toolName !== "read") continue;
@@ -27,7 +32,10 @@ export function detectRedundantReads(data: SessionData): WasteSignal[] {
 
 		const redundant = reads.filter(
 			(r) =>
-				r.path === p && Math.abs(r.turnIndex - e.turnIndex) <= 2 && r.turnIndex !== e.turnIndex,
+				r.path === p &&
+				Math.abs(r.turnIndex - e.turnIndex) <= 2 &&
+				r.turnIndex !== e.turnIndex &&
+				!r.reported,
 		);
 		if (redundant.length > 0) {
 			const allEntries = [...redundant.map((r) => r.entry), e];
@@ -48,9 +56,16 @@ export function detectRedundantReads(data: SessionData): WasteSignal[] {
 				],
 				context: { files: [p], turnRange: [firstTurn, lastTurn] },
 			});
+			// Mark redundant entries as reported so each entry's cost
+			// appears in exactly one signal's redundantEntries.
+			for (const r of redundant) r.reported = true;
 		}
 
-		reads.push({ path: p, turnIndex: e.turnIndex, entry: e });
+		reads.push({
+			path: p,
+			turnIndex: e.turnIndex,
+			entry: e,
+		});
 	}
 
 	return results;
