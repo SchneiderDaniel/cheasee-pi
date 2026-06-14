@@ -204,11 +204,19 @@ export class ExtensionState<S extends TObject<TProperties>> {
 	 */
 	async set<K extends keyof Static<S>>(key: K, value: Static<S>[K]): Promise<void> {
 		const prev = this.writeLock;
-		this.writeLock = prev.then(async () => {
-			const parsed = await this.readWithDefaults();
-			(parsed as Record<string, unknown>)[key as string] = value;
-			await this.store.write(JSON.stringify(parsed, null, 2) + "\n");
-		});
+		this.writeLock = prev
+			.then(async () => {
+				const parsed = await this.readWithDefaults();
+				(parsed as Record<string, unknown>)[key as string] = value;
+				await this.store.write(JSON.stringify(parsed, null, 2) + "\n");
+			})
+			.catch((err: unknown) => {
+				// Reset the write lock so future writes aren't permanently blocked.
+				// Without this, a single write failure would break the promise chain
+				// and all subsequent set() calls would silently no-op.
+				this.writeLock = Promise.resolve();
+				throw err;
+			});
 		return this.writeLock;
 	}
 

@@ -316,6 +316,30 @@ describe("ExtensionState — error handling", () => {
 		await assert.rejects(() => state.set("advice", false), /write failed/);
 	});
 
+	it("set after write failure still works (write queue recovery)", async () => {
+		// Real store for persistence, wrapped to fail on first write
+		const innerStore = new InMemoryStore();
+		await innerStore.write('{"advice": true, "logger": true}');
+		let writeCount = 0;
+		const flakyStore: ExtensionStateStore = {
+			read: async () => innerStore.read(),
+			write: async (data: string) => {
+				writeCount++;
+				if (writeCount === 1) throw new Error("first write fails");
+				await innerStore.write(data);
+			},
+		};
+		const state = new ExtensionState(flakyStore, SessionExtensionsSchema);
+
+		// First set fails
+		await assert.rejects(() => state.set("advice", false), /first write fails/);
+
+		// Second set succeeds — write queue was reset
+		await assert.doesNotReject(() => state.set("advice", false));
+		assert.strictEqual(await state.get("advice"), false);
+		assert.strictEqual(writeCount, 2);
+	});
+
 	it("without onError, errors propagate as rejected promise", async () => {
 		const rejectingStore: ExtensionStateStore = {
 			read: async () => '{"advice": true, "logger": true}',

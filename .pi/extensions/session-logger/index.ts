@@ -11,8 +11,6 @@
  * Report generation in report.ts.
  */
 
-import * as path from "node:path";
-import * as fs from "node:fs";
 import { ExtensionState, FileStore, SessionExtensionsSchema } from "../lib/extensionState.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LoggerPipeline } from "./pipeline.ts";
