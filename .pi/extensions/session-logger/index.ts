@@ -11,7 +11,8 @@
  * Report generation in report.ts.
  */
 
-import { ExtensionState, FileStore, SessionExtensionsSchema } from "../lib/extensionState.ts";
+import { createExtensionStateStore } from "../lib/extension-state.ts";
+import type { ExtensionStateStore } from "../lib/extension-state.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { LoggerPipeline } from "./pipeline.ts";
 import { generateMissingReports } from "./report.ts";
@@ -53,14 +54,25 @@ export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined
  */
 export default function (pi: ExtensionAPI): void {
 	const gate = createSessionLoggerGate();
-	sessionState.set("logger", true); // Skip await — best-effort, don't crash extension
+
+	// ── Shared extension state (replaces duplicated writeExtState) ──
+	const extState: ExtensionStateStore = createExtensionStateStore(
+		".pi/state/session-extensions.json",
+	);
+	extState.setKey("logger", true);
+	extState.saveState().catch(() => {}); // Fire-and-forget on init
 
 	pi.registerCommand("session-logger", {
 		description: "Toggle session report on/off (takes effect next session)",
 		handler: async (args, ctx) => {
 			const cmd = (args ?? "").trim().toLowerCase();
 			const enabled = toggleSessionLoggerGate(gate, cmd);
-			await sessionState.set("logger", enabled);
+			extState.setKey("logger", enabled);
+			try {
+				await extState.saveState();
+			} catch (err) {
+				ctx.ui.notify(`Failed to persist session-logger state: ${(err as Error).message}`, "error");
+			}
 			ctx.ui.notify(`Session logger: ${enabled ? "ON" : "OFF"} (applies to next session)`, "info");
 		},
 	});
@@ -146,7 +158,3 @@ export default function (pi: ExtensionAPI): void {
 
 // Re-export for backward compatibility (existing tests import from index.ts)
 export { generateMissingReports };
-
-// ── Shared extension state ──
-
-const sessionState = new ExtensionState(new FileStore(), SessionExtensionsSchema);

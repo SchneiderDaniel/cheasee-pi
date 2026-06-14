@@ -14,7 +14,19 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { ExtensionState, FileStore, SessionExtensionsSchema } from "../lib/extensionState.ts";
+import { dirname } from "node:path";
+import { createExtensionStateStore } from "../lib/extension-state.ts";
+import type { ExtensionStateStore } from "../lib/extension-state.ts";
+
+// ── Shared extension state store (replaces duplicated writeExtState) ──
+const extState: ExtensionStateStore = createExtensionStateStore(
+	".pi/state/session-extensions.json",
+);
+
+export function getSessionAdviceState(): boolean {
+	return extState.getKey("advice") ?? true;
+}
+
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AdvicePipeline } from "./advice-pipeline.ts";
 import {
@@ -118,10 +130,6 @@ function parseCommandArgsSimple(argv: string[]): PiArgs {
 
 const pipeline = new AdvicePipeline();
 
-// ── Shared extension state ──
-
-const sessionState = new ExtensionState(new FileStore(), SessionExtensionsSchema);
-
 export {
 	generateAdviceReport,
 	writeAdvice,
@@ -133,10 +141,15 @@ export {
 
 export default function (pi: ExtensionAPI): void {
 	let enabled = true;
+	extState.setKey("advice", true);
+	extState.saveState().catch(() => {}); // Fire-and-forget on init
 
 	/** Persist the current enabled state to disk (best-effort, fire-and-forget). */
 	function syncAdviceState() {
-		sessionState.set("advice", enabled).catch(() => {});
+		extState.setKey("advice", enabled);
+		extState.saveState().catch((err) => {
+			// Can't notify without ctx here — best effort
+		});
 	}
 
 	pi.registerCommand("session-advice", {
