@@ -11,13 +11,10 @@ import { Type } from "typebox";
 import { SEARCH_SCRIPT } from "./python-script.ts";
 import { runSearchScript, parseSearchResults } from "./executor.ts";
 import { ensureWebSearchVenv } from "./venv-setup.ts";
-import type { SearchCacheEntry, VenvCache } from "./types.ts";
+import type { SearchCacheEntry } from "./types.ts";
 
 /** In-session cache for search results to avoid redundant lookups */
 const searchCache = new Map<string, SearchCacheEntry>();
-
-/** Cache for venv ready state (shared across calls in same session) */
-const venvReady: VenvCache = new Map();
 
 /** TTL for cache entries in milliseconds (5 minutes) */
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -74,13 +71,7 @@ export default function webSearch(pi: ExtensionAPI): void {
 			const cwd = _ctx.cwd;
 
 			// Resolve venv python (auto-creates venv + installs ddgs on first call)
-			const python = await ensureWebSearchVenv(pi.exec, cwd, onUpdate, venvReady);
-			if (!python) {
-				throw new Error(
-					"Web search failed: could not set up Python virtual environment. " +
-						"Ensure python3 is installed and try again.",
-				);
-			}
+			const python = await ensureWebSearchVenv(pi.exec, cwd, onUpdate);
 
 			const result = await runSearchScript(
 				python,
