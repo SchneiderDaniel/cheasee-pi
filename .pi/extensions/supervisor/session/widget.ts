@@ -4,6 +4,7 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
+import { formatToolCall } from "../event/session-events.ts";
 import { WIDGET_LINES, MAX_LIVE_THINKING } from "../agent/stream.ts";
 
 // Re-export constants for backward compatibility
@@ -46,10 +47,15 @@ export function buildWidgetLines(
 		fixed.push(`  💭 ${state.liveThinking.trimEnd().slice(-200)}`);
 	}
 	if (state.currentTool) {
-		const toolLabel = state.currentToolArgs
-			? `${state.currentTool}: ${state.currentToolArgs.slice(0, 80)}`
-			: state.currentTool;
-		fixed.push(`  🔧 ${toolLabel}`);
+		let argsObj: Record<string, unknown> | undefined;
+		if (state.currentToolArgs) {
+			try {
+				argsObj = JSON.parse(state.currentToolArgs) as Record<string, unknown>;
+			} catch {
+				// Use undefined if JSON parsing fails
+			}
+		}
+		fixed.push(`  🔧 ${formatToolCall(state.currentTool, argsObj)}`);
 	}
 
 	// ── Live text (0-1 line, between logs and footer) ──

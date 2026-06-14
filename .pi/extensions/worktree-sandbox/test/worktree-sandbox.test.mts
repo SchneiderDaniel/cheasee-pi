@@ -1,9 +1,13 @@
 /**
- * Tests: worktree-sandbox/index.ts — rewritePath helper
+ * Tests: worktree-sandbox/index.ts — rewritePath helper, findUnsafeCd, findUnsafeWriteInBash
  *
  * Phase 1: Pure function unit tests for the extracted rewritePath helper.
  * Tests the path-rewriting logic that was previously duplicated across
  * read/write/edit handlers.
+ *
+ * Phase 2a: hasShellExpansion and findSuspiciousArg — core security helpers
+ * Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
+ * Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
  */
 
 import { describe, it, before } from "node:test";
@@ -24,6 +28,10 @@ let mod: {
 		},
 		blockNoun: "file operations" | "writes" | "edits",
 	) => import("@earendil-works/pi-coding-agent").ToolCallEventResult | undefined;
+	findUnsafeCd: (command: string, sandboxRoot: string) => string | null;
+	findUnsafeWriteInBash: (command: string, sandboxRoot: string) => string | null;
+	hasShellExpansion: (token: string) => boolean;
+	findSuspiciousArg: (command: string, sandboxRoot: string) => string | null;
 };
 
 // https://nodejs.org/api/esm.html#module-register-and-hooks --experimental-strip-types needed
@@ -314,5 +322,263 @@ describe("rewritePath", () => {
 		const ctx = makeCtx(false);
 		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(event.input.path, originalPath);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2a: hasShellExpansion and findSuspiciousArg — core helpers
+// ═══════════════════════════════════════════════════════════════════
+
+describe("hasShellExpansion", () => {
+	it("detects dollar sign in token", () => {
+		assert.equal(mod.hasShellExpansion("$HOME"), true);
+	});
+
+	it("detects command substitution in token", () => {
+		assert.equal(mod.hasShellExpansion("$(echo hi)"), true);
+	});
+
+	it("detects backtick in token", () => {
+		assert.equal(mod.hasShellExpansion("`echo hi`"), true);
+	});
+
+	it("detects tilde in token", () => {
+		assert.equal(mod.hasShellExpansion("~/escape"), true);
+	});
+
+	it("detects brace expansion in token", () => {
+		assert.equal(mod.hasShellExpansion("{a,b}"), true);
+	});
+
+	it("detects glob in token", () => {
+		assert.equal(mod.hasShellExpansion("*.txt"), true);
+	});
+
+	it("returns false for plain path", () => {
+		assert.equal(mod.hasShellExpansion("plain.txt"), false);
+	});
+
+	it("returns false for safe absolute path", () => {
+		assert.equal(mod.hasShellExpansion("/safe/path"), false);
+	});
+
+	it("returns false for empty string", () => {
+		assert.equal(mod.hasShellExpansion(""), false);
+	});
+});
+
+describe("findSuspiciousArg", () => {
+	it("returns first suspicious expansion token from command", () => {
+		const result = mod.findSuspiciousArg("cd $HOME", "/tmp/sandbox");
+		assert.ok(result !== null);
+	});
+
+	it("returns null for safe command", () => {
+		const result = mod.findSuspiciousArg("cd src", "/tmp/sandbox");
+		assert.equal(result, null);
+	});
+
+	it("returns null for empty command", () => {
+		const result = mod.findSuspiciousArg("", "/tmp/sandbox");
+		assert.equal(result, null);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
+// ═══════════════════════════════════════════════════════════════════
+
+describe("findUnsafeCd", () => {
+	it("returns null for safe relative cd", () => {
+		assert.equal(mod.findUnsafeCd("cd src", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for safe absolute cd inside sandbox", () => {
+		assert.equal(mod.findUnsafeCd("cd /tmp/sandbox/path", "/tmp/sandbox"), null);
+	});
+
+	it("returns target for unsafe absolute cd outside sandbox", () => {
+		assert.equal(mod.findUnsafeCd("cd /etc", "/tmp/sandbox"), "/etc");
+	});
+
+	it("blocks cd with variable expansion $HOME (Bypass 1)", () => {
+		assert.ok(mod.findUnsafeCd("cd $HOME", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with variable in path $PWD/../../escape (Bypass 1)", () => {
+		assert.ok(mod.findUnsafeCd("cd $PWD/../../escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with brace-variable ${HOME} (Bypass 1)", () => {
+		assert.ok(mod.findUnsafeCd("cd ${HOME}", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with command substitution $(echo /escape) (Bypass 2)", () => {
+		assert.ok(mod.findUnsafeCd("cd $(echo /escape)", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with backtick command substitution (Bypass 2)", () => {
+		assert.ok(mod.findUnsafeCd("cd \`echo /escape\`", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with tilde expansion ~/escape (Bypass 3)", () => {
+		assert.ok(mod.findUnsafeCd("cd ~/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with tilde+user ~root/escape (Bypass 3)", () => {
+		assert.ok(mod.findUnsafeCd("cd ~root/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd piped from echo (Bypass 4)", () => {
+		assert.ok(mod.findUnsafeCd("echo hi | cd /escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with pipe-and separator |& (Bypass 4)", () => {
+		assert.ok(mod.findUnsafeCd("echo hi |& cd /escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with OR separator || (Bypass 4)", () => {
+		assert.ok(mod.findUnsafeCd("echo hi || cd /escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks bare cd with semicolon (Bypass 5)", () => {
+		assert.ok(mod.findUnsafeCd("cd ; echo hi", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks bare cd with trailing spaces (Bypass 5)", () => {
+		assert.ok(mod.findUnsafeCd("cd   ", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks bare cd alone (Bypass 5)", () => {
+		assert.ok(mod.findUnsafeCd("cd", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd - (previous directory, always unsafe)", () => {
+		assert.ok(mod.findUnsafeCd("cd -", "/tmp/sandbox") !== null);
+	});
+
+	it("catches second unsafe cd in compound command (&&)", () => {
+		assert.ok(mod.findUnsafeCd("cd safe && cd $HOME", "/tmp/sandbox") !== null);
+	});
+
+	it("catches unsafe cd after semicolon", () => {
+		assert.ok(mod.findUnsafeCd("cd safe; cd ~/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("catches unsafe cd after OR", () => {
+		assert.ok(mod.findUnsafeCd("cd safe || cd /etc", "/tmp/sandbox") !== null);
+	});
+
+	it("allows quoted cd with spaces", () => {
+		assert.equal(mod.findUnsafeCd('cd "dir with spaces"', "/tmp/sandbox"), null);
+	});
+
+	it("returns null for empty command", () => {
+		assert.equal(mod.findUnsafeCd("", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for command without cd", () => {
+		assert.equal(mod.findUnsafeCd("ls /etc", "/tmp/sandbox"), null);
+	});
+
+	it("blocks cd with brace expansion", () => {
+		assert.ok(mod.findUnsafeCd("cd /{tmp,etc}", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with glob pattern", () => {
+		assert.ok(mod.findUnsafeCd("cd *.txt", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with arithmetic expansion", () => {
+		assert.ok(mod.findUnsafeCd("cd $((1+1))", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cd with old arithmetic expansion", () => {
+		assert.ok(mod.findUnsafeCd("cd $[1+1]", "/tmp/sandbox") !== null);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
+// ═══════════════════════════════════════════════════════════════════
+
+describe("findUnsafeWriteInBash", () => {
+	it("returns null for safe relative redirect", () => {
+		assert.equal(mod.findUnsafeWriteInBash("echo hi > file.txt", "/tmp/sandbox"), null);
+	});
+
+	it("blocks redirect to absolute path outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("echo hi > /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("blocks redirect with variable expansion", () => {
+		assert.ok(mod.findUnsafeWriteInBash("echo hi > $OUTFILE", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks redirect with brace-variable expansion", () => {
+		assert.ok(mod.findUnsafeWriteInBash("echo hi > ${OUTFILE}", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks append redirect to outside path", () => {
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi >> /etc/passwd", "/tmp/sandbox"),
+			"/etc/passwd",
+		);
+	});
+
+	it("blocks fd redirect to outside path", () => {
+		assert.equal(mod.findUnsafeWriteInBash("echo hi 2>/etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("returns null for safe cp", () => {
+		assert.equal(mod.findUnsafeWriteInBash("cp src/file.txt dst/file.txt", "/tmp/sandbox"), null);
+	});
+
+	it("blocks cp to absolute path outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("cp a /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("blocks cp with variable destination", () => {
+		assert.ok(mod.findUnsafeWriteInBash("cp a $DEST", "/tmp/sandbox") !== null);
+	});
+
+	it("returns null for safe mv", () => {
+		assert.equal(mod.findUnsafeWriteInBash("mv a b", "/tmp/sandbox"), null);
+	});
+
+	it("blocks mv to absolute path outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("mv a /tmp/escape", "/tmp/sandbox"), "/tmp/escape");
+	});
+
+	it("returns null for safe touch", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch file.txt", "/tmp/sandbox"), null);
+	});
+
+	it("blocks touch to absolute path outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("blocks touch with variable expansion", () => {
+		assert.ok(mod.findUnsafeWriteInBash("touch $FILE", "/tmp/sandbox") !== null);
+	});
+
+	it("returns null for command with no writes", () => {
+		assert.equal(mod.findUnsafeWriteInBash("ls -la", "/tmp/sandbox"), null);
+	});
+
+	it("blocks redirect with tilde expansion", () => {
+		assert.ok(mod.findUnsafeWriteInBash("echo hi > ~/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks redirect with brace expansion", () => {
+		assert.ok(mod.findUnsafeWriteInBash("echo hi > {a,b}", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks cp with command substitution", () => {
+		assert.ok(mod.findUnsafeWriteInBash("cp a $(echo /etc/passwd)", "/tmp/sandbox") !== null);
+	});
+
+	it("blocks mv with variable both src and dest", () => {
+		assert.ok(mod.findUnsafeWriteInBash("mv $SRC $DST", "/tmp/sandbox") !== null);
 	});
 });
