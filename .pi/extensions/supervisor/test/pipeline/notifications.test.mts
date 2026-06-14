@@ -9,11 +9,20 @@ import type {
 	PipelineAgentResult,
 	PrCreationResult,
 } from "../../config/types.ts";
-import { sendPipelineSummary, sendPipelineError } from "../../pipeline/notifications.ts";
+import {
+	sendPipelineSummary,
+	sendPipelineError,
+	sendAgentResultMessage,
+} from "../../pipeline/notifications.ts";
 
 // ─── Shared State ──────────────────────────────────────────────────
 
-let sentMessages: Array<{ customType: string; content: string; display?: boolean }> = [];
+let sentMessages: Array<{
+	customType: string;
+	content: string;
+	display?: boolean;
+	details?: Record<string, unknown>;
+}> = [];
 let notifyMessages: string[] = [];
 let statusValues: string[] = [];
 
@@ -266,5 +275,92 @@ describe("sendPipelineError()", () => {
 		// Summary message
 		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
 		assert.ok(summaryMsg, "should send summary message on error");
+	});
+});
+
+// ─── Tests: sendAgentResultMessage with taskPrompt ─────────────────
+
+describe("sendAgentResultMessage — taskPrompt plumbing", () => {
+	it("passes taskPrompt to details.taskPrompt", async () => {
+		const pi = createMockPi();
+		sendAgentResultMessage(pi, {
+			agentName: "architect",
+			success: true,
+			statusLabel: "SUCCESS",
+			toolCount: 5,
+			tokenCount: 1000,
+			durationMs: 5000,
+			textOutput: "output",
+			textOnly: "text",
+			output: "raw output",
+			summaryLine: "Worked",
+			taskPrompt: "Build the feature",
+		});
+		const msg = sentMessages.find((m) => m.customType === "supervisor");
+		assert.ok(msg, "should send supervisor message");
+		assert.ok(msg!.details, "should have details");
+		assert.equal(msg!.details!.taskPrompt, "Build the feature");
+	});
+
+	it("without taskPrompt — details.taskPrompt is undefined (backward compat)", async () => {
+		const pi = createMockPi();
+		sendAgentResultMessage(pi, {
+			agentName: "architect",
+			success: false,
+			statusLabel: "FAILED",
+			toolCount: 3,
+			tokenCount: 500,
+			durationMs: 2000,
+			textOutput: "",
+			textOnly: "",
+			output: "",
+			summaryLine: "Failed",
+		});
+		const msg = sentMessages.find((m) => m.customType === "supervisor");
+		assert.ok(msg, "should send supervisor message");
+		assert.equal(msg!.details?.taskPrompt, undefined);
+	});
+
+	it("passes empty-string taskPrompt as empty string", async () => {
+		const pi = createMockPi();
+		sendAgentResultMessage(pi, {
+			agentName: "architect",
+			success: true,
+			statusLabel: "SUCCESS",
+			toolCount: 0,
+			tokenCount: 0,
+			durationMs: 0,
+			textOutput: "",
+			textOnly: "",
+			output: "",
+			summaryLine: "",
+			taskPrompt: "",
+		});
+		const msg = sentMessages.find((m) => m.customType === "supervisor");
+		assert.ok(msg, "should send supervisor message");
+		assert.ok(msg!.details, "should have details");
+		assert.equal(msg!.details!.taskPrompt, "");
+	});
+
+	it("passes large taskPrompt without truncation (truncation is renderer concern)", async () => {
+		const pi = createMockPi();
+		const largePrompt = "a".repeat(10000);
+		sendAgentResultMessage(pi, {
+			agentName: "architect",
+			success: true,
+			statusLabel: "SUCCESS",
+			toolCount: 0,
+			tokenCount: 0,
+			durationMs: 0,
+			textOutput: "",
+			textOnly: "",
+			output: "",
+			summaryLine: "",
+			taskPrompt: largePrompt,
+		});
+		const msg = sentMessages.find((m) => m.customType === "supervisor");
+		assert.ok(msg, "should send supervisor message");
+		assert.ok(msg!.details, "should have details");
+		assert.equal(msg!.details!.taskPrompt, largePrompt);
 	});
 });

@@ -17,7 +17,6 @@ import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/for
 export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, options: any, theme: any) => {
 		const { expanded } = options || { expanded: false };
-
 		const details = message.details as SupervisorMessageDetails | undefined;
 		if (!details && typeof message.content === "string") {
 			return new Text(message.content, 1, 1);
@@ -70,6 +69,32 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		if (!expanded) return c;
 
 		// ─── Expanded view ─────────────────────────────────────
+
+		// Task prompt (expanded view only)
+		if (details.taskPrompt !== undefined) {
+			c.addChild(new Spacer(1));
+			c.addChild(new Text(fit(theme.fg("dim", "── Task ──")), 1, 0));
+			if (details.taskPrompt.length > 0) {
+				const taskLines = details.taskPrompt.split("\n");
+				const maxTaskLines = 50;
+				const showLines = taskLines.slice(0, maxTaskLines);
+				const overflowCount = taskLines.length - maxTaskLines;
+				for (const line of showLines) {
+					if (!line.trim()) continue; // Skip empty lines
+					const styled = theme.fg("dim", line);
+					for (const wrapped of wrapTextWithAnsi(styled, w)) {
+						c.addChild(new Text(wrapped, 1, 0));
+					}
+				}
+				if (overflowCount > 0) {
+					const notice =
+						overflowCount === 1
+							? theme.fg("muted", "… [1 more line]")
+							: theme.fg("muted", `… [${overflowCount} more lines]`);
+					c.addChild(new Text(fit(notice), 1, 0));
+				}
+			}
+		}
 
 		// Thinking output
 		if (details.hasThinking && details.thinkingOutput) {

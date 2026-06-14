@@ -129,6 +129,7 @@ export function sendAgentResultMessage(
 		textOnly: string;
 		output: string;
 		thinkingOutput?: string;
+		taskPrompt?: string;
 	},
 	auditScore?: string,
 ): void {
@@ -147,6 +148,7 @@ export function sendAgentResultMessage(
 			thinkingOutput: result.thinkingOutput,
 			hasThinking: !!result.thinkingOutput,
 			auditScore,
+			taskPrompt: result.taskPrompt,
 		} satisfies SupervisorMessageDetails,
 	});
 }

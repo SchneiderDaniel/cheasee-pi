@@ -1,5 +1,6 @@
 /**
- * Tests: message-renderer.ts — expanded/collapsed views + Markdown rendering.
+ * Tests: message-renderer.ts — expanded/collapsed views + Markdown rendering
+ * and task prompt section in expanded view with 50-line truncation.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/message-renderer.test.mts
@@ -248,6 +249,135 @@ describe("expanded view (expanded=true)", () => {
 	});
 });
 
+// ─── Phase 2b: Task prompt in expanded view ─────────────────────
+
+describe("task prompt in expanded view", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("expanded view with task prompt shows ── Task ── header and content", () => {
+		const c = renderMessage(
+			makeDetails({ taskPrompt: "Build the feature" }),
+			undefined,
+			true,
+		) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("── Task ──")),
+			"should show Task header",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("Build the feature")),
+			"should show task content",
+		);
+	});
+
+	it("collapsed view with task prompt does NOT show ── Task ── header", () => {
+		const c = renderMessage(
+			makeDetails({ taskPrompt: "Build the feature" }),
+			undefined,
+			false,
+		) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			!lines.some((l) => l.includes("── Task ──")),
+			"should NOT show Task header in collapsed view",
+		);
+	});
+
+	it("expanded view with undefined taskPrompt does not crash, no Task header", () => {
+		const c = renderMessage(makeDetails({ taskPrompt: undefined }), undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			!lines.some((l) => l.includes("── Task ──")),
+			"should NOT show Task header when taskPrompt is undefined",
+		);
+	});
+
+	it("expanded view with empty string taskPrompt shows header only", () => {
+		const c = renderMessage(makeDetails({ taskPrompt: "" }), undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("── Task ──")),
+			"should show Task header even when content is empty",
+		);
+	});
+
+	it("task prompt of exactly 50 lines renders all lines without overflow notice", () => {
+		const fiftyLines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+		const c = renderMessage(makeDetails({ taskPrompt: fiftyLines }), undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		for (let i = 1; i <= 50; i++) {
+			assert.ok(
+				lines.some((l) => l.includes(`line ${i}`)),
+				`should contain line ${i}`,
+			);
+		}
+		assert.ok(
+			!lines.some((l) => l.includes("more line")),
+			"should NOT show overflow notice for exactly 50 lines",
+		);
+	});
+
+	it("task prompt of 75 lines truncates to 50 with overflow notice", () => {
+		const seventyFiveLines = Array.from({ length: 75 }, (_, i) => `line ${i + 1}`).join("\n");
+		const c = renderMessage(
+			makeDetails({ taskPrompt: seventyFiveLines }),
+			undefined,
+			true,
+		) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("line 1")),
+			"line 1 present",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("line 50")),
+			"line 50 present",
+		);
+		assert.ok(
+			!lines.some((l) => l.includes("line 51")),
+			"line 51 should NOT be present (truncated)",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("… [25 more lines]")),
+			"should show overflow notice: … [25 more lines]",
+		);
+	});
+
+	it("task prompt of 51 lines shows overflow notice with singular", () => {
+		const fiftyOneLines = Array.from({ length: 51 }, (_, i) => `line ${i + 1}`).join("\n");
+		const c = renderMessage(
+			makeDetails({ taskPrompt: fiftyOneLines }),
+			undefined,
+			true,
+		) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("… [1 more line]")),
+			"should show overflow notice: … [1 more line]",
+		);
+	});
+
+	it("successful agent with task prompt still shows task section", () => {
+		const c = renderMessage(
+			makeDetails({ taskPrompt: "Do something" }),
+			undefined,
+			true,
+		) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("── Task ──")),
+			"task section should render regardless of success status",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("Do something")),
+			"task content should render",
+		);
+	});
+});
+
 // ─── Phase 3: Edge cases and error handling ─────────────────────
 
 describe("edge cases and error handling", () => {
@@ -346,8 +476,6 @@ describe("edge cases and error handling", () => {
 		const details = makeDetails({ summaryLine: "" });
 		const c = renderMessage(details, undefined, true) as Container;
 		const lines = renderAndStrip(c);
-		// No blank line specifically for summary — just no summary text
-		const summaryLines = lines.filter((l) => l.trim() === "");
 		// Summary empty string should not add visible blank lines beyond normal spacing
 		assert.ok(true, "no crash with empty summaryLine");
 	});
