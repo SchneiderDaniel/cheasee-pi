@@ -8,7 +8,7 @@
  * Pi-dependent: requires Model + ModelRegistry for API call.
  */
 
-import type { SessionAnalysis, WasteSignal } from "./advisor.ts";
+import type { SessionAnalysis, WasteSignal } from "./types.ts";
 
 // ── System prompt options interface ──
 
