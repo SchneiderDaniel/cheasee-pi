@@ -389,10 +389,10 @@ describe("handler — import boundary (static analysis)", () => {
 		assert.ok(!source.includes("SCRAPLING_SCRIPT"), "index.ts should not import SCRAPLING_SCRIPT");
 	});
 
-	it("(entity) handler no longer imports ensureScraplingVenv directly", () => {
+	it("(entity) handler imports ensureScraplingVenv for constructor injection", () => {
 		assert.ok(
-			!source.includes("ensureScraplingVenv"),
-			"index.ts should not import ensureScraplingVenv",
+			source.includes("ensureScraplingVenv"),
+			"index.ts should import ensureScraplingVenv to pass as PythonAdapter dependency",
 		);
 	});
 
@@ -400,7 +400,10 @@ describe("handler — import boundary (static analysis)", () => {
 		assert.ok(!source.includes("python-script"), "index.ts should not import from python-script");
 	});
 
-	it("(entity) handler no longer imports from venv-setup.ts", () => {
-		assert.ok(!source.includes("venv-setup"), "index.ts should not import from venv-setup");
+	it("(entity) handler imports from venv-setup.ts (for ensureScraplingVenv DI)", () => {
+		assert.ok(
+			source.includes("venv-setup"),
+			"index.ts should import from venv-setup to pass ensureScraplingVenv to PythonAdapter",
+		);
 	});
 });

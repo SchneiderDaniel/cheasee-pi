@@ -13,7 +13,7 @@
  * concurrency, result formatting — those stay in the handler).
  */
 
-import { ensureScraplingVenv } from "./venv-setup.ts";
+import { ensureScraplingVenv as defaultEnsureVenv } from "./venv-setup.ts";
 import { SCRAPLING_SCRIPT } from "./python-script.ts";
 import type { CrawlerEngine } from "./crawler-engine.ts";
 import type { CrawlParams, CrawlResult, CrawledPage, ExecFn, OnUpdateCallback } from "./types.ts";
@@ -29,28 +29,41 @@ function truncationSuffix(limit: number, total: number): string {
 /** Subprocess timeout — 120s for StealthyFetcher Cloudflare challenges (min 60s) */
 const CRAWL_TIMEOUT = 120_000;
 
+/** Subprocess stdout max buffer — 10MB for large crawl results */
+const CRAWL_MAX_BUFFER = 10 * 1024 * 1024;
+
 // ── PythonAdapter ──
+
+/** Type for the ensureScraplingVenv function, injectable for testing */
+export type EnsureVenvFn = (
+	exec: ExecFn,
+	cwd: string,
+	onUpdate?: OnUpdateCallback,
+) => Promise<string>;
 
 export class PythonAdapter implements CrawlerEngine {
 	private readonly exec: ExecFn;
 	private readonly cwd: string;
 	private readonly onUpdate?: OnUpdateCallback;
+	private readonly ensureVenv: EnsureVenvFn;
 
 	/**
 	 * @param exec - Exec function (typically pi.exec)
 	 * @param cwd - Working directory for venv path resolution
 	 * @param onUpdate - Optional progress callback for UI updates
+	 * @param ensureVenv - Optional ensureScraplingVenv override (for testing)
 	 */
-	constructor(exec: ExecFn, cwd: string, onUpdate?: OnUpdateCallback) {
+	constructor(exec: ExecFn, cwd: string, onUpdate?: OnUpdateCallback, ensureVenv?: EnsureVenvFn) {
 		this.exec = exec;
 		this.cwd = cwd;
 		this.onUpdate = onUpdate;
+		this.ensureVenv = ensureVenv ?? defaultEnsureVenv;
 	}
 
 	async crawl(params: CrawlParams & { signal?: AbortSignal }): Promise<CrawlResult> {
 		try {
 			// 1. Ensure Python venv with Scrapling is available
-			const python = await ensureScraplingVenv(this.exec, this.cwd, this.onUpdate);
+			const python = await this.ensureVenv(this.exec, this.cwd, this.onUpdate);
 
 			// 2. Build config JSON for subprocess
 			const config = JSON.stringify({
@@ -59,10 +72,11 @@ export class PythonAdapter implements CrawlerEngine {
 				maxTokens: params.maxTokens,
 			});
 
-			// 3. Execute via spawn (args array, no shell)
+			// 3. Execute via spawn (args array, no shell, with maxBuffer)
 			const result = await this.exec(python, ["-c", SCRAPLING_SCRIPT, config], {
 				timeout: CRAWL_TIMEOUT,
 				signal: params.signal,
+				maxBuffer: CRAWL_MAX_BUFFER,
 			});
 
 			// 4. Handle non-zero exit — return typed error, don't throw

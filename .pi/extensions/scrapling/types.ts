@@ -12,7 +12,7 @@ export interface ExecFn {
 	(
 		cmd: string,
 		args: string[],
-		opts?: { timeout?: number; signal?: AbortSignal },
+		opts?: { timeout?: number; signal?: AbortSignal; maxBuffer?: number },
 	): Promise<ExecResult>;
 }
 

@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { PythonAdapter } from "./python-adapter.ts";
+import { ensureScraplingVenv } from "./venv-setup.ts";
 
 // Concurrency lock: Max 2 simultaneous web crawls to protect 8GB RAM
 let activeCrawls = 0;
@@ -76,7 +77,7 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 				});
 
 				// Delegate to CrawlerEngine (3 lines)
-				const engine = new PythonAdapter(pi.exec, _ctx.cwd, onUpdate);
+				const engine = new PythonAdapter(pi.exec, _ctx.cwd, onUpdate, ensureScraplingVenv);
 				const result = await engine.crawl({
 					url: params.url,
 					maxPages,
@@ -90,16 +91,9 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 				}
 
 				// Format successful results for LLM
+				// Note: Token truncation is handled by PythonAdapter; handler uses content as-is
 				const texts = result.results.map((r) => {
-					let content = r.markdown || "[No content]";
-					if (params.maxTokens && params.maxTokens > 0) {
-						const estimatedTokens = Math.round(content.length / 4);
-						if (estimatedTokens > params.maxTokens) {
-							const maxChars = params.maxTokens * 4;
-							const truncated = content.slice(0, maxChars);
-							content = `${truncated}\n\n[... truncated at ~${params.maxTokens.toLocaleString()} tokens (${estimatedTokens.toLocaleString()} total). Use narrower query or page-specific section.]`;
-						}
-					}
+					const content = r.markdown || "[No content]";
 					return `--- ${r.url} (via ${r.method}) ---\n${content}`;
 				});
 
