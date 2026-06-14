@@ -123,9 +123,14 @@ function buildAuditChecklist(dimensionCount: number): string {
 function buildScopeBlock(fileScope?: string): string {
 	if (!fileScope) return "";
 	return `
-**FILE SCOPE: only modify files under \`${fileScope}\`**
-Changes to files outside this scope will be rejected.
-If you see modified files outside this scope, do NOT touch them — they are from other issues.
+## ⛔ FILE SCOPE ENFORCEMENT
+
+**You MUST only modify files under \`${fileScope}\`**
+
+- Changes to files outside this scope will be **automatically reverted** by the pipeline.
+- If you see modified files outside this scope, do NOT touch them — they are from other issues.
+- Modifying cross-extension files wastes tokens and delays the pipeline.
+- Scope enforcement is automatic: out-of-scope changes are detected and reset before the next pipeline stage.
 `;
 }
 

@@ -980,9 +980,14 @@ describe("buildAgentTask — fileScope parameter", () => {
 			".pi/extensions/supervisor/", // fileScope
 		);
 		assert.ok(
-			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
-			"Should contain FILE SCOPE with the scope path",
+			task.includes("## ⛔ FILE SCOPE ENFORCEMENT"),
+			"Should contain FILE SCOPE ENFORCEMENT heading",
 		);
+		assert.ok(
+			task.includes("You MUST only modify files under \`.pi/extensions/supervisor/\`"),
+			"Should contain the MUST instruction with scope path",
+		);
+		assert.ok(task.includes("automatically reverted"), "Should mention automatic reversion");
 	});
 
 	it("developer with fileScope=undefined does NOT contain FILE SCOPE section", () => {
@@ -999,7 +1004,7 @@ describe("buildAgentTask — fileScope parameter", () => {
 			"worktree-git-issue-",
 		);
 		assert.ok(
-			!task.includes("FILE SCOPE:"),
+			!task.includes("FILE SCOPE ENFORCEMENT"),
 			"Should NOT contain FILE SCOPE when fileScope is undefined",
 		);
 	});
@@ -1028,7 +1033,7 @@ describe("buildAgentTask — fileScope parameter", () => {
 			"*.md",
 		);
 		assert.ok(
-			task.includes("FILE SCOPE: only modify files under \`*.md\`"),
+			task.includes("You MUST only modify files under \`*.md\`"),
 			"Should contain FILE SCOPE with *.md",
 		);
 	});
@@ -1057,8 +1062,10 @@ describe("buildAgentTask — fileScope parameter", () => {
 			".pi/extensions/supervisor/",
 		);
 		assert.ok(
-			task.includes("Changes to files outside this scope will be rejected."),
-			"Should contain the rejection warning sentence",
+			task.includes(
+				"Changes to files outside this scope will be **automatically reverted** by the pipeline.",
+			),
+			"Should contain the automatic reversion warning",
 		);
 	});
 
@@ -1115,8 +1122,8 @@ describe("buildAgentTask — fileScope parameter", () => {
 			".pi/extensions/supervisor/",
 		);
 		assert.ok(
-			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
-			"Auditor should also have FILE SCOPE section",
+			task.includes("## ⛔ FILE SCOPE ENFORCEMENT"),
+			"Auditor should also have FILE SCOPE ENFORCEMENT section",
 		);
 	});
 
@@ -1143,7 +1150,10 @@ describe("buildAgentTask — fileScope parameter", () => {
 			undefined,
 			".pi/extensions/supervisor/",
 		);
-		assert.ok(!task.includes("FILE SCOPE:"), "Architect should NOT have FILE SCOPE section");
+		assert.ok(
+			!task.includes("FILE SCOPE ENFORCEMENT"),
+			"Architect should NOT have FILE SCOPE ENFORCEMENT section",
+		);
 	});
 
 	it("test-designer with fileScope does NOT contain FILE SCOPE", () => {
@@ -1169,7 +1179,10 @@ describe("buildAgentTask — fileScope parameter", () => {
 			undefined,
 			".pi/extensions/supervisor/",
 		);
-		assert.ok(!task.includes("FILE SCOPE:"), "Test-designer should NOT have FILE SCOPE section");
+		assert.ok(
+			!task.includes("FILE SCOPE ENFORCEMENT"),
+			"Test-designer should NOT have FILE SCOPE ENFORCEMENT section",
+		);
 	});
 
 	it("developer task with fileScope still contains existing instructions (no regression)", () => {
@@ -1226,8 +1239,8 @@ describe("buildAgentTask — fileScope parameter", () => {
 			".pi/extensions/supervisor/", // fileScope
 		);
 		assert.ok(
-			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
-			"FILE SCOPE section present",
+			task.includes("## ⛔ FILE SCOPE ENFORCEMENT"),
+			"FILE SCOPE ENFORCEMENT section present",
 		);
 		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
 		assert.ok(task.includes("TDD gate failed"), "Gate failure context text present");
@@ -1257,8 +1270,8 @@ describe("buildAgentTask — fileScope parameter", () => {
 			".pi/extensions/supervisor/", // fileScope
 		);
 		assert.ok(
-			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
-			"FILE SCOPE section present",
+			task.includes("## ⛔ FILE SCOPE ENFORCEMENT"),
+			"FILE SCOPE ENFORCEMENT section present",
 		);
 		assert.ok(
 			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
