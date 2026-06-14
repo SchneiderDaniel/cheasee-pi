@@ -814,14 +814,24 @@ export async function handlePostAgentSuccess(
 			// Prevents silent skip when LLM treats commentBody as optional and omits it.
 			if (agentName === "researcher") {
 				const fallbackComment = "## Research Findings — No relevant results found for this topic.";
-				collector?.push(
-					"stages",
-					"warn",
-					`${agentName} completed but no commentBody in JSON output. ` +
-						`Posting graceful degradation comment. ` +
-						`textOutput: ${JSON.stringify((result.textOutput || "").slice(0, 200))}, ` +
-						`output: ${JSON.stringify((result.output || "").slice(0, 200))}`,
-				);
+
+				// Check if researcher output had valid structured JSON (even without commentBody).
+				// If so, null commentBody was intentional — researcher decided "nothing to research."
+				// Only warn if NO valid JSON output was produced at all (crash/parse failure).
+				const researcherOutput = result.textOutput || result.output || "";
+				const parseResult = parseAgentOutput(researcherOutput);
+				const hadValidStructuredOutput = isAgentOutputSuccess(parseResult);
+
+				if (!hadValidStructuredOutput) {
+					collector?.push(
+						"stages",
+						"warn",
+						`${agentName} completed but no commentBody in JSON output. ` +
+							`Posting graceful degradation comment. ` +
+							`textOutput: ${JSON.stringify((result.textOutput || "").slice(0, 200))}, ` +
+							`output: ${JSON.stringify((result.output || "").slice(0, 200))}`,
+					);
+				}
 				try {
 					await postIssueComment(pi, issueNum, config.repo, fallbackComment);
 					ctx.ui.notify(
