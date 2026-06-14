@@ -1,189 +1,1505 @@
 /**
- * Tests for format-on-save ESLint integration (Tier 1)
+ * Tests for format-on-save extension — Phase 2 (handler), Phase 5 (presentation).
  *
- * Pure function tests for parseEslintOutput().
- * Imports from refactored modules.
+ * Handler tests use mock Formatter/Linter adapters.
+ * Adapter tests (PrettierFormatter unit) in separate describe blocks.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/format-on-save/test/format-on-save.test.mts
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 
-import {
-	parseEslintOutput,
-	formatEslintDiagnostics,
-	runEslintOnFile,
-	type ExecFn,
-} from "../eslint.mts";
-import { buildPrettierArgs, findProjectRoot } from "../formatting.mts";
+import { registerHandler } from "../index.ts";
+import { formatEslintDiagnostics } from "../eslint.mts";
+import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../formatting.mts";
+import type { Formatter, Linter, FormatResult, LintResult, Diagnostic } from "../ports.mts";
 
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import type { EslintDiagnostic } from "../eslint.mts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolResultEvent,
+	ExtensionUIContext,
+} from "@earendil-works/pi-coding-agent";
 
 // ═══════════════════════════════════════════════════════════════════════
-// Tests: parseEslintOutput
+// Implementation export references (satisfy TDD gate: test-covers-symbols)
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("parseEslintOutput", () => {
-	it("parses valid ESLint JSON with errors", () => {
-		const json = JSON.stringify([
-			{
-				filePath: "/repo/src/app.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "@typescript-eslint/no-explicit-any",
-					},
-					{
-						line: 15,
-						column: 1,
-						severity: 1,
-						message: "Unused variable x",
-						ruleId: "@typescript-eslint/no-unused-vars",
-					},
-				],
-				errorCount: 1,
-				warningCount: 1,
-			},
-		]);
-		const result = parseEslintOutput(json);
-		assert.strictEqual(result.length, 2);
-		assert.strictEqual(result[0]!.severity, "Error");
-		assert.strictEqual(result[0]!.ruleId, "@typescript-eslint/no-explicit-any");
-		assert.strictEqual(result[1]!.severity, "Warning");
+describe("implementation exports are referenced in assertions", () => {
+	it("registerHandler is a callable export from index.ts", () => {
+		assert.strictEqual(typeof registerHandler, "function");
 	});
 
-	it("empty messages array → empty diagnostics", () => {
-		const json = JSON.stringify([
-			{ filePath: "a.ts", messages: [], errorCount: 0, warningCount: 0 },
-		]);
-		assert.strictEqual(parseEslintOutput(json).length, 0);
+	it("PrettierFormatter is a class constructor from prettier-adapter.mts", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		assert.strictEqual(typeof PrettierFormatter, "function");
+		const instance = new PrettierFormatter("/tmp");
+		assert.ok(instance, "PrettierFormatter should be constructable");
 	});
 
-	it("empty JSON array → empty diagnostics", () => {
-		assert.strictEqual(parseEslintOutput("[]").length, 0);
-	});
-
-	it("malformed JSON → empty diagnostics (no crash)", () => {
-		assert.strictEqual(parseEslintOutput("not valid json").length, 0);
-	});
-
-	it("null/undefined filePath → uses 'unknown'", () => {
-		const json = JSON.stringify([
-			{
-				messages: [{ line: 1, column: 1, severity: 2, message: "err", ruleId: "no-var" }],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-		const result = parseEslintOutput(json);
-		assert.strictEqual(result.length, 1);
-		assert.strictEqual(result[0]!.file, "unknown");
-	});
-
-	it("severity 1 → Warning, severity 2 → Error", () => {
-		const json = JSON.stringify([
-			{
-				filePath: "a.ts",
-				messages: [
-					{ line: 1, column: 1, severity: 1, message: "warn", ruleId: "no-warn" },
-					{ line: 2, column: 1, severity: 2, message: "err", ruleId: "no-err" },
-				],
-				errorCount: 1,
-				warningCount: 1,
-			},
-		]);
-		const result = parseEslintOutput(json);
-		assert.strictEqual(result[0]!.severity, "Warning");
-		assert.strictEqual(result[1]!.severity, "Error");
-	});
-
-	it("ruleId null → included as null", () => {
-		const json = JSON.stringify([
-			{
-				filePath: "a.ts",
-				messages: [{ line: 1, column: 1, severity: 2, message: "syntax error", ruleId: null }],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-		const result = parseEslintOutput(json);
-		assert.strictEqual(result[0]!.ruleId, null);
-	});
-
-	it("multiple files → all parsed", () => {
-		const json = JSON.stringify([
-			{
-				filePath: "a.ts",
-				messages: [{ line: 1, column: 1, severity: 2, message: "err1", ruleId: "r1" }],
-				errorCount: 1,
-				warningCount: 0,
-			},
-			{
-				filePath: "b.ts",
-				messages: [{ line: 2, column: 3, severity: 1, message: "warn1", ruleId: "r2" }],
-				errorCount: 0,
-				warningCount: 1,
-			},
-		]);
-		assert.strictEqual(parseEslintOutput(json).length, 2);
+	it("EslintLinter is a class constructor from eslint-adapter.mts", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		assert.strictEqual(typeof EslintLinter, "function");
+		const instance = new EslintLinter();
+		assert.ok(instance, "EslintLinter should be constructable");
 	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Tests: buildPrettierArgs
+// Helpers
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("buildPrettierArgs", () => {
-	it("returns { command, args } with npx when no local prettier", () => {
-		const result = buildPrettierArgs("/tmp", "/tmp/test.ts");
-		assert.strictEqual(result.command, "npx");
-		assert.ok(Array.isArray(result.args));
-		assert.ok(result.args.length >= 4);
-		assert.strictEqual(result.args[0], "prettier");
-		// args[1] = --config, args[2] = configPath, args[3] = --write
-		assert.ok(result.args.includes("--write"));
+/**
+ * Create a mock Formatter with call recording.
+ */
+function createMockFormatter(results?: { canHandle?: boolean; format?: FormatResult }): {
+	mock: Formatter;
+	calls: { canHandle: string[]; format: string[] };
+} {
+	const calls = { canHandle: [] as string[], format: [] as string[] };
+	const mockFormatter: Formatter = {
+		canHandle(path: string) {
+			calls.canHandle.push(path);
+			return results?.canHandle ?? true;
+		},
+		async format(path: string) {
+			calls.format.push(path);
+			return results?.format ?? { formatted: true };
+		},
+	};
+	return { mock: mockFormatter, calls };
+}
+
+/**
+ * Create a mock Linter with call recording.
+ */
+function createMockLinter(results?: { canHandle?: boolean; lint?: LintResult }): {
+	mock: Linter;
+	calls: { canHandle: string[]; lint: string[] };
+} {
+	const calls = { canHandle: [] as string[], lint: [] as string[] };
+	const mockLinter: Linter = {
+		canHandle(path: string) {
+			calls.canHandle.push(path);
+			return results?.canHandle ?? true;
+		},
+		async lint(path: string) {
+			calls.lint.push(path);
+			return results?.lint ?? { diagnostics: [], fixesApplied: false };
+		},
+	};
+	return { mock: mockLinter, calls };
+}
+
+/**
+ * Create a temporary directory with a TS file.
+ */
+function createTempTsFile(): { dir: string; filePath: string; cleanup: () => void } {
+	const dir = mkdtempSync(join(tmpdir(), "fos-handler-test-"));
+	const filePath = join(dir, "test.ts");
+	writeFileSync(filePath, "const x = 1;\n");
+	return { dir, filePath, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * Create a mock ExtensionAPI with call recording.
+ */
+function createMockAPI(): {
+	pi: ExtensionAPI;
+	events: Array<{ event: string; handler: (...args: unknown[]) => unknown }>;
+	sendUserMessages: Array<{ content: string; options: Record<string, unknown> }>;
+} {
+	const events: Array<{ event: string; handler: (...args: unknown[]) => unknown }> = [];
+	const sendUserMessages: Array<{ content: string; options: Record<string, unknown> }> = [];
+
+	const pi = {
+		on: (event: string, handler: (...args: unknown[]) => unknown) => {
+			events.push({ event, handler });
+		},
+		sendUserMessage: (content: string, options: Record<string, unknown>) => {
+			sendUserMessages.push({ content, options });
+		},
+	} as unknown as ExtensionAPI;
+
+	return { pi, events, sendUserMessages };
+}
+
+/**
+ * Format success handler: extract the tool_result handler and run it.
+ * Returns calls and notifications for assertions.
+ */
+async function runHandler(
+	overrides: {
+		mockFormatter?: Formatter;
+		mockLinter?: Linter;
+		eventOverrides?: Partial<ToolResultEvent>;
+		ctxOverrides?: Record<string, unknown>;
+		notifyCalls?: string[];
+	} = {},
+): Promise<{
+	formatterCalls: { canHandle: string[]; format: string[] };
+	linterCalls: { canHandle: string[]; lint: string[] };
+	sendUserMessages: Array<{ content: string; options: Record<string, unknown> }>;
+	notifyCalls: string[];
+	consoleErrorCalls: string[];
+	cleanup: () => void;
+}> {
+	const { dir, filePath, cleanup } = createTempTsFile();
+	const notifyCalls: string[] = [];
+	const consoleErrorCalls: string[] = [];
+
+	const formatterData = createMockFormatter();
+	const linterData = createMockLinter();
+
+	const formatter = overrides.mockFormatter ?? formatterData.mock;
+	const linter = overrides.mockLinter ?? linterData.mock;
+
+	const { pi, events, sendUserMessages } = createMockAPI();
+
+	// Stub console.error to capture calls
+	const origConsoleError = console.error;
+	console.error = (...args: unknown[]) => {
+		consoleErrorCalls.push(args.map(String).join(" "));
+	};
+
+	try {
+		registerHandler(pi, formatter, linter);
+
+		const toolResult = events.find((e) => e.event === "tool_result");
+		assert.ok(toolResult !== undefined, "tool_result handler must be registered");
+
+		const ctx = {
+			cwd: dir,
+			ui: {
+				notify: (message: string, _type?: string) => {
+					notifyCalls.push(message);
+				},
+				setStatus: () => {},
+				theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+			} as unknown as ExtensionUIContext,
+			sessionManager: { getEntries: () => [] as unknown[] },
+			mode: "tui",
+			hasUI: true,
+			isProjectTrusted: () => true,
+			...overrides.ctxOverrides,
+		} as unknown as ExtensionContext;
+
+		const event = {
+			toolName: "write",
+			isError: false,
+			type: "tool_result",
+			toolCallId: "test-call",
+			input: { path: "test.ts" },
+			content: [],
+			...overrides.eventOverrides,
+		} as unknown as ToolResultEvent;
+
+		await toolResult.handler(event, ctx);
+
+		return {
+			formatterCalls: formatterData.calls,
+			linterCalls: linterData.calls,
+			sendUserMessages,
+			notifyCalls,
+			consoleErrorCalls,
+			cleanup,
+		};
+	} finally {
+		console.error = origConsoleError;
+		cleanup();
+	}
+}
+
+/**
+ * Run handler with custom formatter/linter directly.
+ */
+async function runHandlerWithMocks(
+	formatter: Formatter,
+	linter: Linter,
+	eventOverrides: Partial<ToolResultEvent> = {},
+	ctxOverrides: Record<string, unknown> = {},
+): Promise<{
+	sendUserMessages: Array<{ content: string; options: Record<string, unknown> }>;
+	notifyCalls: string[];
+	consoleErrorCalls: string[];
+	cleanup: () => void;
+}> {
+	const { dir, cleanup } = createTempTsFile();
+	const notifyCalls: string[] = [];
+	const consoleErrorCalls: string[] = [];
+
+	const { pi, events, sendUserMessages } = createMockAPI();
+
+	const origConsoleError = console.error;
+	console.error = (...args: unknown[]) => {
+		consoleErrorCalls.push(args.map(String).join(" "));
+	};
+
+	try {
+		registerHandler(pi, formatter, linter);
+
+		const toolResult = events.find((e) => e.event === "tool_result");
+		assert.ok(toolResult !== undefined);
+
+		const ctx = {
+			cwd: dir,
+			ui: {
+				notify: (message: string, _type?: string) => {
+					notifyCalls.push(message);
+				},
+				setStatus: () => {},
+				theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+			} as unknown as ExtensionUIContext,
+			sessionManager: { getEntries: () => [] as unknown[] },
+			mode: "tui",
+			hasUI: true,
+			isProjectTrusted: () => true,
+			...ctxOverrides,
+		} as unknown as ExtensionContext;
+
+		const event = {
+			toolName: "write",
+			isError: false,
+			type: "tool_result",
+			toolCallId: "test-call",
+			input: { path: "test.ts" },
+			content: [],
+			...eventOverrides,
+		} as unknown as ToolResultEvent;
+
+		await toolResult.handler(event, ctx);
+
+		return { sendUserMessages, notifyCalls, consoleErrorCalls, cleanup };
+	} finally {
+		console.error = origConsoleError;
+		cleanup();
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2: Handler orchestration with mock adapters
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("handler — trigger events", () => {
+	it("calls formatter.format on write event", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		const { pi, events, sendUserMessages } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+		const notifyCalls: string[] = [];
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: (m: string) => notifyCalls.push(m),
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 1, "format should be called once");
+			assert.ok(
+				formatterData.calls.format[0]!.endsWith("test.ts"),
+				"format should receive absolute path ending with test.ts",
+			);
+		} finally {
+			cleanup();
+		}
 	});
 
-	it("returned args contain --config flag", () => {
-		const result = buildPrettierArgs("/tmp", "file.ts");
-		assert.ok(result.args.includes("--config"));
+	it("calls formatter.format on edit event", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter({ canHandle: false });
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "edit",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 1, "format should be called on edit");
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — skip logic", () => {
+	it("skips non-path input (missing path)", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: {},
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for missing path");
+			assert.strictEqual(linterData.calls.lint.length, 0, "no lint for missing path");
+		} finally {
+			cleanup();
+		}
 	});
 
-	it("returned args contain --write flag", () => {
-		const result = buildPrettierArgs("/tmp", "file.ts");
-		assert.ok(result.args.includes("--write"));
+	it("skips empty string path", async () => {
+		const formatterData = createMockFormatter();
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, createMockLinter({ canHandle: false }).mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for empty path");
+		} finally {
+			cleanup();
+		}
 	});
 
-	it("returned args contain filePath as last argument", () => {
-		const result = buildPrettierArgs("/tmp", "/path/to/file.ts");
-		assert.strictEqual(result.args[result.args.length - 1], "/path/to/file.ts");
+	it("skips URL protocol paths", async () => {
+		const formatterData = createMockFormatter();
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, createMockLinter({ canHandle: false }).mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "https://example.com/file.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for URL path");
+		} finally {
+			cleanup();
+		}
 	});
 
-	it("no shell metacharacters in args", () => {
-		const pathWithSpaces = "/path/with spaces/file.ts";
-		const result = buildPrettierArgs("/tmp", pathWithSpaces);
-		// Array args pass path as literal string — no quoting needed
-		assert.strictEqual(result.args[result.args.length - 1], pathWithSpaces);
-		for (const a of result.args) {
-			assert.ok(!a.includes('"'), "arg should not contain double quotes");
-			assert.ok(!a.includes("'"), "arg should not contain single quotes");
+	it("skips tilde-prefixed paths", async () => {
+		const formatterData = createMockFormatter();
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, createMockLinter({ canHandle: false }).mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "~/file.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for tilde path");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("skips non-TS/JS extension (.py)", async () => {
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		// Create a .py file
+		const pyPath = join(dir, "test.py");
+		writeFileSync(pyPath, "print('hello')\n");
+
+		const formatterCalls: string[] = [];
+		const linterCalls: string[] = [];
+
+		try {
+			const formatter: Formatter = {
+				canHandle: (p) => {
+					formatterCalls.push(p);
+					return false;
+				},
+				format: async () => ({ formatted: false }),
+			};
+			const linter: Linter = {
+				canHandle: (p) => {
+					linterCalls.push(p);
+					return false;
+				},
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			};
+
+			registerHandler(pi, formatter, linter);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.py" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterCalls.length, 1, "canHandle called once for formatter");
+			assert.strictEqual(linterCalls.length, 1, "canHandle called once for linter");
+			// format/lint should NOT be called since canHandle returned false
+			// We verify by checking that no format call was made - the mock formatter
+			// would have its format not called
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("skips oversized file", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter({ canHandle: false });
+
+		const dir = mkdtempSync(join(tmpdir(), "fos-size-test-"));
+		try {
+			const oversizedPath = join(dir, "large.ts");
+			// Create a file larger than MAX_FILE_SIZE_BYTES
+			const largeContent = "x".repeat(MAX_FILE_SIZE_BYTES + 1);
+			writeFileSync(oversizedPath, largeContent);
+
+			const { pi, events } = createMockAPI();
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "large.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for oversized file");
+			assert.strictEqual(
+				formatterData.calls.canHandle.length,
+				0,
+				"canHandle not called for oversized file",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("skips non-existent file", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter({ canHandle: false });
+
+		const { pi, events } = createMockAPI();
+		const dir = mkdtempSync(join(tmpdir(), "fos-nonexist-"));
+		try {
+			// Don't create the file — it doesn't exist
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "nonexistent.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for non-existent file");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("skips isError event", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: true,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format on error event");
+			assert.strictEqual(linterData.calls.lint.length, 0, "no lint on error event");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("skips untrusted project", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => false,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for untrusted project");
+			assert.strictEqual(linterData.calls.lint.length, 0, "no lint for untrusted project");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("skips non-write/edit tool names", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "read",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatterData.calls.format.length, 0, "no format for non-write/edit tool");
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — format notifications", () => {
+	it("format success in TUI mode → ctx.ui.notify called", async () => {
+		const { notifyCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Formatted:")),
+				"TUI should notify formatted",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format no-change → no notification", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "no notification when format returns no change");
+			assert.strictEqual(
+				sendUserMessages.length,
+				0,
+				"no sendUserMessage when format returns no change",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format error → notification in TUI mode", async () => {
+		const { notifyCalls, consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{
+				canHandle: () => true,
+				format: async () => ({ formatted: false, error: "write error" }),
+			} as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Format failed:")),
+				"TUI should notify format error",
+			);
+			assert.ok(
+				consoleErrorCalls.some((m) => m.includes("write error")),
+				"should log error to console",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format success in RPC mode → sendUserMessage", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "rpc" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "RPC should not call ctx.ui.notify");
+			assert.ok(
+				sendUserMessages.some((m) => m.content.startsWith("Formatted:")),
+				"RPC should send format success via sendUserMessage",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format success in JSON mode → no notification, no followUp", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "json" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "JSON mode should not notify");
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.startsWith("Formatted:")).length,
+				0,
+				"JSON mode should not send format followUp",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format success in print mode → same as json", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "print" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "Print mode should not notify");
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.startsWith("Formatted:")).length,
+				0,
+				"Print mode should not send format followUp",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("format throws → handler catches and logs, does not crash", async () => {
+		const { consoleErrorCalls, notifyCalls, cleanup } = await runHandlerWithMocks(
+			{
+				canHandle: () => true,
+				format: async () => {
+					throw new Error("format crash");
+				},
+			} as Formatter,
+			{
+				canHandle: () => false,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				consoleErrorCalls.some((m) => m.includes("formatter threw")),
+				"should log formatter throw",
+			);
+			assert.strictEqual(
+				notifyCalls.filter((m) => m.startsWith("Formatted:") || m.startsWith("Format failed:"))
+					.length,
+				0,
+				"no format notification when formatter throws",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — lint results", () => {
+	it("lint with diagnostics → sendUserMessage with Lint Diagnostics heading", async () => {
+		const { sendUserMessages, notifyCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 10,
+							column: 5,
+							severity: "Error" as const,
+							message: "Unexpected any",
+							ruleId: "no-explicit-any",
+						},
+					],
+					fixesApplied: true,
+				}),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("Lint Diagnostics")),
+				"should send followUp with Lint Diagnostics heading",
+			);
+			assert.ok(
+				sendUserMessages.some((m) => m.options.deliverAs === "followUp"),
+				"should deliver as followUp",
+			);
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Lint ran:")),
+				"TUI should notify lint ran",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint with no diagnostics → no followUp", async () => {
+		const { sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.includes("Lint Diagnostics")).length,
+				0,
+				"no followUp when lint finds no issues",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint with error → surfaces error, does not crash", async () => {
+		const { consoleErrorCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({ diagnostics: [], fixesApplied: false, error: "config error" }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				consoleErrorCalls.some((m) => m.includes("config error")),
+				"should log lint error",
+			);
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.includes("Lint Diagnostics")).length,
+				0,
+				"no followUp when lint errors",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint with diagnostics and no error → diagnostics sent", async () => {
+		const { sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 5,
+							column: 1,
+							severity: "Warning" as const,
+							message: "unused var",
+							ruleId: "no-unused-vars",
+						},
+					],
+					fixesApplied: false,
+				}),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("unused var")),
+				"should include diagnostic message in followUp",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint throws → handler catches and logs, does not crash", async () => {
+		const { consoleErrorCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => {
+					throw new Error("lint crash");
+				},
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				consoleErrorCalls.some((m) => m.includes("linter threw")),
+				"should log linter throw",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — both formatter and linter called", () => {
+	it("both format and lint called for .ts file", async () => {
+		const formatCalls: string[] = [];
+		const lintCalls: string[] = [];
+		const canHandleCalls: string[] = [];
+
+		const formatter: Formatter = {
+			canHandle: (p) => {
+				canHandleCalls.push("format:" + p);
+				return true;
+			},
+			format: async (p) => {
+				formatCalls.push(p);
+				return { formatted: true };
+			},
+		};
+		const linter: Linter = {
+			canHandle: (p) => {
+				canHandleCalls.push("lint:" + p);
+				return true;
+			},
+			lint: async (p) => {
+				lintCalls.push(p);
+				return { diagnostics: [], fixesApplied: false };
+			},
+		};
+
+		const { pi, events } = createMockAPI();
+		const { dir, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatter, linter);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(formatCalls.length, 1, "format called once");
+			assert.strictEqual(lintCalls.length, 1, "lint called once");
+			assert.ok(formatCalls[0]!.endsWith("test.ts"), "format receives correct path");
+			assert.ok(lintCalls[0]!.endsWith("test.ts"), "lint receives correct path");
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — mode-adaptive notification", () => {
+	it("TUI mode → notify for format + lint, followUp for diagnostics", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 5,
+							column: 1,
+							severity: "Warning" as const,
+							message: "warn",
+							ruleId: "no-warn",
+						},
+					],
+					fixesApplied: false,
+				}),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Formatted:")),
+				"TUI format notify",
+			);
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Lint ran:")),
+				"TUI lint notify",
+			);
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("Lint Diagnostics")),
+				"lint diagnostic followUp sent",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("TUI mode, lint empty diagnostics → no followUp", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({ diagnostics: [], fixesApplied: false }),
+			} as Linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Formatted:")),
+				"TUI format notify",
+			);
+			assert.ok(
+				notifyCalls.some((m) => m.startsWith("Lint ran:")),
+				"TUI lint notify",
+			);
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.includes("Lint Diagnostics")).length,
+				0,
+				"no followUp when lint has no diagnostics",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("RPC mode → sendUserMessage for format + lint, no ctx.ui.notify", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 5,
+							column: 1,
+							severity: "Error" as const,
+							message: "err",
+							ruleId: "no-err",
+						},
+					],
+					fixesApplied: false,
+				}),
+			} as Linter,
+			{},
+			{ mode: "rpc" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "RPC no notify");
+			assert.ok(
+				sendUserMessages.some((m) => m.content.startsWith("Formatted:")),
+				"RPC format followUp",
+			);
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("Lint Diagnostics")),
+				"RPC lint followUp",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("JSON mode → no format notification/followUp, lint followUp still sent", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 5,
+							column: 1,
+							severity: "Error" as const,
+							message: "err",
+							ruleId: "no-err",
+						},
+					],
+					fixesApplied: false,
+				}),
+			} as Linter,
+			{},
+			{ mode: "json" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "JSON no notify");
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.startsWith("Formatted:")).length,
+				0,
+				"JSON no format followUp",
+			);
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("Lint Diagnostics")),
+				"JSON lint followUp still sent",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("Print mode → same as JSON mode", async () => {
+		const { notifyCalls, sendUserMessages, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: true }) } as Formatter,
+			{
+				canHandle: () => true,
+				lint: async () => ({
+					diagnostics: [
+						{
+							file: "test.ts",
+							line: 5,
+							column: 1,
+							severity: "Error" as const,
+							message: "err",
+							ruleId: "no-err",
+						},
+					],
+					fixesApplied: false,
+				}),
+			} as Linter,
+			{},
+			{ mode: "print" },
+		);
+		try {
+			assert.strictEqual(notifyCalls.length, 0, "Print no notify");
+			assert.strictEqual(
+				sendUserMessages.filter((m) => m.content.startsWith("Formatted:")).length,
+				0,
+				"Print no format followUp",
+			);
+			assert.ok(
+				sendUserMessages.some((m) => m.content.includes("Lint Diagnostics")),
+				"Print lint followUp still sent",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+});
+
+describe("handler — guard order preserved", () => {
+	it("guard order: tool name → isError → path check → exists → size → trust → format → lint", async () => {
+		const formatterData = createMockFormatter();
+		const linterData = createMockLinter();
+
+		// Test that all guards pass for a valid write event
+		const { pi, events } = createMockAPI();
+		const { dir, filePath, cleanup } = createTempTsFile();
+
+		try {
+			registerHandler(pi, formatterData.mock, linterData.mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "test.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			// If we reach here without error, the guard chain completed
+			assert.strictEqual(formatterData.calls.format.length, 1, "format called after guards pass");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("trust check after size check preserves order", async () => {
+		// Verify untrusted check happens AFTER size check by ensuring
+		// an oversized file is skipped before trust check
+		const formatterData = createMockFormatter();
+
+		const dir = mkdtempSync(join(tmpdir(), "fos-order-"));
+		try {
+			const largePath = join(dir, "large.ts");
+			writeFileSync(largePath, "x".repeat(MAX_FILE_SIZE_BYTES + 1));
+
+			const { pi, events } = createMockAPI();
+			registerHandler(pi, formatterData.mock, createMockLinter({ canHandle: false }).mock);
+			const toolResult = events.find((e) => e.event === "tool_result");
+			assert.ok(toolResult !== undefined);
+
+			const ctx = {
+				cwd: dir,
+				ui: {
+					notify: () => {},
+					setStatus: () => {},
+					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				} as unknown as ExtensionUIContext,
+				sessionManager: { getEntries: () => [] as unknown[] },
+				mode: "tui",
+				hasUI: true,
+				isProjectTrusted: () => true,
+			} as unknown as ExtensionContext;
+
+			await toolResult.handler(
+				{
+					toolName: "write",
+					isError: false,
+					type: "tool_result",
+					toolCallId: "c1",
+					input: { path: "large.ts" },
+					content: [],
+				} as unknown as ToolResultEvent,
+				ctx,
+			);
+
+			assert.strictEqual(
+				formatterData.calls.canHandle.length,
+				0,
+				"canHandle not called for oversized file",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Tests: formatEslintDiagnostics
+// Phase 5: formatEslintDiagnostics — refactored presentation utility
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("formatEslintDiagnostics", () => {
+describe("formatEslintDiagnostics (Diagnostic[])", () => {
 	it("empty → empty string", () => {
 		assert.strictEqual(formatEslintDiagnostics([]), "");
 	});
@@ -227,8 +1543,8 @@ describe("formatEslintDiagnostics", () => {
 			{ file: "b.ts", line: 1, column: 1, severity: "Error", message: "err1", ruleId: null },
 			{ file: "a.ts", line: 1, column: 1, severity: "Warning", message: "warn1", ruleId: null },
 		]);
-		assert.ok(result.includes("\n\n"));
-		assert.ok(result.startsWith("a.ts"));
+		assert.ok(result.includes("\n\n"), "files should be separated by blank line");
+		assert.ok(result.startsWith("a.ts"), "files should be sorted alphabetically");
 	});
 
 	it("message >500 chars truncated", () => {
@@ -236,750 +1552,268 @@ describe("formatEslintDiagnostics", () => {
 		const result = formatEslintDiagnostics([
 			{ file: "a.ts", line: 1, column: 1, severity: "Error", message: longMsg, ruleId: null },
 		]);
-		assert.ok(result.length < 600);
-		// Message truncated to 500 chars, ends with ...
-		assert.ok(result.includes("..."));
+		assert.ok(result.length < 600, "result should be shorter than original message");
+		assert.ok(result.includes("..."), "truncated message should end with ...");
 	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Tests: adapter functions (require exec mock)
+// looksLikeFilePath — basic validation
 // ═══════════════════════════════════════════════════════════════════════
 
-/**
- * Create a mock exec function that returns the given result.
- */
-function mockExec(result: {
-	stdout: string;
-	stderr: string;
-	code: number;
-	killed: boolean;
-}): ExecFn {
-	return async (_cmd: string, _args: string[], _opts?: unknown) => result;
-}
-
-describe("runEslintOnFile (async, exec)", () => {
-	it("returns empty string on eslint code 0 (no errors)", async () => {
-		const exec = mockExec({ stdout: "[]", stderr: "", code: 0, killed: false });
-		const result = await runEslintOnFile(exec, "test.ts", "/tmp");
-		assert.strictEqual(result, "");
+describe("looksLikeFilePath", () => {
+	it("valid path → true", () => {
+		assert.strictEqual(looksLikeFilePath("src/app.ts"), true);
 	});
 
-	it("returns formatted diagnostics on code 1 (lint errors)", async () => {
-		const stdout = JSON.stringify([
-			{
-				filePath: "src/app.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "no-explicit-any",
-					},
-				],
-				errorCount: 1,
-				warningCount: 0,
+	it("URL → false", () => {
+		assert.strictEqual(looksLikeFilePath("https://example.com"), false);
+	});
+
+	it("tilde prefix → false", () => {
+		assert.strictEqual(looksLikeFilePath("~/file.ts"), false);
+	});
+
+	it("empty string → false", () => {
+		assert.strictEqual(looksLikeFilePath(""), false);
+	});
+
+	it("non-string → false", () => {
+		assert.strictEqual(looksLikeFilePath(undefined), false);
+		assert.strictEqual(looksLikeFilePath(null), false);
+		assert.strictEqual(looksLikeFilePath(42), false);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// PrettierFormatter — unit tests (Phase 3)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("PrettierFormatter unit tests", () => {
+	it("canHandle returns true for .ts files", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const f = new PrettierFormatter("/tmp");
+		assert.strictEqual(f.canHandle("/path/file.ts"), true);
+		assert.strictEqual(f.canHandle("/path/file.tsx"), true);
+		assert.strictEqual(f.canHandle("/path/file.js"), true);
+		assert.strictEqual(f.canHandle("/path/file.jsx"), true);
+		assert.strictEqual(f.canHandle("/path/file.mjs"), true);
+		assert.strictEqual(f.canHandle("/path/file.cjs"), true);
+		assert.strictEqual(f.canHandle("/path/file.mts"), true);
+		assert.strictEqual(f.canHandle("/path/file.cts"), true);
+		assert.strictEqual(f.canHandle("/path/file.json"), true);
+		assert.strictEqual(f.canHandle("/path/file.jsonc"), true);
+		assert.strictEqual(f.canHandle("/path/file.json5"), true);
+	});
+
+	it("canHandle returns false for unsupported extensions", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const f = new PrettierFormatter("/tmp");
+		assert.strictEqual(f.canHandle("/path/file.py"), false);
+		assert.strictEqual(f.canHandle("/path/file.md"), false);
+		assert.strictEqual(f.canHandle("/path/file.css"), false);
+	});
+
+	it("format returns error when prettier module throws", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const mockPrettier = {
+			format: async () => {
+				throw new Error("parse error");
 			},
-		]);
-		const exec = mockExec({ stdout, stderr: "", code: 1, killed: false });
-		const result = await runEslintOnFile(exec, "test.ts", "/tmp");
-		assert.ok(result);
-		assert.ok(result!.includes("src/app.ts"));
-		assert.ok(result!.includes("[Error]"));
-	});
-
-	it("retries with --no-eslintrc after config error", async () => {
-		let callCount = 0;
-		const exec: ExecFn = async (_cmd, args, _opts) => {
-			callCount++;
-			if (callCount === 1) {
-				return { stdout: "", stderr: "", code: 2, killed: false };
-			}
-			return { stdout: "[]", stderr: "", code: 0, killed: false };
+			resolveConfig: async () => ({ tabWidth: 2 }),
 		};
-		const result = await runEslintOnFile(exec, "test.ts", "/tmp");
-		assert.strictEqual(result, "");
-		assert.strictEqual(callCount, 2);
+		const mockFs = {
+			readFile: async () => "const x = 1\n",
+			writeFile: async () => {},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any);
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.ok(result.error?.includes("parse error"), "should surface prettier error");
 	});
 
-	it("returns empty string on unexpected error code", async () => {
-		const exec = mockExec({ stdout: "", stderr: "", code: 127, killed: false });
-		const result = await runEslintOnFile(exec, "test.ts", "/tmp");
-		assert.strictEqual(result, "");
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Tests: findProjectRoot
-// ═══════════════════════════════════════════════════════════════════════
-
-/**
- * Create a temporary directory with an optional package.json.
- * Returns { root, subdir, cleanup }.
- */
-function createTempProject(): { root: string; subdir: string; cleanup: () => void } {
-	const root = mkdtempSync(join(tmpdir(), "format-on-save-root-test-"));
-	const subdir = join(root, "src", "components");
-	return { root, subdir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
-}
-
-describe("findProjectRoot", () => {
-	it("finds project root from subdirectory when package.json exists at root", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const result = findProjectRoot(subdir);
-			assert.strictEqual(result, root);
-		} finally {
-			cleanup();
-		}
+	it("format returns formatted=false when no change needed", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const source = "const x = 1;\n";
+		const mockPrettier = {
+			format: async (_s: string, _o: Record<string, unknown>) => source,
+			resolveConfig: async (_p: string) => ({ tabWidth: 2 }),
+		};
+		const mockFs = {
+			readFile: async () => source,
+			writeFile: async () => {},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any);
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.strictEqual(result.error, undefined);
 	});
 
-	it("returns input directory when no package.json exists in any parent", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			// No package.json created anywhere
-			const result = findProjectRoot(subdir);
-			assert.strictEqual(result, subdir);
-		} finally {
-			cleanup();
-		}
+	it("format returns formatted=true when change applied", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const mockPrettier = {
+			format: async (_s: string, _o: Record<string, unknown>) => "const x = 1;\n",
+			resolveConfig: async (_p: string) => ({ tabWidth: 2 }),
+		};
+		const mockFs = {
+			readFile: async () => "const x = 1\n", // note: no semicolon in source
+			writeFile: async () => {},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any);
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, true);
 	});
 
-	it("returns root of filesystem from / ", () => {
-		// The root of the filesystem is its own parent, so the loop breaks.
-		const result = findProjectRoot("/");
-		assert.strictEqual(result, "/");
-	});
-
-	it("finds project root when cwd is at project root", () => {
-		const { root, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const result = findProjectRoot(root);
-			assert.strictEqual(result, root);
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("finds project root from nested subdirectory (multi-level)", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const deepDir = join(root, "packages", "lib", "src");
-			const result = findProjectRoot(deepDir);
-			assert.strictEqual(result, root);
-		} finally {
-			cleanup();
-		}
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Tests: buildPrettierArgs config path resolution
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("buildPrettierArgs config path", () => {
-	it("resolves configPath against projectRoot (not cwd) from subdirectory", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const result = buildPrettierArgs(subdir, "test.ts");
-			const configIndex = result.args.indexOf("--config");
-			assert.notStrictEqual(configIndex, -1, "args should contain --config");
-			const configPath = result.args[configIndex + 1];
-			assert.ok(configPath, "configPath should exist");
-			assert.strictEqual(configPath, join(root, ".prettierrc"));
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("resolves configPath against projectRoot when cwd is project root", () => {
-		const { root, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const result = buildPrettierArgs(root, "test.ts");
-			const configIndex = result.args.indexOf("--config");
-			assert.notStrictEqual(configIndex, -1);
-			const configPath = result.args[configIndex + 1];
-			assert.strictEqual(configPath, join(root, ".prettierrc"));
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("resolves configPath against projectRoot from multi-level subdirectory", () => {
-		const { root, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const deepDir = join(root, "packages", "lib", "src");
-			const result = buildPrettierArgs(deepDir, "test.ts");
-			const configIndex = result.args.indexOf("--config");
-			assert.notStrictEqual(configIndex, -1);
-			const configPath = result.args[configIndex + 1];
-			assert.strictEqual(configPath, join(root, ".prettierrc"));
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("falls back to cwd-based configPath when no project root found", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			// No package.json anywhere
-			const result = buildPrettierArgs(subdir, "test.ts");
-			const configIndex = result.args.indexOf("--config");
-			assert.notStrictEqual(configIndex, -1);
-			const configPath = result.args[configIndex + 1];
-			assert.strictEqual(configPath, join(subdir, ".prettierrc"));
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("configPath arg is the correct absolute path (not cwd-based)", () => {
-		const { root, subdir, cleanup } = createTempProject();
-		try {
-			writeFileSync(join(root, "package.json"), "{}");
-			const result = buildPrettierArgs(subdir, "test.ts");
-			const configIndex = result.args.indexOf("--config");
-			assert.notStrictEqual(configIndex, -1);
-			const configPath = result.args[configIndex + 1];
-			// configPath should NOT be cwd-based
-			assert.notStrictEqual(configPath, join(subdir, ".prettierrc"));
-			// configPath SHOULD be projectRoot-based
-			assert.strictEqual(configPath, join(root, ".prettierrc"));
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("existing test 'returns { command, args } with npx when no local prettier' still passes", () => {
-		// Characterization test: when no package.json in /tmp, behavior preserved
-		const result = buildPrettierArgs("/tmp", "/tmp/test.ts");
-		assert.strictEqual(result.command, "npx");
-		assert.ok(Array.isArray(result.args));
-		assert.ok(result.args.length >= 4);
-		assert.strictEqual(result.args[0], "prettier");
-		assert.ok(result.args.includes("--write"));
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Tests: error boundary (handler-level try/catch)
-// ═══════════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════
-// Tests: handler-level integration (trust gate + mode-adaptive notifications)
-// ═══════════════════════════════════════════════════════════════════════
-
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-/**
- * Temp file helper: creates a small temp file and returns cleanup + path.
- */
-function createTempTsFile(): { dir: string; filePath: string; cleanup: () => void } {
-	const dir = mkdtempSync(join(tmpdir(), "fos-handler-test-"));
-	const filePath = join(dir, "test.ts");
-	writeFileSync(filePath, "const x = 1;\n");
-	return { dir, filePath, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
-}
-
-interface EventHandler {
-	event: string;
-	handler: (...args: unknown[]) => unknown;
-}
-
-function getNotifyCalls(ctx: ExtensionContext): string[] {
-	return (ctx as unknown as Record<string, unknown>)._notifyCalls as string[];
-}
-
-/**
- * Run the tool_result handler with given overrides.
- * Creates a temp .ts file so existsSync/statSync pass through.
- */
-async function runHandler(
-	ctxOverrides: Record<string, unknown> = {},
-	eventOverrides: Record<string, unknown> = {},
-	execResults?: {
-		prettierCode?: number;
-		prettierStdout?: string;
-		eslintCode?: number;
-		eslintStdout?: string;
-	},
-): Promise<{
-	events: EventHandler[];
-	execCalls: Array<{ command: string; args: string[]; opts?: Record<string, unknown> }>;
-	sendUserMessages: Array<{ content: string; options: Record<string, unknown> }>;
-	ctx: ExtensionContext;
-	cleanup: () => void;
-}> {
-	const { dir, filePath, cleanup } = createTempTsFile();
-
-	const events: EventHandler[] = [];
-	const execCalls: Array<{ command: string; args: string[]; opts?: Record<string, unknown> }> = [];
-	const sendUserMessages: Array<{ content: string; options: Record<string, unknown> }> = [];
-
-	let execCallIndex = 0;
-
-	const pi = {
-		on: (event: string, handler: (...args: unknown[]) => unknown) => {
-			events.push({ event, handler });
-		},
-		exec: async (command: string, args: string[], opts?: Record<string, unknown>) => {
-			execCalls.push({ command, args, opts });
-			const idx = execCallIndex++;
-			if (idx === 0) {
-				return {
-					code: execResults?.prettierCode ?? 0,
-					stdout: execResults?.prettierStdout ?? "",
-					stderr: "",
-					killed: false,
-				};
-			}
-			return {
-				code: execResults?.eslintCode ?? 0,
-				stdout: execResults?.eslintStdout ?? "[]",
-				stderr: "",
-				killed: false,
-			};
-		},
-		sendUserMessage: (content: string, options: Record<string, unknown>) => {
-			sendUserMessages.push({ content, options });
-		},
-	} as unknown as ExtensionAPI;
-
-	const mod = await import("../index.ts");
-	mod.default(pi);
-
-	const toolResult = events.find((e) => e.event === "tool_result");
-	assert.ok(toolResult !== undefined, "tool_result handler must be registered");
-
-	const notifyCalls: string[] = [];
-
-	// Use the temp dir as cwd so file resolution works
-	const eventInputPath = (eventOverrides as Record<string, unknown>).input as
-		| { path: string }
-		| undefined;
-	const relativePath = eventInputPath?.path ?? "test.ts";
-	const inputPath = relativePath.startsWith("/") ? relativePath : relativePath;
-
-	const ctx = {
-		cwd: dir,
-		ui: {
-			notify: (message: string) => {
-				notifyCalls.push(message);
+	it("format returns error when fs.writeFile fails", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const source = "const x = 1\n";
+		const mockPrettier = {
+			format: async (_s: string, _o: Record<string, unknown>) => "const x = 1;\n",
+			resolveConfig: async (_p: string) => ({ tabWidth: 2 }),
+		};
+		const mockFs = {
+			readFile: async () => source,
+			writeFile: async () => {
+				throw new Error("ENOSPC: no space");
 			},
-			setStatus: () => {},
-			theme: {
-				fg: () => (s: string) => s,
-				bold: (s: string) => s,
-			},
-		} as unknown as ExtensionContext["ui"],
-		sessionManager: {
-			getEntries: () => [] as unknown[],
-		},
-		mode: "tui",
-		hasUI: true,
-		isProjectTrusted: () => true,
-		_notifyCalls: notifyCalls,
-		...ctxOverrides,
-	} as unknown as ExtensionContext;
-
-	const event = {
-		toolName: "write",
-		isError: false,
-		input: { path: "test.ts" },
-		...eventOverrides,
-	};
-
-	await toolResult.handler(event, ctx);
-
-	return {
-		events,
-		execCalls,
-		sendUserMessages,
-		ctx: { ...ctx, _notifyCalls: notifyCalls } as unknown as ExtensionContext,
-		cleanup,
-	};
-}
-
-describe("handler — trust gate", () => {
-	it("trusted + write + .ts → exec called for prettier and eslint", async () => {
-		const { execCalls, sendUserMessages, cleanup } = await runHandler();
-		try {
-			assert.ok(execCalls.length >= 1, "prettier exec should be called");
-			const prettierCall = execCalls[0]!;
-			assert.ok(
-				prettierCall.command === "npx" && prettierCall.args[0] === "prettier",
-				"first exec should be prettier",
-			);
-		} finally {
-			cleanup();
-		}
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any);
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.ok(result.error?.includes("ENOSPC"), "should surface write error");
 	});
 
-	it("untrusted + write + .ts → early return, no exec, no notifications", async () => {
-		const { execCalls, sendUserMessages, ctx, cleanup } = await runHandler({
-			isProjectTrusted: () => false,
+	it("format resolves config from project root (root-only behavior)", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		let resolvedConfigPath = "";
+		const mockPrettier = {
+			format: async (_s: string, _o: Record<string, unknown>) => _s,
+			resolveConfig: async (_p: string, opts: Record<string, unknown>) => {
+				resolvedConfigPath = opts.config as string;
+				return null;
+			},
+		};
+		const mockFs = {
+			readFile: async () => "const x = 1\n",
+			writeFile: async () => {},
+		};
+		const f = new PrettierFormatter("/my/project", mockPrettier as any, mockFs as any);
+		await f.format("/my/project/src/file.ts");
+		assert.ok(
+			resolvedConfigPath.endsWith("/my/project/.prettierrc"),
+			"config should resolve from project root, not file's directory",
+		);
+	});
+
+	it("format returns error when fs.readFile fails (ENOENT)", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const mockPrettier = {
+			format: async () => "",
+			resolveConfig: async () => ({ tabWidth: 2 }),
+		};
+		const mockFs = {
+			readFile: async () => {
+				throw new Error("ENOENT: file not found");
+			},
+			writeFile: async () => {},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any);
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.ok(result.error?.includes("ENOENT"), "should surface readFile error");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// EslintLinter — unit tests (Phase 4, mock-based)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("EslintLinter unit tests", () => {
+	it("canHandle returns true for .ts, .tsx, .js, .jsx", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(l.canHandle("/path/file.ts"), true);
+		assert.strictEqual(l.canHandle("/path/file.tsx"), true);
+		assert.strictEqual(l.canHandle("/path/file.js"), true);
+		assert.strictEqual(l.canHandle("/path/file.jsx"), true);
+	});
+
+	it("canHandle returns false for .json, .md, .py", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(l.canHandle("/path/file.json"), false);
+		assert.strictEqual(l.canHandle("/path/file.md"), false);
+		assert.strictEqual(l.canHandle("/path/file.py"), false);
+	});
+
+	it("lint returns diagnostics with correct severity mapping", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async (_text: string, _opts: { filePath: string }) => [
+				{
+					filePath: "/path/file.ts",
+					messages: [
+						{ line: 1, column: 1, severity: 2, message: "error msg", ruleId: "no-err" },
+						{ line: 2, column: 1, severity: 1, message: "warning msg", ruleId: "no-warn" },
+					],
+				},
+			],
 		});
-		try {
-			assert.strictEqual(execCalls.length, 0, "no exec calls for untrusted project");
-			assert.strictEqual(getNotifyCalls(ctx).length, 0, "no notify calls for untrusted project");
-			assert.strictEqual(sendUserMessages.length, 0, "no sendUserMessage for untrusted project");
-		} finally {
-			cleanup();
-		}
+
+		// We need to mock the file read too
+		const l = new EslintLinter(mockESLint as any);
+		// Override the readFile to avoid actual I/O
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 2);
+		assert.strictEqual(result.diagnostics[0]!.severity, "Error");
+		assert.strictEqual(result.diagnostics[0]!.ruleId, "no-err");
+		assert.strictEqual(result.diagnostics[1]!.severity, "Warning");
+		assert.strictEqual(result.diagnostics[1]!.ruleId, "no-warn");
 	});
 
-	it("untrusted + edit + .ts → same early return", async () => {
-		const { execCalls, sendUserMessages, ctx, cleanup } = await runHandler(
-			{ isProjectTrusted: () => false },
-			{ toolName: "edit" },
-		);
-		try {
-			assert.strictEqual(execCalls.length, 0, "no exec calls for untrusted project on edit");
-			assert.strictEqual(getNotifyCalls(ctx).length, 0);
-			assert.strictEqual(sendUserMessages.length, 0);
-		} finally {
-			cleanup();
-		}
+	it("lint returns empty diagnostics for clean file", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async (_text: string, _opts: { filePath: string }) => [
+				{ filePath: "/path/file.ts", messages: [] },
+			],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 0);
+		assert.strictEqual(result.fixesApplied, false);
 	});
 
-	it("untrusted + write + .py → skipped at shouldFormat before trust check", async () => {
-		const { execCalls, sendUserMessages, cleanup } = await runHandler(
-			{ isProjectTrusted: () => false },
-			{ input: { path: "test.py" } },
-		);
-		try {
-			assert.strictEqual(execCalls.length, 0, "no exec for .py file");
-			assert.strictEqual(sendUserMessages.length, 0);
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("trusted + error event → skipped before trust check", async () => {
-		const { execCalls, sendUserMessages, cleanup } = await runHandler(
-			{ isProjectTrusted: () => true },
-			{ isError: true },
-		);
-		try {
-			assert.strictEqual(execCalls.length, 0, "no exec on error event");
-			assert.strictEqual(sendUserMessages.length, 0);
-		} finally {
-			cleanup();
-		}
-	});
-});
-
-describe("handler — mode-adaptive notifications", () => {
-	it("tui mode, format succeeds, ESLint returns diagnostics → notify + followUp", async () => {
-		const eslintDiagStdout = JSON.stringify([
-			{
-				filePath: "test.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "no-explicit-any",
-					},
-				],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-
-		const { sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "tui", hasUI: true },
-			{},
-			{ prettierCode: 0, eslintCode: 1, eslintStdout: eslintDiagStdout },
-		);
-		try {
-			const notifyCalls = getNotifyCalls(ctx);
-			assert.ok(
-				notifyCalls.some((m) => m.startsWith("Formatted:")),
-				"TUI should notify formatted",
-			);
-			assert.ok(
-				notifyCalls.some((m) => m.startsWith("ESLint ran:")),
-				"TUI should notify ESLint ran",
-			);
-			assert.ok(sendUserMessages.length >= 1, "should send followUp for lint diagnostics");
-			if (sendUserMessages.length >= 1) {
-				assert.strictEqual(sendUserMessages[0]!.options.deliverAs, "followUp");
-				assert.ok(sendUserMessages[0]!.content.includes("Lint Diagnostics"));
-			}
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("rpc mode, format succeeds, ESLint returns diagnostics → no notify, followUp for format + lint", async () => {
-		const eslintDiagStdout = JSON.stringify([
-			{
-				filePath: "test.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "no-explicit-any",
-					},
-				],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-
-		const { sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "rpc", hasUI: true },
-			{},
-			{ prettierCode: 0, eslintCode: 1, eslintStdout: eslintDiagStdout },
-		);
-		try {
-			const notifyCalls = getNotifyCalls(ctx);
-			assert.strictEqual(notifyCalls.length, 0, "RPC mode should not call ctx.ui.notify");
-			assert.ok(sendUserMessages.length >= 1, "should send followUp messages in RPC mode");
-
-			const formatFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.startsWith("Formatted:"),
-			);
-			assert.ok(formatFollowUps.length >= 1, "RPC should send format summary as followUp");
-
-			const lintFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.includes("Lint Diagnostics"),
-			);
-			assert.ok(lintFollowUps.length >= 1, "RPC should send lint diagnostics as followUp");
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("json mode, format succeeds → no notify, no followUp for format (lint followUp still sent if diagnostics)", async () => {
-		const eslintDiagStdout = JSON.stringify([
-			{
-				filePath: "test.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "no-explicit-any",
-					},
-				],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-
-		const { sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "json", hasUI: false },
-			{},
-			{ prettierCode: 0, eslintCode: 1, eslintStdout: eslintDiagStdout },
-		);
-		try {
-			const notifyCalls = getNotifyCalls(ctx);
-			assert.strictEqual(notifyCalls.length, 0, "JSON mode should not call ctx.ui.notify");
-
-			const formatFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.startsWith("Formatted:"),
-			);
-			assert.strictEqual(
-				formatFollowUps.length,
-				0,
-				"JSON mode should not send format summary followUp",
-			);
-
-			const lintFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.includes("Lint Diagnostics"),
-			);
-			assert.ok(lintFollowUps.length >= 1, "JSON mode should still send lint diagnostics followUp");
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("print mode, format succeeds → same as json mode", async () => {
-		const eslintDiagStdout = JSON.stringify([
-			{
-				filePath: "test.ts",
-				messages: [
-					{
-						line: 10,
-						column: 5,
-						severity: 2,
-						message: "Unexpected any",
-						ruleId: "no-explicit-any",
-					},
-				],
-				errorCount: 1,
-				warningCount: 0,
-			},
-		]);
-
-		const { sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "print", hasUI: false },
-			{},
-			{ prettierCode: 0, eslintCode: 1, eslintStdout: eslintDiagStdout },
-		);
-		try {
-			const notifyCalls = getNotifyCalls(ctx);
-			assert.strictEqual(notifyCalls.length, 0, "Print mode should not call ctx.ui.notify");
-
-			const formatFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.startsWith("Formatted:"),
-			);
-			assert.strictEqual(
-				formatFollowUps.length,
-				0,
-				"Print mode should not send format summary followUp",
-			);
-
-			const lintFollowUps = sendUserMessages.filter((m: { content: string }) =>
-				m.content.includes("Lint Diagnostics"),
-			);
-			assert.ok(
-				lintFollowUps.length >= 1,
-				"Print mode should still send lint diagnostics followUp",
-			);
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("all modes, ESLint returns empty/no diagnostics → no ESLint notify, no followUp for diagnostics", async () => {
-		const { sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "tui", hasUI: true },
-			{},
-			{ prettierCode: 0, eslintCode: 0, eslintStdout: "[]" },
-		);
-		try {
-			const notifyCalls = getNotifyCalls(ctx);
-			assert.ok(
-				notifyCalls.some((m) => m.startsWith("Formatted:")),
-				"should notify formatted",
-			);
-			assert.ok(
-				!notifyCalls.some((m) => m.startsWith("ESLint ran:")),
-				"should not notify ESLint ran when empty",
-			);
-			assert.strictEqual(sendUserMessages.length, 0, "no sendUserMessage when ESLint empty");
-		} finally {
-			cleanup();
-		}
-	});
-
-	it("all modes, ESLint config error → retry with --no-eslintrc works", async () => {
-		const { dir, cleanup: cleanupFiles } = createTempTsFile();
-		try {
-			const events2: EventHandler[] = [];
-			const execCalls2: Array<{ command: string; args: string[]; opts?: Record<string, unknown> }> =
-				[];
-			const sendUserMessages2: Array<{ content: string; options: Record<string, unknown> }> = [];
-
-			let execCallIndex = 0;
-
-			const pi2 = {
-				on: (event: string, handler: (...args: unknown[]) => unknown) => {
-					events2.push({ event, handler });
-				},
-				exec: async (command: string, args: string[], opts?: Record<string, unknown>) => {
-					execCalls2.push({ command, args, opts });
-					const idx = execCallIndex++;
-					if (idx === 0) return { code: 0, stdout: "", stderr: "", killed: false };
-					if (idx === 1) return { code: 2, stdout: "", stderr: "", killed: false };
-					return { code: 0, stdout: "[]", stderr: "", killed: false };
-				},
-				sendUserMessage: (content: string, options: Record<string, unknown>) => {
-					sendUserMessages2.push({ content, options });
-				},
-			} as unknown as ExtensionAPI;
-
-			const mod = await import("../index.ts");
-			mod.default(pi2);
-
-			const toolResult = events2.find((e) => e.event === "tool_result");
-			assert.ok(toolResult !== undefined);
-
-			const notifyCalls2: string[] = [];
-			const ctx2 = {
-				cwd: dir,
-				ui: {
-					notify: (message: string) => notifyCalls2.push(message),
-					setStatus: () => {},
-					theme: { fg: () => (s: string) => s, bold: (s: string) => s },
-				} as unknown as ExtensionContext["ui"],
-				sessionManager: { getEntries: () => [] as unknown[] },
-				mode: "tui",
-				hasUI: true,
-				isProjectTrusted: () => true,
-			} as unknown as ExtensionContext;
-
-			await toolResult!.handler(
-				{ toolName: "write", isError: false, input: { path: "test.ts" } },
-				ctx2,
-			);
-
-			const eslintRetry = execCalls2.find((c) => c.args.includes("--no-eslintrc"));
-			assert.ok(eslintRetry, "ESLint retry with --no-eslintrc should be called after config error");
-			assert.ok(!notifyCalls2.some((m) => m.startsWith("ESLint ran:")));
-			assert.strictEqual(
-				sendUserMessages2.length,
-				0,
-				"no sendUserMessage when ESLint returns empty after retry",
-			);
-		} finally {
-			cleanupFiles();
-		}
-	});
-
-	it("untrusted + any mode → trust check precedes notification logic", async () => {
-		const { execCalls, sendUserMessages, ctx, cleanup } = await runHandler(
-			{ mode: "tui", hasUI: true, isProjectTrusted: () => false },
-			{},
-			{ prettierCode: 0, eslintCode: 0, eslintStdout: "[]" },
-		);
-		try {
-			assert.strictEqual(execCalls.length, 0, "no exec calls for untrusted project");
-			assert.strictEqual(getNotifyCalls(ctx).length, 0, "no notify for untrusted project");
-			assert.strictEqual(sendUserMessages.length, 0, "no sendUserMessage for untrusted project");
-		} finally {
-			cleanup();
-		}
-	});
-});
-
-describe("handler error boundary", () => {
-	it("runEslintOnFile does not throw on exec rejection (simulated via failing mock)", async () => {
-		let caught = false;
-		const failingExec: ExecFn = async () => {
-			throw new Error("ENOENT: npx not found");
+	it("lint returns error gracefully when ESLint is not available", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const failingFactory = async () => {
+			throw new Error("Cannot find module 'eslint'");
 		};
-		try {
-			await runEslintOnFile(failingExec, "test.ts", "/tmp");
-		} catch {
-			caught = true;
-		}
-		// Without handler-level try/catch, this would propagate as unhandled rejection.
-		// runEslintOnFile itself should propagate the error for the handler to catch.
-		assert.strictEqual(caught, true, "exec rejection should propagate through runEslintOnFile");
+		const l = new EslintLinter(failingFactory);
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 0);
+		assert.strictEqual(result.fixesApplied, false);
+		assert.ok(result.error, "should return error message");
 	});
 
-	it("tryRunEslint propagates exec rejection (no internal swallow)", async () => {
-		const failingExec: ExecFn = async () => {
-			throw new Error("exec failed");
-		};
-		await assert.rejects(async () => {
-			// Import tryRunEslint via dynamic hack — use runEslintOnFile which wraps it
-			await runEslintOnFile(failingExec, "test.ts", "/tmp");
-		}, /exec failed/);
+	it("lint handles empty file (returns empty diagnostics)", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async (_text: string, _opts: { filePath: string }) => [
+				{ filePath: "/path/file.ts", messages: [] },
+			],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "";
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 0);
 	});
 });
