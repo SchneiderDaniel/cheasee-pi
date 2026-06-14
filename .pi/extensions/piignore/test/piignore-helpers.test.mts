@@ -62,6 +62,9 @@ function patternToRegex(pattern: string): Pattern {
 
 	const hasSlash = p.includes("/") || p.startsWith("**");
 
+	// Strip leading / (gitignore root anchor) — relative paths never have it
+	if (hasSlash && p.startsWith("/")) p = p.slice(1);
+
 	// Step 1a: Extract and preserve bracket expressions
 	const bracketExprs: string[] = [];
 	let r = p.replace(/\[([^\]]*)\]/g, (match) => {
