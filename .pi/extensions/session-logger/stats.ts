@@ -202,12 +202,11 @@ export function createSessionStats(): SessionStats {
 
 		recordToolEnd(toolCallId: string, isError: boolean, resultSize: number) {
 			const exec = pendingTools.get(toolCallId);
-			if (exec) {
-				exec.endTime = Date.now();
-				exec.isError = isError;
-				exec.resultSize = resultSize;
-				pendingTools.delete(toolCallId);
-			}
+			if (!exec) return; // already ended or never started — no-op
+			exec.endTime = Date.now();
+			exec.isError = isError;
+			exec.resultSize = resultSize;
+			pendingTools.delete(toolCallId);
 			turnState.currentTurnToolCount++;
 			if (isError) turnState.currentTurnErrorCount++;
 		},
