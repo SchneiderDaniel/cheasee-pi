@@ -196,13 +196,13 @@ export class LoggerPipeline {
 		if (!this.gate.sessionEnabled) return;
 
 		const input = event.input as { path?: string; content?: { length?: number } };
-		const path = input.path ?? "";
+		const filePath = input.path ?? "";
 		if (event.toolName === "read") {
-			this.stats.recordFileModification("read", path);
+			this.stats.recordFileModification("read", filePath);
 		} else if (event.toolName === "write") {
-			this.stats.recordFileModification("write", path, input.content?.length ?? 0);
+			this.stats.recordFileModification("write", filePath, input.content?.length ?? 0);
 		} else if (event.toolName === "edit") {
-			this.stats.recordFileModification("edit", path);
+			this.stats.recordFileModification("edit", filePath);
 		}
 	}
 

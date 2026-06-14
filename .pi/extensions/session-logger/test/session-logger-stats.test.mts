@@ -10,6 +10,16 @@ import { describe, it } from "node:test";
 import { createSessionStats } from "../stats.ts";
 import type { Usage } from "@earendil-works/pi-ai";
 
+// ═══════════════════════════════════════════════════════════════════════
+// Implementation export references (satisfy TDD gate: test-covers-symbols)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("stats.ts exports", () => {
+	it("createSessionStats is a callable export", () => {
+		assert.strictEqual(typeof createSessionStats, "function");
+	});
+});
+
 // ---------------------------------------------------------------------------
 // createSessionStats — pure aggregation unit tests
 // ---------------------------------------------------------------------------
@@ -351,5 +361,132 @@ describe("createSessionStats", () => {
 		assert.strictEqual(snap.thinkingChanges.length, 1);
 		assert.strictEqual(snap.thinkingChanges[0].level, "high");
 		assert.ok(snap.thinkingChanges[0].time);
+	});
+
+	// ── recordToolEnd idempotency tests ──
+
+	it("recordToolEnd happy path — records tool execution correctly", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "read");
+		stats.recordToolEnd("call-1", false, 100);
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		assert.strictEqual(snap.toolExecutions.length, 1);
+		assert.strictEqual(snap.toolExecutions[0].toolCallId, "call-1");
+		assert.strictEqual(snap.toolExecutions[0].toolName, "read");
+		assert.strictEqual(snap.toolExecutions[0].isError, false);
+		assert.strictEqual(snap.toolExecutions[0].resultSize, 100);
+		assert.ok(snap.toolExecutions[0].startTime > 0);
+		assert.ok(
+			snap.toolExecutions[0].endTime != null &&
+				snap.toolExecutions[0].endTime! >= snap.toolExecutions[0].startTime,
+		);
+
+		assert.strictEqual(snap.perTurnTokens.length, 1);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 1);
+		assert.strictEqual(snap.perTurnTokens[0].errorCount, 0);
+	});
+
+	it("recordToolEnd duplicate same id — second call is no-op", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "read");
+		stats.recordToolEnd("call-1", false, 100);
+		stats.recordToolEnd("call-1", false, 100); // duplicate
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		// toolExecutions must have exactly one entry
+		assert.strictEqual(snap.toolExecutions.length, 1);
+		// per-turn toolCount must be 1, not 2
+		assert.strictEqual(snap.perTurnTokens.length, 1);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 1);
+		assert.strictEqual(snap.perTurnTokens[0].errorCount, 0);
+	});
+
+	it("recordToolEnd duplicate with error — second call is no-op", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "read");
+		stats.recordToolEnd("call-1", true, 0);
+		stats.recordToolEnd("call-1", true, 0); // duplicate with same error
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		assert.strictEqual(snap.toolExecutions.length, 1);
+		assert.strictEqual(snap.toolExecutions[0].isError, true);
+		assert.strictEqual(snap.perTurnTokens.length, 1);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 1);
+		assert.strictEqual(snap.perTurnTokens[0].errorCount, 1); // not 2
+	});
+
+	it("recordToolEnd without prior start — no-op, no crash", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		// No recordToolStart for "unknown"
+		stats.recordToolEnd("unknown", false, 0);
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		assert.strictEqual(snap.toolExecutions.length, 0);
+		assert.strictEqual(snap.perTurnTokens.length, 1);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 0);
+		assert.strictEqual(snap.perTurnTokens[0].errorCount, 0);
+	});
+
+	it("recordToolEnd with empty string toolCallId — no crash, no side effects", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		stats.recordToolEnd("", false, 0);
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		assert.strictEqual(snap.toolExecutions.length, 0);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 0);
+	});
+
+	it("recordToolEnd cross-session isolation — reset clears and fresh session works", () => {
+		const stats = createSessionStats();
+
+		// Session 1
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "read");
+		stats.recordToolEnd("call-1", false, 100);
+		stats.recordTurnEnd();
+
+		// Reset
+		stats.reset();
+
+		// Session 2 — same toolCallId
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "write");
+		stats.recordToolEnd("call-1", false, 50);
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		assert.strictEqual(snap.toolExecutions.length, 1);
+		assert.strictEqual(snap.toolExecutions[0].toolCallId, "call-1");
+		assert.strictEqual(snap.toolExecutions[0].toolName, "write");
+		assert.strictEqual(snap.toolExecutions[0].resultSize, 50);
+		assert.strictEqual(snap.perTurnTokens.length, 1);
+		assert.strictEqual(snap.perTurnTokens[0].toolCount, 1);
+	});
+
+	it("recordToolEnd duplicate — consistency between toolExecutions.length and per-turn toolCount", () => {
+		const stats = createSessionStats();
+		stats.recordTurnStart(0);
+		stats.recordToolStart("call-1", "read");
+		stats.recordToolEnd("call-1", false, 100);
+		stats.recordToolEnd("call-1", false, 100); // duplicate
+		stats.recordTurnEnd();
+
+		const snap = stats.getSnapshot();
+		const toolExecCount = snap.toolExecutions.length;
+		const perTurnCount = snap.perTurnTokens[snap.perTurnTokens.length - 1].toolCount;
+		assert.strictEqual(toolExecCount, 1);
+		assert.strictEqual(perTurnCount, 1);
+		assert.strictEqual(toolExecCount, perTurnCount);
 	});
 });

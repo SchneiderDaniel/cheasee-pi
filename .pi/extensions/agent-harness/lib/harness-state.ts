@@ -15,7 +15,6 @@
 // ── Types ──
 
 export interface CacheEntry {
-	content: string;
 	turn: number;
 	timestamp: number;
 	/** Batch ID for parallel call grouping (optional). */
@@ -39,7 +38,7 @@ export interface ReadCache {
 	/** Get cached entry. Returns null on miss or TTL expiry. */
 	get(key: string, currentTurn: number, currentBatchId?: number): CacheEntry | null;
 	/** Set cached entry with current turn and timestamp. */
-	set(key: string, content: string, turn: number, batchId?: number): void;
+	set(key: string, turn: number, batchId?: number): void;
 	/** Clear all cache entries. */
 	clear(): void;
 }
@@ -149,11 +148,10 @@ export function createHarnessState(): HarnessState {
 			return cacheMap.get(key, currentTurn);
 		},
 
-		set(key: string, content: string, turn: number, batchId?: number): void {
+		set(key: string, turn: number, batchId?: number): void {
 			cacheMap.set(
 				key,
 				{
-					content,
 					turn,
 					timestamp: Date.now(),
 					batchId,
