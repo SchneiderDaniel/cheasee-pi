@@ -15,7 +15,7 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	normalizeEscapes,
 } from "../agent/output.ts";
-import { getDebugLogger } from "../config/debug.ts";
+import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────
 
@@ -406,6 +406,7 @@ export interface RawIssueData {
 	author?: { login: string };
 	body?: string;
 	comments?: Array<{ author?: { login: string }; body?: string }>;
+	labels?: Array<{ name: string }>;
 }
 
 export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): FilteredIssueData {
@@ -427,5 +428,14 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
 			body: c?.body || "",
 		}));
 
-	return { body, comments: trustedComments };
+	// Labels are public metadata — not codeowner-gated
+	const labels: string[] | undefined = (rawIssue?.labels || [])
+		.map((l) => l.name)
+		.filter(Boolean) as string[];
+
+	return {
+		body,
+		comments: trustedComments,
+		labels: labels.length > 0 ? labels : undefined,
+	};
 }

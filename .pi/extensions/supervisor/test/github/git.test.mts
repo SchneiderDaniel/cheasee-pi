@@ -221,4 +221,117 @@ describe("commitAndPush() — Result<T>", () => {
 			);
 		}
 	});
+
+	// ── Phase 3: scopePaths ───────────────────────────────────────────
+
+	describe("commitAndPush — scopePaths", () => {
+		it('scopePaths=["path/a", "path/b"] calls git add -- path/a path/b instead of git add -A', async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"path/a",
+				"path/b",
+			]);
+			assert.equal(result.ok, true);
+			// First call should be git add -- <paths>, not git add -A
+			assert.equal(calls.length, 3);
+			assert.equal(calls[0].cmd, "git");
+			assert.deepEqual(calls[0].args, ["add", "--", "path/a", "path/b"]);
+			assert.equal(calls[1].cmd, "git");
+			assert.deepEqual(calls[1].args, ["commit", "-m", "msg"]);
+			assert.equal(calls[2].cmd, "git");
+			assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		});
+
+		it("scopePaths=undefined calls git add -A (backward compat)", async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -A
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify);
+			assert.equal(result.ok, true);
+			assert.equal(calls[0].cmd, "git");
+			assert.deepEqual(calls[0].args, ["add", "-A"]);
+		});
+
+		it("scopePaths=[] calls git add -A (fallback for empty array)", async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -A
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(
+				pi,
+				"/tmp/worktree",
+				"origin",
+				"feature",
+				"msg",
+				notify,
+				[],
+			);
+			assert.equal(result.ok, true);
+			assert.equal(calls[0].cmd, "git");
+			assert.deepEqual(calls[0].args, ["add", "-A"]);
+		});
+
+		it("scopePaths with git add succeeds → commit called with same cwd", async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add
+				{ code: 0, stdout: "committed", stderr: "" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(
+				pi,
+				"/custom/worktree",
+				"origin",
+				"my-branch",
+				"msg",
+				notify,
+				[".pi/extensions/supervisor/"],
+			);
+			assert.equal(result.ok, true);
+			// All calls use the same cwd
+			for (const call of calls) {
+				assert.equal(call.opts.cwd, "/custom/worktree");
+			}
+		});
+
+		it("scopePaths with git add fails → returns { ok: false, error: ... }", async () => {
+			const { pi } = createMockPi([
+				{ code: 1, stdout: "", stderr: "fatal: pathspec error" }, // git add fails
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"nonexistent/path",
+			]);
+			assert.equal(result.ok, false);
+			if (!result.ok) {
+				assert.ok(result.error.includes("git add failed"));
+			}
+		});
+
+		it("scopePaths with nothing staged for commit → still pushes (branch push for remote existence)", async () => {
+			const { pi, calls } = createMockPi([
+				{ code: 0, stdout: "", stderr: "" }, // git add -- <paths>
+				{ code: 1, stdout: "", stderr: "nothing to commit" }, // git commit
+				{ code: 0, stdout: "", stderr: "" }, // git push
+			]);
+			const { notify } = createMockNotify();
+			const result = await commitAndPush(pi, "/tmp/worktree", "origin", "feature", "msg", notify, [
+				"path/a",
+			]);
+			assert.equal(result.ok, true);
+			assert.equal(calls.length, 3);
+			assert.equal(calls[2].cmd, "git");
+			assert.deepEqual(calls[2].args, ["push", "origin", "feature"]);
+		});
+	});
 });

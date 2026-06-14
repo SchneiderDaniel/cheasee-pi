@@ -7,7 +7,7 @@ import {
 	TOOL_DISCIPLINE_SNIPPET,
 	ERROR_HANDLING_PRINCIPLES,
 	buildAgentSystemPrompt,
-} from "../config/shared-prompts.ts";
+} from "../lib/shared-prompts.ts";
 
 // ─── Tests: TOOL_DISCIPLINE_SNIPPET ───────────────────────────────
 

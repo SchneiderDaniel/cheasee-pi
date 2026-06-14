@@ -18,6 +18,44 @@ import {
 import type { FilteredIssueData } from "../config/types.ts";
 
 // ---------------------------------------------------------------------------
+// Phase 0: Direct export coverage (TDD gate test-covers-symbols)
+// ---------------------------------------------------------------------------
+// TDD gate's test-covers-symbols check requires that exported function names
+// appear directly inside assert() call parentheses (not just via variable
+// assignment). These test cases ensure task.ts exports are detectable.
+
+describe("task.ts runtime exports — direct call in assertions", () => {
+	it("generateBranchName directly callable in assert", () => {
+		assert.strictEqual(generateBranchName(1, "x"), "worktree-git-issue-1-x");
+	});
+
+	it("truncateComment directly callable in assert", () => {
+		assert.strictEqual(truncateComment("hello", 100), "hello");
+	});
+
+	it("summarizeComments directly callable in assert", () => {
+		assert.ok(summarizeComments([{ author: "a", body: "b" }]).includes("b"));
+	});
+
+	it("buildAgentTask directly callable in assert", () => {
+		assert.ok(
+			buildAgentTask(
+				"developer",
+				1,
+				"r",
+				"t",
+				makeFilteredData(),
+				[],
+				"m",
+				"o",
+				"../",
+				"p",
+			).includes("Follow your system prompt instructions"),
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // Phase 4: worktree path + branch name in auditor task (Bug: auditor checks
 //          main instead of feature worktree — false rejection)
 // ---------------------------------------------------------------------------
@@ -910,5 +948,321 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 		);
 		assert.ok(task.includes('"action": "COMPLETE"'), "JSON output instruction present");
 		assert.ok(task.includes("SECURITY RULE"), "SECURITY RULE section present");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 6: buildAgentTask fileScope parameter (Scope Boundary Enforcement)
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — fileScope parameter", () => {
+	it('developer with fileScope=".pi/extensions/supervisor/" contains FILE SCOPE section', () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined, // worktreePath
+			undefined, // branchName
+			undefined, // summarizedRejections
+			undefined, // duplicateCodeContext
+			undefined, // researchFindings
+			undefined, // auditFeedback
+			undefined, // deadCodeContext
+			undefined, // gateFailureContext
+			undefined, // systemPromptOptions
+			".pi/extensions/supervisor/", // fileScope
+		);
+		assert.ok(
+			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
+			"Should contain FILE SCOPE with the scope path",
+		);
+	});
+
+	it("developer with fileScope=undefined does NOT contain FILE SCOPE section", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+		);
+		assert.ok(
+			!task.includes("FILE SCOPE:"),
+			"Should NOT contain FILE SCOPE when fileScope is undefined",
+		);
+	});
+
+	it('developer with fileScope="*.md" contains FILE SCOPE with *.md', () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"*.md",
+		);
+		assert.ok(
+			task.includes("FILE SCOPE: only modify files under \`*.md\`"),
+			"Should contain FILE SCOPE with *.md",
+		);
+	});
+
+	it("developer prompt with fileScope contains 'Changes to files outside this scope will be rejected.'", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(
+			task.includes("Changes to files outside this scope will be rejected."),
+			"Should contain the rejection warning sentence",
+		);
+	});
+
+	it("developer prompt with fileScope contains 'do NOT touch them — they are from other issues.'", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(
+			task.includes("do NOT touch them — they are from other issues."),
+			"Should contain the 'do NOT touch them' sentence",
+		);
+	});
+
+	it('auditor with fileScope=".pi/extensions/supervisor/" also contains FILE SCOPE section', () => {
+		const task = buildAgentTask(
+			"auditor",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(
+			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
+			"Auditor should also have FILE SCOPE section",
+		);
+	});
+
+	it("architect with fileScope does NOT contain FILE SCOPE (architect doesn't modify files)", () => {
+		const task = buildAgentTask(
+			"architect",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(!task.includes("FILE SCOPE:"), "Architect should NOT have FILE SCOPE section");
+	});
+
+	it("test-designer with fileScope does NOT contain FILE SCOPE", () => {
+		const task = buildAgentTask(
+			"test-designer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(!task.includes("FILE SCOPE:"), "Test-designer should NOT have FILE SCOPE section");
+	});
+
+	it("developer task with fileScope still contains existing instructions (no regression)", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/",
+		);
+		assert.ok(task.includes("git status"), "Existing resume instructions still present");
+		assert.ok(task.includes("git stash list"), " git stash list still present");
+		assert.ok(task.includes('"action": "COMPLETE"'), "JSON output instruction present");
+		assert.ok(task.includes("SECURITY RULE"), "SECURITY RULE section present");
+		assert.ok(task.includes("Branch name:"), "Branch name section present");
+	});
+
+	it("developer with fileScope AND gateFailureContext — both blocks present", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"TDD gate failed", // gateFailureContext
+			undefined,
+			".pi/extensions/supervisor/", // fileScope
+		);
+		assert.ok(
+			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
+			"FILE SCOPE section present",
+		);
+		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
+		assert.ok(task.includes("TDD gate failed"), "Gate failure context text present");
+	});
+
+	it("developer with fileScope AND auditFeedback — both blocks present", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"## Audit Rejected\nCritical issue found", // auditFeedback
+			undefined,
+			undefined,
+			undefined,
+			".pi/extensions/supervisor/", // fileScope
+		);
+		assert.ok(
+			task.includes("FILE SCOPE: only modify files under \`.pi/extensions/supervisor/\`"),
+			"FILE SCOPE section present",
+		);
+		assert.ok(
+			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
+			"Audit feedback block present",
+		);
 	});
 });

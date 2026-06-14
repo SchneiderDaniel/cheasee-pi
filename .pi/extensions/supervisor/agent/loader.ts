@@ -8,7 +8,7 @@
 import type { ParsedAgent, AgentFrontmatter } from "../config/types.ts";
 import { readFileSync } from "node:fs";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { buildAgentSystemPrompt } from "../config/shared-prompts.ts";
+import { buildAgentSystemPrompt } from "../lib/shared-prompts.ts";
 
 export const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 

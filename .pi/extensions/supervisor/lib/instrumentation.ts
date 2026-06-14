@@ -2,7 +2,7 @@
 // Phase 3: Per-turn event counts, token/tool tracking, phase timing
 // snapshots. Pure data collection — no TUI or Pi API dependencies.
 
-import type { AgentPhase } from "./types.ts";
+import type { AgentPhase } from "../config/types.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 

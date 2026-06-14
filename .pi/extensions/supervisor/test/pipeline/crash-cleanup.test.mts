@@ -9,7 +9,7 @@
 import { describe, it, mock, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DebugLogger } from "../../config/debug.ts";
+import type { DebugLogger } from "../../lib/debug.ts";
 import type { NotifyFn } from "../../pipeline/helpers.ts";
 import {
 	createCrashCleanup,

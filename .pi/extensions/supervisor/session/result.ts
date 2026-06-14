@@ -3,7 +3,7 @@
 // Extracted from agent-session-runner.ts to keep files modular.
 
 import type { AgentRunState, AgentRunResult } from "../config/types.ts";
-import { extractTextFromContent, extractSummaryLine } from "../config/formatting.ts";
+import { extractTextFromContent, extractSummaryLine } from "../lib/formatting.ts";
 
 // ─── Truncation Constants ─────────────────────────────────────────
 

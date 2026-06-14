@@ -8,7 +8,7 @@ import type {
 	SupervisorMessageDetails,
 	PrCreationResult,
 } from "../config/types.ts";
-import { formatDuration } from "../config/formatting.ts";
+import { formatDuration } from "../lib/formatting.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 

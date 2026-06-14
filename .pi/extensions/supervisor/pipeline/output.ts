@@ -8,7 +8,7 @@ import type {
 	SupervisorConfig,
 	PrCreationResult,
 } from "../config/types.ts";
-import { formatDuration, formatTokens } from "../config/formatting.ts";
+import { formatDuration, formatTokens } from "../lib/formatting.ts";
 
 // ─── validateAgentResult ────────────────────────────────────────────
 

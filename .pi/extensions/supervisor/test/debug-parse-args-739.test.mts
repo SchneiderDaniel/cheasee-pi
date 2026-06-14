@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 // Import the parseArgs-like function from debug.ts
 // The existing parseSupervisorArgs is kept but refactored.
 // We test that it handles the same patterns as parseArgs would.
-import { parseSupervisorArgs } from "../config/debug.ts";
+import { parseSupervisorArgs } from "../lib/debug.ts";
 
 describe("parseSupervisorArgs — parseArgs-compatible interface", () => {
 	it("parseSupervisorArgs is a function exported from debug.ts", () => {
