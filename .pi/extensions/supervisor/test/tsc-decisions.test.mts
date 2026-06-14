@@ -2,7 +2,8 @@
  * Tests for tsc-decisions (Tier 2 pipeline integration)
  *
  * Pure function tests for determineTscCheckpointDecision().
- * Local copies match source at .pi/extensions/supervisor/tsc-decisions.ts exactly.
+ * Types and formatTscDiagnostics imported from shared lib instead of
+ * local duplication. Test body uses async function (matching production).
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/tsc-decisions.test.mts
@@ -10,116 +11,127 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import { determineTscCheckpointDecision } from "../checks/tsc-decisions.ts";
+import {
+	type TscDiagnostic,
+	type TscCheckpointResult,
+	type TscCheckpointDecision,
+} from "../../lib/tsc-types.ts";
+import { formatTscDiagnostics } from "../../lib/tsc-types.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
-// Types (match source)
+// formatTscDiagnostics tests
 // ═══════════════════════════════════════════════════════════════════════
 
-interface TscDiagnostic {
-	file: string;
-	line: number;
-	column: number;
-	severity: "Error";
-	message: string;
-	code?: string;
-}
+describe("formatTscDiagnostics", () => {
+	it("empty diagnostics → empty string", () => {
+		assert.strictEqual(formatTscDiagnostics([]), "");
+	});
 
-interface TscCheckpointResult {
-	diagnostics: TscDiagnostic[];
-	hasErrors: boolean;
-}
+	it("single diagnostic with code → formatted line", () => {
+		const result = formatTscDiagnostics([
+			{
+				file: "file",
+				line: 1,
+				column: 1,
+				severity: "Error" as const,
+				message: "message",
+				code: "TS2322",
+				filePath: "/abs/file",
+			},
+		]);
+		assert.strictEqual(result, "file, Line 1: [Error] message (TS2322)");
+	});
 
-interface TscCheckpointDecision {
-	nextStatus: string;
-	note: string;
-	tscTriggered: boolean;
-}
+	it("single diagnostic without code → formatted line without code part", () => {
+		const result = formatTscDiagnostics([
+			{
+				file: "file",
+				line: 1,
+				column: 1,
+				severity: "Error" as const,
+				message: "message",
+				filePath: "/abs/file",
+			},
+		]);
+		assert.strictEqual(result, "file, Line 1: [Error] message");
+	});
+
+	it("multiple files → grouped by file, blank line separator, files sorted", () => {
+		const result = formatTscDiagnostics([
+			{
+				file: "b.ts",
+				line: 1,
+				column: 1,
+				severity: "Error" as const,
+				message: "msg2",
+				filePath: "/abs/b.ts",
+			},
+			{
+				file: "a.ts",
+				line: 1,
+				column: 1,
+				severity: "Error" as const,
+				message: "msg1",
+				filePath: "/abs/a.ts",
+			},
+		]);
+		assert.ok(result.includes("a.ts"));
+		assert.ok(result.includes("b.ts"));
+		// a.ts should come before b.ts (alphabetically)
+		assert.ok(result.indexOf("a.ts") < result.indexOf("b.ts"));
+	});
+
+	it("same file, multiple diagnostics → sorted by line then column", () => {
+		const result = formatTscDiagnostics([
+			{
+				file: "a.ts",
+				line: 3,
+				column: 5,
+				severity: "Error" as const,
+				message: "second",
+				filePath: "/abs/a.ts",
+			},
+			{
+				file: "a.ts",
+				line: 1,
+				column: 10,
+				severity: "Error" as const,
+				message: "first",
+				filePath: "/abs/a.ts",
+			},
+		]);
+		assert.ok(result.indexOf("first") < result.indexOf("second"));
+	});
+
+	it("message >500 chars → truncated to 497 + '...'", () => {
+		const longMsg = "x".repeat(600);
+		const result = formatTscDiagnostics([
+			{
+				file: "a.ts",
+				line: 1,
+				column: 1,
+				severity: "Error" as const,
+				message: longMsg,
+				filePath: "/abs/a.ts",
+			},
+		]);
+		assert.ok(result.endsWith("..."));
+		// The result should be: "a.ts, Line 1: [Error] " + truncated(497) + "..."
+		const prefix = "a.ts, Line 1: [Error] ";
+		const totalExpectedLen = prefix.length + 497 + "...".length;
+		const msgPart = result.slice(prefix.length, -3);
+		assert.strictEqual(msgPart.length, 497);
+	});
+});
 
 // ═══════════════════════════════════════════════════════════════════════
-// Pure function under test (match source exactly)
-// ═══════════════════════════════════════════════════════════════════════
-
-/**
- * Format TSC diagnostics into developer-readable message.
- * Same format as LSP auditor: file, Line N: [Error] message (code).
- */
-function formatTscDiagnostics(diagnostics: TscDiagnostic[]): string {
-	if (!diagnostics || diagnostics.length === 0) return "";
-
-	const byFile = new Map<string, TscDiagnostic[]>();
-	for (const d of diagnostics) {
-		const list = byFile.get(d.file) || [];
-		list.push(d);
-		byFile.set(d.file, list);
-	}
-
-	const blocks: string[] = [];
-	const files = [...byFile.keys()].sort();
-	for (const file of files) {
-		const diags = byFile.get(file)!;
-		diags.sort((a, b) => (a.line !== b.line ? a.line - b.line : a.column - b.column));
-
-		const lines: string[] = [];
-		for (const d of diags) {
-			let msg = d.message;
-			if (msg.length > 500) msg = msg.slice(0, 497) + "...";
-			const codePart = d.code ? ` (${d.code})` : "";
-			lines.push(`${file}, Line ${d.line}: [${d.severity}] ${msg}${codePart}`);
-		}
-		if (blocks.length > 0) blocks.push("");
-		blocks.push(lines.join("\n"));
-	}
-
-	return blocks.join("\n");
-}
-
-/**
- * Decide the next pipeline status based on tsc checkpoint result.
- *
- * - If intendedNext !== "Audit" → pass through (no-op)
- * - If result is null (not triggered) → proceed to Audit with skip note
- * - If hasErrors → stay in Implementation with diagnostic details
- * - If clean → proceed to Audit with success note
- */
-function determineTscCheckpointDecision(
-	result: TscCheckpointResult | null,
-	intendedNext: string,
-): TscCheckpointDecision {
-	if (intendedNext !== "Audit") {
-		return { nextStatus: intendedNext, note: "", tscTriggered: false };
-	}
-
-	if (!result) {
-		return {
-			nextStatus: "Audit",
-			note: "TSC checkpoint skipped",
-			tscTriggered: false,
-		};
-	}
-
-	if (result.hasErrors) {
-		const formatted = formatTscDiagnostics(result.diagnostics);
-		return {
-			nextStatus: "Implementation",
-			note: `TSC checkpoint: ${result.diagnostics.length} type error(s) found — fix before proceeding.\n${formatted}`,
-			tscTriggered: true,
-		};
-	}
-
-	return {
-		nextStatus: "Audit",
-		note: "TSC checkpoint: ✓ no type errors detected",
-		tscTriggered: true,
-	};
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Tests
+// determineTscCheckpointDecision tests
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("determineTscCheckpointDecision", () => {
-	it("intendedNext not Audit → pass through", () => {
-		const result = determineTscCheckpointDecision(
+	it("intendedNext not Audit → pass through", async () => {
+		const result = await determineTscCheckpointDecision(
 			{ diagnostics: [], hasErrors: true },
 			"Implementation",
 		);
@@ -127,8 +139,8 @@ describe("determineTscCheckpointDecision", () => {
 		assert.strictEqual(result.tscTriggered, false);
 	});
 
-	it("hasErrors → stay in Implementation", () => {
-		const result = determineTscCheckpointDecision(
+	it("hasErrors → stay in Implementation", async () => {
+		const result = await determineTscCheckpointDecision(
 			{
 				diagnostics: [
 					{
@@ -138,6 +150,7 @@ describe("determineTscCheckpointDecision", () => {
 						severity: "Error",
 						message: "Type error",
 						code: "TS2322",
+						filePath: "/abs/a.ts",
 					},
 				],
 				hasErrors: true,
@@ -148,8 +161,8 @@ describe("determineTscCheckpointDecision", () => {
 		assert.strictEqual(result.tscTriggered, true);
 	});
 
-	it("hasErrors → note includes diagnostics", () => {
-		const result = determineTscCheckpointDecision(
+	it("hasErrors → note includes diagnostics", async () => {
+		const result = await determineTscCheckpointDecision(
 			{
 				diagnostics: [
 					{
@@ -159,6 +172,7 @@ describe("determineTscCheckpointDecision", () => {
 						severity: "Error",
 						message: "Type error",
 						code: "TS2322",
+						filePath: "/abs/a.ts",
 					},
 				],
 				hasErrors: true,
@@ -169,21 +183,27 @@ describe("determineTscCheckpointDecision", () => {
 		assert.ok(result.note.includes("TS2322"));
 	});
 
-	it("clean (no errors) → proceed to Audit", () => {
-		const result = determineTscCheckpointDecision({ diagnostics: [], hasErrors: false }, "Audit");
+	it("clean (no errors) → proceed to Audit", async () => {
+		const result = await determineTscCheckpointDecision(
+			{ diagnostics: [], hasErrors: false },
+			"Audit",
+		);
 		assert.strictEqual(result.nextStatus, "Audit");
 		assert.ok(result.note.includes("no type errors"));
 	});
 
-	it("null result → proceed to Audit with skip note", () => {
-		const result = determineTscCheckpointDecision(null, "Audit");
+	it("null result → proceed to Audit with skip note", async () => {
+		const result = await determineTscCheckpointDecision(null, "Audit");
 		assert.strictEqual(result.nextStatus, "Audit");
 		assert.ok(result.note.includes("skipped"));
 		assert.strictEqual(result.tscTriggered, false);
 	});
 
-	it("empty diagnostics, hasErrors false → clean proceed", () => {
-		const result = determineTscCheckpointDecision({ diagnostics: [], hasErrors: false }, "Audit");
+	it("empty diagnostics, hasErrors false → clean proceed", async () => {
+		const result = await determineTscCheckpointDecision(
+			{ diagnostics: [], hasErrors: false },
+			"Audit",
+		);
 		assert.strictEqual(result.nextStatus, "Audit");
 		assert.strictEqual(result.tscTriggered, true);
 	});
