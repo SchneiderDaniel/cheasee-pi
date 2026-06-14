@@ -201,9 +201,12 @@ describe("AgentHarness — error retry blocking", () => {
 // ── Read cache ──
 
 describe("AgentHarness — read cache", () => {
-	it("first read passes through; second read same path+offset+limit blocks", () => {
+	it("first read passes through; second read next turn same path+offset+limit blocks", () => {
 		const h = new AgentHarness();
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx()), null);
+
+		// Advance to next session turn so same-turn bypass doesn't apply
+		h.handleTurnStart();
 
 		const r = h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx());
 		assert.ok(r?.block);
@@ -235,9 +238,9 @@ describe("AgentHarness — read cache", () => {
 	it("cache miss after TTL expiry", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx());
-		// Advance toolCallIndex past TTL
+		// Advance sessionTurn past TTL via turn boundaries
 		for (let i = 0; i < CACHE_TTL_TURNS; i++) {
-			h.handleToolCall(makeEvent("bash", { command: `echo ${i}` }), makeCtx());
+			h.handleTurnStart();
 		}
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx()), null);
 	});
@@ -290,6 +293,8 @@ describe("AgentHarness — cache invalidation", () => {
 	it("non-modifying bash (ls) does NOT clear read cache", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx());
+		// Advance turn so same-turn bypass doesn't apply
+		h.handleTurnStart();
 		h.handleToolCall(makeEvent("bash", { command: "ls -la" }), makeCtx());
 		assert.ok(h.handleToolCall(makeEvent("read", { path: "a.ts" }), makeCtx())?.block);
 	});
@@ -414,6 +419,7 @@ describe("AgentHarness — blocked calls not recorded", () => {
 	it("blocked cache read -> different path read passes (counter not inflated)", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "test.ts" }), makeCtx());
+		h.handleTurnStart();
 		assert.ok(h.handleToolCall(makeEvent("read", { path: "test.ts" }), makeCtx())?.block);
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "other.ts" }), makeCtx()), null);
 	});
@@ -644,13 +650,16 @@ describe("AgentHarness — extension entry point", () => {
 		});
 		assert.equal(r1, undefined, "first read passes");
 
+		// Advance to next session turn so same-turn bypass doesn't apply
+		await api.fire("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() });
+
 		const r2 = await api.fire("tool_call", {
 			type: "tool_call",
 			toolCallId: "2",
 			toolName: "read",
 			input: { path: "test.ts" },
 		});
-		assert.ok(r2?.block, "second read same path blocks");
+		assert.ok(r2?.block, "second read next turn blocks");
 	});
 
 	it("bash grep through dispatch", async () => {
@@ -690,9 +699,10 @@ describe("AgentHarness — extension entry point", () => {
 // ── Phase 3: Mode-aware read-cache bypass ──
 
 describe("AgentHarness — mode-aware read cache", () => {
-	it("hasUI: true, cache hit → blocks with cached reason (existing behavior preserved)", () => {
+	it("hasUI: true, cache hit next turn → blocks with cached reason", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "test.ts" }), makeCtx());
+		h.handleTurnStart();
 		const r = h.handleToolCall(makeEvent("read", { path: "test.ts" }), {
 			hasUI: true,
 		} as any);
@@ -709,9 +719,10 @@ describe("AgentHarness — mode-aware read cache", () => {
 		assert.equal(r, null);
 	});
 
-	it("hasUI: undefined, cache hit → blocks (backward compat)", () => {
+	it("hasUI: undefined, cache hit next turn → blocks (backward compat)", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "test.ts" }), makeCtx());
+		h.handleTurnStart();
 		const r = h.handleToolCall(makeEvent("read", { path: "test.ts" }), {});
 		assert.ok(r?.block);
 	});
@@ -760,6 +771,7 @@ describe("AgentHarness — mode-aware read cache", () => {
 	it("hasUI on ctx, but ctx is empty object {} → blocks (backward compat via cast)", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(makeEvent("read", { path: "test.ts" }), {});
+		h.handleTurnStart();
 		const r = h.handleToolCall(makeEvent("read", { path: "test.ts" }), {});
 		assert.ok(r?.block);
 	});

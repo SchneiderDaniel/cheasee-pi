@@ -305,6 +305,34 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 		const snap = pipeline.getStats().getSnapshot();
 		assert.strictEqual(snap.fileModifications.length, 0);
 	});
+
+	it("input with no path field defaults to empty string", () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+		pipeline.onToolCall({
+			type: "tool_call",
+			toolCallId: "c5",
+			toolName: "read",
+			input: {},
+		} as any);
+		const snap = pipeline.getStats().getSnapshot();
+		assert.strictEqual(snap.fileModifications.length, 1);
+		assert.strictEqual(snap.fileModifications[0].path, "");
+	});
+
+	it("input with path empty string works correctly", () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+		pipeline.onToolCall({
+			type: "tool_call",
+			toolCallId: "c6",
+			toolName: "read",
+			input: { path: "" },
+		} as any);
+		const snap = pipeline.getStats().getSnapshot();
+		assert.strictEqual(snap.fileModifications.length, 1);
+		assert.strictEqual(snap.fileModifications[0].path, "");
+	});
 });
 
 // ---------------------------------------------------------------------------
