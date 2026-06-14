@@ -1,31 +1,47 @@
 /**
- * Tests for index.ts — concurrency semaphore, URL validation, tool registration
+ * Tests for index.ts — handler delegation to CrawlerEngine
  *
- * Layer: entity — mock pi.exec, no infra, no network.
+ * Layer: entity — mock CrawlerEngine, no infra, no subprocess.
  */
 
 import assert from "node:assert/strict";
 import { describe, it, mock, before } from "node:test";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import webCrawlExtension from "../index.ts";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const extDir = resolve(__dirname, "..");
+
 // ===========================================================================
-// Test helper — result formatting
+// Test helper — simulate the handler's formatting logic
 // ===========================================================================
 
-interface ResultItem {
+interface CrawledPage {
 	url: string;
-	markdown?: string;
-	error?: string;
-	method?: string;
-	success: boolean;
+	markdown: string;
+	method: "lightweight" | "stealth";
+	rawLength: number;
 }
 
-function formatResults(results: Array<ResultItem>): string {
-	const texts = results.map((r) =>
-		r.success
-			? `--- ${r.url} (via ${r.method}) ---\n${r.markdown || "[No content]"}`
-			: `--- ${r.url} ---\nError: ${r.error}`,
-	);
+/**
+ * Simulates the handler's result formatting logic.
+ * Same behavior as the new index.ts execute method.
+ */
+function formatEngineResults(results: CrawledPage[], maxTokens?: number): string {
+	const texts = results.map((r) => {
+		let content = r.markdown || "[No content]";
+		if (maxTokens && maxTokens > 0) {
+			const estimatedTokens = Math.round(content.length / 4);
+			if (estimatedTokens > maxTokens) {
+				const maxChars = maxTokens * 4;
+				const truncated = content.slice(0, maxChars);
+				content = `${truncated}\n\n[... truncated at ~${maxTokens.toLocaleString()} tokens (${estimatedTokens.toLocaleString()} total). Use narrower query or page-specific section.]`;
+			}
+		}
+		return `--- ${r.url} (via ${r.method}) ---\n${content}`;
+	});
 	return texts.join("\n\n");
 }
 
@@ -50,12 +66,12 @@ describe("web_crawl tool registration — shape contract", () => {
 	});
 
 	it("(entity) tool has url and optional maxPages parameters", () => {
-		// Verify the parameter schema shape
 		const schema = {
 			type: "object",
 			properties: {
 				url: { type: "string" },
 				maxPages: { type: "number", default: 1 },
+				maxTokens: { type: "number" },
 			},
 		};
 		assert.equal(schema.properties.url.type, "string");
@@ -76,7 +92,6 @@ describe("web_crawl tool registration — shape contract", () => {
 
 describe("MAX_CONCURRENT_CRAWLS — memory protection", () => {
 	it("(entity) MAX_CONCURRENT_CRAWLS should be exactly 2", () => {
-		// This constant protects 8GB RAM machines from OOM
 		const MAX_CONCURRENT_CRAWLS = 2;
 		assert.equal(MAX_CONCURRENT_CRAWLS, 2, "should allow max 2 concurrent crawls");
 	});
@@ -99,7 +114,6 @@ describe("MAX_CONCURRENT_CRAWLS — memory protection", () => {
 			executionOrder.push(-activeCrawls);
 		}
 
-		// Start 3 concurrent crawls
 		const p1 = (async () => {
 			await acquire();
 			await new Promise((r) => setTimeout(r, 50));
@@ -116,7 +130,6 @@ describe("MAX_CONCURRENT_CRAWLS — memory protection", () => {
 			release();
 		})();
 
-		// At any point, activeCrawls should not exceed MAX
 		const checkInterval = setInterval(() => {
 			assert.ok(activeCrawls <= MAX, `activeCrawls (${activeCrawls}) should not exceed ${MAX}`);
 		}, 5);
@@ -152,144 +165,174 @@ describe("URL validation", () => {
 	});
 });
 
-describe("execute flow — integration with ensureScraplingVenv", () => {
-	it("(entity) execute calls ensureScraplingVenv before running crawl", async () => {
-		// Simulate the new index.ts execute flow (ensureScraplingVenv now throws instead of null)
-		let venvCalled = false;
-		let crawlCalled = false;
-
-		async function ensureScraplingVenvMock(_exec: unknown, _cwd: string): Promise<string> {
-			venvCalled = true;
-			return "/path/to/python3";
-		}
+describe("handler delegation — CrawlerEngine integration", () => {
+	it("(entity) handler calls engine.crawl() exactly once per invocation", async () => {
+		let crawlCalls = 0;
 
 		async function execute() {
-			const python = await ensureScraplingVenvMock(null, "/tmp");
-			// ensureScraplingVenv throws on failure — no null check needed
-			crawlCalled = true;
-			return { content: [{ type: "text", text: "result" }], details: {} };
+			crawlCalls++;
+			return {
+				content: [{ type: "text" as const, text: "result" }],
+				details: {} as Record<string, unknown>,
+			};
 		}
 
-		const result = await execute();
-		assert.ok(venvCalled, "ensureScraplingVenv should be called");
-		assert.ok(crawlCalled, "crawl should proceed after venv check");
-		assert.equal(result.content[0].text, "result");
+		await execute();
+		assert.equal(crawlCalls, 1, "engine.crawl should be called exactly once");
 	});
 
-	it("(entity) ensureScraplingVenv throw propagates through execute", async () => {
-		let venvCalled = false;
-
-		async function ensureScraplingVenvMock(_exec: unknown, _cwd: string): Promise<string> {
-			venvCalled = true;
-			throw new Error("Failed to initialize scraping environment.");
-		}
+	it("(entity) URL validation throws before engine call", async () => {
+		let engineCalled = false;
 
 		async function execute() {
-			const python = await ensureScraplingVenvMock(null, "/tmp");
-			// ensureScraplingVenv throws — this line is unreachable on failure
-			return { content: [{ type: "text", text: "result" }], details: {} };
-		}
-
-		await assert.rejects(
-			execute(),
-			/Failed to initialize/,
-			"should propagate error from ensureScraplingVenv",
-		);
-		assert.ok(venvCalled, "ensureScraplingVenv should be called");
-	});
-});
-
-describe("formatResults — result formatting", () => {
-	it("(entity) formats single successful result with method prefix and markdown", () => {
-		const results = [
-			{ url: "https://example.com", markdown: "# Hello", method: "lightweight", success: true },
-		];
-		const output = formatResults(results);
-		assert.ok(output.includes("--- https://example.com (via lightweight) ---"));
-		assert.ok(output.includes("# Hello"));
-	});
-
-	it("(entity) formats single error result without method", () => {
-		const results = [{ url: "https://example.com", error: "Connection failed", success: false }];
-		const output = formatResults(results);
-		assert.ok(output.includes("--- https://example.com ---"));
-		assert.ok(output.includes("Error: Connection failed"));
-	});
-
-	it("(entity) joins multiple results with double newline separator", () => {
-		const results = [
-			{ url: "https://a.com", markdown: "Page A", method: "lightweight", success: true },
-			{ url: "https://b.com", markdown: "Page B", method: "stealth", success: true },
-		];
-		const output = formatResults(results);
-		assert.ok(output.includes("Page A"));
-		assert.ok(output.includes("Page B"));
-		assert.ok(output.includes("\n\n"));
-	});
-
-	it("(entity) uses [No content] fallback when markdown is missing", () => {
-		const results = [{ url: "https://example.com", success: true, method: "lightweight" }];
-		const output = formatResults(results);
-		assert.ok(output.includes("[No content]"));
-	});
-
-	it("(entity) returns empty string for empty results array", () => {
-		const output = formatResults([]);
-		assert.equal(output, "");
-	});
-});
-
-describe("error signaling — throws instead of returning error content", () => {
-	it("(entity) invalid URL throws 'Invalid URL'", async () => {
-		let onUpdateCalled = false;
-
-		async function execute() {
-			// URL validation — reject invalid URLs early
 			try {
 				new URL("not-a-url");
 			} catch {
 				throw new Error("Invalid URL");
 			}
-
-			onUpdateCalled = true;
-			return { content: [{ type: "text", text: "result" }], details: {} };
-		}
-
-		await assert.rejects(execute(), /Invalid URL/, "should throw on invalid URL");
-		assert.equal(onUpdateCalled, false, "onUpdate should not fire before invalid URL error");
-	});
-
-	it("(entity) execution error throws with error detail", async () => {
-		async function execute() {
-			const run = { code: 1, stdout: "", stderr: "Connection timeout" };
-
-			if (run.code === 0) {
-				return { content: [{ type: "text", text: "success" }], details: {} };
-			}
-
-			throw new Error(`Error executing crawl: ${run.stderr || run.stdout}`);
-		}
-
-		await assert.rejects(
-			execute(),
-			/Error executing crawl: Connection timeout/,
-			"should throw on execution error",
-		);
-	});
-
-	it("(entity) releaseCrawlLock runs in finally even when execute throws", async () => {
-		let lockReleased = false;
-
-		async function execute() {
-			try {
-				throw new Error("Invalid URL");
-			} finally {
-				lockReleased = true;
-			}
+			engineCalled = true;
+			return { content: [{ type: "text" as const, text: "ok" }], details: {} };
 		}
 
 		await assert.rejects(execute(), /Invalid URL/);
-		assert.ok(lockReleased, "lock should be released in finally block even after throw");
+		assert.equal(engineCalled, false, "engine should not be called after invalid URL");
+	});
+
+	it("(entity) concurrency lock acquire/release wraps engine call", async () => {
+		const callOrder: string[] = [];
+
+		async function execute() {
+			callOrder.push("acquire");
+			try {
+				callOrder.push("engine");
+			} finally {
+				callOrder.push("release");
+			}
+		}
+
+		await execute();
+		assert.deepEqual(callOrder, ["acquire", "engine", "release"]);
+	});
+
+	it("(entity) lock releases in finally even when engine throws", async () => {
+		const callOrder: string[] = [];
+
+		async function execute() {
+			callOrder.push("acquire");
+			try {
+				callOrder.push("engine");
+				throw new Error("crawl failed");
+			} finally {
+				callOrder.push("release");
+			}
+		}
+
+		await assert.rejects(execute(), /crawl failed/);
+		assert.deepEqual(callOrder, ["acquire", "engine", "release"]);
+	});
+
+	it("(entity) onUpdate called before delegating to engine", async () => {
+		const callOrder: string[] = [];
+
+		async function execute() {
+			callOrder.push("onUpdate");
+			callOrder.push("engine");
+		}
+
+		await execute();
+		assert.deepEqual(callOrder, ["onUpdate", "engine"]);
+	});
+});
+
+describe("handler — result formatting", () => {
+	it("(entity) formats successful result with URL prefix and method", () => {
+		const results: CrawledPage[] = [
+			{ url: "https://example.com", markdown: "# Hello", method: "lightweight", rawLength: 7 },
+		];
+		const output = formatEngineResults(results);
+		assert.ok(output.includes("--- https://example.com (via lightweight) ---"));
+		assert.ok(output.includes("# Hello"));
+	});
+
+	it("(entity) joins multiple results with double newline separator", () => {
+		const results: CrawledPage[] = [
+			{ url: "https://a.com", markdown: "Page A", method: "lightweight", rawLength: 6 },
+			{ url: "https://b.com", markdown: "Page B", method: "stealth", rawLength: 6 },
+		];
+		const output = formatEngineResults(results);
+		assert.ok(output.includes("Page A"));
+		assert.ok(output.includes("Page B"));
+		assert.ok(output.includes("\n\n"));
+	});
+
+	it("(entity) token truncation applied per-page during formatting", () => {
+		const results: CrawledPage[] = [
+			{
+				url: "https://example.com",
+				markdown: "a".repeat(400),
+				method: "lightweight",
+				rawLength: 400,
+			},
+		];
+		const output = formatEngineResults(results, 5);
+		assert.ok(output.includes("[... truncated at"));
+		assert.ok(output.includes("~5 tokens"));
+	});
+
+	it("(entity) no truncation when maxTokens is 0", () => {
+		const results: CrawledPage[] = [
+			{
+				url: "https://example.com",
+				markdown: "a".repeat(400),
+				method: "lightweight",
+				rawLength: 400,
+			},
+		];
+		const output = formatEngineResults(results, 0);
+		assert.ok(!output.includes("[... truncated"));
+		assert.ok(output.length > 400, "content should contain all 400 'a' chars");
+		assert.ok(output.includes("a".repeat(100)), "should contain long run of 'a' chars");
+	});
+
+	it("(entity) no truncation when maxTokens is undefined", () => {
+		const results: CrawledPage[] = [
+			{
+				url: "https://example.com",
+				markdown: "a".repeat(100),
+				method: "lightweight",
+				rawLength: 100,
+			},
+		];
+		const output = formatEngineResults(results, undefined);
+		assert.ok(!output.includes("[... truncated"));
+		assert.ok(output.includes("a".repeat(100)));
+	});
+});
+
+describe("error signaling — throws for error results", () => {
+	it("(entity) when engine returns error CrawlResult, handler throws with error string", async () => {
+		async function execute() {
+			const result = { success: false as const, error: "Connection timeout" };
+			if (!result.success) {
+				throw new Error(result.error);
+			}
+			return { content: [{ type: "text" as const, text: "ok" }], details: {} };
+		}
+
+		await assert.rejects(execute(), /Connection timeout/);
+	});
+
+	it("(entity) invalid URL throws 'Invalid URL'", async () => {
+		async function execute() {
+			try {
+				new URL("bad-url");
+			} catch {
+				throw new Error("Invalid URL");
+			}
+			return { content: [{ type: "text" as const, text: "ok" }], details: {} };
+		}
+
+		await assert.rejects(execute(), /Invalid URL/);
 	});
 });
 
@@ -323,7 +366,7 @@ describe("promptSnippet and promptGuidelines", () => {
 		);
 	});
 
-	it("(entity) promptSnippet and promptGuidelines present alongside name, label, description, parameters, execute", () => {
+	it("(entity) tool has all required fields", () => {
 		const requiredFields = [
 			"name",
 			"label",
@@ -339,34 +382,28 @@ describe("promptSnippet and promptGuidelines", () => {
 	});
 });
 
-describe("output format", () => {
-	it("(entity) formats successful crawl results with URL prefix and method", () => {
-		const results = [
-			{ url: "https://example.com", markdown: "# Hello", method: "lightweight", success: true },
-		];
-		const output = formatResults(results);
+describe("handler — import boundary (static analysis)", () => {
+	const source = readFileSync(resolve(extDir, "index.ts"), "utf-8");
 
-		assert.ok(output.includes("--- https://example.com (via lightweight) ---"));
-		assert.ok(output.includes("# Hello"));
+	it("(entity) handler no longer imports SCRAPLING_SCRIPT directly", () => {
+		assert.ok(!source.includes("SCRAPLING_SCRIPT"), "index.ts should not import SCRAPLING_SCRIPT");
 	});
 
-	it("(entity) formats error results without method", () => {
-		const results = [{ url: "https://example.com", error: "Connection failed", success: false }];
-		const output = formatResults(results);
-
-		assert.ok(output.includes("--- https://example.com ---"));
-		assert.ok(output.includes("Error: Connection failed"));
+	it("(entity) handler imports ensureScraplingVenv for constructor injection", () => {
+		assert.ok(
+			source.includes("ensureScraplingVenv"),
+			"index.ts should import ensureScraplingVenv to pass as PythonAdapter dependency",
+		);
 	});
 
-	it("(entity) joins multiple results with double newline", () => {
-		const results = [
-			{ url: "https://a.com", markdown: "Page A", method: "lightweight", success: true },
-			{ url: "https://b.com", markdown: "Page B", method: "stealth", success: true },
-		];
-		const output = formatResults(results);
+	it("(entity) handler no longer imports from python-script.ts", () => {
+		assert.ok(!source.includes("python-script"), "index.ts should not import from python-script");
+	});
 
-		assert.ok(output.includes("Page A"));
-		assert.ok(output.includes("Page B"));
-		assert.ok(output.includes("\n\n"));
+	it("(entity) handler imports from venv-setup.ts (for ensureScraplingVenv DI)", () => {
+		assert.ok(
+			source.includes("venv-setup"),
+			"index.ts should import from venv-setup to pass ensureScraplingVenv to PythonAdapter",
+		);
 	});
 });

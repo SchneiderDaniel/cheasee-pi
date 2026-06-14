@@ -1,18 +1,20 @@
 /**
  * web_crawl — Web page crawling and content extraction via Scrapling
  *
- * Uses Scrapling's Progressive Fetching Strategy:
- *   Tier 1: Lightweight zero-browser fetcher (~40MB RAM) for most pages
- *   Tier 2: Heavy Playwright StealthyFetcher (~800MB RAM) for Cloudflare bypass
+ * Uses CrawlerEngine port with PythonAdapter (production) for subprocess
+ * orchestration. Handler owns presentation concerns only:
+ *   - URL validation
+ *   - Concurrency semaphore (MAX_CONCURRENT_CRAWLS = 2) for RAM protection
+ *   - Result formatting for LLM
+ *   - onUpdate progress
  *
- * Concurrency semaphore (MAX_CONCURRENT_CRAWLS = 2) prevents OOM on 8GB RAM machines.
- * File-based lock prevents parallel agents from corrupting the venv on fresh start.
+ * Convenience: 3-line execute body delegates to CrawlerEngine.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { PythonAdapter } from "./python-adapter.ts";
 import { ensureScraplingVenv } from "./venv-setup.ts";
-import { SCRAPLING_SCRIPT } from "./python-script.ts";
 
 // Concurrency lock: Max 2 simultaneous web crawls to protect 8GB RAM
 let activeCrawls = 0;
@@ -74,55 +76,31 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 					details: {} as Record<string, unknown>,
 				});
 
-				const cwd = _ctx.cwd;
+				// Delegate to CrawlerEngine (3 lines)
+				const engine = new PythonAdapter(pi.exec, _ctx.cwd, onUpdate, ensureScraplingVenv);
+				const result = await engine.crawl({
+					url: params.url,
+					maxPages,
+					maxTokens: params.maxTokens,
+					signal,
+				});
 
-				const python = await ensureScraplingVenv(pi.exec, cwd, onUpdate);
-
-				const cfg = JSON.stringify({ url: params.url, maxPages });
-				const scriptB64 = Buffer.from(SCRAPLING_SCRIPT, "utf-8").toString("base64");
-				const cfgB64 = Buffer.from(cfg, "utf-8").toString("base64");
-
-				const run = await pi.exec(
-					"bash",
-					["-c", `${python} -c "$(echo ${scriptB64} | base64 -d)" "$(echo ${cfgB64} | base64 -d)"`],
-					{ timeout: 120_000, signal },
-				);
-
-				if (run.code === 0) {
-					try {
-						const parsed = JSON.parse(
-							run.stdout.split("\n").find((l) => l.startsWith("{") && l.endsWith("}")) ||
-								run.stdout,
-						);
-						if (parsed.ok && parsed.results) {
-							// Cast needed because pi tool params type isn't updated when schema changes
-							const maxTokens = (params as { maxTokens?: number }).maxTokens ?? 25000;
-							const texts = parsed.results.map((r: any) => {
-								if (!r.success) {
-									return `--- ${r.url} ---\nError: ${r.error}`;
-								}
-								let content = r.markdown || "[No content]";
-								if (maxTokens > 0) {
-									// Rough token estimate: ~4 chars per token for English text
-									const estimatedTokens = Math.round(content.length / 4);
-									if (estimatedTokens > maxTokens) {
-										const maxChars = maxTokens * 4;
-										const truncated = content.slice(0, maxChars);
-										content = `${truncated}\n\n[... truncated at ~${maxTokens.toLocaleString()} tokens (${estimatedTokens.toLocaleString()} total). Use narrower query or page-specific section.]`;
-									}
-								}
-								return `--- ${r.url} (via ${r.method}) ---\n${content}`;
-							});
-							return {
-								content: [{ type: "text", text: texts.join("\n\n") }],
-								details: {} as Record<string, unknown>,
-							};
-						}
-					} catch {
-						/* Fallback to raw output if JSON parse fails */
-					}
+				// Handle engine result — throw on error to preserve signaling contract
+				if (!result.success) {
+					throw new Error(result.error);
 				}
-				throw new Error(`Error executing crawl: ${run.stderr || run.stdout}`);
+
+				// Format successful results for LLM
+				// Note: Token truncation is handled by PythonAdapter; handler uses content as-is
+				const texts = result.results.map((r) => {
+					const content = r.markdown || "[No content]";
+					return `--- ${r.url} (via ${r.method}) ---\n${content}`;
+				});
+
+				return {
+					content: [{ type: "text", text: texts.join("\n\n") }],
+					details: {} as Record<string, unknown>,
+				};
 			} finally {
 				releaseCrawlLock();
 			}

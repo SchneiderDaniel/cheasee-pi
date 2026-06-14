@@ -12,8 +12,26 @@
 export const SCRAPLING_SCRIPT = `
 import json
 import sys
+import signal
 from urllib.parse import urljoin, urlparse
 import markdownify
+
+
+def _signal_handler(signum, frame):
+    """Clean up browser on SIGTERM and exit."""
+    try:
+        from scrapling.fetchers import StealthyFetcher
+        if hasattr(StealthyFetcher, '_browser') and StealthyFetcher._browser:
+            try:
+                StealthyFetcher._browser.close()
+            except:
+                pass
+    except:
+        pass
+    sys.exit(1)
+
+
+signal.signal(signal.SIGTERM, _signal_handler)
 
 def fetch_page(url):
     from scrapling.fetchers import Fetcher, StealthyFetcher

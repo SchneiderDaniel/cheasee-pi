@@ -72,18 +72,18 @@ describe("SCRAPLING_SCRIPT — progressive fetching strategy", () => {
 		);
 	});
 
-	it("(entity) checks 'cloudflare' in content_lower", () => {
+	it("(entity) checks 'cloudflare' in page content", () => {
 		assert.ok(
-			SCRAPLING_SCRIPT.includes('"cloudflare" in content_lower') ||
-				SCRAPLING_SCRIPT.includes("'cloudflare' in content_lower"),
+			SCRAPLING_SCRIPT.includes('"cloudflare" in page_html.lower()') ||
+				SCRAPLING_SCRIPT.includes("'cloudflare' in page_html.lower()"),
 			"script should check for cloudflare in content",
 		);
 	});
 
-	it("(entity) checks 'just a moment' in content_lower", () => {
+	it("(entity) checks 'just a moment' in page content", () => {
 		assert.ok(
-			SCRAPLING_SCRIPT.includes('"just a moment" in content_lower') ||
-				SCRAPLING_SCRIPT.includes("'just a moment' in content_lower"),
+			SCRAPLING_SCRIPT.includes('"just a moment" in page_html.lower()') ||
+				SCRAPLING_SCRIPT.includes("'just a moment' in page_html.lower()"),
 			"script should check for 'just a moment' in content",
 		);
 	});
@@ -214,6 +214,55 @@ describe("SCRAPLING_SCRIPT — error handling", () => {
 		assert.ok(
 			SCRAPLING_SCRIPT.includes("Stealth bypass failed") || SCRAPLING_SCRIPT.includes("stealth"),
 			"script should include descriptive error message for stealth failure",
+		);
+	});
+});
+
+describe("SCRAPLING_SCRIPT — SIGTERM handler", () => {
+	it("(entity) imports signal module", () => {
+		assert.ok(SCRAPLING_SCRIPT.includes("import signal"), "script should import signal module");
+	});
+
+	it("(entity) registers signal.signal(signal.SIGTERM, handler)", () => {
+		assert.ok(
+			SCRAPLING_SCRIPT.includes("signal.signal(signal.SIGTERM,"),
+			"script should register SIGTERM handler",
+		);
+	});
+
+	it("(entity) SIGTERM handler calls browser cleanup in try/except", () => {
+		const script = SCRAPLING_SCRIPT;
+		// Find the SIGTERM handler function
+		const sigtermIdx = script.indexOf("SIGTERM");
+		assert.ok(sigtermIdx >= 0, "SIGTERM reference must exist");
+
+		// After SIGTERM handler registration, there should be browser cleanup
+		const afterSigterm = script.slice(sigtermIdx);
+		assert.ok(
+			afterSigterm.includes("_browser.close()") || afterSigterm.includes("_browser.close"),
+			"SIGTERM handler should close browser",
+		);
+	});
+
+	it("(entity) SIGTERM handler calls sys.exit(1) after cleanup", () => {
+		const script = SCRAPLING_SCRIPT;
+		const sigtermIdx = script.indexOf("SIGTERM");
+		assert.ok(sigtermIdx >= 0, "SIGTERM reference must exist");
+
+		const afterSigterm = script.slice(sigtermIdx);
+		assert.ok(
+			afterSigterm.includes("sys.exit(1)") || afterSigterm.includes("sys.exit"),
+			"SIGTERM handler should exit with code 1",
+		);
+	});
+
+	it("(entity) SIGTERM handler import is at module level (before main function)", () => {
+		const script = SCRAPLING_SCRIPT;
+		const signalImportIdx = script.indexOf("import signal");
+		const mainDefIdx = script.indexOf("def main():");
+		assert.ok(
+			signalImportIdx >= 0 && signalImportIdx < mainDefIdx,
+			"signal import should come before main() definition",
 		);
 	});
 });
