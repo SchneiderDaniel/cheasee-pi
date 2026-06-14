@@ -80,6 +80,65 @@ export function hasShellExpansion(token: string): boolean {
 const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
 
 /**
+ * Shell-aware suspicious argument detection.
+ *
+ * Scans all command arguments for shell expansion syntax or paths
+ * that would escape the sandbox. Returns the first suspicious token
+ * found, or null if all arguments are safe.
+ *
+ * This is a general-purpose version of findUnsafeCd that checks all
+ * arguments in all commands, not just cd targets.
+ */
+export function findSuspiciousArg(command: string, sandboxRoot: string): string | null {
+	if (!command || !command.trim()) return null;
+
+	const tokens = tokenizeCommand(command);
+
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i]!;
+
+		// Skip non-string tokens (operators, comments)
+		if (typeof token !== "string") {
+			continue;
+		}
+
+		// Skip command names (first token of each command)
+		// A string is a command name if it's at position 0 or preceded by a separator
+		const isCommandName =
+			i === 0 ||
+			(typeof tokens[i - 1] === "object" &&
+				"op" in (tokens[i - 1] as { op: string }) &&
+				SEPARATORS.has((tokens[i - 1] as { op: string }).op));
+
+		if (isCommandName) {
+			continue;
+		}
+
+		// Skip flags (starting with -)
+		if (token.startsWith("-")) {
+			continue;
+		}
+
+		// Empty token means unresolved variable
+		if (token === "") {
+			return command;
+		}
+
+		// Check for shell expansion syntax
+		if (hasShellExpansion(token)) {
+			return token;
+		}
+
+		// Check if path resolves outside sandbox
+		if (!isPathSafe(token, sandboxRoot)) {
+			return token;
+		}
+	}
+
+	return null;
+}
+
+/**
  * Shell-aware cd command safety check.
  *
  * Uses shell-quote parse() to correctly identify command boundaries
