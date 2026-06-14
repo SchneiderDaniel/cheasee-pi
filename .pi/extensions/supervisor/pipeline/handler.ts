@@ -819,6 +819,58 @@ export async function handleSupervisorCommand(
 
 			agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
 
+			// ── Post-Agent Scope Cleanup ─────────────────────────────────
+			// Immediately after agent finishes, revert any dirty files outside
+			// scope BEFORE commitAndPush. This prevents the cycle where agent
+			// modifies out-of-scope files (e.g. lsp-auditor/lib/types.ts),
+			// cleanup reverts them in next pre-dispatch check, and agent repeats
+			// the same modification on next run.
+			// Silent revert — no extra commits, no issue comments.
+			if (
+				worktreePath &&
+				currentScope !== null &&
+				(agentName === "developer" || agentName === "auditor")
+			) {
+				try {
+					const baseRef = `${config.remote || "origin"}/${config.defaultBranch || "main"}`;
+					const statusResult = await pi.exec("git", ["status", "--porcelain"], {
+						cwd: worktreePath,
+					});
+					const dirtyFiles = (statusResult.stdout || "")
+						.split("\n")
+						.filter(Boolean)
+						.map((line: string) => line.trim().slice(2).trim())
+						.map((p: string) => p.split(" -> ").pop()?.trim() || p)
+						.filter(Boolean);
+
+					const outOfScopeDirty = dirtyFiles.filter((f: string) => !isInScope(f, currentScope));
+
+					if (outOfScopeDirty.length > 0) {
+						for (const file of outOfScopeDirty) {
+							try {
+								// Check if file exists in base branch
+								await pi.exec("git", ["show", `${baseRef}:${file}`], { cwd: worktreePath });
+								await pi.exec("git", ["checkout", baseRef, "--", file], { cwd: worktreePath });
+							} catch {
+								// File not in base — remove it
+								try {
+									await pi.exec("git", ["rm", "-f", file], { cwd: worktreePath });
+								} catch {
+									await pi.exec("rm", ["-f", file], { cwd: worktreePath });
+								}
+							}
+						}
+						getDebugLogger().warn("handler", "Post-agent scope cleanup", {
+							scope: currentScope,
+							revertedFiles: outOfScopeDirty,
+						});
+					}
+				} catch (cleanupErr: unknown) {
+					const msg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+					getDebugLogger().warn("handler", "Post-agent scope cleanup failed", { error: msg });
+				}
+			}
+
 			// Track audit score
 			const auditInfo = trackAuditScore(result.textOnly, stageState);
 			if (auditInfo) {
