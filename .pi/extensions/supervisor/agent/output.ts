@@ -246,15 +246,38 @@ function extractLastJson(raw: string): string {
 		}
 	}
 
-	// Step 3: Simple brace counting — find all complete outermost {} pairs.
-	// No string tracking: double-quotes in thinking content are harmless.
+	// Step 3: String-boundary-aware brace counting — find all complete outermost {} pairs.
+	// Uses the same inString/escaped tracking as Step 2's fence scanner and
+	// sanitizeJsonStrings to ignore { and } inside JSON string values.
 	// Metadata tool lines (🔧 ✓ ✗ 📋 📊) with {}/quotes are already filtered.
 	// Returns the LAST complete outermost pair (agent's JSON is final output).
 	let depth = 0;
 	let lastStart = -1;
 	let lastEnd = -1;
+	let inString = false;
+	let escaped = false;
 	for (let i = 0; i < braceCandidateRaw.length; i++) {
 		const ch = braceCandidateRaw[i];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (inString && ch === "\\") {
+			escaped = true;
+			continue;
+		}
+		if (ch === '"') {
+			if (inString && isStructuralQuote(braceCandidateRaw, i)) {
+				// Structural close — end of string value
+				inString = false;
+			} else if (!inString) {
+				// Opening quote — start of string value or key
+				inString = true;
+			}
+			// else: content quote — stay in string, don't toggle
+			continue;
+		}
+		if (inString) continue;
 		if (ch === "{") {
 			if (depth === 0) lastStart = i;
 			depth++;
