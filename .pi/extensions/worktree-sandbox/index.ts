@@ -211,7 +211,7 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 				}
 
 				if (nextToken === "-") {
-					return "-"; // Previous directory — always potentially unsafe
+					return "<previous-dir>"; // Previous directory — always potentially unsafe
 				}
 
 				if (hasShellExpansion(nextToken)) {
