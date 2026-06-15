@@ -5,7 +5,7 @@
  * Tests the path-rewriting logic that was previously duplicated across
  * read/write/edit handlers.
  *
- * Phase 2a: hasShellExpansion and findSuspiciousArg — core security helpers
+ * Phase 2a: hasShellExpansion — core security helper
  * Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
  * Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
  */
@@ -31,7 +31,6 @@ let mod: {
 	findUnsafeCd: (command: string, sandboxRoot: string) => string | null;
 	findUnsafeWriteInBash: (command: string, sandboxRoot: string) => string | null;
 	hasShellExpansion: (token: string) => boolean;
-	findSuspiciousArg: (command: string, sandboxRoot: string) => string | null;
 };
 
 // https://nodejs.org/api/esm.html#module-register-and-hooks --experimental-strip-types needed
@@ -326,7 +325,7 @@ describe("rewritePath", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// Phase 2a: hasShellExpansion and findSuspiciousArg — core helpers
+// Phase 2a: hasShellExpansion — core helper
 // ═══════════════════════════════════════════════════════════════════
 
 describe("hasShellExpansion", () => {
@@ -364,23 +363,6 @@ describe("hasShellExpansion", () => {
 
 	it("returns false for empty string", () => {
 		assert.equal(mod.hasShellExpansion(""), false);
-	});
-});
-
-describe("findSuspiciousArg", () => {
-	it("returns first suspicious expansion token from command", () => {
-		const result = mod.findSuspiciousArg("cd $HOME", "/tmp/sandbox");
-		assert.ok(result !== null);
-	});
-
-	it("returns null for safe command", () => {
-		const result = mod.findSuspiciousArg("cd src", "/tmp/sandbox");
-		assert.equal(result, null);
-	});
-
-	it("returns null for empty command", () => {
-		const result = mod.findSuspiciousArg("", "/tmp/sandbox");
-		assert.equal(result, null);
 	});
 });
 

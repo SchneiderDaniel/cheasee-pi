@@ -862,6 +862,195 @@ describe("ChangelogPipeline — Phase 2.5: crossRefPhase", () => {
 		assert.equal(scoreB.severity, "medium");
 		assert.equal(scoreB.breakingCount, 1);
 	});
+
+	// ── findMatchingEntry multi-entry tests ──
+
+	it("two entries same API: non-breaking latest + breaking older → isBreaking: true (bug fix)", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		// v0.75.0 non-breaking (Changed) + v0.74.0 breaking (Deprecated) for same API pi.on
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ version: "0.75.0", category: "Changed", isBreaking: false }),
+			makeChangeEntry({ version: "0.74.0", category: "Deprecated", isBreaking: true }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.75.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, true, "should detect breaking change from older entry");
+		assert.equal(finding.category, "Deprecated", "should use Deprecated category from older entry");
+	});
+
+	it("two entries same API, both breaking: Deprecated + Removed → category: Removed", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ version: "0.75.0", category: "Deprecated", isBreaking: true }),
+			makeChangeEntry({ version: "0.74.0", category: "Removed", isBreaking: true }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.75.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, true, "should be breaking");
+		assert.equal(finding.category, "Removed", "Removed should win over Deprecated");
+	});
+
+	it("single entry non-breaking → isBreaking: false (regression guard)", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ version: "0.74.0", category: "Changed", isBreaking: false }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.74.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, false);
+		assert.equal(finding.category, "Changed");
+	});
+
+	it("no matching entry → isBreaking and category untouched (regression guard)", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		// Entry with a different API name — no match for pi.exec
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ apiNames: ["pi.on"], category: "Changed", isBreaking: false }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		// Finding defaults: isBreaking: false, category: ""
+		findingsByExtension.set("test-ext", [
+			makeASTFinding({ apiName: "pi.exec", isBreaking: false, category: "" }),
+		]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.exec", isBreaking: false, category: "" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.74.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		// Finding should retain its defaults since no match
+		assert.equal(finding.isBreaking, false, "isBreaking should remain false");
+		assert.equal(finding.category, "", "category should remain empty string");
+	});
+
+	it("two entries same API, both non-breaking: Added + Changed → most severe non-breaking", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ version: "0.75.0", category: "Added", isBreaking: false }),
+			makeChangeEntry({ version: "0.74.0", category: "Changed", isBreaking: false }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.75.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, false);
+		assert.equal(finding.category, "Changed", "Changed should win over Added");
+	});
+
+	it("three entries same API: Fixed + Deprecated + Removed → Removed wins", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ version: "0.76.0", category: "Fixed", isBreaking: false }),
+			makeChangeEntry({ version: "0.75.0", category: "Deprecated", isBreaking: true }),
+			makeChangeEntry({ version: "0.74.0", category: "Removed", isBreaking: true }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.76.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, true);
+		assert.equal(finding.category, "Removed", "Removed should win over Deprecated and Fixed");
+	});
+
+	it("entry with pi. prefix normalization: matches finding with same name", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		// Entry with apiNames containing "pi.exec" prefix + entry with "exec" without prefix
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ apiNames: ["pi.exec"], version: "0.75.0" }),
+			makeChangeEntry({
+				apiNames: ["exec"],
+				version: "0.74.0",
+				category: "Deprecated",
+				isBreaking: true,
+			}),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.exec" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.exec" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.75.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		// Both entries match; the breaking one (Deprecated) should win
+		assert.equal(finding.isBreaking, true);
+		assert.equal(finding.category, "Deprecated");
+	});
+
+	it("case-insensitive matching: entry with pi.ON matches finding pi.on", () => {
+		const { pi, ctx, pipeline } = createTestPipeline();
+
+		const entries: ChangeEntry[] = [
+			makeChangeEntry({ apiNames: ["pi.ON"], category: "Deprecated", isBreaking: true }),
+		];
+		const findingsByExtension = new Map<string, ASTFinding[]>();
+		findingsByExtension.set("test-ext", [makeASTFinding({ apiName: "pi.on" })]);
+
+		const scanResult: ASTScanningResult = {
+			findings: [makeASTFinding({ apiName: "pi.on" })],
+			skipCount: 0,
+		};
+
+		const result = pipeline.crossRefPhase(entries, "0.74.0", findingsByExtension, scanResult);
+		const finding = result.relevantFindingsByExtension.get("test-ext")![0]!;
+
+		assert.equal(finding.isBreaking, true, "case-insensitive match should work");
+		assert.equal(finding.category, "Deprecated");
+	});
 });
 
 // ── Phase 3: issuePhase ──

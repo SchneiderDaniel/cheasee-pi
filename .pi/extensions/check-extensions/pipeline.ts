@@ -472,17 +472,39 @@ export class ChangelogPipeline {
 }
 
 /**
- * Find a changelog entry matching a given API name.
+ * Find ALL changelog entries matching a given API name, then return the most
+ * severe one (breaking > non-breaking; Removed > Deprecated > Changed > Added > Fixed).
+ *
+ * Because changelogs are ordered newest-first per Keep a Changelog, the previous
+ * implementation using Array.find() returned only the latest entry, silently masking
+ * older breaking changes for the same API.
  */
 function findMatchingEntry(apiName: string, entries: ChangeEntry[]): ChangeEntry | undefined {
 	const normalized = apiName.replace(/^pi\./, "").replace(/^ctx\./, "");
-	return entries.find((e) =>
+	const matching = entries.filter((e) =>
 		e.apiNames.some(
 			(name) =>
 				name.toLowerCase() === apiName.toLowerCase() ||
 				name.toLowerCase() === normalized.toLowerCase(),
 		),
 	);
+	if (matching.length === 0) return undefined;
+
+	// Severity ordering: higher number = more severe.
+	// Removed and Deprecated are breaking; Changed, Added, Fixed, Security are non-breaking.
+	const severity: Record<string, number> = {
+		Removed: 5,
+		Deprecated: 4,
+		Changed: 3,
+		Security: 2,
+		Added: 1,
+		Fixed: 0,
+		"New Features": 0,
+	};
+
+	// Stable sort: entries with the same category retain their original order (newest-first).
+	matching.sort((a, b) => (severity[b.category] ?? 0) - (severity[a.category] ?? 0));
+	return matching[0];
 }
 
 /**
