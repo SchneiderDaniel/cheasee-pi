@@ -401,3 +401,223 @@ describe("validateAgentResult()", () => {
 		assert.equal(result.errorOutput, beforeError, "should not modify already-failed result");
 	});
 });
+
+// ─── Tests: buildPipelineSummary — gate failure history rendering ──
+
+describe("buildPipelineSummary — gate failure history (R2)", () => {
+	const singleDev: PipelineAgentResult = {
+		agentName: "developer",
+		status: "SUCCESS",
+		durationMs: 10000,
+		tokenCount: 5000,
+		toolCount: 10,
+	};
+
+	it("no gateFailureHistory when undefined (backward compat)", () => {
+		const output = buildPipelineSummary([singleDev], "success", 42, "Test", defaultConfig);
+		assert.ok(!output.includes("Gate failures"), "should not include Gate failures section");
+	});
+
+	it("no gateFailureHistory when empty array (backward compat)", () => {
+		const output = buildPipelineSummary(
+			[singleDev],
+			"success",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			[],
+		);
+		assert.ok(!output.includes("Gate failures"), "should not include Gate failures section");
+	});
+
+	it("renders single gate failure entry", () => {
+		const output = buildPipelineSummary(
+			[singleDev],
+			"success",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			["CI Gate gate failed on run 1 — developer restarted"],
+		);
+		assert.ok(output.includes("Gate failures"), "should include Gate failures section");
+		assert.ok(
+			output.includes("CI Gate gate failed on run 1"),
+			"should include the gate failure entry",
+		);
+	});
+
+	it("renders multiple gate failure entries", () => {
+		const output = buildPipelineSummary(
+			[singleDev],
+			"success",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			[
+				"CI Gate gate failed on run 1 — developer restarted",
+				"TSC Checkpoint gate failed on run 2 — developer restarted",
+			],
+		);
+		assert.ok(output.includes("CI Gate gate failed on run 1"), "first entry present");
+		assert.ok(output.includes("TSC Checkpoint gate failed on run 2"), "second entry present");
+		// Both should be rendered as list items
+		const lines = output.split("\n");
+		const gfSectionStart = lines.findIndex((l) => l.includes("Gate failures"));
+		assert.ok(gfSectionStart >= 0, "Gate failures section exists");
+		// Next lines should be list items
+		assert.ok(lines[gfSectionStart + 1]?.startsWith("- "), "first entry is a list item");
+		assert.ok(lines[gfSectionStart + 2]?.startsWith("- "), "second entry is a list item");
+	});
+
+	it("gate failure section appears after total stats but before failure info", () => {
+		const output = buildPipelineSummary(
+			[singleDev],
+			"success",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			["CI Gate gate failed on run 1 — developer restarted"],
+		);
+		const totalIdx = output.indexOf("**Total:**");
+		const gfIdx = output.indexOf("**Gate failures:**");
+		const closesIdx = output.indexOf("Closes #42");
+		assert.ok(totalIdx >= 0, "total stats present");
+		assert.ok(gfIdx >= 0, "gate failures section present");
+		assert.ok(closesIdx >= 0, "Closes #N present");
+		assert.ok(gfIdx > totalIdx, "gate failures after total stats");
+	});
+});
+
+// ─── Tests: buildPipelineSummary — multi-developer-run accumulation ──
+
+describe("buildPipelineSummary — multi-developer-run (Phase 5)", () => {
+	const makeAgent = (
+		name: string,
+		status: PipelineAgentResult["status"],
+		tokens: number,
+		duration: number,
+		tools: number,
+	): PipelineAgentResult => ({
+		agentName: name,
+		status,
+		tokenCount: tokens,
+		durationMs: duration,
+		toolCount: tools,
+	});
+
+	it("2 developer entries + 1 auditor → 3 rows", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+
+		// Count rows in the agent table
+		const tableRows = output
+			.split("\n")
+			.filter((l) => l.startsWith("| ") && !l.startsWith("|---") && !l.startsWith("| Agent |"));
+		assert.equal(tableRows.length, 3, "should have 3 agent rows");
+
+		// Both developer rows present
+		const devRows = tableRows.filter((r) => r.includes("developer"));
+		assert.equal(devRows.length, 2, "both developer runs should appear");
+
+		// Total token count = sum of ALL entries
+		assert.ok(output.includes("**Total:** 3 agents"), "total shows 3 agents");
+		assert.ok(output.includes("10.0K tokens"), "total tokens = 5000+3000+2000 = 10000");
+	});
+
+	it("total token count equals sum of all rows, not just last", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("10.0K tokens"), "total = 5000+3000+2000 = 10000");
+		// The total line should say 10.0K, not 5.0K (not just last developer run)
+		const totalLine = output.split("\n").find((l) => l.startsWith("**Total:"));
+		assert.ok(totalLine, "total line present");
+		assert.ok(totalLine!.includes("10.0K"), "total shows sum, not just last run");
+		assert.ok(!totalLine!.includes("5.0K"), "total does not show only last developer run");
+	});
+
+	it("total duration = sum of all entries", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("1m 5s"), "total duration = 30+20+15 = 65s = 1m 5s");
+	});
+
+	it("total tool calls = sum of all entries", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("23 tool calls"), "total tools = 10+8+5 = 23");
+	});
+
+	it("failed intermediate run (0 tokens) appears as FAILED row", () => {
+		const results = [
+			makeAgent("developer", "FAILED", 0, 5000, 0),
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		const tableRows = output
+			.split("\n")
+			.filter((l) => l.startsWith("| ") && !l.startsWith("|---") && !l.startsWith("| Agent |"));
+		assert.equal(tableRows.length, 3, "3 rows including failed");
+
+		// First row should be FAILED with 0 tokens
+		const failedRow = tableRows.find((r) => r.includes("FAILED"));
+		assert.ok(failedRow, "failed row present");
+		assert.ok(failedRow!.includes("0"), "failed row shows 0 tokens");
+
+		// Total tokens = 0+5000+2000 = 7000
+		assert.ok(output.includes("7.0K tokens"), "total includes 0 from failed run");
+	});
+
+	it("4 developer runs + 1 auditor = 5 rows, all present (no capping)", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8),
+			makeAgent("developer", "SUCCESS", 4000, 25000, 9),
+			makeAgent("developer", "SUCCESS", 2000, 15000, 6),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		const tableRows = output
+			.split("\n")
+			.filter((l) => l.startsWith("| ") && !l.startsWith("|---") && !l.startsWith("| Agent |"));
+		assert.equal(tableRows.length, 5, "all 5 rows present");
+
+		const devRows = tableRows.filter((r) => r.includes("developer"));
+		assert.equal(devRows.length, 4, "all 4 developer runs present");
+	});
+
+	it("single successful run — unchanged from pre-change behavior", () => {
+		const results = [makeAgent("developer", "SUCCESS", 5000, 30000, 10)];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		const tableRows = output
+			.split("\n")
+			.filter((l) => l.startsWith("| ") && !l.startsWith("|---") && !l.startsWith("| Agent |"));
+		assert.equal(tableRows.length, 1, "1 row for single developer");
+		assert.ok(output.includes("5.0K tokens"), "token count correct");
+		assert.ok(output.includes("**Total:** 1 agents"), "total shows 1 agent");
+	});
+});

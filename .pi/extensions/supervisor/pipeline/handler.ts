@@ -350,7 +350,16 @@ export async function handleSupervisorCommand(
 			collector?.push("worktree", "error", `Failed to create worktree: ${createResult.error}`);
 			worktreePath = undefined;
 			// Don't continue without a worktree — send error and stop
-			sendPipelineError(pi, ctx, agentResults, issueNum, issueTitle, config, createResult.error);
+			sendPipelineError(
+				pi,
+				ctx,
+				agentResults,
+				issueNum,
+				issueTitle,
+				config,
+				createResult.error,
+				stageState.gateFailureHistory,
+			);
 			return;
 		}
 		worktreePath = createResult.value;
@@ -819,6 +828,13 @@ export async function handleSupervisorCommand(
 
 			agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
 
+			// Debug tracing: agentResults after push (R3 requirement)
+			getDebugLogger().info("handler", "agentResults after push", {
+				length: agentResults.length,
+				lastAgent: agentResults[agentResults.length - 1]?.agentName,
+				iteration: i,
+			});
+
 			// ── Post-Agent Scope Cleanup ─────────────────────────────────
 			// Immediately after agent finishes, revert any dirty files outside
 			// scope BEFORE commitAndPush. This prevents the cycle where agent
@@ -1014,6 +1030,16 @@ export async function handleSupervisorCommand(
 			// PR creation on audit approval — capture result for completion summary
 			// (Bug 2, Bug 6 fix: propagate PR creation result to caller)
 			if (agentName === "auditor" && result.success && nextStatus === "Done") {
+				// Debug tracing: agentResults before PR creation (R3 requirement)
+				getDebugLogger().info("handler", "agentResults before PR creation", {
+					length: agentResults.length,
+					entries: agentResults.map((a) => ({
+						name: a.agentName,
+						status: a.status,
+						tokens: a.tokenCount,
+					})),
+				});
+
 				getDebugLogger().info("handler", "Creating PR on approval");
 				prCreationResult = await createPrOnApproval(
 					pi,
@@ -1025,6 +1051,7 @@ export async function handleSupervisorCommand(
 					worktreePath,
 					worktreeBranch,
 					collector,
+					stageState.gateFailureHistory,
 				);
 				if (prCreationResult && !prCreationResult.success) {
 					getDebugLogger().warn("handler", "PR creation failed", {
@@ -1131,7 +1158,7 @@ export async function handleSupervisorCommand(
 					// Capture gate failure context for developer feedback loop
 					// When a pre-transition hook returns Implementation, the failure note
 					// is stored so the next developer iteration receives targeted context.
-					applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note);
+					applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, i + 1);
 					// Store dead code result in stage state for auditor context injection
 					if (auditResult.deadCodeResult) {
 						stageState.deadCodeResult = auditResult.deadCodeResult;
@@ -1222,6 +1249,7 @@ export async function handleSupervisorCommand(
 				stopReason,
 				prCreationResult,
 				collector,
+				stageState.gateFailureHistory,
 			);
 			getDebugLogger().info("handler", "Pipeline finished", {
 				overallStatus,
