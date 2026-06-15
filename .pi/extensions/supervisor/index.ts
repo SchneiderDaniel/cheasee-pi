@@ -15,6 +15,7 @@ import { loadConfig } from "./config/config.ts";
 export default function supervisor(pi: ExtensionAPI) {
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
 	pi.registerMessageRenderer("supervisor-summary", createSummaryRenderer(pi));
+	pi.registerMessageRenderer("supervisor-progress", createMessageRenderer(pi));
 	registerSupervisorCommand(pi);
 
 	// Register #-trigger autocomplete provider for issue numbers
