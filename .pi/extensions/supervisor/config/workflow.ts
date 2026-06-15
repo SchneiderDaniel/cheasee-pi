@@ -111,6 +111,10 @@ export function resolveNextStatusFromAgentOutput(
 ): string | null {
 	if (!step.markerMap) return null;
 
+	// Track whether structured JSON was found but couldn't map.
+	// Used at the end to default APPROVED for audit COMPLETE action.
+	let hadBareComplete = false;
+
 	// Try structured JSON parsing first
 	const parseResult = parseAgentOutput(agentOutputText);
 	if (isAgentOutputSuccess(parseResult)) {
@@ -145,9 +149,11 @@ export function resolveNextStatusFromAgentOutput(
 
 			// Auditor with COMPLETE: infer APPROVED/REJECTED from findings.
 			// The auditor's only forward paths are AUDIT-prefixed (filtered above).
-			// When findings exist with critical/warning, treat as REJECTED.
+			// When findings has critical/warning items, treat as REJECTED.
 			// Empty findings or only suggestions → APPROVED.
-			if (output.findings && output.findings.length > 0) {
+			// CRITICAL: check for findings being present at all (even empty array),
+			// not just non-empty, because findings: [] means no blockers.
+			if (output.findings !== undefined && output.findings !== null) {
 				const hasBlockers = output.findings.some(
 					(f) => f.severity === "critical" || f.severity === "warning",
 				);
@@ -175,6 +181,11 @@ export function resolveNextStatusFromAgentOutput(
 					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
 				}
 			}
+
+			// BARE COMPLETE: no findings, no commentBody.
+			// The auditor used the generic template action instead of APPROVED/REJECTED.
+			// Set flag so we can default to APPROVED at the end if all fallbacks fail.
+			hadBareComplete = true;
 		}
 
 		// If we still couldn't map, fall through to marker fallback
@@ -201,7 +212,20 @@ export function resolveNextStatusFromAgentOutput(
 	}
 
 	// Fallback 3: use old marker-based detection
-	return resolveNextStatus(step, agentOutputText);
+	const textResult = resolveNextStatus(step, agentOutputText);
+	if (textResult) return textResult;
+
+	// Final fallback: audit step with action: COMPLETE (no findings, no commentBody).
+	// The model used the generic template instead of the auditor-specific one.
+	// Since structured JSON was emitted with no rejection signal, default APPROVED
+	// to prevent pipeline deadlock. Only  for JSON cases, not unstructured output.
+	if (hadBareComplete) {
+		if (step.markerMap["AUDIT_DECISION: APPROVED"])
+			return step.markerMap["AUDIT_DECISION: APPROVED"];
+		if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+	}
+
+	return null;
 }
 
 /**
