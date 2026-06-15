@@ -46,7 +46,7 @@ function renderMessage(
 	messageContent: string | undefined,
 	expanded = false,
 	options?: any,
-): Container | Text | undefined {
+): Container | Text | Markdown | undefined {
 	const pi = {} as any;
 	const renderer = createMessageRenderer(pi);
 	const message = {

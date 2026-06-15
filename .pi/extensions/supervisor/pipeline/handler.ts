@@ -1400,19 +1400,20 @@ async function executeAgent(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
-	// Send start message
+	// Send start message (no details → renders as plain text matching normal pi output)
 	const shortModel = agent.config.model
 		? agent.config.model.split("/").pop() || agent.config.model
 		: "";
 	const taskPreview = task.split("\n")[0]?.slice(0, 120) || "";
 	pi.sendMessage({
-		customType: "supervisor-progress",
-		content: `## ⚙ ${agent.config.name} — Starting\n\n**Model:** \`${shortModel}\`\n**Task:** ${taskPreview}`,
+		customType: "supervisor",
+		content: `⚙ ${agent.config.name} — Starting\nModel: ${shortModel}\nTask: ${taskPreview}`,
 		display: true,
 	});
 
-	// Track sent tool calls to avoid duplicate messages
+	// Track sent tool calls and thinking to avoid duplicate messages
 	let lastSentToolCount = 0;
+	let lastThinkText = "";
 
 	// Primary: executeSubagent with onUpdate streaming
 	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
@@ -1430,41 +1431,59 @@ async function executeAgent(
 
 			const tc = d.toolCalls;
 			const tcCount = tc?.length || 0;
+			const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
 
-			// Send tool call messages for new tools only
+			// Send tool call messages for new tools only (no details → plain text rendering)
 			if (tcCount > lastSentToolCount && tc) {
 				for (let i = lastSentToolCount; i < tcCount; i++) {
 					const tool = tc[i];
 					if (!tool) continue;
 					const formatted = formatToolCall(tool.name, tool.args);
 					pi.sendMessage({
-						customType: "supervisor-progress",
-						content: `🔧 **${agent.config.name}** — ${formatted}`,
+						customType: "supervisor",
+						content: formatted,
 						display: true,
 					});
 				}
 				lastSentToolCount = tcCount;
 			}
 
-			// Send result on completion
+			// Send thinking message when new reasoning appears (no details → plain text)
+			const thinkMatch = textContent.match(/^💭 (.+)/m);
+			if (thinkMatch) {
+				const thinkText = thinkMatch[1].trim();
+				const firstLine = thinkText.split("\n")[0]?.slice(0, 300) || "";
+				if (firstLine && !lastThinkText.startsWith(firstLine.slice(0, 40))) {
+					lastThinkText = firstLine;
+					pi.sendMessage({
+						customType: "supervisor",
+						content: `💭 ${firstLine}`,
+						display: true,
+					});
+				}
+			}
+
+			// Send result on completion (with details → renders as rich supervisor component)
 			if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
-				const icon = d.success ? "✓" : "✗";
-				const parts: string[] = [];
-				if (d.turnCount && d.turnCount > 0) parts.push(`${d.turnCount} turns`);
-				if (d.durationMs && d.durationMs > 0) parts.push(formatDuration(d.durationMs));
-				if (d.inputTokens || d.outputTokens)
-					parts.push(`↑${formatTokens(d.inputTokens || 0)} ↓${formatTokens(d.outputTokens || 0)}`);
-				if (d.cost && d.cost > 0) parts.push(`$${d.cost.toFixed(4)}`);
-				if (shortModel) parts.push(shortModel);
-
-				let resultMsg = `## ${icon} ${d.agentName || agent.config.name} — ${d.statusLabel}`;
-				if (d.summaryLine) resultMsg += `\n\n${d.summaryLine}`;
-				if (parts.length > 0) resultMsg += `\n\n> ${parts.join(" · ")}`;
-
 				pi.sendMessage({
-					customType: "supervisor-progress",
-					content: resultMsg,
+					customType: "supervisor",
+					content: "",
 					display: true,
+					details: {
+						success: d.success,
+						agentName: d.agentName || agent.config.name,
+						statusLabel: d.statusLabel,
+						summaryLine: d.summaryLine || "",
+						model: shortModel,
+						turnCount: d.turnCount || 0,
+						toolCount: d.toolCalls?.length || 0,
+						durationMs: d.durationMs || 0,
+						inputTokens: d.inputTokens || 0,
+						outputTokens: d.outputTokens || 0,
+						cacheRead: d.cacheRead || 0,
+						cacheWrite: d.cacheWrite || 0,
+						cost: d.cost || 0,
+					},
 				});
 			}
 		},

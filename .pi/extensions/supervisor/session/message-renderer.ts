@@ -18,8 +18,10 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, options: any, theme: any) => {
 		const { expanded } = options || { expanded: false };
 		const details = message.details as SupervisorMessageDetails | undefined;
+		// No details → render as Markdown matching normal assistant message style
 		if (!details && typeof message.content === "string") {
-			return new Text(message.content, 1, 1);
+			const mdTheme = getMarkdownTheme();
+			return new Markdown(message.content, 1, 1, mdTheme);
 		}
 		if (!details) return new Text("(no details)", 1, 1);
 

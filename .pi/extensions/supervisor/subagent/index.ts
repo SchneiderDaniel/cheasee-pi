@@ -202,11 +202,16 @@ export async function executeSubagent(
 				statusText = `⏳ ${agentName} — ${formatted}`;
 			}
 
-			// Include partial text output if available
+			// Include partial text and thinking output if available
 			const liveOutput = state.liveText.trim() ? state.liveText.slice(0, 500) : "";
+			const thinkOutput = state.liveThinking.trim() ? `💭 ${state.liveThinking.slice(0, 500)}` : "";
+
+			const contentParts = [statusText];
+			if (thinkOutput) contentParts.push(thinkOutput);
+			if (liveOutput) contentParts.push(liveOutput);
 
 			onUpdate({
-				content: [{ type: "text", text: statusText + (liveOutput ? "\n\n" + liveOutput : "") }],
+				content: [{ type: "text", text: contentParts.join("\n\n") }],
 				details: {
 					agentName,
 					success: false,
