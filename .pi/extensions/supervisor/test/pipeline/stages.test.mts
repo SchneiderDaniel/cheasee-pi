@@ -3,6 +3,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type {
 	SupervisorConfig,
@@ -1860,6 +1862,291 @@ describe("handlePostAgentSuccess()", () => {
 			// Explicit value check — changing this has implications for loop limits
 			assert.equal(MAX_PIPELINE_LOOPS, 20);
 		});
+	});
+});
+
+// ─── Tests: handlePostAgentSuccess — budget exceeded ─────────────
+
+describe("handlePostAgentSuccess — researcher budget exceeded", () => {
+	const baseBudgetResult: AgentRunResult = {
+		output: "",
+		success: true,
+		agentName: "researcher",
+		toolCount: 15,
+		tokenCount: 50000,
+		durationMs: 45000,
+		textOutput:
+			'{"action":"ARCHITECTURE_COMPLETE","commentBody":"## Research Findings\\n- Finding 1\\n- Finding 2"}',
+		summaryLine: "Research complete (budget exceeded)",
+		errorOutput: "",
+		textOnly:
+			'{"action":"RESEARCH_COMPLETE","commentBody":"## Research Findings\\n- Finding 1\\n- Finding 2"}',
+		budgetExceeded: true,
+	};
+
+	/**
+	 * Custom pi mock that captures the comment body written to temp file.
+	 * postIssueComment writes body to ignore/comment-body-*.md then calls gh --body-file.
+	 * We intercept the gh call to read the body before the file is deleted.
+	 */
+	function createMockPiWithBodyCapture(capturedBodies: string[], calls: ExecCall[]): ExtensionAPI {
+		let idx = 0;
+		return {
+			exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
+				calls.push({ cmd, args: args || [], opts: opts || {} });
+				// Intercept gh calls to capture body from --body-file before deletion
+				if ((cmd === "gh" || cmd === "bash") && args.includes("--body-file")) {
+					const bodyFileIdx = args.indexOf("--body-file");
+					const bodyPath = args[bodyFileIdx + 1];
+					if (bodyPath) {
+						try {
+							const body = readFileSync(bodyPath, "utf-8");
+							capturedBodies.push(body);
+						} catch {
+							capturedBodies.push("");
+						}
+					}
+				}
+				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+			}) as ExtensionAPI["exec"],
+			registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
+			sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
+		} as ExtensionAPI;
+	}
+
+	it("researcher + budgetExceeded + valid commentBody: posts combined stopped-early header + findings in single comment", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			budgetExceeded: true,
+			textOutput: "COMMENT_BODY:\n## Research Findings\nFinding 1\nFinding 2\nCOMMENT_BODY_END",
+			textOnly: "COMMENT_BODY:\n## Research Findings\nFinding 1\nFinding 2\nCOMMENT_BODY_END",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// Single gh comment call — the combined message (NOT two separate calls)
+		const ghCalls = calls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
+		assert.equal(ghCalls.length, 1, "exactly one issue comment posted (combined message)");
+
+		// Verify body content captured from gh --body-file
+		assert.equal(bodies.length, 1, "one comment body captured");
+		const body = bodies[0] || "";
+		assert.ok(
+			body.includes("Research stopped early"),
+			"body contains 'Research stopped early' header",
+		);
+		assert.ok(body.includes("50000"), "body contains tokenCount value");
+		assert.ok(body.includes("Finding 1"), "body contains partial findings content");
+	});
+
+	it("researcher + budgetExceeded + valid commentBody: single postIssueComment call (no separate budget comment)", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			budgetExceeded: true,
+			textOutput: "COMMENT_BODY:\n## Research Findings\nPartial data\nCOMMENT_BODY_END",
+			textOnly: "COMMENT_BODY:\n## Research Findings\nPartial data\nCOMMENT_BODY_END",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true);
+
+		const ghCalls = calls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
+		assert.equal(ghCalls.length, 1, "only one gh call — no separate budget-exceeded comment");
+	});
+
+	it("researcher + budgetExceeded + no commentBody: graceful degradation comment posted (preserved behavior)", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			budgetExceeded: true,
+			textOutput: "", // no commentBody
+			textOnly: "",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true);
+
+		const ghCalls = calls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
+		assert.equal(ghCalls.length, 1, "graceful degradation comment posted");
+
+		assert.equal(bodies.length, 1, "one comment body captured");
+		const body = bodies[0] || "";
+		assert.ok(
+			body.includes("No relevant results found"),
+			"body contains graceful degradation message",
+		);
+	});
+
+	it("researcher + budgetExceeded + comment post fails: returns true (advisory)", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		// For this test we still need the gh call to fail — keep original mock
+		const pi = createMockPi([{ code: 1, stdout: "", stderr: "timeout" }], calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			budgetExceeded: true,
+			textOutput: "COMMENT_BODY:\n## Research Findings\nData\nCOMMENT_BODY_END",
+			textOnly: "COMMENT_BODY:\n## Research Findings\nData\nCOMMENT_BODY_END",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true, "comment failure is advisory — pipeline continues");
+	});
+
+	it("architect + budgetExceeded=true: no header prepended, normal architect comment posted", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			agentName: "architect",
+			budgetExceeded: true,
+			textOutput: "COMMENT_BODY:\n## Architecture\nDesign spec\nCOMMENT_BODY_END",
+			textOnly: "COMMENT_BODY:\n## Architecture\nDesign spec\nCOMMENT_BODY_END",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"architect",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true);
+
+		const ghCalls = calls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
+		assert.equal(ghCalls.length, 1, "architect comment posted");
+
+		assert.equal(bodies.length, 1, "one comment body captured");
+		const body = bodies[0] || "";
+		assert.ok(body.includes("## Architecture"), "architect heading preserved");
+		assert.ok(
+			!body.includes("Research stopped early"),
+			"architect comment does NOT contain researcher stopped-early header",
+		);
+	});
+
+	it("researcher + budgetExceeded=false: normal comment without stopped-early header", async () => {
+		const calls: ExecCall[] = [];
+		const bodies: string[] = [];
+		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const ctx = createMockCtx();
+		const result: AgentRunResult = {
+			...baseBudgetResult,
+			budgetExceeded: false, // happy path — no budget exceeded
+			textOutput: "COMMENT_BODY:\n## Research Findings\nFull data\nCOMMENT_BODY_END",
+			textOnly: "COMMENT_BODY:\n## Research Findings\nFull data\nCOMMENT_BODY_END",
+		};
+		const filteredData: FilteredIssueData = { body: "", comments: [] };
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+		);
+
+		assert.equal(success, true);
+
+		const ghCalls = calls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		);
+		assert.equal(ghCalls.length, 1, "normal researcher comment posted");
+
+		assert.equal(bodies.length, 1, "one comment body captured");
+		const body = bodies[0] || "";
+		assert.ok(body.includes("## Research Findings"), "normal heading preserved");
+		assert.ok(
+			!body.includes("Research stopped early"),
+			"no stopped-early header when budget not exceeded",
+		);
 	});
 });
 

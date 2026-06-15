@@ -656,6 +656,7 @@ function buildSubagentResult(
 			durationMs,
 			toolCalls,
 			taskPrompt,
+			budgetExceeded: state.budgetExceeded || undefined,
 		},
 	};
 }

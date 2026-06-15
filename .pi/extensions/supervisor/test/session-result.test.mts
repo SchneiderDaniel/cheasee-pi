@@ -3,8 +3,13 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildAgentRunResult, buildRawOutputFromMessages } from "../session/result.ts";
-import type { AgentRunState } from "../config/types";
+import {
+	buildAgentRunResult,
+	buildRawOutputFromMessages,
+	convertToolResultToAgentRunResult,
+} from "../session/result.ts";
+import type { AgentRunState, AgentRunResult } from "../config/types";
+import type { AgentToolResult, SubagentDetails } from "../subagent/types.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -412,5 +417,89 @@ describe("buildAgentRunResult — budgetExceeded propagation", () => {
 		const state = createState({ budgetExceeded: false });
 		const result = buildAgentRunResult(state, "developer", true, 1000, []);
 		assert.equal(result.budgetExceeded, undefined);
+	});
+});
+
+// ─── convertToolResultToAgentRunResult — budgetExceeded propagation ──
+
+describe("convertToolResultToAgentRunResult — budgetExceeded propagation", () => {
+	function makeToolResult(overrides?: Partial<SubagentDetails>): AgentToolResult<SubagentDetails> {
+		const d: SubagentDetails = {
+			agentName: "researcher",
+			success: true,
+			statusLabel: "SUCCESS",
+			summaryLine: "Research complete",
+			model: "model",
+			inputTokens: 100,
+			outputTokens: 200,
+			cacheRead: 50,
+			cacheWrite: 25,
+			cost: 0.01,
+			turnCount: 3,
+			durationMs: 5000,
+			toolCalls: [{ name: "read", args: { path: "test" } }],
+			taskPrompt: "task",
+			budgetExceeded: overrides?.budgetExceeded,
+		};
+		if (overrides) {
+			Object.assign(d, overrides);
+		}
+		return {
+			content: [{ type: "text" as const, text: "Research results" }],
+			details: d,
+		};
+	}
+
+	it("propagates budgetExceeded=true when d.budgetExceeded=true", () => {
+		const result = convertToolResultToAgentRunResult(makeToolResult({ budgetExceeded: true }));
+		assert.equal(result.budgetExceeded, true);
+	});
+
+	it("derives budgetExceeded=true when d.statusLabel=BUDGET_EXCEEDED and d.budgetExceeded undefined", () => {
+		const result = convertToolResultToAgentRunResult(
+			makeToolResult({ statusLabel: "BUDGET_EXCEEDED", budgetExceeded: undefined }),
+		);
+		assert.equal(result.budgetExceeded, true);
+	});
+
+	it("budgetExceeded is undefined when d.budgetExceeded undefined and d.statusLabel=SUCCESS", () => {
+		const result = convertToolResultToAgentRunResult(
+			makeToolResult({ statusLabel: "SUCCESS", budgetExceeded: undefined }),
+		);
+		assert.equal(result.budgetExceeded, undefined);
+	});
+
+	it("budgetExceeded is undefined when d.budgetExceeded undefined and d.statusLabel=FAILED", () => {
+		const result = convertToolResultToAgentRunResult(
+			makeToolResult({ statusLabel: "FAILED", budgetExceeded: undefined }),
+		);
+		assert.equal(result.budgetExceeded, undefined);
+	});
+
+	it("d.budgetExceeded=false produces undefined (not false), unused field convention", () => {
+		const result = convertToolResultToAgentRunResult(makeToolResult({ budgetExceeded: false }));
+		assert.equal(result.budgetExceeded, undefined);
+	});
+
+	it("all other fields unchanged from current mapping — regression guard", () => {
+		const tr = makeToolResult({ success: true, agentName: "researcher" });
+		const result = convertToolResultToAgentRunResult(tr);
+		assert.equal(result.success, true);
+		assert.equal(result.agentName, "researcher");
+		assert.equal(result.toolCount, 1);
+		assert.equal(result.tokenCount, 375); // 100 + 200 + 50 + 25
+		assert.equal(result.durationMs, 5000);
+		assert.equal(result.textOutput, "Research results");
+		assert.equal(result.textOnly, "Research results");
+		assert.ok(result.summaryLine && result.summaryLine.length > 0);
+		assert.equal(result.errorOutput, "");
+		assert.equal(result.thinkingOutput, undefined);
+		assert.equal(result.model, "model");
+		assert.equal(result.inputTokens, 100);
+		assert.equal(result.outputTokens, 200);
+		assert.equal(result.cacheRead, 50);
+		assert.equal(result.cacheWrite, 25);
+		assert.equal(result.cost, 0.01);
+		assert.equal(result.turnCount, 3);
 	});
 });
