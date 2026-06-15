@@ -9,7 +9,11 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { resolveNextStatus, type WorkflowStep } from "../config/workflow.ts";
+import {
+	resolveNextStatus,
+	resolveNextStatusFromAgentOutput,
+	type WorkflowStep,
+} from "../config/workflow.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
@@ -134,6 +138,145 @@ describe("resolveNextStatus", () => {
 			markerMap: {},
 		};
 		const result = resolveNextStatus(step, "anything");
+		assert.strictEqual(result, null);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// resolveNextStatusFromAgentOutput() — structured JSON routing
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("resolveNextStatusFromAgentOutput", () => {
+	const architectStep: WorkflowStep = {
+		status: "Architecture",
+		agentName: "architect",
+		markerMap: {
+			ARCHITECTURE_COMPLETE: "TestDesign",
+			FEEDBACK_RESEARCH: "Research",
+		},
+	};
+
+	const auditorStep: WorkflowStep = {
+		status: "Audit",
+		agentName: "auditor",
+		markerMap: {
+			AUDIT_APPROVED: "Done",
+			AUDIT_REJECTED: "Implementation",
+		},
+	};
+
+	const developerStep: WorkflowStep = {
+		status: "Implementation",
+		agentName: "developer",
+		markerMap: {
+			IMPLEMENTATION_COMPLETE: "Audit",
+		},
+	};
+
+	it("targetStatus Research with architect step → Research (bypasses FEEDBACK filter)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Need more research",
+			targetStatus: "Research",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, "Research");
+	});
+
+	it("targetStatus empty string → falls through to markerMap (backward compat)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Architecture done",
+			targetStatus: "",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, "TestDesign");
+	});
+
+	it("targetStatus whitespace only → falls through to markerMap (backward compat)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			targetStatus: "   ",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, "TestDesign");
+	});
+
+	it("targetStatus Research + action COMPLETE → Research (targetStatus wins over COMPLETE filter)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Need more research",
+			targetStatus: "Research",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, "Research");
+	});
+
+	it("auditor with targetStatus Implementation + action APPROVED → Implementation", () => {
+		const json = JSON.stringify({
+			action: "APPROVED",
+			agentName: "auditor",
+			targetStatus: "Implementation",
+		});
+		const result = resolveNextStatusFromAgentOutput(auditorStep, json);
+		assert.strictEqual(result, "Implementation");
+	});
+
+	it("developer with targetStatus Done + action COMPLETE → Done", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			summary: "Done early",
+			targetStatus: "Done",
+		});
+		const result = resolveNextStatusFromAgentOutput(developerStep, json);
+		assert.strictEqual(result, "Done");
+	});
+
+	it("no targetStatus → uses markerMap (unchanged default)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Architecture done",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, "TestDesign");
+	});
+
+	it("step with no markerMap → returns null even with targetStatus in output", () => {
+		const noMapStep: WorkflowStep = {
+			status: "Backlog",
+		};
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "backlog",
+			targetStatus: "Research",
+		});
+		const result = resolveNextStatusFromAgentOutput(noMapStep, json);
+		assert.strictEqual(result, null);
+	});
+
+	it("targetStatus with value false (boolean) → validation fails, falls through to null", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			targetStatus: false,
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, null);
+	});
+
+	it("targetStatus with value 42 (number) → validation fails, falls through to null", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			targetStatus: 42,
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
 		assert.strictEqual(result, null);
 	});
 });

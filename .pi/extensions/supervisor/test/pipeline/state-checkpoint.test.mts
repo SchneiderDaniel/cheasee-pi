@@ -24,6 +24,7 @@ import type { NotifyFn } from "../../pipeline/helpers.ts";
 import {
 	isStaleCheckpoint,
 	readCheckpointFile,
+	readCheckpointFileFromPath,
 	writeCheckpointFile,
 	deleteCheckpointFile,
 	cleanupStalePipelineState,
@@ -360,6 +361,41 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 		assert.notEqual(result, null);
 		assert.equal(result!.issueNum, state.issueNum);
 		assert.equal(result!.checkpoint, state.checkpoint);
+	});
+});
+
+// ─── readCheckpointFileFromPath smoke tests ───────────────────────
+
+describe("readCheckpointFileFromPath — smoke tests", () => {
+	let tmpDir: string;
+	let validFilePath: string;
+
+	beforeEach(() => {
+		tmpDir = mkdtempSync(join(tmpdir(), "state-checkpoint-frompath-"));
+		mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+		validFilePath = join(tmpDir, ".pi", "supervisor-state.json");
+	});
+
+	afterEach(() => {
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("readCheckpointFileFromPath returns parsed state for valid checkpoint file", () => {
+		const state = createState();
+		writeCheckpointFile(tmpDir, state);
+
+		const result = readCheckpointFileFromPath(validFilePath);
+		assert.notEqual(result, null);
+		assert.equal(result!.issueNum, state.issueNum);
+		assert.equal(result!.checkpoint, state.checkpoint);
+		assert.equal(result!.worktreePath, state.worktreePath);
+		assert.equal(result!.worktreeBranch, state.worktreeBranch);
+		assert.equal(result!.startedAt, state.startedAt);
+	});
+
+	it("readCheckpointFileFromPath returns null for non-existent path", () => {
+		const result = readCheckpointFileFromPath(join(tmpDir, ".pi", "nonexistent-file.json"));
+		assert.equal(result, null);
 	});
 });
 

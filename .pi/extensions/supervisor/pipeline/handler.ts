@@ -26,7 +26,6 @@ import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
 import { runAgentSubprocess } from "../agent/runner.ts";
 import { executeSubagent } from "../subagent/index.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
-import { formatToolCall } from "../event/session-events.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import {
@@ -311,6 +310,7 @@ export async function handleSupervisorCommand(
 		}
 
 		// Pipeline main loop
+		ctx.ui.setStatus("supervisor", "Setting up pipeline...");
 		const stageState = createStageState(getItemStatusName(loopItem));
 		let { loopStatus } = stageState;
 
@@ -336,6 +336,7 @@ export async function handleSupervisorCommand(
 			}
 		}
 
+		ctx.ui.setStatus("supervisor", "Creating worktree...");
 		getDebugLogger().info("handler", "Creating worktree", {
 			branch: worktreeBranch,
 			base: config.worktreeBase,
@@ -370,6 +371,7 @@ export async function handleSupervisorCommand(
 		}
 		worktreePath = createResult.value;
 
+		ctx.ui.setStatus("supervisor", "Installing worktree dependencies...");
 		const depsResult = await installWorktreeDeps(pi, worktreePath, notify);
 		if (!depsResult.ok) {
 			collector?.push("worktree", "warn", `npm ci failed: ${depsResult.error}`);
@@ -412,6 +414,7 @@ export async function handleSupervisorCommand(
 		});
 
 		for (let i = 0; i < MAX_PIPELINE_LOOPS; i++) {
+			ctx.ui.setStatus("supervisor", `Status: ${loopStatus}`);
 			ctx.ui.notify(`Issue #${issueNum}: "${issueTitle}" — Status: ${loopStatus}`, "info");
 			getDebugLogger().info("handler", `Pipeline iteration ${i + 1}`, {
 				loopStatus,
@@ -552,6 +555,7 @@ export async function handleSupervisorCommand(
 				break;
 			}
 
+			ctx.ui.setStatus("supervisor", `Running ${agent.config.name}...`);
 			ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
 			const timeoutMs = resolveTimeoutMs(agentName, config.agentTimeoutsMin!);
 
@@ -1211,6 +1215,7 @@ export async function handleSupervisorCommand(
 					effectiveNextStatus,
 				);
 				ctx.ui.notify(`Issue #${issueNum} moved: ${prev} → ${loopStatus}`, "info");
+				ctx.ui.setStatus("supervisor", `Status: ${loopStatus}`);
 				getDebugLogger().info("handler", "Status transition applied", {
 					from: prev,
 					to: loopStatus,
@@ -1412,13 +1417,15 @@ async function executeAgent(
 	const taskPreview = task.split("\n")[0]?.slice(0, 120) || "";
 	pi.sendMessage({
 		customType: "supervisor",
-		content: `⚙ ${agent.config.name} — Starting\nModel: ${shortModel}\nTask: ${taskPreview}`,
+		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
 		display: true,
 	});
 
-	// Track sent tool calls and thinking to avoid duplicate messages
+	// Track state across onUpdate calls
 	let lastSentToolCount = 0;
+	let lastSentResultCount = 0;
 	let lastThinkText = "";
+	let sentResultSinceLastThink = false;
 
 	// Primary: executeSubagent with onUpdate streaming
 	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
@@ -1434,41 +1441,55 @@ async function executeAgent(
 			const d = partial.details;
 			if (!d) return;
 
-			const tc = d.toolCalls;
-			const tcCount = tc?.length || 0;
 			const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
 
-			// Send tool call messages for new tools only (no details → plain text rendering)
-			if (tcCount > lastSentToolCount && tc) {
-				for (let i = lastSentToolCount; i < tcCount; i++) {
-					const tool = tc[i];
-					if (!tool) continue;
-					const formatted = formatToolCall(tool.name, tool.args);
+			// 1. Send tool results (green ✓ / red ✗) — only when execution completes
+			const tr = d.toolResults;
+			const trCount = tr?.length || 0;
+			if (trCount > lastSentResultCount && tr) {
+				const tc = d.toolCalls || [];
+				for (let i = lastSentResultCount; i < trCount; i++) {
+					const r = tr[i];
+					if (!r) continue;
+					// Find matching tool call for args (same index order)
+					const call = tc[i];
+					const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
+					const icon = r.isError ? "✗" : "✓";
 					pi.sendMessage({
 						customType: "supervisor",
-						content: formatted,
+						content: `${icon} **${r.name}**: \`${argsStr}\``,
 						display: true,
 					});
 				}
-				lastSentToolCount = tcCount;
+				lastSentResultCount = trCount;
+				sentResultSinceLastThink = true;
 			}
 
-			// Send thinking message when new reasoning appears (no details → plain text)
-			const thinkMatch = textContent.match(/^💭 (.+)/m);
-			if (thinkMatch) {
-				const thinkText = thinkMatch[1].trim();
-				const firstLine = thinkText.split("\n")[0]?.slice(0, 300) || "";
-				if (firstLine && !lastThinkText.startsWith(firstLine.slice(0, 40))) {
-					lastThinkText = firstLine;
+			// 2. Send thinking content (everything after 💭 prefix)
+			const thinkPrefix = "💭 ";
+			const thinkIdx = textContent.indexOf(thinkPrefix);
+			if (thinkIdx !== -1) {
+				const thinkContent = textContent.slice(thinkIdx + thinkPrefix.length).trim();
+				if (thinkContent && !lastThinkText.includes(thinkContent.slice(0, 60))) {
+					// Insert turn separator if we just completed tools
+					if (sentResultSinceLastThink) {
+						pi.sendMessage({
+							customType: "supervisor",
+							content: "---",
+							display: true,
+						});
+						sentResultSinceLastThink = false;
+					}
+					lastThinkText = thinkContent;
 					pi.sendMessage({
 						customType: "supervisor",
-						content: `💭 ${firstLine}`,
+						content: thinkContent,
 						display: true,
 					});
 				}
 			}
 
-			// Send result on completion (with details → renders as rich supervisor component)
+			// 3. Send result on completion (with details → renders as rich supervisor component)
 			if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
 				pi.sendMessage({
 					customType: "supervisor",

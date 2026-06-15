@@ -40,17 +40,18 @@ describe("pipeline handler — worktree creation before loop", () => {
 		);
 	});
 
-	it("generateBranchName called in worktree creation section", () => {
+	it("generateBranchName called before worktree creation", () => {
 		const src = readHandlerSource();
-		const wtIdx = src.indexOf("Creating worktree");
-		assert.ok(wtIdx >= 0, "'Creating worktree' log message exists");
-		const section = src.substring(wtIdx - 100, wtIdx + 500);
-		assert.ok(section.includes("generateBranchName"), "generateBranchName in worktree section");
+		const genIdx = src.indexOf("generateBranchName");
+		const wtIdx = src.indexOf("createWorktree");
+		assert.ok(genIdx >= 0, "generateBranchName call exists");
+		assert.ok(wtIdx >= 0, "createWorktree call exists");
+		assert.ok(genIdx < wtIdx, "generateBranchName called before createWorktree");
 	});
 
 	it("worktreePath assigned only once", () => {
 		const src = readHandlerSource();
-		const matches = src.match(/worktreePath\s*=\s*await/g);
+		const matches = src.match(/worktreePath\s*=\s*createResult\.value/g);
 		assert.ok(matches && matches.length === 1, "worktreePath assigned exactly once");
 	});
 });

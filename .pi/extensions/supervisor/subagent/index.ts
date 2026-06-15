@@ -35,6 +35,7 @@ import type {
 	AgentToolResult,
 	SubagentDetails,
 	SubagentToolCall,
+	SubagentToolResult,
 	ExecuteSubagentParams,
 } from "./types.ts";
 
@@ -108,6 +109,7 @@ export async function executeSubagent(
 	const startedAt = Date.now();
 	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget);
 	const toolCalls: SubagentToolCall[] = [];
+	const toolResults: SubagentToolResult[] = [];
 
 	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 	let unsubscribe: (() => void) | undefined;
@@ -226,6 +228,7 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
@@ -236,11 +239,17 @@ export async function executeSubagent(
 			try {
 				const eventType = event?.type || "unknown";
 
-				// Track tool calls for details
+				// Track tool calls and their results
 				if (eventType === "tool_execution_start") {
 					toolCalls.push({
 						name: (event.toolName as string) || "tool",
 						args: (event.args as Record<string, unknown>) || {},
+					});
+				}
+				if (eventType === "tool_execution_end") {
+					toolResults.push({
+						name: (event.toolName as string) || "tool",
+						isError: !!(event as any).isError,
 					});
 				}
 
@@ -334,6 +343,7 @@ export async function executeSubagent(
 				return buildSubagentResult(
 					state,
 					toolCalls,
+					toolResults,
 					agentName,
 					task,
 					false,
@@ -388,6 +398,7 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs: Date.now() - startedAt,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
@@ -408,6 +419,7 @@ export async function executeSubagent(
 		return buildSubagentResult(
 			state,
 			toolCalls,
+			toolResults,
 			agentName,
 			task,
 			true,
@@ -446,6 +458,7 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
@@ -472,6 +485,7 @@ export async function executeSubagent(
 				turnCount: 0,
 				durationMs,
 				toolCalls: [...toolCalls],
+				toolResults: [...toolResults],
 				taskPrompt: task,
 			},
 		};
@@ -575,6 +589,7 @@ function cleanupSession(
 function buildSubagentResult(
 	state: ReturnType<typeof createAgentRunState>,
 	toolCalls: SubagentToolCall[],
+	toolResults: SubagentToolResult[],
 	agentName: string,
 	taskPrompt: string,
 	success: boolean,
@@ -655,6 +670,7 @@ function buildSubagentResult(
 			turnCount,
 			durationMs,
 			toolCalls,
+			toolResults,
 			taskPrompt,
 			budgetExceeded: state.budgetExceeded || undefined,
 		},

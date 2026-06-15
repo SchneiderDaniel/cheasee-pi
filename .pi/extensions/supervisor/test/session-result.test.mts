@@ -438,6 +438,7 @@ describe("convertToolResultToAgentRunResult — budgetExceeded propagation", () 
 			turnCount: 3,
 			durationMs: 5000,
 			toolCalls: [{ name: "read", args: { path: "test" } }],
+			toolResults: [],
 			taskPrompt: "task",
 			budgetExceeded: overrides?.budgetExceeded,
 		};

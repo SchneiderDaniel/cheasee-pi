@@ -8,6 +8,12 @@ export interface SubagentToolCall {
 	args: Record<string, unknown>;
 }
 
+/** Result of a tool execution (from tool_execution_end event) */
+export interface SubagentToolResult {
+	name: string;
+	isError: boolean;
+}
+
 /** Details carried in AgentToolResult.details for the subagent tool */
 export interface SubagentDetails {
 	agentName: string;
@@ -25,6 +31,8 @@ export interface SubagentDetails {
 	durationMs: number;
 	/** List of tool calls made by the subagent (for renderResult display) */
 	toolCalls: SubagentToolCall[];
+	/** Results of completed tool executions (same index order as toolCalls when available) */
+	toolResults: SubagentToolResult[];
 	/** Full task prompt given to the subagent */
 	taskPrompt: string;
 	/** Whether the subagent exceeded its token/tool budget */

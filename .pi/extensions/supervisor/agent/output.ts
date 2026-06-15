@@ -426,6 +426,15 @@ function validateAgentOutput(data: Record<string, unknown>): ValidationResult {
 		}
 	}
 
+	// targetStatus (optional, must be string if present)
+	if (
+		data.targetStatus !== undefined &&
+		data.targetStatus !== null &&
+		typeof data.targetStatus !== "string"
+	) {
+		errors.push("'targetStatus' must be a string if provided");
+	}
+
 	return { valid: errors.length === 0, errors };
 }
 
@@ -565,6 +574,9 @@ export function parseAgentOutput(output: string): ParseResult {
 	}
 	if (data.findings !== undefined && data.findings !== null) {
 		result.findings = data.findings as AgentOutput["findings"];
+	}
+	if (data.targetStatus !== undefined && data.targetStatus !== null) {
+		result.targetStatus = data.targetStatus as string;
 	}
 
 	return result;
