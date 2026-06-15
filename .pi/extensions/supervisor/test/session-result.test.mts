@@ -201,6 +201,199 @@ describe("buildRawOutputFromMessages — truncation (Phase 4)", () => {
 	});
 });
 
+// ─── Helpers for breakdown extraction tests ────────────────────────
+
+function makeUsage(
+	input?: number,
+	output?: number,
+	cacheRead?: number,
+	cacheWrite?: number,
+	cost?: number,
+	totalTokens?: number,
+): Record<string, unknown> | undefined {
+	const usage: Record<string, unknown> = {};
+	if (input !== undefined) usage.input = input;
+	if (output !== undefined) usage.output = output;
+	if (cacheRead !== undefined) usage.cacheRead = cacheRead;
+	if (cacheWrite !== undefined) usage.cacheWrite = cacheWrite;
+	if (cost !== undefined) usage.cost = { total: cost };
+	if (totalTokens !== undefined) usage.totalTokens = totalTokens;
+	return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
+function makeMessage(
+	role: string,
+	contentBlocks?: Record<string, unknown>[],
+	usage?: Record<string, unknown>,
+): Record<string, unknown> {
+	const msg: Record<string, unknown> = {
+		role,
+		content: contentBlocks || [],
+	};
+	if (usage) msg.usage = usage;
+	return msg;
+}
+
+// ─── buildAgentRunResult — breakdown extraction (Phase 2) ────────
+
+describe("buildAgentRunResult — breakdown extraction", () => {
+	it("full extraction: last assistant message has all usage fields", () => {
+		const state = createState({
+			cacheRead: 500,
+			cacheWrite: 200,
+			tokenCount: 10001,
+		});
+		const messages = [
+			makeMessage("user", [makeTextBlock("hello")]),
+			makeMessage(
+				"assistant",
+				[makeTextBlock("response")],
+				makeUsage(1234, 8567, 500, 200, 0.0234, 10001),
+			),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 45000, messages);
+		assert.equal(result.inputTokens, 1234);
+		assert.equal(result.outputTokens, 8567);
+		assert.equal(result.cacheRead, 500);
+		assert.equal(result.cacheWrite, 200);
+		assert.equal(result.cost, 0.0234);
+		assert.equal(result.turnCount, 1);
+	});
+
+	it("partial usage: only input and output present, no cache/cost", () => {
+		const state = createState({ tokenCount: 5000 });
+		const messages = [
+			makeMessage("user", [makeTextBlock("hello")]),
+			makeMessage("assistant", [makeTextBlock("response")], makeUsage(1000, 2000)),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 10000, messages);
+		assert.equal(result.inputTokens, 1000);
+		assert.equal(result.outputTokens, 2000);
+		assert.equal(result.cacheRead, undefined);
+		assert.equal(result.cacheWrite, undefined);
+		assert.equal(result.cost, undefined);
+		assert.equal(result.turnCount, 1);
+	});
+
+	it("no usage on any message — all new fields undefined", () => {
+		const state = createState({ tokenCount: 500 });
+		const messages = [
+			makeMessage("user", [makeTextBlock("hello")]),
+			makeMessage("assistant", [makeTextBlock("response")]),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 5000, messages);
+		assert.equal(result.inputTokens, undefined);
+		assert.equal(result.outputTokens, undefined);
+		assert.equal(result.cacheRead, undefined);
+		assert.equal(result.cacheWrite, undefined);
+		assert.equal(result.cost, undefined);
+		assert.equal(result.turnCount, undefined);
+		assert.equal(result.tokenCount, 500); // fallback to state.tokenCount
+	});
+
+	it("empty messages array — all new fields undefined", () => {
+		const state = createState({ tokenCount: 0 });
+		const result = buildAgentRunResult(state, "developer", true, 1000, []);
+		assert.equal(result.inputTokens, undefined);
+		assert.equal(result.outputTokens, undefined);
+		assert.equal(result.cost, undefined);
+		assert.equal(result.turnCount, undefined);
+	});
+
+	it("null/undefined messages array — all new fields undefined", () => {
+		const state = createState({ tokenCount: 0 });
+		const result1 = buildAgentRunResult(state, "developer", true, 1000, null as any);
+		assert.equal(result1.inputTokens, undefined);
+		assert.equal(result1.turnCount, undefined);
+
+		const result2 = buildAgentRunResult(state, "developer", true, 1000, undefined as any);
+		assert.equal(result2.inputTokens, undefined);
+		assert.equal(result2.turnCount, undefined);
+	});
+
+	it("multiple assistant messages — last with usage wins", () => {
+		const state = createState({ cacheRead: 300, cacheWrite: 100, tokenCount: 9999 });
+		const messages = [
+			makeMessage("user", [makeTextBlock("q1")]),
+			makeMessage(
+				"assistant",
+				[makeTextBlock("a1")],
+				makeUsage(100, 200, undefined, undefined, 0.001, 300),
+			),
+			makeMessage("user", [makeTextBlock("q2")]),
+			makeMessage(
+				"assistant",
+				[makeTextBlock("a2")],
+				makeUsage(2000, 4000, undefined, undefined, 0.005, 6000),
+			),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 30000, messages);
+		// Last assistant message usage wins
+		assert.equal(result.inputTokens, 2000);
+		assert.equal(result.outputTokens, 4000);
+		assert.equal(result.cost, 0.005);
+		// Turn count counts all assistant messages with usage.input > 0
+		assert.equal(result.turnCount, 2);
+	});
+
+	it("assistant messages but none with usage — turnCount is 0 (undefined)", () => {
+		const state = createState({ tokenCount: 0 });
+		const messages = [
+			makeMessage("user", [makeTextBlock("q")]),
+			makeMessage("assistant", [makeTextBlock("a")]),
+			makeMessage("assistant", [makeTextBlock("a2")]),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 5000, messages);
+		assert.equal(result.inputTokens, undefined);
+		assert.equal(result.outputTokens, undefined);
+		assert.equal(result.turnCount, undefined);
+	});
+
+	it("usage.cost.total is 0 — cost set to 0", () => {
+		const state = createState({ tokenCount: 100 });
+		const messages = [
+			makeMessage(
+				"assistant",
+				[makeTextBlock("response")],
+				makeUsage(50, 50, undefined, undefined, 0, 100),
+			),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 1000, messages);
+		assert.equal(result.cost, 0);
+	});
+
+	it("usage.cost missing but input/output present — cost undefined", () => {
+		const state = createState({ tokenCount: 100 });
+		const messages = [makeMessage("assistant", [makeTextBlock("response")], makeUsage(50, 50))];
+		const result = buildAgentRunResult(state, "developer", true, 1000, messages);
+		assert.equal(result.inputTokens, 50);
+		assert.equal(result.outputTokens, 50);
+		assert.equal(result.cost, undefined);
+	});
+
+	it("cacheRead/cacheWrite come from state, not from raw messages", () => {
+		const state = createState({ cacheRead: 999, cacheWrite: 888, tokenCount: 500 });
+		const messages = [
+			makeMessage("assistant", [makeTextBlock("hi")], makeUsage(100, 200, 111, 222, 0.01, 300)),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 5000, messages);
+		// Cache values come from state, not from usage
+		assert.equal(result.cacheRead, 999);
+		assert.equal(result.cacheWrite, 888);
+	});
+
+	it("tokenCount stable: existing fallback logic unchanged when new fields absent", () => {
+		const state = createState({ tokenCount: 500 });
+		const messages = [
+			makeMessage("user", [makeTextBlock("q")]),
+			makeMessage("assistant", [makeTextBlock("a")]),
+		];
+		const result = buildAgentRunResult(state, "developer", true, 5000, messages);
+		assert.equal(result.tokenCount, 500);
+		assert.equal(result.inputTokens, undefined);
+	});
+});
+
 // ─── buildAgentRunResult — budgetExceeded propagation ─────────────
 
 describe("buildAgentRunResult — budgetExceeded propagation", () => {

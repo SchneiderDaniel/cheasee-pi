@@ -489,6 +489,212 @@ describe("edge cases and error handling", () => {
 	});
 });
 
+// ─── Phase 3b: Rich stats line ───────────────────────────────────
+
+describe("rich stats line (new format with per-agent breakdown)", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("full stats line rendered format", () => {
+		const details = makeDetails({
+			model: "claude-sonnet-4-5",
+			inputTokens: 1200,
+			outputTokens: 8500,
+			cacheRead: 500,
+			cacheWrite: 200,
+			cost: 0.0234,
+			toolCount: 3,
+			durationMs: 45000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find(
+			(l) => l.includes("model:") && l.includes("↑") && l.includes("↓") && l.includes("$"),
+		);
+		assert.ok(statsLine, `expected full stats line, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("model: claude-sonnet-4-5"), "should show model");
+		assert.ok(
+			statsLine!.includes("↑1.2K") || statsLine!.includes("↑1,200"),
+			"should show input tokens",
+		);
+		assert.ok(
+			statsLine!.includes("↓8.5K") || statsLine!.includes("↓8,500"),
+			"should show output tokens",
+		);
+		assert.ok(statsLine!.includes("R500"), "should show cache read");
+		assert.ok(statsLine!.includes("W200"), "should show cache write");
+		assert.ok(statsLine!.includes("$0.0234"), "should show cost");
+		assert.ok(statsLine!.includes("3 tools"), "should show tool count");
+		assert.ok(statsLine!.includes("45s"), "should show duration");
+	});
+
+	it("model name shortened: last segment after /", () => {
+		const details = makeDetails({
+			model: "anthropic/claude-sonnet-4-20250514",
+			durationMs: 5000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("model:"));
+		assert.ok(statsLine, `expected model in line, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("claude-sonnet-4-20250514"), "should use short model name");
+		assert.ok(!statsLine!.includes("anthropic"), "should NOT include full path");
+	});
+
+	it("no model → stats line starts with ↑ or tools or duration (no model prefix)", () => {
+		const details = makeDetails({
+			inputTokens: 500,
+			outputTokens: 1000,
+			durationMs: 10000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("↑"));
+		assert.ok(statsLine, `expected stats line with ↑, got: ${JSON.stringify(lines)}`);
+		assert.ok(!statsLine!.startsWith("model:"), "should NOT start with model:");
+	});
+
+	it("no input/output tokens → no ↑N ↓N segment", () => {
+		const details = makeDetails({
+			model: "test-model",
+			cost: 0.01,
+			durationMs: 5000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("$"));
+		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
+		assert.ok(!statsLine!.includes("↑"), "should NOT have ↑↓ segment");
+		assert.ok(statsLine!.includes("model: test-model"), "should have model");
+	});
+
+	it("no cacheRead → no RN; no cacheWrite → no WN", () => {
+		const details = makeDetails({
+			model: "m",
+			inputTokens: 100,
+			outputTokens: 200,
+			durationMs: 3000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("↑100"));
+		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
+		assert.ok(!statsLine!.includes("R"), "should NOT have cache read");
+		assert.ok(!statsLine!.includes("W"), "should NOT have cache write");
+	});
+
+	it("cost at 0 → omitted (no $0.0000)", () => {
+		const details = makeDetails({
+			model: "m",
+			cost: 0,
+			durationMs: 5000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("model:"));
+		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
+		assert.ok(!statsLine!.includes("$"), "should NOT show $0.0000");
+	});
+
+	it("cost defined non-zero → $0.0234 format", () => {
+		const details = makeDetails({
+			model: "m",
+			cost: 0.0234,
+			durationMs: 5000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("$"));
+		assert.ok(statsLine, `expected cost line, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("$0.0234"), `should format cost as $0.0234, got: ${statsLine}`);
+	});
+
+	it("input/output use formatTokens (1.2K, 8.5M, 500)", () => {
+		const details = makeDetails({
+			model: "m",
+			inputTokens: 1200,
+			outputTokens: 8500000,
+			cacheRead: 500,
+			cacheWrite: 1200,
+			durationMs: 5000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("↑") || l.includes("model:"));
+		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("↑1.2K"), `expected 1.2K format, got: ${statsLine}`);
+		assert.ok(statsLine!.includes("↓8.5M"), `expected 8.5M format, got: ${statsLine}`);
+		assert.ok(statsLine!.includes("R500"), `expected R500, got: ${statsLine}`);
+		assert.ok(statsLine!.includes("W1.2K"), `expected W1.2K, got: ${statsLine}`);
+	});
+
+	it("backward compat: old details without new fields → old stats line", () => {
+		const details = makeDetails({
+			toolCount: 3,
+			tokenCount: 12500,
+			durationMs: 45000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find(
+			(l) => l.includes("tools") && l.includes("tokens") && l.includes("s"),
+		);
+		assert.ok(statsLine, `expected old-format stats, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("3 tools"), "should show tools");
+		assert.ok(statsLine!.includes("12.5K tokens"), "should show tokens");
+		assert.ok(statsLine!.includes("45s"), "should show duration");
+	});
+
+	it("backward compat: old details with partial new fields → no crash", () => {
+		const details = makeDetails({
+			model: "claude-sonnet-4-5",
+			durationMs: 30000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("model:"));
+		assert.ok(statsLine, `expected model in stats, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("model: claude-sonnet-4-5"), "should show model");
+		assert.ok(statsLine!.includes("30s"), "should show duration");
+	});
+
+	it("all fields zero → shows only model + duration", () => {
+		const details = makeDetails({
+			model: "my-model",
+			toolCount: 0,
+			tokenCount: 0,
+			durationMs: 10000,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: 0,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("model: my-model"));
+		assert.ok(statsLine, `expected model+duration, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("10s"), "should show duration");
+		assert.ok(!statsLine!.includes("↑"), "should NOT show ↑↓ for zeros");
+		assert.ok(!statsLine!.includes("R"), "should NOT show cache read for zeros");
+		assert.ok(!statsLine!.includes("W"), "should NOT show cache write for zeros");
+		assert.ok(!statsLine!.includes("$"), "should NOT show cost for zeros");
+	});
+
+	it("all fields zero + no model → shows only duration", () => {
+		const details = makeDetails({
+			toolCount: 0,
+			tokenCount: 0,
+			durationMs: 10000,
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("10s"));
+		assert.ok(statsLine, `expected duration only, got: ${JSON.stringify(lines)}`);
+	});
+});
+
 // ─── Phase 4: Summary renderer regression ───────────────────────
 
 describe("summary renderer (createSummaryRenderer) — no regressions", () => {

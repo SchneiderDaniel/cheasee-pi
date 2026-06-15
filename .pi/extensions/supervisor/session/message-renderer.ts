@@ -42,15 +42,73 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			),
 		);
 
-		// Stats line: tools, tokens, duration
-		const statsParts: string[] = [];
-		if (details.toolCount > 0)
-			statsParts.push(`${details.toolCount} tool${details.toolCount === 1 ? "" : "s"}`);
-		if (details.tokenCount > 0) statsParts.push(`${formatTokens(details.tokenCount)} tokens`);
-		if (details.durationMs > 0) statsParts.push(formatDuration(details.durationMs));
-		if (statsParts.length > 0) {
-			c.addChild(new Spacer(1));
-			c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
+		// Stats line: model, token breakdown, cache, cost, tools, duration
+		const hasNewFields =
+			details.model !== undefined ||
+			details.inputTokens !== undefined ||
+			details.outputTokens !== undefined ||
+			details.cacheRead !== undefined ||
+			details.cacheWrite !== undefined ||
+			details.cost !== undefined;
+
+		if (hasNewFields) {
+			// New format with per-agent usage breakdown
+			const statsParts: string[] = [];
+
+			// Model name (shortened: last segment after '/')
+			if (details.model) {
+				const shortModel = details.model.split("/").pop() || details.model;
+				statsParts.push(`model: ${shortModel}`);
+			}
+
+			// Input/output token breakdown (↑N ↓N)
+			// Only show when at least one is non-zero (omit zero noise)
+			const hasInput = details.inputTokens !== undefined && details.inputTokens > 0;
+			const hasOutput = details.outputTokens !== undefined && details.outputTokens > 0;
+			if (hasInput || hasOutput) {
+				const inStr = hasInput ? formatTokens(details.inputTokens!) : "0";
+				const outStr = hasOutput ? formatTokens(details.outputTokens!) : "0";
+				statsParts.push(`↑${inStr} ↓${outStr}`);
+			}
+
+			// Cache read/write (R/W)
+			if (details.cacheRead !== undefined && details.cacheRead > 0) {
+				statsParts.push(`R${formatTokens(details.cacheRead)}`);
+			}
+			if (details.cacheWrite !== undefined && details.cacheWrite > 0) {
+				statsParts.push(`W${formatTokens(details.cacheWrite)}`);
+			}
+
+			// Cost ($N.NNNN) — omit when zero
+			if (details.cost !== undefined && details.cost > 0) {
+				statsParts.push(`$${details.cost.toFixed(4)}`);
+			}
+
+			// Tools
+			if (details.toolCount > 0) {
+				statsParts.push(`${details.toolCount} tool${details.toolCount === 1 ? "" : "s"}`);
+			}
+
+			// Duration (always shown when available)
+			if (details.durationMs > 0) {
+				statsParts.push(formatDuration(details.durationMs));
+			}
+
+			if (statsParts.length > 0) {
+				c.addChild(new Spacer(1));
+				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
+			}
+		} else {
+			// Old format (backward compat) — tools, tokens, duration
+			const statsParts: string[] = [];
+			if (details.toolCount > 0)
+				statsParts.push(`${details.toolCount} tool${details.toolCount === 1 ? "" : "s"}`);
+			if (details.tokenCount > 0) statsParts.push(`${formatTokens(details.tokenCount)} tokens`);
+			if (details.durationMs > 0) statsParts.push(formatDuration(details.durationMs));
+			if (statsParts.length > 0) {
+				c.addChild(new Spacer(1));
+				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
+			}
 		}
 
 		// Audit score (confidence tracking)

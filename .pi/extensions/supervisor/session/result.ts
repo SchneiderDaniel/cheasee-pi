@@ -151,6 +151,13 @@ export function buildAgentRunResult(
 	// messages produces O(N²/2) overcount — root cause of 28M token report
 	// for moderate refactor session (GH #314).
 	let tokenCount = state.tokenCount;
+
+	// Per-agent usage breakdown extraction
+	let inputTokens: number | undefined;
+	let outputTokens: number | undefined;
+	let cost: number | undefined;
+	let turnCount: number | undefined;
+
 	if (Array.isArray(messages) && messages.length > 0) {
 		const lastAsstMsg = [...messages].reverse().find((m) => m && m.role === "assistant" && m.usage);
 		if (lastAsstMsg?.usage) {
@@ -159,7 +166,23 @@ export function buildAgentRunResult(
 			if (typeof lastTotal === "number" && !Number.isNaN(lastTotal) && lastTotal > 0) {
 				tokenCount = Math.max(state.tokenCount, lastTotal);
 			}
+			// Extract token breakdown
+			if (typeof u.input === "number" && !Number.isNaN(u.input)) inputTokens = u.input;
+			if (typeof u.output === "number" && !Number.isNaN(u.output)) outputTokens = u.output;
+			// Extract cost from usage.cost.total
+			if (u.cost && typeof u.cost.total === "number") cost = u.cost.total;
 		}
+
+		// Turn count: count assistant messages with usage.input > 0
+		turnCount = messages.filter(
+			(m) =>
+				m &&
+				m.role === "assistant" &&
+				m.usage &&
+				typeof m.usage.input === "number" &&
+				m.usage.input > 0,
+		).length;
+		if (turnCount === 0) turnCount = undefined;
 	}
 
 	return {
@@ -175,5 +198,12 @@ export function buildAgentRunResult(
 		errorOutput: "",
 		thinkingOutput,
 		budgetExceeded: state.budgetExceeded || undefined,
+		// Per-agent usage breakdown
+		inputTokens,
+		outputTokens,
+		cacheRead: state.cacheRead,
+		cacheWrite: state.cacheWrite,
+		cost,
+		turnCount,
 	};
 }
