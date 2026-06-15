@@ -303,6 +303,53 @@ function findImportFindings(filePath: string, content: string, extName: string):
 			continue;
 		}
 
+		// Check for mixed default + named imports (Pattern 4)
+		// e.g. import pi, { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+		//      import * as pi, { ExtensionAPI, on } from "..."
+		const mixedImportMatch = trimmed.match(
+			/^import\s+(?:\*\s+as\s+)?(\w+)\s*,\s*\{\s*([^}]+)\s*\}\s+from\s+["']([^"']+)["']/,
+		);
+		if (mixedImportMatch && piModulePattern.test(mixedImportMatch[3]!)) {
+			const defaultName = mixedImportMatch[1]!;
+			const namedList = mixedImportMatch[2]!.trim();
+			// Emit default import finding (like Pattern 3)
+			if (defaultName === "pi" || defaultName.toLowerCase().includes("pi")) {
+				findings.push({
+					extensionName: extName,
+					file: filePath,
+					apiName: "pi",
+					line: i + 1,
+					column: 1,
+					lineContent: trimmed,
+					matchContext: "import-value",
+					callArgs: [],
+					changelogVersion: "",
+					isBreaking: false,
+					category: "",
+				});
+			}
+			// Emit named import findings (like Pattern 2)
+			const trimmedNames = namedList.split(",").map((name) => name.trim());
+			for (const name of trimmedNames) {
+				if (PI_APIS.has(name)) {
+					findings.push({
+						extensionName: extName,
+						file: filePath,
+						apiName: `pi.${name}`,
+						line: i + 1,
+						column: 1,
+						lineContent: trimmed,
+						matchContext: "import-value",
+						callArgs: [],
+						changelogVersion: "",
+						isBreaking: false,
+						category: "",
+					});
+				}
+			}
+			continue;
+		}
+
 		// Check for default/namespace import from pi
 		const defaultImportMatch = trimmed.match(
 			/^import\s+(?:\*\s+as\s+)?(\w+)\s+from\s+["']([^"']+)["']/,
