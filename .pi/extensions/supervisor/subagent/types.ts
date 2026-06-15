@@ -35,6 +35,8 @@ export interface SubagentDetails {
 	toolResults: SubagentToolResult[];
 	/** Full task prompt given to the subagent */
 	taskPrompt: string;
+	/** Whether the subagent exceeded its token/tool budget */
+	budgetExceeded?: boolean;
 }
 
 /** Text content block for AgentToolResult */

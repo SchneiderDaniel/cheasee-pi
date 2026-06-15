@@ -245,7 +245,7 @@ export function convertToolResultToAgentRunResult(
 		summaryLine,
 		errorOutput: d.success ? "" : summaryLine,
 		thinkingOutput: undefined,
-		budgetExceeded: undefined,
+		budgetExceeded: (d.budgetExceeded ?? d.statusLabel === "BUDGET_EXCEEDED") || undefined,
 		model: d.model || undefined,
 		inputTokens: d.inputTokens ?? undefined,
 		outputTokens: d.outputTokens ?? undefined,

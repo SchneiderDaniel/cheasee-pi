@@ -1080,18 +1080,23 @@ export async function handleSupervisorCommand(
 			if (result.budgetExceeded) {
 				// Graceful degradation: researcher stops researching, pipeline continues
 				if (agentName === "researcher") {
-					const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
-					try {
-						await postIssueComment(pi, issueNum, config.repo, budgetExceededMsg);
-						ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
-					} catch (commentErr: unknown) {
-						collector?.push(
-							"handler",
-							"warn",
-							`Failed to post researcher degradation notice: ${
-								commentErr instanceof Error ? commentErr.message : String(commentErr)
-							}`,
-						);
+					// When result.success is also true, handlePostAgentSuccess already posted
+					// a combined comment (partial findings + "stopped early" header).
+					// Skip separate comment here to avoid duplication.
+					if (!result.success) {
+						const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
+						try {
+							await postIssueComment(pi, issueNum, config.repo, budgetExceededMsg);
+							ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
+						} catch (commentErr: unknown) {
+							collector?.push(
+								"handler",
+								"warn",
+								`Failed to post researcher degradation notice: ${
+									commentErr instanceof Error ? commentErr.message : String(commentErr)
+								}`,
+							);
+						}
 					}
 					const nextStatus = inferForwardStatus(step);
 					if (nextStatus) {

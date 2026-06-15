@@ -835,6 +835,20 @@ export async function handlePostAgentSuccess(
 			commentBody = null;
 		}
 
+		// When researcher budget was exceeded, compose a single combined comment
+		// with "stopped early" header + partial findings, so the budget-exceeded
+		// handler in handler.ts can skip its own separate comment (no duplication).
+		// The existing heading is replaced to avoid redundant headings.
+		if (commentBody && agentName === "researcher" && result.budgetExceeded) {
+			const budgetHeader = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
+			const firstNewline = commentBody.indexOf("\n");
+			if (firstNewline !== -1) {
+				commentBody = budgetHeader + commentBody.slice(firstNewline);
+			} else {
+				commentBody = budgetHeader;
+			}
+		}
+
 		if (commentBody) {
 			try {
 				await postIssueComment(pi, issueNum, config.repo, commentBody);
