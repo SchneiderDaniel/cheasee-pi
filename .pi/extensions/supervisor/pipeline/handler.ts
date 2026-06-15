@@ -26,7 +26,6 @@ import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
 import { runAgentSubprocess } from "../agent/runner.ts";
 import { executeSubagent } from "../subagent/index.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
-import { formatToolCall } from "../event/session-events.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import {
@@ -1407,7 +1406,7 @@ async function executeAgent(
 	const taskPreview = task.split("\n")[0]?.slice(0, 120) || "";
 	pi.sendMessage({
 		customType: "supervisor",
-		content: `⚙ ${agent.config.name} — Starting\nModel: ${shortModel}\nTask: ${taskPreview}`,
+		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
 		display: true,
 	});
 
@@ -1433,22 +1432,23 @@ async function executeAgent(
 			const tcCount = tc?.length || 0;
 			const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
 
-			// Send tool call messages for new tools only (no details → plain text rendering)
+			// Send tool call messages for new tools only
+			// Format as markdown (**toolName**: \`args\`) so Markdown renderer applies theme colors
 			if (tcCount > lastSentToolCount && tc) {
 				for (let i = lastSentToolCount; i < tcCount; i++) {
 					const tool = tc[i];
 					if (!tool) continue;
-					const formatted = formatToolCall(tool.name, tool.args);
+					const argsStr = tool.args ? JSON.stringify(tool.args).slice(0, 200) : "";
 					pi.sendMessage({
 						customType: "supervisor",
-						content: formatted,
+						content: `**${tool.name}**: \`${argsStr}\``,
 						display: true,
 					});
 				}
 				lastSentToolCount = tcCount;
 			}
 
-			// Send thinking message when new reasoning appears (no details → plain text)
+			// Send thinking message when new reasoning appears
 			const thinkMatch = textContent.match(/^💭 (.+)/m);
 			if (thinkMatch) {
 				const thinkText = thinkMatch[1].trim();
@@ -1457,7 +1457,7 @@ async function executeAgent(
 					lastThinkText = firstLine;
 					pi.sendMessage({
 						customType: "supervisor",
-						content: `💭 ${firstLine}`,
+						content: firstLine,
 						display: true,
 					});
 				}
