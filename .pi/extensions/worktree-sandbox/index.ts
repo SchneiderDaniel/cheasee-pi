@@ -68,10 +68,10 @@ export function tokenizeCommand(cmd: string): ReturnType<typeof parse> {
 
 /**
  * Check if a path token contains shell expansion syntax.
- * Detects: $, `, ~, {, * which bash would expand before resolving paths.
+ * Detects: $, `, ~, {, *, ?, [ which bash would expand before resolving paths.
  */
 export function hasShellExpansion(token: string): boolean {
-	return /[\$`~{*]/.test(token);
+	return /[\$`~{*?\[]/.test(token);
 }
 
 /**
@@ -162,7 +162,6 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
 			return token;
 		}
 	}
-
 	return null;
 }
 
