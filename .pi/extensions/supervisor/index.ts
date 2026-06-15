@@ -11,12 +11,18 @@ import { createMessageRenderer, createSummaryRenderer } from "./session/message-
 import { registerSupervisorCommand } from "./pipeline/index.ts";
 import { createIssueAutocompleteProvider, resetIssueCache } from "./event/autocomplete.ts";
 import { loadConfig } from "./config/config.ts";
+import { registerSubagentTool } from "./subagent/index.ts";
 
 export default function supervisor(pi: ExtensionAPI) {
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
 	pi.registerMessageRenderer("supervisor-summary", createSummaryRenderer(pi));
 	pi.registerMessageRenderer("supervisor-progress", createMessageRenderer(pi));
 	registerSupervisorCommand(pi);
+
+	// Register subagent tool for native inline rendering per agent step
+	// Enables both LLM-callable subagent (Step 3 bonus) and pipeline-integrated
+	// execution via executeSubagent() exported from ./subagent/index.ts
+	registerSubagentTool(pi);
 
 	// Register #-trigger autocomplete provider for issue numbers
 	// The session_start handler receives ExtensionContext which has ctx.ui
