@@ -40,9 +40,9 @@ describe("findUnsafeCd", () => {
 		assert.equal(result, null);
 	});
 
-	it("returns null for cd - (previous dir special case)", () => {
+	it("returns '<previous-dir>' for cd - (previous dir, unresolvable at static analysis time)", () => {
 		const result = findUnsafeCd("cd -", SANDBOX_ROOT);
-		assert.equal(result, null);
+		assert.equal(result, "<previous-dir>");
 	});
 
 	it("returns null for multiple safe cd commands in chain", () => {
@@ -330,6 +330,20 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 			const result = await handler(event, ctx);
 			assert.equal(result, undefined);
 			assert.equal(event.input.command, `cd "${sandboxDir}" && cd subdir`);
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd - via bash handler with descriptive placeholder", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd - && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("<previous-dir>"));
 		} finally {
 			delete process.env.WORKTREE_SANDBOX_PATH;
 		}
