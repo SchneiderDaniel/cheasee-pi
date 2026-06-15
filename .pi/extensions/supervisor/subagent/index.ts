@@ -574,11 +574,18 @@ function buildSubagentResult(
 	model: string,
 	errorMsg?: string,
 ): AgentToolResult<SubagentDetails> {
-	const textOutput = state.textOutputLines.join("\n").trim();
+	// Use fullLog (all streamed lines) instead of textOutputLines (only leftover at text_end).
+	// Streaming models emit text via text_delta events; complete newline-terminated lines are
+	// pushed to fullLog via pushLog() but not to textOutputLines. textOutputLines only captures
+	// whatever is left in liveText at text_end, which is often empty or just "```".
+	// Using fullLog ensures the agent's JSON output (typically at the end) is included,
+	// so extractAgentCommentBody and parseAgentOutput can find and parse it.
+	const fullText = state.fullLog.join("\n").trim();
+	const textOutput = fullText;
 	const textOnly = state.textOutputLines.join("\n").trim();
 	const summaryLine = errorMsg
 		? `Failed: ${errorMsg.slice(0, 120)}`
-		: extractSummaryLine(textOutput, success, agentName);
+		: extractSummaryLine(fullText, success, agentName);
 
 	// Extract usage stats from messages
 	let inputTokens = 0;
