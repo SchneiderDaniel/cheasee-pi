@@ -186,10 +186,16 @@ export async function executeSubagent(
 				statusText = `⏳ ${agentName} — ${phase}`;
 			}
 			if (state.currentTool) {
-				const formatted = formatToolCall(
-					state.currentTool,
-					state.currentToolArgs ? JSON.parse(state.currentToolArgs || "{}") : undefined,
-				);
+				let parsedArgs: Record<string, unknown> | undefined;
+				if (state.currentToolArgs) {
+					try {
+						parsedArgs = JSON.parse(state.currentToolArgs);
+					} catch {
+						// If args string is somehow invalid, proceed without parsed args
+						parsedArgs = undefined;
+					}
+				}
+				const formatted = formatToolCall(state.currentTool, parsedArgs);
 				statusText = `⏳ ${agentName} — ${formatted}`;
 			}
 

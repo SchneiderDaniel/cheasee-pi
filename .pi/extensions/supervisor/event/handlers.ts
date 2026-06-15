@@ -20,6 +20,32 @@ export { phasePriority } from "./types.ts";
 // ─── Constants ────────────────────────────────────────────────────
 
 const MAX_FULL_LOG = 500;
+const MAX_ARGS_STRING_LEN = 100;
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Truncate string values in args before JSON serialization.
+ * Prevents invalid JSON from raw .slice() on serialized output.
+ */
+function truncateArgsForDisplay(args: unknown): Record<string, unknown> {
+	if (!args || typeof args !== "object" || Array.isArray(args)) {
+		return {};
+	}
+	const result: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
+		if (typeof value === "string") {
+			result[key] =
+				value.length > MAX_ARGS_STRING_LEN ? value.slice(0, MAX_ARGS_STRING_LEN) + "..." : value;
+		} else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+			result[key] = truncateArgsForDisplay(value);
+		} else {
+			result[key] = value;
+		}
+	}
+	return result;
+}
+
 const MAX_LIVE_THINKING = 500;
 const MAX_LIVE_TEXT = 10_000;
 const LIVE_TEXT_TRIM = 8_000;
@@ -32,7 +58,7 @@ export function handleToolExecutionStart(
 ): HandlerResult {
 	const prevPhase = state.phase;
 	state.currentTool = ev.toolName || "tool";
-	state.currentToolArgs = ev.args ? JSON.stringify(ev.args).slice(0, 200) : undefined;
+	state.currentToolArgs = ev.args ? JSON.stringify(truncateArgsForDisplay(ev.args)) : undefined;
 	state.lastToolName = ev.toolName;
 	state.phase = "tool";
 	pushLog(
