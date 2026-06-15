@@ -180,6 +180,13 @@ export function sendAgentResultMessage(
 		output: string;
 		thinkingOutput?: string;
 		taskPrompt?: string;
+		model?: string;
+		inputTokens?: number;
+		outputTokens?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		cost?: number;
+		turnCount?: number;
 	},
 	auditScore?: string,
 ): void {
@@ -199,6 +206,13 @@ export function sendAgentResultMessage(
 			hasThinking: !!result.thinkingOutput,
 			auditScore,
 			taskPrompt: result.taskPrompt,
+			model: result.model,
+			inputTokens: result.inputTokens,
+			outputTokens: result.outputTokens,
+			cacheRead: result.cacheRead,
+			cacheWrite: result.cacheWrite,
+			cost: result.cost,
+			turnCount: result.turnCount,
 		} satisfies SupervisorMessageDetails,
 	});
 }

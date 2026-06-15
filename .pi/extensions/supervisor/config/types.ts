@@ -102,6 +102,22 @@ export interface AgentRunResult {
 	thinkingOutput?: string;
 	/** Whether budget (token/tool limit) was exceeded */
 	budgetExceeded?: boolean;
+
+	// ─── Per-agent usage breakdown ────────────────────────
+	/** Model identifier used for this agent run */
+	model?: string;
+	/** Input tokens consumed (from last assistant message usage) */
+	inputTokens?: number;
+	/** Output tokens produced (from last assistant message usage) */
+	outputTokens?: number;
+	/** Prompt cache read tokens */
+	cacheRead?: number;
+	/** Prompt cache write tokens */
+	cacheWrite?: number;
+	/** Monetary cost of the agent run */
+	cost?: number;
+	/** Number of LLM turns (assistant messages with usage) */
+	turnCount?: number;
 }
 
 // ─── AgentRunState: mutable state during agent execution ────────────
@@ -169,6 +185,22 @@ export interface SupervisorMessageDetails {
 	auditScore?: string;
 	/** Task prompt given to the agent (displayed in expanded view) */
 	taskPrompt?: string;
+
+	// ─── Per-agent usage breakdown ────────────────────────
+	/** Model identifier used for this agent run */
+	model?: string;
+	/** Input tokens consumed (from last assistant message usage) */
+	inputTokens?: number;
+	/** Output tokens produced (from last assistant message usage) */
+	outputTokens?: number;
+	/** Prompt cache read tokens */
+	cacheRead?: number;
+	/** Prompt cache write tokens */
+	cacheWrite?: number;
+	/** Monetary cost of the agent run */
+	cost?: number;
+	/** Number of LLM turns (assistant messages with usage) */
+	turnCount?: number;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────

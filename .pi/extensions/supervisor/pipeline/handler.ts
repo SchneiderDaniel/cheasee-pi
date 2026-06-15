@@ -944,6 +944,13 @@ export async function handleSupervisorCommand(
 					summaryLine: result.summaryLine,
 					thinkingOutput: result.thinkingOutput,
 					taskPrompt: task,
+					model: agent.config.model,
+					inputTokens: result.inputTokens,
+					outputTokens: result.outputTokens,
+					cacheRead: result.cacheRead,
+					cacheWrite: result.cacheWrite,
+					cost: result.cost,
+					turnCount: result.turnCount,
 				},
 				auditInfo ? `${auditInfo.score.passing}/${auditInfo.score.total}` : undefined,
 			);
