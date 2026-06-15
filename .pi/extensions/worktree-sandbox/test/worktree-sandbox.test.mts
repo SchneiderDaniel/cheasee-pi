@@ -1,11 +1,11 @@
 /**
- * Tests: worktree-sandbox/index.ts — rewritePath helper, findUnsafeCd, findUnsafeWriteInBash
+ * Tests: worktree-sandbox/index.ts — rewritePath helper, findUnsafeCd, findUnsafeWriteInBash, findSuspiciousArg
  *
  * Phase 1: Pure function unit tests for the extracted rewritePath helper.
  * Tests the path-rewriting logic that was previously duplicated across
  * read/write/edit handlers.
  *
- * Phase 2a: hasShellExpansion — core security helper
+ * Phase 2a: hasShellExpansion and findSuspiciousArg — core security helpers
  * Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
  * Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
  */
@@ -31,6 +31,7 @@ let mod: {
 	findUnsafeCd: (command: string, sandboxRoot: string) => string | null;
 	findUnsafeWriteInBash: (command: string, sandboxRoot: string) => string | null;
 	hasShellExpansion: (token: string) => boolean;
+	findSuspiciousArg: (command: string, sandboxRoot: string) => string | null;
 };
 
 // https://nodejs.org/api/esm.html#module-register-and-hooks --experimental-strip-types needed
@@ -489,6 +490,119 @@ describe("findUnsafeCd", () => {
 
 	it("blocks cd with old arithmetic expansion", () => {
 		assert.ok(mod.findUnsafeCd("cd $[1+1]", "/tmp/sandbox") !== null);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2c: findSuspiciousArg — general-purpose suspicious argument detection
+// ═══════════════════════════════════════════════════════════════════
+
+describe("findSuspiciousArg", () => {
+	// ── Happy path: safe commands return null ────────────────────
+
+	it("returns null for empty command", () => {
+		assert.equal(mod.findSuspiciousArg("", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for whitespace-only command", () => {
+		assert.equal(mod.findSuspiciousArg("   ", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for safe relative command", () => {
+		assert.equal(mod.findSuspiciousArg("cd src", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for safe absolute path inside sandbox", () => {
+		assert.equal(
+			mod.findSuspiciousArg("cat /tmp/sandbox-test-root/file.txt", "/tmp/sandbox-test-root"),
+			null,
+		);
+	});
+
+	it("returns null for command with only flags", () => {
+		assert.equal(mod.findSuspiciousArg("ls -la", "/tmp/sandbox"), null);
+	});
+
+	it("returns null for command with no arguments", () => {
+		assert.equal(mod.findSuspiciousArg("ls", "/tmp/sandbox"), null);
+	});
+
+	// ── Shell expansion detection ───────────────────────────────
+
+	it("detects variable expansion $HOME as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("cd $HOME", "/tmp/sandbox") !== null);
+	});
+
+	it("detects unresolvable variable in general argument", () => {
+		assert.ok(mod.findSuspiciousArg("cat $UNSET_VAR", "/tmp/sandbox") !== null);
+	});
+
+	it("detects command substitution $(...) as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("echo $(whoami)", "/tmp/sandbox") !== null);
+	});
+
+	it("detects backtick command substitution as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("echo \`whoami\`", "/tmp/sandbox") !== null);
+	});
+
+	it("detects tilde expansion as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("cat ~/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("detects brace expansion {a,b} as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("echo {a,b}", "/tmp/sandbox") !== null);
+	});
+
+	it("detects brace-variable expansion ${HOME} as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("echo ${HOME}", "/tmp/sandbox") !== null);
+	});
+
+	it("detects bracket glob bypass path /[e]tc/passwd as suspicious", () => {
+		assert.ok(mod.findSuspiciousArg("cat /[e]tc/passwd", "/tmp/sandbox") !== null);
+	});
+
+	// ── Unsafe path detection ───────────────────────────────────
+
+	it("returns the absolute path outside sandbox as argument", () => {
+		assert.equal(mod.findSuspiciousArg("cat /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("returns absolute path outside sandbox in redirect target", () => {
+		assert.equal(mod.findSuspiciousArg("echo hi > /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("returns absolute path outside sandbox in append redirect target", () => {
+		assert.equal(mod.findSuspiciousArg("echo hi >> /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("returns absolute path outside sandbox in FD redirect target", () => {
+		assert.equal(mod.findSuspiciousArg("echo hi 2>/etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	});
+
+	it("detects unresolved variable in cp destination", () => {
+		assert.ok(mod.findSuspiciousArg("cp a $DEST", "/tmp/sandbox") !== null);
+	});
+
+	it("detects unresolved variable in cp source", () => {
+		assert.ok(mod.findSuspiciousArg("cp $SRC dst", "/tmp/sandbox") !== null);
+	});
+
+	it("detects tilde in redirect target", () => {
+		assert.ok(mod.findSuspiciousArg("echo hi > ~/escape", "/tmp/sandbox") !== null);
+	});
+
+	it("detects unresolved variable as argument after command", () => {
+		assert.ok(mod.findSuspiciousArg("echo $CMD", "/tmp/sandbox") !== null);
+	});
+
+	// ── Command name and flag filtering ─────────────────────────
+
+	it("does not flag command name 'cd' even though it's short", () => {
+		assert.equal(mod.findSuspiciousArg("cd", "/tmp/sandbox"), null);
+	});
+
+	it("does not flag command name starting with $ (command names always skipped)", () => {
+		assert.equal(mod.findSuspiciousArg("$CMD", "/tmp/sandbox"), null);
 	});
 });
 
