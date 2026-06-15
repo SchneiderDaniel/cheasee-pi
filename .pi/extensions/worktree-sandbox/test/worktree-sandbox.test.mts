@@ -365,6 +365,18 @@ describe("hasShellExpansion", () => {
 	it("returns false for empty string", () => {
 		assert.equal(mod.hasShellExpansion(""), false);
 	});
+
+	it("detects bracket glob pattern [a-z]", () => {
+		assert.equal(mod.hasShellExpansion("[a-z]"), true);
+	});
+
+	it("detects bracket glob bypass path /[e]tc/passwd", () => {
+		assert.equal(mod.hasShellExpansion("/[e]tc/passwd"), true);
+	});
+
+	it("detects question mark glob file?", () => {
+		assert.equal(mod.hasShellExpansion("file?"), true);
+	});
 });
 
 describe("findSuspiciousArg", () => {

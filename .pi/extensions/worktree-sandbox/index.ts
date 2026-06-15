@@ -68,16 +68,36 @@ export function tokenizeCommand(cmd: string): ReturnType<typeof parse> {
 
 /**
  * Check if a path token contains shell expansion syntax.
- * Detects: $, `, ~, {, * which bash would expand before resolving paths.
+ * Detects: $, `, ~, {, *, ?, [ which bash would expand before resolving paths.
  */
 export function hasShellExpansion(token: string): boolean {
-	return /[\$`~{*]/.test(token);
+	return /[\$`~{*?\[]/.test(token);
 }
 
 /**
  * Separator operators that start a new command in a shell pipeline.
  */
 const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
+
+/**
+ * Find the first suspicious (shell expansion) token in a command.
+ * Returns the suspicious token or null if all tokens are safe.
+ * An empty string from an unresolved variable is also suspicious.
+ */
+export function findSuspiciousArg(command: string, _sandboxRoot: string): string | null {
+	const tokens = tokenizeCommand(command);
+	for (const token of tokens) {
+		if (typeof token === "string") {
+			if (token === "") return command; // Unresolved variable
+			if (hasShellExpansion(token)) return token;
+		}
+		if (typeof token === "object" && token !== null && "op" in token && token.op === "glob") {
+			const pattern = (token as { pattern?: string }).pattern;
+			if (pattern && hasShellExpansion(pattern)) return pattern;
+		}
+	}
+	return null;
+}
 
 /**
  * Shell-aware cd command safety check.
