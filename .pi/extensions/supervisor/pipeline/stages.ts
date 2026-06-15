@@ -213,27 +213,6 @@ export async function checkReadmeUpdated(
 	}
 }
 
-// ─── Duplicate Code Gate ────────────────────────────────────────────
-
-/**
- * Run duplicate code check on the worktree and return result.
- * Updates the stage state with the result for later auditor context injection.
- */
-export async function handleDuplicateCheck(
-	execFn: (
-		cmd: string,
-		args: string[],
-		opts?: Record<string, unknown>,
-	) => Promise<{ code: number; stdout: string; stderr: string }>,
-	worktreePath: string,
-	defaultBranch: string,
-	state: StageState,
-): Promise<DuplicateCodeResult> {
-	const result = await runDuplicateCheck(execFn, worktreePath, defaultBranch);
-	state.duplicateCodeResult = result;
-	return result;
-}
-
 /**
  * Build a formatted string from DuplicateCodeResult for injection into auditor task context.
  * Returns null if no duplicates found or result is null.
@@ -260,27 +239,6 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
 	}
 
 	return lines.join("\n");
-}
-
-// ─── Dead Code Gate ─────────────────────────────────────────────────
-
-/**
- * Run dead code check on the worktree and return result.
- * Updates the stage state with the result for later auditor context injection.
- */
-export async function handleDeadCodeCheck(
-	execFn: (
-		cmd: string,
-		args: string[],
-		opts?: Record<string, unknown>,
-	) => Promise<{ code: number; stdout: string; stderr: string }>,
-	worktreePath: string,
-	defaultBranch: string,
-	state: StageState,
-): Promise<DeadCodeResult> {
-	const result = await runDeadCodeCheck(execFn, worktreePath, defaultBranch);
-	state.deadCodeResult = result;
-	return result;
 }
 
 /**
