@@ -9,23 +9,25 @@ metadata:
 
 # Dead Code Hunter
 
-Systematic dead code hunter for pi extensions. **Hunt until dead code found.** Each invocation picks random extension, analyzes using structured techniques, validates with proof, files GitHub issue. If no dead code found in selected extension, discard it and pick another. Repeat until one finding is confirmed and filed.
+Systematic dead code hunter for pi extensions. **File every validated finding as its own issue.** Each invocation picks random extension, analyzes using structured techniques, validates with proof, then files ALL valid findings as individual GitHub issues. If no dead code found in selected extension, discard it and pick another. Repeat until all findings are filed or all extensions exhausted.
 
 ## How It Works
 
 ### Phase 1 — Random Selection + Hunt Loop
 
-This is a **hunt loop**. Core instruction: **keep hunting until you file at least one finding.**
+This is a **hunt loop**. Core instruction: **keep hunting until ALL valid findings are filed.**
 
 ```
 loop:
   1. Pick random extension from .pi/extensions/ (skip previously picked)
-  2. Run Phase 1.5 (knip preliminary scan)
-  3. If knip found dead code → file GitHub issue (Phase 5) → exit loop
-  4. If knip found nothing or errored → run Phase 2-4 (understand + hunt + validate)
-  5. If dead code found AND proof confirmed → file GitHub issue (Phase 5) → exit loop
-  6. If no dead code found → log reason, goto loop start (pick next extension)
-  7. If ALL extensions exhausted with zero findings → output "Hunt complete: 0 dead code findings across all extensions"
+  2. Create hunt session label (dead-code-<ext>-<YYYYMMDD>)
+  3. Run Phase 1.5 (knip preliminary scan)
+  4. If knip found dead code → file EACH finding as separate issue (Phase 5)
+  5. If knip found nothing or errored → run Phase 2-4 (understand + hunt + validate)
+  6. For each dead code finding with confirmed proof → file as separate issue (Phase 5)
+  7. Cluster: write cross-references, add session label to all issues (Phase 5)
+  8. If no dead code at all → log reason, goto loop start (pick next extension)
+  9. After all findings filed OR all extensions exhausted → output report (Phase 6)
 ```
 
 **Critical rule:** Do NOT lower proof standards when hunt gets long. A finding without proof is not a finding. Skip and move on.
@@ -78,11 +80,11 @@ Capture both exit code and stdout/stderr:
 npx knip --tsConfig /home/miria/git/main/tsconfig.json --include-entry-exports --directory /home/miria/git/main/.pi/extensions/<name>/ 2>&1; echo "EXIT_CODE=$?"
 ```
 
-#### Step 3: File Issue for First Finding
+#### Step 3: File Issues for All Knip Findings
 
 If knip exits with code 1 and produces findings:
 
-1. **One finding per issue rule applies** — take only the FIRST finding from knip output (the first `file:line:col` line). Do NOT file multiple findings from a single knip run.
+1. **File EACH finding as a separate issue.** Iterate through all knip output findings (each `file:line:col` entry). Do NOT batch multiple findings into one issue.
 2. **Use the existing issue template** from Phase 5 — same structure, same severity guide (P0-P3).
 3. **Technique** — set to `knip` (instead of a numbered technique).
 4. **Confidence** — always **90%** for knip findings. Knip is reliable for statically-resolvable code (module graph analysis) but may have false positives for dynamically-invoked code (e.g., `Reflect.get()`, plugin loading by name string, dynamic import specifiers).
@@ -92,11 +94,10 @@ If knip exits with code 1 and produces findings:
    ### Cross-Reference Proof
 
    Knip output:
-   <raw knip output from stdout, first finding only>
+   <raw knip output from stdout, relevant finding only>
    ```
 7. **Issue creation** — follow Phase 5 instructions for `gh issue create`.
-
-If knip produces multiple findings, file only the first one. Subsequent findings require separate hunt invocations.
+8. **Repeat** — after filing one issue, continue to the next knip finding until all are filed. Each finding gets its own `gh issue create` call.
 
 #### Step 4: Fall Through to Manual Detection
 
@@ -107,7 +108,7 @@ If knip:
 
 → proceed to **Phase 2 (Code Understanding)** and continue with manual detection techniques. Knip only detects module-graph-level dead code; patterns like unreachable code, dead branches, empty blocks, unused parameters, orphaned imports, dead event handlers, and redundant paths require the manual techniques in Phase 3.
 
-**Important:** If knip finds a finding and you file it, the hunt loop exits (per Phase 1: "keep hunting until you file at least one finding"). If you skip the knip finding, fall through to manual detection.
+**Important:** If knip finds multiple findings, file each one as a separate issue before moving on. After all knip findings are filed, proceed to manual detection (Phase 2-4) for patterns knip cannot detect (unreachable code, dead branches, empty blocks, etc.). All manual findings also get filed as individual issues.
 
 ### Phase 2 — Code Understanding
 
@@ -157,7 +158,7 @@ Do NOT rely on asking the LLM "does this look dead to you?" — that is speculat
 | 90%        | Strong evidence — dead unless dynamic invocation    | Unused import, zombie dependency                                |
 | 60%        | Likely dead — may be framework-invoked              | Unused export, unused variable, empty block                     |
 
-**Priority heuristic:** When multiple findings qualify, prefer filing:
+**Priority heuristic:** When multiple findings qualify, file them ALL. Order by impact:
 
 1. Higher confidence first (100% > 90% > 60%)
 2. Larger line count (more cleanup value)
@@ -624,7 +625,33 @@ Key validation rules:
 
 Only create issue after proof is complete. Use `gh issue create` via `bash gh`.
 
+#### Hunt Clustering
+
+When filing multiple issues in one hunt session, cluster them so the group is discoverable:
+
+1. **Create a session label** — Before filing the first issue, create a hunt-specific label:
+   ```bash
+   gh label create "dead-code-<ext-name>-<YYYYMMDD>" --repo <repo> --color "#B60205" --description "Dead code findings from <ext-name> hunt on <date>" 2>/dev/null || true
+   ```
+   Apply this label to ALL issues from this hunt session (in addition to `dead-code` or `bug`).
+2. **Defer cross-references** — File all issues first, collecting their numbers. Then update each issue body with a `## Related Issues` section listing siblings:
+   ```bash
+   # After all issues created, update each body
+   gh issue edit <N> --repo <repo> --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file <body-with-cross-refs>.md
+   ```
+3. **Tracking comment** — Post a comment on the first/filed-with-lowest-number issue listing all:
+   ```bash
+   gh issue comment <first-N> --repo <repo> --body "## Hunt Session: <ext-name> - <YYYYMMDD>\n\n| # | Finding | Issue |\n|---|---------|-------|\n| 1 | <name> | #N |\n| 2 | <name> | #M |"
+   ```
+
 #### Issue Template
+
+Each issue body includes a trailing placeholder for cross-references that gets filled after all issues are created:
+
+```markdown
+## Related Issues
+<!-- FILLED_AFTER_ALL_ISSUES_CREATED -->
+```
 
 ```
 **Extension:** <name>
@@ -678,19 +705,49 @@ File: path/to/file.ts, line N-M
 #### Issue Creation Command
 
 ```bash
-# Write body to temp file to avoid shell escaping issues
-cat > /tmp/dead-code-report-<ext-name>.md << 'EOF'
+# Write body to temp file (include ## Related Issues placeholder)
+cat > /tmp/dead-code-report-<ext-name>-<seq>.md << 'ISSUEOF'
 <body content>
-EOF
+
+## Related Issues
+<!-- FILLED_AFTER_ALL_ISSUES_CREATED -->
+ISSUEOF
+
+github_label="dead-code"
+# If dead-code label doesn't exist, fall back to bug
+gh label list --repo "$REPO" 2>/dev/null | grep -q dead-code || github_label="bug"
 
 gh issue create \
   --repo "$(grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Dead Code: <ext-name> - <short description>" \
-  --label "dead-code" \
-  --body-file /tmp/dead-code-report-<ext-name>.md
+  --label "$github_label" \
+  --body-file /tmp/dead-code-report-<ext-name>-<seq>.md
 
-# Clean up
-rm /tmp/dead-code-report-<ext-name>.md
+# Save the resulting issue URL for clustering
+ISSUE_URLS+=("$NEW_ISSUE_URL")
+```
+
+After all issues are created, update each one with cross-references and add the session label:
+
+```bash
+# Build cross-reference table
+TABLE="## Related Issues\nSame hunt session (label: \`dead-code-<ext-name>-<YYYYMMDD>\`):\n\n| # | Finding | Issue |\n|---|---------|-------|"
+SEQ=0
+for URL in "${ISSUE_URLES[@]}"; do
+  NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+  SEQ=$((SEQ+1))
+  TABLE+="\n| $SEQ | <finding-name> | #$NUM |"
+done
+
+# Update each issue: add session label + cross-reference body
+for URL in "${ISSUE_URLS[@]}"; do
+  NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+  # Read original body, append cross-references, write back
+  gh issue view "$NUM" --repo "$REPO" --json body --jq '.body' > /tmp/update-${NUM}.md
+  echo -e "\n$TABLE" >> /tmp/update-${NUM}.md
+  gh issue edit "$NUM" --repo "$REPO" --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file /tmp/update-${NUM}.md
+  rm /tmp/update-${NUM}.md
+done
 ```
 
 Read repo from `.pi/settings.json`:
@@ -716,31 +773,38 @@ If duplicate found, skip and note which issue. Also check `bug` label issues for
 
 ### Phase 6 — Report
 
-After hunt loop completes (either finding filed or all extensions exhausted), output summary:
+After all issues filed, update cluster cross-references, then output summary.
 
 ```
 ## Dead Code Hunt Report
 
 **Extension:** <name>
+**Session label:** dead-code-<ext-name>-<YYYYMMDD>
 **Files analyzed:** <count>
 **Total lines:** <approximate>
 **Techniques applied:** <all 11>
 
 ### Findings
 
-| # | Technique | Type | Confidence | Severity | Lines | Filed? |
-|---|-----------|------|------------|----------|-------|--------|
+| # | Technique | Type | Confidence | Severity | Lines | Issue |
+|---|-----------|------|------------|----------|-------|-------|
 | 1 | unused-exports | Unused function | 90% | P2 | 15 | [#123](url) |
 | 2 | unreachable-code | Code after return | 100% | P3 | 3 | [#124](url) |
 
 ### Summary
 <total findings, total filed, any skips with reason>
+
+### Cluster
+All issues share label \`dead-code-<ext-name>-<YYYYMMDD>\` for bulk operations:
+\`\`\`bash
+gh issue list --repo <repo> --label "dead-code-<ext-name>-<YYYYMMDD>" --state open
+\`\`\`
 ```
 
 ## Rules
 
-1. **Hunt until found** — Must loop through extensions until one finding filed or all exhausted. Do not stop after first extension if nothing found.
-2. **ONE finding per issue** — No batching multiple dead code findings in one issue
+1. **Hunt until all filed** — Must loop through extensions until ALL valid findings are filed or all extensions exhausted. Do not stop after first finding.
+2. **One finding per issue** — Each finding gets its own separate issue. No batching multiple findings. No skip after filing one — continue filing the rest.
 3. **Proof or skip** — No speculative findings. Ambiguous = skip
 4. **Cross-reference two sources** — code evidence + why dead + search proof minimum
 5. **No duplicate** — Check existing open issues first
