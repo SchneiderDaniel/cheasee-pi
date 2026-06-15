@@ -13,51 +13,12 @@ import { formatDuration } from "../lib/formatting.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
-// ─── Agent Progress Streaming ──────────────────────────────────────
-// Live progress messages sent as customType: "supervisor-progress"
-// during agent execution. display: false prevents chat scroll.
-
-/**
- * Send a live agent progress message via pi.sendMessage.
- * Uses customType "supervisor-progress" (separate from final "supervisor" result).
- * display: false so it replaces in-place without scrolling.
- * success is always false for progress messages (not done yet).
- */
-export function sendAgentProgressMessage(
-	pi: ExtensionAPI,
-	state: AgentRunState,
-	agentName: string,
-): void {
-	pi.sendMessage({
-		customType: "supervisor-progress",
-		content: `⏳ ${agentName} ${state.phase}...`,
-		display: false,
-		details: {
-			agentName,
-			success: false,
-			statusLabel: "IN_PROGRESS",
-			summaryLine: `Running ${agentName} — ${state.phase} phase`,
-			textOutput: state.liveText,
-			thinkingOutput: state.liveThinking,
-			toolCount: state.toolCount,
-			tokenCount: state.tokenCount,
-			durationMs: Date.now() - state.startedAt,
-		} satisfies SupervisorMessageDetails,
-	});
-}
-
-/**
- * Clear the live agent progress message by sending an empty replacement.
- * This ensures the final "supervisor" result message renders fresh
- * instead of being clobbered by the last progress update.
- */
-export function clearAgentProgressMessage(pi: ExtensionAPI): void {
-	pi.sendMessage({
-		customType: "supervisor-progress",
-		content: "",
-		display: false,
-	});
-}
+// ─── Agent Progress Streaming (removed) ──────────────────────────
+// Previously: sendAgentProgressMessage/clearAgentProgressMessage sent invisible
+// pi.sendMessage({ customType: "supervisor-progress", display: false }) messages.
+// Replaced by ctx.ui.setWidget() in executeSubagent() for live widget-based progress.
+// The widget approach shows live tool calls, thinking, and text above the editor
+// without scrolling the chat history. Final result message uses sendAgentResultMessage.
 
 /**
  * Send pipeline completion notification.

@@ -66,4 +66,12 @@ export interface ExecuteSubagentParams {
 	maxToolCalls?: number;
 	/** Max token budget before budget exceeded (0 = unlimited) */
 	agentTokenBudget?: number;
+	/**
+	 * Optional UI adapter for widget-based progress display.
+	 * Only the string-array overload is supported (not component factory).
+	 * When absent, no widget is created — backward compatible for LLM tool dispatch.
+	 */
+	ui?: {
+		setWidget(id: string, lines?: string[]): void;
+	};
 }

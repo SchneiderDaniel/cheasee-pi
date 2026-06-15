@@ -16,7 +16,7 @@ import { registerSubagentTool } from "./subagent/index.ts";
 export default function supervisor(pi: ExtensionAPI) {
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
 	pi.registerMessageRenderer("supervisor-summary", createSummaryRenderer(pi));
-	pi.registerMessageRenderer("supervisor-progress", createMessageRenderer(pi));
+	// supervisor-progress renderer removed — widget-based progress replaces invisible sendMessage.
 	registerSupervisorCommand(pi);
 
 	// Register subagent tool for native inline rendering per agent step

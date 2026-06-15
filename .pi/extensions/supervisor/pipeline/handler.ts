@@ -1407,36 +1407,12 @@ async function executeAgent(
 			cwd: agentCwd,
 			maxToolCalls,
 			agentTokenBudget,
+			// Pass UI adapter for widget-based live progress (replaces invisible sendMessage)
+			ui: ctx.ui,
 		},
-		(partial: AgentToolResult<Partial<SubagentDetails>>) => {
-			// Stream progress inline — rendered by message renderer natively
-			const content0 = partial.content?.[0];
-			const text = content0 && content0.type === "text" ? content0.text : "";
-			const d = partial.details;
-			pi.sendMessage({
-				customType: "supervisor-progress",
-				content: text,
-				display: false,
-				details: {
-					agentName: d.agentName || agent.config.name,
-					success: false,
-					statusLabel: "IN_PROGRESS",
-					summaryLine: d.summaryLine || `Running ${agent.config.name}...`,
-					textOutput: text,
-					thinkingOutput: undefined,
-					toolCount: d.toolCalls?.length || 0,
-					tokenCount: (d.inputTokens || 0) + (d.outputTokens || 0),
-					durationMs: d.durationMs || 0,
-					model: d.model || agent.config.model,
-					inputTokens: d.inputTokens || 0,
-					outputTokens: d.outputTokens || 0,
-					cacheRead: d.cacheRead || 0,
-					cacheWrite: d.cacheWrite || 0,
-					cost: d.cost || 0,
-					turnCount: d.turnCount || 0,
-				} satisfies SupervisorMessageDetails,
-			});
-		},
+		// onUpdate no longer needed for progress — widget handles it via `ui` adapter.
+		// Keep empty callback for backward compatibility with onUpdate-required callers.
+		undefined,
 	);
 
 	let result = convertToolResultToAgentRunResult(toolResult);
