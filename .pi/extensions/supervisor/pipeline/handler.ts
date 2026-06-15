@@ -310,6 +310,7 @@ export async function handleSupervisorCommand(
 		}
 
 		// Pipeline main loop
+		ctx.ui.setStatus("supervisor", "Setting up pipeline...");
 		const stageState = createStageState(getItemStatusName(loopItem));
 		let { loopStatus } = stageState;
 
@@ -335,6 +336,7 @@ export async function handleSupervisorCommand(
 			}
 		}
 
+		ctx.ui.setStatus("supervisor", "Creating worktree...");
 		getDebugLogger().info("handler", "Creating worktree", {
 			branch: worktreeBranch,
 			base: config.worktreeBase,
@@ -369,6 +371,7 @@ export async function handleSupervisorCommand(
 		}
 		worktreePath = createResult.value;
 
+		ctx.ui.setStatus("supervisor", "Installing worktree dependencies...");
 		const depsResult = await installWorktreeDeps(pi, worktreePath, notify);
 		if (!depsResult.ok) {
 			collector?.push("worktree", "warn", `npm ci failed: ${depsResult.error}`);
@@ -411,6 +414,7 @@ export async function handleSupervisorCommand(
 		});
 
 		for (let i = 0; i < MAX_PIPELINE_LOOPS; i++) {
+			ctx.ui.setStatus("supervisor", `Status: ${loopStatus}`);
 			ctx.ui.notify(`Issue #${issueNum}: "${issueTitle}" — Status: ${loopStatus}`, "info");
 			getDebugLogger().info("handler", `Pipeline iteration ${i + 1}`, {
 				loopStatus,
@@ -551,6 +555,7 @@ export async function handleSupervisorCommand(
 				break;
 			}
 
+			ctx.ui.setStatus("supervisor", `Running ${agent.config.name}...`);
 			ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
 			const timeoutMs = resolveTimeoutMs(agentName, config.agentTimeoutsMin!);
 
@@ -1205,6 +1210,7 @@ export async function handleSupervisorCommand(
 					effectiveNextStatus,
 				);
 				ctx.ui.notify(`Issue #${issueNum} moved: ${prev} → ${loopStatus}`, "info");
+				ctx.ui.setStatus("supervisor", `Status: ${loopStatus}`);
 				getDebugLogger().info("handler", "Status transition applied", {
 					from: prev,
 					to: loopStatus,
