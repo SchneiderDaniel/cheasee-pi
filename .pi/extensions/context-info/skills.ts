@@ -21,30 +21,6 @@ export interface SkillMeta {
 // ─── Skill enumeration ────────────────────────────────────────────
 
 /**
- * Count project-local skills in .pi/skills/.
- */
-export function countSkills(): number {
-	try {
-		const skillsDir = ".pi/skills";
-		if (!existsSync(skillsDir)) return 0;
-		const entries = readdirSync(skillsDir, { withFileTypes: true });
-		let count = 0;
-		for (const entry of entries) {
-			if (entry.name === ".gitkeep") continue;
-			if (entry.isFile() && entry.name.endsWith(".md")) {
-				count++;
-			} else if (entry.isDirectory() && entry.name !== "." && entry.name !== "..") {
-				const skillMdPath = joinPath(skillsDir, entry.name, "SKILL.md");
-				if (existsSync(skillMdPath)) count++;
-			}
-		}
-		return count;
-	} catch {
-		return 0;
-	}
-}
-
-/**
  * List all project-local skills with metadata.
  * Walks .pi/skills/ for directories containing SKILL.md or standalone .md files.
  * Returns sorted by name.
