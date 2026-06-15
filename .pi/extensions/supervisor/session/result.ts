@@ -4,6 +4,7 @@
 
 import type { AgentRunState, AgentRunResult } from "../config/types.ts";
 import { extractTextFromContent, extractSummaryLine } from "../lib/formatting.ts";
+import type { AgentToolResult, SubagentDetails } from "../subagent/types.ts";
 
 // ─── Truncation Constants ─────────────────────────────────────────
 
@@ -205,5 +206,51 @@ export function buildAgentRunResult(
 		cacheWrite: state.cacheWrite,
 		cost,
 		turnCount,
+	};
+}
+
+// ─── Adapter: AgentToolResult → AgentRunResult ──────────────────────
+// Converts the subagent tool's result to the pipeline's AgentRunResult format.
+// This is a pure function (<10 LOC) called once per agent iteration.
+// Lives here (co-located with buildAgentRunResult) because both deal with the same types.
+
+/**
+ * Convert a subagent tool result (AgentToolResult<SubagentDetails>) to the
+ * pipeline's AgentRunResult format.
+ *
+ * Maps fields:
+ * - details.success → result.success
+ * - content[0].text → textOutput, textOnly
+ * - details.* → per-agent usage breakdown
+ * - toolCalls.length → toolCount
+ */
+export function convertToolResultToAgentRunResult(
+	toolResult: AgentToolResult<SubagentDetails>,
+): AgentRunResult {
+	const d = toolResult.details;
+	const content0 = toolResult.content?.[0];
+	const textOutput = content0 && content0.type === "text" ? content0.text : "";
+	const summaryLine = d.summaryLine || extractSummaryLine(textOutput, d.success, d.agentName);
+
+	return {
+		output: textOutput,
+		success: d.success,
+		agentName: d.agentName,
+		toolCount: d.toolCalls.length,
+		tokenCount: (d.inputTokens || 0) + (d.outputTokens || 0),
+		durationMs: d.durationMs,
+		textOutput,
+		textOnly: textOutput,
+		summaryLine,
+		errorOutput: d.success ? "" : summaryLine,
+		thinkingOutput: undefined,
+		budgetExceeded: undefined,
+		model: d.model || undefined,
+		inputTokens: d.inputTokens || undefined,
+		outputTokens: d.outputTokens || undefined,
+		cacheRead: d.cacheRead || undefined,
+		cacheWrite: d.cacheWrite || undefined,
+		cost: d.cost || undefined,
+		turnCount: d.turnCount || undefined,
 	};
 }

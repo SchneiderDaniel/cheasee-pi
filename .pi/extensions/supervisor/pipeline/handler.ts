@@ -12,6 +12,7 @@ import type {
 	ParsedAgent,
 	DebugLogger,
 	PrCreationResult,
+	SupervisorMessageDetails,
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
 import {
@@ -22,7 +23,10 @@ import {
 } from "../github/index.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
-import { runAgent, runAgentSubprocess } from "../agent/runner.ts";
+import { runAgentSubprocess } from "../agent/runner.ts";
+import { executeSubagent } from "../subagent/index.ts";
+import { convertToolResultToAgentRunResult } from "../session/result.ts";
+import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import {
 	WORKFLOW,
 	computeAuditScoreFromFindings,
@@ -1380,41 +1384,79 @@ export async function handlePostPipeline(
 	}
 }
 
-// ─── Execute Agent (kept local — tightly coupled to runAgent) ────
+// ─── Execute Agent (hybrid: subagent tool with subprocess fallback) ──
+// Primary path: executeSubagent() for native inline rendering via onUpdate.
+// Fallback: runAgentSubprocess() when subagent fails (widget-based, no inline streaming).
 
 async function executeAgent(
 	agent: ParsedAgent,
 	task: string,
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
-	timeoutMs: number,
+	_timeoutMs: number,
 	agentCwd: string | undefined,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
-	let result = await runAgent(
-		agent,
-		task,
-		ctx,
-		pi,
-		timeoutMs,
-		agentCwd,
-		maxToolCalls,
-		agentTokenBudget,
+	// Primary: executeSubagent with onUpdate streaming
+	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
+	const toolResult = await executeSubagent(
+		{
+			agent: agent.config.name,
+			task,
+			cwd: agentCwd,
+			maxToolCalls,
+			agentTokenBudget,
+		},
+		(partial: AgentToolResult<Partial<SubagentDetails>>) => {
+			// Stream progress inline — rendered by message renderer natively
+			const content0 = partial.content?.[0];
+			const text = content0 && content0.type === "text" ? content0.text : "";
+			const d = partial.details;
+			pi.sendMessage({
+				customType: "supervisor-progress",
+				content: text,
+				display: false,
+				details: {
+					agentName: d.agentName || agent.config.name,
+					success: false,
+					statusLabel: "IN_PROGRESS",
+					summaryLine: d.summaryLine || `Running ${agent.config.name}...`,
+					textOutput: text,
+					thinkingOutput: undefined,
+					toolCount: d.toolCalls?.length || 0,
+					tokenCount: (d.inputTokens || 0) + (d.outputTokens || 0),
+					durationMs: d.durationMs || 0,
+					model: d.model || agent.config.model,
+					inputTokens: d.inputTokens || 0,
+					outputTokens: d.outputTokens || 0,
+					cacheRead: d.cacheRead || 0,
+					cacheWrite: d.cacheWrite || 0,
+					cost: d.cost || 0,
+					turnCount: d.turnCount || 0,
+				} satisfies SupervisorMessageDetails,
+			});
+		},
 	);
+
+	let result = convertToolResultToAgentRunResult(toolResult);
 	validateAgentResult(result);
 	let usedRetry = false;
 
 	if (result.budgetExceeded) {
 		ctx.ui.notify(`Agent ${agent.config.name} exceeded budget — not retrying`, "warning");
 	} else if (!result.success) {
-		ctx.ui.notify(`Agent ${agent.config.name} failed. Retrying once...`, "warning");
-		// Skip in-process path on retry — already failed. Go straight to subprocess.
+		ctx.ui.notify(`Agent ${agent.config.name} failed. Retrying once via subprocess...`, "warning");
+		// Fallback: subprocess (widget-based progress, no inline streaming)
+		ctx.ui.notify(
+			"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
+			"warning",
+		);
 		result = await runAgentSubprocess(
 			agent,
 			task,
 			ctx,
-			timeoutMs,
+			_timeoutMs,
 			agentCwd,
 			maxToolCalls,
 			agentTokenBudget,
