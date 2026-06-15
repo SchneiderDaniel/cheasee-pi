@@ -28,6 +28,7 @@ import {
 	handlePostAgentSuccess,
 	validateResearcherFindings,
 	hasBranchCommits,
+	applyGateFailureContext,
 } from "../../pipeline/stages.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
@@ -2144,5 +2145,115 @@ describe("handlePostAgentSuccess — scopePaths passthrough", () => {
 		if (addCall) {
 			assert.deepEqual(addCall.args, ["add", "-A"], "Should use git add -A when no scopePaths");
 		}
+	});
+});
+
+// ─── Tests: applyGateFailureContext() — gateFailureHistory ──────
+
+describe("applyGateFailureContext() — gateFailureHistory", () => {
+	it("initial state has empty gateFailureHistory", () => {
+		const state = createStageState("Implementation");
+		assert.ok(Array.isArray(state.gateFailureHistory), "gateFailureHistory should be an array");
+		assert.equal(state.gateFailureHistory.length, 0, "should start empty");
+	});
+
+	it("pushes note to gateFailureHistory on Implementation with non-empty note", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "Some gate failure", 1);
+		assert.equal(state.gateFailureHistory.length, 1, "should have 1 entry");
+		assert.ok(state.gateFailureHistory[0]!.includes("run 1"), "entry should include run number");
+	});
+
+	it("pushes note to gateFailureHistory that includes run number", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- CI Gate ---\nSomething failed", 1);
+		assert.equal(state.gateFailureHistory.length, 1);
+		const entry = state.gateFailureHistory[0]!;
+		assert.ok(entry.includes("CI Gate"), "entry should include gate name");
+		assert.ok(entry.includes("run 1"), "entry should include run number");
+		assert.ok(entry.includes("developer restarted"), "entry should mention developer restarted");
+	});
+
+	it("calling twice appends 2 entries", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- CI Gate ---\nFail 1", 1);
+		applyGateFailureContext(state, "Implementation", "--- TSC Gate ---\nFail 2", 2);
+		assert.equal(state.gateFailureHistory.length, 2, "should have 2 entries");
+		assert.ok(state.gateFailureHistory[0]!.includes("CI Gate"), "first entry is CI Gate");
+		assert.ok(state.gateFailureHistory[0]!.includes("run 1"), "first entry has run 1");
+		assert.ok(state.gateFailureHistory[1]!.includes("TSC Gate"), "second entry is TSC Gate");
+		assert.ok(state.gateFailureHistory[1]!.includes("run 2"), "second entry has run 2");
+	});
+
+	it("does NOT push when effectiveNextStatus is Audit", () => {
+		const state = createStageState("Implementation");
+		state.gateFailureContext = "previous failure";
+		applyGateFailureContext(state, "Audit", "some note", 1);
+		// Should clear gateFailureContext but NOT add to gateFailureHistory
+		assert.equal(state.gateFailureContext, undefined, "gateFailureContext should be cleared");
+		assert.equal(state.gateFailureHistory.length, 0, "gateFailureHistory should still be empty");
+	});
+
+	it("does NOT push when note is empty", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "", 1);
+		assert.equal(state.gateFailureHistory.length, 0, "should not push empty note");
+	});
+
+	it("does NOT push when note is whitespace only", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "   ", 1);
+		assert.equal(state.gateFailureHistory.length, 0, "should not push whitespace note");
+	});
+
+	it("does NOT push when effectiveNextStatus is neither Implementation nor Audit", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Done", "some note", 1);
+		assert.equal(state.gateFailureHistory.length, 0, "should not push on other statuses");
+		assert.equal(
+			state.gateFailureContext,
+			undefined,
+			"gateFailureContext unchanged for non-Implementation/Audit",
+		);
+	});
+
+	it("still sets gateFailureContext (iteration-local context) even on push", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- Dead Code Gate ---\nFound dead code", 3);
+		assert.equal(state.gateFailureContext, "--- Dead Code Gate ---\nFound dead code");
+		assert.equal(state.gateFailureHistory.length, 1);
+	});
+
+	it("extracts gate name from note with --- markers", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- CI Gate ---\nCI check failed", 2);
+		const entry = state.gateFailureHistory[0]!;
+		assert.ok(entry.includes("CI Gate"), "should extract 'CI Gate' from note");
+		assert.ok(entry.includes("run 2"), "entry should include run number");
+	});
+
+	it("falls back to 'Pre-transition' when no --- markers in note", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "Some generic failure without markers", 1);
+		const entry = state.gateFailureHistory[0]!;
+		assert.ok(entry.startsWith("Pre-transition"), "should use fallback gate name when no markers");
+	});
+
+	it("accumulates 3+ entries (no capping)", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- CI Gate ---\nFail 1", 1);
+		applyGateFailureContext(state, "Implementation", "--- TSC Gate ---\nFail 2", 2);
+		applyGateFailureContext(state, "Implementation", "--- LSP Gate ---\nFail 3", 3);
+		applyGateFailureContext(state, "Implementation", "--- Dead Code Gate ---\nFail 4", 4);
+		assert.equal(state.gateFailureHistory.length, 4, "all 4 entries should be present");
+	});
+
+	it("gateFailureContext cleared on Audit, gateFailureHistory preserved", () => {
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", "--- CI Gate ---\nFail", 1);
+		assert.equal(state.gateFailureHistory.length, 1, "history has 1 entry after push");
+		applyGateFailureContext(state, "Audit", "", 2);
+		assert.equal(state.gateFailureContext, undefined, "context cleared on Audit");
+		assert.equal(state.gateFailureHistory.length, 1, "history preserved on Audit");
 	});
 });

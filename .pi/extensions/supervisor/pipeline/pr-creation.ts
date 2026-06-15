@@ -38,6 +38,7 @@ const RETRY_BASE_DELAY_MS = 1000;
  * - Push failure stops the flow early (Bug 3 fix)
  * - Retries gh pr create with exponential backoff (Bug 5 fix)
  * - Pre-checks commit count before PR creation (Bug 3 fix)
+ * - Accepts gateFailureHistory for PR body gate failure context (R2)
  */
 export async function createPrOnApproval(
 	pi: ExtensionAPI,
@@ -49,12 +50,22 @@ export async function createPrOnApproval(
 	worktreePath: string | undefined,
 	worktreeBranch: string | undefined,
 	collector?: ErrorCollector,
+	gateFailureHistory?: string[],
 ): Promise<PrCreationResult> {
 	const log = getDebugLogger();
 	const headBranch =
 		worktreeBranch ?? generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
-	const prBody = buildPipelineSummary(agentResults, "success", issueNum, issueTitle, config);
+	const prBody = buildPipelineSummary(
+		agentResults,
+		"success",
+		issueNum,
+		issueTitle,
+		config,
+		undefined,
+		undefined,
+		gateFailureHistory,
+	);
 	const tempFile = joinPath(tmpdir(), `pr-body-${issueNum}.md`);
 	log.info("pr-creation", `Writing PR body to ${tempFile}`);
 

@@ -63,6 +63,7 @@ export function clearAgentProgressMessage(pi: ExtensionAPI): void {
  * Send pipeline completion notification.
  * Builds summary markdown and sends as supervisor-summary message.
  * Accepts optional PrCreationResult to adjust completion message.
+ * Accepts optional gateFailureHistory for PR body gate failure context (R2).
  */
 export function sendPipelineSummary(
 	pi: ExtensionAPI,
@@ -75,6 +76,7 @@ export function sendPipelineSummary(
 	stopReason?: string,
 	prCreationResult?: PrCreationResult,
 	collector?: ErrorCollector,
+	gateFailureHistory?: string[],
 ): void {
 	// Prepend warnings block from collector if non-empty
 	const warningsBlock = collector?.toNotificationBlock();
@@ -86,6 +88,7 @@ export function sendPipelineSummary(
 		config,
 		overallStatus === "stopped" ? stopReason : undefined,
 		prCreationResult,
+		gateFailureHistory,
 	);
 
 	// Combine warnings and summary
@@ -211,6 +214,7 @@ export function sendPipelineError(
 	issueTitle: string,
 	config: SupervisorConfig,
 	msg: string,
+	gateFailureHistory?: string[],
 ): void {
 	ctx.ui.notify(`Supervisor error: ${msg}`, "error");
 
@@ -222,6 +226,9 @@ export function sendPipelineError(
 			issueNum,
 			issueTitle,
 			config,
+			undefined,
+			undefined,
+			gateFailureHistory,
 		);
 
 		pi.sendMessage({

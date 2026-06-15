@@ -29,6 +29,8 @@ export function validateAgentResult(result: AgentRunResult): void {
 /**
  * Build markdown summary of pipeline results.
  * Accepts optional PrCreationResult to include PR creation status.
+ * Accepts optional gateFailureHistory to include gate failure context
+ * in the PR body (R2 requirement).
  */
 export function buildPipelineSummary(
 	agentResults: PipelineAgentResult[],
@@ -38,6 +40,7 @@ export function buildPipelineSummary(
 	config: SupervisorConfig,
 	stopReason?: string,
 	prCreationResult?: PrCreationResult,
+	gateFailureHistory?: string[],
 ): string {
 	const lines: string[] = [];
 
@@ -119,6 +122,15 @@ export function buildPipelineSummary(
 	if (overallStatus === "stopped" && stopReason) {
 		lines.push("");
 		lines.push(`**Stopped at:** ${stopReason}`);
+	}
+
+	// Gate failure history
+	if (gateFailureHistory && gateFailureHistory.length > 0) {
+		lines.push("");
+		lines.push("**Gate failures:**");
+		for (const entry of gateFailureHistory) {
+			lines.push(`- ${entry}`);
+		}
 	}
 
 	// Failure info
