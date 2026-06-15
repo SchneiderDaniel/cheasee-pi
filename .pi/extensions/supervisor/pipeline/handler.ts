@@ -1410,9 +1410,11 @@ async function executeAgent(
 		display: true,
 	});
 
-	// Track sent tool calls and thinking to avoid duplicate messages
+	// Track state across onUpdate calls
 	let lastSentToolCount = 0;
+	let lastSentResultCount = 0;
 	let lastThinkText = "";
+	let sentResultSinceLastThink = false;
 
 	// Primary: executeSubagent with onUpdate streaming
 	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
@@ -1428,42 +1430,55 @@ async function executeAgent(
 			const d = partial.details;
 			if (!d) return;
 
-			const tc = d.toolCalls;
-			const tcCount = tc?.length || 0;
 			const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
 
-			// Send tool call messages for new tools only
-			// Format as markdown (**toolName**: \`args\`) so Markdown renderer applies theme colors
-			if (tcCount > lastSentToolCount && tc) {
-				for (let i = lastSentToolCount; i < tcCount; i++) {
-					const tool = tc[i];
-					if (!tool) continue;
-					const argsStr = tool.args ? JSON.stringify(tool.args).slice(0, 200) : "";
+			// 1. Send tool results (green ✓ / red ✗) — only when execution completes
+			const tr = d.toolResults;
+			const trCount = tr?.length || 0;
+			if (trCount > lastSentResultCount && tr) {
+				const tc = d.toolCalls || [];
+				for (let i = lastSentResultCount; i < trCount; i++) {
+					const r = tr[i];
+					if (!r) continue;
+					// Find matching tool call for args (same index order)
+					const call = tc[i];
+					const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
+					const icon = r.isError ? "✗" : "✓";
 					pi.sendMessage({
 						customType: "supervisor",
-						content: `**${tool.name}**: \`${argsStr}\``,
+						content: `${icon} **${r.name}**: \`${argsStr}\``,
 						display: true,
 					});
 				}
-				lastSentToolCount = tcCount;
+				lastSentResultCount = trCount;
+				sentResultSinceLastThink = true;
 			}
 
-			// Send thinking message when new reasoning appears
-			const thinkMatch = textContent.match(/^💭 (.+)/m);
-			if (thinkMatch) {
-				const thinkText = thinkMatch[1].trim();
-				const firstLine = thinkText.split("\n")[0]?.slice(0, 300) || "";
-				if (firstLine && !lastThinkText.startsWith(firstLine.slice(0, 40))) {
-					lastThinkText = firstLine;
+			// 2. Send thinking content (everything after 💭 prefix)
+			const thinkPrefix = "💭 ";
+			const thinkIdx = textContent.indexOf(thinkPrefix);
+			if (thinkIdx !== -1) {
+				const thinkContent = textContent.slice(thinkIdx + thinkPrefix.length).trim();
+				if (thinkContent && !lastThinkText.includes(thinkContent.slice(0, 60))) {
+					// Insert turn separator if we just completed tools
+					if (sentResultSinceLastThink) {
+						pi.sendMessage({
+							customType: "supervisor",
+							content: "---",
+							display: true,
+						});
+						sentResultSinceLastThink = false;
+					}
+					lastThinkText = thinkContent;
 					pi.sendMessage({
 						customType: "supervisor",
-						content: firstLine,
+						content: thinkContent,
 						display: true,
 					});
 				}
 			}
 
-			// Send result on completion (with details → renders as rich supervisor component)
+			// 3. Send result on completion (with details → renders as rich supervisor component)
 			if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
 				pi.sendMessage({
 					customType: "supervisor",

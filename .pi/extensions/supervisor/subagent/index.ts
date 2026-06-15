@@ -108,6 +108,7 @@ export async function executeSubagent(
 	const startedAt = Date.now();
 	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget);
 	const toolCalls: SubagentToolCall[] = [];
+	const toolResults: SubagentToolResult[] = [];
 
 	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 	let unsubscribe: (() => void) | undefined;
@@ -210,7 +211,7 @@ export async function executeSubagent(
 			if (thinkOutput) contentParts.push(thinkOutput);
 			if (liveOutput) contentParts.push(liveOutput);
 
-			onUpdate({
+						onUpdate({
 				content: [{ type: "text", text: contentParts.join("\n\n") }],
 				details: {
 					agentName,
@@ -226,21 +227,27 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
-		};
 
 		// ── 5c. Subscribe to Session Events ──────────────────────
 		unsubscribe = session.subscribe((event: any) => {
 			try {
 				const eventType = event?.type || "unknown";
 
-				// Track tool calls for details
+				// Track tool calls and their results
 				if (eventType === "tool_execution_start") {
 					toolCalls.push({
 						name: (event.toolName as string) || "tool",
 						args: (event.args as Record<string, unknown>) || {},
+					});
+				}
+				if (eventType === "tool_execution_end") {
+					toolResults.push({
+						name: (event.toolName as string) || "tool",
+						isError: !!(event as any).isError,
 					});
 				}
 
@@ -446,6 +453,7 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
@@ -472,6 +480,7 @@ export async function executeSubagent(
 				turnCount: 0,
 				durationMs,
 				toolCalls: [...toolCalls],
+				toolResults: [...toolResults],
 				taskPrompt: task,
 			},
 		};
