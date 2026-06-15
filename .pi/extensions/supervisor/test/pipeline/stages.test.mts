@@ -706,6 +706,58 @@ describe("calculateNextStatus()", () => {
 		assert.equal(result.status, "Done");
 		assert.equal(result.gateRejected, undefined);
 	});
+
+	// ─── targetStatus tests ─────────────────────────────────────────────────
+
+	it("architect with targetStatus Research → Research (hadExplicitMarker=true)", () => {
+		// Structured JSON with targetStatus must bypass the FEEDBACK filter
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Need more research",
+			targetStatus: "Research",
+		});
+		const result = calculateNextStatus(
+			"architect",
+			agentOutput,
+			"some text with ARCHITECTURE_COMPLETE",
+		);
+		assert.equal(result.status, "Research", "should return targetStatus, not TestDesign");
+		assert.equal(result.hadExplicitMarker, true, "targetStatus is an explicit marker");
+	});
+
+	it("architect with targetStatus Research wins over text marker fallback", () => {
+		// Even when textOnly has ARCHITECTURE_COMPLETE, targetStatus in JSON should win
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Need more research",
+			targetStatus: "Research",
+		});
+		const result = calculateNextStatus(
+			"architect",
+			agentOutput,
+			"ARCHITECTURE_COMPLETE some design notes",
+		);
+		assert.equal(
+			result.status,
+			"Research",
+			"targetStatus in structured JSON must win over text markers",
+		);
+		assert.equal(result.hadExplicitMarker, true);
+	});
+
+	it("architect without targetStatus → normal marker resolution (backward compat)", () => {
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			summary: "Architecture done",
+		});
+		const result = calculateNextStatus("architect", agentOutput, "some text");
+		// No targetStatus → COMPLETE handler → ARCHITECTURE_COMPLETE → "TestDesign"
+		assert.equal(result.status, "TestDesign");
+		assert.equal(result.hadExplicitMarker, true);
+	});
 });
 
 // ─── Tests: trackAuditScore() ─────────────────────────────────────
