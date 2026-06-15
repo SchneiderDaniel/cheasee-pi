@@ -302,7 +302,7 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
-			assert.ok((result.reason ?? "").includes("$HOME"));
+			assert.ok((result.reason ?? "").includes("<HOME>"));
 		} finally {
 			delete process.env.WORKTREE_SANDBOX_PATH;
 		}
