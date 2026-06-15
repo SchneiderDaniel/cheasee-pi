@@ -137,6 +137,85 @@ describe("findUnsafeCd", () => {
 	});
 
 	// ═════════════════════════════════════════════════════════════
+	// Option separator --
+	// ═════════════════════════════════════════════════════════════
+
+	it("returns '/etc' for cd -- /etc (bypasses sandbox)", () => {
+		const result = findUnsafeCd("cd -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	it("returns null for cd -- /tmp/sandbox-test-root (safe absolute)", () => {
+		const result = findUnsafeCd(`cd -- ${SANDBOX_ROOT}`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns null for cd -- /tmp/sandbox-test-root/subdir (safe subdir)", () => {
+		const result = findUnsafeCd(`cd -- ${SANDBOX_ROOT}/subdir`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns null for cd -- subdir (safe relative)", () => {
+		const result = findUnsafeCd("cd -- subdir", SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns '<HOME>' for cd -- (bare cd after separator)", () => {
+		const result = findUnsafeCd("cd --", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '<previous-dir>' for cd -- -", () => {
+		const result = findUnsafeCd("cd -- -", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<previous-dir>");
+	});
+
+	it("returns '<HOME>' for cd -- $HOME (shell-quote expands \$HOME to empty)", () => {
+		const result = findUnsafeCd("cd -- $HOME", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '~' for cd -- ~", () => {
+		const result = findUnsafeCd("cd -- ~", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "~");
+	});
+
+	it("returns '~/subdir' for cd -- ~/subdir", () => {
+		const result = findUnsafeCd("cd -- ~/subdir", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "~/subdir");
+	});
+
+	it("returns '<HOME>' for cd -- '' (empty string after separator)", () => {
+		const result = findUnsafeCd("cd -- ''", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '/etc' for cd -- -- /etc (double separator)", () => {
+		const result = findUnsafeCd("cd -- -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	it("returns '<HOME>' for cd -- -- (double separator, no target)", () => {
+		const result = findUnsafeCd("cd -- --", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '/etc' for ls || cd -- /etc (chain)", () => {
+		const result = findUnsafeCd("ls || cd -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	// ═════════════════════════════════════════════════════════════
 	// Backtick command substitution
 	// ═════════════════════════════════════════════════════════════
 
