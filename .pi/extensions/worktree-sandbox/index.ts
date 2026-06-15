@@ -75,34 +75,6 @@ export function hasShellExpansion(token: string): boolean {
 }
 
 /**
- * Find the first suspicious token (with shell expansion) in a command.
- * Scans tokens from shell-quote parse() and returns the first string token
- * that contains shell expansion characters ($, `, ~, {, *).
- *
- * Returns null if no suspicious token is found or command is empty.
- */
-export function findSuspiciousArg(command: string, _sandboxRoot: string): string | null {
-	if (!command || !command.trim()) return null;
-	// Check raw command text for shell expansion characters first.
-	// shell-quote parse() resolves $VAR to env values, so tokenized
-	// values may not contain $ signs. The raw check catches $, `, ~, {, *.
-	if (/[\$`~{*]/.test(command)) {
-		const tokens = tokenizeCommand(command);
-		for (const token of tokens) {
-			if (typeof token === "string" && hasShellExpansion(token)) {
-				return token;
-			}
-		}
-		// Tokenized values resolved env vars — return first non-plain string segment
-		const match = command.match(
-			/\$[a-zA-Z_][a-zA-Z0-9_]*|\$\([^)]+\)|`[^`]+`|~[^\s]*|\{[^}]+\}|\*[^\s]*/,
-		);
-		if (match) return match[0];
-	}
-	return null;
-}
-
-/**
  * Separator operators that start a new command in a shell pipeline.
  */
 const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
