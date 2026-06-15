@@ -35,6 +35,7 @@ import type {
 	AgentToolResult,
 	SubagentDetails,
 	SubagentToolCall,
+	SubagentToolResult,
 	ExecuteSubagentParams,
 } from "./types.ts";
 
@@ -211,7 +212,7 @@ export async function executeSubagent(
 			if (thinkOutput) contentParts.push(thinkOutput);
 			if (liveOutput) contentParts.push(liveOutput);
 
-						onUpdate({
+			onUpdate({
 				content: [{ type: "text", text: contentParts.join("\n\n") }],
 				details: {
 					agentName,
@@ -231,6 +232,7 @@ export async function executeSubagent(
 					taskPrompt: task,
 				},
 			});
+		};
 
 		// ── 5c. Subscribe to Session Events ──────────────────────
 		unsubscribe = session.subscribe((event: any) => {
@@ -341,6 +343,7 @@ export async function executeSubagent(
 				return buildSubagentResult(
 					state,
 					toolCalls,
+					toolResults,
 					agentName,
 					task,
 					false,
@@ -395,6 +398,7 @@ export async function executeSubagent(
 					turnCount: 0,
 					durationMs: Date.now() - startedAt,
 					toolCalls: [...toolCalls],
+					toolResults: [...toolResults],
 					taskPrompt: task,
 				},
 			});
@@ -415,6 +419,7 @@ export async function executeSubagent(
 		return buildSubagentResult(
 			state,
 			toolCalls,
+			toolResults,
 			agentName,
 			task,
 			true,
@@ -584,6 +589,7 @@ function cleanupSession(
 function buildSubagentResult(
 	state: ReturnType<typeof createAgentRunState>,
 	toolCalls: SubagentToolCall[],
+	toolResults: SubagentToolResult[],
 	agentName: string,
 	taskPrompt: string,
 	success: boolean,
@@ -664,6 +670,7 @@ function buildSubagentResult(
 			turnCount,
 			durationMs,
 			toolCalls,
+			toolResults,
 			taskPrompt,
 		},
 	};
