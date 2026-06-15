@@ -103,6 +103,16 @@ export async function runAgent(
 			} catch {
 				// notification fallback
 			}
+			// Chat progress streaming degradation notification
+			// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
+			try {
+				ctx.ui.notify(
+					"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
+					"warning",
+				);
+			} catch {
+				// notification fallback
+			}
 			return await runAgentSubprocess(
 				agent,
 				task,
@@ -130,6 +140,16 @@ export async function runAgent(
 		try {
 			const ctx2 = buildErrorNotificationContext("in-process-runner", errMsg);
 			ctx.ui.notify(`In-process runner threw — falling back to subprocess: ${ctx2}`, "warning");
+		} catch {
+			// notification fallback
+		}
+		// Chat progress streaming degradation notification
+		// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
+		try {
+			ctx.ui.notify(
+				"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
+				"warning",
+			);
 		} catch {
 			// notification fallback
 		}

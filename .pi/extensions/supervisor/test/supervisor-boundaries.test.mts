@@ -267,8 +267,8 @@ describe("Phase 1: Pure function boundaries — no throw on bad input", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 2: Error boundary structure — try-catch present in both runners", () => {
-	describe("agent-session-runner.ts", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	describe("agent/session-runner.ts", () => {
+		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 
 		it("2.1: subscribe callback body wrapped in try-catch", () => {
 			// Find the subscribe callback: session.subscribe((event: any) => { try {
@@ -328,8 +328,8 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 		});
 	});
 
-	describe("agent-runner.ts", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+	describe("agent/runner.ts", () => {
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 
 		it("2.7: handleLine() body wrapped in try-catch", () => {
 			const handleLineSection = source.split("const handleLine =")[1] || "";
@@ -393,7 +393,7 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 
 describe("Phase 3: Heartbeat interval — error resilience", () => {
 	it("3.1: heartbeat try-catch prevents setWidget throw from killing interval", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		// Verify the structure: heartbeat callback has try-catch that catches any throw
 		const heartbeatSection =
 			source.split("heartbeatTimer = setInterval")[1]?.split("}, 2000)")[0] || "";
@@ -403,8 +403,8 @@ describe("Phase 3: Heartbeat interval — error resilience", () => {
 		);
 	});
 
-	it("3.2: agent-session-runner heartbeat also has try-catch", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	it("3.2: agent/session-runner heartbeat also has try-catch", () => {
+		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 		const heartbeatSection =
 			source.split("heartbeatTimer = setInterval")[1]?.split("}, 2000)")[0] || "";
 		assert.ok(
@@ -414,7 +414,7 @@ describe("Phase 3: Heartbeat interval — error resilience", () => {
 	});
 
 	it("3.3: both runners have flusWidget call inside heartbeat try block", () => {
-		const runnerSource = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const runnerSource = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		const runnerHeartbeat =
 			runnerSource.split("heartbeatTimer = setInterval")[1]?.split("}, 2000)")[0] || "";
 		assert.ok(
@@ -423,7 +423,7 @@ describe("Phase 3: Heartbeat interval — error resilience", () => {
 		);
 
 		const sessionRunnerSource = readFileSync(
-			".pi/extensions/supervisor/agent-session-runner.ts",
+			".pi/extensions/supervisor/agent/session-runner.ts",
 			"utf-8",
 		);
 		const sessionHeartbeat =
@@ -475,7 +475,7 @@ describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 	});
 
 	it("4.2: subscribe catch logs error with event type in message", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 		assert.ok(
 			source.includes("console.error(") &&
 				source.includes("session event error") &&
@@ -486,7 +486,7 @@ describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 
 	it("4.3: non-throwing path calls scheduleFlush and setWorkingMessage when result indicates", () => {
 		// Structural check: scheduleFlush and setWorkingMessage called after processSessionEvent
-		const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 		const subscribeSection =
 			source.split("unsubscribe = session.subscribe")[1]?.split("// ── Bug 2 fix")[0] || "";
 		assert.ok(
@@ -506,7 +506,7 @@ describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 
 describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => {
 	it("5.1: handleLine wraps processJsonLine in try-catch", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		// Find handleLine function
 		const handleLineSection =
 			source.split("const handleLine =")[1]?.split("child.stdout.on")[0] || "";
@@ -519,7 +519,7 @@ describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => 
 	});
 
 	it("5.2: handleLine catch logs console.error with JSON line error prefix", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
 			source.includes("JSON line error for"),
 			"handleLine catch must log 'JSON line error for'",
@@ -527,7 +527,7 @@ describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => 
 	});
 
 	it("5.3: processJsonLine already has inner try-catch for JSON.parse", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-stream.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/stream.ts", "utf-8");
 		// processJsonLine wraps JSON.parse in try-catch
 		const processJsonLineSection = source.split("export function processJsonLine")[1] || "";
 		assert.ok(
@@ -653,8 +653,8 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 
 	it("6.8: nested boundaries — handleLine outer catch + processJsonLine inner catch both handle errors without cascade", () => {
 		// Structural test: verify both try-catch exist in chain
-		const runnerSource = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
-		const streamSource = readFileSync(".pi/extensions/supervisor/agent-stream.ts", "utf-8");
+		const runnerSource = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
+		const streamSource = readFileSync(".pi/extensions/supervisor/agent/stream.ts", "utf-8");
 
 		// agent-runner handleLine has try-catch
 		assert.ok(runnerSource.includes("catch (lineErr: unknown)"), "handleLine outer catch exists");

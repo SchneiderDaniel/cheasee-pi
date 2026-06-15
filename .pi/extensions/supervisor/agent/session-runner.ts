@@ -26,6 +26,7 @@ import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { pushLog } from "./stream.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { resolveModel, buildToolList } from "../session/model.ts";
+import { sendAgentProgressMessage, clearAgentProgressMessage } from "../pipeline/notifications.ts";
 import { processSessionEvent } from "../event/session-events.ts";
 import { buildAgentRunResult } from "../session/result.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
@@ -90,6 +91,8 @@ export async function runAgentInProcess(
 	// Hoist cleanup variables so they're accessible in try, catch, and finally
 	let flushTimer: NodeJS.Timeout | null = null;
 	let heartbeatTimer: NodeJS.Timeout | null = null;
+	let progressTimer: NodeJS.Timeout | null = null;
+	const PROGRESS_DEBOUNCE_MS = 500;
 
 	// ── Diagnostics: event tracking, watchdog, instrumentation ──
 	// Track last event time for idle detection and watchdog liveness
@@ -315,6 +318,30 @@ export async function runAgentInProcess(
 
 				if (result.workingChange) {
 					scheduleFlush();
+					// Debounced progress message: max 1 per 500ms
+					// Uses leading-edge behavior — first event triggers immediately,
+					// subsequent events reset the timer.
+					if (!progressTimer) {
+						// Leading edge: send first update immediately
+						try {
+							sendAgentProgressMessage(pi, state, agentName);
+						} catch (progressErr: unknown) {
+							const msg = progressErr instanceof Error ? progressErr.message : String(progressErr);
+							log.warn("agent-session-runner", `Progress message error: ${msg}`);
+						}
+					}
+					// Reset debounce timer
+					if (progressTimer) clearTimeout(progressTimer);
+					progressTimer = setTimeout(() => {
+						progressTimer = null;
+						try {
+							sendAgentProgressMessage(pi, state, agentName);
+						} catch (progressErr: unknown) {
+							const msg = progressErr instanceof Error ? progressErr.message : String(progressErr);
+							log.warn("agent-session-runner", `Progress message error: ${msg}`);
+						}
+					}, PROGRESS_DEBOUNCE_MS);
+
 					const wm = getWorkingMessage(state, agentName);
 					ctx.ui.setWorkingMessage(wm ?? undefined);
 				}
@@ -402,6 +429,13 @@ export async function runAgentInProcess(
 				} catch {}
 				if (flushTimer) clearTimeout(flushTimer);
 				if (heartbeatTimer) clearInterval(heartbeatTimer);
+				if (progressTimer) {
+					clearTimeout(progressTimer);
+					progressTimer = null;
+				}
+				try {
+					clearAgentProgressMessage(pi);
+				} catch {}
 				watchdogHandle?.stop();
 				ctx.ui.setWidget(widgetId, undefined);
 				ctx.ui.setWorkingMessage(undefined);
@@ -503,6 +537,17 @@ export async function runAgentInProcess(
 			heartbeatTimer = null;
 		}
 
+		// Clear progress timer and send final cleanup message
+		// This ensures the final "supervisor" result message renders fresh
+		// instead of being clobbered by the last progress update.
+		if (progressTimer) {
+			clearTimeout(progressTimer);
+			progressTimer = null;
+		}
+		try {
+			clearAgentProgressMessage(pi);
+		} catch {}
+
 		// Capture messages BEFORE dispose — dispose may clear session state
 		const messages = session?.state?.messages || [];
 
@@ -538,6 +583,13 @@ export async function runAgentInProcess(
 		} catch {}
 		if (flushTimer) clearTimeout(flushTimer);
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
+		if (progressTimer) {
+			clearTimeout(progressTimer);
+			progressTimer = null;
+		}
+		try {
+			clearAgentProgressMessage(pi);
+		} catch {}
 		watchdogHandle?.stop();
 
 		ctx.ui.setWidget(widgetId, undefined);
