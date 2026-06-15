@@ -26,7 +26,7 @@ import { contextInfo } from "../index.ts";
 // had import extension changes (.js → .ts) needed for the test runner.
 // The imports verify their module-level exports are valid at runtime.
 import { listLocalPrompts } from "../prompts.ts";
-import { listLocalSkills, countSkills } from "../skills.ts";
+import { listLocalSkills } from "../skills.ts";
 
 // ---------------------------------------------------------------------------
 // Replicate context-info extension logic for isolated unit testing
@@ -257,7 +257,6 @@ describe("contextInfo from index.ts", () => {
 			"listLocalPrompts should be a function",
 		);
 		assert.strictEqual(typeof listLocalSkills, "function", "listLocalSkills should be a function");
-		assert.strictEqual(typeof countSkills, "function", "countSkills should be a function");
 	});
 
 	it("prompts/skills exports return arrays (smoke test)", () => {
@@ -265,7 +264,11 @@ describe("contextInfo from index.ts", () => {
 		const skills = listLocalSkills();
 		assert.ok(Array.isArray(prompts), "listLocalPrompts should return an array");
 		assert.ok(Array.isArray(skills), "listLocalSkills should return an array");
-		assert.strictEqual(typeof countSkills(), "number", "countSkills should return a number");
+		assert.strictEqual(
+			Number.isInteger(listLocalSkills().length),
+			true,
+			"listLocalSkills().length should be a non-negative integer",
+		);
 	});
 
 	it("registers all expected event handlers when called with mock pi", () => {
