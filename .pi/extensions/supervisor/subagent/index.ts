@@ -43,8 +43,11 @@ import type {
 /** Debounce interval for onUpdate during text streaming (ms) */
 const ON_UPDATE_DEBOUNCE_MS = 300;
 
-/** Maximum characters for content text in AgentToolResult (50KB) */
-const MAX_CONTENT_CHARS = 50_000;
+/** Maximum characters for content text in AgentToolResult (1MB).
+ *  Large enough for thinking:high model outputs (architect) while
+ *  retaining the JSON at the end for parseAgentOutput extraction.
+ *  The TUI renderer has its own display cap (8KB expanded view). */
+const MAX_CONTENT_CHARS = 1_000_000;
 
 // ─── executeSubagent — Library Function ─────────────────────────────
 // Called programmatically by the pipeline handler. NOT via LLM tool dispatch.
@@ -574,11 +577,18 @@ function buildSubagentResult(
 	model: string,
 	errorMsg?: string,
 ): AgentToolResult<SubagentDetails> {
-	const textOutput = state.textOutputLines.join("\n").trim();
+	// Use fullLog (all streamed lines) instead of textOutputLines (only leftover at text_end).
+	// Streaming models emit text via text_delta events; complete newline-terminated lines are
+	// pushed to fullLog via pushLog() but not to textOutputLines. textOutputLines only captures
+	// whatever is left in liveText at text_end, which is often empty or just "```".
+	// Using fullLog ensures the agent's JSON output (typically at the end) is included,
+	// so extractAgentCommentBody and parseAgentOutput can find and parse it.
+	const fullText = state.fullLog.join("\n").trim();
+	const textOutput = fullText;
 	const textOnly = state.textOutputLines.join("\n").trim();
 	const summaryLine = errorMsg
 		? `Failed: ${errorMsg.slice(0, 120)}`
-		: extractSummaryLine(textOutput, success, agentName);
+		: extractSummaryLine(fullText, success, agentName);
 
 	// Extract usage stats from messages
 	let inputTokens = 0;
