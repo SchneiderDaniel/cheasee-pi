@@ -288,11 +288,11 @@ CHILD_ID=$(gh api graphql \
 echo "Child ID: $CHILD_ID"
 ```
 
-**Step 5: Link the child to the epic.**
+**Step 5: Link child as sub-issue via GraphQL (this creates the real parent-child relationship, NOT a comment or body mention).**
 
 ```bash
 EPIC_ID=$(cat tmp/epic_id.txt)
-gh api graphql \
+RESULT=$(gh api graphql \
   -F issueId="$EPIC_ID" \
   -F subIssueId="$CHILD_ID" \
   -f query='
@@ -301,8 +301,17 @@ gh api graphql \
         issue { number }
         subIssue { number }
       }
-    }'
-echo "Linked #$CHILD_NUM as sub-issue of Epic #$1"
+    }' --jq '.')
+
+# Verify no GraphQL errors
+if echo "$RESULT" | jq -e '.errors' > /dev/null 2>&1; then
+  echo "ERROR: addSubIssue mutation failed"
+  echo "$RESULT" | jq '.errors'
+  echo "Sub-issue #$CHILD_NUM was CREATED but NOT linked as child of Epic #$1."
+  echo "Stopping: remaining sub-issues will NOT be created."
+  exit 1
+fi
+echo "Sub-issue #$CHILD_NUM linked as child of Epic #$1 (GraphQL parent-child, not comment)"
 ```
 
 **Step 6: Set dependency chain**
@@ -356,7 +365,7 @@ echo "$CHILD_NUM" > tmp/sub<N>_num.txt
 #### 6c — Print summary
 
 ```
-✅ Sub-issues created and linked under Epic #$1:
+✅ Sub-issues created and linked AS CHILDREN (sub-issues, not comments) under Epic #$1:
   #101  [database]  (1) Add recipe_tag column to database schema
   #102  [backend]   (2) Implement tag service and API endpoint  🔗 blocked by #101
   #103  [frontend]  (3) Build tag filter UI component           🔗 blocked by #102
@@ -392,6 +401,7 @@ Every sub-issue body follows this exact format:
 
 _Why this piece exists and how it relates to the parent epic._
 Parent epic: #$1
+Linked: Sub-issue (GraphQL `addSubIssue`). Not just body text or comment — Step 6b creates real parent-child relationship on GitHub.
 Implementation order: <N> of <total>
 
 ## User Story
