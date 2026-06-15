@@ -337,6 +337,14 @@ export interface AgentOutput {
 	auditScore?: { passing: number; total: number };
 	/** Audit findings (auditor only, for rejection) */
 	findings?: Finding[];
+	/**
+	 * Target status for explicit pipeline transition override.
+	 * When present and non-empty, bypasses all markerMap filtering,
+	 * action branches, and text marker fallbacks.
+	 * Agents use this to signal feedback loops (e.g., architect → Research)
+	 * or to target any valid workflow status directly.
+	 */
+	targetStatus?: string;
 	/** Refusal reason — if set, pipeline treats as rejection */
 	refusal?: string;
 }
