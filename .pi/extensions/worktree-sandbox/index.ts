@@ -188,7 +188,7 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 					}
 					if (SEPARATORS.has(nextToken.op)) {
 						// Separator right after cd = bare cd (e.g., "cd ; echo")
-						return command;
+						return "<HOME>";
 					}
 					// Skip other operators (like '(' in command sub)
 					j++;
@@ -197,7 +197,7 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 
 				if (typeof nextToken === "object" && "comment" in nextToken) {
 					// Comment after cd = bare cd
-					return command;
+					return "<HOME>";
 				}
 
 				// After filtering objects, remaining type must be string
@@ -207,7 +207,7 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 
 				// It's a string token — this is the cd target
 				if (nextToken === "") {
-					return command; // Unresolved variable ($VAR with no env value)
+					return "<HOME>"; // Unresolved variable ($VAR with no env value)
 				}
 
 				if (nextToken === "-") {
@@ -227,7 +227,7 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 
 			// If we reached end of tokens without finding a target, it's bare cd
 			if (j >= tokens.length) {
-				return command;
+				return "<HOME>";
 			}
 		}
 	}
