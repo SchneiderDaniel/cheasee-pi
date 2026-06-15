@@ -661,49 +661,62 @@ Before filing, run through this checklist:
 
 Only create issue after proof is complete. Use `gh issue create` via `bash gh`.
 
-#### Issue Template
+#### Issue Template (Clustered Scope)
+
+Each issue covers ALL related clones in a module/file — NOT individual clone pairs.
 
 ```
 **Extension:** <name>
-**Clone Type:** <Type 1/2/3/4>
-**Technique:** <technique that found this>
-**Confidence:** <60%/70%/90%/100%>
-**Severity:** <P0/P1/P2/P3>
-**Lines:** <count of duplicate lines × locations>
+**Cluster scope:** <scope description, e.g. "All render-loop duplication in session/ and subagent/">
+**Clone Types:** <Type 1/2/3/4 — may list multiple>
+**Technique:** <technique that found these>
+**Confidence:** <60%/70%/90%/100% — per-cluster>
+**Severity:** <P0/P1/P2/P3 — highest across cluster>
+**Lines:** <total duplicate lines across all locations in cluster>
+**Locations:** <N locations across M files>
 
 ## Description
-<clear description of the duplicated code, locations, and why it matters>
+<clear description of the clustered duplication pattern, all affected files, and why it matters>
 
 ## Proof
 
+### Cluster Overview
+| Location | File | Lines | Clone Type | Lines Duplicated |
+|----------|------|-------|------------|------------------|
+| 1 | path/to/file.ts | N-M | Type 1 | X |
+| 2 | path/to/other.ts | N-M | Type 2 | X |
+| ... | ... | ... | ... | ... |
+
 ### Code Evidence
 
-**Location A:**
+**Location 1:**
 ```
 
 File: path/to/file.ts, line N-M
-<code snippet showing block A>
+<code snippet>
 
 ```
 
-**Location B:**
+**Location 2:**
 ```
 
 File: path/to/other.ts, line N-M
-<code snippet showing block B>
+<code snippet>
 
 ```
 
+<additional locations as needed>
+
 ### Clone Type Classification
-<Type 1/2/3/4 with explanation>
+<Type(s) with explanation>
 
 ### Why It Is Harmful
-<maintenance risk, bug-propagation potential, cognitive load>
+<maintenance risk, bug-propagation potential, cognitive load — cumulative across cluster>
 
 ### Cross-Reference Proof
 ```
 
-<jscpd output, structural_search match, diff output, or other tool proof>
+<jscpd output, structural_search match, diff output, or other tool proof — per location>
 
 ```
 
@@ -711,10 +724,10 @@ File: path/to/other.ts, line N-M
 <why this confident, what edge cases ruled out, what tools confirmed>
 
 ### Impact
-<lines of duplication, how many locations, refactoring complexity>
+<total lines of duplication across all locations, refactoring complexity, whether single-extraction fix covers all>
 
 ## Suggested Fix
-<optional: suggested refactoring — extract function, merge branches, shared helper>
+<optional: suggested refactoring — ideally one extraction that addresses all locations in the cluster>
 ```
 
 #### Severity Guide
@@ -789,10 +802,54 @@ After hunt loop completes (either finding filed or all extensions exhausted), ou
 <total findings, total filed, any skips with reason>
 ```
 
+## Clustering Rules
+
+Group related findings into the same issue. Do NOT file one issue per clone pair.
+
+### Cluster Criteria
+
+Group clones together when ANY of these apply:
+1. **Same file** — Multiple clone pairs in the same file → one issue
+2. **Same module** — Clone pairs in sibling files of the same module directory (e.g., `pipeline/*.ts`, `checks/*.ts`) → one issue
+3. **Same pattern** — Clone pairs with the same code pattern even across modules (e.g., render-loop wrapping in two renderer files) → one issue
+4. **Same fix** — Clone pairs that can be eliminated with a single extracted helper → one issue
+
+### When to File Separately
+
+Only split into separate issues if ALL four are true:
+1. Different files in completely unrelated modules
+2. Different code patterns (not the same root cause)
+3. Different fix approach (can't share one helper)
+4. Each issue would still meet the minimum impact threshold (≥30 total duplicate lines OR ≥3 locations)
+
+### Minimum Scope Threshold
+
+Each issue must cover at least ONE of:
+- ≥30 total duplicate lines across all locations in the issue
+- ≥3 clone locations (pairs or triplicates)
+- P0/P1 severity (security or live bug risk)
+
+Exception: A single very large clone (≥50 lines, 2 locations, P2+) can be its own issue.
+
+### Cluster Examples
+
+**GOOD — One issue per cluster:**
+- Issue 1: "Renderer render-loop duplication" covering 4 clone pairs across 2 renderer files
+- Issue 2: "Pipeline boilerplate clones" covering 4 small intra-file clones across 3 pipeline files
+
+**BAD — One issue per pair:**
+- Issue 1: "message-renderer.ts task prompt clone" (8 lines)
+- Issue 2: "message-renderer.ts thinking render clone" (7 lines)
+- Issue 3: "message-renderer.ts raw output clone" (8 lines)
+
+### Sorting Within Cluster
+
+When filing a clustered issue, order locations by clone type priority (Type 1 > Type 2 > Type 3 > Type 4) then by size (largest first). The issue title should describe the scope, not a specific pair.
+
 ## Rules
 
 1. **Hunt until found** — Must loop through extensions until one finding filed or all exhausted. Do not stop after first extension if nothing found.
-2. **ONE finding per issue** — No batching multiple duplicate code findings in one issue
+2. **Cluster by scope** — Group related findings into as few issues as possible. See Clustering Rules above.
 3. **Deterministic proof for Type 1-2** — jscpd, ripgrep_search, structural_search, or diff must confirm. LLM opinion not acceptable as primary proof for Type 1-2.
 4. **No duplicate** — Check existing open issues first
 5. **File cleanup** — Delete temp files after issue creation
@@ -806,6 +863,7 @@ After hunt loop completes (either finding filed or all extensions exhausted), ou
 13. **Three-way match** — Each finding must have code evidence (2 locations) + clone type + tool proof minimum
 14. **Confidence not negotiable** — If you cannot confidently classify a finding, do not file it. Prefer 100% findings over lower confidence ones when multiple options exist.
 15. **Sort by impact** — When multiple high-confidence findings exist, file the one with most lines duplicated at most locations. Bigger cleanup = better issue.
+16. **Cluster by scope** — Apply Clustering Rules before filing. A single comprehensive issue is better than 5 narrow ones.
 
 ## Reference
 

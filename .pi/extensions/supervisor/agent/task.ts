@@ -46,7 +46,11 @@ If you absolutely cannot output JSON, fall back to the text completion marker me
 }
 \`\`\`
 
-For the **auditor** agent, also include approval/rejection fields:
+**IMPORTANT — AUDITOR MUST NOT USE "COMPLETE":**
+For auditors, the action MUST be "APPROVED" or "REJECTED" (not "COMPLETE").
+"COMPLETE" has no valid pipeline transition for the audit step.
+
+For the **auditor** agent, use approval/rejection fields:
 
 \`\`\`json
 {

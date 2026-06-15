@@ -142,6 +142,39 @@ export function resolveNextStatusFromAgentOutput(
 				const status = step.markerMap[marker];
 				if (status) return status;
 			}
+
+			// Auditor with COMPLETE: infer APPROVED/REJECTED from findings.
+			// The auditor's only forward paths are AUDIT-prefixed (filtered above).
+			// When findings exist with critical/warning, treat as REJECTED.
+			// Empty findings or only suggestions → APPROVED.
+			if (output.findings && output.findings.length > 0) {
+				const hasBlockers = output.findings.some(
+					(f) => f.severity === "critical" || f.severity === "warning",
+				);
+				if (hasBlockers) {
+					if (step.markerMap["AUDIT_DECISION: REJECTED"])
+						return step.markerMap["AUDIT_DECISION: REJECTED"];
+					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+				} else {
+					if (step.markerMap["AUDIT_DECISION: APPROVED"])
+						return step.markerMap["AUDIT_DECISION: APPROVED"];
+					if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+				}
+			}
+
+			// Fallback: check commentBody for approval/rejection heading
+			if (output.commentBody) {
+				if (output.commentBody.includes("## Audit Approved")) {
+					if (step.markerMap["AUDIT_DECISION: APPROVED"])
+						return step.markerMap["AUDIT_DECISION: APPROVED"];
+					if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+				}
+				if (output.commentBody.includes("## Audit Rejected")) {
+					if (step.markerMap["AUDIT_DECISION: REJECTED"])
+						return step.markerMap["AUDIT_DECISION: REJECTED"];
+					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+				}
+			}
 		}
 
 		// If we still couldn't map, fall through to marker fallback
