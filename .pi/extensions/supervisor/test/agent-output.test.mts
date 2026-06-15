@@ -780,6 +780,114 @@ describe("extractLastJson — string-boundary-aware brace matching", () => {
 		assert.ok(isAgentOutput(result), "must parse JSON in bare ``` fence");
 		assert.equal((result as AgentOutput).commentBody, "No lang tag");
 	});
+
+	// ── Bug fix: `}` inside string values ──
+	// Session 7 bug: brace counting without string-boundary tracking
+	// truncated JSON when `}` appeared inside a JSON string value.
+	// These tests verify the string-boundary-aware brace counting fix.
+
+	it("extracts full JSON when `}` appears mid-string (the exact bug)", () => {
+		// `}` in middle of string value — old code truncated at this position
+		const json =
+			'{"action":"COMPLETE","agentName":"researcher","commentBody":"Found issue: edge case } in config parsing","summary":"Research complete"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with } mid-string");
+		const o = result as AgentOutput;
+		assert.equal(o.action, "COMPLETE");
+		assert.equal(o.agentName, "researcher");
+		assert.ok(o.commentBody?.includes("edge case } in config parsing"));
+		assert.equal(o.summary, "Research complete");
+	});
+
+	it("extracts full JSON when `}` appears at start of string value", () => {
+		// `}` right after opening quote — old code closed outer brace immediately
+		const json =
+			'{"action":"COMPLETE","agentName":"developer","commentBody":"} unexpected at start"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with } at start of string");
+		const o = result as AgentOutput;
+		assert.equal(o.action, "COMPLETE");
+		assert.equal(o.agentName, "developer");
+		assert.ok(o.commentBody?.includes("} unexpected"));
+	});
+
+	it("extracts full JSON when `}` appears at end of string value", () => {
+		// `}` at end of string value
+		const json = '{"action":"COMPLETE","agentName":"developer","commentBody":"project}"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with } at end of string");
+		const o = result as AgentOutput;
+		assert.equal(o.commentBody, "project}");
+	});
+
+	it("extracts full JSON with multiple `}` in same string", () => {
+		// Multiple `}` characters in the same string value
+		const json =
+			'{"action":"COMPLETE","agentName":"developer","commentBody":"Unexpected token } at line }"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with multiple } in string");
+		const o = result as AgentOutput;
+		assert.equal(o.commentBody, "Unexpected token } at line }");
+	});
+
+	it("extracts full JSON when `}` would drop trailing field", () => {
+		// `}` mid-string before summary field — summary must be preserved
+		const json =
+			'{"action":"COMPLETE","agentName":"architect","commentBody":"Found } in code","summary":"Must be preserved"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with } before trailing field");
+		const o = result as AgentOutput;
+		assert.equal(o.commentBody, "Found } in code");
+		assert.equal(o.summary, "Must be preserved");
+	});
+
+	it("extracts full JSON when string contains only `}`", () => {
+		// Minimal edge case: string value is just a closing brace
+		const json = '{"action":"COMPLETE","agentName":"developer","commentBody":"}"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with single } string value");
+		const o = result as AgentOutput;
+		assert.equal(o.commentBody, "}");
+	});
+
+	it("extracts full JSON with balanced braces inside string (regression)", () => {
+		// Balanced {} inside string — both before and after the fix this should work
+		const json =
+			'{"commentBody":"Fix {the off-by-one} in loop","action":"COMPLETE","agentName":"architect"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with balanced braces in string");
+		assert.equal((result as AgentOutput).commentBody, "Fix {the off-by-one} in loop");
+	});
+
+	it("extracts full JSON with } in string alongside unescaped quotes (regression)", () => {
+		// Combined case: both unescaped quotes and } in string
+		const json =
+			'{"action":"COMPLETE","agentName":"architect","commentBody":"## Architecture\\nFound } in \\"file.ts\\"","summary":"Done"}';
+		const result = parseAgentOutput(json);
+		assert.ok(isAgentOutput(result), "must parse JSON with } and unescaped quotes");
+		const o = result as AgentOutput;
+		assert.ok(o.commentBody?.includes("}"));
+		assert.equal(o.summary, "Done");
+	});
+
+	it("still extracts code-fenced JSON with `}` in string values (regression)", () => {
+		// Code fence path should be unaffected by Step 3 changes
+		const fullLog = [
+			"```json",
+			"{",
+			'  "action": "COMPLETE",',
+			'  "agentName": "researcher",',
+			'  "commentBody": "Found } in fence",',
+			'  "summary": "Done"',
+			"}",
+			"```",
+		].join("\n");
+		const result = parseAgentOutput(fullLog);
+		assert.ok(isAgentOutput(result), "must parse code-fenced JSON with } in string");
+		const o = result as AgentOutput;
+		assert.equal(o.commentBody, "Found } in fence");
+		assert.equal(o.summary, "Done");
+	});
 });
 
 // ─── Tests: thinking-prefix stripping — JSON in thinking blocks ────
