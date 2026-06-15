@@ -80,20 +80,58 @@ export function hasShellExpansion(token: string): boolean {
 const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
 
 /**
- * Find the first suspicious (shell expansion) token in a command.
- * Returns the suspicious token or null if all tokens are safe.
- * An empty string from an unresolved variable is also suspicious.
+ * Shell-aware suspicious argument detection.
+ *
+ * Scans all command arguments for shell expansion syntax or paths
+ * that would escape the sandbox. Returns the first suspicious token
+ * found, or null if all arguments are safe.
+ *
+ * This is a general-purpose version of findUnsafeCd that checks all
+ * arguments in all commands, not just cd targets.
  */
-export function findSuspiciousArg(command: string, _sandboxRoot: string): string | null {
+export function findSuspiciousArg(command: string, sandboxRoot: string): string | null {
+	if (!command || !command.trim()) return null;
+
 	const tokens = tokenizeCommand(command);
-	for (const token of tokens) {
-		if (typeof token === "string") {
-			if (token === "") return command; // Unresolved variable
-			if (hasShellExpansion(token)) return token;
+
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i]!;
+
+		// Skip non-string tokens (operators, comments)
+		if (typeof token !== "string") {
+			continue;
 		}
-		if (typeof token === "object" && token !== null && "op" in token && token.op === "glob") {
-			const pattern = (token as { pattern?: string }).pattern;
-			if (pattern && hasShellExpansion(pattern)) return pattern;
+
+		// Skip command names (first token of each command)
+		// A string is a command name if it's at position 0 or preceded by a separator
+		const isCommandName =
+			i === 0 ||
+			(typeof tokens[i - 1] === "object" &&
+				"op" in (tokens[i - 1] as { op: string }) &&
+				SEPARATORS.has((tokens[i - 1] as { op: string }).op));
+
+		if (isCommandName) {
+			continue;
+		}
+
+		// Skip flags (starting with -)
+		if (token.startsWith("-")) {
+			continue;
+		}
+
+		// Empty token means unresolved variable
+		if (token === "") {
+			return command;
+		}
+
+		// Check for shell expansion syntax
+		if (hasShellExpansion(token)) {
+			return token;
+		}
+
+		// Check if path resolves outside sandbox
+		if (!isPathSafe(token, sandboxRoot)) {
+			return token;
 		}
 	}
 	return null;

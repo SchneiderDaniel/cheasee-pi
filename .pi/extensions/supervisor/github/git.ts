@@ -132,20 +132,34 @@ export async function commitAndPush(
 			log.debug("git", "git add -A OK");
 		}
 
-		const commitResult = await pi.exec("git", ["commit", "-m", message], { cwd });
-		if (commitResult.code !== 0) {
-			const output = (commitResult.stderr || "") + (commitResult.stdout || "");
-			if (output.includes("nothing to commit") || output.includes("no changes added to commit")) {
-				log.info("git", "Nothing to commit — still pushing (branch may not exist on remote)");
-			} else {
-				log.warn("git", "git commit failed", {
-					cwd,
-					output: output.slice(0, 500),
-				});
-				throw new Error(`git commit failed: ${output.trim()}`);
-			}
+		// Pre-commit emptiness check: verify whether any changes are actually staged.
+		// When scopePaths filters out all in-scope changes, git add succeeds but nothing
+		// is staged. Skipping the commit avoids a false-positive failure from the
+		// "no changes added to commit" message.
+		let didCommit = false;
+		const diffResult = await pi.exec("git", ["diff", "--cached", "--quiet"], { cwd });
+		if (diffResult.code === 0) {
+			log.info("git", "Nothing staged — skipping commit, proceeding to push");
+		} else if (diffResult.code > 1) {
+			throw new Error(`git diff --cached failed: ${diffResult.stderr || diffResult.stdout}`);
 		} else {
-			log.info("git", "git commit OK");
+			// code === 1 — differences staged, proceed with commit
+			didCommit = true;
+			const commitResult = await pi.exec("git", ["commit", "-m", message], { cwd });
+			if (commitResult.code !== 0) {
+				const output = (commitResult.stderr || "") + (commitResult.stdout || "");
+				if (output.includes("nothing to commit") || output.includes("no changes added to commit")) {
+					log.info("git", "Nothing to commit — still pushing (branch may not exist on remote)");
+				} else {
+					log.warn("git", "git commit failed", {
+						cwd,
+						output: output.slice(0, 500),
+					});
+					throw new Error(`git commit failed: ${output.trim()}`);
+				}
+			} else {
+				log.info("git", "git commit OK");
+			}
 		}
 
 		// pushBranch already uses withNotify — it handles notification on failure.
@@ -156,7 +170,7 @@ export async function commitAndPush(
 		}
 
 		log.info("git", `commitAndPush complete: ${branch}`);
-		return { ok: true, value: true };
+		return { ok: true, value: didCommit };
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		notify.error(`[git] ${msg}`);
