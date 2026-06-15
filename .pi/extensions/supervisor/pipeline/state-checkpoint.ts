@@ -123,23 +123,20 @@ export function isStaleCheckpoint(
 // ─── File I/O Functions ───────────────────────────────────────────
 
 /**
- * Read and parse the checkpoint state file from `.pi/supervisor-state.json`
- * relative to `cwd`.
+ * Private helper: read, parse, and validate a checkpoint state file at the given path.
  *
  * Returns `null` if:
  * - The file doesn't exist
  * - The file can't be parsed as JSON
  * - The JSON has missing or invalid required fields
  */
-export function readCheckpointFile(cwd: string): SupervisorCheckpointState | null {
-	const filePath = stateFilePath(cwd);
+function readCheckpointFileAtPath(filePath: string): SupervisorCheckpointState | null {
 	if (!existsSync(filePath)) {
 		return null;
 	}
 	try {
 		const raw = readFileSync(filePath, "utf-8");
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		// Validate required fields
 		if (
 			typeof parsed.issueNum !== "number" ||
 			typeof parsed.checkpoint !== "string" ||
@@ -149,7 +146,6 @@ export function readCheckpointFile(cwd: string): SupervisorCheckpointState | nul
 		) {
 			return null;
 		}
-		// Validate checkpoint name
 		if (!isCheckpointName(parsed.checkpoint as string)) {
 			return null;
 		}
@@ -160,34 +156,26 @@ export function readCheckpointFile(cwd: string): SupervisorCheckpointState | nul
 }
 
 /**
+ * Read and parse the checkpoint state file from `.pi/supervisor-state.json`
+ * relative to `cwd`.
+ *
+ * Returns `null` if:
+ * - The file doesn't exist
+ * - The file can't be parsed as JSON
+ * - The JSON has missing or invalid required fields
+ */
+export function readCheckpointFile(cwd: string): SupervisorCheckpointState | null {
+	return readCheckpointFileAtPath(stateFilePath(cwd));
+}
+
+/**
  * Read and parse a checkpoint state file from a specific path.
  * Used by cleanupStalePipelineState for state files found under worktree dirs.
  *
  * Returns `null` on any parse error or missing/invalid fields.
  */
 export function readCheckpointFileFromPath(filePath: string): SupervisorCheckpointState | null {
-	if (!existsSync(filePath)) {
-		return null;
-	}
-	try {
-		const raw = readFileSync(filePath, "utf-8");
-		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		if (
-			typeof parsed.issueNum !== "number" ||
-			typeof parsed.checkpoint !== "string" ||
-			typeof parsed.worktreePath !== "string" ||
-			typeof parsed.worktreeBranch !== "string" ||
-			typeof parsed.startedAt !== "string"
-		) {
-			return null;
-		}
-		if (!isCheckpointName(parsed.checkpoint as string)) {
-			return null;
-		}
-		return parsed as unknown as SupervisorCheckpointState;
-	} catch {
-		return null;
-	}
+	return readCheckpointFileAtPath(filePath);
 }
 
 /**
