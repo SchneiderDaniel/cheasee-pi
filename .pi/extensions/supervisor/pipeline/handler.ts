@@ -25,6 +25,8 @@ import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/
 import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
 import { runAgentSubprocess } from "../agent/runner.ts";
 import { executeSubagent } from "../subagent/index.ts";
+import { formatTokens, formatDuration } from "../lib/formatting.ts";
+import { formatToolCall } from "../event/session-events.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import {
@@ -1398,6 +1400,20 @@ async function executeAgent(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
+	// Send start message
+	const shortModel = agent.config.model
+		? agent.config.model.split("/").pop() || agent.config.model
+		: "";
+	const taskPreview = task.split("\n")[0]?.slice(0, 120) || "";
+	pi.sendMessage({
+		customType: "supervisor-progress",
+		content: `## ⚙ ${agent.config.name} — Starting\n\n**Model:** \`${shortModel}\`\n**Task:** ${taskPreview}`,
+		display: true,
+	});
+
+	// Track sent tool calls to avoid duplicate messages
+	let lastSentToolCount = 0;
+
 	// Primary: executeSubagent with onUpdate streaming
 	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
 	const toolResult = await executeSubagent(
@@ -1407,12 +1423,51 @@ async function executeAgent(
 			cwd: agentCwd,
 			maxToolCalls,
 			agentTokenBudget,
-			// Pass UI adapter for widget-based live progress (replaces invisible sendMessage)
-			ui: ctx.ui,
 		},
-		// onUpdate no longer needed for progress — widget handles it via `ui` adapter.
-		// Keep empty callback for backward compatibility with onUpdate-required callers.
-		undefined,
+		(partial: AgentToolResult<Partial<SubagentDetails>>) => {
+			const d = partial.details;
+			if (!d) return;
+
+			const tc = d.toolCalls;
+			const tcCount = tc?.length || 0;
+
+			// Send tool call messages for new tools only
+			if (tcCount > lastSentToolCount && tc) {
+				for (let i = lastSentToolCount; i < tcCount; i++) {
+					const tool = tc[i];
+					if (!tool) continue;
+					const formatted = formatToolCall(tool.name, tool.args);
+					pi.sendMessage({
+						customType: "supervisor-progress",
+						content: `🔧 **${agent.config.name}** — ${formatted}`,
+						display: true,
+					});
+				}
+				lastSentToolCount = tcCount;
+			}
+
+			// Send result on completion
+			if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
+				const icon = d.success ? "✓" : "✗";
+				const parts: string[] = [];
+				if (d.turnCount && d.turnCount > 0) parts.push(`${d.turnCount} turns`);
+				if (d.durationMs && d.durationMs > 0) parts.push(formatDuration(d.durationMs));
+				if (d.inputTokens || d.outputTokens)
+					parts.push(`↑${formatTokens(d.inputTokens || 0)} ↓${formatTokens(d.outputTokens || 0)}`);
+				if (d.cost && d.cost > 0) parts.push(`$${d.cost.toFixed(4)}`);
+				if (shortModel) parts.push(shortModel);
+
+				let resultMsg = `## ${icon} ${d.agentName || agent.config.name} — ${d.statusLabel}`;
+				if (d.summaryLine) resultMsg += `\n\n${d.summaryLine}`;
+				if (parts.length > 0) resultMsg += `\n\n> ${parts.join(" · ")}`;
+
+				pi.sendMessage({
+					customType: "supervisor-progress",
+					content: resultMsg,
+					display: true,
+				});
+			}
+		},
 	);
 
 	let result = convertToolResultToAgentRunResult(toolResult);
@@ -1423,9 +1478,9 @@ async function executeAgent(
 		ctx.ui.notify(`Agent ${agent.config.name} exceeded budget — not retrying`, "warning");
 	} else if (!result.success) {
 		ctx.ui.notify(`Agent ${agent.config.name} failed. Retrying once via subprocess...`, "warning");
-		// Fallback: subprocess (widget-based progress, no inline streaming)
+		// Fallback: subprocess (no live chat messages)
 		ctx.ui.notify(
-			"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
+			"Chat progress streaming unavailable in subprocess mode — only final result will appear in chat",
 			"warning",
 		);
 		result = await runAgentSubprocess(

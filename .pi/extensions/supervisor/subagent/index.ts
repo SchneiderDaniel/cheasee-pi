@@ -29,7 +29,6 @@ import { resolveModel, buildToolList } from "../session/model.ts";
 import { resolveExtensionPaths } from "../lib/extensions.ts";
 import { extractSummaryLine } from "../lib/formatting.ts";
 import { processSessionEvent, formatToolCall } from "../event/session-events.ts";
-import { buildWidgetLines } from "../session/widget.ts";
 import { createAgentRunState } from "../agent/runner.ts";
 import { renderSubagentCall, renderSubagentResult } from "./renderer.ts";
 import type {
@@ -50,15 +49,6 @@ const ON_UPDATE_DEBOUNCE_MS = 300;
  *  The TUI renderer has its own display cap (8KB expanded view). */
 const MAX_CONTENT_CHARS = 1_000_000;
 
-/** Widget key for the supervisor subagent progress widget */
-const WIDGET_KEY = "supervisor-agent";
-
-/** Debounce interval for widget updates (ms) */
-const WIDGET_DEBOUNCE_MS = 300;
-
-/** Heartbeat interval for widget during quiet periods (ms) */
-const HEARTBEAT_MS = 2000;
-
 // ─── executeSubagent — Library Function ─────────────────────────────
 // Called programmatically by the pipeline handler. NOT via LLM tool dispatch.
 // Creates an in-process AgentSession, subscribes with onUpdate streaming,
@@ -74,9 +64,6 @@ export async function executeSubagent(
 	const task = params.task;
 	const maxToolCalls = params.maxToolCalls ?? 0;
 	const agentTokenBudget = params.agentTokenBudget ?? 0;
-
-	// Optional UI adapter for widget-based progress (string-array overload only)
-	const ui = params.ui;
 
 	// ── 1. Load Agent File ─────────────────────────────────────────
 	const agentPath = path.join(cwd, `.pi/extensions/supervisor/agents/${agentName}.md`);
@@ -129,12 +116,6 @@ export async function executeSubagent(
 	let lastUpdateTime = 0;
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// ── Widget lifecycle ──
-	// Uses string-array widget (buildWidgetLines) matching session-runner.ts pattern.
-	// 300ms debounce + 2s heartbeat ensures terminal updates during quiet periods.
-	let flushTimer: ReturnType<typeof setTimeout> | null = null;
-	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-
 	// Hoist variables accessible in all paths
 	let capturedMessages: any[] = [];
 	let timedOut = false;
@@ -181,56 +162,8 @@ export async function executeSubagent(
 		});
 		session = sessionResult.session;
 
-		// ── Widget flush helpers (mirrors session-runner.ts) ──
-		// flushWidget sends current state to widget. scheduleFlush debounces updates
-		// at 300ms so rapid tool/thinking events don't re-render on every tick.
-		const flushWidget = () => {
-			if (flushTimer) {
-				clearTimeout(flushTimer);
-				flushTimer = null;
-			}
-			if (!ui) return;
-			try {
-				ui.setWidget(WIDGET_KEY, buildWidgetLines(state, agentName, agentModel));
-			} catch (renderErr: unknown) {
-				const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
-				console.error(`[subagent/${agentName}] Widget error: ${msg}`);
-			}
-		};
-
-		const scheduleFlush = () => {
-			if (!ui) return;
-			if (!flushTimer) {
-				flushTimer = setTimeout(flushWidget, WIDGET_DEBOUNCE_MS);
-			}
-		};
-
-		// Create initial widget with IDLE phase before agent starts
-		if (ui) {
-			try {
-				ui.setWidget(WIDGET_KEY, buildWidgetLines(state, agentName, agentModel));
-			} catch {
-				// Non-critical
-			}
-		}
-
-		// 2s heartbeat ensures terminal updates during quiet periods (LLM thinking)
-		heartbeatTimer = setInterval(() => {
-			try {
-				if (!flushTimer) flushWidget();
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				console.error(`[subagent/${agentName}] Heartbeat error: ${msg}`);
-			}
-		}, HEARTBEAT_MS);
-
 		// Helper: send onUpdate with current state
 		const sendUpdate = (phase?: string, isImmediate = false) => {
-			// Always schedule widget update regardless of onUpdate presence.
-			// This ensures the widget shows live progress even when
-			// executeSubagent() is called without an onUpdate callback.
-			scheduleFlush();
-
 			if (!onUpdate) return;
 
 			const now = Date.now();
@@ -389,18 +322,8 @@ export async function executeSubagent(
 				// Capture messages before dispose
 				capturedMessages = session?.state?.messages || [];
 
-				// Cleanup (includes widget cleanup)
-				cleanupSession(
-					session,
-					unsubscribe,
-					debounceTimer,
-					cwd,
-					_prevSandboxEnv,
-					flushTimer,
-					heartbeatTimer,
-					ui,
-					WIDGET_KEY,
-				);
+				// Cleanup
+				cleanupSession(session, unsubscribe, debounceTimer, cwd, _prevSandboxEnv);
 
 				const durationMs = Date.now() - startedAt;
 				return buildSubagentResult(
@@ -473,21 +396,8 @@ export async function executeSubagent(
 		// Capture messages before dispose
 		capturedMessages = session?.state?.messages || [];
 
-		// Final widget flush shows complete state before cleanup
-		flushWidget();
-
-		// Cleanup (includes widget cleanup)
-		cleanupSession(
-			session,
-			unsubscribe,
-			debounceTimer,
-			cwd,
-			_prevSandboxEnv,
-			flushTimer,
-			heartbeatTimer,
-			ui,
-			WIDGET_KEY,
-		);
+		// Cleanup
+		cleanupSession(session, unsubscribe, debounceTimer, cwd, _prevSandboxEnv);
 
 		const durationMs = Date.now() - startedAt;
 		return buildSubagentResult(
@@ -507,18 +417,8 @@ export async function executeSubagent(
 		if (abortHandler && signal) {
 			signal.removeEventListener("abort", abortHandler);
 		}
-		// Cleanup (cleanupSession clears widget)
-		cleanupSession(
-			session,
-			unsubscribe,
-			debounceTimer,
-			cwd,
-			undefined,
-			flushTimer,
-			heartbeatTimer,
-			ui,
-			WIDGET_KEY,
-		);
+		// Cleanup
+		cleanupSession(session, unsubscribe, debounceTimer, cwd, undefined);
 
 		const durationMs = Date.now() - startedAt;
 		const errorMsg = err instanceof Error ? err.message : String(err);
@@ -639,10 +539,6 @@ function cleanupSession(
 	debounceTimer: ReturnType<typeof setTimeout> | null,
 	cwd: string | undefined,
 	prevSandboxEnv: string | undefined,
-	flushTimer?: ReturnType<typeof setTimeout> | null,
-	heartbeatTimer?: ReturnType<typeof setInterval> | null,
-	ui?: { setWidget(id: string, lines?: string[]): void },
-	widgetKey?: string,
 ): void {
 	try {
 		unsubscribe?.();
@@ -657,23 +553,6 @@ function cleanupSession(
 	if (debounceTimer) {
 		clearTimeout(debounceTimer);
 		debounceTimer = null;
-	}
-	// Clear widget-related timers
-	if (flushTimer) {
-		clearTimeout(flushTimer);
-		flushTimer = null;
-	}
-	if (heartbeatTimer) {
-		clearInterval(heartbeatTimer);
-		heartbeatTimer = null;
-	}
-	// Clear widget from editor area
-	if (ui && widgetKey) {
-		try {
-			ui.setWidget(widgetKey, undefined);
-		} catch {
-			// Non-critical
-		}
 	}
 	// Restore sandbox env var
 	if (cwd) {
