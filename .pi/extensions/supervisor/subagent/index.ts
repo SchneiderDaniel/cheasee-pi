@@ -43,8 +43,11 @@ import type {
 /** Debounce interval for onUpdate during text streaming (ms) */
 const ON_UPDATE_DEBOUNCE_MS = 300;
 
-/** Maximum characters for content text in AgentToolResult (50KB) */
-const MAX_CONTENT_CHARS = 50_000;
+/** Maximum characters for content text in AgentToolResult (1MB).
+ *  Large enough for thinking:high model outputs (architect) while
+ *  retaining the JSON at the end for parseAgentOutput extraction.
+ *  The TUI renderer has its own display cap (8KB expanded view). */
+const MAX_CONTENT_CHARS = 1_000_000;
 
 // ─── executeSubagent — Library Function ─────────────────────────────
 // Called programmatically by the pipeline handler. NOT via LLM tool dispatch.
