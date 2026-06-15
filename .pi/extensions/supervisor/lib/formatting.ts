@@ -95,32 +95,3 @@ export function extractSummaryLine(
 	}
 	return success ? `${agentName} completed` : `${agentName} failed`;
 }
-
-// ─── Subagent status line builder ──────────────────────────────────
-// Builds a status string for ctx.ui.setStatus("supervisor", ...) with
-// subagent prefix and model. Token/tool count intentionally omitted.
-
-function buildSubagentStatusLine(
-	agentName: string,
-	startedAt: number,
-	_tokenCount: number,
-	_toolCount: number,
-	_contextInfoReceived: boolean,
-	_contextWindow: number | undefined,
-	now: number,
-	model?: string,
-	_theme?: { fg: (color: string, text: string) => string },
-): string {
-	const parts: string[] = [];
-	const durationMs = now - startedAt;
-
-	const shortModel = model ? model.split("/").pop() || model : undefined;
-	if (shortModel) parts.push(`\ud83e\udde0 ${shortModel}`);
-
-	parts.push(`\u23f1 ${formatDuration(durationMs)}`);
-
-	// Token count and tool count intentionally omitted — they now display
-	// in the main terminal's footer (context-info extension), not here.
-
-	return `subagent: ${agentName}  ${parts.join(" \u00b7 ")}`;
-}
