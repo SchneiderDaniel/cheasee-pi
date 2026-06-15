@@ -427,4 +427,59 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 			delete process.env.WORKTREE_SANDBOX_PATH;
 		}
 	});
+
+	it("blocks cd -- /etc && pwd via bash handler (option separator bypass)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- /etc && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("/etc"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("allows cd -- subdir via bash handler (safe after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- subdir");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.equal(result, undefined);
+			assert.equal(event.input.command, `cd "${sandboxDir}" && cd -- subdir`);
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd -- via bash handler (bare cd after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("<HOME>"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd -- - via bash handler (previous dir after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- - && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("<previous-dir>"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
 });
