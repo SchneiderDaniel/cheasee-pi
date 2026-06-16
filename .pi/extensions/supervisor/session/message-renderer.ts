@@ -13,6 +13,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
+import { renderTextLines } from "../lib/render-helpers.ts";
 import { renderSubagentResult } from "../subagent/renderer.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
 
@@ -181,13 +182,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				const maxTaskLines = 50;
 				const showLines = taskLines.slice(0, maxTaskLines);
 				const overflowCount = taskLines.length - maxTaskLines;
-				for (const line of showLines) {
-					if (!line.trim()) continue; // Skip empty lines
-					const styled = theme.fg("dim", line);
-					for (const wrapped of wrapTextWithAnsi(styled, w)) {
-						c.addChild(new Text(wrapped, 1, 0));
-					}
-				}
+				renderTextLines(c, showLines, theme, w);
 				if (overflowCount > 0) {
 					const notice =
 						overflowCount === 1
@@ -203,13 +198,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			c.addChild(new Spacer(1));
 			c.addChild(new Text(fit(theme.fg("dim", "── Thinking ──")), 1, 0));
 			const thinkingLines = details.thinkingOutput.split("\n");
-			for (const line of thinkingLines) {
-				if (!line.trim()) continue;
-				const styled = theme.fg("dim", line);
-				for (const wrapped of wrapTextWithAnsi(styled, w)) {
-					c.addChild(new Text(wrapped, 1, 0));
-				}
-			}
+			renderTextLines(c, thinkingLines, theme, w);
 		}
 
 		// Text output rendered as Markdown
@@ -227,13 +216,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				details.rawOutput.length > 500
 					? details.rawOutput.slice(0, 500) + "..."
 					: details.rawOutput;
-			for (const line of preview.split("\n")) {
-				if (!line.trim()) continue;
-				const styled = theme.fg("dim", line);
-				for (const wrapped of wrapTextWithAnsi(styled, w)) {
-					c.addChild(new Text(wrapped, 1, 0));
-				}
-			}
+			renderTextLines(c, preview.split("\n"), theme, w);
 		}
 
 		return c;

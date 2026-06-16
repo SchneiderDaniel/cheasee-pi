@@ -2,16 +2,10 @@
 // TUI renderCall and renderResult for the subagent tool.
 // Provides native-looking inline rendering with expand/collapse via Ctrl+O.
 
-import {
-	Container,
-	Markdown,
-	Spacer,
-	Text,
-	truncateToWidth,
-	wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
+import { renderTextLines } from "../lib/render-helpers.ts";
 import { formatToolCall } from "../event/session-events.ts";
 import type { SubagentDetails, SubagentToolCall, AgentToolResult } from "./types.ts";
 
@@ -144,13 +138,7 @@ export function renderSubagentResult(
 		const maxTaskLines = 50;
 		const showLines = taskLines.slice(0, maxTaskLines);
 		const overflowCount = taskLines.length - maxTaskLines;
-		for (const line of showLines) {
-			if (!line.trim()) continue;
-			const styled = theme.fg("dim", line);
-			for (const wrapped of wrapTextWithAnsi(styled, w)) {
-				container.addChild(new Text(wrapped, 1, 0));
-			}
-		}
+		renderTextLines(container, showLines, theme, w);
 		if (overflowCount > 0) {
 			const notice =
 				overflowCount === 1
