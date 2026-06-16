@@ -103,14 +103,7 @@ export function sendPipelineSummary(
 			),
 		);
 	} else if (effectiveStatus === "failed") {
-		const lastFailed = [...agentResults].reverse().find((a) => a.status === "FAILED");
-		ctx.ui.setStatus(
-			"supervisor",
-			ctx.ui.theme.fg(
-				"error",
-				`❌ Failed at ${lastFailed?.agentName || "unknown"} · ${agentResults.length} agents`,
-			),
-		);
+		ctx.ui.setStatus("supervisor", ctx.ui.theme.fg("error", buildFailedStatusLine(agentResults)));
 	} else {
 		ctx.ui.setStatus(
 			"supervisor",
@@ -212,14 +205,7 @@ export function sendPipelineError(
 			display: true,
 		});
 
-		const lastFailed = [...agentResults].reverse().find((a) => a.status === "FAILED");
-		ctx.ui.setStatus(
-			"supervisor",
-			ctx.ui.theme.fg(
-				"error",
-				`❌ Failed at ${lastFailed?.agentName || "unknown"} · ${agentResults.length} agents`,
-			),
-		);
+		ctx.ui.setStatus("supervisor", ctx.ui.theme.fg("error", buildFailedStatusLine(agentResults)));
 
 		if (config?.bellOnComplete) {
 			process.stdout.write("\x07");
@@ -227,4 +213,13 @@ export function sendPipelineError(
 	}
 	// Always clear supervisor status on error — avoids stale error text in footer
 	ctx.ui.setStatus("supervisor", undefined);
+}
+
+/**
+ * Build the failed status line for pipeline error display.
+ * Extracted to eliminate clone: used by both sendPipelineSummary and sendPipelineError.
+ */
+function buildFailedStatusLine(agentResults: PipelineAgentResult[]): string {
+	const lastFailed = [...agentResults].reverse().find((a) => a.status === "FAILED");
+	return `❌ Failed at ${lastFailed?.agentName || "unknown"} · ${agentResults.length} agents`;
 }

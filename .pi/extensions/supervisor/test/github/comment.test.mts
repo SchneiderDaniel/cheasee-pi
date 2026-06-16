@@ -576,3 +576,73 @@ describe("filterIssueData — labels passthrough", () => {
 		assert.deepEqual(result.labels, ["supervisor"]);
 	});
 });
+
+// ─── Tests: stripTrailingMetadata extracted helper ─────────────────
+
+describe("stripTrailingMetadata — extracted helper", () => {
+	it("heading section followed by JSON block → commentBody truncated before JSON", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## Audit Approved";
+		// Add enough content to pass the minHeadingLen + 20 boundary guard (36 chars from start)
+		// JSON keys on separate lines (matches agent output format)
+		const content = "This review finds the implementation acceptable with minor formatting nits.";
+		const jsonBlock = '\n"auditScore": {\n  "passing": 3,\n  "total": 5\n}';
+		const slice = heading + "\n\n" + content + "\n\n" + jsonBlock;
+		const result = stripTrailingMetadata(slice, heading.length);
+		assert.ok(!result.includes("auditScore"), "should not include JSON block");
+		assert.ok(result.includes(content), "should keep heading section text");
+	});
+
+	it("heading section followed by 💭 thinking → commentBody truncated before thinking", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## Audit Approved";
+		const content = "This review finds the implementation acceptable with minor formatting nits.";
+		const slice = heading + "\n\n" + content + "\n💭 The agent is thinking about something\n";
+		const result = stripTrailingMetadata(slice, heading.length);
+		assert.ok(result.includes(content), "should keep heading section text");
+		assert.ok(!result.includes("The agent is thinking"), "should exclude thinking content");
+	});
+
+	it("heading section followed by 📊 instrumentation → commentBody truncated before instrumentation", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## Audit Approved";
+		const content = "This review finds the implementation acceptable with minor formatting nits.";
+		const slice = heading + "\n\n" + content + "\n📊 Some instrumentation data\n";
+		const result = stripTrailingMetadata(slice, heading.length);
+		assert.ok(result.includes(content), "should keep heading section text");
+		assert.ok(!result.includes("instrumentation"), "should exclude instrumentation content");
+	});
+
+	it("heading section with all three trailing patterns → earliest match wins (shortest truncation)", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## Audit Approved";
+		const content = "This review finds the implementation acceptable with minor formatting nits.";
+		// JSON (keys on separate lines) appears first, then thinking, then instrumentation
+		const jsonBlock = '\n"auditScore": {\n  "passing": 3,\n  "total": 5\n}';
+		const slice =
+			heading + "\n\n" + content + "\n" + jsonBlock + "\n💭 thinking\n📊 instrumentation";
+		const result = stripTrailingMetadata(slice, heading.length);
+		// Should be truncated at JSON (earliest match)
+		assert.ok(!result.includes("auditScore"), "should truncate at JSON (earliest match)");
+		assert.ok(result.includes(content), "should keep heading section text");
+	});
+
+	it("heading section with no trailing metadata → content unchanged", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## Audit Approved";
+		const content = "This review finds the implementation acceptable with minor formatting nits.";
+		const slice = heading + "\n\n" + content + "\n";
+		const result = stripTrailingMetadata(slice, heading.length);
+		assert.equal(result, slice, "content should remain unchanged");
+	});
+
+	it("trailing metadata within 20 chars of heading length → not truncated (boundary guard)", async () => {
+		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const heading = "## A";
+		// Metadata (key on separate line) appears very close to heading (within 20 chars) — should not truncate
+		const slice = heading + "\n\n" + '\n"auditScore": 1';
+		const result = stripTrailingMetadata(slice, heading.length);
+		// The minHeadingLen + 20 guard should prevent truncation since the JSON is too close
+		assert.equal(result, slice, "should not truncate when metadata is too close to heading");
+	});
+});

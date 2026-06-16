@@ -364,3 +364,128 @@ describe("sendAgentResultMessage — taskPrompt plumbing", () => {
 		assert.equal(msg!.details!.taskPrompt, largePrompt);
 	});
 });
+
+// ─── Tests: notification status setting block extraction ────────────
+
+describe("buildFailedStatusLine — extracted helper", () => {
+	it("sendPipelineSummary with overallStatus 'failed' and last agent FAILED → status text contains agent name", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const resultsWithFailed: PipelineAgentResult[] = [
+			{
+				agentName: "developer",
+				status: "SUCCESS",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
+			{ agentName: "auditor", status: "FAILED", durationMs: 500, tokenCount: 300, toolCount: 5 },
+		];
+		sendPipelineSummary(pi, ctx, resultsWithFailed, "failed", 42, "Test issue", mockConfig as any);
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(failedStatus, "should set failed status");
+		assert.ok(
+			failedStatus!.includes("auditor"),
+			`expected 'auditor' in status, got: ${failedStatus}`,
+		);
+	});
+
+	it("sendPipelineSummary with overallStatus 'failed' and no FAILED agent → status text contains 'unknown'", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const resultsWithoutFailed: PipelineAgentResult[] = [
+			{
+				agentName: "developer",
+				status: "SUCCESS",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
+			{ agentName: "auditor", status: "SUCCESS", durationMs: 500, tokenCount: 300, toolCount: 5 },
+		];
+		sendPipelineSummary(
+			pi,
+			ctx,
+			resultsWithoutFailed,
+			"failed",
+			42,
+			"Test issue",
+			mockConfig as any,
+		);
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(failedStatus, "should set failed status");
+		assert.ok(
+			failedStatus!.includes("unknown"),
+			`expected 'unknown' in status, got: ${failedStatus}`,
+		);
+	});
+
+	it("sendPipelineError with FAILED agent in results → status text contains agent name", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const resultsWithFailed: PipelineAgentResult[] = [
+			{
+				agentName: "developer",
+				status: "SUCCESS",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
+			{ agentName: "auditor", status: "FAILED", durationMs: 500, tokenCount: 300, toolCount: 5 },
+		];
+		sendPipelineError(
+			pi,
+			ctx,
+			resultsWithFailed,
+			42,
+			"Test issue",
+			mockConfig as any,
+			"Error message",
+		);
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(failedStatus, "should set failed status");
+		assert.ok(
+			failedStatus!.includes("auditor"),
+			`expected 'auditor' in status, got: ${failedStatus}`,
+		);
+	});
+
+	it("sendPipelineError with no FAILED agent → status text contains 'unknown'", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const resultsWithoutFailed: PipelineAgentResult[] = [
+			{
+				agentName: "developer",
+				status: "SUCCESS",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
+			{ agentName: "auditor", status: "SUCCESS", durationMs: 500, tokenCount: 300, toolCount: 5 },
+		];
+		sendPipelineError(
+			pi,
+			ctx,
+			resultsWithoutFailed,
+			42,
+			"Test issue",
+			mockConfig as any,
+			"Error message",
+		);
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(failedStatus, "should set failed status");
+		assert.ok(
+			failedStatus!.includes("unknown"),
+			`expected 'unknown' in status, got: ${failedStatus}`,
+		);
+	});
+
+	it("sendPipelineError with empty agent results → no status set (existing behavior preserved)", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		sendPipelineError(pi, ctx, [], 42, "Test issue", mockConfig as any, "Error message");
+		// sendPipelineError with empty results should not call setStatus with Failed text
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(!failedStatus, "should NOT set failed status with empty agent results");
+	});
+});

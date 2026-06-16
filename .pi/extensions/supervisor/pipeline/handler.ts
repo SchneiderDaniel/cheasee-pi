@@ -589,14 +589,7 @@ export async function handleSupervisorCommand(
 						const statusResult = await pi.exec("git", ["status", "--porcelain"], {
 							cwd: worktreePath,
 						});
-						dirtyFiles = (statusResult.stdout || "")
-							.split("\n")
-							.filter(Boolean)
-							// Extract file path from git status (2nd+ column after status code)
-							.map((line: string) => line.trim().slice(2).trim())
-							// Handle renamed files (status "R" → "R  old -> new")
-							.map((p: string) => p.split(" -> ").pop()?.trim() || p)
-							.filter(Boolean);
+						dirtyFiles = parseGitStatusPorcelain(statusResult.stdout || "");
 					} catch {
 						// Non-fatal — log and continue with committed-only check
 						getDebugLogger().warn(
@@ -862,12 +855,7 @@ export async function handleSupervisorCommand(
 					const statusResult = await pi.exec("git", ["status", "--porcelain"], {
 						cwd: worktreePath,
 					});
-					const dirtyFiles = (statusResult.stdout || "")
-						.split("\n")
-						.filter(Boolean)
-						.map((line: string) => line.trim().slice(2).trim())
-						.map((p: string) => p.split(" -> ").pop()?.trim() || p)
-						.filter(Boolean);
+					const dirtyFiles = parseGitStatusPorcelain(statusResult.stdout || "");
 
 					const outOfScopeDirty = dirtyFiles.filter((f: string) => !isInScope(f, currentScope));
 
@@ -1534,4 +1522,19 @@ export async function executeAgent(
 	}
 
 	return { result, usedRetry };
+}
+
+/**
+ * Parse `git status --porcelain` output into an array of file paths.
+ * Filters duplicates and resolves renamed files ("R  old -> new") to the target path.
+ * Extracted to eliminate clone: used in both pre-dispatch scope check
+ * and post-agent scope cleanup.
+ */
+export function parseGitStatusPorcelain(stdout: string): string[] {
+	return (stdout || "")
+		.split("\n")
+		.filter(Boolean)
+		.map((line: string) => line.trim().slice(2).trim())
+		.map((p: string) => p.split(" -> ").pop()?.trim() || p)
+		.filter(Boolean);
 }

@@ -51,18 +51,10 @@ export async function pollCiChecks(
 			// If commitAndPush failed silently, origin/${branch} SHA won't exist.
 			// Try pushing from local worktree to recover, then re-check SHA.
 			if (worktreePath) {
-				try {
-					await pi.exec("git", ["push", "origin", branch], {
-						cwd: worktreePath,
-						timeout: 15_000,
-					});
-					// Retry SHA resolution after push
-					const retryResult = await pi.exec("git", ["rev-parse", `origin/${branch}`], {
-						timeout: 10_000,
-					});
-					sha = (retryResult.stdout || "").trim();
-				} catch {
-					// Push recovery failed — proceed with error
+				const recoveredSha = await attemptPushRecovery(pi, branch, worktreePath);
+				if (recoveredSha) {
+					sha = recoveredSha;
+				} else {
 					return {
 						status: "error",
 						checks: [],
@@ -81,23 +73,10 @@ export async function pollCiChecks(
 	} catch {
 		// ── Bug 5 fix: same push recovery on catch ──
 		if (worktreePath) {
-			try {
-				await pi.exec("git", ["push", "origin", branch], {
-					cwd: worktreePath,
-					timeout: 15_000,
-				});
-				const retryResult = await pi.exec("git", ["rev-parse", `origin/${branch}`], {
-					timeout: 10_000,
-				});
-				sha = (retryResult.stdout || "").trim();
-				if (!sha) {
-					return {
-						status: "error",
-						checks: [],
-						message: `Branch '${branch}' not found on remote even after push recovery.`,
-					};
-				}
-			} catch {
+			const recoveredSha = await attemptPushRecovery(pi, branch, worktreePath);
+			if (recoveredSha) {
+				sha = recoveredSha;
+			} else {
 				return {
 					status: "error",
 					checks: [],
@@ -226,4 +205,30 @@ export async function pollCiChecks(
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Attempt push recovery for CI gating when origin/branch SHA is not found.
+ * Pushes the branch from worktree and retries SHA resolution.
+ * Returns the SHA string on success, null on failure.
+ */
+async function attemptPushRecovery(
+	pi: ExtensionAPI,
+	branch: string,
+	worktreePath: string,
+): Promise<string | null> {
+	try {
+		await pi.exec("git", ["push", "origin", branch], {
+			cwd: worktreePath,
+			timeout: 15_000,
+		});
+		// Retry SHA resolution after push
+		const retryResult = await pi.exec("git", ["rev-parse", `origin/${branch}`], {
+			timeout: 10_000,
+		});
+		const sha = (retryResult.stdout || "").trim();
+		return sha || null;
+	} catch {
+		return null;
+	}
 }
