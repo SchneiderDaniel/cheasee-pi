@@ -1398,6 +1398,7 @@ export async function executeAgent(
 
 	// Track last tool result count for delta dispatch
 	let lastResultCount = 0;
+	let lastThinkingLen = 0;
 
 	// Primary: pi.executeTool dispatches through registered tool.
 	// onUpdate sends COMPACT tool result messages during execution (~100 tokens each).
@@ -1463,9 +1464,12 @@ export async function executeAgent(
 				const trCount = tr?.length || 0;
 				if (trCount > lastResultCount && tr) {
 					const tc = d.toolCalls || [];
-					// Extract accumulated thinking from partial content
+					// Extract accumulated thinking — full for error scan, incremental for message
 					const content0 = partial.content?.[0];
-					const thinking = content0 && content0.type === "text" ? content0.text.slice(0, 4000) : "";
+					const fullText = content0 && content0.type === "text" ? content0.text : "";
+					const thinking = fullText.slice(0, 4000);
+					const incrementalThinking = fullText.slice(lastThinkingLen, lastThinkingLen + 2000);
+					lastThinkingLen = fullText.length;
 					for (let i = lastResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
@@ -1479,12 +1483,21 @@ export async function executeAgent(
 							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
 							else argsStr = JSON.stringify(a).slice(0, 120);
 						}
-						// For blocked/failed tools, extract error reason from result
+						// For blocked/failed tools, extract error reason from result or thinking
 						const rWithResult = r as any;
-						const errorReason =
-							r.isError && typeof rWithResult.result === "string"
-								? rWithResult.result.slice(0, 300)
-								: "";
+						let errorReason = "";
+						if (r.isError) {
+							if (typeof rWithResult.result === "string" && rWithResult.result) {
+								errorReason = rWithResult.result.slice(0, 300);
+							} else {
+								// No structured result — extract last error-like line from thinking
+								const errLine = thinking
+									.split("\n")
+									.filter((l) => /error|fail|denied|ENOENT|not found|blocked/i.test(l))
+									.pop();
+								errorReason = errLine ? errLine.slice(0, 200) : "Tool failed";
+							}
+						}
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
@@ -1495,8 +1508,8 @@ export async function executeAgent(
 									args: argsStr,
 									isError: !!r.isError,
 									errorReason,
-									// Keep thinking so user sees chain of thought
-									thinking,
+									// Incremental thinking (new since last batch)
+									thinking: incrementalThinking,
 									// Simple per-call stat: tool ordinal (e.g. "#3")
 									toolIndex: `#${i + 1}`,
 									// Running totals for the session
