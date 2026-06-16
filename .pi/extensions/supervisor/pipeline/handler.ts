@@ -24,7 +24,6 @@ import {
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
 import { runAgentSubprocess } from "../agent/runner.ts";
-import { executeSubagent } from "../subagent/index.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
@@ -1396,9 +1395,9 @@ export async function handlePostPipeline(
 	}
 }
 
-// ─── Execute Agent (hybrid: subagent tool with subprocess fallback) ──
-// Primary path: executeSubagent() for native inline rendering via onUpdate.
-// Fallback: runAgentSubprocess() when subagent fails (widget-based, no inline streaming).
+// ─── Execute Agent (tool dispatch with subprocess fallback) ─────────
+// Primary path: executeTool("subagent", ...) for native TUI rendering.
+// Fallback: runAgentSubprocess() when subagent fails (widget-based).
 
 async function executeAgent(
 	agent: ParsedAgent,
@@ -1421,15 +1420,10 @@ async function executeAgent(
 		display: true,
 	});
 
-	// Track state across onUpdate calls
-	let lastSentToolCount = 0;
-	let lastSentResultCount = 0;
-	let lastThinkText = "";
-	let sentResultSinceLastThink = false;
-
-	// Primary: executeSubagent with onUpdate streaming
-	// Uses export library function directly (not LLM tool dispatch) to avoid blocking.
-	const toolResult = await executeSubagent(
+	// Primary: executeTool dispatches through pi tool system
+	// Wires renderCall/renderResult to ToolExecutionComponent for native TUI rendering.
+	const toolResult = await (pi.executeTool(
+		"subagent",
 		{
 			agent: agent.config.name,
 			task,
@@ -1437,83 +1431,8 @@ async function executeAgent(
 			maxToolCalls,
 			agentTokenBudget,
 		},
-		(partial: AgentToolResult<Partial<SubagentDetails>>) => {
-			const d = partial.details;
-			if (!d) return;
-
-			const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
-
-			// 1. Send tool results (green ✓ / red ✗) — only when execution completes
-			const tr = d.toolResults;
-			const trCount = tr?.length || 0;
-			if (trCount > lastSentResultCount && tr) {
-				const tc = d.toolCalls || [];
-				for (let i = lastSentResultCount; i < trCount; i++) {
-					const r = tr[i];
-					if (!r) continue;
-					// Find matching tool call for args (same index order)
-					const call = tc[i];
-					const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
-					const icon = r.isError ? "✗" : "✓";
-					pi.sendMessage({
-						customType: "supervisor",
-						content: `${icon} **${r.name}**: \`${argsStr}\``,
-						display: true,
-					});
-				}
-				lastSentResultCount = trCount;
-				sentResultSinceLastThink = true;
-			}
-
-			// 2. Send thinking content (everything after 💭 prefix)
-			const thinkPrefix = "💭 ";
-			const thinkIdx = textContent.indexOf(thinkPrefix);
-			if (thinkIdx !== -1) {
-				const thinkContent = textContent.slice(thinkIdx + thinkPrefix.length).trim();
-				if (thinkContent && !lastThinkText.includes(thinkContent.slice(0, 60))) {
-					// Insert turn separator if we just completed tools
-					if (sentResultSinceLastThink) {
-						pi.sendMessage({
-							customType: "supervisor",
-							content: "---",
-							display: true,
-						});
-						sentResultSinceLastThink = false;
-					}
-					lastThinkText = thinkContent;
-					pi.sendMessage({
-						customType: "supervisor",
-						content: thinkContent,
-						display: true,
-					});
-				}
-			}
-
-			// 3. Send result on completion (with details → renders as rich supervisor component)
-			if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
-				pi.sendMessage({
-					customType: "supervisor",
-					content: "",
-					display: true,
-					details: {
-						success: d.success,
-						agentName: d.agentName || agent.config.name,
-						statusLabel: d.statusLabel,
-						summaryLine: d.summaryLine || "",
-						model: shortModel,
-						turnCount: d.turnCount || 0,
-						toolCount: d.toolCalls?.length || 0,
-						durationMs: d.durationMs || 0,
-						inputTokens: d.inputTokens || 0,
-						outputTokens: d.outputTokens || 0,
-						cacheRead: d.cacheRead || 0,
-						cacheWrite: d.cacheWrite || 0,
-						cost: d.cost || 0,
-					},
-				});
-			}
-		},
-	);
+		{ signal: ctx.signal },
+	) as Promise<AgentToolResult<SubagentDetails>>);
 
 	let result = convertToolResultToAgentRunResult(toolResult);
 	validateAgentResult(result);
