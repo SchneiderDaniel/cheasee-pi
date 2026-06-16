@@ -22,9 +22,9 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result with green/red background ──────────
+		// ── Tool call result with green/red background + output ─
 		const toolCallResult = rawDetails?.toolCallResult as
-			| { name: string; args: string; isError: boolean }
+			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
@@ -32,7 +32,18 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			// customBgFn: fill line with muted green (48;2;70;140;70) or muted red (48;2;160;70;70)
 			const bgSeq = toolCallResult.isError ? "48;2;160;70;70" : "48;2;70;140;70";
 			const bgFn = (l: string) => `\x1b[${bgSeq}m${l}\x1b[0m`;
-			return new Text(line, 1, 0, bgFn);
+			const headerText = new Text(line, 1, 0, bgFn);
+
+			// If there's result output, render it as Markdown below the bg header
+			if (toolCallResult.resultText) {
+				const c = new Container();
+				c.addChild(headerText);
+				const mdTheme = getMarkdownTheme();
+				c.addChild(new Markdown(toolCallResult.resultText, 1, 0, mdTheme));
+				return c;
+			}
+
+			return headerText;
 		}
 
 		// ── Progress update (compact dim text, no padding) ─────

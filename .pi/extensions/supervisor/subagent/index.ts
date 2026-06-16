@@ -257,9 +257,18 @@ export async function executeSubagent(
 					});
 				}
 				if (eventType === "tool_execution_end") {
+					// Capture raw tool result (truncated) from session event —
+					// the normalization strips result field.
+					const rawEvt = event as any;
+					let resultStr: string | undefined;
+					if (rawEvt.result) {
+						const r = typeof rawEvt.result === "string" ? rawEvt.result : String(rawEvt.result);
+						resultStr = r.slice(0, 2_000);
+					}
 					toolResults.push({
 						name: (event.toolName as string) || "tool",
 						isError: !!(event as any).isError,
+						result: resultStr,
 					});
 				}
 

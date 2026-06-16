@@ -12,6 +12,8 @@ export interface SubagentToolCall {
 export interface SubagentToolResult {
 	name: string;
 	isError: boolean;
+	/** Tool output/result content (from raw event.result), truncated to 2000 chars */
+	result?: string;
 }
 
 /** Details carried in AgentToolResult.details for the subagent tool */

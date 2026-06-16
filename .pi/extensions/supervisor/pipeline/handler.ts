@@ -1454,6 +1454,9 @@ export async function executeAgent(
 						if (!r) continue;
 						const call = tc[i];
 						const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
+						// Get tool result output from SubagentToolResult.result
+						const rWithResult = r as any;
+						const resultText = typeof rWithResult.result === "string" ? rWithResult.result : "";
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
@@ -1463,6 +1466,7 @@ export async function executeAgent(
 									name: r.name,
 									args: argsStr,
 									isError: !!r.isError,
+									resultText,
 								},
 							},
 						});
