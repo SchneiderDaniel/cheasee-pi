@@ -2,10 +2,10 @@
 // Thin wrapper: delegates event processing to shared adapter + handlers.
 // Maintains backward-compatible exports for agent-runner.ts and others.
 //
-// Owns: filterStderr(), pushLog(), constants, getPhaseFromEvent().
+// Owns: filterStderr(), pushLog(), constants.
 // Delegates: processJsonLine() → jsonLineToNormalizedEvent() + processNormalizedEvent().
 
-import type { AgentRunState, AgentPhase } from "../config/types.ts";
+import type { AgentRunState } from "../config/types.ts";
 import { formatTokens } from "../lib/formatting.ts";
 import { jsonLineToNormalizedEvent, processNormalizedEvent } from "../event/adapter.ts";
 import { phasePriority } from "../event/types.ts";
@@ -61,40 +61,6 @@ export function filterStderr(raw: string): string {
 export function pushLog(state: AgentRunState, entry: string): void {
 	state.fullLog.push(entry);
 	if (state.fullLog.length > MAX_FULL_LOG) state.fullLog.shift();
-}
-
-/**
- * Determine phase from a JSON event. Tool > thinking > text > idle.
- * Preserved for backward compat (used by agent-runner.ts).
- */
-export function getPhaseFromEvent(ev: any): AgentPhase {
-	if (!ev) return "idle";
-
-	if (ev.type === "tool_execution_start") return "tool";
-	if (ev.type === "tool_execution_end") return "idle";
-
-	if (ev.type === "message_update") {
-		const delta = ev.delta;
-		if (!delta) return "idle";
-		switch (delta.type) {
-			case "thinking_delta":
-				if (delta.thinking_delta) return "thinking";
-				break;
-			case "thinking_start":
-				return "thinking";
-			case "text_delta":
-				if (delta.text_delta) return "text";
-				break;
-			case "text_start":
-				return "text";
-			case "thinking_end":
-			case "text_end":
-				return "idle";
-		}
-	}
-
-	if (ev.type === "message_end") return "idle";
-	return "idle";
 }
 
 /**
