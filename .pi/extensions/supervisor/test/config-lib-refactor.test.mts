@@ -53,7 +53,6 @@ import {
 	MAX_LIVE_THINKING,
 	filterStderr,
 	pushLog,
-	getPhaseFromEvent,
 	processJsonLine,
 } from "../agent/stream.ts";
 import {
@@ -225,12 +224,6 @@ describe("config→lib refactor — consumer files (agent/)", () => {
 		pushLog(state, "test entry");
 		assert.equal(state.fullLog.length, 1);
 		assert.equal(state.fullLog[0], "test entry");
-	});
-
-	it("agent/stream.ts exports getPhaseFromEvent", () => {
-		assert.equal(typeof getPhaseFromEvent, "function");
-		const phase = getPhaseFromEvent({ kind: "text_delta" });
-		assert.ok(typeof phase === "string");
 	});
 });
 
