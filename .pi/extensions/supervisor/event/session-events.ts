@@ -2,10 +2,10 @@
 // Thin wrapper: converts SDK session events to NormalizedEvent and
 // delegates to the shared processNormalizedEvent.
 //
-// Owns: SessionEvent type, getEventPhase() (backward compat).
+// Owns: SessionEvent type.
 // Delegates: processSessionEvent() → sessionEventToNormalizedEvent() + processNormalizedEvent().
 
-import type { AgentRunState, AgentPhase } from "../config/types.ts";
+import type { AgentRunState } from "../config/types.ts";
 import { pushLog } from "../agent/stream.ts";
 import { sessionEventToNormalizedEvent, processNormalizedEvent } from "./adapter.ts";
 import { phasePriority } from "./types.ts";
@@ -54,37 +54,6 @@ export function processSessionEvent(
 	const normalized = sessionEventToNormalizedEvent(ev);
 	if (!normalized) return { flush: false, workingChange: false };
 	return processNormalizedEvent(normalized, state);
-}
-
-/**
- * Determine phase from a session event.
- * Preserved for backward compat.
- */
-export function getEventPhase(ev: SessionEvent): AgentPhase {
-	if (!ev) return "idle";
-	if (ev.type === "tool_execution_start") return "tool";
-	if (ev.type === "tool_execution_end") return "idle";
-	if (ev.type === "message_update") {
-		const ae = ev.assistantMessageEvent;
-		if (!ae) return "idle";
-		switch (ae.type) {
-			case "thinking_delta":
-				if (ae.delta) return "thinking";
-				break;
-			case "thinking_start":
-				return "thinking";
-			case "text_delta":
-				if (ae.delta) return "text";
-				break;
-			case "text_start":
-				return "text";
-			case "thinking_end":
-			case "text_end":
-				return "idle";
-		}
-	}
-	if (ev.type === "message_end") return "idle";
-	return "idle";
 }
 
 // ─── Tool Call Formatting ──────────────────────────────────────────
