@@ -10,7 +10,7 @@ import { handlePostPipeline } from "../../pipeline/handler.ts";
 import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
-	readCheckpointFile,
+	readCheckpointFileFromPath,
 } from "../../pipeline/state-checkpoint.ts";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -785,7 +785,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			);
 
 			// The state file should be deleted — verify by reading
-			const readResult = readCheckpointFile(tmpDir);
+			const readResult = readCheckpointFileFromPath(join(tmpDir, ".pi", "supervisor-state.json"));
 			assert.equal(readResult, null, "state file should be deleted");
 
 			rmSync(tmpDir, { recursive: true, force: true });

@@ -76,11 +76,7 @@ import {
 	sendAgentResultMessage,
 	sendPipelineError,
 } from "../pipeline/notifications.ts";
-import {
-	isStaleCheckpoint,
-	readCheckpointFile,
-	readCheckpointFileFromPath,
-} from "../pipeline/state-checkpoint.ts";
+import { isStaleCheckpoint, readCheckpointFileFromPath } from "../pipeline/state-checkpoint.ts";
 import type { CheckpointName, SupervisorCheckpointState } from "../pipeline/state-checkpoint.ts";
 import type { AgentRunResult } from "../config/types.ts";
 import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
@@ -398,13 +394,6 @@ describe("config→lib refactor — consumer files (pipeline/)", () => {
 			startedAt: "not-a-date",
 		};
 		assert.equal(isStaleCheckpoint(invalidState), true);
-	});
-
-	it("pipeline/state-checkpoint.ts exports readCheckpointFile", () => {
-		assert.equal(typeof readCheckpointFile, "function");
-		// Reading from non-existent path returns null
-		const result = readCheckpointFile("/tmp/nonexistent-path-xyz-789");
-		assert.equal(result, null);
 	});
 });
 
