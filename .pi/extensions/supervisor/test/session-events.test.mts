@@ -666,8 +666,8 @@ describe("dedup chain — done then message_end", () => {
 		processSessionEvent(endEv, state);
 
 		assert.equal(state.thinkingOutputLines.length, 1, "should have exactly 1 thinking entry");
-		// Flags should be false at end (reset by message_end)
-		assert.equal(state.thinkingPushedThisTurn, false);
+		// Flags persist through message_end so handleDone can rely on them
+		assert.equal(state.thinkingPushedThisTurn, true);
 		assert.equal(state.textPushedThisTurn, false);
 	});
 
@@ -739,9 +739,9 @@ describe("dedup chain — done then message_end", () => {
 		processSessionEvent(endEv, state);
 		assert.equal(state.textOutputLines.length, 0, "no text should be pushed");
 		assert.equal(state.thinkingOutputLines.length, 0, "no thinking should be pushed");
-		// Flags should be reset by message_end
-		assert.equal(state.textPushedThisTurn, false);
-		assert.equal(state.thinkingPushedThisTurn, false);
+		// Flags persist through message_end for handleDone
+		assert.equal(state.textPushedThisTurn, true);
+		assert.equal(state.thinkingPushedThisTurn, true);
 	});
 
 	it("message_end does not re-push content already consumed by text_end/thinking_end streaming path", () => {
@@ -769,7 +769,7 @@ describe("dedup chain — done then message_end", () => {
 // ─── Phase 3: existing behavior preserved (regression) ────────────────────
 
 describe("existing behavior preserved (regression)", () => {
-	it("text_end (streaming) followed by message_end — one text entry, flag reset", () => {
+	it("text_end (streaming) followed by message_end — one text entry, flag preserved", () => {
 		const state = createState();
 		state.liveText = "streamed text";
 
@@ -794,10 +794,10 @@ describe("existing behavior preserved (regression)", () => {
 		};
 		processSessionEvent(endEv, state);
 		assert.equal(state.textOutputLines.length, 1, "no duplicate");
-		assert.equal(state.textPushedThisTurn, false, "reset by message_end");
+		assert.equal(state.textPushedThisTurn, true, "persists for handleDone");
 	});
 
-	it("thinking_end (streaming) followed by message_end — one thinking entry, flag reset", () => {
+	it("thinking_end (streaming) followed by message_end — one thinking entry, flag preserved", () => {
 		const state = createState();
 		state.liveThinking = "streamed thinking";
 
@@ -822,7 +822,7 @@ describe("existing behavior preserved (regression)", () => {
 		};
 		processSessionEvent(endEv, state);
 		assert.equal(state.thinkingOutputLines.length, 1, "no duplicate");
-		assert.equal(state.thinkingPushedThisTurn, false, "reset by message_end");
+		assert.equal(state.thinkingPushedThisTurn, true, "persists for handleDone");
 	});
 
 	it("message_end with role=toolResult — unchanged behavior", () => {

@@ -363,9 +363,9 @@ describe("handleMessageEnd", () => {
 		// thinking at message_end goes to both thinkingOutputLines and fullLog (with 💭 prefix)
 		assert.ok(state.thinkingOutputLines[0]?.includes("deep"));
 		assert.ok(state.fullLog.some((l) => l.includes("💭") && l.includes("deep")));
-		// Flags are RESET at the end of message_end (end of turn)
-		assert.equal(state.thinkingPushedThisTurn, false);
-		assert.equal(state.textPushedThisTurn, false);
+		// Flags persist after message_end so handleDone can skip re-push
+		assert.equal(state.thinkingPushedThisTurn, true);
+		assert.equal(state.textPushedThisTurn, true);
 	});
 
 	it("recovers multi-line thinking to thinkingOutputLines at message_end", () => {
@@ -447,7 +447,7 @@ describe("handleMessageEnd", () => {
 		assert.equal(state.budgetExceeded, false);
 	});
 
-	it("resets turn flags and phase to idle", () => {
+	it("sets phase to idle, preserves turn flags for handleDone", () => {
 		const state = createState({
 			thinkingPushedThisTurn: true,
 			textPushedThisTurn: true,
@@ -457,8 +457,9 @@ describe("handleMessageEnd", () => {
 			kind: "message_end",
 			message: { role: "assistant", content: [] },
 		});
-		assert.equal(state.thinkingPushedThisTurn, false);
-		assert.equal(state.textPushedThisTurn, false);
+		// Flags persist — handleDone checks them to avoid duplicate push
+		assert.equal(state.thinkingPushedThisTurn, true);
+		assert.equal(state.textPushedThisTurn, true);
 		assert.equal(state.phase, "idle");
 	});
 
