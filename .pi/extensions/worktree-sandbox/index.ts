@@ -214,6 +214,12 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 					return "<previous-dir>"; // Previous directory — always potentially unsafe
 				}
 
+				if (nextToken === "--") {
+					// Option separator — skip to next token as actual target
+					j++;
+					continue;
+				}
+
 				if (hasShellExpansion(nextToken)) {
 					return nextToken; // Shell expansion syntax detected
 				}

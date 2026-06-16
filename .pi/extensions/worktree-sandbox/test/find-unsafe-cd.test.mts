@@ -137,6 +137,85 @@ describe("findUnsafeCd", () => {
 	});
 
 	// ═════════════════════════════════════════════════════════════
+	// Option separator --
+	// ═════════════════════════════════════════════════════════════
+
+	it("returns '/etc' for cd -- /etc (bypasses sandbox)", () => {
+		const result = findUnsafeCd("cd -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	it("returns null for cd -- /tmp/sandbox-test-root (safe absolute)", () => {
+		const result = findUnsafeCd(`cd -- ${SANDBOX_ROOT}`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns null for cd -- /tmp/sandbox-test-root/subdir (safe subdir)", () => {
+		const result = findUnsafeCd(`cd -- ${SANDBOX_ROOT}/subdir`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns null for cd -- subdir (safe relative)", () => {
+		const result = findUnsafeCd("cd -- subdir", SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns '<HOME>' for cd -- (bare cd after separator)", () => {
+		const result = findUnsafeCd("cd --", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '<previous-dir>' for cd -- -", () => {
+		const result = findUnsafeCd("cd -- -", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<previous-dir>");
+	});
+
+	it("returns '<HOME>' for cd -- $HOME (shell-quote expands \$HOME to empty)", () => {
+		const result = findUnsafeCd("cd -- $HOME", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '~' for cd -- ~", () => {
+		const result = findUnsafeCd("cd -- ~", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "~");
+	});
+
+	it("returns '~/subdir' for cd -- ~/subdir", () => {
+		const result = findUnsafeCd("cd -- ~/subdir", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "~/subdir");
+	});
+
+	it("returns '<HOME>' for cd -- '' (empty string after separator)", () => {
+		const result = findUnsafeCd("cd -- ''", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '/etc' for cd -- -- /etc (double separator)", () => {
+		const result = findUnsafeCd("cd -- -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	it("returns '<HOME>' for cd -- -- (double separator, no target)", () => {
+		const result = findUnsafeCd("cd -- --", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "<HOME>");
+	});
+
+	it("returns '/etc' for ls || cd -- /etc (chain)", () => {
+		const result = findUnsafeCd("ls || cd -- /etc", SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, "/etc");
+	});
+
+	// ═════════════════════════════════════════════════════════════
 	// Backtick command substitution
 	// ═════════════════════════════════════════════════════════════
 
@@ -339,6 +418,61 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
 		try {
 			const event = makeBashEvent("cd - && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("<previous-dir>"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd -- /etc && pwd via bash handler (option separator bypass)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- /etc && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("/etc"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("allows cd -- subdir via bash handler (safe after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- subdir");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.equal(result, undefined);
+			assert.equal(event.input.command, `cd "${sandboxDir}" && cd -- subdir`);
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd -- via bash handler (bare cd after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- && pwd");
+			const ctx = makeCtx(sandboxDir);
+			const result = await handler(event, ctx);
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("<HOME>"));
+		} finally {
+			delete process.env.WORKTREE_SANDBOX_PATH;
+		}
+	});
+
+	it("blocks cd -- - via bash handler (previous dir after separator)", async () => {
+		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
+		try {
+			const event = makeBashEvent("cd -- - && pwd");
 			const ctx = makeCtx(sandboxDir);
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
