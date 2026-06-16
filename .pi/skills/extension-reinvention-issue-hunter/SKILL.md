@@ -36,13 +36,15 @@ This is a **hunt loop**. Core instruction: **keep hunting until ALL valid findin
 loop:
   1. Pick random extension from .pi/extensions/ (skip previously picked)
   2. Create hunt session label (reinvention-<ext>-<YYYYMMDD>)
-  3. Run Phase 1.5 (live docs analysis — build API catalog)
-  4. Run Phase 2 (code understanding)
-  5. Run Phase 3 (reinvention detection using catalog)
-  6. For each confirmed reinvention → file as GitHub issue (Phase 5)
-  7. Cluster: write cross-references, add session label (Phase 5)
-  8. If no reinvention found → log reason, goto loop start (pick next)
-  9. After all findings filed OR all extensions exhausted → output report (Phase 6)
+  3. Run Phase 1b (extension triage — score signal density, skip low-yield)
+  4. If score below threshold → log reason, goto loop start
+  5. Run Phase 1.5 (live docs analysis — targeted grep, not sequential read)
+  6. Run Phase 2 (code understanding)
+  7. Run Phase 3 (reinvention detection — conditional, extension-profile-driven)
+  8. For each confirmed reinvention → file as GitHub issue (Phase 5)
+  9. Cluster: write cross-references, add session label (Phase 5)
+  10. If no reinvention found → log reason, goto loop start (pick next)
+  11. After all findings filed OR all extensions exhausted → output report (Phase 6)
 ```
 
 **Critical rule:** Do NOT lower proof standards. A finding without proof is not a finding. Skip ambiguous cases.
@@ -61,6 +63,27 @@ ls /home/miria/git/main/.pi/extensions/*.ts     # single-file extensions
 ```
 
 Pick randomly. Document which extension selected and why.
+
+### Phase 1b — Extension Triage (Signal Score)
+
+Before committing to full analysis, score extension complexity and reinvention surface.
+Run quick signal scan, then skip if score too low for cost-effective hunt.
+
+```bash
+# Count reinvention signals: tool registrations, event handlers, fs ops, ui calls, module state
+rg -c "registerTool|pi\.on\(|readFile|writeFile|execSync|exec\(|child_process|ctx\.ui\.|^let |^const .*= new |^const .*= \\[\\]" \
+  /home/miria/git/main/.pi/extensions/<name>/index.ts
+
+# Count file count (more files = more surface)
+ls /home/miria/git/main/.pi/extensions/<name>/ | wc -l
+```
+
+**Scoring:**
+- 0-3 signals + 1 file → **low yield**. Skip. Log: "Low signal density (X signals, Y files). Too expensive for expected return."
+- 4-8 signals → **medium**. Proceed with full analysis but prioritize 100%-confidence techniques first.
+- 9+ signals → **high**. Proceed with full analysis.
+
+**Override:** Always proceed if extension has `package.json` with `"pi"` field (it's a distributed package with more surface).
 
 ### Phase 1.5 — Live Pi Documentation Analysis
 
@@ -84,42 +107,31 @@ Read these documentation files. They define the built-in APIs that extensions mi
 | `docs/compaction.md` | Compaction hooks, serializeConversation, session_before_compact | MEDIUM |
 | `docs/settings.md` | Settings config, project trust | LOW |
 
-**How to read docs efficiently:**
+**How to read docs efficiently — targeted grep, not sequential scan:**
+
+Do NOT read the full doc file line-by-line. Use `ripgrep_search` to locate relevant sections, then `read` only those sections. This cuts reading tokens by ~90%.
 
 ```bash
-# extensions.md is large (~2663 lines). Read in sections.
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md --limit 500
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md --offset 500 --limit 500
-# ... continue until you've covered:
-#   "Custom UI" / "Dialogs" section
-#   "Custom Tools" / "File Mutation Queue" section
-#   "Custom Tools" / "Output Truncation" section
-#   "State Management" section
-#   "Custom Tools" / "Custom Rendering" section
-#   "Custom Tools" / "Tool Operations" section
-#   "Custom UI" / "Widgets, Status, Footer" section
-#   "Custom UI" / "Autocomplete Providers" section
-#   "Custom Editor" section
-#   "Message Injection" section
-#   "Session Management" section
-#   "Provider Registration" section
-#   "ExtensionAPI Methods" section
-```
+# 1. Locate built-in API sections via grep
+ripgrep_search "truncateHead|truncateLine|formatSize|DEFAULT_MAX" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+ripgrep_search "ctx\.ui\.select|ctx\.ui\.confirm|ctx\.ui\.custom|addAutocompleteProvider" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+ripgrep_search "withFileMutationQueue|registerProvider|prepareArguments|highlightCode|keyHint" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+ripgrep_search "sendMessage|sendUserMessage|appendEntry|setStatus|setWidget|setFooter|setEditor|pasteTo" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+ripgrep_search "matchesKey|Key\.up|Key\.enter|CustomEditor|setEditorComponent|onHandle|overlay" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/tui.md
+ripgrep_search "session_before_compact|serializeConversation|session_before_tree" \
+  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/compaction.md
 
-```bash
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/tui.md
-# Focus on:
-#   "Keyboard Input" section (matchesKey, Key.*)
-#   "Built-in Components" section (Text, Box, Container, Markdown, SelectList, SettingsList)
-#   "Custom Components" section (render, handleInput, invalidate)
-#   "Pattern 7: Custom Editor" section
-```
+# 2. Each match shows file:line. Read only the sections you need.
+# Example: "truncateLine" at extensions.md:1850
+read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md --offset 1840 --limit 50
 
-```bash
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/compaction.md
-# Focus on:
-#   "Custom Summarization via Extensions" section
-#   serializeConversation, convertToLlm
+# 3. Also check type definitions for exact API signatures
+read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/truncate.d.ts
 ```
 
 #### Step 3: Build a Dynamic API Catalog
@@ -275,9 +287,25 @@ Understand:
 
 **Cross-reference each pattern** against the catalog built in Phase 1.5. For each custom pattern found, check if a pi built-in API exists for it.
 
-### Phase 3 — Reinvention Detection Techniques
+### Phase 3 — Reinvention Detection Techniques (Conditional)
 
-Apply each technique below against the catalog. For each, document what you checked and whether found anything. Assign a **confidence level** and **LOC reduction estimate**.
+**Do NOT loop through all 17+ techniques.** Select techniques based on extension profile from Phase 1b:
+
+| If extension has... | Apply techniques... |
+|---------------------|-------------------|
+| `registerTool` | 2, 3, 5, 7, 17, 18, 22 |
+| `ctx.ui.*` calls | 1, 15, 16 |
+| `ctx.ui.custom()` | 1, 21 |
+| `child_process` / `execSync` / `spawn` | 6 |
+| `readFile` / `writeFile` (in tool execute) | 2 |
+| `class.*Editor` / `extends` | 8, 13, 20 |
+| `on(\"input\"` / `sessionManager` | 11, 14 |
+| `session_before_compact` / `summarize` | 10 |
+| `registerProvider` / `fetch.*/v1/models` | 12 |
+| `autocomplete` / `getSuggestions` | 15 |
+| Hardcoded key strings / ANSI codes | 8, 19 |
+
+For each technique applied, document what you checked and whether found anything. Assign a **confidence level** and **LOC reduction estimate**.
 
 **Confidence scale:**
 
@@ -599,6 +627,120 @@ ripgrep_search "prepareArguments" /home/miria/git/main/.pi/extensions/<name>/
 - Parameters schema includes deprecated fields with `Type.Optional()`
 
 **Confidence:** 90%.
+
+---
+
+#### Technique 18: Missing onUpdate Streaming
+
+Detection: Tool `execute()` builds full result in memory and returns at once instead of streaming progress via `onUpdate()`.
+
+**Cross-reference against live docs:** Read the "Tool Definition" section of `docs/extensions.md`. Find `onUpdate` in the execute signature.
+
+**Detection patterns:**
+
+```bash
+ripgrep_search "onUpdate" /home/miria/git/main/.pi/extensions/<name>/index.ts
+ripgrep_search "accumulat|buffer|join|push.*result" /home/miria/git/main/.pi/extensions/<name>/index.ts
+```
+
+**What to look for:**
+- Tool returns a single large content block without intermediate `onUpdate` calls
+- Long-running operations (search, aggregation) that could show progress
+- Accumulation pattern: `results.push(...)` then return all at once
+
+**False positive check:** Skip if tool execution is trivially fast (<500ms) or streaming would add complexity without user benefit.
+
+**Confidence:** 70%.
+
+---
+
+#### Technique 19: Hardcoded Keybinding Hints (Missing keyHint)
+
+Detection: Tool `renderCall`/`renderResult` hardcodes key labels ("⌘K", "Ctrl+P", "↑/↓") instead of using `keyHint()`.
+
+**Cross-reference against live docs:** Read "Custom Rendering" section of `docs/extensions.md`. Find `keyHint()`, `keyText()`, `rawKeyHint()`.
+
+**Detection patterns:**
+
+```bash
+ripgrep_search "\\u2318|\\u2303|\\u21e7|\\u2325|Ctrl[+-]|Alt[+-]|Shift[+-]|Cmd[+-]|Meta[+-]|⌘|⌃|⇧|⌥" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "keyHint" /home/miria/git/main/.pi/extensions/<name>/
+```
+
+**What to look for:**
+- `renderCall` / `renderResult` with hardcoded key labels in string literals
+- No `keyHint()` usage despite showing keyboard shortcuts
+
+**False positive check:** Skip if using `rawKeyHint()` which is also acceptable.
+
+**Confidence:** 100%.
+
+---
+
+#### Technique 20: Manual Editor Text / Paste Reimplementation
+
+Detection: Extension reimplements cursor management, paste handling, or editor text manipulation instead of using `ctx.ui.setEditorText()`, `ctx.ui.getEditorText()`, `ctx.ui.pasteToEditor()`.
+
+**Cross-reference against live docs:** Read the "Custom Editor" section in `docs/extensions.md`. Find `setEditorText`, `getEditorText`, `pasteToEditor`.
+
+**Detection patterns:**
+
+```bash
+ripgrep_search "setEditorText|getEditorText|pasteToEditor" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "selectionStart|selectionEnd|cursorPos|insertText|replaceSelection|clipboard|paste" /home/miria/git/main/.pi/extensions/<name>/
+```
+
+**What to look for:**
+- Custom editor with manual cursor state, clipboard handling, paste parsing
+- Text insertion logic that could use `pasteToEditor()`
+
+**False positive check:** Only applies to extensions that register a `CustomEditor` subclass or call `setEditorComponent`.
+
+**Confidence:** 90%.
+
+---
+
+#### Technique 21: Manual Overlay Implementation
+
+Detection: Extension implements floating/modal UI on top of content using raw terminal escapes or manual positioning instead of `ctx.ui.custom(..., { overlay: true })` with `overlayOptions`.
+
+**Cross-reference against live docs:** Read the "Custom Components" section in `docs/extensions.md`. Find `overlay`, `overlayOptions`, `onHandle`.
+
+**Detection patterns:**
+
+```bash
+ripgrep_search "ctx\.ui\.custom" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "overlay|modal|float|popup|dialog" /home/miria/git/main/.pi/extensions/<name>/
+```
+
+**What to look for:**
+- `ctx.ui.custom()` without `{ overlay: true }` that renders a floating/modal interface
+- Manual ANSI positioning or save/restore cursor for overlay effects
+
+**Confidence:** 70%.
+
+---
+
+#### Technique 22: Missing renderShell: "self"
+
+Detection: Tool that needs full control over its visual shell uses the default `Box` wrapper instead of setting `renderShell: "self"`.
+
+**Cross-reference against live docs:** Read the "Custom Rendering" section of `docs/extensions.md`. Find `renderShell: "self"`.
+
+**Detection patterns:**
+
+```bash
+ripgrep_search "renderShell" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "new Box|paddingX|paddingY|bgFn" /home/miria/git/main/.pi/extensions/<name>/
+```
+
+**What to look for:**
+- Tool with `renderCall`/`renderResult` that manually wraps in `new Box(...)` with custom padding/background
+- Tool returning `Text` with padding args beyond (0,0) to compensate for Box default
+
+**False positive check:** Skip if default Box styling is acceptable. Only flag if tool explicitly fights the Box (manual padding compensation, redundant background).
+
+**Confidence:** 70%.
 
 ---
 
