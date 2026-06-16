@@ -1060,14 +1060,14 @@ async function handleAuditorOutput(
 }
 
 /**
- * Build an approval comment from AgentOutput fields when no explicit commentBody provided.
+ * Shared audit comment builder — parameterised with title and footer
+ * to avoid duplicating the entire audit score + findings rendering.
  */
-function buildApprovalCommentFromOutput(agentOutput: string): string | null {
-	// Try to extract structured content from the agent output
+function buildAuditComment(agentOutput: string, title: string, footer: string): string | null {
 	const parseResult = parseAgentOutput(agentOutput);
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
-		const lines: string[] = ["## Audit Approved", ""];
+		const lines: string[] = [title, ""];
 
 		if (output.auditScore) {
 			const passing = output.auditScore.passing;
@@ -1091,7 +1091,7 @@ function buildApprovalCommentFromOutput(agentOutput: string): string | null {
 			lines.push("");
 		}
 
-		lines.push("Fix and resubmit if issues remain.");
+		lines.push(footer);
 		return lines.join("\n");
 	}
 
@@ -1099,42 +1099,17 @@ function buildApprovalCommentFromOutput(agentOutput: string): string | null {
 }
 
 /**
- * Build a rejection comment from AgentOutput fields when no explicit commentBody provided.
- * Similar to buildApprovalCommentFromOutput but marks as REJECTED.
+ * Build an approval comment from AgentOutput fields when no explicit commentBody provided.
  */
-function buildRejectionCommentFromOutput(agentOutput: string): string | null {
-	const parseResult = parseAgentOutput(agentOutput);
-	if (isAgentOutputSuccess(parseResult)) {
-		const output = parseResult as AgentOutput;
-		const lines: string[] = ["## Audit Rejected", ""];
+export function buildApprovalCommentFromOutput(agentOutput: string): string | null {
+	return buildAuditComment(agentOutput, "## Audit Approved", "Fix and resubmit if issues remain.");
+}
 
-		if (output.auditScore) {
-			const passing = output.auditScore.passing;
-			const total = output.auditScore.total;
-			lines.push(
-				`**Score:** ${passing}/${total} — ${passing === total ? "All dimensions passing" : `${passing} of ${total} dimensions passing`}`,
-			);
-			lines.push("");
-		}
-
-		if (output.findings && output.findings.length > 0) {
-			lines.push("### Findings");
-			lines.push("");
-			for (const finding of output.findings) {
-				lines.push(`- **${finding.severity} — ${finding.dimension}**`);
-				if (finding.symptom) lines.push(`  - Symptom: ${finding.symptom}`);
-				if (finding.consequence) lines.push(`  - Consequence: ${finding.consequence}`);
-				if (finding.remedy) lines.push(`  - Remedy: ${finding.remedy}`);
-				if (finding.location) lines.push(`  - Location: ${finding.location}`);
-			}
-			lines.push("");
-		}
-
-		lines.push("Fix the issues above and resubmit.");
-		return lines.join("\n");
-	}
-
-	return null;
+/**
+ * Build a rejection comment from AgentOutput fields when no explicit commentBody provided.
+ */
+export function buildRejectionCommentFromOutput(agentOutput: string): string | null {
+	return buildAuditComment(agentOutput, "## Audit Rejected", "Fix the issues above and resubmit.");
 }
 
 /**
