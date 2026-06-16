@@ -22,47 +22,32 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result with green/red background spanning all lines ─
+		// ── Tool call result: colored header + Markdown result body ─
 		const toolCallResult = rawDetails?.toolCallResult as
 			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const header = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
-			// Use native pi theme colors for tool call backgrounds
+			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
 			const bgFn = (l: string) =>
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-			// Merge header + output into one Text so background spans all lines
-			let fullText = header;
+			const c = new Container();
+			// Colored header line with full-width background
+			c.addChild(new Text(headerText, 1, 0, bgFn));
+			// Result body as Markdown (no background)
 			if (toolCallResult.resultText) {
-				// Truncate result to keep block from growing too large
 				const trimmed = toolCallResult.resultText.slice(0, 2_000);
-				fullText += "\n" + trimmed;
+				const mdTheme = getMarkdownTheme();
+				c.addChild(new Markdown(trimmed, 1, 1, mdTheme));
 			}
-			return new Text(fullText, 1, 0, bgFn);
+			return c;
 		}
 
-		// ── Progress update (rendered as Markdown for formatting) ─
+		// ── Progress update (rendered as Markdown) ─
 		if (rawDetails?._progressUpdate && typeof message.content === "string") {
-			const text = message.content;
-			const firstNl = text.indexOf("\n");
-			if (firstNl > 0) {
-				// First line = status/phase (e.g. "⏳ test-designer — thinking phase")
-				// Render with accent color for high contrast, rest as Markdown
-				const statusLine = text.slice(0, firstNl);
-				const rest = text.slice(firstNl + 1);
-				const c = new Container();
-				c.addChild(new Text(theme.fg("accent", statusLine), 1, 0));
-				if (rest.trim()) {
-					const mdTheme = getMarkdownTheme();
-					c.addChild(new Markdown(rest, 1, 0, mdTheme));
-				}
-				return c;
-			}
-			// Single line: just use Markdown as-is
 			const mdTheme = getMarkdownTheme();
-			return new Markdown(text, 1, 0, mdTheme);
+			return new Markdown(message.content, 1, 0, mdTheme);
 		}
 
 		// ── Subagent-compatible result rendering ────────────────
@@ -154,17 +139,6 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				statsParts.push(formatDuration(details.durationMs));
 			}
 
-			if (statsParts.length > 0) {
-				c.addChild(new Spacer(1));
-				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
-			}
-		} else {
-			// Old format (backward compat) — tools, tokens, duration
-			const statsParts: string[] = [];
-			if (details.toolCount > 0)
-				statsParts.push(`${details.toolCount} tool${details.toolCount === 1 ? "" : "s"}`);
-			if (details.tokenCount > 0) statsParts.push(`${formatTokens(details.tokenCount)} tokens`);
-			if (details.durationMs > 0) statsParts.push(formatDuration(details.durationMs));
 			if (statsParts.length > 0) {
 				c.addChild(new Spacer(1));
 				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
