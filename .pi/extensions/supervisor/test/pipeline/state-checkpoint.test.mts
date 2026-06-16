@@ -23,7 +23,6 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import type { NotifyFn } from "../../pipeline/helpers.ts";
 import {
 	isStaleCheckpoint,
-	readCheckpointFile,
 	readCheckpointFileFromPath,
 	writeCheckpointFile,
 	deleteCheckpointFile,
@@ -230,7 +229,7 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		assert.equal(r2.ok, true);
 
 		// Re-read should return state2
-		const reread = readCheckpointFile(cwd);
+		const reread = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.notEqual(reread, null);
 		assert.equal(reread!.issueNum, 200);
 		assert.equal(reread!.checkpoint, "pre-lsp");
@@ -277,7 +276,7 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		const writeResult = writeCheckpointFile(cwd, state);
 		assert.equal(writeResult.ok, true);
 
-		const readResult = readCheckpointFile(cwd);
+		const readResult = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.notEqual(readResult, null);
 		assert.equal(readResult!.issueNum, state.issueNum);
 		assert.equal(readResult!.checkpoint, state.checkpoint);
@@ -293,7 +292,7 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		writeCheckpointFile(cwd, state1);
 		writeCheckpointFile(cwd, state2);
 
-		const readResult = readCheckpointFile(cwd);
+		const readResult = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.notEqual(readResult, null);
 		assert.equal(readResult!.issueNum, 2);
 		assert.equal(readResult!.checkpoint, "pre-lsp");
@@ -315,7 +314,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 	});
 
 	it("readCheckpointFile returns null when file doesn't exist", () => {
-		const result = readCheckpointFile(cwd);
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.equal(result, null);
 	});
 
@@ -323,7 +322,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 		const statePath = join(cwd, ".pi", "supervisor-state.json");
 		writeFileSync(statePath, '{"issueNum": 746, "checkpoint": "pre-tsc",', "utf-8");
 
-		const result = readCheckpointFile(cwd);
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.equal(result, null);
 	});
 
@@ -331,7 +330,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 		const statePath = join(cwd, ".pi", "supervisor-state.json");
 		writeFileSync(statePath, '{"issueNum": 746}', "utf-8");
 
-		const result = readCheckpointFile(cwd);
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.equal(result, null);
 	});
 
@@ -349,7 +348,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 			"utf-8",
 		);
 
-		const result = readCheckpointFile(cwd);
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.equal(result, null);
 	});
 
@@ -357,7 +356,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 		const state = createState();
 		writeCheckpointFile(cwd, state);
 
-		const result = readCheckpointFile(cwd);
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
 		assert.notEqual(result, null);
 		assert.equal(result!.issueNum, state.issueNum);
 		assert.equal(result!.checkpoint, state.checkpoint);

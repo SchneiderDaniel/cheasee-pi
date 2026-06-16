@@ -156,19 +156,6 @@ function readCheckpointFileAtPath(filePath: string): SupervisorCheckpointState |
 }
 
 /**
- * Read and parse the checkpoint state file from `.pi/supervisor-state.json`
- * relative to `cwd`.
- *
- * Returns `null` if:
- * - The file doesn't exist
- * - The file can't be parsed as JSON
- * - The JSON has missing or invalid required fields
- */
-export function readCheckpointFile(cwd: string): SupervisorCheckpointState | null {
-	return readCheckpointFileAtPath(stateFilePath(cwd));
-}
-
-/**
  * Read and parse a checkpoint state file from a specific path.
  * Used by cleanupStalePipelineState for state files found under worktree dirs.
  *
