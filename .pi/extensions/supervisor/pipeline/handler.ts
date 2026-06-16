@@ -823,6 +823,7 @@ export async function handleSupervisorCommand(
 				worktreePath,
 				config.maxToolCalls,
 				config.agentTokenBudget,
+				issueTitle,
 			);
 
 			getDebugLogger().info("handler", `Agent ${agentName} completed`, {
@@ -1383,12 +1384,13 @@ export async function executeAgent(
 	agentCwd: string | undefined,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
+	issueTitle?: string,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
 	// Send start message (1 message to session, no streaming updates)
 	const shortModel = agent.config.model
 		? agent.config.model.split("/").pop() || agent.config.model
 		: "";
-	const taskPreview = task.split("\n")[0]?.slice(0, 120) || "";
+	const taskPreview = issueTitle || task.split("\n")[0]?.slice(0, 120) || "";
 	pi.sendMessage({
 		customType: "supervisor",
 		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
