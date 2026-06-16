@@ -206,13 +206,15 @@ export async function executeSubagent(
 
 			// Include completed thinking from log + current incomplete line
 			const MAX_THINK_LINES = 30;
+			// Strip 💭 prefix from each log entry (added by pushLog), add single 💭 heading line.
 			const thinkLogLines = state.fullLog
 				.filter((entry: string) => entry.startsWith("💭"))
-				.slice(-MAX_THINK_LINES);
+				.slice(-MAX_THINK_LINES)
+				.map((entry: string) => entry.replace(/^💭 /, ""));
 			const currentThinking = state.liveThinking.trim();
 			const thinkOutput =
 				thinkLogLines.length > 0 || currentThinking
-					? [...thinkLogLines, ...(currentThinking ? [`💭 ${currentThinking}`] : [])].join("\n")
+					? ["💭", ...thinkLogLines, ...(currentThinking ? [currentThinking] : [])].join("\n")
 					: "";
 
 			// Include partial text output if available
@@ -262,7 +264,10 @@ export async function executeSubagent(
 					const rawEvt = event as any;
 					let resultStr: string | undefined;
 					if (rawEvt.result) {
-						const r = typeof rawEvt.result === "string" ? rawEvt.result : String(rawEvt.result);
+						const r =
+							typeof rawEvt.result === "string"
+								? rawEvt.result
+								: JSON.stringify(rawEvt.result, null, 2);
 						resultStr = r.slice(0, 2_000);
 					}
 					toolResults.push({
