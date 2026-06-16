@@ -6,22 +6,52 @@
  * stage based on status transitions in GitHub projects.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createMessageRenderer, createSummaryRenderer } from "./session/message-renderer";
 import { registerSupervisorCommand } from "./pipeline/index.ts";
 import { createIssueAutocompleteProvider, resetIssueCache } from "./event/autocomplete.ts";
 import { loadConfig } from "./config/config.ts";
 import { registerSubagentTool } from "./subagent/index.ts";
 
+// ── pi.executeTool augmentation (no pi-core changes) ──────────────
+// Type augmentation so TypeScript recognizes pi.executeTool() on ExtensionAPI.
+declare module "@earendil-works/pi-coding-agent" {
+	interface ExtensionAPI {
+		executeTool(
+			toolName: string,
+			params: Record<string, unknown>,
+			options?: { signal?: AbortSignal; onUpdate?: (result: any) => void },
+		): Promise<any>;
+	}
+}
+
 export default function supervisor(pi: ExtensionAPI) {
+	// Intercept registerTool to capture execute functions for programmatic dispatch.
+	// This avoids modifying pi-core's node_modules while enabling the pipeline
+	// to call pi.executeTool("subagent", params, { onUpdate }).
+	const toolExecutors = new Map<string, Function>();
+	const origRegisterTool = pi.registerTool.bind(pi);
+	pi.registerTool = ((tool: ToolDefinition) => {
+		if (tool.execute) toolExecutors.set(tool.name, tool.execute as Function);
+		origRegisterTool(tool);
+	}) as typeof pi.registerTool;
+
+	(pi as any).executeTool = async (
+		toolName: string,
+		params: Record<string, unknown>,
+		options?: { signal?: AbortSignal; onUpdate?: (result: any) => void },
+	) => {
+		const execute = toolExecutors.get(toolName);
+		if (!execute) throw new Error(`Tool "${toolName}" not found — not yet registered`);
+		const toolCallId = `pi_exec_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+		return execute(toolCallId, params, options?.signal, options?.onUpdate, undefined);
+	};
+
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
 	pi.registerMessageRenderer("supervisor-summary", createSummaryRenderer(pi));
 	// supervisor-progress renderer removed — widget-based progress replaces invisible sendMessage.
 	registerSupervisorCommand(pi);
 
-	// Register subagent tool for native inline rendering per agent step
-	// Enables both LLM-callable subagent (Step 3 bonus) and pipeline-integrated
-	// execution via executeSubagent() exported from ./subagent/index.ts
 	registerSubagentTool(pi);
 
 	// Register #-trigger autocomplete provider for issue numbers
