@@ -22,28 +22,25 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result with green/red background + output ─
+		// ── Tool call result with green/red background spanning all lines ─
 		const toolCallResult = rawDetails?.toolCallResult as
 			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const line = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
-			// customBgFn: fill line with muted green (48;2;70;140;70) or muted red (48;2;160;70;70)
-			const bgSeq = toolCallResult.isError ? "48;2;160;70;70" : "48;2;70;140;70";
-			const bgFn = (l: string) => `\x1b[${bgSeq}m${l}\x1b[0m`;
-			const headerText = new Text(line, 1, 0, bgFn);
+			const header = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			// Use native pi theme colors for tool call backgrounds
+			const bgFn = (l: string) =>
+				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-			// If there's result output, render it as Markdown below the bg header
+			// Merge header + output into one Text so background spans all lines
+			let fullText = header;
 			if (toolCallResult.resultText) {
-				const c = new Container();
-				c.addChild(headerText);
-				const mdTheme = getMarkdownTheme();
-				c.addChild(new Markdown(toolCallResult.resultText, 1, 0, mdTheme));
-				return c;
+				// Truncate result to keep block from growing too large
+				const trimmed = toolCallResult.resultText.slice(0, 2_000);
+				fullText += "\n" + trimmed;
 			}
-
-			return headerText;
+			return new Text(fullText, 1, 0, bgFn);
 		}
 
 		// ── Progress update (rendered as Markdown for formatting) ─
