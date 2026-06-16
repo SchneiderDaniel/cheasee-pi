@@ -363,16 +363,19 @@ export async function executeSubagent(
 						// Expected — prompt settled via abort
 					}
 				}
-				// Cleanup abort signal listener
-				if (abortHandler && signal) {
-					signal.removeEventListener("abort", abortHandler);
-				}
-
 				// Capture messages before dispose
 				capturedMessages = session?.state?.messages || [];
 
-				// Cleanup
-				cleanupSession(session, unsubscribe, debounceTimer, cwd, _prevSandboxEnv);
+				// Cleanup abort listener and session
+				cleanupAbortAndSession(
+					abortHandler,
+					signal,
+					session,
+					unsubscribe,
+					debounceTimer,
+					cwd,
+					_prevSandboxEnv,
+				);
 
 				const durationMs = Date.now() - startedAt;
 				return buildSubagentResult(
@@ -439,16 +442,19 @@ export async function executeSubagent(
 			});
 		}
 
-		// Cleanup abort signal listener
-		if (abortHandler && signal) {
-			signal.removeEventListener("abort", abortHandler);
-		}
-
 		// Capture messages before dispose
 		capturedMessages = session?.state?.messages || [];
 
-		// Cleanup
-		cleanupSession(session, unsubscribe, debounceTimer, cwd, _prevSandboxEnv);
+		// Cleanup abort listener and session
+		cleanupAbortAndSession(
+			abortHandler,
+			signal,
+			session,
+			unsubscribe,
+			debounceTimer,
+			cwd,
+			_prevSandboxEnv,
+		);
 
 		const durationMs = Date.now() - startedAt;
 		return buildSubagentResult(
@@ -465,65 +471,41 @@ export async function executeSubagent(
 		);
 	} catch (err: unknown) {
 		// Error path — always cleanup
-		// Remove abort signal listener
-		if (abortHandler && signal) {
-			signal.removeEventListener("abort", abortHandler);
-		}
-		// Cleanup
-		cleanupSession(session, unsubscribe, debounceTimer, cwd, undefined);
+		// Cleanup abort listener and session
+		cleanupAbortAndSession(
+			abortHandler,
+			signal,
+			session,
+			unsubscribe,
+			debounceTimer,
+			cwd,
+			undefined,
+		);
 
 		const durationMs = Date.now() - startedAt;
 		const errorMsg = err instanceof Error ? err.message : String(err);
 
-		// Send error onUpdate
-		if (onUpdate) {
-			onUpdate({
-				content: [{ type: "text", text: `✗ ${agentName} — failed: ${errorMsg}` }],
-				details: {
-					agentName,
-					success: false,
-					statusLabel: "FAILED",
-					summaryLine: `Failed: ${errorMsg.slice(0, 120)}`,
-					model: agentModel,
-					inputTokens: 0,
-					outputTokens: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					cost: 0,
-					turnCount: 0,
-					durationMs,
-					toolCalls: [...toolCalls],
-					toolResults: [...toolResults],
-					taskPrompt: task,
-				},
-			});
-		}
+		// Send error onUpdate via shared helper
+		sendErrorUpdate(
+			onUpdate,
+			agentName,
+			errorMsg,
+			agentModel,
+			durationMs,
+			toolCalls,
+			toolResults,
+			task,
+		);
 
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Subagent ${agentName} failed: ${errorMsg}`,
-				},
-			],
-			details: {
-				agentName,
-				success: false,
-				statusLabel: "FAILED",
-				summaryLine: `Failed: ${errorMsg.slice(0, 120)}`,
-				model: agentModel,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				cost: 0,
-				turnCount: 0,
-				durationMs,
-				toolCalls: [...toolCalls],
-				toolResults: [...toolResults],
-				taskPrompt: task,
-			},
-		};
+		return buildErrorResult(
+			agentName,
+			errorMsg,
+			agentModel,
+			durationMs,
+			toolCalls,
+			toolResults,
+			task,
+		);
 	}
 }
 
@@ -592,6 +574,118 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 }
 
 // ─── Internal Helpers ───────────────────────────────────────────────
+
+/**
+ * Clean up abort signal listener and session resources.
+ * Guards against undefined abortHandler/signal/session.
+ */
+export function cleanupAbortAndSession(
+	abortHandler: (() => void) | undefined,
+	signal: AbortSignal | undefined,
+	session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined,
+	unsubscribe: (() => void) | undefined,
+	debounceTimer: ReturnType<typeof setTimeout> | null,
+	cwd: string | undefined,
+	prevSandboxEnv: string | undefined,
+): void {
+	if (abortHandler && signal) {
+		signal.removeEventListener("abort", abortHandler);
+	}
+	cleanupSession(session, unsubscribe, debounceTimer, cwd, prevSandboxEnv);
+}
+
+/**
+ * Build a FAILED details object shared by sendErrorUpdate and buildErrorResult.
+ * All metric fields default to zero — only the subagent execution metadata is set.
+ */
+export function buildFailedDetails(
+	agentName: string,
+	errorMsg: string,
+	agentModel: string,
+	durationMs: number,
+	toolCalls: SubagentToolCall[],
+	toolResults: SubagentToolResult[],
+	task: string,
+): SubagentDetails {
+	return {
+		agentName,
+		success: false,
+		statusLabel: "FAILED",
+		summaryLine: `Failed: ${errorMsg.slice(0, 120)}`,
+		model: agentModel,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		cost: 0,
+		turnCount: 0,
+		durationMs,
+		toolCalls: [...toolCalls],
+		toolResults: [...toolResults],
+		taskPrompt: task,
+	};
+}
+
+/**
+ * Send an onUpdate with FAILED status details.
+ * Guards against undefined onUpdate — no-op if missing.
+ */
+export function sendErrorUpdate(
+	onUpdate: ((partial: AgentToolResult<Partial<SubagentDetails>>) => void) | undefined,
+	agentName: string,
+	errorMsg: string,
+	agentModel: string,
+	durationMs: number,
+	toolCalls: SubagentToolCall[],
+	toolResults: SubagentToolResult[],
+	task: string,
+): void {
+	if (!onUpdate) return;
+	onUpdate({
+		content: [{ type: "text", text: `✗ ${agentName} — failed: ${errorMsg}` }],
+		details: buildFailedDetails(
+			agentName,
+			errorMsg,
+			agentModel,
+			durationMs,
+			toolCalls,
+			toolResults,
+			task,
+		),
+	});
+}
+
+/**
+ * Build an AgentToolResult for a FAILED subagent execution.
+ * Content text follows the pattern "Subagent <name> failed: <errorMsg>".
+ */
+export function buildErrorResult(
+	agentName: string,
+	errorMsg: string,
+	agentModel: string,
+	durationMs: number,
+	toolCalls: SubagentToolCall[],
+	toolResults: SubagentToolResult[],
+	task: string,
+): AgentToolResult<SubagentDetails> {
+	return {
+		content: [
+			{
+				type: "text",
+				text: `Subagent ${agentName} failed: ${errorMsg}`,
+			},
+		],
+		details: buildFailedDetails(
+			agentName,
+			errorMsg,
+			agentModel,
+			durationMs,
+			toolCalls,
+			toolResults,
+			task,
+		),
+	};
+}
 
 /**
  * Clean up session resources: dispose session, unsubscribe, clear timer,
