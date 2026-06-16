@@ -1450,14 +1450,12 @@ export async function executeAgent(
 							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
 							else argsStr = JSON.stringify(a).slice(0, 120);
 						}
+						// For blocked/failed tools, extract error reason from result
 						const rWithResult = r as any;
-						const rawResult = typeof rWithResult.result === "string" ? rWithResult.result : "";
-						// resultText shows thinking first, then raw tool result
-						let body = thinking;
-						if (rawResult) {
-							body += thinking ? "\n\n" : "";
-							body += rawResult.slice(0, 2000);
-						}
+						const errorReason =
+							r.isError && typeof rWithResult.result === "string"
+								? rWithResult.result.slice(0, 300)
+								: "";
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
@@ -1467,7 +1465,11 @@ export async function executeAgent(
 									name: r.name,
 									args: argsStr,
 									isError: !!r.isError,
-									resultText: body.slice(0, 5000),
+									errorReason,
+									// Keep thinking so user sees chain of thought
+									thinking,
+									// Simple per-call stat: tool ordinal (e.g. "#3")
+									toolIndex: `#${i + 1}`,
 								},
 							},
 						});

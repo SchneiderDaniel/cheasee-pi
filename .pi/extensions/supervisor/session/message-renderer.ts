@@ -23,10 +23,16 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result: colored header + Markdown body ─
-		const toolCallResult = rawDetails?.toolCallResult as
-			| { name: string; args: string; isError: boolean; resultText?: string }
-			| undefined;
+		// ── Tool call result: colored header + stats/thinking/error ─
+		interface ToolCallDetail {
+			name: string;
+			args: string;
+			isError: boolean;
+			thinking?: string;
+			errorReason?: string;
+			toolIndex?: string;
+		}
+		const toolCallResult = rawDetails?.toolCallResult as ToolCallDetail | undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
@@ -34,16 +40,26 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
 			const c = new Container();
-			// Colored header line with full-width background (matching native pi)
+			// Colored header line with full-width background
 			c.addChild(new Text(headerText, 1, 0, bgFn));
-			// Result body as Markdown (no background)
-			if (toolCallResult.resultText) {
-				// Normalize indented fences: GFM requires 0-3 spaces before ```
-				// Subagent output often has 4+ spaces from nested context
-				const normalized = toolCallResult.resultText.replace(/^ {4,}(```+)/gm, "$1");
+
+			// Tool call index stat (e.g. "3/19")
+			if (toolCallResult.toolIndex) {
+				c.addChild(new Text(theme.fg("dim", toolCallResult.toolIndex), 1, 0));
+			}
+
+			// Thinking (Markdown, no background)
+			if (toolCallResult.thinking) {
+				const normalized = toolCallResult.thinking.replace(/^ {4,}(```+)/gm, "$1");
 				const mdTheme = getMarkdownTheme();
 				c.addChild(new Markdown(normalized, 1, 1, mdTheme));
 			}
+
+			// Error/reason for blocked tools
+			if (toolCallResult.isError && toolCallResult.errorReason) {
+				c.addChild(new Text(theme.fg("error", `✗ ${toolCallResult.errorReason}`), 1, 1));
+			}
+
 			return c;
 		}
 
