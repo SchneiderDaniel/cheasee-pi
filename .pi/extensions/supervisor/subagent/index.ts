@@ -204,9 +204,19 @@ export async function executeSubagent(
 				statusText = `⏳ ${agentName} — ${formatted}`;
 			}
 
-			// Include partial text and thinking output if available
+			// Include completed thinking from log + current incomplete line
+			const MAX_THINK_LINES = 30;
+			const thinkLogLines = state.fullLog
+				.filter((entry: string) => entry.startsWith("💭"))
+				.slice(-MAX_THINK_LINES);
+			const currentThinking = state.liveThinking.trim();
+			const thinkOutput =
+				thinkLogLines.length > 0 || currentThinking
+					? [...thinkLogLines, ...(currentThinking ? [`💭 ${currentThinking}`] : [])].join("\n")
+					: "";
+
+			// Include partial text output if available
 			const liveOutput = state.liveText.trim() ? state.liveText.slice(0, 500) : "";
-			const thinkOutput = state.liveThinking.trim() ? `💭 ${state.liveThinking.slice(0, 500)}` : "";
 
 			const contentParts = [statusText];
 			if (thinkOutput) contentParts.push(thinkOutput);

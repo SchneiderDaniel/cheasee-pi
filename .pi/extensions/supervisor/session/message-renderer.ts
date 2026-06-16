@@ -29,9 +29,9 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 			const line = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
-			// customBgFn: fill line with green (bg 42) or red (bg 41)
-			const bgCode = toolCallResult.isError ? 41 : 42;
-			const bgFn = (l: string) => `\x1b[${bgCode}m${l}\x1b[0m`;
+			// customBgFn: fill line with muted green (48;2;70;140;70) or muted red (48;2;160;70;70)
+			const bgSeq = toolCallResult.isError ? "48;2;160;70;70" : "48;2;70;140;70";
+			const bgFn = (l: string) => `\x1b[${bgSeq}m${l}\x1b[0m`;
 			return new Text(line, 1, 0, bgFn);
 		}
 
