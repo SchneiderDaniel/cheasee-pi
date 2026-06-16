@@ -8,7 +8,7 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { Container, Text, Spacer } from "@earendil-works/pi-tui";
+import { Container, Text, Spacer, type Component } from "@earendil-works/pi-tui";
 import { Markdown } from "@earendil-works/pi-tui";
 import { initTheme, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
@@ -46,7 +46,7 @@ function renderMessage(
 	messageContent: string | undefined,
 	expanded = false,
 	options?: any,
-): Container | Text | Markdown | undefined {
+): Container | Text | Markdown | Component | undefined {
 	const pi = {} as any;
 	const renderer = createMessageRenderer(pi);
 	const message = {

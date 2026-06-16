@@ -13,11 +13,26 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
+import { renderSubagentResult } from "../subagent/renderer.ts";
+import type { SubagentDetails } from "../subagent/types.ts";
 
 export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, options: any, theme: any) => {
 		const { expanded } = options || { expanded: false };
 		const details = message.details as SupervisorMessageDetails | undefined;
+
+		// ── Subagent-compatible result rendering ────────────────
+		// If the message carries a _subagentResult, delegate to renderSubagentResult
+		// for exact visual parity with LLM-initiated subagent tool calls.
+		const rawDetails = (message as any).details;
+		const subagentResult = rawDetails?._subagentResult as
+			| import("../subagent/types.ts").AgentToolResult<SubagentDetails>
+			| undefined;
+		if (subagentResult) {
+			const isPartial = subagentResult.details?.statusLabel === "IN_PROGRESS";
+			return renderSubagentResult(subagentResult, { expanded, isPartial }, theme, {});
+		}
+
 		// No details → render as Markdown matching normal assistant message style
 		if (!details && typeof message.content === "string") {
 			const mdTheme = getMarkdownTheme();

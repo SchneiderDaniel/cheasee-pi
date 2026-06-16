@@ -1492,6 +1492,9 @@ export async function executeAgent(
 
 				// 3. Send result on completion (with details → renders as rich supervisor component)
 				if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
+					// Send full AgentToolResult as _subagentResult so renderer delegates
+					// to renderSubagentResult — exact visual parity with LLM-initiated calls.
+					const partialCopy = { ...partial };
 					pi.sendMessage({
 						customType: "supervisor",
 						content: "",
@@ -1510,6 +1513,7 @@ export async function executeAgent(
 							cacheRead: d.cacheRead || 0,
 							cacheWrite: d.cacheWrite || 0,
 							cost: d.cost || 0,
+							_subagentResult: partialCopy,
 						},
 					});
 				}
