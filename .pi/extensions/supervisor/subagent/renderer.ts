@@ -176,11 +176,11 @@ export function renderSubagentResult(
 		container.addChild(new Spacer(1));
 	}
 
-	// ── Output Section ───────────────────────────────────────────
+	// ── 💭 Thinking & Output Section ────────────────────────────
 	const content0 = result.content?.[0];
 	const outputText = content0 && content0.type === "text" ? content0.text : "";
 	if (outputText.trim()) {
-		container.addChild(new Text(fit(theme.fg("dim", "── Output ──")), 1, 0));
+		container.addChild(new Text(fit(theme.fg("dim", "── 💭 Thinking & Output ──")), 1, 0));
 
 		// Truncate output for display (full content is in result.content)
 		const displayOutput =

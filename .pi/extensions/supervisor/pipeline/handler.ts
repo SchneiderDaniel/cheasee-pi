@@ -1409,7 +1409,7 @@ export async function executeAgent(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
-	// Send start message (1 message to session, no streaming updates)
+	// Send start message
 	const shortModel = agent.config.model
 		? agent.config.model.split("/").pop() || agent.config.model
 		: "";
@@ -1421,24 +1421,19 @@ export async function executeAgent(
 		details: { _progressUpdate: true },
 	});
 
-	// Widget for lightweight non-session progress display
+	// Widget for quick-glance progress (above editor, zero session cost)
 	const widgetId = `supervisor-${agent.config.name}-${Date.now()}`;
-	const updateWidget = (phase: string, toolCount: number, elapsedMs: number) => {
-		if (!ctx.hasUI) return;
-		const elapsed = elapsedMs > 0 ? `${(elapsedMs / 1000).toFixed(0)}s` : "";
-		ctx.ui.setWidget(widgetId, [
-			`${agent.config.name} — ${phase}${elapsed ? ` (${elapsed})` : ""}`,
-			`tools: ${toolCount}`,
-		]);
-	};
 	const clearWidget = () => {
 		if (!ctx.hasUI) return;
 		ctx.ui.setWidget(widgetId, undefined);
 	};
 
-	// Primary: pi.executeTool dispatches through registered tool for native TUI rendering.
-	// onUpdate only used for widget status — NO pi.sendMessage() calls inside onUpdate
-	// to avoid flooding main session context with progress tokens.
+	// Track last tool result count for delta dispatch
+	let lastResultCount = 0;
+
+	// Primary: pi.executeTool dispatches through registered tool.
+	// onUpdate only sends COMPACT tool result messages during execution.
+	// No thinking/phase progress — thinking posted once in final _subagentResult.
 	const toolResult = await pi.executeTool(
 		"subagent",
 		{
@@ -1453,17 +1448,68 @@ export async function executeAgent(
 				const d = partial.details;
 				if (!d) return;
 
-				// Lightweight widget update — no session messages
-				const phase =
-					d.statusLabel === "IN_PROGRESS" ? d.summaryLine || "running" : d.statusLabel || "running";
-				updateWidget(phase, d.toolCalls?.length || 0, d.durationMs || 0);
+				// Widget (above editor, zero session cost)
+				if (ctx.hasUI) {
+					const phase =
+						d.statusLabel === "IN_PROGRESS"
+							? d.summaryLine || "running"
+							: d.statusLabel || "running";
+					const elapsed = d.durationMs ? `${(d.durationMs / 1000).toFixed(0)}s` : "";
+					ctx.ui.setWidget(widgetId, (_tui: any, theme: any) => {
+						const { Text } = require("@earendil-works/pi-tui");
+						const line1 = theme.fg(
+							"accent",
+							`${agent.config.name} — ${phase}${elapsed ? ` (${elapsed})` : ""}`,
+						);
+						const line2 = theme.fg("dim", `tools: ${d.toolCalls?.length || 0}`);
+						return new Text(line1 + "\n" + line2, 0, 0);
+					});
+				}
+
+				// Tool results only (compact, colored background)
+				const tr = d.toolResults;
+				const trCount = tr?.length || 0;
+				if (trCount > lastResultCount && tr) {
+					const tc = d.toolCalls || [];
+					for (let i = lastResultCount; i < trCount; i++) {
+						const r = tr[i];
+						if (!r) continue;
+						const call = tc[i];
+						let argsStr = "";
+						if (call?.args) {
+							const a = call.args;
+							if (typeof a.path === "string") argsStr = a.path;
+							else if (typeof a.url === "string") argsStr = a.url;
+							else if (typeof a.command === "string") argsStr = a.command.slice(0, 100);
+							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
+							else argsStr = JSON.stringify(a).slice(0, 120);
+						}
+						const rWithResult = r as any;
+						const resultText =
+							typeof rWithResult.result === "string" ? rWithResult.result.slice(0, 200) : "";
+						pi.sendMessage({
+							customType: "supervisor",
+							content: `${r.name} \`${argsStr}\``,
+							display: true,
+							details: {
+								toolCallResult: {
+									name: r.name,
+									args: argsStr,
+									isError: !!r.isError,
+									resultText,
+								},
+							},
+						});
+					}
+					lastResultCount = trCount;
+				}
 			},
 		},
 	);
 
 	clearWidget();
 
-	// Send final result message (1 message per agent, compact)
+	// Send final result message (1 message per agent, rich summary)
 	const partial = toolResult as any;
 	const d = partial.details || partial;
 	const finalStatus = d.success ? "✅" : "❌";
@@ -1485,7 +1531,7 @@ export async function executeAgent(
 			cacheRead: d.cacheRead || 0,
 			cacheWrite: d.cacheWrite || 0,
 			cost: d.cost || 0,
-			_subagentResult: { ...partial, content: undefined },
+			_subagentResult: partial,
 		},
 	});
 
