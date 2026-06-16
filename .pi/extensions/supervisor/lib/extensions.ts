@@ -5,10 +5,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
-// ─── Constants ──────────────────────────────────────────────────────
-
-export const CONTEXT_INFO_EXTENSION = ".pi/extensions/context-info.ts";
-
 // ─── Extension flag resolution ──────────────────────────────────────
 
 /**
