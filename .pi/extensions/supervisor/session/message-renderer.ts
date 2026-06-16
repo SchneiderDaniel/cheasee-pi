@@ -22,26 +22,25 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result: colored header + Markdown result body ─
+		// ── Tool call result with green/red background spanning all lines ─
 		const toolCallResult = rawDetails?.toolCallResult as
 			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			const header = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			// Use native pi theme colors for tool call backgrounds
 			const bgFn = (l: string) =>
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-			const c = new Container();
-			// Colored header line with full-width background
-			c.addChild(new Text(headerText, 1, 0, bgFn));
-			// Result body as Markdown (no background)
+			// Merge header + output into one Text so background spans all lines
+			let fullText = header;
 			if (toolCallResult.resultText) {
+				// Truncate result to keep block from growing too large
 				const trimmed = toolCallResult.resultText.slice(0, 2_000);
-				const mdTheme = getMarkdownTheme();
-				c.addChild(new Markdown(trimmed, 1, 1, mdTheme));
+				fullText += "\n" + trimmed;
 			}
-			return c;
+			return new Text(fullText, 1, 0, bgFn);
 		}
 
 		// ── Progress update (rendered as Markdown for formatting) ─
@@ -155,6 +154,17 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				statsParts.push(formatDuration(details.durationMs));
 			}
 
+			if (statsParts.length > 0) {
+				c.addChild(new Spacer(1));
+				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
+			}
+		} else {
+			// Old format (backward compat) — tools, tokens, duration
+			const statsParts: string[] = [];
+			if (details.toolCount > 0)
+				statsParts.push(`${details.toolCount} tool${details.toolCount === 1 ? "" : "s"}`);
+			if (details.tokenCount > 0) statsParts.push(`${formatTokens(details.tokenCount)} tokens`);
+			if (details.durationMs > 0) statsParts.push(formatDuration(details.durationMs));
 			if (statsParts.length > 0) {
 				c.addChild(new Spacer(1));
 				c.addChild(new Text(fit(theme.fg("dim", statsParts.join(" · "))), 1, 0));
