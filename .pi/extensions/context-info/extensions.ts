@@ -1,8 +1,8 @@
 /**
  * Extension enumeration and metadata extraction for context-info
  *
- * Provides countExtensions() and listLocalExtensions() used by welcome banner
- * and /explain-extensions command. Domain logic only — no UI imports.
+ * Provides listLocalExtensions() used by /explain-extensions command.
+ * Domain logic only — no UI imports.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -53,31 +53,6 @@ export function extractJSDoc(content: string): string | null {
 }
 
 // ─── Extension enumeration ────────────────────────────────────────
-
-/**
- * Count project-local extensions in .pi/extensions/.
- * Prefers directory-based extensions over shim .ts files with same name.
- * Mirrors resolution priority from supervisor/extensions.ts.
- */
-export function countExtensions(): number {
-	try {
-		if (!existsSync(".pi/extensions")) return 0;
-		const entries = readdirSync(".pi/extensions", { withFileTypes: true });
-		const names = new Set<string>();
-		for (const entry of entries) {
-			if (entry.isFile() && entry.name.endsWith(".ts")) {
-				const name = entry.name.replace(/\.ts$/, "");
-				names.add(name);
-			} else if (entry.isDirectory() && entry.name !== "." && entry.name !== "..") {
-				// Directory always wins over shim file with same name
-				names.add(entry.name);
-			}
-		}
-		return names.size;
-	} catch {
-		return 0;
-	}
-}
 
 /**
  * List all project-local extensions with metadata.
