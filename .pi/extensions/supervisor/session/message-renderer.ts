@@ -20,11 +20,29 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 	return (message: any, options: any, theme: any) => {
 		const { expanded } = options || { expanded: false };
 		const details = message.details as SupervisorMessageDetails | undefined;
+		const rawDetails = (message as any).details;
+
+		// ── Tool call result with green/red background ──────────
+		const toolCallResult = rawDetails?.toolCallResult as
+			| { name: string; args: string; isError: boolean }
+			| undefined;
+		if (toolCallResult) {
+			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+			const line = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			// customBgFn: fill line with green (bg 42) or red (bg 41)
+			const bgCode = toolCallResult.isError ? 41 : 42;
+			const bgFn = (l: string) => `\x1b[${bgCode}m${l}\x1b[0m`;
+			return new Text(line, 1, 0, bgFn);
+		}
+
+		// ── Progress update (compact dim text, no padding) ─────
+		if (rawDetails?._progressUpdate && typeof message.content === "string") {
+			return new Text(theme.fg("dim", message.content), 1, 0);
+		}
 
 		// ── Subagent-compatible result rendering ────────────────
 		// If the message carries a _subagentResult, delegate to renderSubagentResult
 		// for exact visual parity with LLM-initiated subagent tool calls.
-		const rawDetails = (message as any).details;
 		const subagentResult = rawDetails?._subagentResult as
 			| import("../subagent/types.ts").AgentToolResult<SubagentDetails>
 			| undefined;

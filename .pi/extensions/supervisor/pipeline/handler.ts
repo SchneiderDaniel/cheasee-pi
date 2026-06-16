@@ -1418,13 +1418,12 @@ export async function executeAgent(
 		customType: "supervisor",
 		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
 		display: true,
+		details: { _progressUpdate: true },
 	});
 
 	// Track state across onUpdate calls
-	let lastSentToolCount = 0;
 	let lastSentResultCount = 0;
-	let lastThinkText = "";
-	let sentResultSinceLastThink = false;
+	let lastSentFullText = "";
 
 	// Primary: pi.executeTool dispatches through registered tool for native TUI rendering
 	// (renderCall/renderResult, onUpdate streaming via ToolExecutionComponent).
@@ -1444,7 +1443,8 @@ export async function executeAgent(
 
 				const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
 
-				// 1. Send tool results (green ✓ / red ✗) — only when execution completes
+				// 1. Send tool results as rich components with green/red bg
+				// Only when execution completes (toolResults > toolCalls means some finished)
 				const tr = d.toolResults;
 				const trCount = tr?.length || 0;
 				if (trCount > lastSentResultCount && tr) {
@@ -1452,49 +1452,42 @@ export async function executeAgent(
 					for (let i = lastSentResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
-						// Find matching tool call for args (same index order)
 						const call = tc[i];
 						const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
-						const icon = r.isError ? "✗" : "✓";
 						pi.sendMessage({
 							customType: "supervisor",
-							content: `${icon} **${r.name}**: \`${argsStr}\``,
+							content: `${r.name} \`${argsStr}\``,
 							display: true,
+							details: {
+								toolCallResult: {
+									name: r.name,
+									args: argsStr,
+									isError: !!r.isError,
+								},
+							},
 						});
 					}
 					lastSentResultCount = trCount;
-					sentResultSinceLastThink = true;
 				}
 
-				// 2. Send thinking content (everything after 💭 prefix)
-				const thinkPrefix = "💭 ";
-				const thinkIdx = textContent.indexOf(thinkPrefix);
-				if (thinkIdx !== -1) {
-					const thinkContent = textContent.slice(thinkIdx + thinkPrefix.length).trim();
-					if (thinkContent && !lastThinkText.includes(thinkContent.slice(0, 60))) {
-						// Insert turn separator if we just completed tools
-						if (sentResultSinceLastThink) {
-							pi.sendMessage({
-								customType: "supervisor",
-								content: "---",
-								display: true,
-							});
-							sentResultSinceLastThink = false;
-						}
-						lastThinkText = thinkContent;
-						pi.sendMessage({
-							customType: "supervisor",
-							content: thinkContent,
-							display: true,
-						});
-					}
+				// 2. Send FULL text content as compact progress update when it changes
+				if (textContent && textContent !== lastSentFullText) {
+					lastSentFullText = textContent;
+					pi.sendMessage({
+						customType: "supervisor",
+						content: textContent,
+						display: true,
+						details: {
+							_progressUpdate: true,
+						},
+					});
 				}
 
-				// 3. Send result on completion (with details → renders as rich supervisor component)
+				// 3. Send result on completion (delegates to renderSubagentResult)
 				if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
-					// Send full AgentToolResult as _subagentResult so renderer delegates
-					// to renderSubagentResult — exact visual parity with LLM-initiated calls.
-					const partialCopy = { ...partial };
+					// Strip content from _subagentResult to avoid duplicate text rendering
+					// (content already shown via progress messages above)
+					const partialCopy = { ...partial, content: undefined };
 					pi.sendMessage({
 						customType: "supervisor",
 						content: "",
