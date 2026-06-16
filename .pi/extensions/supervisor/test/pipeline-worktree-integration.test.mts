@@ -60,10 +60,11 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 		assert.ok(branchDecl >= 0, "worktreeBranch variable declared");
 	});
 
-	it("agentCwd conditional uses ternary with worktreePath or undefined fallback", () => {
+	it("worktreePath passed directly as argument to executeAgent", () => {
 		const src = readPipelineSource();
-		const cwdIdx = src.indexOf("isWorktreeAgent(agentName) ? worktreePath : undefined");
-		assert.ok(cwdIdx >= 0, "agentCwd uses ternary with undefined fallback");
+		const executeIdx = src.indexOf("await executeAgent(");
+		const worktreeIdx = src.indexOf("worktreePath,", executeIdx);
+		assert.ok(worktreeIdx > executeIdx, "worktreePath passed as argument to executeAgent");
 	});
 
 	it("worktreeBranch generated via generateBranchName", () => {
@@ -77,12 +78,11 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 		);
 	});
 
-	it("commitAndPush uses worktreePath as first argument", () => {
+	it("commitAndPush uses worktreePath as second argument", () => {
 		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages.ts"), "utf-8");
-		assert.ok(
-			stagesSrc.includes("commitAndPush(pi, worktreePath"),
-			"commitAndPush receives worktreePath",
-		);
+		const commitIdx = stagesSrc.indexOf("await commitAndPush(");
+		const worktreeIdx = stagesSrc.indexOf("worktreePath,", commitIdx);
+		assert.ok(worktreeIdx > commitIdx, "commitAndPush receives worktreePath");
 	});
 });
 
@@ -102,11 +102,11 @@ describe("pipeline-worktree integration — error handling", () => {
 
 	it("commitAndPush failure is warned not thrown", () => {
 		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages.ts"), "utf-8");
-		const caIdx = stagesSrc.indexOf("await commitAndPush(pi, worktreePath");
-		const commitSection = stagesSrc.substring(caIdx, caIdx + 600);
+		const caIdx = stagesSrc.indexOf("await commitAndPush(");
+		const commitSection = stagesSrc.substring(caIdx, caIdx + 200);
 		assert.ok(
-			commitSection.includes("catch") && commitSection.includes("console.warn"),
-			"commitAndPush failure caught and warned",
+			commitSection.includes("!commitResult.ok") && commitSection.includes("notify"),
+			"commitAndPush failure caught and warned via Result pattern",
 		);
 	});
 
