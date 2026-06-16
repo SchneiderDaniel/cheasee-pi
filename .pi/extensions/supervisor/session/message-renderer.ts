@@ -38,9 +38,11 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			c.addChild(new Text(headerText, 1, 0, bgFn));
 			// Result body as Markdown (no background)
 			if (toolCallResult.resultText) {
-				const trimmed = toolCallResult.resultText.slice(0, 2_000);
+				// Normalize indented fences: GFM requires 0-3 spaces before ```
+				// Subagent output often has 4+ spaces from nested context
+				const normalized = toolCallResult.resultText.replace(/^ {4,}(```+)/gm, "$1");
 				const mdTheme = getMarkdownTheme();
-				c.addChild(new Markdown(trimmed, 1, 1, mdTheme));
+				c.addChild(new Markdown(normalized, 1, 1, mdTheme));
 			}
 			return c;
 		}

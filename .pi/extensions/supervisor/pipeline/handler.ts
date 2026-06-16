@@ -1446,7 +1446,7 @@ export async function executeAgent(
 					const tc = d.toolCalls || [];
 					// Extract accumulated thinking from partial content
 					const content0 = partial.content?.[0];
-					const thinking = content0 && content0.type === "text" ? content0.text.slice(0, 1500) : "";
+					const thinking = content0 && content0.type === "text" ? content0.text.slice(0, 4000) : "";
 					for (let i = lastResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
@@ -1466,7 +1466,7 @@ export async function executeAgent(
 						let body = thinking;
 						if (rawResult) {
 							body += thinking ? "\n\n" : "";
-							body += rawResult.slice(0, 500);
+							body += rawResult.slice(0, 2000);
 						}
 						pi.sendMessage({
 							customType: "supervisor",
@@ -1477,7 +1477,7 @@ export async function executeAgent(
 									name: r.name,
 									args: argsStr,
 									isError: !!r.isError,
-									resultText: body.slice(0, 2000),
+									resultText: body.slice(0, 5000),
 								},
 							},
 						});
