@@ -1399,7 +1399,7 @@ export async function handlePostPipeline(
 // Primary path: executeTool("subagent", ...) for native TUI rendering.
 // Fallback: runAgentSubprocess() when subagent fails (widget-based).
 
-async function executeAgent(
+export async function executeAgent(
 	agent: ParsedAgent,
 	task: string,
 	ctx: ExtensionCommandContext,
