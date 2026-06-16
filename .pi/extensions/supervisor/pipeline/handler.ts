@@ -1409,7 +1409,7 @@ export async function executeAgent(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
-	// Send start message (no details → renders as plain text matching normal pi output)
+	// Send start message (1 message to session, no streaming updates)
 	const shortModel = agent.config.model
 		? agent.config.model.split("/").pop() || agent.config.model
 		: "";
@@ -1421,12 +1421,24 @@ export async function executeAgent(
 		details: { _progressUpdate: true },
 	});
 
-	// Track state across onUpdate calls
-	let lastSentResultCount = 0;
-	let lastSentFullText = "";
+	// Widget for lightweight non-session progress display
+	const widgetId = `supervisor-${agent.config.name}-${Date.now()}`;
+	const updateWidget = (phase: string, toolCount: number, elapsedMs: number) => {
+		if (!ctx.hasUI) return;
+		const elapsed = elapsedMs > 0 ? `${(elapsedMs / 1000).toFixed(0)}s` : "";
+		ctx.ui.setWidget(widgetId, [
+			`${agent.config.name} — ${phase}${elapsed ? ` (${elapsed})` : ""}`,
+			`tools: ${toolCount}`,
+		]);
+	};
+	const clearWidget = () => {
+		if (!ctx.hasUI) return;
+		ctx.ui.setWidget(widgetId, undefined);
+	};
 
-	// Primary: pi.executeTool dispatches through registered tool for native TUI rendering
-	// (renderCall/renderResult, onUpdate streaming via ToolExecutionComponent).
+	// Primary: pi.executeTool dispatches through registered tool for native TUI rendering.
+	// onUpdate only used for widget status — NO pi.sendMessage() calls inside onUpdate
+	// to avoid flooding main session context with progress tokens.
 	const toolResult = await pi.executeTool(
 		"subagent",
 		{
@@ -1441,91 +1453,41 @@ export async function executeAgent(
 				const d = partial.details;
 				if (!d) return;
 
-				const textContent = partial.content?.[0]?.type === "text" ? partial.content[0].text : "";
-
-				// 1. Send tool results as rich components with green/red bg
-				// Only when execution completes (toolResults > toolCalls means some finished)
-				const tr = d.toolResults;
-				const trCount = tr?.length || 0;
-				if (trCount > lastSentResultCount && tr) {
-					const tc = d.toolCalls || [];
-					for (let i = lastSentResultCount; i < trCount; i++) {
-						const r = tr[i];
-						if (!r) continue;
-						const call = tc[i];
-						// Compact args display: extract key field per tool type
-						let argsStr = "";
-						if (call?.args) {
-							const a = call.args;
-							if (typeof a.path === "string") argsStr = a.path;
-							else if (typeof a.url === "string") argsStr = a.url;
-							else if (typeof a.command === "string") argsStr = a.command.slice(0, 100);
-							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
-							else argsStr = JSON.stringify(a).slice(0, 120);
-						}
-						// Get tool result output from SubagentToolResult.result
-						const rWithResult = r as any;
-						const resultText = typeof rWithResult.result === "string" ? rWithResult.result : "";
-						pi.sendMessage({
-							customType: "supervisor",
-							content: `${r.name} \`${argsStr}\``,
-							display: true,
-							details: {
-								toolCallResult: {
-									name: r.name,
-									args: argsStr,
-									isError: !!r.isError,
-									resultText,
-								},
-							},
-						});
-					}
-					lastSentResultCount = trCount;
-				}
-
-				// 2. Send FULL text content as compact progress update when it changes
-				if (textContent && textContent !== lastSentFullText) {
-					lastSentFullText = textContent;
-					pi.sendMessage({
-						customType: "supervisor",
-						content: textContent,
-						display: true,
-						details: {
-							_progressUpdate: true,
-						},
-					});
-				}
-
-				// 3. Send result on completion (delegates to renderSubagentResult)
-				if (d.statusLabel && d.statusLabel !== "IN_PROGRESS") {
-					// Strip content from _subagentResult to avoid duplicate text rendering
-					// (content already shown via progress messages above)
-					const partialCopy = { ...partial, content: undefined };
-					pi.sendMessage({
-						customType: "supervisor",
-						content: "",
-						display: true,
-						details: {
-							success: d.success,
-							agentName: d.agentName || agent.config.name,
-							statusLabel: d.statusLabel,
-							summaryLine: d.summaryLine || "",
-							model: shortModel,
-							turnCount: d.turnCount || 0,
-							toolCount: d.toolCalls?.length || 0,
-							durationMs: d.durationMs || 0,
-							inputTokens: d.inputTokens || 0,
-							outputTokens: d.outputTokens || 0,
-							cacheRead: d.cacheRead || 0,
-							cacheWrite: d.cacheWrite || 0,
-							cost: d.cost || 0,
-							_subagentResult: partialCopy,
-						},
-					});
-				}
+				// Lightweight widget update — no session messages
+				const phase =
+					d.statusLabel === "IN_PROGRESS" ? d.summaryLine || "running" : d.statusLabel || "running";
+				updateWidget(phase, d.toolCalls?.length || 0, d.durationMs || 0);
 			},
 		},
 	);
+
+	clearWidget();
+
+	// Send final result message (1 message per agent, compact)
+	const partial = toolResult as any;
+	const d = partial.details || partial;
+	const finalStatus = d.success ? "✅" : "❌";
+	pi.sendMessage({
+		customType: "supervisor",
+		content: `${finalStatus} **${agent.config.name}** — ${d.statusLabel || "Done"}`,
+		display: true,
+		details: {
+			success: d.success,
+			agentName: d.agentName || agent.config.name,
+			statusLabel: d.statusLabel || "Done",
+			summaryLine: d.summaryLine || "",
+			model: shortModel,
+			turnCount: d.turnCount || 0,
+			toolCount: d.toolCalls?.length || 0,
+			durationMs: d.durationMs || 0,
+			inputTokens: d.inputTokens || 0,
+			outputTokens: d.outputTokens || 0,
+			cacheRead: d.cacheRead || 0,
+			cacheWrite: d.cacheWrite || 0,
+			cost: d.cost || 0,
+			_subagentResult: { ...partial, content: undefined },
+		},
+	});
 
 	let result = convertToolResultToAgentRunResult(toolResult);
 	validateAgentResult(result);

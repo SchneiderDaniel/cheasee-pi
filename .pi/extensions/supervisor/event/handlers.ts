@@ -276,8 +276,6 @@ export function handleMessageEnd(
 	}
 
 	state.phase = "idle";
-	state.thinkingPushedThisTurn = false;
-	state.textPushedThisTurn = false;
 	return { flush: true, workingChange: true };
 }
 
