@@ -14,6 +14,8 @@ export interface SubagentToolResult {
 	isError: boolean;
 	/** Tool output/result content (from raw event.result), truncated to 2000 chars */
 	result?: string;
+	/** Duration of the tool execution in ms (from start → end timestamps) */
+	durationMs?: number;
 }
 
 /** Details carried in AgentToolResult.details for the subagent tool */
@@ -43,6 +45,14 @@ export interface SubagentDetails {
 	runningTokenCount?: number;
 	/** Running tool call count during execution (from state) */
 	runningToolCount?: number;
+	/** Running count of errored tool results */
+	errorCount?: number;
+	/** Max tool calls allowed (0 = unlimited, populated from config) */
+	maxToolCalls?: number;
+	/** Max tokens allowed (0 = unlimited, populated from config) */
+	agentTokenBudget?: number;
+	/** Whether the session was compacted (context truncated) */
+	compacted?: boolean;
 }
 
 /** Text content block for AgentToolResult */

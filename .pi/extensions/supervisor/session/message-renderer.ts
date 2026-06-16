@@ -33,6 +33,11 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			toolIndex?: string;
 			runningTokenCount?: number;
 			runningToolCount?: number;
+			toolDurationMs?: number;
+			errorCount?: number;
+			maxToolCalls?: number;
+			agentTokenBudget?: number;
+			compacted?: boolean;
 		}
 		const toolCallResult = rawDetails?.toolCallResult as ToolCallDetail | undefined;
 		if (toolCallResult) {
@@ -45,16 +50,45 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			// Colored header line with full-width background
 			c.addChild(new Text(headerText, 1, 0, bgFn));
 
-			// Tool call index + running stats (token count, tool count)
+			// Tool call index + running stats (duration, tokens, tools, errors, budget, compaction)
 			const statsParts: string[] = [];
 			if (toolCallResult.toolIndex) {
 				statsParts.push(toolCallResult.toolIndex);
 			}
-			if (toolCallResult.runningTokenCount !== undefined) {
-				statsParts.push(`${toolCallResult.runningTokenCount} tok`);
+			// Per-tool duration
+			if (toolCallResult.toolDurationMs !== undefined) {
+				const secs = (toolCallResult.toolDurationMs / 1000).toFixed(1);
+				statsParts.push(`(${secs}s)`);
 			}
-			if (toolCallResult.runningToolCount !== undefined) {
-				statsParts.push(`${toolCallResult.runningToolCount} tools`);
+			// Tool count with budget proximity
+			const tc = toolCallResult.runningToolCount;
+			if (tc !== undefined) {
+				const maxT = toolCallResult.maxToolCalls;
+				if (maxT && maxT > 0) {
+					statsParts.push(`${tc}/${maxT} tools`);
+				} else {
+					statsParts.push(`${tc} tools`);
+				}
+			}
+			// Token count with budget proximity
+			const tok = toolCallResult.runningTokenCount;
+			if (tok !== undefined) {
+				const maxTok = toolCallResult.agentTokenBudget;
+				if (maxTok && maxTok > 0) {
+					const maxK = maxTok >= 1000 ? `${(maxTok / 1000).toFixed(0)}K` : String(maxTok);
+					statsParts.push(`${tok}/${maxK} tok`);
+				} else {
+					statsParts.push(`${tok} tok`);
+				}
+			}
+			// Error count (only if > 0)
+			const err = toolCallResult.errorCount ?? 0;
+			if (err > 0) {
+				statsParts.push(`${err} ${err === 1 ? "err" : "err"}`);
+			}
+			// Compaction warning
+			if (toolCallResult.compacted) {
+				statsParts.push("⚠ compacted");
 			}
 			if (statsParts.length > 0) {
 				c.addChild(new Text(theme.fg("dim", statsParts.join(" · ")), 1, 0));

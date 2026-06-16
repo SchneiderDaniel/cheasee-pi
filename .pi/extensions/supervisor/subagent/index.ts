@@ -244,14 +244,28 @@ export async function executeSubagent(
 					taskPrompt: task,
 					runningTokenCount: state.tokenCount,
 					runningToolCount: state.toolCount,
+					errorCount: toolResults.filter((r) => r.isError).length,
+					maxToolCalls: state.maxToolCalls,
+					agentTokenBudget: state.agentTokenBudget,
+					compacted: hasCompacted,
 				},
 			});
 		};
 
 		// ── 5c. Subscribe to Session Events ──────────────────────
+		// Track per-tool start timestamps for duration
+		const toolStartTimestamps = new Map<string, number>();
+		// Track whether session was compacted
+		let hasCompacted = false;
+
 		unsubscribe = session.subscribe((event: any) => {
 			try {
 				const eventType = event?.type || "unknown";
+
+				// Detect compaction events
+				if (eventType === "compaction_start" || eventType === "compaction_end") {
+					hasCompacted = true;
+				}
 
 				// Track tool calls and their results
 				if (eventType === "tool_execution_start") {
@@ -259,6 +273,8 @@ export async function executeSubagent(
 						name: (event.toolName as string) || "tool",
 						args: (event.args as Record<string, unknown>) || {},
 					});
+					const tcId = (event.toolCallId as string) || `tool_${toolCalls.length - 1}`;
+					toolStartTimestamps.set(tcId, Date.now());
 				}
 				if (eventType === "tool_execution_end") {
 					// Capture raw tool result (truncated) from session event —
@@ -283,10 +299,16 @@ export async function executeSubagent(
 									? r.text.slice(0, 2_000)
 									: JSON.stringify(r, null, 2).slice(0, 2_000);
 					}
+					// Compute tool duration
+					const tcId = (event.toolCallId as string) || `tool_${toolResults.length}`;
+					const startTs = toolStartTimestamps.get(tcId);
+					const durationMs = startTs !== undefined ? Date.now() - startTs : undefined;
+
 					toolResults.push({
 						name: (event.toolName as string) || "tool",
 						isError: !!(event as any).isError,
 						result: resultStr,
+						durationMs,
 					});
 				}
 
@@ -442,6 +464,10 @@ export async function executeSubagent(
 					taskPrompt: task,
 					runningTokenCount: state.tokenCount,
 					runningToolCount: state.toolCount,
+					errorCount: toolResults.filter((r) => r.isError).length,
+					maxToolCalls: state.maxToolCalls,
+					agentTokenBudget: state.agentTokenBudget,
+					compacted: hasCompacted,
 				},
 			});
 		}
