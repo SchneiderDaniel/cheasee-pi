@@ -1439,11 +1439,14 @@ export async function executeAgent(
 					]);
 				}
 
-				// Tool results only (compact, colored background, ~100 tokens each)
+				// Tool results with accumulated thinking (compact, ~200-500 tokens each)
 				const tr = d.toolResults;
 				const trCount = tr?.length || 0;
 				if (trCount > lastResultCount && tr) {
 					const tc = d.toolCalls || [];
+					// Extract current thinking from partial content
+					const content0 = partial.content?.[0];
+					const progressText = content0 && content0.type === "text" ? content0.text : "";
 					for (let i = lastResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
@@ -1458,18 +1461,24 @@ export async function executeAgent(
 							else argsStr = JSON.stringify(a).slice(0, 120);
 						}
 						const rWithResult = r as any;
-						const resultText =
-							typeof rWithResult.result === "string" ? rWithResult.result.slice(0, 200) : "";
+						const rawResult = typeof rWithResult.result === "string" ? rWithResult.result : "";
+						// Include progress text (status + thinking) in the message
+						// so user sees thinking alongside each tool result
+						const headerStr = `${r.name} \`${argsStr}\``;
+						const fullContent = progressText
+							? `${headerStr}\n\n${progressText.slice(0, 1500)}`
+							: headerStr;
+						const resultText = rawResult.slice(0, 200);
 						pi.sendMessage({
 							customType: "supervisor",
-							content: `${r.name} \`${argsStr}\``,
+							content: fullContent,
 							display: true,
 							details: {
 								toolCallResult: {
 									name: r.name,
 									args: argsStr,
 									isError: !!r.isError,
-									resultText,
+									resultText: resultText ? `${fullContent}\n\n${resultText}` : fullContent,
 								},
 							},
 						});
