@@ -1549,6 +1549,8 @@ export async function executeAgent(
 									errorReason,
 									// Incremental thinking (new since last batch)
 									thinking: incrementalThinking,
+									// Tool result output text (truncated)
+									resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
 									// Simple per-call stat: tool ordinal (e.g. "#3")
 									toolIndex: `#${i + 1}`,
 									// Running totals for the session

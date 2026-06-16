@@ -28,6 +28,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			name: string;
 			args: string;
 			params?: string;
+			resultText?: string;
 			isError: boolean;
 			thinking?: string;
 			errorReason?: string;
@@ -96,6 +97,31 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			}
 			if (statsParts.length > 0) {
 				c.addChild(new Text(theme.fg("dim", statsParts.join(" · ")), 1, 0));
+			}
+
+			// Tool result output (plain text, dim, truncated)
+			if (toolCallResult.resultText) {
+				// Basic ANSI-like formatting per tool type
+				const lines = toolCallResult.resultText.split("\n");
+				const formatted = lines
+					.map((l) => {
+						// Highlight match counts (e.g. "3 matches" or "Matches returned: 5")
+						if (/\d+ matches/i.test(l) || /Matches returned: \d+/i.test(l)) {
+							return theme.fg("success", l);
+						}
+						// Highlight matched file:line entries (e.g. "1. src/file.ts:42:hello")
+						if (/^\d+\.\s+\S+:\d+:/.test(l)) {
+							const sep = l.indexOf(":");
+							if (sep > 0) {
+								const prefix = l.slice(0, sep + 1);
+								const fileLine = l.slice(sep + 1);
+								return theme.fg("dim", prefix) + theme.fg("accent", fileLine);
+							}
+						}
+						return l;
+					})
+					.join("\n");
+				c.addChild(new Text(formatted, 1, 1));
 			}
 
 			// Thinking (Markdown, no background)
