@@ -158,28 +158,7 @@ export function extractStructuredAuditOutput(output: string): StructuredAuditOut
 			// Strip trailing JSON blocks, thinking text, and instrumentation
 			// that may follow the markdown heading (agent output often has
 			// the JSON block appended after the commentBody text).
-			const jsonEndRe = /\n\s*"(?:auditScore|findings|action)"\s*:/;
-			const thinkEndRe = /\n💭/;
-			const instrEndRe = /\n📊/;
-			let truncatePos = slice.length;
-			const jsonMatch = slice.match(jsonEndRe);
-			if (jsonMatch?.index && jsonMatch.index > heading.length + 20) {
-				truncatePos = Math.min(truncatePos, jsonMatch.index);
-			}
-			const thinkMatch = slice.match(thinkEndRe);
-			if (thinkMatch?.index && thinkMatch.index > heading.length + 20) {
-				truncatePos = Math.min(truncatePos, thinkMatch.index);
-			}
-			const instrMatch = slice.match(instrEndRe);
-			if (instrMatch?.index && instrMatch.index > heading.length + 20) {
-				truncatePos = Math.min(truncatePos, instrMatch.index);
-			}
-			if (truncatePos < slice.length) {
-				const trimmed = slice.slice(0, truncatePos).trim();
-				if (trimmed.length > heading.length + 20) {
-					slice = trimmed;
-				}
-			}
+			slice = stripTrailingMetadata(slice, heading.length);
 
 			// Strip trailing ```json code fence (structured output, not comment body).
 			// When agent output contains a JSON block after the markdown heading, it's the
@@ -314,28 +293,7 @@ export function extractAgentCommentBody(output: string): string | null {
 			let slice = output.slice(bestIdx).trim();
 			// Strip trailing JSON blocks, thinking text, and instrumentation
 			// that may follow the markdown heading.
-			const jsonEndRe = /\n\s*"(?:auditScore|findings|action)"\s*:/;
-			const thinkEndRe = /\n💭/;
-			const instrEndRe = /\n📊/;
-			let truncatePos = slice.length;
-			const jsonMatch = slice.match(jsonEndRe);
-			if (jsonMatch?.index && jsonMatch.index > bestHeading.length + 20) {
-				truncatePos = Math.min(truncatePos, jsonMatch.index);
-			}
-			const thinkMatch = slice.match(thinkEndRe);
-			if (thinkMatch?.index && thinkMatch.index > bestHeading.length + 20) {
-				truncatePos = Math.min(truncatePos, thinkMatch.index);
-			}
-			const instrMatch = slice.match(instrEndRe);
-			if (instrMatch?.index && instrMatch.index > bestHeading.length + 20) {
-				truncatePos = Math.min(truncatePos, instrMatch.index);
-			}
-			if (truncatePos < slice.length) {
-				const trimmed = slice.slice(0, truncatePos).trim();
-				if (trimmed.length > bestHeading.length + 20) {
-					slice = trimmed;
-				}
-			}
+			slice = stripTrailingMetadata(slice, bestHeading.length);
 
 			// Strip trailing ```json code fence (structured output, not comment body).
 			// When agent output is truncated mid-JSON, the heading extraction includes
@@ -440,4 +398,41 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
 		comments: trustedComments,
 		labels: labels.length > 0 ? labels : undefined,
 	};
+}
+
+/**
+ * Strip trailing JSON blocks, thinking text, and instrumentation metadata
+ * from a markdown slice. Used to clean up agent output when extracting
+ * comment bodies from structured audit output and agent comment bodies.
+ *
+ * The minHeadingLen + 20 boundary guard prevents truncation when the
+ * metadata is too close to the heading (likely part of the content, not
+ * trailing output).
+ */
+export function stripTrailingMetadata(slice: string, minHeadingLen: number): string {
+	const jsonEndRe = /\n\s*"(?:auditScore|findings|action)"\s*:/;
+	const thinkEndRe = /\n💭/;
+	const instrEndRe = /\n📊/;
+	let truncatePos = slice.length;
+
+	const jsonMatch = slice.match(jsonEndRe);
+	if (jsonMatch?.index && jsonMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, jsonMatch.index);
+	}
+	const thinkMatch = slice.match(thinkEndRe);
+	if (thinkMatch?.index && thinkMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, thinkMatch.index);
+	}
+	const instrMatch = slice.match(instrEndRe);
+	if (instrMatch?.index && instrMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, instrMatch.index);
+	}
+
+	if (truncatePos < slice.length) {
+		const trimmed = slice.slice(0, truncatePos).trim();
+		if (trimmed.length > minHeadingLen + 20) {
+			return trimmed;
+		}
+	}
+	return slice;
 }
