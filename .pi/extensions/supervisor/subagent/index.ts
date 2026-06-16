@@ -525,7 +525,13 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 		execute: (async (_toolCallId: any, params: any, signal: any, onUpdate: any, _ctx: any) => {
 			const agent = String(params?.agent || "");
 			const task = String(params?.task || "");
-			const cwd = String(_ctx?.cwd || process.cwd());
+			// Read cwd from params first (pipeline passes worktree path), fall back to context cwd.
+			// This ensures subagent runs in the correct worktree directory when dispatched
+			// programmatically via pi.executeTool(), not just via LLM tool dispatch.
+			const cwd = String(params?.cwd || _ctx?.cwd || process.cwd());
+			const maxToolCalls = params?.maxToolCalls != null ? Number(params.maxToolCalls) : undefined;
+			const agentTokenBudget =
+				params?.agentTokenBudget != null ? Number(params.agentTokenBudget) : undefined;
 
 			if (!agent) {
 				throw new Error("subagent: 'agent' parameter is required");
@@ -541,7 +547,11 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 					? (onUpdate as (partial: AgentToolResult<Partial<SubagentDetails>>) => void)
 					: undefined;
 
-			return executeSubagent({ agent, task, cwd }, onUpdateFn, signal as AbortSignal | undefined);
+			return executeSubagent(
+				{ agent, task, cwd, maxToolCalls, agentTokenBudget },
+				onUpdateFn,
+				signal as AbortSignal | undefined,
+			);
 		}) as any,
 	});
 }
