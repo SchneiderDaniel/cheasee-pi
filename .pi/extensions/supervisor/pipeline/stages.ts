@@ -35,12 +35,8 @@ import {
 import { hasResearchFindings } from "../config/workflow.ts";
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
 import type { AgentOutput } from "../config/types.ts";
-import { runDuplicateCheck } from "../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
-import {
-	runDeadCodeCheck,
-	buildDeadCodeContext as buildDeadCodeContextInner,
-} from "../checks/dead-code.ts";
+import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 
 // ─── Constants ────────────────────────────────────────────────────
