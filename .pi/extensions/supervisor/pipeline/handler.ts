@@ -1475,13 +1475,51 @@ export async function executeAgent(
 						if (!r) continue;
 						const call = tc[i];
 						let argsStr = "";
+						let paramsStr = "";
 						if (call?.args) {
 							const a = call.args;
-							if (typeof a.path === "string") argsStr = a.path;
-							else if (typeof a.url === "string") argsStr = a.url;
-							else if (typeof a.command === "string") argsStr = a.command.slice(0, 100);
-							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
-							else argsStr = JSON.stringify(a).slice(0, 120);
+							// Build primary arg + extra params per tool type
+							if (typeof a.path === "string") {
+								argsStr = a.path;
+								const parts = [];
+								if (a.offset !== undefined) parts.push(`offset=${a.offset}`);
+								if (a.limit !== undefined) parts.push(`limit=${a.limit}`);
+								if (parts.length) paramsStr = parts.join(" ");
+							} else if (typeof a.url === "string") {
+								argsStr = a.url;
+								const parts = [];
+								if (a.maxPages !== undefined) parts.push(`maxPages=${a.maxPages}`);
+								if (a.maxTokens !== undefined) parts.push(`maxTokens=${a.maxTokens}`);
+								if (parts.length) paramsStr = parts.join(" ");
+							} else if (typeof a.command === "string") {
+								argsStr = a.command.slice(0, 100);
+								if (a.timeout !== undefined) paramsStr = `timeout=${a.timeout}s`;
+							} else if (typeof a.query === "string") {
+								argsStr = a.query.slice(0, 100);
+								const parts = [];
+								if (a.directory) parts.push(`dir:${a.directory}`);
+								if (a.max_count !== undefined) parts.push(`max=${a.max_count}`);
+								if (a.maxResults) parts.push(`maxResults=${a.maxResults}`);
+								if (parts.length) paramsStr = parts.join(" ");
+							} else if (typeof a.agent === "string") {
+								argsStr = a.agent;
+								const parts = [];
+								if (a.maxToolCalls !== undefined) parts.push(`maxTools=${a.maxToolCalls}`);
+								if (a.agentTokenBudget !== undefined) parts.push(`budget=${a.agentTokenBudget}`);
+								if (parts.length) paramsStr = parts.join(" ");
+							} else if (Array.isArray(a.edits)) {
+								argsStr = (a.path as string) || "";
+								paramsStr = `[${a.edits.length} edits]`;
+							} else if (typeof a.content === "string") {
+								argsStr = (a.path as string) || "";
+								const preview = a.content.length > 60 ? a.content.slice(0, 60) + "..." : a.content;
+								paramsStr = `content:\`${preview}\``;
+							} else if (typeof a.limit === "number") {
+								argsStr = (a.path as string) || "";
+								paramsStr = `limit=${a.limit}`;
+							} else {
+								argsStr = JSON.stringify(a).slice(0, 120);
+							}
 						}
 						// For blocked/failed tools, extract error reason from result or thinking
 						const rWithResult = r as any;
@@ -1506,6 +1544,7 @@ export async function executeAgent(
 								toolCallResult: {
 									name: r.name,
 									args: argsStr,
+									params: paramsStr || undefined,
 									isError: !!r.isError,
 									errorReason,
 									// Incremental thinking (new since last batch)

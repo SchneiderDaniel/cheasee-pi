@@ -27,6 +27,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		interface ToolCallDetail {
 			name: string;
 			args: string;
+			params?: string;
 			isError: boolean;
 			thinking?: string;
 			errorReason?: string;
@@ -42,7 +43,10 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const toolCallResult = rawDetails?.toolCallResult as ToolCallDetail | undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			const paramsPart = toolCallResult.params
+				? ` ${theme.fg("warning", toolCallResult.params)}`
+				: "";
+			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\`${paramsPart}`;
 			const bgFn = (l: string) =>
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
