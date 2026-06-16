@@ -128,12 +128,6 @@ export function resolveAgentName(loopStatus: string, config: SupervisorConfig): 
 	return step.agentName || config.statusMapping[loopStatus] || null;
 }
 
-// ─── Worktree Needed Check ────────────────────────────────────────
-
-export function isWorktreeAgent(agentName: string): boolean {
-	return agentName === "developer" || agentName === "auditor";
-}
-
 // ─── Deduplication Gate ─────────────────────────────────────────────
 
 /**

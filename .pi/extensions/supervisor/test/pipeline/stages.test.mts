@@ -16,7 +16,6 @@ import {
 	MAX_PIPELINE_LOOPS,
 	resolveAgentName,
 	isDoneStatus,
-	isWorktreeAgent,
 	isRejectionLimitReached,
 	calculateNextStatus,
 	trackAuditScore,
@@ -153,30 +152,6 @@ describe("isDoneStatus()", () => {
 		assert.equal(isDoneStatus("In Progress"), false);
 		assert.equal(isDoneStatus(""), false);
 		assert.equal(isDoneStatus("don"), false);
-	});
-});
-
-// ─── Tests: isWorktreeAgent() ─────────────────────────────────────
-
-describe("isWorktreeAgent()", () => {
-	it("returns true for 'developer'", () => {
-		assert.equal(isWorktreeAgent("developer"), true);
-	});
-
-	it("returns true for 'auditor'", () => {
-		assert.equal(isWorktreeAgent("auditor"), true);
-	});
-
-	it("returns false for 'architect'", () => {
-		assert.equal(isWorktreeAgent("architect"), false);
-	});
-
-	it("returns false for 'researcher'", () => {
-		assert.equal(isWorktreeAgent("researcher"), false);
-	});
-
-	it("returns false for 'test-designer'", () => {
-		assert.equal(isWorktreeAgent("test-designer"), false);
 	});
 });
 
