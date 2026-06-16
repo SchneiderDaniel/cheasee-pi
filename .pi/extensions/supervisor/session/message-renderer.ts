@@ -46,9 +46,26 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			return headerText;
 		}
 
-		// ── Progress update (compact dim text, no padding) ─────
+		// ── Progress update (rendered as Markdown for formatting) ─
 		if (rawDetails?._progressUpdate && typeof message.content === "string") {
-			return new Text(theme.fg("dim", message.content), 1, 0);
+			const text = message.content;
+			const firstNl = text.indexOf("\n");
+			if (firstNl > 0) {
+				// First line = status/phase (e.g. "⏳ test-designer — thinking phase")
+				// Render with accent color for high contrast, rest as Markdown
+				const statusLine = text.slice(0, firstNl);
+				const rest = text.slice(firstNl + 1);
+				const c = new Container();
+				c.addChild(new Text(theme.fg("accent", statusLine), 1, 0));
+				if (rest.trim()) {
+					const mdTheme = getMarkdownTheme();
+					c.addChild(new Markdown(rest, 1, 0, mdTheme));
+				}
+				return c;
+			}
+			// Single line: just use Markdown as-is
+			const mdTheme = getMarkdownTheme();
+			return new Markdown(text, 1, 0, mdTheme);
 		}
 
 		// ── Subagent-compatible result rendering ────────────────

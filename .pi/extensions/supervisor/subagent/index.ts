@@ -264,11 +264,22 @@ export async function executeSubagent(
 					const rawEvt = event as any;
 					let resultStr: string | undefined;
 					if (rawEvt.result) {
-						const r =
-							typeof rawEvt.result === "string"
-								? rawEvt.result
-								: JSON.stringify(rawEvt.result, null, 2);
-						resultStr = r.slice(0, 2_000);
+						// Extract actual text content from common tool result structures:
+						// - { content: [{ type: "text", text: "..." }] } (read, bash, ripgrep_search)
+						// - { text: "..." }
+						// Fall back to JSON for unknown shapes.
+						const r = rawEvt.result;
+						const contentArr = r.content && Array.isArray(r.content) ? r.content : undefined;
+						const textBlock = contentArr?.find(
+							(c: any) => c.type === "text" && typeof c.text === "string",
+						);
+						resultStr = textBlock
+							? textBlock.text.slice(0, 2_000)
+							: typeof r === "string"
+								? r.slice(0, 2_000)
+								: typeof r === "object" && r.text && typeof r.text === "string"
+									? r.text.slice(0, 2_000)
+									: JSON.stringify(r, null, 2).slice(0, 2_000);
 					}
 					toolResults.push({
 						name: (event.toolName as string) || "tool",

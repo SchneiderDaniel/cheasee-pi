@@ -1453,7 +1453,16 @@ export async function executeAgent(
 						const r = tr[i];
 						if (!r) continue;
 						const call = tc[i];
-						const argsStr = call?.args ? JSON.stringify(call.args).slice(0, 200) : "";
+						// Compact args display: extract key field per tool type
+						let argsStr = "";
+						if (call?.args) {
+							const a = call.args;
+							if (typeof a.path === "string") argsStr = a.path;
+							else if (typeof a.url === "string") argsStr = a.url;
+							else if (typeof a.command === "string") argsStr = a.command.slice(0, 100);
+							else if (typeof a.query === "string") argsStr = a.query.slice(0, 100);
+							else argsStr = JSON.stringify(a).slice(0, 120);
+						}
 						// Get tool result output from SubagentToolResult.result
 						const rWithResult = r as any;
 						const resultText = typeof rWithResult.result === "string" ? rWithResult.result : "";
