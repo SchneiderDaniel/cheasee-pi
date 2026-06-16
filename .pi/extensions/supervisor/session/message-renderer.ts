@@ -22,32 +22,42 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result: colored header + Markdown result body ─
+		// ── Tool call result with green/red background spanning all lines ─
 		const toolCallResult = rawDetails?.toolCallResult as
 			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			const header = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
 			const bgFn = (l: string) =>
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-			const c = new Container();
-			// Colored header line with full-width background
-			c.addChild(new Text(headerText, 1, 0, bgFn));
-			// Result body as Markdown (no background)
+			// Merge header + output into one Text so background spans all lines
+			let fullText = header;
 			if (toolCallResult.resultText) {
 				const trimmed = toolCallResult.resultText.slice(0, 2_000);
-				const mdTheme = getMarkdownTheme();
-				c.addChild(new Markdown(trimmed, 1, 1, mdTheme));
+				fullText += "\n" + trimmed;
 			}
-			return c;
+			return new Text(fullText, 1, 0, bgFn);
 		}
 
-		// ── Progress update (rendered as Markdown) ─
+		// ── Progress update (split: first line accent, rest Markdown) ─
 		if (rawDetails?._progressUpdate && typeof message.content === "string") {
+			const text = message.content;
+			const firstNl = text.indexOf("\n");
+			if (firstNl > 0) {
+				const statusLine = text.slice(0, firstNl);
+				const rest = text.slice(firstNl + 1);
+				const c = new Container();
+				c.addChild(new Text(theme.fg("accent", statusLine), 1, 0));
+				if (rest.trim()) {
+					const mdTheme = getMarkdownTheme();
+					c.addChild(new Markdown(rest, 1, 0, mdTheme));
+				}
+				return c;
+			}
 			const mdTheme = getMarkdownTheme();
-			return new Markdown(message.content, 1, 0, mdTheme);
+			return new Markdown(text, 1, 0, mdTheme);
 		}
 
 		// ── Subagent-compatible result rendering ────────────────

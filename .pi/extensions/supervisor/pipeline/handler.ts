@@ -937,32 +937,7 @@ export async function handleSupervisorCommand(
 				}
 			}
 
-			// Send result to UI
-			sendAgentResultMessage(
-				pi,
-				{
-					agentName: result.agentName,
-					success: result.success,
-					statusLabel: !result.success ? "FAILED" : usedRetry ? "SUCCESS (after retry)" : "SUCCESS",
-					toolCount: result.toolCount,
-					tokenCount: result.tokenCount,
-					durationMs: result.durationMs,
-					textOutput: result.textOutput,
-					textOnly: result.textOnly,
-					output: result.output,
-					summaryLine: result.summaryLine,
-					thinkingOutput: result.thinkingOutput,
-					taskPrompt: task,
-					model: agent.config.model,
-					inputTokens: result.inputTokens,
-					outputTokens: result.outputTokens,
-					cacheRead: result.cacheRead,
-					cacheWrite: result.cacheWrite,
-					cost: result.cost,
-					turnCount: result.turnCount,
-				},
-				auditInfo ? `${auditInfo.score.passing}/${auditInfo.score.total}` : undefined,
-			);
+			// Agent result is already sent by executeAgent with _subagentResult.
 
 			// Post-processing — pass pre-computed gateRejected so auditor
 			// comment posting can show gate rejection instead of approval
@@ -1506,6 +1481,21 @@ export async function executeAgent(
 	);
 
 	if (clearWidget) clearWidget();
+
+	// Send final result — single message with _subagentResult for rich expandable view
+	const partial = toolResult as any;
+	const d = partial.details || partial;
+	if (d && d.agentName) {
+		const finalStatus = d.success ? "✅" : "❌";
+		pi.sendMessage({
+			customType: "supervisor",
+			content: `${finalStatus} ${agent.config.name} — ${d.statusLabel || "Done"}\n\n${d.summaryLine || ""}`,
+			display: true,
+			details: {
+				_subagentResult: partial,
+			},
+		});
+	}
 
 	let result = convertToolResultToAgentRunResult(toolResult);
 	validateAgentResult(result);
