@@ -39,6 +39,10 @@ export interface SubagentDetails {
 	taskPrompt: string;
 	/** Whether the subagent exceeded its token/tool budget */
 	budgetExceeded?: boolean;
+	/** Running token count during execution (from state) */
+	runningTokenCount?: number;
+	/** Running tool call count during execution (from state) */
+	runningToolCount?: number;
 }
 
 /** Text content block for AgentToolResult */

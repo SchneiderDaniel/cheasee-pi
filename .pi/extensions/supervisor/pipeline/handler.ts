@@ -1423,9 +1423,14 @@ export async function executeAgent(
 							? d.summaryLine || "running"
 							: d.statusLabel || "running";
 					const elapsed = d.durationMs ? `${(d.durationMs / 1000).toFixed(0)}s` : "";
+					const tokens = d.runningTokenCount !== undefined ? `${d.runningTokenCount} tok` : "";
+					const toolsCount =
+						d.runningToolCount !== undefined
+							? `${d.runningToolCount} tools`
+							: `${d.toolCalls?.length || 0} tools`;
 					ctx.ui.setWidget(widgetId, [
 						`${agent.config.name} — ${phase}${elapsed ? ` (${elapsed})` : ""}`,
-						`tools: ${d.toolCalls?.length || 0}`,
+						`${toolsCount}${tokens ? ` · ${tokens}` : ""}`,
 					]);
 				}
 
@@ -1470,6 +1475,9 @@ export async function executeAgent(
 									thinking,
 									// Simple per-call stat: tool ordinal (e.g. "#3")
 									toolIndex: `#${i + 1}`,
+									// Running totals for the session
+									runningTokenCount: d.runningTokenCount,
+									runningToolCount: d.runningToolCount,
 								},
 							},
 						});

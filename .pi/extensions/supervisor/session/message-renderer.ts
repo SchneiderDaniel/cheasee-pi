@@ -31,6 +31,8 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			thinking?: string;
 			errorReason?: string;
 			toolIndex?: string;
+			runningTokenCount?: number;
+			runningToolCount?: number;
 		}
 		const toolCallResult = rawDetails?.toolCallResult as ToolCallDetail | undefined;
 		if (toolCallResult) {
@@ -43,9 +45,19 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			// Colored header line with full-width background
 			c.addChild(new Text(headerText, 1, 0, bgFn));
 
-			// Tool call index stat (e.g. "3/19")
+			// Tool call index + running stats (token count, tool count)
+			const statsParts: string[] = [];
 			if (toolCallResult.toolIndex) {
-				c.addChild(new Text(theme.fg("dim", toolCallResult.toolIndex), 1, 0));
+				statsParts.push(toolCallResult.toolIndex);
+			}
+			if (toolCallResult.runningTokenCount !== undefined) {
+				statsParts.push(`${toolCallResult.runningTokenCount} tok`);
+			}
+			if (toolCallResult.runningToolCount !== undefined) {
+				statsParts.push(`${toolCallResult.runningToolCount} tools`);
+			}
+			if (statsParts.length > 0) {
+				c.addChild(new Text(theme.fg("dim", statsParts.join(" · ")), 1, 0));
 			}
 
 			// Thinking (Markdown, no background)

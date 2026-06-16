@@ -242,6 +242,8 @@ export async function executeSubagent(
 					toolCalls: [...toolCalls],
 					toolResults: [...toolResults],
 					taskPrompt: task,
+					runningTokenCount: state.tokenCount,
+					runningToolCount: state.toolCount,
 				},
 			});
 		};
@@ -438,6 +440,8 @@ export async function executeSubagent(
 					toolCalls: [...toolCalls],
 					toolResults: [...toolResults],
 					taskPrompt: task,
+					runningTokenCount: state.tokenCount,
+					runningToolCount: state.toolCount,
 				},
 			});
 		}
