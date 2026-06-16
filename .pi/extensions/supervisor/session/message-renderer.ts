@@ -23,23 +23,26 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 		const details = message.details as SupervisorMessageDetails | undefined;
 		const rawDetails = (message as any).details;
 
-		// ── Tool call result with green/red background spanning all lines ─
+		// ── Tool call result: colored header + Markdown body ─
 		const toolCallResult = rawDetails?.toolCallResult as
 			| { name: string; args: string; isError: boolean; resultText?: string }
 			| undefined;
 		if (toolCallResult) {
 			const icon = toolCallResult.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			const header = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
+			const headerText = `${icon} ${theme.fg("toolTitle", toolCallResult.name)}: \`${toolCallResult.args}\``;
 			const bgFn = (l: string) =>
 				toolCallResult.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-			// Merge header + output into one Text so background spans all lines
-			let fullText = header;
+			const c = new Container();
+			// Colored header line with full-width background (matching native pi)
+			c.addChild(new Text(headerText, 1, 0, bgFn));
+			// Result body as Markdown (no background)
 			if (toolCallResult.resultText) {
 				const trimmed = toolCallResult.resultText.slice(0, 2_000);
-				fullText += "\n" + trimmed;
+				const mdTheme = getMarkdownTheme();
+				c.addChild(new Markdown(trimmed, 1, 1, mdTheme));
 			}
-			return new Text(fullText, 1, 0, bgFn);
+			return c;
 		}
 
 		// ── Progress update (split: first line accent, rest Markdown) ─
