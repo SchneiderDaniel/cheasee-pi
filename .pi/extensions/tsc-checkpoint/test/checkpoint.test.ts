@@ -149,6 +149,55 @@ describe("runTscCheckpoint (one-shot ts.createProgram)", () => {
 		}
 	});
 
+	it("Warning-only config diagnostics do not trigger early return — proceeds to createProgram", async () => {
+		const { dir, cleanup } = createFixture();
+		try {
+			// Create valid source files (no type errors)
+			writeFileSync(
+				join(dir, "tsconfig.json"),
+				JSON.stringify({ compilerOptions: { noEmit: true, strict: true } }),
+				"utf-8",
+			);
+			mkdirSync(join(dir, "src"), { recursive: true });
+			writeFileSync(join(dir, "src", "index.ts"), "export const x: number = 1;\n", "utf-8");
+
+			// Inject a mock config parser that returns a ParsedCommandLine with
+			// only Warning-category diagnostics (no Error), verifying the filter
+			// condition parsedConfig.errors.filter(d => d.category === Error)
+			// does not trigger early return and proceeds to createProgram.
+			const mockParseConfig: (
+				configFileName: string,
+				optionsToExtend: ts.CompilerOptions,
+				host: ts.ParseConfigFileHost,
+			) => ts.ParsedCommandLine | undefined = (_configFileName, _optionsToExtend, _host) => ({
+				options: { noEmit: true, strict: true },
+				fileNames: [join(dir, "src", "index.ts")],
+				raw: {},
+				errors: [
+					{
+						category: ts.DiagnosticCategory.Warning,
+						code: 9999,
+						messageText: "Deprecated config option used (test-only warning)",
+						file: undefined,
+						start: undefined,
+						length: undefined,
+					} as ts.Diagnostic,
+				],
+				wildcardDirectories: {},
+				compileOnSave: false,
+			});
+
+			const result = await runTscCheckpoint(dir, mockParseConfig);
+
+			// Warning-only config should not trigger early return —
+			// clean source files should result in no errors
+			assert.strictEqual(result.hasErrors, false);
+			assert.deepStrictEqual(result.diagnostics, []);
+		} finally {
+			cleanup();
+		}
+	});
+
 	it("clean project with no type errors returns empty diagnostics", async () => {
 		const { dir, cleanup } = createFixture();
 		try {

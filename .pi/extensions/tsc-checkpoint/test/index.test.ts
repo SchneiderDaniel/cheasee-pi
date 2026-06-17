@@ -37,8 +37,8 @@ describe("runTscCheckpoint (pipeline contract)", () => {
 		assert.ok("hasErrors" in result);
 	});
 
-	it("has .length === 1 (only worktreePath param)", () => {
-		assert.strictEqual(runTscCheckpoint.length, 1);
+	it("has .length === 2 (worktreePath + optional injectable config parser)", () => {
+		assert.strictEqual(runTscCheckpoint.length, 2);
 	});
 
 	it("ExtensionAPI type import still present in source (used by tscCheckpoint entry)", async () => {
@@ -46,11 +46,11 @@ describe("runTscCheckpoint (pipeline contract)", () => {
 		assert.ok(typeof mod.default === "function", "default export (tscCheckpoint) still present");
 	});
 
-	it("getRunTscCheckpoint returns function with .length === 1 that returns { diagnostics, hasErrors }", async () => {
+	it("getRunTscCheckpoint returns function with .length === 2 that returns { diagnostics, hasErrors }", async () => {
 		// This mirrors the pipeline contract in tsc-decisions.ts
 		const mod = await import("../index.ts");
 		assert.strictEqual(typeof mod.runTscCheckpoint, "function");
-		assert.strictEqual(mod.runTscCheckpoint.length, 1);
+		assert.strictEqual(mod.runTscCheckpoint.length, 2);
 		const result = await mod.runTscCheckpoint("/nonexistent/path");
 		assert.ok("diagnostics" in result);
 		assert.ok("hasErrors" in result);
