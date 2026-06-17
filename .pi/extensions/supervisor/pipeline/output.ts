@@ -97,8 +97,15 @@ export function buildPipelineSummary(
 	const totalTokens = agentResults.reduce((sum, a) => sum + a.tokenCount, 0);
 	const totalDurationMs = agentResults.reduce((sum, a) => sum + a.durationMs, 0);
 	const totalToolCalls = agentResults.reduce((sum, a) => sum + a.toolCount, 0);
+	const totalFailedCalls = agentResults.reduce((sum, a) => sum + (a.failedToolCount ?? 0), 0);
+	const failedPercentage =
+		totalToolCalls > 0 ? ((totalFailedCalls / totalToolCalls) * 100).toFixed(0) : "0";
+	const failedSuffix =
+		totalFailedCalls > 0 || agentResults.some((a) => a.failedToolCount !== undefined)
+			? ` · ${totalFailedCalls} failed (${failedPercentage}%)`
+			: "";
 	lines.push(
-		`**Total:** ${agentResults.length} agents · ${formatDuration(totalDurationMs)} · ${formatTokens(totalTokens)} tokens · ${totalToolCalls} tool calls`,
+		`**Total:** ${agentResults.length} agents · ${formatDuration(totalDurationMs)} · ${formatTokens(totalTokens)} tokens · ${totalToolCalls} tool calls${failedSuffix}`,
 	);
 
 	// Issue link + auto-link PR to issue (cross-reference in GitHub UI)

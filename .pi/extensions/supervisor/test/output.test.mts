@@ -621,3 +621,84 @@ describe("buildPipelineSummary — multi-developer-run (Phase 5)", () => {
 		assert.ok(output.includes("**Total:** 1 agents"), "total shows 1 agent");
 	});
 });
+
+// ─── Tests: buildPipelineSummary — failed tool call rendering ────
+
+describe("buildPipelineSummary — failed tool call rendering", () => {
+	const makeAgent = (
+		name: string,
+		status: PipelineAgentResult["status"],
+		tokens: number,
+		duration: number,
+		tools: number,
+		failed?: number,
+	): PipelineAgentResult => ({
+		agentName: name,
+		status,
+		tokenCount: tokens,
+		durationMs: duration,
+		toolCount: tools,
+		failedToolCount: failed,
+	});
+
+	it("shows · 2 failed (50%) when half of 4 tools failed across agents", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 2, 1),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 2, 1),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("· 2 failed (50%)"), "should show 2 failed (50%)");
+	});
+
+	it("shows · 0 failed (0%) when all agents have failedToolCount: 0", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10, 0),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5, 0),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("· 0 failed (0%)"), "should show 0 failed (0%)");
+	});
+
+	it("unchanged (no · N failed suffix) when all agents have undefined failedToolCount (backward compat)", () => {
+		const results = [makeAgent("developer", "SUCCESS", 5000, 30000, 10)];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(!output.includes("failed"), "should NOT include failed suffix when undefined");
+		assert.ok(output.includes("10 tool calls"), "original format preserved");
+	});
+
+	it("zero-division guard: when total tool calls = 0, percentage renders as 0 not NaN", () => {
+		const results = [makeAgent("developer", "SUCCESS", 0, 0, 0, 0)];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("0 failed (0%)"), "should show 0% not NaN");
+	});
+
+	it("all calls failed: · 5 failed (100%) for 5/5 failed", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 3, 3),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 2, 2),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("· 5 failed (100%)"), "should show 5 failed (100%)");
+	});
+
+	it("sums failedToolCount across all agents correctly", () => {
+		const results = [
+			makeAgent("developer", "SUCCESS", 5000, 30000, 10, 1),
+			makeAgent("developer", "SUCCESS", 3000, 20000, 8, 3),
+			makeAgent("auditor", "SUCCESS", 2000, 15000, 5, 0),
+		];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("· 4 failed"), "should sum to 4 failed across 3 agents");
+	});
+
+	it("existing total-line format preserved: agents count, duration, tokens, tool calls all present (regression guard)", () => {
+		const results = [makeAgent("developer", "SUCCESS", 5000, 30000, 10, 1)];
+		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("**Total:"), "Total line present");
+		assert.ok(output.includes("1 agents"), "agent count present");
+		assert.ok(output.includes("30s") || output.includes("0m 30s"), "duration present");
+		assert.ok(output.includes("5.0K tokens"), "tokens present");
+		assert.ok(output.includes("10 tool calls"), "tool calls present");
+		assert.ok(output.includes("· 1 failed"), "failed count present");
+	});
+});

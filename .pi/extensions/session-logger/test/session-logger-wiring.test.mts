@@ -13,8 +13,8 @@ import { describe, it } from "node:test";
 import defaultExport, {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
-	getSessionLoggerState,
 	generateMissingReports,
+	getSessionLoggerState,
 } from "../index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
