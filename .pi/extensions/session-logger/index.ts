@@ -26,7 +26,8 @@ export function createSessionLoggerGate(initiallyEnabled = true): SessionLoggerG
 }
 
 export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined): boolean | null {
-	return gate?.sessionEnabled ?? null;
+	if (gate == null) return null;
+	return gate.sessionEnabled;
 }
 
 export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string): boolean {

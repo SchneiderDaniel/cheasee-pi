@@ -12,8 +12,8 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import defaultExport, {
 	createSessionLoggerGate,
-	toggleSessionLoggerGate,
 	getSessionLoggerState,
+	toggleSessionLoggerGate,
 	generateMissingReports,
 } from "../index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -300,7 +300,6 @@ describe("index.ts — named exports", () => {
 		const state = getSessionLoggerState(undefined);
 		assert.strictEqual(state, null);
 	});
-
 	it("generateMissingReports is a function (re-exported)", () => {
 		assert.strictEqual(
 			typeof generateMissingReports,

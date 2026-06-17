@@ -191,6 +191,7 @@ export function buildAgentRunResult(
 		success,
 		agentName,
 		toolCount: state.toolCount,
+		failedToolCount: state.failedToolCount ?? undefined,
 		tokenCount: tokenCount + (state.cacheRead || 0) + (state.cacheWrite || 0),
 		durationMs,
 		textOutput,
@@ -237,6 +238,7 @@ export function convertToolResultToAgentRunResult(
 		success: d.success,
 		agentName: d.agentName,
 		toolCount: d.toolCalls.length,
+		failedToolCount: d.errorCount ?? undefined,
 		tokenCount:
 			(d.inputTokens || 0) + (d.outputTokens || 0) + (d.cacheRead || 0) + (d.cacheWrite || 0),
 		durationMs: d.durationMs,
