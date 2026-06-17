@@ -885,6 +885,26 @@ describe("buildAgentResultEntry()", () => {
 		const shortModel = (m?: string) => (m ? m.split("/").pop() || m : "—");
 		assert.equal(shortModel(entry.model), "—");
 	});
+
+	it("threads failedToolCount from result", () => {
+		const entry = buildAgentResultEntry({ ...baseResult, failedToolCount: 2 }, false);
+		assert.equal(entry.failedToolCount, 2);
+	});
+
+	it("failedToolCount is undefined when not present on result", () => {
+		const entry = buildAgentResultEntry(baseResult, false);
+		assert.equal(entry.failedToolCount, undefined);
+	});
+
+	it("existing fields unchanged when failedToolCount absent (regression guard)", () => {
+		const entry = buildAgentResultEntry(baseResult, false);
+		assert.equal(entry.status, "SUCCESS");
+		assert.equal(entry.agentName, "developer");
+		assert.equal(entry.toolCount, 10);
+		assert.equal(entry.tokenCount, 5000);
+		assert.equal(entry.durationMs, 30000);
+		assert.equal(entry.model, undefined);
+	});
 });
 
 // ─── Tests: handleBacklogTransition() ─────────────────────────────
