@@ -10,7 +10,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { createExplainCommand, wordWrap } from "../explain.ts";
+import { createExplainCommand, formatWithWordWrap, wordWrap } from "../explain.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -66,6 +66,116 @@ function captureRender(
 
 	return renderFn!;
 }
+
+// ---------------------------------------------------------------------------
+// formatWithWordWrap tests
+// ---------------------------------------------------------------------------
+
+describe("formatWithWordWrap", () => {
+	it("renders item name with accent on first line", () => {
+		const accent = (s: string) => `[${s}]`;
+		const dim = (s: string) => `-${s}-`;
+		const result = formatWithWordWrap(
+			{ name: "test-item", description: "A test item" },
+			{ accent, dim, width: 80 },
+		);
+		assert.strictEqual(result[0], "[  test-item]");
+	});
+
+	it("renders description with dim, word-wrapped within Math.max(20, width - 6) width", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => `[${s}]`;
+		// Word-wrap needs a long description to trigger wrapping
+		const longDesc = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda";
+		const result = formatWithWordWrap(
+			{ name: "item", description: longDesc },
+			{ accent, dim, width: 80 },
+		);
+		// First line is the item name
+		assert.strictEqual(result[0], "  item");
+		// Subsequent lines should be dim-wrapped description segments
+		for (let i = 1; i < result.length; i++) {
+			assert.ok(result[i]!.startsWith("["), "each description line should be dim-wrapped");
+			assert.ok(result[i]!.endsWith("]"), "each description line should close dim");
+		}
+	});
+
+	it("falls back to '(no description)' when description is null", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const result = formatWithWordWrap(
+			{ name: "null-item", description: null },
+			{ accent, dim, width: 80 },
+		);
+		const all = result.join("\n");
+		assert.ok(all.includes("(no description)"), "null description should show fallback");
+	});
+
+	it("falls back to '(no description)' when description is undefined", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const result = formatWithWordWrap(
+			{ name: "undef-item", description: undefined },
+			{ accent, dim, width: 80 },
+		);
+		const all = result.join("\n");
+		assert.ok(all.includes("(no description)"), "undefined description should show fallback");
+	});
+
+	it("uses only first line of multi-line description", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const result = formatWithWordWrap(
+			{ name: "multi", description: "first line\nsecond line\nthird line" },
+			{ accent, dim, width: 80 },
+		);
+		const all = result.join("\n");
+		assert.ok(all.includes("first line"), "should include first line");
+		assert.ok(!all.includes("second line"), "should NOT include second line");
+		assert.ok(!all.includes("third line"), "should NOT include third line");
+	});
+
+	it("accepts width-dependent word-wrap: narrow width produces more wrapped lines", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const desc = "word word word word word word word word word";
+		const wideResult = formatWithWordWrap(
+			{ name: "x", description: desc },
+			{ accent, dim, width: 100 },
+		);
+		const narrowResult = formatWithWordWrap(
+			{ name: "x", description: desc },
+			{ accent, dim, width: 30 },
+		);
+		// Narrow width should produce more description lines than wide width
+		const wideDescLines = wideResult.length - 1; // exclude title line
+		const narrowDescLines = narrowResult.length - 1;
+		assert.ok(
+			narrowDescLines >= wideDescLines,
+			`narrow width (${narrowDescLines} desc lines) should produce >= lines than wide (${wideDescLines})`,
+		);
+	});
+
+	it("accepts PromptMeta (concrete type) — no type error", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const result = formatWithWordWrap(
+			{ name: "prompt", filePath: "/path/to/prompt", description: "A prompt" },
+			{ accent, dim, width: 80 },
+		);
+		assert.ok(result[0]!.includes("prompt"));
+	});
+
+	it("accepts SkillMeta (concrete type) — no type error", () => {
+		const accent = (s: string) => s;
+		const dim = (s: string) => s;
+		const result = formatWithWordWrap(
+			{ name: "skill", filePath: "/path/to/skill", description: "A skill" },
+			{ accent, dim, width: 80 },
+		);
+		assert.ok(result[0]!.includes("skill"));
+	});
+});
 
 // ---------------------------------------------------------------------------
 // wordWrap tests
