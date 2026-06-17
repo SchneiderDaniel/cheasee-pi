@@ -33,6 +33,7 @@ export function createAgentRunState(
 ): AgentRunState {
 	return {
 		toolCount: 0,
+		failedToolCount: 0,
 		tokenCount: 0,
 		fullLog: [],
 		liveThinking: "",
@@ -395,6 +396,7 @@ export async function runAgentSubprocess(
 				success,
 				agentName,
 				toolCount: state.toolCount,
+				failedToolCount: state.failedToolCount ?? undefined,
 				tokenCount: state.tokenCount,
 				durationMs,
 				textOutput,
@@ -433,6 +435,7 @@ export async function runAgentSubprocess(
 				success: false,
 				agentName: agent.config.name,
 				toolCount: 0,
+				failedToolCount: undefined,
 				tokenCount: 0,
 				durationMs: Date.now() - startedAt,
 				textOutput: "",

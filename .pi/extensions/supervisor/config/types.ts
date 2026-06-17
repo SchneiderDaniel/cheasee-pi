@@ -90,6 +90,8 @@ export interface AgentRunResult {
 	toolCount: number;
 	tokenCount: number;
 	durationMs: number;
+	/** Number of tool executions that ended with an error */
+	failedToolCount?: number;
 	/** Clean text output from the agent (no tool/emoji noise) */
 	textOutput: string;
 	/** Brief summary line: what the agent accomplished */
@@ -150,6 +152,8 @@ export interface AgentRunState {
 	budgetExceededReason?: string;
 	/** Max tool calls allowed (0 = unlimited, populated from config) */
 	maxToolCalls: number;
+	/** Number of tool executions that ended with an error */
+	failedToolCount?: number;
 	/** Max tokens allowed (0 = unlimited, populated from config) */
 	agentTokenBudget: number;
 	/** LLM prompt cache read tokens (from message usage) */
@@ -280,6 +284,8 @@ export interface PipelineAgentResult {
 	toolCount: number;
 	/** Model identifier from agent frontmatter, e.g. "anthropic/claude-sonnet-4-20250514" */
 	model?: string;
+	/** Number of tool executions that ended with an error */
+	failedToolCount?: number;
 	/** Error output from agent execution (stderr, crash diagnostics) */
 	errorOutput?: string;
 }

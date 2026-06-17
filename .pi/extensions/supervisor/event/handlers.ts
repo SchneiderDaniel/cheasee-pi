@@ -73,6 +73,9 @@ export function handleToolExecutionEnd(
 	ev: NormalizedEvent & { kind: "tool_execution_end" },
 ): HandlerResult {
 	state.toolCount++;
+	if (ev.isError) {
+		state.failedToolCount = (state.failedToolCount ?? 0) + 1;
+	}
 	state.currentTool = undefined;
 	state.currentToolArgs = undefined;
 	state.phase = "idle";
