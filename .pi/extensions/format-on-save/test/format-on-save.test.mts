@@ -2093,3 +2093,125 @@ describe("handler — lint config error prefix", () => {
 		}
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// EslintLinter — singleton promise (??= lazy init guard)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("EslintLinter — singleton promise", () => {
+	it("two concurrent lint() calls share one createESLint() invocation", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+
+		let factoryCallCount = 0;
+		let factoryResolve: () => void;
+		const factoryPromise = new Promise<void>((resolve) => {
+			factoryResolve = resolve;
+		});
+
+		const blockingFactory = async () => {
+			factoryCallCount++;
+			await factoryPromise;
+			return {
+				lintText: async (_text: string, _opts: { filePath: string }) => [
+					{ filePath: "/path/file.ts", messages: [] },
+				],
+			};
+		};
+
+		const l = new EslintLinter(blockingFactory);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		// Start two concurrent lint() calls — both will enter getESLint()
+		// before the factory promise resolves
+		const promise1 = l.lint("/path/file.ts");
+		const promise2 = l.lint("/path/file.ts");
+
+		// Release the factory so both can complete
+		factoryResolve!();
+
+		await Promise.all([promise1, promise2]);
+
+		assert.strictEqual(factoryCallCount, 1, "factory must be called exactly once");
+	});
+
+	it("rejection caches error — second lint() does not re-call factory", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+
+		let factoryCallCount = 0;
+		const rejectingFactory = async () => {
+			factoryCallCount++;
+			throw new Error("eslint not available");
+		};
+
+		const l = new EslintLinter(rejectingFactory);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		// First call — factory is invoked, rejects
+		const result1 = await l.lint("/path/file.ts");
+		assert.ok(result1.error, "first call should return error");
+		assert.strictEqual(factoryCallCount, 1, "factory called once after first lint");
+
+		// Second call — should NOT invoke factory again; initError guard throws
+		const result2 = await l.lint("/path/file.ts");
+		assert.ok(result2.error, "second call should also return error");
+		assert.strictEqual(factoryCallCount, 1, "factory still called exactly once");
+	});
+
+	it("happy path — single lint() returns expected diagnostics", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+
+		const mockFactory = async () => ({
+			lintText: async (_text: string, _opts: { filePath: string }) => [
+				{
+					filePath: "/path/file.ts",
+					messages: [{ line: 1, column: 1, severity: 2, message: "err", ruleId: "no-err" }],
+				},
+			],
+		});
+
+		const l = new EslintLinter(mockFactory);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		const result = await l.lint("/path/file.ts");
+
+		assert.strictEqual(result.diagnostics.length, 1, "should return one diagnostic");
+		assert.strictEqual(result.diagnostics[0]!.severity, "Error");
+		assert.strictEqual(result.diagnostics[0]!.ruleId, "no-err");
+		assert.strictEqual(result.fixesApplied, false);
+	});
+
+	it("rejected promise is permanent — eslintPromise not reset to null", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+
+		let factoryCallCount = 0;
+		const rejectingFactory = async () => {
+			factoryCallCount++;
+			throw new Error("eslint not available");
+		};
+
+		const l = new EslintLinter(rejectingFactory);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		// First call — factory rejects
+		const result1 = await l.lint("/path/file.ts");
+		assert.ok(result1.error);
+
+		// eslintPromise should hold the rejected promise, not be null
+		const esp: unknown = (l as any).eslintPromise;
+		assert.ok(esp instanceof Promise, "eslintPromise should be a Promise after rejection");
+
+		// eslintPromise should still be the same rejected promise
+		// (The previous code set eslintPromise = null inside catch handler;
+		// after the ??= refactor, the rejected promise becomes the permanent cached value.)
+		await assert.rejects(
+			async () => esp as Promise<unknown>,
+			/eslint not available/,
+			"eslintPromise should be rejected",
+		);
+
+		// Second call — initError guard prevents any factory re-invocation
+		const result2 = await l.lint("/path/file.ts");
+		assert.ok(result2.error);
+		assert.strictEqual(factoryCallCount, 1, "factory must still be called exactly once");
+	});
+});
