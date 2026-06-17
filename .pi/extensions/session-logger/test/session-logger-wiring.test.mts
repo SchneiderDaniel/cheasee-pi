@@ -12,9 +12,9 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import defaultExport, {
 	createSessionLoggerGate,
+	getSessionLoggerState,
 	toggleSessionLoggerGate,
 	generateMissingReports,
-	getSessionLoggerState,
 } from "../index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
