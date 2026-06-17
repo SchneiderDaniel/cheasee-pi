@@ -23,6 +23,8 @@ import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { parse } from "shell-quote";
+import type { ParseEntry } from "shell-quote";
+import { SEPARATORS, isCommandStart, findMeaningfulToken } from "./shell-tokens.ts";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -62,8 +64,8 @@ function isPathSafe(target: string, sandboxRoot: string): boolean {
  * - { comment: string } objects are comments
  * - Variables ($VAR) resolve to their env value (or "" if not in env)
  */
-export function tokenizeCommand(cmd: string): ReturnType<typeof parse> {
-	return parse(cmd);
+export function tokenizeCommand(cmd: string): ParseEntry[] {
+	return parse(cmd) as ParseEntry[];
 }
 
 /**
@@ -74,10 +76,7 @@ export function hasShellExpansion(token: string): boolean {
 	return /[\$`~{*?\[]/.test(token);
 }
 
-/**
- * Separator operators that start a new command in a shell pipeline.
- */
-const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
+// SEPARATORS moved to shell-tokens.ts — re-exported below.
 
 /**
  * Shell-aware suspicious argument detection.
@@ -104,13 +103,7 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
 
 		// Skip command names (first token of each command)
 		// A string is a command name if it's at position 0 or preceded by a separator
-		const isCommandName =
-			i === 0 ||
-			(typeof tokens[i - 1] === "object" &&
-				"op" in (tokens[i - 1] as { op: string }) &&
-				SEPARATORS.has((tokens[i - 1] as { op: string }).op));
-
-		if (isCommandName) {
+		if (isCommandStart(tokens, i)) {
 			continue;
 		}
 
@@ -166,74 +159,55 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
 		// Check if this token starts a command (is a 'cd' command)
 		// A string starts a command if it's at position 0 or preceded by a separator
 		if (token === "cd") {
-			const isStart =
-				i === 0 ||
-				(typeof tokens[i - 1] === "object" &&
-					"op" in (tokens[i - 1] as { op: string }) &&
-					SEPARATORS.has((tokens[i - 1] as { op: string }).op));
-
-			if (!isStart) {
+			if (!isCommandStart(tokens, i)) {
 				continue; // 'cd' is not a command, e.g. path argument
 			}
 
-			// Find the next non-operator, non-comment token (the cd target)
-			let j = i + 1;
-			while (j < tokens.length) {
-				const nextToken = tokens[j]!;
-
-				if (typeof nextToken === "object" && "op" in nextToken) {
-					if (nextToken.op === "glob") {
-						// Glob pattern after cd is unsafe
-						return nextToken.pattern ?? command;
-					}
-					if (SEPARATORS.has(nextToken.op)) {
-						// Separator right after cd = bare cd (e.g., "cd ; echo")
-						return "<HOME>";
-					}
-					// Skip other operators (like '(' in command sub)
-					j++;
-					continue;
-				}
-
-				if (typeof nextToken === "object" && "comment" in nextToken) {
-					// Comment after cd = bare cd
+			// Find the next meaningful token after cd (the cd target)
+			const tokenResult = findMeaningfulToken(tokens, i + 1);
+			switch (tokenResult.kind) {
+				case "exhausted":
+				case "separator":
+				case "comment":
 					return "<HOME>";
+				case "glob":
+					return tokenResult.pattern || command;
+				case "token": {
+					let nextToken = tokenResult.value;
+					let tokenIndex = tokenResult.index;
+
+					// Handle -- option separator(s) by advancing past them
+					while (nextToken === "--") {
+						const next = findMeaningfulToken(tokens, tokenIndex + 1);
+						if (next.kind === "exhausted" || next.kind === "separator" || next.kind === "comment") {
+							return "<HOME>";
+						}
+						if (next.kind === "glob") {
+							return next.pattern || command;
+						}
+						nextToken = next.value;
+						tokenIndex = next.index;
+					}
+
+					// String token — this is the cd target
+					if (nextToken === "") {
+						return "<HOME>"; // Unresolved variable ($VAR with no env value)
+					}
+
+					if (nextToken === "-") {
+						return "<previous-dir>"; // Previous directory — always potentially unsafe
+					}
+
+					if (hasShellExpansion(nextToken)) {
+						return nextToken; // Shell expansion syntax detected
+					}
+
+					if (!isPathSafe(nextToken, sandboxRoot)) {
+						return nextToken; // Path resolves outside sandbox
+					}
+
+					break; // This cd is safe
 				}
-
-				// After filtering objects, remaining type must be string
-				if (typeof nextToken !== "string") {
-					break;
-				}
-
-				// It's a string token — this is the cd target
-				if (nextToken === "") {
-					return "<HOME>"; // Unresolved variable ($VAR with no env value)
-				}
-
-				if (nextToken === "-") {
-					return "<previous-dir>"; // Previous directory — always potentially unsafe
-				}
-
-				if (nextToken === "--") {
-					// Option separator — skip to next token as actual target
-					j++;
-					continue;
-				}
-
-				if (hasShellExpansion(nextToken)) {
-					return nextToken; // Shell expansion syntax detected
-				}
-
-				if (!isPathSafe(nextToken, sandboxRoot)) {
-					return nextToken; // Path resolves outside sandbox
-				}
-
-				break; // This cd is safe
-			}
-
-			// If we reached end of tokens without finding a target, it's bare cd
-			if (j >= tokens.length) {
-				return "<HOME>";
 			}
 		}
 	}
@@ -263,57 +237,37 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 		// Detect { op: ">" } or { op: ">>" } tokens
 		if (typeof token === "object" && "op" in token && (token.op === ">" || token.op === ">>")) {
 			// Next non-operator token is the redirect target
-			let j = i + 1;
-			while (j < tokens.length) {
-				const nextToken = tokens[j]!;
-
-				if (typeof nextToken === "object" && "op" in nextToken) {
-					if (nextToken.op === "glob") {
-						return nextToken.pattern ?? command;
+			const tokenResult = findMeaningfulToken(tokens, i + 1);
+			switch (tokenResult.kind) {
+				case "exhausted":
+				case "separator":
+				case "comment":
+					break; // No target found before separator
+				case "glob":
+					return tokenResult.pattern || command;
+				case "token": {
+					const nextToken = tokenResult.value;
+					// String token — this is the redirect target
+					if (nextToken === "") {
+						return command; // Unresolved variable
 					}
-					if (SEPARATORS.has(nextToken.op)) {
-						break; // No target found before separator
-					}
-					j++;
-					continue;
-				}
 
-				if (typeof nextToken === "object" && "comment" in nextToken) {
+					if (hasShellExpansion(nextToken)) {
+						return nextToken;
+					}
+
+					if (!isPathSafe(nextToken, sandboxRoot)) {
+						return nextToken;
+					}
+
 					break;
 				}
-
-				// After filtering objects, remaining type must be string
-				if (typeof nextToken !== "string") {
-					break;
-				}
-
-				// String token — this is the redirect target
-				if (nextToken === "") {
-					return command; // Unresolved variable
-				}
-
-				if (hasShellExpansion(nextToken)) {
-					return nextToken;
-				}
-
-				if (!isPathSafe(nextToken, sandboxRoot)) {
-					return nextToken;
-				}
-
-				break;
 			}
 		}
 
 		// ── cp/mv/touch command detection ─────────────────────────
 		if (typeof token === "string" && (token === "cp" || token === "mv" || token === "touch")) {
-			// Check if this is a command start
-			const isStart =
-				i === 0 ||
-				(typeof tokens[i - 1] === "object" &&
-					"op" in (tokens[i - 1] as { op: string }) &&
-					SEPARATORS.has((tokens[i - 1] as { op: string }).op));
-
-			if (!isStart) continue;
+			if (!isCommandStart(tokens, i)) continue;
 
 			// Find the last non-flag, non-operator, non-comment token
 			// For cp/mv: the last such token is the destination
@@ -404,6 +358,9 @@ export function rewritePath(
 }
 
 // ─── Export ─────────────────────────────────────────────────────────
+
+export { SEPARATORS, isCommandStart, findMeaningfulToken } from "./shell-tokens.ts";
+export type { MeaningfulTokenResult } from "./shell-tokens.ts";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
