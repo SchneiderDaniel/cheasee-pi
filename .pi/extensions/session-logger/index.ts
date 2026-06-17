@@ -39,15 +39,6 @@ export function beginSessionLoggerSession(gate: SessionLoggerGate): boolean {
 }
 
 /**
- * Get the effective session-logger state for the current session.
- * Returns `sessionEnabled` from the gate, or `null` if gate is null/undefined.
- */
-export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined): boolean | null {
-	if (gate == null) return null;
-	return gate.sessionEnabled;
-}
-
-/**
  * Extension entry point.
  * Registers the /session-logger command and wires event handlers
  * to a LoggerPipeline instance.

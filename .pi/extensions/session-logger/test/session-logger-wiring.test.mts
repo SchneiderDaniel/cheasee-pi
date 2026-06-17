@@ -14,7 +14,6 @@ import defaultExport, {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
 	beginSessionLoggerSession,
-	getSessionLoggerState,
 	generateMissingReports,
 } from "../index.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -291,27 +290,6 @@ describe("index.ts — named exports", () => {
 		const result = beginSessionLoggerSession(gate);
 		assert.strictEqual(result, true);
 		assert.strictEqual(gate.sessionEnabled, true);
-	});
-
-	it("getSessionLoggerState returns sessionEnabled when gate is provided", () => {
-		assert.strictEqual(
-			typeof getSessionLoggerState,
-			"function",
-			"getSessionLoggerState should be a function",
-		);
-		const gate = createSessionLoggerGate();
-		const state = getSessionLoggerState(gate);
-		assert.strictEqual(state, true);
-	});
-
-	it("getSessionLoggerState returns null for null gate", () => {
-		const state = getSessionLoggerState(null);
-		assert.strictEqual(state, null);
-	});
-
-	it("getSessionLoggerState returns null for undefined gate", () => {
-		const state = getSessionLoggerState(undefined);
-		assert.strictEqual(state, null);
 	});
 
 	it("generateMissingReports is a function (re-exported)", () => {

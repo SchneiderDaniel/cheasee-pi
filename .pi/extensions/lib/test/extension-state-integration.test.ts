@@ -24,7 +24,6 @@ import {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
 	beginSessionLoggerSession,
-	getSessionLoggerState,
 } from "../../session-logger/index.ts";
 
 import { getSessionAdviceState, splitArgs } from "../../session-advice/index.ts";
@@ -97,20 +96,6 @@ describe("ExtensionState integration — session-logger", () => {
 		// Next session starts
 		assert.equal(beginSessionLoggerSession(gate), false);
 		assert.equal(gate.sessionEnabled, false);
-	});
-
-	it("getSessionLoggerState returns correct current session state", () => {
-		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate);
-		assert.equal(getSessionLoggerState(gate), true);
-	});
-
-	it("getSessionLoggerState with null gate returns null", () => {
-		assert.equal(getSessionLoggerState(null), null);
-	});
-
-	it("getSessionLoggerState with undefined gate returns null", () => {
-		assert.equal(getSessionLoggerState(undefined), null);
 	});
 
 	it("session-logger toggle lifecycle: enabled → off → next session disabled", () => {

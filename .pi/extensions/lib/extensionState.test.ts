@@ -17,7 +17,6 @@ import {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
 	beginSessionLoggerSession,
-	getSessionLoggerState,
 } from "../session-logger/index.ts";
 import { splitArgs } from "../session-advice/index.ts";
 
@@ -475,12 +474,6 @@ describe("ExtensionState — edge cases", () => {
 // ── Integration: session-logger refactored to use ExtensionState ──
 
 describe("Integration — session-logger with ExtensionState", () => {
-	it("getSessionLoggerState returns boolean for a valid gate", () => {
-		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate);
-		assert.strictEqual(getSessionLoggerState(gate), true);
-	});
-
 	it("toggleSessionLoggerGate off flips enabledForNextSession, persists via ExtensionState", async () => {
 		const gate = createSessionLoggerGate(true);
 		const enabled = toggleSessionLoggerGate(gate, "off");
