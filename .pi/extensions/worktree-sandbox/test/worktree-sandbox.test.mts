@@ -13,6 +13,7 @@
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { makePathEvent, makeCtx, assertBlocksOutside, assertPassesThrough } from "./helpers.ts";
 
 // We export rewritePath from index.ts specifically for testing.
 // The default export (extension factory) is also available.
@@ -41,32 +42,6 @@ let mod: {
 
 const SANDBOX_ROOT = "/tmp/sandbox-test-root";
 
-function makeEvent(path: string): { input: { path: string } } {
-	return { input: { path } };
-}
-
-function makeCtx(hasUI: boolean): {
-	hasUI: boolean;
-	ui: { notify: (message: string, type?: "info" | "warning" | "error") => void };
-} {
-	const notifications: { msg: string; level?: string }[] = [];
-	const ctx = {
-		hasUI,
-		ui: {
-			notify: (message: string, type?: "info" | "warning" | "error") => {
-				notifications.push({ msg: message, level: type });
-			},
-		},
-		// Expose collected notifications for assertion
-		_notifications: notifications,
-	} as {
-		hasUI: boolean;
-		ui: { notify: (message: string, type?: "info" | "warning" | "error") => void };
-		_notifications: { msg: string; level?: string }[];
-	};
-	return ctx;
-}
-
 // ─── Setup: Dynamic import of the module ───────────────────────────
 
 describe("rewritePath", () => {
@@ -77,8 +52,8 @@ describe("rewritePath", () => {
 	// ── Empty path ────────────────────────────────────────────────
 
 	it("returns undefined for empty path (pass-through)", () => {
-		const event = makeEvent("");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
@@ -86,8 +61,8 @@ describe("rewritePath", () => {
 	it("returns undefined for falsy path (pass-through)", () => {
 		// Can't test null/undefined since event.input.path is typed as string
 		// but empty string is handled
-		const event = makeEvent("");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
@@ -95,15 +70,15 @@ describe("rewritePath", () => {
 	// ── Absolute path inside sandbox ───────────────────────────────
 
 	it("returns undefined for absolute path equal to sandbox root (edge case)", () => {
-		const event = makeEvent(SANDBOX_ROOT);
-		const ctx = makeCtx(false);
+		const event = makePathEvent(SANDBOX_ROOT);
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
 
 	it("returns undefined for absolute path inside sandbox (subdirectory)", () => {
-		const event = makeEvent(join(SANDBOX_ROOT, "some/file.txt"));
-		const ctx = makeCtx(false);
+		const event = makePathEvent(join(SANDBOX_ROOT, "some/file.txt"));
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
@@ -111,8 +86,8 @@ describe("rewritePath", () => {
 	// ── Absolute path outside sandbox ─────────────────────────────
 
 	it("blocks absolute path outside sandbox with correct block noun (file operations)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -120,8 +95,8 @@ describe("rewritePath", () => {
 	});
 
 	it("blocks absolute path outside sandbox with correct block noun (writes)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -129,8 +104,8 @@ describe("rewritePath", () => {
 	});
 
 	it("blocks absolute path outside sandbox with correct block noun (edits)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -140,8 +115,8 @@ describe("rewritePath", () => {
 	// ── Relative path resolving inside sandbox ─────────────────────
 
 	it("mutates event.input.path and returns undefined for relative path that resolves inside sandbox", () => {
-		const event = makeEvent("relative/file.txt");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("relative/file.txt");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 		assert.equal(event.input.path, join(SANDBOX_ROOT, "relative/file.txt"));
@@ -150,8 +125,8 @@ describe("rewritePath", () => {
 	// ── Relative path resolving outside sandbox ───────────────────
 
 	it("blocks relative path that resolves outside sandbox with 'resolves outside' message", () => {
-		const event = makeEvent("../../outside");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("../../outside");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -161,8 +136,8 @@ describe("rewritePath", () => {
 	// ── UI notification ───────────────────────────────────────────
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (read)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const spy = ctx.ui.notify as ReturnType<typeof makeCtx>["ui"]["notify"] & { calls?: unknown[] };
 		const originalNotify = ctx.ui.notify;
 		const calls: { msg: string; level?: string }[] = [];
@@ -177,8 +152,8 @@ describe("rewritePath", () => {
 	});
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (write)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -191,8 +166,8 @@ describe("rewritePath", () => {
 	});
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (edit)", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -205,8 +180,8 @@ describe("rewritePath", () => {
 	});
 
 	it("does NOT call ctx.ui.notify() when ctx.hasUI is false", () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: false });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -219,8 +194,8 @@ describe("rewritePath", () => {
 	// ── Correct notification/reason text per tool ──────────────────
 
 	it('produces notification "Blocked read to outside worktree" and reason containing "All file operations must stay" for read', () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -233,8 +208,8 @@ describe("rewritePath", () => {
 	});
 
 	it('produces notification "Blocked write to outside worktree" and reason containing "All writes must stay" for write', () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -247,8 +222,8 @@ describe("rewritePath", () => {
 	});
 
 	it('produces notification "Blocked edit to outside worktree" and reason containing "All edits must stay" for edit', () => {
-		const event = makeEvent("/etc/passwd");
-		const ctx = makeCtx(true);
+		const event = makePathEvent("/etc/passwd");
+		const ctx = makeCtx({ hasUI: true });
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
@@ -264,8 +239,8 @@ describe("rewritePath", () => {
 
 	it("handles path with .. that resolves inside sandbox", () => {
 		// /tmp/sandbox-test-root/dir/../file.txt -> /tmp/sandbox-test-root/file.txt (inside)
-		const event = makeEvent("dir/../file.txt");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("dir/../file.txt");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 		assert.equal(event.input.path, join(SANDBOX_ROOT, "dir/../file.txt"));
@@ -274,8 +249,8 @@ describe("rewritePath", () => {
 
 	it("handles path with .. that resolves outside sandbox", () => {
 		// /tmp/sandbox-test-root/../../outside -> /tmp/outside (outside)
-		const event = makeEvent("../../outside");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("../../outside");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -285,41 +260,41 @@ describe("rewritePath", () => {
 	it("handles path that is a subdirectory of sandbox root (with trailing slash)", () => {
 		// This already works because sandboxRoot is "/tmp/sandbox-test-root" (no trailing slash)
 		// and subdir starts with sandboxRoot + "/"
-		const event = makeEvent(join(SANDBOX_ROOT, "subdir"));
-		const ctx = makeCtx(false);
+		const event = makePathEvent(join(SANDBOX_ROOT, "subdir"));
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
 
 	it("returns reason containing the blocked path", () => {
-		const event = makeEvent("/etc/shadow");
-		const ctx = makeCtx(false);
+		const event = makePathEvent("/etc/shadow");
+		const ctx = makeCtx({ hasUI: false });
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.ok((result.reason ?? "").includes("/etc/shadow"));
 	});
 
 	it("does not mutate event input when relative path resolves outside sandbox", () => {
-		const event = makeEvent("../../outside");
+		const event = makePathEvent("../../outside");
 		const originalPath = event.input.path;
-		const ctx = makeCtx(false);
+		const ctx = makeCtx({ hasUI: false });
 		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		// Path should NOT be rewritten when blocking
 		assert.equal(event.input.path, originalPath);
 	});
 
 	it("does not mutate event input when absolute path is blocked", () => {
-		const event = makeEvent("/etc/passwd");
+		const event = makePathEvent("/etc/passwd");
 		const originalPath = event.input.path;
-		const ctx = makeCtx(false);
+		const ctx = makeCtx({ hasUI: false });
 		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(event.input.path, originalPath);
 	});
 
 	it("does not mutate event input when absolute path is inside sandbox", () => {
-		const event = makeEvent(SANDBOX_ROOT);
+		const event = makePathEvent(SANDBOX_ROOT);
 		const originalPath = event.input.path;
-		const ctx = makeCtx(false);
+		const ctx = makeCtx({ hasUI: false });
 		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(event.input.path, originalPath);
 	});
