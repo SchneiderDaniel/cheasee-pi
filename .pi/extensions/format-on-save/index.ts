@@ -124,6 +124,23 @@ async function handleFormat(
 
 // ─── Lint Handling ────────────────────────────────────────────────────
 
+/**
+ * Check if an error message indicates an ESLint configuration error.
+ * Used to add [config error] prefix when logging lint errors.
+ * Mirrors the keyword patterns from EslintLinter.isConfigError().
+ */
+function isConfigErrorMessage(message: string): boolean {
+	return (
+		message.includes("ConfigError") ||
+		message.includes("Failed to load") ||
+		message.includes("Could not find") ||
+		message.includes("eslint.config") ||
+		message.includes(".eslintrc") ||
+		message.includes("configuration") ||
+		message.includes("Config (")
+	);
+}
+
 async function handleLint(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
@@ -141,7 +158,9 @@ async function handleLint(
 
 	if (lintResult.error) {
 		// Lint error — log, don't crash, don't send followUp
-		console.error(`format-on-save: lint error for ${filePath}: ${lintResult.error}`);
+		// Prefix [config error] when the error matches config error patterns
+		const prefix = isConfigErrorMessage(lintResult.error) ? "[config error] " : "";
+		console.error(`format-on-save: lint error for ${filePath}: ${prefix}${lintResult.error}`);
 		return;
 	}
 

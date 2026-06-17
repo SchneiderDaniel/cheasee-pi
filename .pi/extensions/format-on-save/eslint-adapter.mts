@@ -118,17 +118,20 @@ export class EslintLinter implements Linter {
 
 			return { diagnostics, fixesApplied };
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = this.getErrorMessage(err);
 
 			// Config error — retry with minimal config
 			if (this.isConfigError(err)) {
 				try {
-					return await this.lintWithFallback(path);
+					const fallbackResult = await this.lintWithFallback(path);
+					// Surface the original config error so the handler can log it
+					fallbackResult.error = this.getErrorMessage(err);
+					return fallbackResult;
 				} catch (fallbackErr) {
 					return {
 						diagnostics: [],
 						fixesApplied: false,
-						error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+						error: this.getErrorMessage(fallbackErr),
 					};
 				}
 			}
@@ -226,10 +229,32 @@ export class EslintLinter implements Linter {
 	}
 
 	/**
+	 * Extract a human-readable message from an unknown error value.
+	 * Handles Error instances, plain objects with a `message` property, and
+	 * any other value via String().
+	 */
+	private getErrorMessage(err: unknown): string {
+		if (err instanceof Error) return err.message;
+		const msg = (err as { message?: unknown } | null)?.message;
+		if (typeof msg === "string") return msg;
+		return String(err);
+	}
+
+	/**
 	 * Check if the error is a config-related error that warrants fallback.
+	 *
+	 * Two-tier check:
+	 *   1. `error.name === "ConfigError"` — precise for ESLint v9+ flat config
+	 *   2. Keyword matching — fallback for legacy eslintrc error formats
 	 */
 	private isConfigError(err: unknown): boolean {
-		const msg = err instanceof Error ? err.message : String(err);
+		// Tier 1: precise name check for ESLint v9+ flat config ConfigError
+		const name = (err as { name?: string } | null)?.name;
+		if (name === "ConfigError") {
+			return true;
+		}
+		// Tier 2: keyword fallback for legacy eslintrc error formats
+		const msg = this.getErrorMessage(err);
 		return (
 			msg.includes("config") ||
 			msg.includes("Config") ||

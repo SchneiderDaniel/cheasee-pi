@@ -1816,4 +1816,264 @@ describe("EslintLinter unit tests", () => {
 		const result = await l.lint("/path/file.ts");
 		assert.strictEqual(result.diagnostics.length, 0);
 	});
+
+	// ── isConfigError tests ────────────────────────────────────────
+
+	it("isConfigError returns true for ConfigError name", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "ConfigError", message: "bad config" }),
+			true,
+		);
+	});
+
+	it("isConfigError returns true for legacy eslintrc error format", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "Error", message: "failed to load config" }),
+			true,
+		);
+	});
+
+	it("isConfigError returns false for non-config error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "TypeError", message: "x is undefined" }),
+			false,
+		);
+	});
+
+	it("isConfigError returns true for ConfigError with name only (no message)", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual((l as any).isConfigError({ name: "ConfigError" }), true);
+	});
+
+	// ── Config error enrichment tests ──────────────────────────────
+
+	it("lint with ConfigError enriches fallback result with original error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "ConfigError", message: 'Config (unnamed): Key "rules": invalid' };
+			},
+		});
+		const mockFallback = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error, "should have error message");
+		assert.ok(
+			result.error!.includes("Config (unnamed)"),
+			"error should contain original config error message",
+		);
+		assert.strictEqual(result.diagnostics.length, 0, "empty diagnostics from fallback");
+		assert.strictEqual(result.fixesApplied, false, "fixesApplied false");
+	});
+
+	it("lint with non-config error returns error directly, not routed to fallback", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "TypeError", message: "Cannot read properties of undefined" };
+			},
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error, "should have error message");
+		assert.ok(result.error!.includes("Cannot read properties"), "should surface original error");
+		assert.strictEqual(result.diagnostics.length, 0);
+	});
+
+	it("lint with legacy eslintrc error includes original error message", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "Error", message: "Failed to load config" };
+			},
+		});
+		const mockFallback = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error, "should have error message");
+		assert.ok(
+			result.error!.includes("Failed to load config"),
+			"should contain legacy config error",
+		);
+	});
+
+	it("lint with config error and fallback both throwing returns fallback error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "ConfigError", message: "bad config" };
+			},
+		});
+		const mockFallback = async () => {
+			throw new Error("fallback also failed");
+		};
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error, "should have error message");
+		assert.ok(result.error!.includes("fallback also failed"), "should contain fallback error");
+	});
+
+	it("lint with config error: fallback diagnostics preserved in enriched result", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "ConfigError", message: "bad config" };
+			},
+		});
+		const mockFallback = async () => ({
+			lintText: async () => [
+				{
+					filePath: "/path/file.ts",
+					messages: [
+						{ line: 1, column: 1, severity: 1, message: "fallback warn", ruleId: "no-warn" },
+					],
+				},
+			],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 1, "should preserve fallback diagnostics");
+		assert.ok(result.error, "should have config error message");
+		assert.ok(
+			result.diagnostics[0]!.message.includes("fallback warn"),
+			"diagnostics should come from fallback",
+		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2: Handler — config error prefix
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("handler — lint config error prefix", () => {
+	it("ConfigError in lint result → console.error includes [config error]", async () => {
+		const linter: Linter = {
+			canHandle: () => true,
+			lint: async () => ({
+				diagnostics: [],
+				fixesApplied: false,
+				error: "ConfigError: Config (unnamed): invalid",
+			}),
+		};
+
+		const { consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(match!.includes("[config error]"), "should prefix [config error]");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("non-config lint error → no [config error] prefix", async () => {
+		const linter: Linter = {
+			canHandle: () => true,
+			lint: async () => ({
+				diagnostics: [],
+				fixesApplied: false,
+				error: "Cannot find module 'eslint'",
+			}),
+		};
+
+		const { consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(!match!.includes("[config error]"), "should NOT prefix [config error]");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("legacy Failed to load config → [config error] prefix", async () => {
+		const linter: Linter = {
+			canHandle: () => true,
+			lint: async () => ({
+				diagnostics: [],
+				fixesApplied: false,
+				error: "Failed to load config",
+			}),
+		};
+
+		const { consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(
+				match!.includes("[config error]"),
+				"should prefix [config error] for legacy format",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint success (no error) → no console.error", async () => {
+		const linter: Linter = {
+			canHandle: () => true,
+			lint: async () => ({ diagnostics: [], fixesApplied: false }),
+		};
+
+		const { consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			assert.strictEqual(
+				consoleErrorCalls.filter((c) => c.includes("lint error")).length,
+				0,
+				"no lint error log for success result",
+			);
+		} finally {
+			cleanup();
+		}
+	});
 });
