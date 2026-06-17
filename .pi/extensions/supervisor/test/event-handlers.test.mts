@@ -46,6 +46,7 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		currentTool: undefined,
 		currentToolArgs: undefined,
 		toolCount: 0,
+		failedToolCount: 0,
 		tokenCount: 0,
 		fullLog: [],
 		liveThinking: "",
@@ -205,6 +206,39 @@ describe("handleToolExecutionEnd", () => {
 		const state = createState();
 		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
 		assert.ok(state.fullLog.some((l) => l.includes("✗")));
+	});
+
+	it("increments failedToolCount when isError=true", () => {
+		const state = createState();
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
+		assert.equal(state.failedToolCount, 1);
+	});
+
+	it("does NOT increment failedToolCount when isError=false", () => {
+		const state = createState();
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "read", isError: false });
+		assert.equal(state.failedToolCount, 0);
+	});
+
+	it("increments toolCount regardless of isError (regression guard)", () => {
+		const state = createState({ toolCount: 3 });
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
+		assert.equal(state.toolCount, 4);
+	});
+
+	it("when failedToolCount initially undefined, after error it becomes 1", () => {
+		const state = createState({ failedToolCount: undefined as any });
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
+		assert.equal(state.failedToolCount, 1);
+	});
+
+	it("accumulates multiple errors across calls", () => {
+		const state = createState();
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "bash", isError: true });
+		handleToolExecutionEnd(state, { kind: "tool_execution_end", toolName: "read", isError: false });
+		assert.equal(state.failedToolCount, 2);
+		assert.equal(state.toolCount, 3);
 	});
 });
 

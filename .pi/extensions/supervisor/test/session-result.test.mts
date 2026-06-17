@@ -18,6 +18,7 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		currentTool: undefined,
 		currentToolArgs: undefined,
 		toolCount: 0,
+		failedToolCount: 0,
 		tokenCount: 0,
 		fullLog: [],
 		liveThinking: "",
@@ -399,6 +400,32 @@ describe("buildAgentRunResult — breakdown extraction", () => {
 	});
 });
 
+// ─── buildAgentRunResult — failedToolCount threading ─────────────
+
+describe("buildAgentRunResult — failedToolCount threading", () => {
+	it("maps state.failedToolCount to result.failedToolCount", () => {
+		const state = createState({ failedToolCount: 3 });
+		const result = buildAgentRunResult(state, "developer", true, 1000, []);
+		assert.equal(result.failedToolCount, 3);
+	});
+
+	it("when state has no failedToolCount (undefined), result.failedToolCount is undefined", () => {
+		const state = createState({ failedToolCount: undefined as any });
+		const result = buildAgentRunResult(state, "developer", true, 1000, []);
+		assert.equal(result.failedToolCount, undefined);
+	});
+
+	it("existing fields (toolCount, tokenCount, success) unchanged when failedToolCount absent (regression guard)", () => {
+		const state = createState({ toolCount: 7, tokenCount: 500 });
+		const result = buildAgentRunResult(state, "developer", true, 5000, []);
+		assert.equal(result.toolCount, 7);
+		assert.equal(result.tokenCount, 500);
+		assert.equal(result.success, true);
+		assert.equal(result.agentName, "developer");
+		assert.equal(result.failedToolCount, 0);
+	});
+});
+
 // ─── buildAgentRunResult — budgetExceeded propagation ─────────────
 
 describe("buildAgentRunResult — budgetExceeded propagation", () => {
@@ -480,6 +507,18 @@ describe("convertToolResultToAgentRunResult — budgetExceeded propagation", () 
 	it("d.budgetExceeded=false produces undefined (not false), unused field convention", () => {
 		const result = convertToolResultToAgentRunResult(makeToolResult({ budgetExceeded: false }));
 		assert.equal(result.budgetExceeded, undefined);
+	});
+
+	it("maps d.errorCount to result.failedToolCount", () => {
+		const tr = makeToolResult({ errorCount: 2 });
+		const result = convertToolResultToAgentRunResult(tr);
+		assert.equal(result.failedToolCount, 2);
+	});
+
+	it("when d.errorCount is undefined, result.failedToolCount is undefined", () => {
+		const tr = makeToolResult({ errorCount: undefined });
+		const result = convertToolResultToAgentRunResult(tr);
+		assert.equal(result.failedToolCount, undefined);
 	});
 
 	it("all other fields unchanged from current mapping — regression guard", () => {
