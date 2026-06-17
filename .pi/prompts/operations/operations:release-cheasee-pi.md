@@ -28,6 +28,12 @@ gh auth status
 
 If not authenticated, stop and ask user to authenticate.
 
+Ensure temp directory exists:
+
+```bash
+mkdir -p ignore
+```
+
 ### Step 2 — Ensure on Main Branch
 
 ```bash
@@ -80,7 +86,7 @@ If no tags exist, `BASE_VERSION=0.1`.
 Get all merge commits since that tag:
 
 ```bash
-git log "$LAST_TAG"..HEAD --oneline --merges --grep="Merge pull request" > /tmp/merge-commits.txt
+git log "$LAST_TAG"..HEAD --oneline --merges --grep="Merge pull request" > ignore/merge-commits.txt
 ```
 
 **If no merge commits found:** there are zero new PRs since last release. Stop and inform user:
@@ -92,8 +98,8 @@ Do not proceed further.
 **Otherwise:** extract PR numbers from merge commit messages:
 
 ```bash
-grep -oP 'Merge pull request #\K\d+' /tmp/merge-commits.txt > /tmp/pr-numbers.txt
-echo "Found $(wc -l < /tmp/pr-numbers.txt) merged PRs since $LAST_TAG"
+grep -oP 'Merge pull request #\K\d+' ignore/merge-commits.txt > ignore/pr-numbers.txt
+echo "Found $(wc -l < ignore/pr-numbers.txt) merged PRs since $LAST_TAG"
 ```
 
 Fetch details for each PR:
@@ -102,13 +108,13 @@ Fetch details for each PR:
 while read -r NUM; do
   TITLE=$(gh pr view "$NUM" --repo "$REPO" --json title --jq '.title' 2>/dev/null || echo "(unknown)")
   echo "$NUM | $TITLE | https://github.com/$REPO/pull/$NUM"
-done < /tmp/pr-numbers.txt > /tmp/prs.txt
+done < ignore/pr-numbers.txt > ignore/prs.txt
 ```
 
 Read the PR list:
 
 ```bash
-cat /tmp/prs.txt
+cat ignore/prs.txt
 ```
 
 #### Case B — No tags exist (first release)
@@ -116,7 +122,7 @@ cat /tmp/prs.txt
 All merged PRs are relevant. Fetch via `gh` with pagination to avoid limit caps:
 
 ```bash
-gh pr list --repo "$REPO" --state merged --limit 100 --json number,title,url --jq '.[] | "\(.number) | \(.title) | \(.url)"' > /tmp/prs.txt
+gh pr list --repo "$REPO" --state merged --limit 100 --json number,title,url --jq '.[] | "\(.number) | \(.title) | \(.url)"' > ignore/prs.txt
 ```
 
 If output has exactly 100 lines, warn that there may be more PRs beyond the 100 fetched:
@@ -126,7 +132,7 @@ If output has exactly 100 lines, warn that there may be more PRs beyond the 100 
 Read the PR list:
 
 ```bash
-cat /tmp/prs.txt
+cat ignore/prs.txt
 ```
 
 ### Step 6 — Categorize PRs
@@ -154,14 +160,14 @@ Print the categorized list.
 After categorizing, write categorized PRs to a temp file using the `write` tool:
 
 ```
-write /tmp/categorized-prs.txt
+write ignore/categorized-prs.txt
 ...
 ```
 
 Then count feature entries (lines where second field is `features`):
 
 ```bash
-export FEATURE_COUNT=$(awk -F ' \| ' '$2 == "features"' /tmp/categorized-prs.txt | wc -l)
+export FEATURE_COUNT=$(awk -F ' \| ' '$2 == "features"' ignore/categorized-prs.txt | wc -l)
 ```
 
 Print:
@@ -216,7 +222,7 @@ If tag exists, stop and inform user. Do not overwrite.
 
 ### Step 10 — Preview + Confirmation
 
-Print a full preview of what the release will contain:
+Build the full preview content:
 
 ```
 ═══ Release Preview ═══
@@ -239,6 +245,14 @@ Proposed release body:
 ---
 
 Ready to create this release?
+```
+
+Save the preview to `ignore/release-preview.md` using the `write` tool for user reference:
+
+```
+write ignore/release-preview.md
+═══ Release Preview ═══
+...
 ```
 
 Then **ask the user for confirmation** before proceeding. Use a choice prompt:
@@ -331,7 +345,7 @@ Generate release notes from the categorized PR list. Format per category:
 Use the categorized list to produce real content. Omit any category with zero entries. Use the `write` tool to save the body:
 
 ```bash
-# Use write tool to create /tmp/release-body.md with the release notes content
+# Use write tool to create ignore/release-body.md with the release notes content
 ```
 
 ### Step 15 — Create Tag
@@ -357,7 +371,7 @@ Create the release as a **draft** so the user can review and publish manually:
 gh release create "v$NEW_VERSION" \
   --repo "$REPO" \
   --title "Release v$NEW_VERSION" \
-  --notes-file /tmp/release-body.md \
+  --notes-file ignore/release-body.md \
   --draft
 ```
 
@@ -374,6 +388,19 @@ Draft release URL:   https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/
 
 Next step: Review and publish the draft release on GitHub.
 To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION && git revert <commit-hash>
+
+### Step 19 — Clean Up Temp Files
+
+Remove all temporary files created during the release process:
+
+```bash
+rm -f ignore/merge-commits.txt ignore/pr-numbers.txt ignore/prs.txt ignore/categorized-prs.txt ignore/release-preview.md ignore/release-body.md
+```
+
+Confirm cleanup:
+
+```
+Temporary files cleaned from ignore/.
 ```
 
 ## Constraints
