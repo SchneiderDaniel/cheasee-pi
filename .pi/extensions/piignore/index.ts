@@ -260,7 +260,8 @@ function tokenizeBashCommand(command: string): BashToken[] {
 			}
 			current += ch;
 		} else if (inDouble) {
-			if (ch === '"') {
+			// NOTE: does not handle \\" (escaped backslash + quote delimiter) — acceptable for P3, see issue #949.
+			if (ch === '"' && (i === 0 || command[i - 1] !== "\\")) {
 				inDouble = false;
 				quoted = true;
 				continue;
