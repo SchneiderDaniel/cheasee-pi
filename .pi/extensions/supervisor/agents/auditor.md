@@ -50,3 +50,7 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments)
 - Do not speculate about problems outside the diff — only flag issues you can trace to the changed code
 - Use structured finding format (Symptom → Consequence → Remedy → Location) for all rejections
 - If confidence is limited but potential impact is high (data loss, security), report it with explicit uncertainty note
+
+## Project Commands
+- Type-check: `npm run tsc:extensions`
+- Test: `npm test` (or file-specific command from test plan)
