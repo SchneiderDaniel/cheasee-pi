@@ -124,12 +124,11 @@ Print the categorized list.
 
 ### Step 7 — Count Features
 
-After categorizing, write categorized PRs to a temp file:
+After categorizing, write categorized PRs to a temp file using the `write` tool:
 
-```bash
-cat > /tmp/categorized-prs.txt << 'EOF'
+```
+write /tmp/categorized-prs.txt
 ...
-EOF
 ```
 
 Then count feature entries (lines where second field is `features`):
@@ -174,7 +173,75 @@ Increment: $( [ "$FEATURE_COUNT" -ge 42 ] && echo "0.1" || echo "0.01" )
 New version: v$NEW_VERSION
 ```
 
-### Step 9 — Run All Tests
+### Step 9 — Guard: Check for Existing Tag
+
+Verify the new version doesn't already exist as a tag:
+
+```bash
+if git rev-parse --verify "v$NEW_VERSION" >/dev/null 2>&1; then
+  echo "ERROR: Tag v$NEW_VERSION already exists."
+  echo "Delete it first: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION"
+  exit 1
+fi
+```
+
+If tag exists, stop and inform user. Do not overwrite.
+
+### Step 10 — Preview + Confirmation
+
+Print a full preview of what the release will contain:
+
+```
+═══ Release Preview ═══
+
+Base version: $BASE_VERSION
+New version:  v$NEW_VERSION
+Feature count: $FEATURE_COUNT
+Increment:    0.XX
+
+Proposed release body:
+---
+## Release v{NEW_VERSION}
+
+### Features
+...
+
+### Bug Fixes
+...
+...
+---
+
+Ready to create this release?
+```
+
+Then **ask the user for confirmation** before proceeding. Use a choice prompt:
+
+> "Create release v$NEW_VERSION?"
+> Options: [Create] [Preview release body] [Cancel]
+
+If user cancels, stop. Do not create tag or release.
+
+### Step 11 — Pre-Release TypeScript Check
+
+Verify TypeScript compiles cleanly:
+
+```bash
+npm run tsc:extensions
+```
+
+Capture exit code:
+
+```bash
+export TSC_EXIT_CODE=$?
+```
+
+If `TSC_EXIT_CODE != 0`:
+
+> **STOP.** TypeScript compilation failed. Fix type errors before releasing.
+
+Do not proceed further.
+
+### Step 12 — Run All Tests
 
 ```bash
 npm test
@@ -194,7 +261,24 @@ If `TEST_EXIT_CODE != 0`:
 
 Do not proceed further.
 
-### Step 10 — Build Release Body
+### Step 13 — Sync package.json Version
+
+Update the `version` field in `package.json` to match the new release version:
+
+```bash
+export NEW_VERSION_CLEAN=$(echo "$NEW_VERSION" | sed 's/^v//')
+```
+
+Use the `edit` tool to replace `"version": "1.0.0"` (or whatever the current version is) with `"version": "$NEW_VERSION_CLEAN"` in `package.json`.
+
+Then commit the change:
+
+```bash
+git add package.json
+git commit -m "chore: bump version to v$NEW_VERSION"
+```
+
+### Step 14 — Build Release Body
 
 Generate release notes from the categorized PR list. Format per category:
 
@@ -214,54 +298,71 @@ Generate release notes from the categorized PR list. Format per category:
 - PR Title ([#N](https://github.com/SchneiderDaniel/cheasee-pi/pull/N))
 
 ### Other
-- PR Title ([#N](github.com/SchneiderDaniel/cheasee-pi/pull/N))
+- PR Title ([#N](https://github.com/SchneiderDaniel/cheasee-pi/pull/N))
 ```
 
-Use the categorized list to produce real content. Omit any category with zero entries. Write body to a temp file:
+Use the categorized list to produce real content. Omit any category with zero entries. Use the `write` tool to save the body:
 
 ```bash
-cat > /tmp/release-body.md << 'BODY'
-## Release v{NEW_VERSION}
-... [actual content from categories]
-BODY
+# Use write tool to create /tmp/release-body.md with the release notes content
 ```
 
-### Step 11 — Create Tag
+### Step 15 — Create Tag
 
 ```bash
 git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
+```
+
+Do not push yet — the tag will be pushed together with the version bump commit.
+
+### Step 16 — Push Tag + Version Commit
+
+```bash
+git push origin main
 git push origin "v$NEW_VERSION"
 ```
 
-### Step 12 — Create GitHub Release
+### Step 17 — Create Draft Release
+
+Create the release as a **draft** so the user can review and publish manually:
 
 ```bash
 gh release create "v$NEW_VERSION" \
   --repo "$REPO" \
   --title "Release v$NEW_VERSION" \
-  --notes-file /tmp/release-body.md
+  --notes-file /tmp/release-body.md \
+  --draft
 ```
 
-### Step 13 — Confirm
+### Step 18 — Confirm
 
 Print confirmation:
 
 ```
-Release v$NEW_VERSION created successfully.
-URL: https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/v$NEW_VERSION
-```
+Release v$NEW_VERSION prepared as draft.
 
-Print the release body for user review.
+Version bump commit:  (hash)
+Tag:                 v$NEW_VERSION
+Draft release URL:   https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/v$NEW_VERSION
+
+Next step: Review and publish the draft release on GitHub.
+To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION && git revert <commit-hash>
+```
 
 ## Constraints
 
 - **Do NOT create tag or release if any test fails.** Hard stop.
+- **Ask user confirmation before any irreversible action** (tag push, release creation).
 - Use `gh` CLI for all GitHub operations — not curl, not raw API calls.
 - PR categorization is done by LLM reading PR titles, not by fixed keyword list.
 - Version base always comes from the latest semver tag (strip `v` prefix).
 - If no tags exist, start from `0.1`.
 - Only one increment applied: either +0.1 or +0.01, never both, never stacked.
 - Trim version to 2 decimal places.
+- Do not overwrite existing tags — check first and stop if duplicate.
+- Use `write` tool for file creation, not `cat >` in bash.
+- Create releases as drafts — never publish immediately.
+- Always sync `package.json` version field with the git tag.
 
 ## Quality Checklist
 
@@ -274,7 +375,12 @@ Print the release body for user review.
 - [ ] PRs categorized by LLM reading titles
 - [ ] Feature count is accurate
 - [ ] Version calculation follows rules (>42 → +0.1, <42 → +0.01)
-- [ ] Tests run and pass before creating tag
-- [ ] Release body includes all categories with PR links
-- [ ] Tag pushed to remote
-- [ ] GitHub release created with notes
+- [ ] Duplicate version tag does not already exist
+- [ ] User confirmed release preview before proceeding
+- [ ] TypeScript compiles cleanly (`npm run tsc:extensions`)
+- [ ] All tests pass (`npm test`)
+- [ ] `package.json` version field synced with new version
+- [ ] Version bump commit created
+- [ ] Tag created and pushed
+- [ ] Release created as draft, not published directly
+- [ ] Rollback instructions printed
