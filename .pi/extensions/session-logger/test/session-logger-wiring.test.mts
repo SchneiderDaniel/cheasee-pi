@@ -301,6 +301,8 @@ describe("index.ts — named exports", () => {
 		assert.strictEqual(state, null);
 	});
 
+	});
+
 	it("generateMissingReports is a function (re-exported)", () => {
 		assert.strictEqual(
 			typeof generateMissingReports,
