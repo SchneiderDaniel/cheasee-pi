@@ -490,12 +490,91 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.ok(countAfterFirst >= 1, "version should be checked at least once");
 
 		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
-		// version call count should NOT increase (binary cached)
 		assert.strictEqual(versionCallCount, countAfterFirst);
 	});
 
-	it("ast-grep --version fails (code 127) → falls back to sg binary", async () => {
-		let usedBinary = "";
+	it("concurrent calls — single version check, same binary used", async () => {
+		let versionCallCount = 0;
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version")) {
+					versionCallCount++;
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				}
+				if (cmd === "test") return { code: 1, stdout: "" };
+				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
+				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		const results = await Promise.all([
+			executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
+			executeTool(pi, { pattern: "console.log($B)", language: "ts" }),
+			executeTool(pi, { pattern: "console.log($C)", language: "ts" }),
+		]);
+
+		assert.strictEqual(versionCallCount, 1, "only one version check should occur");
+		assert.strictEqual(results.length, 3);
+		results.forEach((r) => assert.ok(r));
+	});
+
+	it("version check fails — concurrent callers all throw", async () => {
+		let versionCallCount = 0;
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version")) {
+					versionCallCount++;
+					return { stdout: "", stderr: "command not found", code: 127, killed: false };
+				}
+				if (cmd === "test") return { code: 1, stdout: "" };
+				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
+				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		await assert.rejects(
+			Promise.all([
+				executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
+				executeTool(pi, { pattern: "console.log($B)", language: "ts" }),
+				executeTool(pi, { pattern: "console.log($C)", language: "ts" }),
+			]),
+		);
+		assert.strictEqual(versionCallCount, 1, "only one version check should occur");
+	});
+
+	it("failed promise resets — next sequential call retries version check", async () => {
+		let versionCallCount = 0;
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version")) {
+					versionCallCount++;
+					if (versionCallCount === 1) {
+						return { stdout: "", stderr: "command not found", code: 127, killed: false };
+					}
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				}
+				if (cmd === "test") return { code: 1, stdout: "" };
+				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
+				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		// First call — version check fails
+		await assert.rejects(
+			() => executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
+			/ast-grep/,
+		);
+
+		// Second call — retries version check, succeeds
+		const result = await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
+		assert.ok(result);
+		assert.strictEqual(versionCallCount, 2, "version check should run twice");
+	});
+
+	it("ast-grep --version fails (code 127) — throws, no fallback to sg", async () => {
 		const pi = makePi({
 			execOverride: async (cmd: string, args: string[]) => {
 				if (args.includes("--version")) {
@@ -503,17 +582,15 @@ describe("structuralAnalyzer extension wiring", () => {
 				}
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "scan") {
-					usedBinary = cmd;
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
+				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 			},
 		});
 		structuralAnalyzer(pi);
 
-		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.strictEqual(usedBinary, "sg");
+		await assert.rejects(
+			() => executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
+			/ast-grep/,
+		);
 	});
 
 	it("exit code 1 + stderr → throws Error with stderr content", async () => {

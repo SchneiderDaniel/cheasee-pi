@@ -25,6 +25,10 @@ export function createSessionLoggerGate(initiallyEnabled = true): SessionLoggerG
 	};
 }
 
+export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined): boolean | null {
+	return gate?.sessionEnabled ?? null;
+}
+
 export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string): boolean {
 	const normalized = args?.toLowerCase();
 	if (normalized === "on") gate.enabledForNextSession = true;
