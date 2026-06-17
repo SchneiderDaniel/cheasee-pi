@@ -12,7 +12,13 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
+import {
+	formatTokens,
+	formatTokensInt,
+	formatDuration,
+	getTermWidth,
+	boldText,
+} from "../lib/formatting.ts";
 import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import { renderSubagentResult } from "../subagent/renderer.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
@@ -80,8 +86,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			if (tok !== undefined) {
 				const maxTok = toolCallResult.agentTokenBudget;
 				if (maxTok && maxTok > 0) {
-					const maxK = maxTok >= 1000 ? `${(maxTok / 1000).toFixed(0)}K` : String(maxTok);
-					statsParts.push(`${tok}/${maxK} tok`);
+					statsParts.push(`${formatTokensInt(tok)}/${formatTokensInt(maxTok)} tok`);
 				} else {
 					statsParts.push(`${tok} tok`);
 				}
