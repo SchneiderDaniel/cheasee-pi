@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunState } from "../config/types.ts";
 import { buildWidgetLines } from "../session/widget.ts";
-import { sendAgentResultMessage } from "../pipeline/notifications.ts";
 
 // ─── Shared State ──────────────────────────────────────────────────
 
@@ -20,6 +19,52 @@ let sentMessages: Array<{
 	display?: boolean;
 	details?: Record<string, unknown>;
 }> = [];
+
+/**
+ * Helper: simulate pi.sendMessage with _subagentResult format.
+ * Replaces the removed sendAgentResultMessage function.
+ */
+function sendAgentResult(
+	pi: ExtensionAPI,
+	opts: {
+		agentName: string;
+		success: boolean;
+		statusLabel: string;
+		toolCount: number;
+		tokenCount: number;
+		durationMs: number;
+		textOutput: string;
+		summaryLine: string;
+	},
+): void {
+	pi.sendMessage({
+		customType: "supervisor",
+		content: `## ${opts.agentName} — ${opts.statusLabel}\n\n${opts.summaryLine}`,
+		display: true,
+		details: {
+			_subagentResult: {
+				content: [{ type: "text", text: opts.textOutput }],
+				details: {
+					agentName: opts.agentName,
+					success: opts.success,
+					statusLabel: opts.statusLabel,
+					summaryLine: opts.summaryLine,
+					model: "",
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: 0,
+					turnCount: 0,
+					durationMs: opts.durationMs,
+					toolCalls: [],
+					toolResults: [],
+					taskPrompt: "",
+				},
+			},
+		},
+	});
+}
 let notifyMessages: string[] = [];
 let widgetCalls: Array<{ id: string; lines?: string[] }> = [];
 
@@ -332,8 +377,8 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 		// Widget uses ctx.ui.setWidget
 		ctx.ui.setWidget("supervisor-agent", ["⚙ developer"]);
 
-		// Final result uses pi.sendMessage
-		sendAgentResultMessage(pi, {
+		// Final result uses pi.sendMessage with _subagentResult
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: true,
 			statusLabel: "SUCCESS",
@@ -341,8 +386,6 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 			tokenCount: 1500,
 			durationMs: 20000,
 			textOutput: "Complete",
-			textOnly: "Complete",
-			output: "raw",
 			summaryLine: "Completed successfully",
 		});
 
@@ -359,7 +402,7 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 		const pi = createMockPi();
 
 		// Only final result message is sent — no progress messages
-		sendAgentResultMessage(pi, {
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: true,
 			statusLabel: "SUCCESS",
@@ -367,8 +410,6 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 			tokenCount: 1500,
 			durationMs: 20000,
 			textOutput: "Complete",
-			textOnly: "Complete",
-			output: "raw",
 			summaryLine: "Completed successfully",
 		});
 
@@ -546,7 +587,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		ui.setWidget("supervisor-agent", undefined);
 
 		// Final result message
-		sendAgentResultMessage(pi, {
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: true,
 			statusLabel: "SUCCESS",
@@ -554,8 +595,6 @@ describe("User-journey: widget progress during pipeline", () => {
 			tokenCount: 1500,
 			durationMs: 20000,
 			textOutput: "Complete",
-			textOnly: "Complete",
-			output: "raw",
 			summaryLine: "Completed successfully",
 		});
 
@@ -580,7 +619,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		ui.setWidget("supervisor-agent", undefined);
 
 		// Error result message
-		sendAgentResultMessage(pi, {
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: false,
 			statusLabel: "FAILED",
@@ -588,14 +627,13 @@ describe("User-journey: widget progress during pipeline", () => {
 			tokenCount: 500,
 			durationMs: 10000,
 			textOutput: "Error",
-			textOnly: "Error",
-			output: "raw",
 			summaryLine: "Failed: some error",
 		});
 
 		assert.equal(widgetCalls.length, 2);
 		assert.equal(widgetCalls[1].lines, undefined, "widget should be cleared");
-		assert.equal(sentMessages[0].details!.statusLabel, "FAILED");
+		const subagentResult = (sentMessages[0].details as any)?._subagentResult;
+		assert.equal(subagentResult?.details?.statusLabel, "FAILED");
 	});
 
 	it("agent times out → widget shows timeout state, cleared, result shows FAILED", () => {
@@ -608,7 +646,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		ui.setWidget("supervisor-agent", undefined);
 
 		// Timed out result
-		sendAgentResultMessage(pi, {
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: false,
 			statusLabel: "FAILED",
@@ -616,14 +654,13 @@ describe("User-journey: widget progress during pipeline", () => {
 			tokenCount: 1000,
 			durationMs: 1800000,
 			textOutput: "Timed out",
-			textOnly: "Timed out",
-			output: "raw",
 			summaryLine: "Failed: Timed out after 30m",
 		});
 
 		assert.equal(widgetCalls.length, 2);
 		assert.equal(widgetCalls[1].lines, undefined);
-		assert.equal(sentMessages[0].details!.statusLabel, "FAILED");
+		const subagentResult = (sentMessages[0].details as any)?._subagentResult;
+		assert.equal(subagentResult?.details?.statusLabel, "FAILED");
 	});
 
 	it("widget updates during agent execution without scrolling chat history", () => {
@@ -646,7 +683,7 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		// Final result
 		ui.setWidget("supervisor-agent", undefined);
-		sendAgentResultMessage(pi, {
+		sendAgentResult(pi, {
 			agentName: "developer",
 			success: true,
 			statusLabel: "SUCCESS",
@@ -654,8 +691,6 @@ describe("User-journey: widget progress during pipeline", () => {
 			tokenCount: 500,
 			durationMs: 30000,
 			textOutput: "Done",
-			textOnly: "Done",
-			output: "raw",
 			summaryLine: "Completed",
 		});
 

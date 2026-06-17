@@ -5,7 +5,6 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type {
 	SupervisorConfig,
 	PipelineAgentResult,
-	SupervisorMessageDetails,
 	AgentRunState,
 	PrCreationResult,
 } from "../config/types.ts";
@@ -18,7 +17,7 @@ import type { ErrorCollector } from "./error-collector.ts";
 // pi.sendMessage({ customType: "supervisor-progress", display: false }) messages.
 // Replaced by ctx.ui.setWidget() in executeSubagent() for live widget-based progress.
 // The widget approach shows live tool calls, thinking, and text above the editor
-// without scrolling the chat history. Final result message uses sendAgentResultMessage.
+// without scrolling the chat history. Final result message uses _subagentResult format.
 
 /**
  * Send pipeline completion notification.
@@ -114,61 +113,6 @@ export function sendPipelineSummary(
 	if (config.bellOnComplete) {
 		process.stdout.write("\x07");
 	}
-}
-
-/**
- * Send an agent result message to the UI with details.
- */
-export function sendAgentResultMessage(
-	pi: ExtensionAPI,
-	result: {
-		agentName: string;
-		success: boolean;
-		summaryLine: string;
-		statusLabel: string;
-		toolCount: number;
-		tokenCount: number;
-		durationMs: number;
-		textOutput: string;
-		textOnly: string;
-		output: string;
-		thinkingOutput?: string;
-		taskPrompt?: string;
-		model?: string;
-		inputTokens?: number;
-		outputTokens?: number;
-		cacheRead?: number;
-		cacheWrite?: number;
-		cost?: number;
-		turnCount?: number;
-	},
-	auditScore?: string,
-): void {
-	pi.sendMessage({
-		customType: "supervisor",
-		content: `## Agent: ${result.agentName} — ${result.statusLabel}\n\n${result.summaryLine}`,
-		display: true,
-		details: {
-			agentName: result.agentName,
-			success: result.success,
-			statusLabel: result.statusLabel,
-			toolCount: result.toolCount,
-			tokenCount: result.tokenCount,
-			durationMs: result.durationMs,
-			summaryLine: result.summaryLine,
-			thinkingOutput: result.thinkingOutput,
-			hasThinking: !!result.thinkingOutput,
-			auditScore,
-			taskPrompt: result.taskPrompt,
-			model: result.model,
-			inputTokens: result.inputTokens,
-			outputTokens: result.outputTokens,
-			cacheRead: result.cacheRead,
-			cacheWrite: result.cacheWrite,
-			cost: result.cost,
-			turnCount: result.turnCount,
-		} satisfies SupervisorMessageDetails,
-	});
 }
 
 /**
