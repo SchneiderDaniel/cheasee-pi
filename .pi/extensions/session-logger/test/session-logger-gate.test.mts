@@ -1,8 +1,8 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
+import { beginSession } from "../pipeline.ts";
 import {
-	beginSessionLoggerSession,
 	createSessionLoggerGate,
 	getSessionLoggerState,
 	toggleSessionLoggerGate,
@@ -12,25 +12,25 @@ describe("session-logger gate", () => {
 	it("applies /session-logger off to the next session without disabling the current one", () => {
 		const gate = createSessionLoggerGate(true);
 
-		assert.strictEqual(beginSessionLoggerSession(gate), true);
+		assert.strictEqual(beginSession(gate), true);
 		assert.strictEqual(gate.sessionEnabled, true);
 
 		assert.strictEqual(toggleSessionLoggerGate(gate, "off"), false);
 		assert.strictEqual(gate.enabledForNextSession, false);
 		assert.strictEqual(gate.sessionEnabled, true);
 
-		assert.strictEqual(beginSessionLoggerSession(gate), false);
+		assert.strictEqual(beginSession(gate), false);
 		assert.strictEqual(gate.sessionEnabled, false);
 	});
 
 	it("re-enables logging only when a later session starts", () => {
 		const gate = createSessionLoggerGate(false);
 
-		assert.strictEqual(beginSessionLoggerSession(gate), false);
+		assert.strictEqual(beginSession(gate), false);
 		assert.strictEqual(toggleSessionLoggerGate(gate, "on"), true);
 		assert.strictEqual(gate.sessionEnabled, false);
 
-		assert.strictEqual(beginSessionLoggerSession(gate), true);
+		assert.strictEqual(beginSession(gate), true);
 		assert.strictEqual(gate.sessionEnabled, true);
 	});
 });
@@ -38,13 +38,13 @@ describe("session-logger gate", () => {
 describe("getSessionLoggerState", () => {
 	it("gate sessionEnabled=true → returns true", () => {
 		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate);
+		beginSession(gate);
 		assert.strictEqual(getSessionLoggerState(gate), true);
 	});
 
 	it("gate sessionEnabled=false → returns false", () => {
 		const gate = createSessionLoggerGate(false);
-		beginSessionLoggerSession(gate);
+		beginSession(gate);
 		assert.strictEqual(getSessionLoggerState(gate), false);
 	});
 
@@ -56,9 +56,9 @@ describe("getSessionLoggerState", () => {
 		assert.strictEqual(getSessionLoggerState(undefined), null);
 	});
 
-	it("toggle off then beginSessionLoggerSession — reflects sessionEnabled, not enabledForNextSession", () => {
+	it("toggle off then beginSession — reflects sessionEnabled, not enabledForNextSession", () => {
 		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate); // sessionEnabled = true
+		beginSession(gate); // sessionEnabled = true
 		toggleSessionLoggerGate(gate, "off"); // enabledForNextSession = false, sessionEnabled still true
 
 		// Before next session starts, getter reflects current sessionEnabled = true
@@ -67,14 +67,14 @@ describe("getSessionLoggerState", () => {
 		assert.strictEqual(gate.enabledForNextSession, false);
 
 		// Next session starts
-		beginSessionLoggerSession(gate); // sessionEnabled = enabledForNextSession = false
+		beginSession(gate); // sessionEnabled = enabledForNextSession = false
 		assert.strictEqual(getSessionLoggerState(gate), false);
 		assert.strictEqual(gate.sessionEnabled, false);
 	});
 
-	it("gate with uninitialized values (no beginSessionLoggerSession) — sessionEnabled matches initial", () => {
+	it("gate with uninitialized values (no beginSession called) — sessionEnabled matches initial", () => {
 		const gate = createSessionLoggerGate(true);
-		// No beginSessionLoggerSession called — sessionEnabled is already initialized
+		// No beginSession called — sessionEnabled is already initialized
 		assert.strictEqual(getSessionLoggerState(gate), true);
 	});
 });
