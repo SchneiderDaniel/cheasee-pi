@@ -40,7 +40,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 			"Uses Tree-sitter AST parsing to find semantic code relationships like " +
 			"function calls, try/catch blocks, class definitions, and method invocations. " +
 			"Output: JSON object with match count and array of results containing " +
-			'{ file: string, lines: string (e.g. "22-28"), snippet: string (≤120 chars) }. ' +
+			'{ file: string, lines: string (e.g. "22-28"), snippet: string (truncated) }. ' +
 			"Use this to answer 'Where is this function called?' or 'Find all try/catch blocks' " +
 			"without noise from text matches in comments or strings. " +
 			"Requires ast-grep installed (`npm i -g @ast-grep/cli`).",
