@@ -10,7 +10,49 @@ Requires: `gh` CLI authenticated, `git` in PATH.
 
 ## Workflow
 
-### Step 1 — Configuration
+### Step 1 — Run Tests + TypeScript Check
+
+Run both checks first. If either fails, stop immediately. Do not proceed to fetching tags or PRs.
+
+TypeScript compilation:
+
+```bash
+npm run tsc:extensions
+```
+
+Capture exit code:
+
+```bash
+export TSC_EXIT_CODE=$?
+```
+
+If `TSC_EXIT_CODE != 0`:
+
+> **STOP.** TypeScript compilation failed. Fix type errors before releasing. Do not create release.
+
+Do not proceed further.
+
+Test suite:
+
+```bash
+npm test
+```
+
+Capture exit code:
+
+```bash
+export TEST_EXIT_CODE=$?
+```
+
+If `TEST_EXIT_CODE != 0`:
+
+> **STOP.** Tests failed. Do NOT create any tag or release.
+> Print the failing test output and inform the user:
+> "Tests failed (exit code $TEST_EXIT_CODE). Release aborted. Fix failing tests before retrying."
+
+Do not proceed further.
+
+### Step 2 — Configuration
 
 Export repo variables:
 
@@ -34,7 +76,7 @@ Ensure temp directory exists:
 mkdir -p ignore
 ```
 
-### Step 2 — Ensure on Main Branch
+### Step 3 — Ensure on Main Branch
 
 ```bash
 git branch --show-current
@@ -54,7 +96,7 @@ If output is non-empty, stop and inform:
 
 > **STOP.** Working tree has uncommitted changes. Commit or stash before releasing.
 
-### Step 3 — Get Last Tag
+### Step 4 — Get Last Tag
 
 ```bash
 git fetch --tags origin
@@ -69,7 +111,7 @@ Print:
 Last tag: $LAST_TAG
 ```
 
-### Step 4 — Determine Base Version
+### Step 5 — Determine Base Version
 
 If `LAST_TAG` is set:
 
@@ -79,7 +121,7 @@ export BASE_VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
 
 If no tags exist, `BASE_VERSION=0.1`.
 
-### Step 5 — Find Merged PRs Since Last Tag
+### Step 6 — Find Merged PRs Since Last Tag
 
 #### Case A — Last tag exists
 
@@ -135,7 +177,7 @@ Read the PR list:
 cat ignore/prs.txt
 ```
 
-### Step 6 — Categorize PRs
+### Step 7 — Categorize PRs
 
 Read each PR title and categorize it using your own judgment. Use these categories:
 
@@ -155,7 +197,7 @@ For each PR, determine its category from the title. Store in a structured list l
 
 Print the categorized list.
 
-### Step 7 — Count Features
+### Step 8 — Count Features
 
 After categorizing, write categorized PRs to a temp file using the `write` tool:
 
@@ -176,7 +218,7 @@ Print:
 Feature count since last release: $FEATURE_COUNT
 ```
 
-### Step 8 — Calculate New Version
+### Step 9 — Calculate New Version
 
 Version logic:
 
@@ -206,7 +248,7 @@ Increment: $( [ "$FEATURE_COUNT" -ge 10 ] && echo "0.1" || echo "0.01" )
 New version: v$NEW_VERSION
 ```
 
-### Step 9 — Guard: Check for Existing Tag
+### Step 10 — Guard: Check for Existing Tag
 
 Verify the new version doesn't already exist as a tag:
 
@@ -220,7 +262,7 @@ fi
 
 If tag exists, stop and inform user. Do not overwrite.
 
-### Step 10 — Preview + Confirmation
+### Step 11 — Preview + Confirmation
 
 Build the full preview content:
 
@@ -262,47 +304,7 @@ Then **ask the user for confirmation** before proceeding. Use a choice prompt:
 
 If user cancels, stop. Do not create tag or release.
 
-### Step 11 — Pre-Release TypeScript Check
-
-Verify TypeScript compiles cleanly:
-
-```bash
-npm run tsc:extensions
-```
-
-Capture exit code:
-
-```bash
-export TSC_EXIT_CODE=$?
-```
-
-If `TSC_EXIT_CODE != 0`:
-
-> **STOP.** TypeScript compilation failed. Fix type errors before releasing.
-
-Do not proceed further.
-
-### Step 12 — Run All Tests
-
-```bash
-npm test
-```
-
-Capture exit code:
-
-```bash
-export TEST_EXIT_CODE=$?
-```
-
-If `TEST_EXIT_CODE != 0`:
-
-> **STOP.** Tests failed. Do NOT create any tag or release.
-> Print the failing test output and inform the user:
-> "Tests failed (exit code $TEST_EXIT_CODE). Release aborted. Fix failing tests before retrying."
-
-Do not proceed further.
-
-### Step 13 — Sync package.json Version
+### Step 12 — Sync package.json Version
 
 Update the `version` field in `package.json` to match the new release version:
 
@@ -319,7 +321,7 @@ git add package.json
 git commit -m "chore: bump version to v$NEW_VERSION"
 ```
 
-### Step 14 — Build Release Body
+### Step 13 — Build Release Body
 
 Generate release notes from the categorized PR list. Format per category:
 
@@ -348,7 +350,7 @@ Use the categorized list to produce real content. Omit any category with zero en
 # Use write tool to create ignore/release-body.md with the release notes content
 ```
 
-### Step 15 — Create Tag
+### Step 14 — Create Tag
 
 ```bash
 git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
@@ -356,14 +358,14 @@ git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
 
 Do not push yet — the tag will be pushed together with the version bump commit.
 
-### Step 16 — Push Tag + Version Commit
+### Step 15 — Push Tag + Version Commit
 
 ```bash
 git push origin main
 git push origin "v$NEW_VERSION"
 ```
 
-### Step 17 — Create Draft Release
+### Step 16 — Create Draft Release
 
 Create the release as a **draft** so the user can review and publish manually:
 
@@ -375,7 +377,7 @@ gh release create "v$NEW_VERSION" \
   --draft
 ```
 
-### Step 18 — Confirm
+### Step 17 — Confirm
 
 Print confirmation:
 
@@ -389,7 +391,7 @@ Draft release URL:   https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/
 Next step: Review and publish the draft release on GitHub.
 To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION && git revert <commit-hash>
 
-### Step 19 — Clean Up Temp Files
+### Step 18 — Clean Up Temp Files
 
 Remove all temporary files created during the release process:
 
@@ -432,8 +434,8 @@ Temporary files cleaned from ignore/.
 - [ ] Version calculation follows rules (>=10 → +0.1, <10 → +0.01)
 - [ ] Duplicate version tag does not already exist
 - [ ] User confirmed release preview before proceeding
-- [ ] TypeScript compiles cleanly (`npm run tsc:extensions`)
-- [ ] All tests pass (`npm test`)
+- [ ] TypeScript compiles cleanly (`npm run tsc:extensions`) — Step 1
+- [ ] All tests pass (`npm test`) — Step 1
 - [ ] `package.json` version field synced with new version
 - [ ] Version bump commit created
 - [ ] Tag created and pushed
