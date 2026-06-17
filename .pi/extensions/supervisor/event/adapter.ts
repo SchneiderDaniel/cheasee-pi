@@ -145,7 +145,8 @@ export function sessionEventToNormalizedEvent(ev: Record<string, unknown>): Norm
 				case "done": {
 					return {
 						kind: "done",
-						message: ev.message as any,
+						// assistantMessageEvent carries the message content, not ev.message
+						message: (ae.message || ev.message) as any,
 					};
 				}
 				default:

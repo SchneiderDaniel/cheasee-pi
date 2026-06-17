@@ -12,7 +12,7 @@ Detailed pattern catalog for each technique. Use as reference during Phase 3.
 
 ```bash
 # For each exported/defined symbol, search the entire extension dir
-ripgrep_search "symbolName" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "symbolName" .pi/extensions/<name>/
 
 # If only result is the declaration line (and maybe export line), it's unused
 # Example output for an unused function:
@@ -415,7 +415,7 @@ For each import statement, search the file for usage of each imported symbol.
 
 ```bash
 # Check if symbol is used in file (beyond import line)
-ripgrep_search "symbolName" /home/miria/git/main/.pi/extensions/<name>/index.ts
+ripgrep_search "symbolName" .pi/extensions/<name>/index.ts
 # If only import line matches → orphaned
 ```
 
@@ -642,17 +642,17 @@ Compare packages listed in `package.json` against actual import statements acros
 
 ```bash
 # Step 1: Extract dependency names from package.json (non-dev)
-grep -E '"@?[a-zA-Z]' /home/miria/git/main/.pi/extensions/<name>/package.json |\
+grep -E '"@?[a-zA-Z]' .pi/extensions/<name>/package.json |\
   grep -v 'devDependencies' |\
   grep -o '"[a-z@][^"]*"' |\
   tr -d '"'
 
 # Step 2: Check each package for any import across all files
-ripgrep_search "from 'package-name'" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "require('package-name')" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "from 'package-name'" .pi/extensions/<name>/
+ripgrep_search "require('package-name')" .pi/extensions/<name>/
 
 # Also check dynamic imports
-ripgrep_search "import('package-name')" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "import('package-name')" .pi/extensions/<name>/
 ```
 
 ### Patterns

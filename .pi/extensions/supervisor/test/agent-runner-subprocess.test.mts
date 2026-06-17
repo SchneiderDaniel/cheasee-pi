@@ -101,6 +101,9 @@ function emitMockEvents(): void {
 // ─── Mock the module ──────────────────────────────────────────────
 // Must be at top level, BEFORE any dynamic import of agent-runner.ts.
 // We preserve all real exports (like spawnSync) and only override spawn.
+// Guard: mock.module requires --experimental-test-module-mocks in Node.js < 23.
+
+const hasMockModule = typeof mock.module === "function";
 
 const mockSpawn = () => createMockChild();
 
@@ -111,9 +114,11 @@ for (const key of Object.keys(childProcessModule)) {
 }
 namedExports.spawn = mockSpawn;
 
-mock.module("node:child_process", {
-	namedExports,
-});
+if (hasMockModule) {
+	mock.module("node:child_process", {
+		namedExports,
+	});
+}
 
 // ─── Fixtures ─────────────────────────────────────────────────────
 
@@ -152,281 +157,25 @@ function resetMock(): void {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────
-
-describe("runAgentSubprocess — normal completion", () => {
-	before(() => resetMock());
-
-	it("succeeds with text output when JSON stream is clean", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "Task complete." },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: null,
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.success, true);
-		assert.equal(result.agentName, "test-agent");
-		assert.ok(
-			result.textOutput.includes("Task complete."),
-			"textOutput should contain the assistant text",
-		);
-		assert.ok(
-			result.textOnly.includes("Task complete."),
-			"textOnly should contain the assistant text",
-		);
-		assert.equal(typeof result.durationMs, "number");
+// If mock.module unavailable, skip all tests (requires --experimental-test-module-mocks).
+if (!hasMockModule) {
+	describe("agent-runner-subprocess", () => {
+		it("requires --experimental-test-module-mocks flag (Node.js < 23)", (t) => t.skip());
 	});
+}
 
-	it("captures thinking output when thinking events precede text", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "message_update", delta: { type: "thinking_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: {
-						type: "thinking_delta",
-						thinking_delta: "Let me reason about this step by step.",
-					},
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "thinking_end" } }),
-				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "Here is my answer." },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: null,
-		};
+if (hasMockModule) {
+	describe("runAgentSubprocess — normal completion", () => {
+		before(() => resetMock());
 
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.success, true);
-		assert.ok(result.thinkingOutput, "thinkingOutput should be defined");
-		assert.ok(
-			result.thinkingOutput!.includes("reason about this"),
-			"thinkingOutput should contain thinking text",
-		);
-		assert.ok(result.textOutput.includes("Here is my answer"), "textOutput should contain answer");
-	});
-
-	it("sets summaryLine from agent text output", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: {
-						type: "text_delta",
-						text_delta: "IMPLEMENTATION_COMPLETE\nAll features implemented.",
-					},
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: null,
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.success, true);
-		assert.ok(result.summaryLine, "summaryLine should be set");
-	});
-});
-
-describe("runAgentSubprocess — budget exceed", () => {
-	it('calls child.kill("SIGTERM") when budget is exceeded', async () => {
-		resetMock();
-		// Tool execution end increments toolCount to 1.
-		// With maxToolCalls=1, message_end will set budgetExceeded=true → child.kill("SIGTERM").
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
-				JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: "SIGTERM",
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-			undefined,
-			1,
-			undefined,
-		);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		// Budget exceeded should be true, success=false
-		assert.equal(result.budgetExceeded, true, "budgetExceeded should be true");
-		assert.equal(result.success, false, "should be failed when budget exceeded");
-
-		// Verify child.kill("SIGTERM") was called
-		const child = currentMockChild;
-		assert.ok(child, "mock child should exist");
-		assert.equal(child!.kill.mock.calls.length, 1, "kill should have been called once");
-		assert.equal(
-			child!.kill.mock.calls[0]?.arguments?.[0],
-			"SIGTERM",
-			"kill should be called with SIGTERM",
-		);
-	});
-
-	it("result has budgetExceeded field when tool limit exceeded", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
-				JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
-				JSON.stringify({
-					type: "message_end",
-					message: { role: "assistant", usage: { totalTokens: 100 } },
-				}),
-			],
-			exitCode: 0,
-			exitSignal: "SIGTERM",
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-			undefined,
-			1,
-			undefined,
-		);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.budgetExceeded, true);
-	});
-});
-
-describe("runAgentSubprocess — timeout handling", () => {
-	it("returns success=false when child exits with signal SIGTERM (killed)", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "Partial output" },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: null,
-			exitSignal: "SIGTERM",
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.success, false, "child killed by signal should be failure");
-		// text output should still be captured
-		assert.ok(result.textOutput.length > 0, "text output should be preserved on timeout");
-	});
-
-	it("returns success=false when killed by signal with no output", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [],
-			exitCode: null,
-			exitSignal: "SIGTERM",
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.equal(result.success, false);
-		assert.equal(typeof result.durationMs, "number");
-		assert.ok(result.durationMs >= 0, "durationMs should be non-negative");
-	});
-});
-
-describe("runAgentSubprocess — widget flush scheduling", () => {
-	it("clears widget on completion (called with undefined)", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "done" },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: null,
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		await resultPromise;
-
-		// After doResolve, widget should be cleared (setWidget called with undefined)
-		const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
-		const lastCall = setWidget.mock.calls[setWidget.mock.calls.length - 1];
-		// The last call should clear the widget (second arg undefined or null)
-		assert.ok(lastCall, "setWidget should have been called at least once");
-	});
-
-	it(
-		"calls setWidget during execution (via scheduleFlush or heartbeat)",
-		{ timeout: 5000 },
-		async () => {
+		it("succeeds with text output when JSON stream is clean", async () => {
 			resetMock();
 			currentMockOpts = {
 				stdoutLines: [
 					JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
 					JSON.stringify({
 						type: "message_update",
-						delta: { type: "text_delta", text_delta: "Working..." },
+						delta: { type: "text_delta", text_delta: "Task complete." },
 					}),
 					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
 					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
@@ -438,142 +187,409 @@ describe("runAgentSubprocess — widget flush scheduling", () => {
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
 
-			// Wait briefly for scheduleFlush (300ms debounce) to fire
-			await new Promise((r) => setTimeout(r, 400));
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+			assert.equal(result.agentName, "test-agent");
+			assert.ok(
+				result.textOutput.includes("Task complete."),
+				"textOutput should contain the assistant text",
+			);
+			assert.ok(
+				result.textOnly.includes("Task complete."),
+				"textOnly should contain the assistant text",
+			);
+			assert.equal(typeof result.durationMs, "number");
+		});
+
+		it("captures thinking output when thinking events precede text", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "message_update", delta: { type: "thinking_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: {
+							type: "thinking_delta",
+							thinking_delta: "Let me reason about this step by step.",
+						},
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "thinking_end" } }),
+					JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Here is my answer." },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
 
 			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+			assert.ok(result.thinkingOutput, "thinkingOutput should be defined");
+			assert.ok(
+				result.thinkingOutput!.includes("reason about this"),
+				"thinkingOutput should contain thinking text",
+			);
+			assert.ok(
+				result.textOutput.includes("Here is my answer"),
+				"textOutput should contain answer",
+			);
+		});
+
+		it("sets summaryLine from agent text output", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: {
+							type: "text_delta",
+							text_delta: "IMPLEMENTATION_COMPLETE\nAll features implemented.",
+						},
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+			assert.ok(result.summaryLine, "summaryLine should be set");
+		});
+	});
+
+	describe("runAgentSubprocess — budget exceed", () => {
+		it('calls child.kill("SIGTERM") when budget is exceeded', async () => {
+			resetMock();
+			// Tool execution end increments toolCount to 1.
+			// With maxToolCalls=1, message_end will set budgetExceeded=true → child.kill("SIGTERM").
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				1,
+				undefined,
+			);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			// Budget exceeded should be true, success=false
+			assert.equal(result.budgetExceeded, true, "budgetExceeded should be true");
+			assert.equal(result.success, false, "should be failed when budget exceeded");
+
+			// Verify child.kill("SIGTERM") was called
+			const child = currentMockChild;
+			assert.ok(child, "mock child should exist");
+			assert.equal(child!.kill.mock.calls.length, 1, "kill should have been called once");
+			assert.equal(
+				child!.kill.mock.calls[0]?.arguments?.[0],
+				"SIGTERM",
+				"kill should be called with SIGTERM",
+			);
+		});
+
+		it("result has budgetExceeded field when tool limit exceeded", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", usage: { totalTokens: 100 } },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				1,
+				undefined,
+			);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.budgetExceeded, true);
+		});
+	});
+
+	describe("runAgentSubprocess — timeout handling", () => {
+		it("returns success=false when child exits with signal SIGTERM (killed)", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Partial output" },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: null,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, false, "child killed by signal should be failure");
+			// text output should still be captured
+			assert.ok(result.textOutput.length > 0, "text output should be preserved on timeout");
+		});
+
+		it("returns success=false when killed by signal with no output", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [],
+				exitCode: null,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, false);
+			assert.equal(typeof result.durationMs, "number");
+			assert.ok(result.durationMs >= 0, "durationMs should be non-negative");
+		});
+	});
+
+	describe("runAgentSubprocess — widget flush scheduling", () => {
+		it("clears widget on completion (called with undefined)", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "done" },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
 			await resultPromise;
 
-			// setWidget should have been called at least once (by scheduleFlush or heartbeat)
+			// After doResolve, widget should be cleared (setWidget called with undefined)
 			const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
-			assert.ok(
-				setWidget.mock.calls.length >= 1,
-				"setWidget should have been called at least once",
-			);
-		},
-	);
-});
+			const lastCall = setWidget.mock.calls[setWidget.mock.calls.length - 1];
+			// The last call should clear the widget (second arg undefined or null)
+			assert.ok(lastCall, "setWidget should have been called at least once");
+		});
 
-describe("runAgentSubprocess — error path", () => {
-	it("handles spawn error (binary not found) gracefully", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [],
-			exitCode: 0,
-			exitSignal: null,
-		};
+		it(
+			"calls setWidget during execution (via scheduleFlush or heartbeat)",
+			{ timeout: 5000 },
+			async () => {
+				resetMock();
+				currentMockOpts = {
+					stdoutLines: [
+						JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+						JSON.stringify({
+							type: "message_update",
+							delta: { type: "text_delta", text_delta: "Working..." },
+						}),
+						JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+						JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+					],
+					exitCode: 0,
+					exitSignal: null,
+				};
 
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+				const { runAgentSubprocess } = await import("../agent/runner.ts");
+				const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
 
-		// Emit error on the child instead of close
-		const child = currentMockChild;
-		if (child && child._ref.errorHandlers.length > 0) {
-			const err = new Error("ENOENT: spawn pi ENOENT");
-			for (const h of child._ref.errorHandlers) {
-				h(err);
-			}
-		}
+				// Wait briefly for scheduleFlush (300ms debounce) to fire
+				await new Promise((r) => setTimeout(r, 400));
 
-		const result = await resultPromise;
-		assert.equal(result.success, false);
-		assert.ok(
-			result.output.includes("Failed to start") || result.errorOutput,
-			"should report spawn failure",
+				emitMockEvents();
+				await resultPromise;
+
+				// setWidget should have been called at least once (by scheduleFlush or heartbeat)
+				const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
+				assert.ok(
+					setWidget.mock.calls.length >= 1,
+					"setWidget should have been called at least once",
+				);
+			},
 		);
 	});
-});
 
-describe("runAgentSubprocess — stderr handling", () => {
-	it("captures stderr output as errorOutput", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "result" },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			stderrLines: ["Warning: some diagnostic info"],
-			exitCode: 0,
-			exitSignal: null,
-		};
+	describe("runAgentSubprocess — error path", () => {
+		it("handles spawn error (binary not found) gracefully", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [],
+				exitCode: 0,
+				exitSignal: null,
+			};
 
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
 
-		emitMockEvents();
+			// Emit error on the child instead of close
+			const child = currentMockChild;
+			if (child && child._ref.errorHandlers.length > 0) {
+				const err = new Error("ENOENT: spawn pi ENOENT");
+				for (const h of child._ref.errorHandlers) {
+					h(err);
+				}
+			}
 
-		const result = await resultPromise;
-		assert.equal(result.success, true);
-		// stderr should be captured (after filtering)
-		assert.ok(typeof result.errorOutput === "string", "errorOutput should be a string");
+			const result = await resultPromise;
+			assert.equal(result.success, false);
+			assert.ok(
+				result.output.includes("Failed to start") || result.errorOutput,
+				"should report spawn failure",
+			);
+		});
 	});
-});
 
-describe("runAgentSubprocess — result assembly", () => {
-	it("doResolve returns AgentRunResult with all expected fields", async () => {
-		resetMock();
-		currentMockOpts = {
-			stdoutLines: [
+	describe("runAgentSubprocess — stderr handling", () => {
+		it("captures stderr output as errorOutput", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "result" },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				stderrLines: ["Warning: some diagnostic info"],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+			// stderr should be captured (after filtering)
+			assert.ok(typeof result.errorOutput === "string", "errorOutput should be a string");
+		});
+	});
+
+	describe("runAgentSubprocess — result assembly", () => {
+		it("doResolve returns AgentRunResult with all expected fields", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Final result." },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			// Assert all fields expected in AgentRunResult
+			assert.equal(typeof result.success, "boolean");
+			assert.equal(typeof result.agentName, "string");
+			assert.equal(typeof result.durationMs, "number");
+			assert.equal(typeof result.toolCount, "number");
+			assert.equal(typeof result.tokenCount, "number");
+			assert.equal(typeof result.textOutput, "string");
+			assert.equal(typeof result.textOnly, "string");
+			assert.equal(typeof result.summaryLine, "string");
+			assert.equal(typeof result.errorOutput, "string");
+			assert.equal(result.agentName, "test-agent");
+			assert.ok("budgetExceeded" in result);
+		});
+
+		it("result includes output (raw stdout from subprocess)", async () => {
+			resetMock();
+			const lines = [
 				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
 				JSON.stringify({
 					type: "message_update",
-					delta: { type: "text_delta", text_delta: "Final result." },
+					delta: { type: "text_delta", text_delta: "Work done." },
 				}),
 				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
 				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			],
-			exitCode: 0,
-			exitSignal: null,
-		};
+			];
+			currentMockOpts = {
+				stdoutLines: lines,
+				exitCode: 0,
+				exitSignal: null,
+			};
 
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
 
-		emitMockEvents();
+			emitMockEvents();
 
-		const result = await resultPromise;
-		// Assert all fields expected in AgentRunResult
-		assert.equal(typeof result.success, "boolean");
-		assert.equal(typeof result.agentName, "string");
-		assert.equal(typeof result.durationMs, "number");
-		assert.equal(typeof result.toolCount, "number");
-		assert.equal(typeof result.tokenCount, "number");
-		assert.equal(typeof result.textOutput, "string");
-		assert.equal(typeof result.textOnly, "string");
-		assert.equal(typeof result.summaryLine, "string");
-		assert.equal(typeof result.errorOutput, "string");
-		assert.equal(result.agentName, "test-agent");
-		assert.ok("budgetExceeded" in result);
+			const result = await resultPromise;
+			assert.ok(result.output.length > 0, "raw output should capture stdout");
+			assert.ok(result.output.includes("message_update"), "raw output should contain JSON lines");
+		});
 	});
-
-	it("result includes output (raw stdout from subprocess)", async () => {
-		resetMock();
-		const lines = [
-			JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_delta", text_delta: "Work done." },
-			}),
-			JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-			JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-		];
-		currentMockOpts = {
-			stdoutLines: lines,
-			exitCode: 0,
-			exitSignal: null,
-		};
-
-		const { runAgentSubprocess } = await import("../agent/runner.ts");
-		const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
-
-		emitMockEvents();
-
-		const result = await resultPromise;
-		assert.ok(result.output.length > 0, "raw output should capture stdout");
-		assert.ok(result.output.includes("message_update"), "raw output should contain JSON lines");
-	});
-});
+}

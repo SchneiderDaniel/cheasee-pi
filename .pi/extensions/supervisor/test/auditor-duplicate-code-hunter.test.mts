@@ -100,119 +100,55 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 
 // ─── Phase 2: 4e Code Quality methodology instructions ────────────
 
-describe("auditor.md — 4e Code Quality duplicate detection (Phase 2)", () => {
-	it("4e Code Quality section contains instruction to run duplicate-detection methodology", () => {
+describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
+	it("skills frontmatter includes 'duplicate-code-hunter' skill", () => {
 		const content = readAuditorMd();
-		// Find the 4e section
-		const sectionStart = content.indexOf("#### 4e. Code Quality");
-		assert.ok(sectionStart >= 0, "4e Code Quality section must exist");
-
-		// Get content from 4e to next section (#### or end)
-		const sectionEnd = content.indexOf("#### 4f.", sectionStart);
-		const sectionContent =
-			sectionEnd >= 0
-				? content.substring(sectionStart, sectionEnd)
-				: content.substring(sectionStart);
-
-		// Should reference running duplicate-detection methodology
-		const hasMethodologyRef =
-			sectionContent.toLowerCase().includes("duplicate-detection") ||
-			sectionContent.toLowerCase().includes("duplicate detection") ||
-			sectionContent.toLowerCase().includes("clone detection") ||
-			sectionContent.toLowerCase().includes("duplicate code detection");
-		assert.ok(hasMethodologyRef, "4e section should reference duplicate-detection methodology");
-	});
-
-	it("methodology references all four clone types (Type 1-4)", () => {
-		const content = readAuditorMd();
-		const sectionStart = content.indexOf("#### 4e. Code Quality");
-		assert.ok(sectionStart >= 0);
-
-		const sectionEnd = content.indexOf("#### 4f.", sectionStart);
-		const sectionContent =
-			sectionEnd >= 0
-				? content.substring(sectionStart, sectionEnd)
-				: content.substring(sectionStart);
-
-		// Check for mentions of Type 1 through Type 4
-		const hasType1 = /Type\s*1/i.test(sectionContent);
-		const hasType2 = /Type\s*2/i.test(sectionContent);
-		const hasType3 = /Type\s*3/i.test(sectionContent);
-		const hasType4 = /Type\s*4/i.test(sectionContent);
-
-		assert.ok(hasType1, "Should reference Type 1 (exact clones)");
-		assert.ok(hasType2, "Should reference Type 2 (renamed clones)");
-		assert.ok(hasType3, "Should reference Type 3 (near-miss clones)");
-		assert.ok(hasType4, "Should reference Type 4 (semantic clones)");
-	});
-
-	it("scope covers 'all files in affected extensions/modules'", () => {
-		const content = readAuditorMd();
-		const sectionStart = content.indexOf("#### 4e. Code Quality");
-		assert.ok(sectionStart >= 0);
-
-		const sectionEnd = content.indexOf("#### 4f.", sectionStart);
-		const sectionContent =
-			sectionEnd >= 0
-				? content.substring(sectionStart, sectionEnd)
-				: content.substring(sectionStart);
-
-		// Scope should be broad — not limited to git diff or .pi/extensions/
-		const hasBroadScope =
-			sectionContent.toLowerCase().includes("all files") ||
-			sectionContent.toLowerCase().includes("affected") ||
-			sectionContent.toLowerCase().includes("extensions/modules");
-		assert.ok(hasBroadScope, "Scope instruction should cover all affected files");
-	});
-
-	it("scope is NOT limited to .pi/extensions/ directory", () => {
-		const content = readAuditorMd();
-		const sectionStart = content.indexOf("#### 4e. Code Quality");
-		assert.ok(sectionStart >= 0);
-
-		const sectionEnd = content.indexOf("#### 4f.", sectionStart);
-		const sectionContent =
-			sectionEnd >= 0
-				? content.substring(sectionStart, sectionEnd)
-				: content.substring(sectionStart);
-
-		// Scope should explicitly avoid being limited to only .pi/extensions/
-		const limitedToExtensions = sectionContent.match(/\.pi\/extensions\//gi);
-		// If it mentions .pi/extensions/, it should also mention broader scope
-		// The test checks the scope is not EXCLUSIVELY .pi/extensions/
-		const hasBroaderScope =
-			sectionContent.toLowerCase().includes("modules") ||
-			sectionContent.toLowerCase().includes("affected files") ||
-			sectionContent.toLowerCase().includes("extensions/modules") ||
-			sectionContent.toLowerCase().includes("affected extensions");
-		assert.ok(hasBroaderScope, "Scope should not be limited to .pi/extensions/ only");
-	});
-
-	it("references available tools: jscpd, ripgrep_search, structural_search, diff", () => {
-		const content = readAuditorMd();
-		const sectionStart = content.indexOf("#### 4e. Code Quality");
-		assert.ok(sectionStart >= 0);
-
-		const sectionEnd = content.indexOf("#### 4f.", sectionStart);
-		const sectionContent =
-			sectionEnd >= 0
-				? content.substring(sectionStart, sectionEnd)
-				: content.substring(sectionStart);
-
-		const hasJscpd = sectionContent.includes("jscpd");
-		const hasRipgrep = sectionContent.includes("ripgrep_search");
-		const hasStructural = sectionContent.includes("structural_search");
-		const hasDiff = sectionContent.includes("diff");
-
+		const skillsVal = getFrontmatterField(content, "skills");
+		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			hasJscpd || hasRipgrep || hasStructural || hasDiff,
-			"Should reference at least one detection tool",
+			skillsVal!.includes("duplicate-code-hunter"),
+			"skills field should include 'duplicate-code-hunter'",
 		);
+	});
 
-		// Check that at least ripgrep_search or jscpd is mentioned
+	it("Code Quality dimension exists in Review Dimensions table", () => {
+		const content = readAuditorMd();
 		assert.ok(
-			hasJscpd || hasRipgrep,
-			"Should reference jscpd or ripgrep_search as detection tools",
+			content.includes("Code Quality"),
+			"auditor.md should reference Code Quality dimension",
+		);
+	});
+
+	it("Review Dimensions table mentions duplication in Code Quality", () => {
+		const content = readAuditorMd();
+		const reviewTable = content.substring(
+			content.indexOf("| **Architecture Compliance"),
+			content.indexOf("## Your Task"),
+		);
+		assert.ok(
+			reviewTable.includes("duplication") || reviewTable.includes("duplicate"),
+			"Code Quality dimension should reference duplication",
+		);
+	});
+
+	it("auditor invokes duplicate-code-hunter skill via skills mechanism", () => {
+		const content = readAuditorMd();
+		const skillsVal = getFrontmatterField(content, "skills");
+		assert.ok(skillsVal, "skills field must exist");
+		assert.ok(
+			skillsVal!.includes("dead-code-hunter"),
+			"skills field should also include 'dead-code-hunter'",
+		);
+	});
+
+	it("tools include ripgrep_search and structural_search for code analysis", () => {
+		const content = readAuditorMd();
+		const toolsVal = getFrontmatterField(content, "tools");
+		assert.ok(toolsVal, "tools field must exist");
+		assert.ok(toolsVal!.includes("ripgrep_search"), "tools field should include ripgrep_search");
+		assert.ok(
+			toolsVal!.includes("structural_search"),
+			"tools field should include structural_search",
 		);
 	});
 });

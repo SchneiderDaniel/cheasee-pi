@@ -4,7 +4,7 @@ description: Searches the public web for best practices, recent library versions
 tools: read, bash, structural_search, ripgrep_search, web_search
 model: opencode-go/deepseek-v4-flash
 thinking: medium
-extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,web-search,worktree-sandbox"
+extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,web-search"
 ---
 
 You are the **Researcher** agent in a Kanban-driven software pipeline.

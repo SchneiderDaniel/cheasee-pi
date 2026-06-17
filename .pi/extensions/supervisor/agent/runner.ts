@@ -95,7 +95,7 @@ export async function runAgent(
 			const reason = result.summaryLine || result.errorOutput || "unknown error";
 			log.warn(
 				"agent-runner",
-				`In-process runner failed (result.success=false), falling back to subprocess: ${reason}`,
+				`[supervisor] In-process runner failed (result.success=false), falling back to subprocess: ${reason}`,
 			);
 			try {
 				const ctx2 = buildErrorNotificationContext("in-process-runner", reason);

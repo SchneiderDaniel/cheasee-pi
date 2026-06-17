@@ -24,8 +24,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const FILES_TO_CHECK = [
-	"agent-session-runner.ts",
-	"agent-runner.ts",
+	"agent/session-runner.ts",
+	"agent/runner.ts",
 	"pipeline/handler.ts",
 	"pipeline/notifications.ts",
 ];

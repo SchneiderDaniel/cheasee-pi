@@ -41,8 +41,8 @@ Pick one extension from `.pi/extensions/` using `bash ls`. Prefer subdirectory e
 Selection method:
 
 ```bash
-ls -d /home/miria/git/main/.pi/extensions/*/   # subdirectory extensions
-ls /home/miria/git/main/.pi/extensions/*.ts     # single-file extensions
+ls -d .pi/extensions/*/   # subdirectory extensions
+ls .pi/extensions/*.ts     # single-file extensions
 ```
 
 Pick randomly. Document which extension selected and why (e.g. "largest file count" or "most recently modified").
@@ -58,11 +58,11 @@ Before manual analysis, run Knip — an automated dead-code detection CLI. Knip 
 Run Knip against the selected extension directory using the root tsconfig:
 
 ```bash
-npx knip --tsConfig /home/miria/git/main/tsconfig.json --include-entry-exports --directory /home/miria/git/main/.pi/extensions/<name>/
+npx knip --tsConfig tsconfig.json --include-entry-exports --directory .pi/extensions/<name>/
 ```
 
 Flags:
-- `--tsConfig /home/miria/git/main/tsconfig.json` — always use root tsconfig (extends `.pi/tsconfig.json`); extension directories do not have their own tsconfig
+- `--tsConfig tsconfig.json` — always use root tsconfig (extends `.pi/tsconfig.json`); extension directories do not have their own tsconfig
 - `--directory` — scope analysis to the extension directory (knip v6 uses `--directory` flag, not positional argument)
 - `--include-entry-exports` — also check exports of entry files, not just internal exports; ensures comprehensive coverage of extension internals
 - No configuration file — knip uses defaults
@@ -77,7 +77,7 @@ Knip exit codes:
 Capture both exit code and stdout/stderr:
 
 ```bash
-npx knip --tsConfig /home/miria/git/main/tsconfig.json --include-entry-exports --directory /home/miria/git/main/.pi/extensions/<name>/ 2>&1; echo "EXIT_CODE=$?"
+npx knip --tsConfig tsconfig.json --include-entry-exports --directory .pi/extensions/<name>/ 2>&1; echo "EXIT_CODE=$?"
 ```
 
 #### Step 3: File Issues for All Knip Findings
@@ -117,15 +117,15 @@ Read the full extension before hunting. Use `read` to load all files.
 For subdirectory extensions:
 
 ```bash
-ls -la /home/miria/git/main/.pi/extensions/<name>/
-read /home/miria/git/main/.pi/extensions/<name>/index.ts
-read /home/miria/git/main/.pi/extensions/<name>/<other-files>.ts
+ls -la .pi/extensions/<name>/
+read .pi/extensions/<name>/index.ts
+read .pi/extensions/<name>/<other-files>.ts
 ```
 
 For single-file extensions:
 
 ```bash
-read /home/miria/git/main/.pi/extensions/<name>.ts
+read .pi/extensions/<name>.ts
 ```
 
 Understand:
@@ -172,7 +172,7 @@ Check for exported symbols, functions, and variables that nothing references.
 
 ```bash
 # Check if a function/export is referenced outside its declaration file
-ripgrep_search "myFunctionName" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "myFunctionName" .pi/extensions/<name>/
 ```
 
 - Search for each public function name — if only its declaration matches, it is unused
@@ -404,7 +404,7 @@ import type { SomeConfig } from "./types";
 
 ```bash
 # For each import, search file for the imported symbol
-ripgrep_search "symbolName" /home/miria/git/main/.pi/extensions/<name>/<file>.ts
+ripgrep_search "symbolName" .pi/extensions/<name>/<file>.ts
 # If only import line matches, it is orphaned
 ```
 
@@ -529,11 +529,11 @@ Packages declared in `package.json` but never imported in any source file. These
 
 ```bash
 # List declared dependencies from package.json
-grep -E '"@[a-z]|"\w+' /home/miria/git/main/.pi/extensions/<name>/package.json | grep -v devDependencies
+grep -E '"@[a-z]|"\w+' .pi/extensions/<name>/package.json | grep -v devDependencies
 
 # For each package, search all extension files for its import
-ripgrep_search "from 'package-name'" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "require('package-name')" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "from 'package-name'" .pi/extensions/<name>/
+ripgrep_search "require('package-name')" .pi/extensions/<name>/
 ```
 
 Also check if the package is referenced in any configuration file (tsconfig, webpack, jest config, etc.) or used via CLI in npm scripts.
@@ -580,7 +580,7 @@ Each finding must include ALL of:
 3. **Cross-reference proof** — Search result showing no callers / no reachability
    ```bash
    # grep for the symbol across the whole extension
-   ripgrep_search "helper" /home/miria/git/main/.pi/extensions/<name>/
+   ripgrep_search "helper" .pi/extensions/<name>/
    # Output: only matches are declaration and export — no call sites
    ```
    Include the actual search output or summary in report.
@@ -718,7 +718,7 @@ github_label="dead-code"
 gh label list --repo "$REPO" 2>/dev/null | grep -q dead-code || github_label="bug"
 
 gh issue create \
-  --repo "$(grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
+  --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Dead Code: <ext-name> - <short description>" \
   --label "$github_label" \
   --body-file /tmp/dead-code-report-<ext-name>-<seq>.md
@@ -753,7 +753,7 @@ done
 Read repo from `.pi/settings.json`:
 
 ```bash
-grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
+grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
 ```
 
 #### Labels

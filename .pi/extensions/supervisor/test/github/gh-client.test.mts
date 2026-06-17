@@ -37,8 +37,16 @@ describe("gh() — low-level CLI wrapper", () => {
 		const result = await gh(pi, ["issue", "view", "123"]);
 		assert.equal(result, "hello world");
 		assert.equal(calls.length, 1);
-		assert.equal(calls[0].cmd, "gh");
-		assert.deepEqual(calls[0].args, ["issue", "view", "123"]);
+		// gh() may call through bash for GH_TOKEN injection or gh directly
+		const cmd = calls[0].cmd;
+		assert.ok(cmd === "bash" || cmd === "gh", `cmd should be bash or gh, got: ${cmd}`);
+		if (cmd === "bash") {
+			// Through bash: args[0]='-c', args[1] contains gh command, args[2]='_', then original args
+			const ghArgs = calls[0].args.slice(3);
+			assert.deepEqual(ghArgs, ["issue", "view", "123"]);
+		} else {
+			assert.deepEqual(calls[0].args, ["issue", "view", "123"]);
+		}
 		assert.ok(calls[0].opts);
 	});
 
@@ -57,6 +65,7 @@ describe("gh() — low-level CLI wrapper", () => {
 		const controller = new AbortController();
 		const pi = createMockPi({ code: 0, stdout: "ok", stderr: "" }, calls);
 		await gh(pi, ["status"], { signal: controller.signal, timeout: 5000 });
+		// The opts are passed to pi.exec regardless of bash/gh path
 		assert.equal(calls[0].opts.signal, controller.signal);
 		assert.equal(calls[0].opts.timeout, 5000);
 	});

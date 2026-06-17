@@ -38,7 +38,7 @@ function run(cmd: string, cwd: string): string {
 describe("pipeline-worktree integration — lifecycle order", () => {
 	it("worktree creation comment appears before build task comment", () => {
 		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Worktree creation (once per pipeline run)");
+		const lifecycleIdx = src.indexOf("// Create worktree before loop");
 		const buildTaskIdx = src.indexOf("// Build task");
 		assert.ok(lifecycleIdx >= 0, "Worktree creation comment");
 		assert.ok(buildTaskIdx >= 0, "Build task comment");
@@ -47,7 +47,7 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 
 	it("buildAgentTask call appears after worktree creation section", () => {
 		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Worktree creation (once per pipeline run)");
+		const lifecycleIdx = src.indexOf("// Create worktree before loop");
 		const btIdx = src.indexOf("const task = buildAgentTask(");
 		assert.ok(lifecycleIdx < btIdx, "Worktree creation before buildAgentTask call");
 	});
@@ -69,7 +69,7 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 
 	it("worktreeBranch generated via generateBranchName", () => {
 		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Worktree creation (once per pipeline run)");
+		const lifecycleIdx = src.indexOf("// Create worktree before loop");
 		const btIdx = src.indexOf("// Build task");
 		const section = src.substring(lifecycleIdx, btIdx);
 		assert.ok(
