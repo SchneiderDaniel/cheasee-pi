@@ -34,14 +34,6 @@ export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string):
 }
 
 /**
- * Returns the gate's sessionEnabled value for a valid gate, or null for null/undefined.
- */
-export function getSessionLoggerState(gate: SessionLoggerGate | null | undefined): boolean | null {
-	if (gate == null) return null;
-	return gate.sessionEnabled;
-}
-
-/**
  * Extension entry point.
  * Registers the /session-logger command and wires event handlers
  * to a LoggerPipeline instance.
