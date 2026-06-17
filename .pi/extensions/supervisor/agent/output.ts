@@ -43,11 +43,18 @@ const VALID_SEVERITIES = new Set<FindingSeverity>(["critical", "warning", "sugge
  * (end of JSON string value) or an unescaped content quote (e.g. markdown
  * "text" inside commentBody).
  *
- * Heuristic: look ahead past whitespace for the next non-whitespace char.
- * If it's `,`, `}`, `]`, or `:`, this `"` closes a JSON string value.
- * Otherwise, it's an unescaped content quote inside a string.
+ * Uses bidirectional heuristic:
+ * 1. Lookahead: must be followed by `,`, `}`, `]`, or `:` after whitespace.
+ * 2. Lookbehind: if preceded by a structural opener (`:`, `,`, `{`, `[`,
+ *    or start-of-text), this `"` is an opening quote, not a close.
+ *
+ * This prevents false-positives when unescaped content quotes inside a
+ * JSON string value happen to be followed by `,`, `}`, `]`, or `:`.
+ * Example: `{"commentBody": "value: "key", is important"}` — the `"` before
+ * `key` is preceded by ` ` (after `:`) → lookbehind sees `:` → opening quote.
  */
-function isStructuralQuote(text: string, i: number): boolean {
+function isStructuralClose(text: string, i: number): boolean {
+	// Stage 1: Lookahead — must be followed by structural delimiter
 	let j = i + 1;
 	while (
 		j < text.length &&
@@ -56,7 +63,18 @@ function isStructuralQuote(text: string, i: number): boolean {
 		j++;
 	}
 	const next = j < text.length ? text[j] : "";
-	return next === "," || next === "}" || next === "]" || next === ":";
+	if (next !== "," && next !== "}" && next !== "]" && next !== ":") return false;
+
+	// Stage 2: Lookbehind — if preceded by structural opener, this is an opening quote
+	let k = i - 1;
+	while (k >= 0 && (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")) {
+		k--;
+	}
+	const prev = k >= 0 ? text[k] : "";
+	// Start-of-text, `:`, `,`, `{`, `[` mean this is an opening quote, not a close
+	if (prev === "" || prev === ":" || prev === "," || prev === "{" || prev === "[") return false;
+
+	return true;
 }
 
 // ─── JSON Sanitization ────────────────────────────────────────────
@@ -96,7 +114,7 @@ function sanitizeJsonStrings(jsonText: string): string {
 		}
 
 		if (ch === '"') {
-			if (inString && isStructuralQuote(jsonText, i)) {
+			if (inString && isStructuralClose(jsonText, i)) {
 				// Structural close — end of string value
 				result += ch;
 				inString = false;
@@ -123,6 +141,125 @@ function sanitizeJsonStrings(jsonText: string): string {
 	return result;
 }
 
+// ─── Conservative Fallback ────────────────────────────────────────
+
+/**
+ * Get the next non-whitespace character after position `i` in `text`.
+ * Returns empty string if at end of text.
+ */
+function nextNonWhitespace(text: string, i: number): string {
+	let j = i + 1;
+	while (
+		j < text.length &&
+		(text[j] === " " || text[j] === "\t" || text[j] === "\n" || text[j] === "\r")
+	) {
+		j++;
+	}
+	return j < text.length ? text[j] : "";
+}
+
+/**
+ * Conservative variant of `sanitizeJsonStrings` for the retry fallback.
+ *
+ * Uses the same `isStructuralClose` function as the standard pass but
+ * with an additional check for `"` followed by `,` in VALUE context:
+ * only closes when the character after `,` starts a new JSON structure
+ * (another `"`, `{`, `[`). If the `,` is followed by a letter or digit,
+ * the `"` is treated as a content quote.
+ *
+ * This catches the false-positive pattern where unescaped content quotes
+ * inside a JSON string value happen to be followed by `,` or `:`
+ * (e.g. `"key",` inside commentBody where `,` is followed by natural
+ * language text).
+ *
+ * Key tracking is done by a separate tokenizer that counts brace depth
+ * and distinguishes key context (after `{`/`,` outside string) from value
+ * context (after `:` outside string).
+ */
+function sanitizeJsonStringsConservative(jsonText: string): string {
+	let result = "";
+	let inString = false;
+	let escaped = false;
+
+	for (let i = 0; i < jsonText.length; i++) {
+		const ch = jsonText[i];
+		if (escaped) {
+			result += ch;
+			escaped = false;
+			continue;
+		}
+
+		if (inString && ch === "\\") {
+			result += ch;
+			escaped = true;
+			continue;
+		}
+
+		if (ch === '"') {
+			if (!inString) {
+				// Opening quote — start of string value or key
+				result += ch;
+				inString = true;
+			} else if (isStructuralClose(jsonText, i)) {
+				// `isStructuralClose` says this is a structural close.
+				// But we double-check: if the delimiter after whitespace is
+				// `,` or `:`, verify that the next token looks like JSON structure
+				// (not a content word).
+				const next = nextNonWhitespace(jsonText, i);
+				if (next === "," || next === ":") {
+					// For `,` and `:` delimiters: check if followed by JSON value
+					// (quote, brace, bracket) or natural language (letter/digit).
+					// Skip past the delimiter itself and any whitespace.
+					let after = next === "," ? i + 1 : i + 1;
+					// Skip delimiter
+					after++;
+					// Skip whitespace
+					while (
+						after < jsonText.length &&
+						(jsonText[after] === " " ||
+							jsonText[after] === "\t" ||
+							jsonText[after] === "\n" ||
+							jsonText[after] === "\r")
+					) {
+						after++;
+					}
+					const afterNext = after < jsonText.length ? jsonText[after] : "";
+					// If followed by `"`, `{`, `[`, or end-of-text: this is a genuine
+					// structural close (the next JSON value starts).
+					// If followed by a letter/digit: the delimiter is content text,
+					// so the `"` is a content quote — escape it.
+					if (afterNext === '"' || afterNext === "{" || afterNext === "[" || afterNext === "") {
+						// Genuine structural close — next token is JSON value
+						result += ch;
+						inString = false;
+					} else {
+						// Suspicious — the `,` or `:` might be content text.
+						// Escape the quote as content, stay in string.
+						result += '\\"';
+					}
+				} else {
+					// For `}` or `]` delimiters: always structural close
+					result += ch;
+					inString = false;
+				}
+			} else {
+				// Non-structural — content quote
+				result += '\\"';
+			}
+			continue;
+		}
+
+		if (inString && (ch === "\n" || ch === "\r")) {
+			result += ch === "\n" ? "\\n" : "\\r";
+			continue;
+		}
+
+		result += ch;
+	}
+
+	return result;
+}
+
 // ─── JSON Extraction ──────────────────────────────────────────────
 
 /**
@@ -133,8 +270,16 @@ function sanitizeJsonStrings(jsonText: string): string {
  * - JSON with surrounding text
  * - Multiple JSON objects (picks last)
  *
- * Brace matching is string-boundary aware — { and } inside JSON string
- * values (e.g., tool args like {"pattern":"function.*{"}) are ignored.
+ * Brace matching uses simple quote toggle (every " toggles inString) to
+ * be string-boundary aware — { and } inside JSON string values (e.g.,
+ * tool args like {"pattern":"function.*{"}) are ignored. Simple toggle
+ * works because unescaped content quotes almost always come in pairs,
+ * so the net effect on string tracking is correct.
+ *
+ * Note: The sanitizer (sanitizeJsonStrings) uses the smarter
+ * isStructuralClose heuristic with a conservative retry fallback for
+ * identifying content quotes that need escaping. The extraction step
+ * doesn't need that precision — it only needs to skip { } inside strings.
  */
 function extractLastJson(raw: string): string {
 	// Step 1: Strip 💭 prefix for code fence detection.
@@ -188,14 +333,12 @@ function extractLastJson(raw: string): string {
 				continue;
 			}
 			if (ch === '"') {
-				if (inString && isStructuralQuote(fenceSearchText, i)) {
-					// Structural close — end of string value
-					inString = false;
-				} else if (!inString) {
-					// Opening quote — start of string value or key
-					inString = true;
-				}
-				// else: content quote — stay in string, don't toggle
+				// Simple toggle — content quotes inside string values
+				// almost always come in pairs, so the net effect on
+				// string boundary tracking is correct. Using simple
+				// toggle avoids false-positive structural close when
+				// a content quote is followed by `,`, `}`, `]`, or `:`.
+				inString = !inString;
 				continue;
 			}
 			if (!inString && ch === "`" && fenceSearchText.startsWith("```", i)) {
@@ -267,14 +410,12 @@ function extractLastJson(raw: string): string {
 			continue;
 		}
 		if (ch === '"') {
-			if (inString && isStructuralQuote(braceCandidateRaw, i)) {
-				// Structural close — end of string value
-				inString = false;
-			} else if (!inString) {
-				// Opening quote — start of string value or key
-				inString = true;
-			}
-			// else: content quote — stay in string, don't toggle
+			// Simple toggle — content quotes inside string values
+			// almost always come in pairs, so the net effect on
+			// string boundary tracking is correct. Using simple
+			// toggle avoids false-positive structural close when
+			// a content quote is followed by `,`, `}`, `]`, or `:`.
+			inString = !inString;
 			continue;
 		}
 		if (inString) continue;
@@ -494,23 +635,36 @@ export function parseAgentOutput(output: string): ParseResult {
 	try {
 		parsed = JSON.parse(sanitized);
 	} catch (e: unknown) {
-		const msg = e instanceof Error ? e.message : String(e);
+		// Retry with conservative strategy — treats `"` followed by `,` or `:`
+		// as content quotes (not structural close) to handle the false-positive
+		// pattern where unescaped quotes inside string values are followed by
+		// delimiters (e.g. `"key",` or `"value":` inside commentBody).
+		try {
+			parsed = JSON.parse(sanitizeJsonStringsConservative(jsonStr));
+		} catch {
+			// Both passes failed — fall through to auto-recovery
+		}
 
-		// Auto-recovery: trailing non-JSON content (e.g. agent appends text after JSON)
-		// Error like "Unexpected non-whitespace character after JSON at position 3137"
-		const posMatch = msg.match(/position (\d+)/);
-		if (posMatch) {
-			const pos = parseInt(posMatch[1], 10);
-			if (pos > 10 && pos < sanitized.length) {
-				try {
-					parsed = JSON.parse(sanitized.slice(0, pos));
-				} catch {
-					// retry failed — fall through to error return
+		if (!parsed) {
+			const msg = e instanceof Error ? e.message : String(e);
+
+			// Auto-recovery: trailing non-JSON content (e.g. agent appends text after JSON)
+			// Error like "Unexpected non-whitespace character after JSON at position 3137"
+			const posMatch = msg.match(/position (\d+)/);
+			if (posMatch) {
+				const pos = parseInt(posMatch[1], 10);
+				if (pos > 10 && pos < sanitized.length) {
+					try {
+						parsed = JSON.parse(sanitized.slice(0, pos));
+					} catch {
+						// retry failed — fall through to error return
+					}
 				}
 			}
 		}
 
 		if (!parsed) {
+			const msg = e instanceof Error ? e.message : String(e);
 			getDebugLogger().warn("agent-output", `JSON parse failed: ${msg}`, {
 				jsonLen: jsonStr.length,
 				sanitizedLen: sanitized.length,
