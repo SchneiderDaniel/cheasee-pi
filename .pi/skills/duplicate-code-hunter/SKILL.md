@@ -49,8 +49,8 @@ Pick one extension from `.pi/extensions/` using `bash ls`. Prefer subdirectory e
 Selection method:
 
 ```bash
-ls -d /home/miria/git/main/.pi/extensions/*/   # subdirectory extensions
-ls /home/miria/git/main/.pi/extensions/*.ts     # single-file extensions
+ls -d .pi/extensions/*/   # subdirectory extensions
+ls .pi/extensions/*.ts     # single-file extensions
 ```
 
 Pick randomly. Document which extension selected and why (e.g. "largest file count" or "most recently modified").
@@ -81,15 +81,15 @@ Read the full extension before hunting. Use `read` to load all files.
 For subdirectory extensions:
 
 ```bash
-ls -la /home/miria/git/main/.pi/extensions/<name>/
-read /home/miria/git/main/.pi/extensions/<name>/index.ts
-read /home/miria/git/main/.pi/extensions/<name>/<other-files>.ts
+ls -la .pi/extensions/<name>/
+read .pi/extensions/<name>/index.ts
+read .pi/extensions/<name>/<other-files>.ts
 ```
 
 For single-file extensions:
 
 ```bash
-read /home/miria/git/main/.pi/extensions/<name>.ts
+read .pi/extensions/<name>.ts
 ```
 
 Understand:
@@ -141,7 +141,7 @@ Identical code block appears ≥2 times in the extension. Whitespace and comment
 
 ```bash
 # Run jscpd on the extension directory
-jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 5 --min-tokens 50 --output json
+jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 50 --output json
 
 # Parse output for exact clones
 # Flags:
@@ -155,15 +155,15 @@ jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 5 --min-tokens 50 
 ```bash
 # Extract first/last lines of suspected duplicate block into a literal file
 # Search for that literal pattern across all extension files
-ripgrep_search "literal unique string from block" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "literal unique string from block" .pi/extensions/<name>/
 ```
 
 **Detection method C — manual block comparison:**
 
 ```bash
 # Extract suspected duplicate blocks to temp files and diff them
-read /home/miria/git/main/.pi/extensions/<name>/file.ts --offset 100 --limit 20 > /tmp/block1
-read /home/miria/git/main/.pi/extensions/<name>/other.ts --offset 50 --limit 20 > /tmp/block2
+read .pi/extensions/<name>/file.ts --offset 100 --limit 20 > /tmp/block1
+read .pi/extensions/<name>/other.ts --offset 50 --limit 20 > /tmp/block2
 diff /tmp/block1 /tmp/block2
 ```
 
@@ -223,7 +223,7 @@ structural_search "if (!$A || typeof $A !== $TYPE) $$$RETURN" ts
 
 ```bash
 # jscpd normalizes identifiers by default — output includes Type 2 clones
-jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 5 --min-tokens 50 --output json
+jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 50 --output json
 ```
 
 **Detection method C — manual comparison with normalized diff:**
@@ -274,7 +274,7 @@ Same overall structure but with added, removed, or modified statements. Some sta
 
 ```bash
 # jscpd uses token-based comparison which naturally catches near-misses
-jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 5 --min-tokens 30 \
+jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 30 \
   --output json --threshold 15
 # --threshold 15 = allow 15% tolerance for differences
 ```
@@ -373,7 +373,7 @@ Duplicates that appear within the same file. Often from copy-paste within a sing
 ```bash
 # For each function/block in the file, search for its content elsewhere in the same file
 # Use distinctive lines from the block as search pattern
-ripgrep_search "distinctive line from block" /home/miria/git/main/.pi/extensions/<name>/<file>.ts
+ripgrep_search "distinctive line from block" .pi/extensions/<name>/<file>.ts
 ```
 
 **Patterns:**
@@ -424,7 +424,7 @@ structural_search "if ($A) $$$THEN else if ($B) $$$ELSE" ts
 
 ```bash
 # Search for characteristic condition text
-ripgrep_search "role === "admin"" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "role === "admin"" .pi/extensions/<name>/
 ```
 
 **Patterns:**
@@ -480,7 +480,7 @@ The same import or re-export pattern appears in multiple files, or files import 
 
 ```bash
 # Find all imports from a specific module
-ripgrep_search "from '"../common"" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "from '"../common"" .pi/extensions/<name>/
 # If many files import the same module with identical specifiers, flag it
 ```
 
@@ -506,10 +506,10 @@ Code blocks that appear in 3+ locations (not just 2). Higher impact — more mai
 
 ```bash
 # Use jscpd — it finds all clone locations, not just pairs
-jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 3 --output json
+jscpd .pi/extensions/<name>/ --min-lines 3 --output json
 
 # Or use ripgrep_search to find all occurrences of a distinctive pattern
-ripgrep_search "distinctive pattern" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "distinctive pattern" .pi/extensions/<name>/
 # Count occurrences > 2
 ```
 
@@ -559,7 +559,7 @@ Code blocks generated from templates or boilerplate that should be generated pro
 
 ```bash
 # Look for highly repetitive patterns in file headers, license blocks, config sections
-read /home/miria/git/main/.pi/extensions/<name>/<file>.ts | head -20
+read .pi/extensions/<name>/<file>.ts | head -20
 # Check if same header/license/config block repeated across files
 ```
 
@@ -616,7 +616,7 @@ Each finding must include ALL of:
 4. **Cross-reference proof** — jscpd output, structural_search match, diff output, or both code snippets
    ```bash
    # jscpd output showing clone pair
-   jscpd /home/miria/git/main/.pi/extensions/<name>/ --min-lines 5 --min-tokens 50
+   jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 50
    ```
    Include the actual tool output or summary in report.
 5. **Line count** — Total duplicate lines across all locations
@@ -748,7 +748,7 @@ cat > /tmp/duplicate-code-report-<ext-name>.md << 'EOF'
 EOF
 
 gh issue create \
-  --repo "$(grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
+  --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Duplicate Code: <ext-name> - <short description>" \
   --label "duplicate-code" \
   --body-file /tmp/duplicate-code-report-<ext-name>.md
@@ -760,7 +760,7 @@ rm /tmp/duplicate-code-report-<ext-name>.md
 Read repo from `.pi/settings.json`:
 
 ```bash
-grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
+grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
 ```
 
 #### Labels

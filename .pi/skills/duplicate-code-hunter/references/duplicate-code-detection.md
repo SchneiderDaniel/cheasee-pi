@@ -159,17 +159,17 @@ jscpd /path/to/target/ --min-lines 5 --min-tokens 50 --output json \
 
 ```bash
 # Method 1: Search for a distinctive line from suspected duplicate block
-ripgrep_search "distinctive code string" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "distinctive code string" .pi/extensions/<name>/
 
 # Method 2: Search for a multi-line pattern (use a unique terminating line)
-ripgrep_search "if (!data || typeof data !== \"object\")" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "if (!data || typeof data !== \"object\")" .pi/extensions/<name>/
 
 # Method 3: Count occurrences of specific patterns to gauge repetition
-ripgrep_search "return path.join" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "return path.join" .pi/extensions/<name>/
 # High count of same prefix indicates repeated path-building
 
 # Method 4: Find duplicate import patterns
-ripgrep_search "from \"../types\"" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "from \"../types\"" .pi/extensions/<name>/
 # Multiple files importing from same module with overlapping specifiers
 ```
 
@@ -195,9 +195,9 @@ structural_search "switch ($VALUE) { $$$CASES }" ts
 
 ```bash
 # Step 1: Extract blocks to temp files
-read /home/miria/git/main/.pi/extensions/<name>/file.ts --offset 100 --limit 20 \
+read .pi/extensions/<name>/file.ts --offset 100 --limit 20 \
   > /tmp/blockA.ts
-read /home/miria/git/main/.pi/extensions/<name>/other.ts --offset 50 --limit 20 \
+read .pi/extensions/<name>/other.ts --offset 50 --limit 20 \
   > /tmp/blockB.ts
 
 # Step 2: Diff them

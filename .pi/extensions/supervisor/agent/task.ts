@@ -139,6 +139,26 @@ function buildScopeBlock(fileScope?: string): string {
 }
 
 /**
+ * Build path mapping block for agents running inside a worktree sandbox.
+ * When the issue body contains absolute main-repo paths (/home/miria/git/main/)
+ * and the agent is running inside a worktree, inject a note telling the agent
+ * how to convert absolute paths to repo-relative paths.
+ * Returns empty string when no mapping is needed.
+ */
+const MAIN_REPO_PREFIX = "/home/miria/git/main";
+function buildPathMappingBlock(worktreePath: string | undefined, issueBody: string): string {
+	if (!worktreePath) return "";
+	if (!issueBody.includes(MAIN_REPO_PREFIX)) return "";
+	return `
+### Path note
+File paths in this issue reference the main repo at \`${MAIN_REPO_PREFIX}\`.
+You are running in a worktree at \`${worktreePath}\`.
+To access these files, use repo-relative paths:
+  ${MAIN_REPO_PREFIX}/.pi/extensions/X/file.ts → .pi/extensions/X/file.ts
+`;
+}
+
+/**
  * System prompt options injected from ctx.getSystemPromptOptions().
  * Passes relevant context about active tools, skills, and context files
  * to sub-agents so they don't rediscover resources independently.
@@ -226,6 +246,10 @@ export function buildAgentTask(
 		commentsBlock = "(no trusted comments)";
 	}
 
+	// Build the path mapping block for agents running in worktree sandbox
+	// Detects absolute main-repo paths in issue body and injects mapping note
+	const pathMappingBlock = buildPathMappingBlock(worktreePath, filteredData.body);
+
 	// Build the pre-filtered issue data block that agents must use
 	const issueBlock = [
 		`## Issue Data (pre-filtered — use this, do NOT fetch from GitHub)`,
@@ -237,7 +261,10 @@ export function buildAgentTask(
 		``,
 		`### Trusted Comments`,
 		commentsBlock,
-	].join("\n");
+		pathMappingBlock,
+	]
+		.filter(Boolean)
+		.join("\n");
 
 	// Build the research findings block (injected for architect from issue comments)
 	const researchBlock = researchFindings ? `\n### Research Findings\n\n${researchFindings}\n` : "";
@@ -342,8 +369,11 @@ ${auditFeedback}\n`
 				``,
 				`### Body`,
 				filteredData.body,
-			];
-			return `${systemPromptPrefix}${researcherBlock.join("\n")}\n\n## Task\nFollow your system prompt instructions.
+				pathMappingBlock,
+			]
+				.filter(Boolean)
+				.join("\n");
+			return `${systemPromptPrefix}${researcherBlock}\n\n## Task\nFollow your system prompt instructions.
 
 ${JSON_OUTPUT_INSTRUCTION}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.`;
 		}
