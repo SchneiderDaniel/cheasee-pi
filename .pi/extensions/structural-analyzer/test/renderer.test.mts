@@ -265,7 +265,7 @@ describe("renderStructuralSearchResult", () => {
 		assert.ok(output.includes("No matches found"), `expected neutral message: ${output}`);
 	});
 
-	it("snippet truncation: match snippet >100 chars display-truncated to 99+'…'", () => {
+	it("snippet truncation: match snippet >100 chars display-truncated with truncateLine suffix", () => {
 		const results = [
 			{
 				file: "a.ts",
@@ -282,11 +282,14 @@ describe("renderStructuralSearchResult", () => {
 			{ cwd: defaultCwd },
 		);
 		const output = renderToString(comp);
-		// The snippet in display is >100 chars, so it gets truncated to 99 + '…'
+		// The snippet in display is >100 chars, so truncateLine appends '... [truncated]' suffix.
+		// Due to Text component padding (1,1), the 115-char content + 4-char indent + 1-char left padding
+		// wraps at width 120, splitting ' [truncated]' to the next line.
 		assert.ok(
-			output.includes("x".repeat(99) + "…"),
-			`expected truncated snippet in output:\n${output}`,
+			output.includes("x".repeat(100) + "..."),
+			`expected 100 x's + ellipsis in output:\n${output}`,
 		);
+		assert.ok(output.includes("[truncated]"), `expected truncated suffix in output:\n${output}`);
 	});
 
 	it("missing/undefined details → guard returns error Text, does not throw", () => {

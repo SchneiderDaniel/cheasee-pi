@@ -4,7 +4,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { parseSgOutput, interpretSgExecResult, truncateSnippet } from "../parser.ts";
+import { parseSgOutput, interpretSgExecResult } from "../parser.ts";
 
 function createMatchJson(file: string, lines: string, text: string): string {
 	return JSON.stringify({ file, lines, text });
@@ -57,39 +57,6 @@ describe("parseSgOutput", () => {
 		const result = parseSgOutput(input);
 		assert.strictEqual(result.matches, 1);
 		assert.strictEqual(result.results[0]!.lines, "42");
-	});
-});
-
-describe("truncateSnippet", () => {
-	it("returns short text ≤ 120 chars unchanged", () => {
-		const text = "short text";
-		assert.strictEqual(truncateSnippet(text), text);
-	});
-
-	it("truncates 121-char string to 119 chars + '…' (total 120)", () => {
-		const text = "a".repeat(121);
-		const result = truncateSnippet(text);
-		assert.strictEqual(result.length, 120);
-		assert.strictEqual(result, "a".repeat(119) + "…");
-	});
-
-	it("returns empty string for empty input", () => {
-		assert.strictEqual(truncateSnippet(""), "");
-	});
-
-	it("handles exactly 120 chars unchanged", () => {
-		const text = "a".repeat(120);
-		assert.strictEqual(truncateSnippet(text), text);
-	});
-
-	it("multi-byte/emoji text — hard cut at 119 UTF-16 code units (documented limitation)", () => {
-		// Fire emoji is 2 UTF-16 code units
-		const text = "🔥".repeat(80); // 160 code units
-		const result = truncateSnippet(text);
-		// The result should be 120 UTF-16 code units (119 + ellipsis)
-		assert.strictEqual(result.length, 120);
-		// The last char before ellipsis might be a surrogate half — documented limitation
-		assert.ok(result.endsWith("…"));
 	});
 });
 

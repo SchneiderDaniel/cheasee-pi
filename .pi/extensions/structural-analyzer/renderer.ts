@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import { Text, hyperlink, type Component } from "@earendil-works/pi-tui";
+import { truncateLine } from "@earendil-works/pi-coding-agent";
 
 /**
  * Maximum number of individual results to display in expanded TUI view.
@@ -82,7 +83,7 @@ export function renderStructuralSearchResult(
 		const lineInfo = theme.fg("dim", `:${match.lines}`);
 
 		// Truncate long snippets for display
-		const snippet = match.snippet.length > 100 ? match.snippet.slice(0, 99) + "…" : match.snippet;
+		const snippet = truncateLine(match.snippet, 100).text;
 
 		lines.push(`  ${hyperlinkedPath}${lineInfo}`);
 		lines.push(`    ${snippet}`);
