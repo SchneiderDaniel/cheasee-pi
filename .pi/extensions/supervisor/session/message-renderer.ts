@@ -13,7 +13,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
-import { renderTextLines } from "../lib/render-helpers.ts";
+import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import { renderSubagentResult } from "../subagent/renderer.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
 
@@ -124,11 +124,14 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				c.addChild(new Text(formatted, 1, 1));
 			}
 
-			// Thinking (Markdown, no background)
+			// Thinking with visual separator when both resultText and thinking exist
 			if (toolCallResult.thinking) {
 				const normalized = toolCallResult.thinking.replace(/^ {4,}(```+)/gm, "$1");
-				const mdTheme = getMarkdownTheme();
-				c.addChild(new Markdown(normalized, 1, 1, mdTheme));
+				if (toolCallResult.resultText) {
+					c.addChild(new Spacer(1));
+					c.addChild(new Text(theme.fg("dim", "── Thinking ──"), 1, 0));
+				}
+				renderThinkingBlock(c, normalized, theme);
 			}
 
 			// Error/reason for blocked tools
@@ -290,12 +293,11 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 			}
 		}
 
-		// Thinking output
-		if (details.hasThinking && details.thinkingOutput) {
+		// Thinking output (using native thinkingText + italic styling)
+		if (details.hasThinking && details.thinkingOutput !== undefined) {
 			c.addChild(new Spacer(1));
 			c.addChild(new Text(fit(theme.fg("dim", "── Thinking ──")), 1, 0));
-			const thinkingLines = details.thinkingOutput.split("\n");
-			renderTextLines(c, thinkingLines, theme, w);
+			renderThinkingBlock(c, details.thinkingOutput, theme);
 		}
 
 		// Text output rendered as Markdown

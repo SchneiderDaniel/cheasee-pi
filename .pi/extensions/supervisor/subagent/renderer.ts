@@ -5,7 +5,7 @@
 import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { formatTokens, formatDuration, getTermWidth, boldText } from "../lib/formatting.ts";
-import { renderTextLines } from "../lib/render-helpers.ts";
+import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import { formatToolCall } from "../event/session-events.ts";
 import type { SubagentDetails, SubagentToolCall, AgentToolResult } from "./types.ts";
 
@@ -164,23 +164,44 @@ export function renderSubagentResult(
 		container.addChild(new Spacer(1));
 	}
 
-	// ── 💭 Thinking & Output Section ────────────────────────────
+	// ── Output & Thinking Sections ────────────────────────────────
 	const content0 = result.content?.[0];
 	const outputText = content0 && content0.type === "text" ? content0.text : "";
-	if (outputText.trim()) {
-		container.addChild(new Text(fit(theme.fg("dim", "── 💭 Thinking & Output ──")), 1, 0));
+	const thinkingText = details.thinkingOutput;
 
-		// Truncate output for display (full content is in result.content)
-		const displayOutput =
-			outputText.length > MAX_EXPANDED_OUTPUT_CHARS
-				? outputText.slice(0, MAX_EXPANDED_OUTPUT_CHARS) +
-					`\n\n… [truncated: ${outputText.length - MAX_EXPANDED_OUTPUT_CHARS} more chars]`
-				: outputText;
+	if (thinkingText === undefined) {
+		// Fallback: thinkingOutput not separated upstream — render combined block
+		// Preserved for backward compatibility with older data format
+		if (outputText.trim()) {
+			container.addChild(new Text(fit(theme.fg("dim", "── 💭 Thinking & Output ──")), 1, 0));
+			const displayOutput =
+				outputText.length > MAX_EXPANDED_OUTPUT_CHARS
+					? outputText.slice(0, MAX_EXPANDED_OUTPUT_CHARS) +
+						`\n\n… [truncated: ${outputText.length - MAX_EXPANDED_OUTPUT_CHARS} more chars]`
+					: outputText;
+			const mdTheme = getMarkdownTheme();
+			container.addChild(new Markdown(displayOutput, 1, 0, mdTheme));
+			container.addChild(new Spacer(1));
+		}
+	} else {
+		// Separated sections: output (plain Markdown) followed by thinking (italic + thinkingText)
+		if (outputText.trim()) {
+			container.addChild(new Text(fit(theme.fg("dim", "── Output ──")), 1, 0));
+			const displayOutput =
+				outputText.length > MAX_EXPANDED_OUTPUT_CHARS
+					? outputText.slice(0, MAX_EXPANDED_OUTPUT_CHARS) +
+						`\n\n… [truncated: ${outputText.length - MAX_EXPANDED_OUTPUT_CHARS} more chars]`
+					: outputText;
+			const mdTheme = getMarkdownTheme();
+			container.addChild(new Markdown(displayOutput, 1, 0, mdTheme));
+			container.addChild(new Spacer(1));
+		}
 
-		// Use Markdown renderer for the output text
-		const mdTheme = getMarkdownTheme();
-		container.addChild(new Markdown(displayOutput, 1, 0, mdTheme));
-		container.addChild(new Spacer(1));
+		if (thinkingText.trim()) {
+			container.addChild(new Text(fit(theme.fg("dim", "── Thinking ──")), 1, 0));
+			renderThinkingBlock(container, thinkingText, theme);
+			container.addChild(new Spacer(1));
+		}
 	}
 
 	// ── Footer Stats Line ────────────────────────────────────────
