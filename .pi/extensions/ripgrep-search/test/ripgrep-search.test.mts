@@ -1376,6 +1376,70 @@ describe("buildStructuredSummary", () => {
 		assert.ok(summary.text.includes("[Showing first 10 of 15 results across 1 file."));
 		assert.strictEqual(summary.details.truncated, true);
 	});
+
+	// ── Phase 1: Truncation behavior in buildStructuredSummary ──
+
+	describe("line truncation via truncateLine", () => {
+		it("line > 500 chars → truncated text ends with '... [truncated]' suffix", () => {
+			const longText = "x".repeat(600);
+			const results = [{ file: "a.ts", line: 1, column: 1, text: longText }];
+			const result: RgResult = { total_returned: 1, results };
+			const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+			assert.ok(summary.text.includes("... [truncated]"), "Should have truncation suffix");
+			// Total line in output should be 500 + suffix length
+			const lineMatch = summary.text.match(/1\. a\.ts:1:1:(.+)/);
+			assert.ok(lineMatch, "Should match result line format");
+			const displayedText = lineMatch![1]!;
+			assert.ok(displayedText.endsWith("... [truncated]"));
+			assert.strictEqual(displayedText.length, 500 + "... [truncated]".length);
+		});
+
+		it("line ≤ 500 chars → text passed through unchanged", () => {
+			const shortText = "Hello world";
+			const results = [{ file: "a.ts", line: 1, column: 1, text: shortText }];
+			const result: RgResult = { total_returned: 1, results };
+			const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+			assert.ok(summary.text.includes("Hello world"), "Short text should pass through unchanged");
+			assert.ok(
+				!summary.text.includes("... [truncated]"),
+				"Short text should not have truncation suffix",
+			);
+		});
+
+		it("line exactly 500 chars → no truncation", () => {
+			const exactText = "x".repeat(500);
+			const results = [{ file: "a.ts", line: 1, column: 1, text: exactText }];
+			const result: RgResult = { total_returned: 1, results };
+			const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+			// Should NOT contain truncation suffix — exactly at boundary
+			assert.ok(
+				!summary.text.includes("... [truncated]"),
+				"Exact 500-char line should not be truncated",
+			);
+			// All 500 chars should be present
+			assert.ok(summary.text.includes(exactText), "All 500 chars should be visible");
+		});
+
+		it("line at 501 chars → truncation applied, suffix present and length correct", () => {
+			const text501 = "x".repeat(501);
+			const results = [{ file: "a.ts", line: 1, column: 1, text: text501 }];
+			const result: RgResult = { total_returned: 1, results };
+			const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+			const lineMatch = summary.text.match(/1\. a\.ts:1:1:(.+)/);
+			assert.ok(lineMatch, "Should match result line format");
+			const displayedText = lineMatch![1]!;
+			assert.ok(
+				displayedText.endsWith("... [truncated]"),
+				"501-char line should be truncated with suffix",
+			);
+			// 500 chars + suffix
+			assert.strictEqual(
+				displayedText.length,
+				500 + "... [truncated]".length,
+				"Truncated line should be exactly 500 chars + suffix",
+			);
+		});
+	});
 });
 
 // buildSearchErrorText
