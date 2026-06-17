@@ -28,8 +28,8 @@ function readFile(relativePath: string): string {
 describe("AGENTS.md — Package Safety section", () => {
 	const content = readFile("../../../AGENTS.md");
 
-	it("contains '## Package Safety' heading", () => {
-		assert.ok(content.includes("## Package Safety"));
+	it("contains '<package_safety_audit>' XML section", () => {
+		assert.ok(content.includes("<package_safety_audit>"));
 	});
 
 	it("mentions 14-day threshold", () => {
@@ -48,11 +48,9 @@ describe("AGENTS.md — Package Safety section", () => {
 		);
 	});
 
-	it("states no override mechanism exists", () => {
+	it("states must verify age before install", () => {
 		assert.ok(
-			content.includes("No override mechanism") ||
-				content.includes("no override mechanism") ||
-				content.includes("No override."),
+			content.includes("you MUST manually verify") || content.includes("must manually verify"),
 		);
 	});
 
@@ -60,14 +58,14 @@ describe("AGENTS.md — Package Safety section", () => {
 		assert.ok(content.includes("fail") || content.includes("block"));
 	});
 
-	it("is placed after '## Tool Reference' heading", () => {
-		const searchToolsIdx = content.indexOf("## Tool Reference");
-		const packageSafetyIdx = content.indexOf("## Package Safety");
-		assert.ok(searchToolsIdx >= 0, "'## Tool Reference' heading must exist");
-		assert.ok(packageSafetyIdx >= 0, "'## Package Safety' heading must exist");
+	it("is placed after '<tool_routing_matrix>' section", () => {
+		const searchToolsIdx = content.indexOf("<tool_routing_matrix>");
+		const packageSafetyIdx = content.indexOf("<package_safety_audit>");
+		assert.ok(searchToolsIdx >= 0, "'<tool_routing_matrix>' tag must exist");
+		assert.ok(packageSafetyIdx >= 0, "'<package_safety_audit>' tag must exist");
 		assert.ok(
 			packageSafetyIdx > searchToolsIdx,
-			"'## Package Safety' must appear after '## Search Tools'",
+			"'<package_safety_audit>' must appear after '<tool_routing_matrix>'",
 		);
 	});
 });

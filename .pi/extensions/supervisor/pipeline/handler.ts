@@ -1413,6 +1413,7 @@ export async function executeAgent(
 			agentTokenBudget,
 		},
 		{
+			signal: ctx.signal,
 			onUpdate: (partial: AgentToolResult<Partial<SubagentDetails>>) => {
 				const d = partial.details;
 				if (!d) return;

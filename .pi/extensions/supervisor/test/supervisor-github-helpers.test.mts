@@ -102,11 +102,12 @@ describe("pushBranch", () => {
 // ---------------------------------------------------------------------------
 
 describe("commitAndPush", () => {
-	it("calls git add, commit, then push in sequence", async () => {
+	it("calls git add, diff, commit, then push in sequence", async () => {
 		const { pi, calls } = makeMockPi([
-			{ code: 0, stdout: "" },
-			{ code: 0, stdout: "1 file changed" },
-			{ code: 0, stdout: "Everything up-to-date" },
+			{ code: 0, stdout: "" }, // add -A
+			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
+			{ code: 0, stdout: "1 file changed" }, // commit
+			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);
 		const result = await commitAndPush(
 			pi as any,
@@ -117,13 +118,15 @@ describe("commitAndPush", () => {
 			noopNotify,
 		);
 		assert.strictEqual(result.ok, true);
-		assert.strictEqual(calls.length, 3);
+		assert.strictEqual(calls.length, 4);
 		assert.strictEqual(calls[0].cmd, "git");
 		assert.deepStrictEqual(calls[0].args, ["add", "-A"]);
 		assert.strictEqual(calls[1].cmd, "git");
-		assert.deepStrictEqual(calls[1].args, ["commit", "-m", "feat(#42): msg"]);
+		assert.deepStrictEqual(calls[1].args, ["diff", "--cached", "--quiet"]);
 		assert.strictEqual(calls[2].cmd, "git");
-		assert.deepStrictEqual(calls[2].args, ["push", "origin", "branch"]);
+		assert.deepStrictEqual(calls[2].args, ["commit", "-m", "feat(#42): msg"]);
+		assert.strictEqual(calls[3].cmd, "git");
+		assert.deepStrictEqual(calls[3].args, ["push", "origin", "branch"]);
 	});
 
 	it("returns { ok: false } if add fails (short-circuit)", async () => {
@@ -135,17 +138,18 @@ describe("commitAndPush", () => {
 
 	it("handles 'nothing to commit' gracefully — calls pushBranch anyway", async () => {
 		const { pi, calls } = makeMockPi([
-			{ code: 0, stdout: "" },
-			{ code: 1, stderr: "nothing to commit" },
-			{ code: 0, stdout: "Everything up-to-date" },
+			{ code: 0, stdout: "" }, // add -A
+			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
+			{ code: 1, stderr: "nothing to commit" }, // commit fails
+			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);
 		// Should NOT throw — pipeline continues gracefully
 		const result = await commitAndPush(pi as any, "/cwd", "origin", "branch", "msg", noopNotify);
 		assert.strictEqual(result.ok, true);
 		// pushBranch is called even when nothing to commit (branch may not exist on remote)
-		assert.strictEqual(calls.length, 3); // add + commit + push
-		assert.strictEqual(calls[2].cmd, "git");
-		assert.deepStrictEqual(calls[2].args, ["push", "origin", "branch"]);
+		assert.strictEqual(calls.length, 4); // add + diff + commit + push
+		assert.strictEqual(calls[3].cmd, "git");
+		assert.deepStrictEqual(calls[3].args, ["push", "origin", "branch"]);
 	});
 });
 
@@ -166,8 +170,13 @@ describe("createPullRequest", () => {
 			"feat(#42): title",
 		);
 		assert.strictEqual(calls.length, 1);
-		assert.strictEqual(calls[0].cmd, "gh");
-		assert.deepStrictEqual(calls[0].args, [
+		// gh() wrapper may call bash with GH_TOKEN injection or gh directly
+		const cmd = calls[0].cmd;
+		const args = calls[0].args;
+		assert.ok(cmd === "gh" || cmd === "bash", "cmd should be gh or bash wrapper");
+		// Extract gh subcommand args: if bash wrapper, they start at index 3 (after -c, shellCmd, _)
+		const ghArgs = cmd === "bash" ? args.slice(3) : args;
+		assert.deepStrictEqual(ghArgs, [
 			"pr",
 			"create",
 			"--repo",
@@ -179,7 +188,7 @@ describe("createPullRequest", () => {
 			"--title",
 			"feat(#42): title",
 		]);
-		assert.equal(calls[0].args.includes("--json"), false, "should NOT include --json flag");
+		assert.equal(args.includes("--json"), false, "should NOT include --json flag");
 		assert.deepStrictEqual(result, { number: 123 });
 	});
 
@@ -189,11 +198,14 @@ describe("createPullRequest", () => {
 		]);
 		await createPullRequest(pi as any, "owner/repo", "main", "branch", "title", "/tmp/body.md");
 		assert.strictEqual(calls.length, 1);
+		const cmd = calls[0].cmd;
 		const args = calls[0].args;
-		assert.ok(args.includes("--body-file"), "Expected --body-file in args");
-		assert.equal(args.includes("--json"), false, "should NOT include --json flag");
-		const bfIdx = args.indexOf("--body-file");
-		assert.strictEqual(args[bfIdx + 1], "/tmp/body.md");
+		// Extract gh subcommand args: if bash wrapper, they start at index 3
+		const ghArgs = cmd === "bash" ? args.slice(3) : args;
+		assert.ok(ghArgs.includes("--body-file"), "Expected --body-file in args");
+		assert.equal(ghArgs.includes("--json"), false, "should NOT include --json flag");
+		const bfIdx = ghArgs.indexOf("--body-file");
+		assert.strictEqual(ghArgs[bfIdx + 1], "/tmp/body.md");
 	});
 
 	it("throws on text-with-number like 'PR #42' (tightened regex guard)", async () => {

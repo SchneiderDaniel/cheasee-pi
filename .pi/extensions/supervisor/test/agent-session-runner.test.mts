@@ -295,7 +295,7 @@ describe("runAgentInProcess — budget param wiring", () => {
 // ─── noTools parameter (ask_user bug fix) ─────────────────────────
 
 describe("createAgentSession — noTools parameter prevents ask_user leak", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 
 	it("noTools is 'builtin' when tools.length > 0 (explicit allowlist)", () => {
 		const lines = source.split("\n");

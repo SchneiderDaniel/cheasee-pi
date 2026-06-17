@@ -127,17 +127,13 @@ describe("Phase 1: Pure function boundaries — no throw on bad input", () => {
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
-		it("1.9: null/undefined event object is handled by caller try-catch (processSessionEvent itself throws)", () => {
+		it("1.9: null/undefined event object returns no-op (graceful guard in adapter)", () => {
 			const state = createState();
-			// processSessionEvent is a pure function that expects valid input;
-			// null events throw at switch(ev.type), and the boundary is the
-			// subscribe callback's try-catch in agent-session-runner.ts
-			assert.throws(() => processSessionEvent(null as any, state), {
-				name: "TypeError",
-			});
-			assert.throws(() => processSessionEvent(undefined as any, state), {
-				name: "TypeError",
-			});
+			// sessionEventToNormalizedEvent guards !ev at top — returns null for null/undefined
+			const r1 = processSessionEvent(null as any, state);
+			assert.deepEqual(r1, { flush: false, workingChange: false });
+			const r2 = processSessionEvent(undefined as any, state);
+			assert.deepEqual(r2, { flush: false, workingChange: false });
 		});
 
 		it("1.10: processJsonLine with null buffer (empty after trim) returns no-op", () => {
@@ -287,10 +283,10 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 			);
 		});
 
-		it("2.2: subscribe catch logs console.error with event type context", () => {
+		it("2.2: subscribe catch logs error with event type context", () => {
 			assert.ok(
-				source.includes("console.error(") && source.includes("session event error for"),
-				"catch block logs console.error with session event error prefix",
+				source.includes("Session event error for") && source.includes("event?.type"),
+				"catch block must log error with session event error prefix and event type",
 			);
 		});
 
@@ -343,10 +339,10 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 			);
 		});
 
-		it("2.8: handleLine catch logs console.error with JSON line error", () => {
+		it("2.8: handleLine catch logs error with JSON line error", () => {
 			assert.ok(
-				source.includes("JSON line error for"),
-				"handleLine catch must log 'JSON line error'",
+				source.includes("JSON line processing error for"),
+				"handleLine catch must log 'JSON line processing error'",
 			);
 		});
 
@@ -359,10 +355,10 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 			);
 		});
 
-		it("2.10: flushWidget catch logs console.error with widget render error", () => {
+		it("2.10: flushWidget catch logs error with widget render error", () => {
 			assert.ok(
-				source.includes("widget render error for"),
-				"flushWidget catch must log 'widget render error'",
+				source.includes("widget render error for") || source.includes("Widget render error for"),
+				"flushWidget catch must log 'widget render error' or 'Widget render error'",
 			);
 		});
 
@@ -441,7 +437,7 @@ describe("Phase 3: Heartbeat interval — error resilience", () => {
 
 describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 	it("4.1: subscribe try-catch wraps processSessionEvent call", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 		// Verify the subscribe callback wraps processSessionEvent in try-catch
 		assert.ok(
 			source.includes("const result = processSessionEvent(event, state);"),
@@ -477,9 +473,7 @@ describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 	it("4.2: subscribe catch logs error with event type in message", () => {
 		const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 		assert.ok(
-			source.includes("console.error(") &&
-				source.includes("session event error") &&
-				source.includes("event?.type"),
+			source.includes("Session event error for") && source.includes("event?.type"),
 			"catch block must log error with event type context",
 		);
 	});
@@ -518,11 +512,11 @@ describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => 
 		);
 	});
 
-	it("5.2: handleLine catch logs console.error with JSON line error prefix", () => {
+	it("5.2: handleLine catch logs error with JSON line processing error prefix", () => {
 		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
-			source.includes("JSON line error for"),
-			"handleLine catch must log 'JSON line error for'",
+			source.includes("JSON line processing error for"),
+			"handleLine catch must log 'JSON line processing error for'",
 		);
 	});
 
@@ -665,12 +659,14 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 		);
 	});
 
-	it("6.9: processSessionEvent with undefined/null as event throws (boundary is caller try-catch)", () => {
+	it("6.9: processSessionEvent with undefined/null as event returns no-op (adapter guard)", () => {
 		const state = createState();
-		// processSessionEvent accesses ev.type directly — null/undefined throws.
-		// The error boundary is in agent-session-runner.ts subscribe callback try-catch.
-		assert.throws(() => processSessionEvent(undefined as any, state));
-		assert.throws(() => processSessionEvent(null as any, state));
+		// sessionEventToNormalizedEvent has !ev guard at top — null/undefined return null
+		// Caller try-catch is still present but as safety net for other edge cases
+		const r1 = processSessionEvent(undefined as any, state);
+		assert.deepEqual(r1, { flush: false, workingChange: false });
+		const r2 = processSessionEvent(null as any, state);
+		assert.deepEqual(r2, { flush: false, workingChange: false });
 	});
 
 	it("6.10: tool_execution_start → tool_execution_end → tool_execution_start works after malformed JSON", () => {
@@ -744,7 +740,7 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 			assert.equal(state.thinkingOutputLines.length, 1);
 		});
 
-		it("7.3: done → message_end still resets flags", () => {
+		it("7.3: done → message_end does not duplicate text (flag stays set)", () => {
 			const state = createState();
 			processSessionEvent(
 				{
@@ -765,8 +761,10 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 				},
 				state,
 			);
-			// Flags reset by message_end
-			assert.equal(state.textPushedThisTurn, false);
+			// Flag stays true after message_end — handleMessageEnd respects already-pushed flag.
+			// Flag is reset by handleTextStart (next turn).
+			assert.equal(state.textPushedThisTurn, true);
+			assert.equal(state.textOutputLines.length, 1);
 		});
 	});
 

@@ -197,11 +197,11 @@ describe("pipeline handler — gate failure context capture (Phase 4, Issue #787
 // ---------------------------------------------------------------------------
 
 describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue #787)", () => {
-	it("CI gating still returns { nextStatus: 'Implementation', note: 'CI_FAILED: ...' } on failure", async () => {
+	it("CI gating still returns nextStatus Implementation on failure and adds to gateFailures", async () => {
 		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
 		assert.ok(
-			src.includes('nextStatus: "Implementation"') && src.includes("note: `CI_FAILED:"),
-			"CI failure path still returns Implementation with CI_FAILED note",
+			src.includes('nextStatus: "Implementation"') && src.includes("--- CI Gate ---"),
+			"CI failure path still returns Implementation with CI Gate section in gateFailures",
 		);
 	});
 

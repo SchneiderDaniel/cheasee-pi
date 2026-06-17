@@ -24,139 +24,83 @@ function readTestDesignerMd(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1: Section 8 — User-Journey & Persona-Based Testing
+// Phase 1: User-Journey Tests section
 // ---------------------------------------------------------------------------
 
-describe("test-designer.md — Section 8: User-Journey & Persona-Based Testing (Phase 1)", () => {
-	it("contains '### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)' heading", () => {
+describe("test-designer.md — User-Journey Tests section (Phase 1)", () => {
+	it("contains '## User-Journey Tests' heading", () => {
 		const content = readTestDesignerMd();
+		assert.ok(content.includes("## User-Journey Tests"), "Should have User-Journey Tests heading");
+	});
+
+	it("User-Journey Tests appears after Completeness by Tier and before Template", () => {
+		const content = readTestDesignerMd();
+		const completenessIdx = content.indexOf("## Completeness by Tier");
+		const ujIdx = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		assert.ok(completenessIdx >= 0, "Completeness by Tier heading must exist");
+		assert.ok(ujIdx >= 0, "User-Journey Tests heading must exist");
+		assert.ok(templateIdx >= 0, "Template heading must exist");
 		assert.ok(
-			content.includes("### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)"),
-			"Should have Section 8 heading with Norman, Hendrickson attribution",
+			completenessIdx < ujIdx,
+			"User-Journey Tests should appear after Completeness by Tier",
+		);
+		assert.ok(ujIdx < templateIdx, "User-Journey Tests should appear before Template");
+	});
+
+	it("User-Journey Tests section mentions 'mandatory only for user-facing features'", () => {
+		const content = readTestDesignerMd();
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		const ujBody = content.substring(ujStart, templateIdx);
+		assert.ok(
+			ujBody.includes("mandatory only for user-facing features") ||
+				ujBody.includes("mandatory only for user-facing"),
+			"User-Journey Tests should state it's mandatory only for user-facing features",
 		);
 	});
 
-	it("Section 8 appears after Section 7 (Test Plan Completeness Rules) and before Codebase Exploration", () => {
+	it("User-Journey Tests contains 'Identify the persona' instruction", () => {
 		const content = readTestDesignerMd();
-		const section7Idx = content.indexOf("### 7. Test Plan Completeness Rules");
-		const section8Idx = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		assert.ok(section7Idx >= 0, "Section 7 heading must exist");
-		assert.ok(section8Idx >= 0, "Section 8 heading must exist");
-		assert.ok(codebaseIdx >= 0, "Codebase Exploration heading must exist");
-		assert.ok(section7Idx < section8Idx, "Section 8 should appear after Section 7");
-		assert.ok(section8Idx < codebaseIdx, "Section 8 should appear before Codebase Exploration");
-	});
-
-	it("Section 8 body contains 'Identify personas' subsection", () => {
-		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		const ujBody = content.substring(ujStart, templateIdx);
 		assert.ok(
-			section8Body.includes("Identify personas") || section8Body.includes("**Identify personas**"),
-			"Section 8 should contain 'Identify personas' subsection",
+			ujBody.includes("Identify the persona"),
+			"User-Journey Tests should contain 'Identify the persona' instruction",
 		);
 	});
 
-	it("Section 8 body contains 'Trace the full journey' subsection", () => {
+	it("User-Journey Tests contains 'Trace full journey' instruction", () => {
 		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		const ujBody = content.substring(ujStart, templateIdx);
 		assert.ok(
-			section8Body.includes("Trace the full journey") ||
-				section8Body.includes("**Trace the full journey**"),
-			"Section 8 should contain 'Trace the full journey' subsection",
+			ujBody.includes("Trace full journey"),
+			"User-Journey Tests should contain 'Trace full journey' instruction",
 		);
 	});
 
-	it("Section 8 body contains 'Test user-visible feedback at each step' subsection", () => {
+	it("User-Journey Tests contains 'Test user-visible feedback' instruction", () => {
 		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		const ujBody = content.substring(ujStart, templateIdx);
 		assert.ok(
-			section8Body.includes("Test user-visible feedback") ||
-				section8Body.includes("**Test user-visible feedback**"),
-			"Section 8 should contain 'Test user-visible feedback at each step' subsection",
+			ujBody.includes("Test user-visible feedback"),
+			"User-Journey Tests should contain 'Test user-visible feedback' instruction",
 		);
 	});
 
-	it("Section 8 body contains 'Real-world conditions' subsection", () => {
+	it("User-Journey Tests prefers fastest verification layer", () => {
 		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const templateIdx = content.indexOf("## Template");
+		const ujBody = content.substring(ujStart, templateIdx);
 		assert.ok(
-			section8Body.includes("Real-world conditions") ||
-				section8Body.includes("**Real-world conditions**"),
-			"Section 8 should contain 'Real-world conditions' subsection",
-		);
-	});
-
-	it("Section 8 body contains 'Non-happy-path journeys' subsection", () => {
-		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
-		assert.ok(
-			section8Body.includes("Non-happy-path journeys") ||
-				section8Body.includes("**Non-happy-path journeys**"),
-			"Section 8 should contain 'Non-happy-path journeys' subsection",
-		);
-	});
-
-	it("Section 8 body contains 'User-journey scenarios are not E2E tests' clarification", () => {
-		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
-		assert.ok(
-			section8Body.includes("not E2E tests") || section8Body.includes("are not E2E tests"),
-			"Section 8 should clarify that user-journey scenarios are not E2E tests",
-		);
-	});
-
-	it("Section 8 body contains the flag instruction about missing user-visible feedback", () => {
-		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
-		assert.ok(
-			section8Body.includes("missing or unclear user-visible feedback") &&
-				section8Body.includes("flag it in the test plan"),
-			"Section 8 should instruct to flag missing user-visible feedback in the test plan",
-		);
-	});
-
-	it("Section 8 body contains 'Derive test scenarios from the user's goal' lead sentence", () => {
-		const content = readTestDesignerMd();
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const codebaseIdx = content.indexOf("## Codebase Exploration");
-		const section8Body = content.substring(section8Start, codebaseIdx);
-		assert.ok(
-			section8Body.includes("Derive test scenarios from the user") &&
-				section8Body.includes("not just from code structure"),
-			"Section 8 should contain the lead sentence about deriving scenarios from user goals",
+			ujBody.includes("fastest verification layer") || ujBody.includes("fastest layer"),
+			"User-Journey Tests should prefer fastest verification layer",
 		);
 	});
 });
@@ -165,39 +109,42 @@ describe("test-designer.md — Section 8: User-Journey & Persona-Based Testing (
 // Phase 2a: Phase Format includes user-journey as valid layer
 // ---------------------------------------------------------------------------
 
-describe("test-designer.md — Phase Format updated with user-journey layer (Phase 2a)", () => {
-	it("Phase Format lists 'user-journey' as a valid layer value alongside entity, use-case, adapter, e2e", () => {
+describe("test-designer.md — Layer values include user-journey (Phase 2a)", () => {
+	it("Layer-appropriate testing lists 'user-journey' as a valid layer value alongside entity, use-case, adapter, e2e", () => {
 		const content = readTestDesignerMd();
-		// The format line should show all five layer values
-		const layerValuesMatch =
-			content.includes("entity`, `use-case`, `adapter`, `e2e`, `user-journey") ||
-			(content.includes("entity`, `use-case`, `adapter`, `e2e") &&
-				content.includes("user-journey"));
-		assert.ok(layerValuesMatch, "Phase Format should list user-journey as a valid layer value");
-	});
-
-	it("Phase Format states 'Each phase MUST include at least one user-journey test (or state explicitly why none applies)'", () => {
-		const content = readTestDesignerMd();
+		const layerSection = content.substring(
+			content.indexOf("### 2. Layer-appropriate testing"),
+			content.indexOf("### ", content.indexOf("### 2. Layer-appropriate testing") + 5),
+		);
 		assert.ok(
-			content.includes("Each phase MUST include at least one") && content.includes("user-journey"),
-			"Phase Format should mandate at least one user-journey test per phase",
+			layerSection.includes("user-journey"),
+			"Layer-appropriate testing should list user-journey as a valid layer",
 		);
 	});
 
-	it("Phase Format lists layer values with 'user-journey' in the Layer values line", () => {
+	it("Layer-appropriate testing includes all five layer values", () => {
 		const content = readTestDesignerMd();
-		// Find the line or section defining layer values
-		const yourTaskSection = content.substring(
-			content.indexOf("## Your Task"),
-			content.indexOf("## Comment Style"),
+		const layerSection = content.substring(
+			content.indexOf("### 2. Layer-appropriate testing"),
+			content.indexOf("### ", content.indexOf("### 2. Layer-appropriate testing") + 5),
 		);
-		assert.ok(
-			yourTaskSection.includes("Layer values") || yourTaskSection.includes("layer values"),
-			"The Your Task section should define layer values",
+		assert.ok(layerSection.includes("entity"), "Layer list should include entity");
+		assert.ok(layerSection.includes("use-case"), "Layer list should include use-case");
+		assert.ok(layerSection.includes("adapter"), "Layer list should include adapter");
+		assert.ok(layerSection.includes("e2e"), "Layer list should include e2e");
+		assert.ok(layerSection.includes("user-journey"), "Layer list should include user-journey");
+	});
+
+	it("Layer-appropriate testing has user-journey with description about persona-based testing", () => {
+		const content = readTestDesignerMd();
+		const layerSection = content.substring(
+			content.indexOf("### 2. Layer-appropriate testing"),
+			content.indexOf("### ", content.indexOf("### 2. Layer-appropriate testing") + 5),
 		);
+		const ujLine = layerSection.split("\n").find((l) => l.includes("user-journey"));
 		assert.ok(
-			yourTaskSection.includes("user-journey"),
-			"The Your Task section should include user-journey as a layer value",
+			ujLine && (ujLine.includes("persona") || ujLine.includes("persona-based")),
+			"user-journey layer should reference persona-based testing",
 		);
 	});
 });
@@ -206,93 +153,93 @@ describe("test-designer.md — Phase Format updated with user-journey layer (Pha
 // Phase 2b: Section 7 completeness rules include user-journeys bullet
 // ---------------------------------------------------------------------------
 
-describe("test-designer.md — Section 7 completeness includes user-journeys (Phase 2b)", () => {
-	it("Section 7 completeness list contains a 'User journeys' bullet", () => {
+describe("test-designer.md — Completeness by Tier includes user-journeys (Phase 2b)", () => {
+	it("Completeness by Tier mentions 'user-journey' in Medium tier", () => {
 		const content = readTestDesignerMd();
-		const section7Start = content.indexOf("### 7. Test Plan Completeness Rules");
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		// If section 8 doesn't exist yet, fall back to Codebase Exploration
-		const section7End =
-			section8Start >= 0 ? section8Start : content.indexOf("## Codebase Exploration");
-		const section7Body = content.substring(section7Start, section7End);
+		const tierStart = content.indexOf("## Completeness by Tier");
+		const ujStart = content.indexOf("## User-Journey Tests");
+		const tierBody = content.substring(tierStart, ujStart);
 		assert.ok(
-			section7Body.includes("User journeys") || section7Body.includes("**User journeys**"),
-			"Section 7 completeness list should contain a 'User journeys' bullet",
+			tierBody.includes("user-journey"),
+			"Completeness by Tier should reference user-journey",
 		);
 	});
 
-	it("Section 7 user-journeys bullet mentions 'at least one persona-based scenario per phase'", () => {
+	it("Large tier mentions 'User-journey mandatory'", () => {
 		const content = readTestDesignerMd();
-		const section7Start = content.indexOf("### 7. Test Plan Completeness Rules");
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const section7End =
-			section8Start >= 0 ? section8Start : content.indexOf("## Codebase Exploration");
-		const section7Body = content.substring(section7Start, section7End);
-		assert.ok(
-			section7Body.includes("at least one persona-based scenario per phase"),
-			"User-journeys bullet should mention at least one persona-based scenario per phase",
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Phase 2c: Phase gating references user-journey verification by Auditor
-// ---------------------------------------------------------------------------
-
-describe("test-designer.md — Phase gating references Auditor user-journey check (Phase 2c)", () => {
-	it("Phase gating bullet mentions Auditor checks user-journey scenarios", () => {
-		const content = readTestDesignerMd();
-		const section7Start = content.indexOf("### 7. Test Plan Completeness Rules");
-		const section8Start = content.indexOf(
-			"### 8. User-Journey & Persona-Based Testing (Norman, Hendrickson)",
-		);
-		const section7End =
-			section8Start >= 0 ? section8Start : content.indexOf("## Codebase Exploration");
-		const section7Body = content.substring(section7Start, section7End);
-		assert.ok(
-			section7Body.includes("user-journey"),
-			"Phase gating section should reference user-journey",
+		const tierBody = content.substring(
+			content.indexOf("## Completeness by Tier"),
+			content.indexOf("## User-Journey Tests"),
 		);
 		assert.ok(
-			section7Body.includes("Auditor"),
-			"Phase gating section should reference Auditor verification of user-journey",
+			tierBody.includes("User-journey mandatory"),
+			"Large tier should state user-journey is mandatory",
 		);
 	});
 
-	it("Phase gating bullet says 'The Auditor also checks that user-journey scenarios exist per phase'", () => {
+	it("Medium tier references user-journey test for user-facing features", () => {
 		const content = readTestDesignerMd();
+		const tierBody = content.substring(
+			content.indexOf("## Completeness by Tier"),
+			content.indexOf("## User-Journey Tests"),
+		);
 		assert.ok(
-			content.includes("Auditor also checks") &&
-				content.includes("user-journey scenarios exist per phase"),
-			"Phase gating should state that Auditor checks user-journey scenarios exist per phase",
+			tierBody.includes("User-journey test"),
+			"Medium tier should reference user-journey test for user-facing features",
 		);
 	});
 });
 
 // ---------------------------------------------------------------------------
-// Phase 2d: Section 6 "Product verification tests" bullet unchanged
+// Phase 2c: User-Journey Tests section references mandatory nature
 // ---------------------------------------------------------------------------
 
-describe("test-designer.md — Section 6 Product verification tests preserved (Phase 2d)", () => {
-	it("Section 6 still contains 'Product verification tests' bullet", () => {
+describe("test-designer.md — User-Journey Tests mandatory nature (Phase 2c)", () => {
+	it("User-Journey Tests section states 'mandatory only for user-facing features'", () => {
 		const content = readTestDesignerMd();
+		const ujBody = content.substring(
+			content.indexOf("## User-Journey Tests"),
+			content.indexOf("## Template"),
+		);
 		assert.ok(
-			content.includes("Product verification tests"),
-			"Section 6 should still contain the Product verification tests bullet",
+			ujBody.includes("mandatory only for user-facing"),
+			"Should state user-journey is mandatory only for user-facing features",
 		);
 	});
 
-	it("Section 6 Product verification tests still mentions browser/CLI-level verification and manual smoke check", () => {
+	it("User-Journey Tests says 'No user-facing changes — user-journey skipped'", () => {
 		const content = readTestDesignerMd();
+		const ujBody = content.substring(
+			content.indexOf("## User-Journey Tests"),
+			content.indexOf("## Template"),
+		);
 		assert.ok(
-			content.includes("browser/CLI-level verification") ||
-				content.includes("browser") ||
-				content.includes("manual smoke check"),
-			"Section 6 Product verification tests should still reference manual smoke check",
+			ujBody.includes("No user-facing changes"),
+			"User-Journey Tests should include skip note for internal changes",
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2d: Template section preserved
+// ---------------------------------------------------------------------------
+
+describe("test-designer.md — Template section preserved (Phase 2d)", () => {
+	it("Template section still contains '## Template' heading", () => {
+		const content = readTestDesignerMd();
+		assert.ok(content.includes("## Template"), "Template section should still exist");
+	});
+
+	it("Template section still contains runnable test command requirement", () => {
+		const content = readTestDesignerMd();
+		const templateSection = content.substring(
+			content.indexOf("## Template"),
+			content.indexOf("## Comment Style"),
+		);
+		assert.ok(
+			templateSection.includes("Runnable Test Command") ||
+				templateSection.includes("runnable test command"),
+			"Template section should reference runnable test command",
 		);
 	});
 });

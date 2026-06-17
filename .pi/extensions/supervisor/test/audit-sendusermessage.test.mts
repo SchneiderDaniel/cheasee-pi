@@ -82,7 +82,7 @@ describe("audit.ts — CI failure path preserves behavior (Phase 2)", () => {
 		const src = readAuditSource();
 		const ciFailBlock = src.substring(
 			src.indexOf('ciResult.status === "failing"'),
-			src.indexOf('ciResult.status === "pending"'),
+			src.indexOf('ciResult.status === "failing"') + 500,
 		);
 		assert.ok(
 			ciFailBlock.includes("ctx.ui.notify"),
@@ -90,23 +90,22 @@ describe("audit.ts — CI failure path preserves behavior (Phase 2)", () => {
 		);
 	});
 
-	it("CI failure path still returns nextStatus Implementation", () => {
+	it("CI failure path still gates the transition via gateFailures", () => {
 		const src = readAuditSource();
+		// The function now uses gateFailures array pattern
 		const ciFailBlock = src.substring(
 			src.indexOf('ciResult.status === "failing"'),
-			src.indexOf('ciResult.status === "pending"'),
+			src.indexOf('ciResult.status === "failing"') + 500,
 		);
-		assert.ok(
-			ciFailBlock.includes('return { nextStatus: "Implementation"'),
-			"CI failure block should still return nextStatus Implementation",
-		);
+		assert.ok(ciFailBlock.includes("gateFailures.push"), "CI failure should add to gateFailures");
+		assert.ok(ciFailBlock.includes("--- CI Gate ---"), "CI failure should add CI Gate section");
 	});
 
 	it("CI failure notification is warning type", () => {
 		const src = readAuditSource();
 		const ciFailBlock = src.substring(
 			src.indexOf('ciResult.status === "failing"'),
-			src.indexOf('ciResult.status === "pending"'),
+			src.indexOf('ciResult.status === "failing"') + 500,
 		);
 		assert.ok(ciFailBlock.includes('"warning"'), "CI failure notify should use warning level");
 	});
@@ -115,7 +114,7 @@ describe("audit.ts — CI failure path preserves behavior (Phase 2)", () => {
 		const src = readAuditSource();
 		const ciFailBlock = src.substring(
 			src.indexOf('ciResult.status === "failing"'),
-			src.indexOf('ciResult.status === "pending"'),
+			src.indexOf('ciResult.status === "failing"') + 500,
 		);
 		assert.ok(
 			ciFailBlock.includes("CI checks failing"),
@@ -129,33 +128,47 @@ describe("audit.ts — CI failure path preserves behavior (Phase 2)", () => {
 // ===========================================================================
 
 describe("audit.ts — TSC failure path preserves behavior (Phase 3)", () => {
-	it("TSC failure path still has ctx.ui.notify call", () => {
+	it("TSC failure path still has ctx.ui.notify call and adds to gateFailures", () => {
 		const src = readAuditSource();
-		// Find the if (tscDecision.note) block which contains the notify
-		const noteBlockStart = src.indexOf("if (tscDecision.note)");
-		const returnStr = "return { nextStatus: tscDecision.nextStatus, note: tscDecision.note }";
-		const returnEnd = src.indexOf(returnStr);
-		// Find the enclosing closing brace after the return
-		const blockEnd = src.indexOf("}", returnEnd) + 1;
-		const tscFailBlock = src.substring(noteBlockStart, blockEnd);
+		// The catch block wraps runTscCheckpointFn failures
+		const catchBlock = src.substring(
+			src.indexOf("catch (tscErr: unknown)"),
+			src.indexOf("catch (tscErr: unknown)") + 400,
+		);
+		assert.ok(catchBlock.includes("ctx.ui.notify"), "TSC catch block should contain ctx.ui.notify");
+		assert.ok(catchBlock.includes(', "warning")'), "TSC failure notify should use warning level");
+
+		// When tscDecision.nextStatus !== "Audit", the note block notifies and adds to gateFailures
+		const noteBlock = src.substring(
+			src.indexOf('if (tscDecision.nextStatus !== "Audit")'),
+			src.indexOf('if (tscDecision.nextStatus !== "Audit")') + 300,
+		);
 		assert.ok(
-			tscFailBlock.includes("ctx.ui.notify"),
-			"TSC failure block should still contain ctx.ui.notify",
+			noteBlock.includes("ctx.ui.notify"),
+			"TSC non-Audit block should contain ctx.ui.notify",
+		);
+		assert.ok(noteBlock.includes("gateFailures.push"), "TSC non-Audit should add to gateFailures");
+	});
+
+	it("TSC failure path still returns nextStatus from tscDecision via gateFailures", () => {
+		const src = readAuditSource();
+		// The function returns nextStatus: "Implementation" when gates fail
+		assert.ok(
+			src.includes('nextStatus: "Implementation"'),
+			"audit.ts should return Implementation when gates fail",
+		);
+		// The gateFailures include TSC-specific information
+		assert.ok(
+			src.includes("--- TypeScript Checkpoint ---"),
+			"TSC failure should add TypeScript Checkpoint section to gateFailures",
 		);
 	});
 
-	it("TSC failure path still returns nextStatus from tscDecision", () => {
+	it("TSC clean passes with info notify", () => {
 		const src = readAuditSource();
-		const returnStr = "return { nextStatus: tscDecision.nextStatus, note: tscDecision.note }";
 		assert.ok(
-			src.includes(returnStr),
-			"audit.ts should still contain the TSC failure return statement",
+			src.includes('ctx.ui.notify(tscDecision.note, "info")'),
+			"TSC success notify should use info level",
 		);
-	});
-
-	it("TSC failure notification is warning type", () => {
-		const src = readAuditSource();
-		const notifyLine = 'ctx.ui.notify(tscDecision.note, "warning");';
-		assert.ok(src.includes(notifyLine), "TSC failure notify should use warning level");
 	});
 });

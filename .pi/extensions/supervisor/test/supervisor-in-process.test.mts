@@ -230,7 +230,7 @@ import { readFileSync } from "node:fs";
 
 describe("agent-runner dispatch logic", () => {
 	it("3.1: runAgent is exported and calls runAgentInProcess first", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
 			source.includes("export async function runAgent("),
 			"agent-runner.ts exports runAgent function",
@@ -242,7 +242,7 @@ describe("agent-runner dispatch logic", () => {
 	});
 
 	it("3.2: runAgentSubprocess is exported as fallback", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
 			source.includes("export async function runAgentSubprocess("),
 			"runAgentSubprocess is exported from agent-runner.ts",
@@ -250,7 +250,7 @@ describe("agent-runner dispatch logic", () => {
 	});
 
 	it("3.3: dispatch uses try/catch with fallback to subprocess", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
 			source.includes("try {") &&
 				source.includes("} catch (err: unknown) {") &&
@@ -261,7 +261,7 @@ describe("agent-runner dispatch logic", () => {
 	});
 
 	it("3.4: fallback logs warning with [supervisor] prefix", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		assert.ok(
 			source.includes("[supervisor] In-process runner failed (result.success=false)"),
 			"fallback path logs warning",

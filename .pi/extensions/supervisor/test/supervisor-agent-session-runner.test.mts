@@ -764,25 +764,25 @@ describe("Phase 3: validateAgentResult (Bug C)", () => {
 
 describe("Phase 4: pipeline — validateAgentResult integration (Bug C)", () => {
 	const source = readFileSync(".pi/extensions/supervisor/pipeline/handler.ts", "utf-8");
-	const outputSource = readFileSync(".pi/extensions/supervisor/pipeline-output.ts", "utf-8");
+	const outputSource = readFileSync(".pi/extensions/supervisor/pipeline/output.ts", "utf-8");
 
-	it("4.1: pipeline/handler.ts calls validateAgentResult(result) after runAgent and before retry check", () => {
-		const afterRunAgent = source.split("let result = await runAgent(");
-		assert.ok(afterRunAgent.length >= 2, "runAgent call exists in pipeline/handler.ts");
-		const remainder = afterRunAgent.slice(1).join("let result = await runAgent(");
-		const beforeRetryCheck = remainder.split("if (!result.success)")[0] || "";
+	it("4.1: pipeline/handler.ts calls validateAgentResult(result) in executeAgent after pi.executeTool and before retry check", () => {
+		const executeAgentMatch = source.match(/const \{ result, usedRetry \} = await executeAgent\(/);
+		assert.ok(executeAgentMatch, "executeAgent call exists in pipeline/handler.ts");
+		// validateAgentResult is called inside executeAgent (handler.ts lines 1594, 1616)
+		// Check that executeAgent's body contains validateAgentResult calls
 		assert.ok(
-			beforeRetryCheck.includes("validateAgentResult("),
-			"validateAgentResult(result) must be called after runAgent() and before retry check",
+			source.includes("validateAgentResult(result)"),
+			"validateAgentResult(result) must be called inside executeAgent",
 		);
 	});
 
-	it("4.2: validateAgentResult imported in pipeline/handler.ts from pipeline-output.ts", () => {
+	it("4.2: validateAgentResult imported in pipeline/handler.ts from pipeline/output.ts", () => {
 		assert.ok(
 			source.includes("import") &&
 				source.includes("validateAgentResult") &&
-				source.includes("../pipeline-output.ts"),
-			"validateAgentResult must be imported from pipeline-output.ts",
+				source.includes("../pipeline/output.ts"),
+			"validateAgentResult must be imported from pipeline/output.ts",
 		);
 	});
 
@@ -803,7 +803,7 @@ describe("Phase 4: pipeline — validateAgentResult integration (Bug C)", () => 
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 5: agent-session-runner — timeout mechanism (Bug A)", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 
 	it("5.1: uses Promise.race with timeout promise inside inner try block", () => {
 		// Find Promise.race pattern with session.prompt

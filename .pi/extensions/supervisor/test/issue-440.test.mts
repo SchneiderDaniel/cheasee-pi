@@ -142,16 +142,18 @@ describe("issue #440 — thinking-only architect output posts comment", () => {
 		);
 
 		assert.equal(success, true);
-		const commentCall = calls.find((call) => call.cmd === "gh");
+		// gh() wrapper may call bash with GH_TOKEN injection or gh directly
+		const commentCall = calls.find((call) => call.cmd === "gh" || call.cmd === "bash");
 		assert.ok(commentCall, "postIssueComment should call gh");
-		assert.deepEqual(commentCall.args, [
-			"issue",
-			"comment",
-			"440",
-			"--repo",
-			"owner/repo",
-			"--body",
-			commentBody,
-		]);
+		// Extract gh subcommand args: if bash wrapper, they start at index 3 (after -c, shellCmd, _)
+		const ghArgs = commentCall.cmd === "bash" ? commentCall.args.slice(3) : commentCall.args;
+		// postIssueComment uses --body-file with temp file for large bodies
+		assert.equal(ghArgs[0], "issue");
+		assert.equal(ghArgs[1], "comment");
+		assert.equal(ghArgs[2], "440");
+		assert.equal(ghArgs[3], "--repo");
+		assert.equal(ghArgs[4], "owner/repo");
+		assert.equal(ghArgs[5], "--body-file");
+		assert.ok(ghArgs[6]?.includes(".md"), "body written to temp file");
 	});
 });

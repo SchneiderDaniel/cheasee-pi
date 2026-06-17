@@ -101,7 +101,7 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 	});
 
 	it("1.4: agent-runner.ts source uses 'return await runAgentSubprocess(' (not bare return)", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		// Bug 2 fix: prepend await before runAgentSubprocess
 		assert.ok(
 			source.includes("return await runAgentSubprocess("),
@@ -110,7 +110,7 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 	});
 
 	it("1.5: agent-runner.ts does not have bare 'return runAgentSubprocess('", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent-runner.ts", "utf-8");
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		// Check there's no bare return without await
 		assert.ok(
 			!source.includes("return runAgentSubprocess("),
@@ -124,7 +124,7 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 	const lines = source.split("\n");
 
 	it("2.1: outer flushTimer declaration exists in hoisted scope (before try block)", () => {
@@ -185,8 +185,7 @@ describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
 		const scheduleFlushSection =
 			source.split("const scheduleFlush")[1]?.split("const heartbeat")[0] || "";
 		assert.ok(
-			scheduleFlushSection.includes("flushTimer = setTimeout(flushWidget, 80)") ||
-				scheduleFlushSection.includes("flushTimer = setTimeout(flushWidget, 80"),
+			scheduleFlushSection.includes("flushTimer = setTimeout(flushWidget,"),
 			"scheduleFlush must assign flushTimer via setTimeout",
 		);
 	});
@@ -199,13 +198,13 @@ describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
 // This phase validates the timeout infrastructure around session.prompt().
 
 describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 
-	it("3.1: session.prompt wrapped in Promise.race with timeoutPromise", () => {
+	it("3.1: promptPromise wrapped in Promise.race with timeoutPromise", () => {
 		const promptSection = source.split("Promise.race([")[1]?.split("])")[0] || "";
 		assert.ok(
-			promptSection.includes("session.prompt"),
-			"session.prompt wrapped in Promise.race for timeout",
+			promptSection.includes("promptPromise"),
+			"promptPromise wrapped in Promise.race for timeout",
 		);
 		assert.ok(promptSection.includes("timeoutPromise"), "timeoutPromise raced with session.prompt");
 	});
@@ -251,46 +250,42 @@ describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", ()
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 4: Bug 4 — Render stall during idle (agent-session-runner.ts:flushWidget)
+// Phase 4: Bug 4 -- Render stall during idle (agent-session-runner.ts:flushWidget)
 // ═══════════════════════════════════════════════════════════════════════
+// flushWidget uses buildWidgetLines (no component factory), try-catch prevents
+// render exceptions from stalling the heartbeat interval.
 
-describe("Phase 4: Bug 4 — Render stall (tui.requestRender(true))", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent-session-runner.ts", "utf-8");
+describe("Phase 4: Bug 4 -- Render stall (flushWidget try-catch)", () => {
+	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
 
-	it("4.1: tui variable stored from component factory callback", () => {
-		// Find setWidget factory callback that captures tui
-		const setWidgetCalls = source.split("ctx.ui.setWidget(");
-		// Check at least one setWidget call uses factory with tui parameter
-		const factoryWithTui = setWidgetCalls.some(
-			(call) =>
-				(call.includes("_tui, theme") || call.includes("tui, theme")) && call.includes("=>"),
-		);
+	it("4.1: flushWidget exists and calls ctx.ui.setWidget with widgetId + buildWidgetLines", () => {
+		const flushWidgetBody =
+			source.split("const flushWidget =")[1]?.split("const scheduleFlush")[0] || "";
+		assert.ok(flushWidgetBody.length > 0, "flushWidget function exists");
+		assert.ok(flushWidgetBody.includes("ctx.ui.setWidget("), "flushWidget calls setWidget");
 		assert.ok(
-			factoryWithTui || source.includes("let storedTui") || source.includes("let _tui"),
-			"Component factory must capture tui parameter (e.g., `(_tui, theme) =>`)",
+			flushWidgetBody.includes("buildWidgetLines"),
+			"flushWidget calls buildWidgetLines for string array rendering",
 		);
 	});
 
-	it("4.2: requestRender(true) called after setWidget in flushWidget", () => {
-		// Find flushWidget function body
+	it("4.2: flushWidget has try-catch around setWidget call", () => {
 		const flushWidgetBody =
 			source.split("const flushWidget =")[1]?.split("const scheduleFlush")[0] || "";
 		assert.ok(
-			flushWidgetBody.includes("requestRender(true)"),
-			"flushWidget must call requestRender(true) to force render past debounce",
+			flushWidgetBody.includes("try {") && flushWidgetBody.includes("catch (renderErr: unknown)"),
+			"flushWidget must have try-catch to prevent render exceptions from stalling",
 		);
 	});
 
-	it("4.3: stored tui variable declared at function scope outside flushWidget", () => {
-		// Either a module-level variable or a variable in runAgentInProcess scope
-		const hasStoredTuiDecl =
-			source.includes("let storedTui:") ||
-			source.includes("let storedTui ") ||
-			source.includes("let _tui:") ||
-			source.includes("let _tui ");
+	it("4.3: scheduleFlush schedules flushWidget via setTimeout", () => {
+		const scheduleFlushBody =
+			source.split("const scheduleFlush =")[1]?.split("heartbeatTimer")[0] || "";
+		assert.ok(scheduleFlushBody.length > 0, "scheduleFlush function exists");
 		assert.ok(
-			hasStoredTuiDecl,
-			"A stored tui variable must be declared outside flushWidget (module or function scope)",
+			scheduleFlushBody.includes("setTimeout(flushWidget, 300)") ||
+				scheduleFlushBody.includes("setTimeout(flushWidget,"),
+			"scheduleFlush debounces flushWidget via setTimeout",
 		);
 	});
 });

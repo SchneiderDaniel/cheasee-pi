@@ -370,7 +370,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 		const catchIdx = src.indexOf("catch (tscErr: unknown)");
 		assert.ok(catchIdx >= 0, "catch (tscErr: unknown) block exists");
 		const decisionIdx = src.indexOf(
-			'const tscDecision = determineTscCheckpointDecision(tscResult, "Audit");',
+			'const tscDecision = await determineTscCheckpointDecision(tscResult, "Audit");',
 		);
 		assert.ok(decisionIdx >= 0, "determineTscCheckpointDecision call exists");
 		// Decision must come after catch block
@@ -382,7 +382,8 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 
 	it("determineTscCheckpointDecision and if/else are not wrapped inside try/catch", () => {
 		const src = readAuditSource();
-		const decisionLine = 'const tscDecision = determineTscCheckpointDecision(tscResult, "Audit");';
+		const decisionLine =
+			'const tscDecision = await determineTscCheckpointDecision(tscResult, "Audit");';
 		const decisionIdx = src.indexOf(decisionLine);
 		assert.ok(decisionIdx >= 0, "determineTscCheckpointDecision call exists");
 		// Find the catch block closing brace before the decision line
@@ -503,7 +504,11 @@ describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
 	it("writeCheckpointFile calls use ctx.cwd consistently", () => {
 		const src = readAuditSource();
 		const matches = src.match(/writeCheckpointFile\(ctx\.cwd,/g);
-		assert.equal(matches?.length ?? 0, 2, "should have exactly 2 writeCheckpointFile calls with ctx.cwd");
+		assert.equal(
+			matches?.length ?? 0,
+			2,
+			"should have exactly 2 writeCheckpointFile calls with ctx.cwd",
+		);
 	});
 	it("no old resolvePath(worktreePath, '..') pattern remains", () => {
 		const src = readAuditSource();

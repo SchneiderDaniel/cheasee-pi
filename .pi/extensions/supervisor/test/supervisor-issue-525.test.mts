@@ -445,21 +445,22 @@ describe("Bug 1 — sendAgentResultMessage mock test", () => {
 // Phase 5: Source-structure — pipeline/handler.ts (Bug 1 — call site)
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("Bug 1 — Pipeline handler sendAgentResultMessage call", () => {
+describe("Bug 1 — Pipeline handler passes result data through agentResults", () => {
 	const source = readFileSync(".pi/extensions/supervisor/pipeline/handler.ts", "utf-8");
 
-	it("5.1: handler still passes result.output/textOutput/textOnly to sendAgentResultMessage (OK — function handles trimming)", () => {
-		// The handler should still pass the full data — the trimming happens in
-		// sendAgentResultMessage itself. This test verifies the handler hasn't changed.
-		const hasOutput = source.includes("output: result.output");
-		const hasTextOutput = source.includes("textOutput: result.textOutput");
-		const hasTextOnly = source.includes("textOnly: result.textOnly");
+	it("5.1: handler passes result data via buildAgentResultEntry and executeAgent", () => {
+		// Handler no longer calls sendAgentResultMessage directly — executeAgent
+		// handles messaging internally via pi.sendMessage with _subagentResult details.
+		// The handler still tracks results via buildAgentResultEntry
+		const hasBuildAgentEntry = source.includes("buildAgentResultEntry(result");
+		const hasExecuteAgent = source.includes("await executeAgent(");
+		const hasResultDestructure = source.includes(
+			"const { result, usedRetry } = await executeAgent(",
+		);
 
-		// These can be present — the fix is in sendAgentResultMessage, not the handler
-		// But verify they exist (backward compat)
-		assert.ok(hasOutput, "handler should still pass result.output to sendAgentResultMessage");
-		assert.ok(hasTextOutput, "handler should still pass result.textOutput");
-		assert.ok(hasTextOnly, "handler should still pass result.textOnly");
+		assert.ok(hasExecuteAgent, "handler should call executeAgent");
+		assert.ok(hasResultDestructure, "handler destructures result from executeAgent");
+		assert.ok(hasBuildAgentEntry, "handler passes result to buildAgentResultEntry");
 	});
 });
 
