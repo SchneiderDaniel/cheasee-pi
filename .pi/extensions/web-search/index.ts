@@ -39,7 +39,7 @@ export default function webSearch(pi: ExtensionAPI): void {
 				description: "Search query (e.g. 'latest rust web framework 2026')",
 			}),
 			maxResults: Type.Optional(
-				Type.Number({
+				Type.Integer({
 					default: 10,
 					description: "Maximum number of search results (default 10)",
 				}),
