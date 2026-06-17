@@ -75,26 +75,53 @@ If no tags exist, `BASE_VERSION=0.1`.
 
 ### Step 5 — Find Merged PRs Since Last Tag
 
-If `LAST_TAG` is set, get all merge commits since that tag:
+#### Case A — Last tag exists
+
+Get all merge commits since that tag:
 
 ```bash
 git log "$LAST_TAG"..HEAD --oneline --merges --grep="Merge pull request" > /tmp/merge-commits.txt
 ```
 
-If no merge commits found OR no tags exist, fetch recent merged PRs via `gh`:
+**If no merge commits found:** there are zero new PRs since last release. Stop and inform user:
 
-```bash
-gh pr list --repo "$REPO" --state merged --limit 50 --json number,title,url --jq '.[] | "\(.number) | \(.title) | \(.url)"' > /tmp/recent-prs.txt
-```
+> No new merged PRs since $LAST_TAG. Nothing to release.
 
-Otherwise, extract PR numbers from merge commits and fetch details:
+Do not proceed further.
+
+**Otherwise:** extract PR numbers from merge commit messages:
 
 ```bash
 grep -oP 'Merge pull request #\K\d+' /tmp/merge-commits.txt > /tmp/pr-numbers.txt
+echo "Found $(wc -l < /tmp/pr-numbers.txt) merged PRs since $LAST_TAG"
+```
+
+Fetch details for each PR:
+
+```bash
 while read -r NUM; do
-  gh pr view "$NUM" --repo "$REPO" --json number,title,url --jq '"\(.number) | \(.title) | \(.url)"'
+  TITLE=$(gh pr view "$NUM" --repo "$REPO" --json title --jq '.title' 2>/dev/null || echo "(unknown)")
+  echo "$NUM | $TITLE | https://github.com/$REPO/pull/$NUM"
 done < /tmp/pr-numbers.txt > /tmp/prs.txt
 ```
+
+Read the PR list:
+
+```bash
+cat /tmp/prs.txt
+```
+
+#### Case B — No tags exist (first release)
+
+All merged PRs are relevant. Fetch via `gh` with pagination to avoid limit caps:
+
+```bash
+gh pr list --repo "$REPO" --state merged --limit 100 --json number,title,url --jq '.[] | "\(.number) | \(.title) | \(.url)"' > /tmp/prs.txt
+```
+
+If output has exactly 100 lines, warn that there may be more PRs beyond the 100 fetched:
+
+> Warning: PR list capped at 100. Some older PRs may not be included.
 
 Read the PR list:
 
