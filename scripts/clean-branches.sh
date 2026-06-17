@@ -9,7 +9,7 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=true
 fi
 
-branches=$(gh api repos/SchneiderDaniel/cheasee-pi/branches --jq '.[].name' | grep -v '^main$')
+branches=$(gh api repos/SchneiderDaniel/cheasee-pi/branches --paginate --jq '.[].name' | grep -v '^main$')
 
 if [[ -z "$branches" ]]; then
   echo "No branches to clean (only main exists)."
