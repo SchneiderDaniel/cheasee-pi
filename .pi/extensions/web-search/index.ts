@@ -19,6 +19,25 @@ const searchCache = new Map<string, SearchCacheEntry>();
 /** TTL for cache entries in milliseconds (5 minutes) */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Concurrency semaphore: Max 5 simultaneous web searches to prevent overwhelming
+ * the venv lock and the DDGS API. Follows the same pattern as web_crawl's
+ * MAX_CONCURRENT_CRAWLS.
+ */
+let activeSearches = 0;
+const MAX_CONCURRENT_SEARCHES = 5;
+
+async function acquireSearchLock(): Promise<void> {
+	while (activeSearches >= MAX_CONCURRENT_SEARCHES) {
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+	activeSearches++;
+}
+
+function releaseSearchLock(): void {
+	activeSearches = Math.max(0, activeSearches - 1);
+}
+
 export default function webSearch(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "web_search",
@@ -68,49 +87,55 @@ export default function webSearch(pi: ExtensionAPI): void {
 				details: {} as Record<string, unknown>,
 			});
 
-			const cwd = _ctx.cwd;
+			// Acquire concurrency semaphore before starting venv setup/search
+			await acquireSearchLock();
+			try {
+				const cwd = _ctx.cwd;
 
-			// Resolve venv python (auto-creates venv + installs ddgs on first call)
-			const python = await ensureWebSearchVenv(pi.exec, cwd, onUpdate);
+				// Resolve venv python (auto-creates venv + installs ddgs on first call)
+				const python = await ensureWebSearchVenv(pi.exec, cwd, onUpdate);
 
-			const result = await runSearchScript(
-				python,
-				SEARCH_SCRIPT,
-				{ query, max_results: maxResults },
-				30_000,
-				signal,
-				pi.exec,
-			);
-
-			if (result.code !== 0) {
-				throw new Error(
-					`Search failed: python3 error (code ${result.code}): ${result.stderr.slice(0, 500)}`,
+				const result = await runSearchScript(
+					python,
+					SEARCH_SCRIPT,
+					{ query, max_results: maxResults },
+					30_000,
+					signal,
+					pi.exec,
 				);
-			}
 
-			const parsed = parseSearchResults(result.stdout);
-			if (!parsed.ok) {
-				throw new Error(`Search failed: ${parsed.error}`);
-			}
-
-			// Cache results
-			searchCache.set(cacheKey, {
-				results: parsed.results,
-				timestamp: Date.now(),
-			});
-
-			// Clean stale cache entries
-			for (const [key, entry] of searchCache) {
-				if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
-					searchCache.delete(key);
+				if (result.code !== 0) {
+					throw new Error(
+						`Search failed: python3 error (code ${result.code}): ${result.stderr.slice(0, 500)}`,
+					);
 				}
-			}
 
-			const text = formatResults(parsed.results);
-			return {
-				content: [{ type: "text", text }],
-				details: {} as Record<string, unknown>,
-			};
+				const parsed = parseSearchResults(result.stdout);
+				if (!parsed.ok) {
+					throw new Error(`Search failed: ${parsed.error}`);
+				}
+
+				// Cache results
+				searchCache.set(cacheKey, {
+					results: parsed.results,
+					timestamp: Date.now(),
+				});
+
+				// Clean stale cache entries
+				for (const [key, entry] of searchCache) {
+					if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+						searchCache.delete(key);
+					}
+				}
+
+				const text = formatResults(parsed.results);
+				return {
+					content: [{ type: "text", text }],
+					details: {} as Record<string, unknown>,
+				};
+			} finally {
+				releaseSearchLock();
+			}
 		},
 	});
 }

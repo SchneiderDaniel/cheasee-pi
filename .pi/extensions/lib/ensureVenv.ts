@@ -2,16 +2,18 @@
  * ensureVenv — shared Python virtual environment setup utility.
  *
  * Two-phase locking:
- *   1. Cross-process (file lock): atomic mkdir-based lock prevents parallel agent
- *      processes from corrupting the same venv. Stale lock detection via mtime.
+ *   1. Cross-process (file lock): proper-lockfile-based lock prevents parallel agent
+ *      processes from corrupting the same venv. Stale lock detection via mtime with
+ *      active refresh during hold to prevent false staleness during long pip install.
  *   2. In-session (in-memory cache): retry cache prevents redundant re-creation
  *      within the same agent lifetime.
  *
- * No external dependencies — uses only node:fs, node:path.
+ * Uses proper-lockfile for cross-process locking (atomic mkdir + periodic mtime update).
  */
 
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import lockfile from "proper-lockfile";
 
 // ── Public Types ──
 
@@ -112,61 +114,91 @@ function cacheMarkFailure(key: string): void {
 	cache.set(key, { ready: false, timestamp: Date.now(), retries });
 }
 
-// ── Cross-process file lock (atomic mkdir) ──
+// ── Cross-process file lock (proper-lockfile) ──
 
-function lockDirFor(cwd: string, venvName: string): string {
+/**
+ * Compute the base lock path (without .lock suffix — proper-lockfile appends it).
+ * E.g., for venvName ".pi/web-search-venv", returns `/path/to/.pi/ensureVenv.web-search-venv`
+ * and proper-lockfile creates `/path/to/.pi/ensureVenv.web-search-venv.lock`.
+ */
+function lockFilePathFor(cwd: string, venvName: string): string {
 	const safe = venvName.replace(/[^a-zA-Z0-9_-]/g, "_");
-	return join(cwd, ".pi", `ensureVenv.${safe}.lock`);
+	return join(cwd, ".pi", `ensureVenv.${safe}`);
 }
 
-async function acquireLock(lockDir: string, timeoutMs: number, staleMs: number): Promise<void> {
+/**
+ * Acquire a cross-process lock using proper-lockfile.
+ *
+ * @param lockFilePath — Base path without .lock (proper-lockfile appends .lock)
+ * @param timeoutMs — Approximate time budget for retries before throwing
+ * @param staleMs — Staleness threshold in ms (proper-lockfile enforces minimum 2000)
+ * @param onUpdate — Optional callback for structured logging
+ * @returns Release function (call to release the lock)
+ * @throws EnsureVenvError with step='lock' if lock cannot be acquired
+ */
+async function acquireLock(
+	lockFilePath: string,
+	timeoutMs: number,
+	staleMs: number,
+	onUpdate?: OnUpdateCallback,
+): Promise<() => Promise<void>> {
+	const pid = process.pid;
 	const startTime = Date.now();
-	let attempt = 0;
 
-	while (true) {
-		attempt++;
+	onUpdate?.({
+		content: [{ type: "text", text: `Acquiring venv lock (pid=${pid})…` }],
+		details: {},
+	});
 
-		// Check for stale lock and remove it atomically-ish
-		try {
-			const stat = statSync(lockDir);
-			if (Date.now() - stat.mtimeMs > staleMs) {
-				try {
-					rmSync(lockDir, { recursive: true, force: true });
-				} catch {
-					// Race: another agent cleaned it
-				}
-			}
-		} catch {
-			// Directory doesn't exist — proceed to acquire
-		}
+	// Map timeout to proper-lockfile retry options.
+	// Retry count: target ~7 retries for 5000ms timeout (matching original behavior).
+	const retryCount = Math.max(1, Math.ceil(timeoutMs / 800));
+	const retryOpts = {
+		retries: retryCount,
+		factor: 2,
+		minTimeout: 200,
+		maxTimeout: 1000,
+		randomize: true,
+	};
 
-		// Try atomic mkdir (fails if directory already exists)
-		try {
-			mkdirSync(lockDir, { recursive: false });
-			return; // Lock acquired
-		} catch {
-			// Directory exists — lock held by another process
-		}
+	try {
+		const release = await lockfile.lock(lockFilePath, {
+			stale: staleMs,
+			retries: retryOpts,
+			realpath: false,
+		});
 
-		if (Date.now() - startTime >= timeoutMs) {
-			throw new EnsureVenvError(
-				`Failed to acquire lock after ${attempt} attempts over ${timeoutMs}ms`,
-				"lock",
-			);
-		}
+		const waitMs = Date.now() - startTime;
+		onUpdate?.({
+			content: [{ type: "text", text: `Lock acquired after ${waitMs}ms (pid=${pid})` }],
+			details: {},
+		});
 
-		// Exponential backoff with jitter
-		const base = Math.min(200 * Math.pow(2, attempt - 1), 1000);
-		const jitter = Math.random() * 200;
-		await new Promise((r) => setTimeout(r, base + jitter));
+		return release;
+	} catch (err: unknown) {
+		const elapsed = Date.now() - startTime;
+		const msg = err instanceof Error ? err.message : String(err);
+		throw new EnsureVenvError(`Failed to acquire lock after ${elapsed}ms: ${msg}`, "lock");
 	}
 }
 
-function releaseLock(lockDir: string): void {
+/**
+ * Release a cross-process lock obtained via acquireLock.
+ */
+async function releaseLock(
+	release: () => Promise<void>,
+	onUpdate?: OnUpdateCallback,
+): Promise<void> {
+	const pid = process.pid;
+	onUpdate?.({
+		content: [{ type: "text", text: `Releasing venv lock (pid=${pid})…` }],
+		details: {},
+	});
+
 	try {
-		rmSync(lockDir, { recursive: true, force: true });
+		await release();
 	} catch {
-		// Best-effort cleanup
+		// Best-effort cleanup — lock may already be released or compromised
 	}
 }
 
@@ -226,9 +258,9 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 	}
 
 	// ── 3. Cross-process lock ──
-	const lockDir = lockDirFor(cwd, venvName);
+	const lockFilePath = lockFilePathFor(cwd, venvName);
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	await acquireLock(lockDir, lockTimeoutMs, lockStaleMs);
+	const release = await acquireLock(lockFilePath, lockTimeoutMs, lockStaleMs, onUpdate);
 
 	let lockReleased = false;
 	try {
@@ -281,7 +313,7 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 		}
 
 		// Release lock before postInstall so slow downloads don't block other agents
-		releaseLock(lockDir);
+		await releaseLock(release, onUpdate);
 		lockReleased = true;
 
 		// ── 8. Post-install hook ──
@@ -315,7 +347,7 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 		return { pythonPath, created: true };
 	} finally {
 		if (!lockReleased) {
-			releaseLock(lockDir);
+			await releaseLock(release, onUpdate);
 		}
 	}
 }
