@@ -193,8 +193,8 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 		const resolved = resolveBackend(config, rgAvailable ?? false);
 		const suffix =
 			resolved.backend === "ripgrep"
-				? `ripgrep${config.searchBackend === "ripgrep" ? " (user-configured)" : ""} — .gitignore respected, column offsets available`
-				: `grep${config.searchBackend === "grep" ? " (user-configured)" : " (fallback)"} — .gitignore NOT respected, column always 1, excluded dirs: .git,node_modules,venv,__pycache__,.mypy_cache,.pytest_cache,dist,build`;
+				? `ripgrep${config.searchBackend === "ripgrep" ? " (user-configured)" : ""} — .gitignore respected, column offsets available, hidden files/dirs included (except .git/)`
+				: `grep${config.searchBackend === "grep" ? " (user-configured)" : " (fallback)"} — .gitignore NOT respected, column always 1, excluded dirs: .git,node_modules,venv,__pycache__,.mypy_cache,.pytest_cache,dist,build; hidden files/dirs included by default`;
 		backendNoteInjected = true;
 		return { systemPrompt: event.systemPrompt + `\n[Search backend: ${suffix}]` };
 	});
@@ -205,11 +205,12 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 		description:
 			"Search codebase for literal text or regex using ripgrep. " +
 			"Output: structured summary with top-N results, file counts, and truncation. " +
-			"Respects .gitignore natively.",
+			"Respects .gitignore natively. Searches hidden files/directories (except .git/).",
 		promptSnippet: "Search codebase for literal text or regex using ripgrep",
 		promptGuidelines: [
 			"Use ripgrep_search for literal text searches — magic numbers, hardcoded strings, error messages, TODOs, configuration values.",
 			"ripgrep_search respects .gitignore natively. Default max_count=10 (per file). Default directory='.'.",
+			"Searches hidden files/directories (e.g. .pi/), but excludes .git/.",
 		],
 		parameters: Type.Object({
 			query: Type.String({

@@ -138,6 +138,9 @@ describe("buildRgArgs", () => {
 		assert.ok(args.includes("--max-count=10"));
 		assert.ok(args.includes("--no-heading"));
 		assert.ok(args.includes("-j1"));
+		assert.ok(args.includes("--hidden"), "Should include --hidden flag");
+		assert.ok(args.includes("--glob"), "Should include --glob flag");
+		assert.ok(args.includes("!.git/**"), "Should include .git exclusion glob");
 		assert.ok(args.includes("TIMEOUT_MS = 5000"));
 		assert.ok(args.includes("."));
 	});
@@ -172,6 +175,11 @@ describe("buildRgArgs", () => {
 		assert.ok(args[2]!.startsWith("--max-count="));
 		assert.strictEqual(args[3], "--no-heading");
 		assert.strictEqual(args[4], "-j1");
+		assert.strictEqual(args[5], "--hidden");
+		assert.strictEqual(args[6], "--glob");
+		assert.strictEqual(args[7], "!.git/**");
+		assert.strictEqual(args[args.length - 1], ".", "directory is last");
+		assert.strictEqual(args[args.length - 2], "test", "query precedes directory");
 	});
 
 	it("respects custom maxLineLength", () => {
@@ -1685,6 +1693,108 @@ describe("integration: rg binary", () => {
 					entry.text.length <= 200,
 					`Text should be <= 200 chars with --max-columns=200, got ${entry.text.length}`,
 				);
+			}
+		},
+	);
+
+	it(
+		"--hidden flag: searches hidden directory .hidden/",
+		{ skip: !hasRg ? skipMsg : false, timeout: 15_000 },
+		() => {
+			const tmpDir = mkdtempSync(join(tmpdir(), "ripgrep-hidden-test-"));
+			try {
+				// Create a hidden subdirectory with a file containing a known string
+				const hiddenDir = join(tmpDir, ".hidden");
+				mkdirSync(hiddenDir, { recursive: true });
+				writeFileSync(join(hiddenDir, "secret.txt"), "hidden_value_xyz", "utf8");
+
+				// Create an ordinary non-hidden file (should also find this)
+				writeFileSync(join(tmpDir, "normal.txt"), "visible_value", "utf8");
+
+				// Use buildRgArgs and run rg with the constructed args
+				const { command, args } = buildRgArgs("hidden_value_xyz", ".", 10);
+				assert.strictEqual(command, "rg");
+				// Spot-check that new flags are in the args
+				assert.ok(args.includes("--hidden"));
+				assert.ok(args.includes("!.git/**"));
+
+				const stdout = execSync(`${command} ${args.join(" ")}`, {
+					cwd: tmpDir,
+					encoding: "utf-8",
+					stdio: "pipe",
+					timeout: 10_000,
+				});
+
+				// Should find the hidden file
+				assert.ok(
+					stdout.includes(".hidden/secret.txt"),
+					`Should find result in hidden directory, got: ${stdout}`,
+				);
+			} finally {
+				rmSync(tmpDir, { recursive: true, force: true });
+			}
+		},
+	);
+
+	it(
+		"--glob '!.git/**': excludes .git/ directory from search",
+		{ skip: !hasRg ? skipMsg : false, timeout: 15_000 },
+		() => {
+			const tmpDir = mkdtempSync(join(tmpdir(), "ripgrep-git-exclude-test-"));
+			try {
+				// Create .git/objects/pack/ with matching content
+				const gitPackDir = join(tmpDir, ".git", "objects", "pack");
+				mkdirSync(gitPackDir, { recursive: true });
+				writeFileSync(join(gitPackDir, "pack-abc.pack"), "hidden_value_xyz", "utf8");
+
+				// Create an ordinary file with same content (should be found)
+				writeFileSync(join(tmpDir, "src.txt"), "hidden_value_xyz", "utf8");
+
+				// Use buildRgArgs flags
+				const stdout = execSync(
+					"rg --vimgrep --max-columns=200 --max-count=10 --no-heading -j1 --hidden --glob '!.git/**' hidden_value_xyz .",
+					{
+						cwd: tmpDir,
+						encoding: "utf-8",
+						stdio: "pipe",
+						timeout: 10_000,
+					},
+				);
+
+				// Should find src.txt but NOT .git/objects/pack/pack-abc.pack
+				assert.ok(stdout.includes("src.txt"), "Should find non-.git file");
+				assert.ok(!stdout.includes(".git/"), ".git/ should be excluded from search");
+			} finally {
+				rmSync(tmpDir, { recursive: true, force: true });
+			}
+		},
+	);
+
+	it(
+		"non-hidden file search still works with --hidden flag",
+		{ skip: !hasRg ? skipMsg : false, timeout: 15_000 },
+		() => {
+			const tmpDir = mkdtempSync(join(tmpdir(), "ripgrep-nonhidden-test-"));
+			try {
+				mkdirSync(join(tmpDir, "src"), { recursive: true });
+				writeFileSync(join(tmpDir, "src", "app.ts"), "const x = 5000;", "utf8");
+
+				const stdout = execSync(
+					"rg --vimgrep --max-columns=200 --max-count=10 --no-heading -j1 --hidden --glob '!.git/**' 5000 .",
+					{
+						cwd: tmpDir,
+						encoding: "utf-8",
+						stdio: "pipe",
+						timeout: 10_000,
+					},
+				);
+
+				assert.ok(
+					stdout.includes("src/app.ts"),
+					`Should find match in non-hidden file, got: ${stdout}`,
+				);
+			} finally {
+				rmSync(tmpDir, { recursive: true, force: true });
 			}
 		},
 	);
