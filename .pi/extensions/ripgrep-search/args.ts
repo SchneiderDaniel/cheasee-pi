@@ -31,6 +31,9 @@ export function buildRgArgs(
 		`--max-count=${maxCount}`,
 		"--no-heading",
 		"-j1",
+		"--hidden",
+		"--glob",
+		"!.git/**",
 		query,
 		directory,
 	];
