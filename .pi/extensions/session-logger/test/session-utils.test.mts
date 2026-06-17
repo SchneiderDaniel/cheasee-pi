@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { handleModelChanges } from "../session-utils.ts";
-import type { ModelChange, ThinkingChange } from "../session-utils.ts";
+import type { ModelChange } from "../session-utils.ts";
 
 // ---------------------------------------------------------------------------
 // handleModelChanges() — extracted shared function unit tests
@@ -21,7 +21,7 @@ describe("handleModelChanges — happy path", () => {
 	it("empty entries array causes no pushes", () => {
 		const entries: any[] = [];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -39,7 +39,7 @@ describe("handleModelChanges — happy path", () => {
 			},
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -56,7 +56,7 @@ describe("handleModelChanges — happy path", () => {
 			{ type: "thinking_level_change", timestamp: "2025-01-01T00:00:00Z", thinkingLevel: "high" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -75,7 +75,7 @@ describe("handleModelChanges — happy path", () => {
 			{ type: "model_change", timestamp: "t3", provider: "anthropic", modelId: "claude-3" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -94,7 +94,7 @@ describe("handleModelChanges — happy path", () => {
 			{ type: "session", id: "s1" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -107,7 +107,7 @@ describe("handleModelChanges — boundary conditions", () => {
 	it("entry.timestamp is undefined — time field is undefined", () => {
 		const entries = [{ type: "model_change", provider: "openai", modelId: "gpt-4" }];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -120,7 +120,7 @@ describe("handleModelChanges — boundary conditions", () => {
 			{ type: "model_change", timestamp: "t1", modelId: "gpt-4" }, // no provider
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -131,7 +131,7 @@ describe("handleModelChanges — boundary conditions", () => {
 	it("entry.thinkingLevel is undefined — level field is undefined", () => {
 		const entries = [{ type: "thinking_level_change", timestamp: "t1" }];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -144,7 +144,7 @@ describe("handleModelChanges — boundary conditions", () => {
 			{ type: "model_change", timestamp: null, provider: "openai", modelId: "gpt-4" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -159,7 +159,7 @@ describe("handleModelChanges — immutability and side effects", () => {
 			{ type: "model_change", timestamp: "t1", provider: "openai", modelId: "gpt-4" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		handleModelChanges(entries, modelChanges, thinkingChanges);
 
@@ -173,7 +173,7 @@ describe("handleModelChanges — immutability and side effects", () => {
 			{ type: "thinking_level_change", timestamp: "t2", thinkingLevel: "high" },
 		];
 		const modelChanges: ModelChange[] = [];
-		const thinkingChanges: ThinkingChange[] = [];
+		const thinkingChanges: { time: string; level: string }[] = [];
 
 		// Should not throw at runtime despite readonly type
 		handleModelChanges(entries, modelChanges, thinkingChanges);
@@ -190,8 +190,8 @@ describe("handleModelChanges — type exports", () => {
 		assert.strictEqual(change.model, "openai/gpt-4");
 	});
 
-	it("ThinkingChange interface has correct shape", () => {
-		const change: ThinkingChange = { time: "t1", level: "high" };
+	it("ThinkingChange-shaped object has correct shape", () => {
+		const change: { time: string; level: string } = { time: "t1", level: "high" };
 		assert.strictEqual(change.time, "t1");
 		assert.strictEqual(change.level, "high");
 	});

@@ -14,7 +14,7 @@ export interface ModelChange {
 	model: string;
 }
 
-export interface ThinkingChange {
+interface ThinkingChange {
 	time: string;
 	level: string;
 }
