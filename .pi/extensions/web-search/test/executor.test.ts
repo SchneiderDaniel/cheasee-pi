@@ -8,7 +8,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { ExecResult, ExecFn } from "../types.ts";
 import { SEARCH_SCRIPT } from "../python-script.ts";
@@ -17,6 +16,7 @@ import {
 	runSearchScript,
 	parseSearchOutput,
 	parseSearchResults,
+	cleanupStaleTempDirs,
 } from "../executor.ts";
 
 type ExecHandler = ExecFn;
@@ -75,7 +75,7 @@ describe("shSingleQuote — domain tests", () => {
 });
 
 describe("runSearchScript — executor", () => {
-	it("(D) writes script file and config file, then calls exec with bash -c", async () => {
+	it("(D) writes script and config under isolated temp directory, then calls exec with bash -c", async () => {
 		const exec = makeMockExec();
 		exec.mock.mockImplementation(async () => ({
 			code: 0,
@@ -83,7 +83,7 @@ describe("runSearchScript — executor", () => {
 			stderr: "",
 		}));
 
-		const result = await runSearchScript(
+		await runSearchScript(
 			"/usr/bin/python3",
 			SEARCH_SCRIPT,
 			{ query: "test query", max_results: 5 },
@@ -97,18 +97,30 @@ describe("runSearchScript — executor", () => {
 		const bashArgs = calls[0].arguments;
 		assert.equal(bashArgs[0], "bash", "should run via bash");
 		const fullCmd = bashArgs[1].join(" ");
-		assert.ok(fullCmd.includes("search.py"), "command should reference search.py");
-		assert.ok(fullCmd.includes("config.json"), "command should reference config.json");
+		assert.ok(
+			/search-[^/]+\/search\.py/.test(fullCmd),
+			"command should reference search.py under isolated directory",
+		);
+		assert.ok(
+			/search-[^/]+\/config\.json/.test(fullCmd),
+			"command should reference config.json under isolated directory",
+		);
 		assert.ok(fullCmd.includes("/usr/bin/python3"), "command should reference python path");
 	});
 
 	it("(D) config is valid JSON with query, max_results keys", async () => {
 		const exec = makeMockExec();
-		exec.mock.mockImplementation(async () => ({
-			code: 0,
-			stdout: "SEARCH_OK\n{}\nSEARCH_DONE",
-			stderr: "",
-		}));
+		let capturedConfig: Record<string, unknown> | null = null;
+		exec.mock.mockImplementation(async (_cmd, args, _opts) => {
+			const bashCmd = args.join(" ");
+			const configMatch = bashCmd.match(/'([^']*config\.json)'/);
+			if (configMatch) {
+				const configPath = configMatch[1].replace(/\\'/g, "'");
+				const configContent = fs.readFileSync(configPath, "utf-8");
+				capturedConfig = JSON.parse(configContent);
+			}
+			return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+		});
 
 		await runSearchScript(
 			"/usr/bin/python3",
@@ -119,28 +131,25 @@ describe("runSearchScript — executor", () => {
 			exec as unknown as ExecHandler,
 		);
 
-		// Verify config was written as valid JSON
-		// We can read the config file path from the command
-		const calls = exec.mock.calls;
-		const bashCmd = calls[0].arguments[1].join(" ");
-		// The config path should end with config.json
-		const configMatch = bashCmd.match(/'([^']*config\.json)'/);
-		if (configMatch) {
-			const configPath = configMatch[1].replace(/\\'/g, "'");
-			const configContent = fs.readFileSync(configPath, "utf-8");
-			const parsed = JSON.parse(configContent);
-			assert.equal(parsed.query, "typescript best practices");
-			assert.equal(parsed.max_results, 7);
-		}
+		assert.ok(capturedConfig !== null, "config should have been captured");
+		const config = capturedConfig as Record<string, unknown>;
+		assert.equal(config.query, "typescript best practices");
+		assert.equal(config.max_results, 7);
 	});
 
 	it("(D) includes optional proxy and timeout in config when provided", async () => {
 		const exec = makeMockExec();
-		exec.mock.mockImplementation(async () => ({
-			code: 0,
-			stdout: "SEARCH_OK\n{}\nSEARCH_DONE",
-			stderr: "",
-		}));
+		let capturedConfig: Record<string, unknown> | null = null;
+		exec.mock.mockImplementation(async (_cmd, args, _opts) => {
+			const bashCmd = args.join(" ");
+			const configMatch = bashCmd.match(/'([^']*config\.json)'/);
+			if (configMatch) {
+				const configPath = configMatch[1].replace(/\\'/g, "'");
+				const configContent = fs.readFileSync(configPath, "utf-8");
+				capturedConfig = JSON.parse(configContent);
+			}
+			return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+		});
 
 		await runSearchScript(
 			"/usr/bin/python3",
@@ -151,16 +160,10 @@ describe("runSearchScript — executor", () => {
 			exec as unknown as ExecHandler,
 		);
 
-		const calls = exec.mock.calls;
-		const bashCmd = calls[0].arguments[1].join(" ");
-		const configMatch = bashCmd.match(/'([^']*config\.json)'/);
-		if (configMatch) {
-			const configPath = configMatch[1].replace(/\\'/g, "'");
-			const configContent = fs.readFileSync(configPath, "utf-8");
-			const parsed = JSON.parse(configContent);
-			assert.equal(parsed.proxy, "http://proxy:8080");
-			assert.equal(parsed.timeout, 10);
-		}
+		assert.ok(capturedConfig !== null, "config should have been captured");
+		const config = capturedConfig as Record<string, unknown>;
+		assert.equal(config.proxy, "http://proxy:8080");
+		assert.equal(config.timeout, 10);
 	});
 
 	it("(D) returns exec error when exec function fails", async () => {
@@ -213,6 +216,209 @@ describe("runSearchScript — executor", () => {
 		const fullCmd = calls[0].arguments.join(" ");
 		assert.ok(!fullCmd.includes("base64"), "command should not use base64");
 		assert.ok(!fullCmd.includes("Buffer"), "command should not use Buffer");
+	});
+
+	describe("temp directory isolation and cleanup", () => {
+		const TEST_RUN_DIR = path.join(process.cwd(), "ignore", "web-search");
+
+		it("(D) temp directory cleaned up after execution", async () => {
+			let capturedDirPath: string | null = null;
+			const exec = makeMockExec();
+			exec.mock.mockImplementation(async (cmd, args, opts) => {
+				const bashCmd = args.join(" ");
+				const dirMatch = bashCmd.match(/'([^']*search-[^/]+)\//);
+				if (dirMatch) {
+					capturedDirPath = dirMatch[1].replace(/\\'/g, "'");
+				}
+				return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+			});
+
+			await runSearchScript(
+				"/usr/bin/python3",
+				SEARCH_SCRIPT,
+				{ query: "test", max_results: 5 },
+				30_000,
+				undefined,
+				exec as unknown as ExecHandler,
+			);
+
+			assert.ok(capturedDirPath !== null, "should have captured dir path");
+			assert.ok(!fs.existsSync(capturedDirPath!), "temp dir should be removed after execution");
+		});
+
+		it("(D) cleanup removes entire directory even if extra unknown files present", async () => {
+			let capturedDirPath: string | null = null;
+			const exec = makeMockExec();
+			exec.mock.mockImplementation(async (cmd, args, opts) => {
+				const bashCmd = args.join(" ");
+				const dirMatch = bashCmd.match(/'([^']*search-[^/]+)\//);
+				if (dirMatch) {
+					capturedDirPath = dirMatch[1].replace(/\\'/g, "'");
+					// Write an extra unknown file inside the temp dir
+					fs.writeFileSync(path.join(capturedDirPath!, "extra.tmp"), "extra content", "utf-8");
+				}
+				return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+			});
+
+			await runSearchScript(
+				"/usr/bin/python3",
+				SEARCH_SCRIPT,
+				{ query: "test", max_results: 5 },
+				30_000,
+				undefined,
+				exec as unknown as ExecHandler,
+			);
+
+			assert.ok(capturedDirPath !== null, "should have captured dir path");
+			assert.ok(!fs.existsSync(capturedDirPath!), "temp dir and extra files should be removed");
+		});
+
+		it("(D) cleanup never throws even when exec fails", async () => {
+			let capturedDirPath: string | null = null;
+			const exec = makeMockExec();
+			exec.mock.mockImplementation(async (cmd, args, opts) => {
+				const bashCmd = args.join(" ");
+				const dirMatch = bashCmd.match(/'([^']*search-[^/]+)\//);
+				if (dirMatch) {
+					capturedDirPath = dirMatch[1].replace(/\\'/g, "'");
+				}
+				throw new Error("exec failed");
+			});
+
+			await assert.rejects(
+				async () => {
+					await runSearchScript(
+						"/usr/bin/python3",
+						SEARCH_SCRIPT,
+						{ query: "test", max_results: 5 },
+						30_000,
+						undefined,
+						exec as unknown as ExecHandler,
+					);
+				},
+				{ message: "exec failed" },
+			);
+
+			// Cleanup should have happened despite the error
+			if (capturedDirPath) {
+				assert.ok(
+					!fs.existsSync(capturedDirPath),
+					"temp dir should be cleaned up even after exec error",
+				);
+			}
+		});
+
+		it("(D) per-call directory uniqueness — sequential calls produce different dirs", async () => {
+			const dirs: string[] = [];
+			const exec = makeMockExec();
+			exec.mock.mockImplementation(async (cmd, args, opts) => {
+				const bashCmd = args.join(" ");
+				const dirMatch = bashCmd.match(/'([^']*search-[^/]+)\//);
+				if (dirMatch) {
+					dirs.push(dirMatch[1].replace(/\\'/g, "'"));
+				}
+				return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+			});
+
+			await runSearchScript(
+				"/usr/bin/python3",
+				SEARCH_SCRIPT,
+				{ query: "a", max_results: 5 },
+				30_000,
+				undefined,
+				exec as unknown as ExecHandler,
+			);
+			await runSearchScript(
+				"/usr/bin/python3",
+				SEARCH_SCRIPT,
+				{ query: "b", max_results: 5 },
+				30_000,
+				undefined,
+				exec as unknown as ExecHandler,
+			);
+
+			assert.equal(dirs.length, 2);
+			assert.notEqual(dirs[0], dirs[1], "sequential calls should produce different temp dirs");
+		});
+
+		it("(D) per-call directory uniqueness — concurrent calls produce different dirs", async () => {
+			const dirs: string[] = [];
+			const exec = makeMockExec();
+			exec.mock.mockImplementation(async (cmd, args, opts) => {
+				const bashCmd = args.join(" ");
+				const dirMatch = bashCmd.match(/'([^']*search-[^/]+)\//);
+				if (dirMatch) {
+					dirs.push(dirMatch[1].replace(/\\'/g, "'"));
+				}
+				return { code: 0, stdout: "SEARCH_OK\n{}\nSEARCH_DONE", stderr: "" };
+			});
+
+			await Promise.all([
+				runSearchScript(
+					"/usr/bin/python3",
+					SEARCH_SCRIPT,
+					{ query: "a", max_results: 5 },
+					30_000,
+					undefined,
+					exec as unknown as ExecHandler,
+				),
+				runSearchScript(
+					"/usr/bin/python3",
+					SEARCH_SCRIPT,
+					{ query: "b", max_results: 5 },
+					30_000,
+					undefined,
+					exec as unknown as ExecHandler,
+				),
+			]);
+
+			assert.equal(dirs.length, 2);
+			assert.notEqual(dirs[0], dirs[1], "concurrent calls should produce different temp dirs");
+		});
+
+		describe("startup stale cleanup", () => {
+			it("(D) startup stale cleanup removes orphaned temp dirs older than 1 hour", async () => {
+				// Create a stale temp dir (mtime 2 hours ago)
+				const staleDir = fs.mkdtempSync(path.join(TEST_RUN_DIR, "search-"));
+				const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+				fs.utimesSync(staleDir, twoHoursAgo, twoHoursAgo);
+				assert.ok(fs.existsSync(staleDir), "stale dir should exist before cleanup");
+
+				cleanupStaleTempDirs();
+
+				assert.ok(!fs.existsSync(staleDir), "stale temp dir should be removed");
+			});
+
+			it("(D) startup stale cleanup preserves recent temp dirs", async () => {
+				// Create a recent temp dir
+				const recentDir = fs.mkdtempSync(path.join(TEST_RUN_DIR, "search-"));
+				assert.ok(fs.existsSync(recentDir), "recent dir should exist before cleanup");
+
+				cleanupStaleTempDirs();
+
+				assert.ok(fs.existsSync(recentDir), "recent temp dir should be preserved");
+
+				// Clean up after test
+				fs.rmSync(recentDir, { recursive: true, force: true });
+			});
+
+			it("(D) startup stale cleanup preserves non-temp files", async () => {
+				// Create a non-temp file at the root of RUN_DIR
+				const nonTempFile = path.join(TEST_RUN_DIR, ".gitkeep");
+				if (!fs.existsSync(TEST_RUN_DIR)) {
+					fs.mkdirSync(TEST_RUN_DIR, { recursive: true });
+				}
+				fs.writeFileSync(nonTempFile, "", "utf-8");
+				assert.ok(fs.existsSync(nonTempFile), ".gitkeep should exist before cleanup");
+
+				cleanupStaleTempDirs();
+
+				assert.ok(fs.existsSync(nonTempFile), "non-temp files should be preserved");
+
+				// Clean up after test
+				fs.rmSync(nonTempFile, { force: true });
+			});
+		});
 	});
 });
 

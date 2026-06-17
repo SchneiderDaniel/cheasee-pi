@@ -14,13 +14,14 @@
 - **Result cache** — Same query+maxResults returns cached result within 5-minute TTL
 - **Error signaling via throw** — Errors (empty query, venv setup failure, search execution failure, parse failure) propagate as thrown exceptions per the extension framework contract, ensuring the LLM receives proper `isError` signaling
 - **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation
+- **Concurrency-safe isolation** — Each `web_search` call uses `fs.mkdtempSync` to create a unique temp directory, eliminating file races under concurrent calls
 
 ## How it works
 
 1. The LLM calls `web_search` with a query and optional maxResults
 2. The extension validates the query (rejects empty queries via thrown error)
 3. **Cache check** — If the same query+maxResults was already searched within 5 minutes, the cached result is returned without re-running the subprocess
-4. The extension writes the Python script and config to `ignore/web-search/` temp files
+4. The extension writes the Python script and config to a per-call isolated temp directory (`ignore/web-search/search-<random>/`), preventing cross-contamination between concurrent searches
 5. The script is executed via `bash -c` using `pi.exec`
 6. The Python script uses `ddgs.DDGS().text(query, max_results=N, backend="auto")` to perform the search
 7. Results are parsed from the `SEARCH_OK`/`SEARCH_DONE` delimited output

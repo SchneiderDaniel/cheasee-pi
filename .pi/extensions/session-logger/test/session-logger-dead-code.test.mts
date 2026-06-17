@@ -33,3 +33,20 @@ describe("recoverMissingReports dead code removal", () => {
 		assert.strictEqual(typeof mod.generateMissingReports, "function");
 	});
 });
+
+describe("beginSessionLoggerSession dead code removal", () => {
+	it("should NOT be exported from index.ts (was dead code — use beginSession from pipeline.ts instead)", async () => {
+		const mod = await import("../index.ts");
+		const modAny = mod as Record<string, unknown>;
+		assert.strictEqual(
+			typeof modAny.beginSessionLoggerSession,
+			"undefined",
+			"beginSessionLoggerSession must be removed — use beginSession from pipeline.ts instead",
+		);
+	});
+
+	it("beginSession should still be importable from pipeline.ts (surviving function, no regression)", async () => {
+		const mod = await import("../pipeline.ts");
+		assert.strictEqual(typeof mod.beginSession, "function");
+	});
+});

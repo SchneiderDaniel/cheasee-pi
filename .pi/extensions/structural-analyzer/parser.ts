@@ -10,13 +10,10 @@
  * When stderr is non-empty with any exit code, it's treated as an error
  * (exit code 1 with non-empty stderr means ast-grep encountered an issue).
  *
- * NOTE: truncateSnippet uses String.slice(0, 119) which operates on UTF-16
- * code units, not code points. Characters outside the Basic Multilingual Plane
- * (e.g., emoji) could be mis-split. This is a documented limitation — the
- * codebase currently does not contain grapheme cluster characters in snippets.
  */
 
 import type { SgMatch, SgResult, ExecResultResponse } from "./types.ts";
+import { truncateLine } from "@earendil-works/pi-coding-agent";
 
 /** Maximum results to return inline before truncating for streaming. */
 export const STREAM_THRESHOLD = 100;
@@ -139,20 +136,6 @@ export function interpretSgExecResult(
 }
 
 /**
- * Truncate a snippet to 120 characters.
- * If the string exceeds 120 chars, truncate to 119 chars and append '…' (120 total).
- *
- * NOTE: Uses String.slice() operating on UTF-16 code units, not code points.
- * Characters outside the BMP (emoji, etc.) may be mis-split. This is a
- * documented limitation — see module docstring for details.
- */
-export function truncateSnippet(text: string): string {
-	if (!text) return "";
-	if (text.length <= 120) return text;
-	return text.slice(0, 119) + "…";
-}
-
-/**
  * Parse raw ast-grep JSONL output into SgResult.
  *
  * ast-grep --json=stream outputs one JSON object per line (NDJSON).
@@ -188,7 +171,7 @@ export function parseSgOutput(raw: string): SgResult {
 		results.push({
 			file: tag.file,
 			lines: linesStr,
-			snippet: truncateSnippet(tag.text),
+			snippet: truncateLine(tag.text, 120).text,
 		});
 	}
 

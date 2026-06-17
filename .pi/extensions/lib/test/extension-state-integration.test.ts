@@ -20,10 +20,11 @@ import { tmpdir } from "node:os";
 import { createExtensionStateStore } from "../extension-state.ts";
 
 // Phase 3: Both extensions now use ExtensionState instead of duplicated writeExtState
+import { beginSession } from "../../session-logger/pipeline.ts";
 import {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
-	beginSessionLoggerSession,
+	getSessionLoggerState,
 } from "../../session-logger/index.ts";
 
 import { getSessionAdviceState, splitArgs } from "../../session-advice/index.ts";
@@ -86,38 +87,52 @@ describe("ExtensionState integration — session-logger", () => {
 		assert.equal(gate.enabledForNextSession, true);
 	});
 
-	it("beginSessionLoggerSession applies enabledForNextSession to sessionEnabled", () => {
+	it("beginSession applies enabledForNextSession to sessionEnabled", () => {
 		const gate = createSessionLoggerGate(true);
 		// First session
-		assert.equal(beginSessionLoggerSession(gate), true);
+		assert.equal(beginSession(gate), true);
 		// Toggle off for next session
 		toggleSessionLoggerGate(gate, "off");
 		assert.equal(gate.sessionEnabled, true); // Current session still on
 		// Next session starts
-		assert.equal(beginSessionLoggerSession(gate), false);
+		assert.equal(beginSession(gate), false);
 		assert.equal(gate.sessionEnabled, false);
+	});
+
+	it("getSessionLoggerState returns correct current session state", () => {
+		const gate = createSessionLoggerGate(true);
+		beginSession(gate);
+		assert.equal(getSessionLoggerState(gate), true);
+	});
+
+	it("getSessionLoggerState with null gate returns null", () => {
+		assert.equal(getSessionLoggerState(null), null);
+	});
+
+	it("getSessionLoggerState with undefined gate returns null", () => {
+		assert.equal(getSessionLoggerState(undefined), null);
 	});
 
 	it("session-logger toggle lifecycle: enabled → off → next session disabled", () => {
 		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate);
+		beginSession(gate);
 		assert.equal(gate.sessionEnabled, true);
 
 		toggleSessionLoggerGate(gate, "off");
 		assert.equal(gate.enabledForNextSession, false);
 		assert.equal(gate.sessionEnabled, true); // Current session persists
 
-		beginSessionLoggerSession(gate);
+		beginSession(gate);
 		assert.equal(gate.sessionEnabled, false); // Next session reflects toggle
 	});
 
 	it("re-enables logging only when a later session starts", () => {
 		const gate = createSessionLoggerGate(false);
-		assert.equal(beginSessionLoggerSession(gate), false);
+		assert.equal(beginSession(gate), false);
 		assert.equal(toggleSessionLoggerGate(gate, "on"), true);
 		assert.equal(gate.sessionEnabled, false);
 
-		assert.equal(beginSessionLoggerSession(gate), true);
+		assert.equal(beginSession(gate), true);
 		assert.equal(gate.sessionEnabled, true);
 	});
 });

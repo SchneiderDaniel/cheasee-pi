@@ -33,11 +33,6 @@ export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string):
 	return gate.enabledForNextSession;
 }
 
-export function beginSessionLoggerSession(gate: SessionLoggerGate): boolean {
-	gate.sessionEnabled = gate.enabledForNextSession;
-	return gate.sessionEnabled;
-}
-
 /**
  * Extension entry point.
  * Registers the /session-logger command and wires event handlers
