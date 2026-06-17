@@ -33,11 +33,6 @@ export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string):
 	return gate.enabledForNextSession;
 }
 
-export function beginSessionLoggerSession(gate: SessionLoggerGate): boolean {
-	gate.sessionEnabled = gate.enabledForNextSession;
-	return gate.sessionEnabled;
-}
-
 /**
  * Get the effective session-logger state for the current session.
  * Returns `sessionEnabled` from the gate, or `null` if gate is null/undefined.

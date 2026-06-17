@@ -13,7 +13,6 @@ import { describe, it } from "node:test";
 import defaultExport, {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
-	beginSessionLoggerSession,
 	getSessionLoggerState,
 	generateMissingReports,
 } from "../index.ts";
@@ -279,18 +278,6 @@ describe("index.ts — named exports", () => {
 		const gate = createSessionLoggerGate(true);
 		const result = toggleSessionLoggerGate(gate, "off");
 		assert.strictEqual(result, false);
-	});
-
-	it("beginSessionLoggerSession is a function and copies enabledForNextSession", () => {
-		assert.strictEqual(
-			typeof beginSessionLoggerSession,
-			"function",
-			"beginSessionLoggerSession should be a function",
-		);
-		const gate = createSessionLoggerGate();
-		const result = beginSessionLoggerSession(gate);
-		assert.strictEqual(result, true);
-		assert.strictEqual(gate.sessionEnabled, true);
 	});
 
 	it("getSessionLoggerState returns sessionEnabled when gate is provided", () => {

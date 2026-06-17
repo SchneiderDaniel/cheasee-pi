@@ -13,10 +13,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 // Integration: refactored extensions now use ExtensionState instead of inline file I/O
+import { beginSession } from "../session-logger/pipeline.ts";
 import {
 	createSessionLoggerGate,
 	toggleSessionLoggerGate,
-	beginSessionLoggerSession,
 	getSessionLoggerState,
 } from "../session-logger/index.ts";
 import { splitArgs } from "../session-advice/index.ts";
@@ -477,7 +477,7 @@ describe("ExtensionState — edge cases", () => {
 describe("Integration — session-logger with ExtensionState", () => {
 	it("getSessionLoggerState returns boolean for a valid gate", () => {
 		const gate = createSessionLoggerGate(true);
-		beginSessionLoggerSession(gate);
+		beginSession(gate);
 		assert.strictEqual(getSessionLoggerState(gate), true);
 	});
 
@@ -522,7 +522,7 @@ describe("Integration — session-logger with ExtensionState", () => {
 
 	it("gate lifecycle with ExtensionState: off after next session (full integration)", async () => {
 		const gate = createSessionLoggerGate(true);
-		assert.strictEqual(beginSessionLoggerSession(gate), true);
+		assert.strictEqual(beginSession(gate), true);
 
 		// Toggle off - persists to ExtensionState
 		const enabled = toggleSessionLoggerGate(gate, "off");
@@ -537,7 +537,7 @@ describe("Integration — session-logger with ExtensionState", () => {
 		assert.strictEqual(gate.enabledForNextSession, false);
 
 		// After next session begins
-		assert.strictEqual(beginSessionLoggerSession(gate), false);
+		assert.strictEqual(beginSession(gate), false);
 		await state.set("logger", false);
 		assert.strictEqual(await state.get("logger"), false);
 	});
