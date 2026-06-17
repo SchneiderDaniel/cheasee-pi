@@ -9,7 +9,7 @@
  * - Result cache keyed by (pattern, language, cwd)
  * - Language auto-detect from project files when language param omitted
  * - Streaming support: truncates large result sets (>100 matches)
- * - Binary auto-detection (ast-grep -> sg fallback)
+ * - Binary auto-detection via promise caching (race-condition-free)
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -22,14 +22,32 @@ import { validatePattern } from "./validate.ts";
 import { renderStructuralSearchResult } from "./renderer.ts";
 
 export default function structuralAnalyzer(pi: ExtensionAPI): void {
-	// Lazy async binary detection — cached after first call
-	let sgBinary: string | null = null;
+	// Lazy async binary detection — cached via shared promise (race-condition-free)
+	// All concurrent callers await the same promise, so only one version check runs.
+	// On failure, the promise is reset so the next caller retries (transient recovery).
+	let binaryPromise: Promise<string> | null = null;
 
-	async function getSgBinary(): Promise<string> {
-		if (sgBinary) return sgBinary;
-		const result = await pi.exec("ast-grep", ["--version"], { timeout: 5_000 });
-		sgBinary = result.code === 0 ? "ast-grep" : "sg";
-		return sgBinary;
+	function getSgBinary(): Promise<string> {
+		if (binaryPromise) return binaryPromise;
+
+		binaryPromise = pi
+			.exec("ast-grep", ["--version"], { timeout: 5_000 })
+			.then((result) => {
+				if (result.code !== 0) {
+					throw new Error(
+						"ast-grep is not installed or not working. " +
+							"Install it with: npm i -g @ast-grep/cli",
+					);
+				}
+				return "ast-grep";
+			})
+			.catch((err: unknown) => {
+				// Reset so next caller retries (transient failure recovery)
+				binaryPromise = null;
+				throw err;
+			});
+
+		return binaryPromise;
 	}
 
 	pi.registerTool({
