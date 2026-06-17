@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
+import type { MessageConnection } from "vscode-jsonrpc";
 import type { LspPublishDiagnosticsParams, LspDiagnosticData } from "./lib/lsp-types.ts";
 import { isLspPublishDiagnosticsParams, isLspDiagnosticData } from "./lib/lsp-types.ts";
 import type { LspDiagnostic, ServerMapping, AuditResult } from "./types.ts";
@@ -32,7 +33,7 @@ const DIAG_WAIT_TIMEOUT_MS = 30_000;
 interface JsonRpcModule {
 	StreamMessageReader: new (stream: NodeJS.ReadableStream) => unknown;
 	StreamMessageWriter: new (stream: NodeJS.WritableStream) => unknown;
-	createMessageConnection: (reader: unknown, writer: unknown) => unknown;
+	createMessageConnection: (reader: unknown, writer: unknown) => MessageConnection;
 }
 
 /** Cached jsonRpcModule inside function scope — eliminates C4 P1 */
@@ -147,7 +148,7 @@ export async function auditFileGroup(
 	}
 
 	let child: ChildProcess | null = null;
-	let connection: any = null;
+	let connection: MessageConnection | null = null;
 
 	try {
 		// Quick pre-check: is the LSP binary available?
@@ -196,8 +197,9 @@ export async function auditFileGroup(
 		connection = jsonRpcModule!.createMessageConnection(reader, writer);
 
 		// Capture connection-level errors (e.g. write to destroyed stream)
-		connection.onError((err: Error) => {
-			errors.push(`LSP connection error (${mapping.command}): ${err.message || String(err)}`);
+		// onError emits [Error, Message | undefined, number | undefined] tuple
+		connection.onError(([err]: [Error, unknown, number | undefined]) => {
+			errors.push(`LSP connection error (${mapping.command}): ${err?.message || String(err)}`);
 		});
 
 		// Collect diagnostics
@@ -245,8 +247,15 @@ export async function auditFileGroup(
 			return { diagnostics: [], errors, note: "" };
 		}
 
-		// Send initialized notification
-		connection.sendNotification("initialized", {});
+		// Send initialized notification — awaited to prevent unhandled promise rejection
+		try {
+			await connection!.sendNotification("initialized", {});
+		} catch (err: unknown) {
+			errors.push(
+				`Failed to send initialized notification: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			return { diagnostics: [], errors, note: "" };
+		}
 
 		// Open each file with didOpen
 		for (const file of files) {
@@ -259,16 +268,26 @@ export async function auditFileGroup(
 			const content = await readFile(fullPath, "utf-8");
 			const langId = languageIdForExtension(file.slice(file.lastIndexOf(".")).toLowerCase());
 			const uri = `file://${fullPath}`;
-			openedUris.add(uri);
 
-			connection.sendNotification("textDocument/didOpen", {
-				textDocument: {
-					uri,
-					languageId: langId,
-					version: 1,
-					text: content,
-				},
-			});
+			// Send didOpen — awaited to prevent unhandled promise rejection.
+			// openedUris.add happens only after successful send so the polling loop
+			// only waits for files confirmed opened.
+			try {
+				await connection!.sendNotification("textDocument/didOpen", {
+					textDocument: {
+						uri,
+						languageId: langId,
+						version: 1,
+						text: content,
+					},
+				});
+				openedUris.add(uri);
+			} catch (err: unknown) {
+				errors.push(
+					`Failed to open ${file} via didOpen: ${err instanceof Error ? err.message : String(err)}`,
+				);
+				continue;
+			}
 		}
 
 		// Wait for publishDiagnostics notifications for all opened files
@@ -290,8 +309,12 @@ export async function auditFileGroup(
 
 		// Shutdown
 		await withTimeout(connection.sendRequest("shutdown", null), 10_000);
-		connection.sendNotification("exit", null);
-		connection.dispose();
+		// exit notification is fire-and-forget per LSP spec.
+		// Catch rejection silently — the server may already have disconnected.
+		connection!.sendNotification("exit", null).catch(() => {
+			/* exit is fire-and-forget per LSP spec */
+		});
+		connection!.dispose();
 
 		return { diagnostics: filtered, errors, note: "" };
 	} catch (err: unknown) {
