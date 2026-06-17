@@ -125,7 +125,11 @@ export function formatResults(
 		return "No results found.";
 	}
 
-	const lines = results.map((r, i) => `${i + 1}. [${r.title}](${r.url})\n   ${r.snippet}`);
+	const encodeUrl = (url: string) =>
+		url.replace(/[()]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+	const lines = results.map(
+		(r, i) => `${i + 1}. [${r.title}](${encodeUrl(r.url)})\n   ${r.snippet}`,
+	);
 
 	return `Search results:\n\n${lines.join("\n\n")}`;
 }
