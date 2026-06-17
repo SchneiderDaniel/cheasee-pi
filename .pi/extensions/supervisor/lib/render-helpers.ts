@@ -3,8 +3,35 @@
 // Separated from lib/formatting.ts to avoid coupling pure string
 // formatting with TUI component dependencies (Container, Text, etc.).
 
-import { Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Container } from "@earendil-works/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+
+/**
+ * Render a thinking block (markdown content with thinkingText color + italic styling)
+ * to match Pi's native assistant message thinking rendering.
+ *
+ * Creates a `Markdown` child with a `DefaultTextStyle` that applies `thinkingText`
+ * color and italic styling, identical to how Pi's `assistant-message.js` renders
+ * thinking traces.
+ *
+ * @param container - The TUI container to add children to (mutated in place)
+ * @param text      - The thinking content (markdown-formatted text)
+ * @param theme     - Theme object with a `fg` method matching TUI conventions
+ */
+export function renderThinkingBlock(
+	container: Container,
+	text: string,
+	theme: { fg: (color: string, text: string) => string },
+): void {
+	const mdTheme = getMarkdownTheme();
+	container.addChild(
+		new Markdown(text, 1, 1, mdTheme, {
+			color: (t: string) => theme.fg("thinkingText", t),
+			italic: true,
+		}),
+	);
+}
 
 /**
  * Render a list of text lines into a container, skipping empty/whitespace-only lines.

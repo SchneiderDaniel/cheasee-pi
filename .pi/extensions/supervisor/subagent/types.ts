@@ -53,6 +53,8 @@ export interface SubagentDetails {
 	agentTokenBudget?: number;
 	/** Whether the session was compacted (context truncated) */
 	compacted?: boolean;
+	/** Thinking output from the subagent, separate from result text */
+	thinkingOutput?: string;
 }
 
 /** Text content block for AgentToolResult */

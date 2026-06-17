@@ -5,16 +5,43 @@
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/render-helpers.test.mts
  */
 
-import { describe, it } from "node:test";
+import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { Container, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { renderTextLines } from "../lib/render-helpers.ts";
+import { Container, Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 
 // ─── Fixtures ────────────────────────────────────────────────────
 
 const mockTheme = {
 	fg: (_color: string, text: string) => text,
 };
+
+/** Tracking theme that records fg() calls */
+function makeTrackingTheme() {
+	const calls: Array<{ color: string; text: string }> = [];
+	const theme = {
+		fg: (color: string, text: string) => {
+			calls.push({ color, text });
+			return text;
+		},
+	};
+	return { theme, calls };
+}
+
+/**
+ * Preserve ANSI codes for italic verification.
+ */
+function renderRaw(container: Container, width = 80): string[] {
+	return container.render(width);
+}
+
+/**
+ * Check if any line contains italic ANSI code (\x1b[3m).
+ */
+function hasItalic(lines: string[]): boolean {
+	return lines.some((l) => l.includes("\x1b[3m"));
+}
 
 /** Strip ANSI escape sequences from a string */
 function stripAnsi(s: string): string {
@@ -120,5 +147,96 @@ describe("renderTextLines", () => {
 		const styled = mockTheme.fg("dim", "hello world");
 		const wrapped = [...wrapTextWithAnsi(styled, 80)];
 		assert.deepEqual(wrapped, ["hello world"]);
+	});
+});
+
+// ─── Phase 2: renderThinkingBlock ───────────────────────────────
+
+describe("renderThinkingBlock", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("creates a Markdown child with thinkingText + italic DefaultTextStyle", () => {
+		const { theme } = makeTrackingTheme();
+		const c = new Container();
+		renderThinkingBlock(c, "hello thinking", theme);
+		const children = (c as any).children || [];
+		assert.ok(
+			children.some((child: any) => child instanceof Markdown),
+			"should add a Markdown child",
+		);
+	});
+
+	it("uses theme.fg('thinkingText', …) via DefaultTextStyle", () => {
+		const { theme, calls } = makeTrackingTheme();
+		const c = new Container();
+		renderThinkingBlock(c, "test text", theme);
+		// DefaultTextStyle.color function is called per-text-element during render
+		const raw = renderRaw(c);
+		assert.ok(
+			calls.some((call) => call.color === "thinkingText"),
+			`expected "thinkingText" call, got: ${JSON.stringify(calls)}`,
+		);
+	});
+
+	it("passes italic: true to Markdown DefaultTextStyle", () => {
+		const c = new Container();
+		renderThinkingBlock(c, "italic text", mockTheme);
+		const children = (c as any).children || [];
+		const md = children.find((child: any) => child instanceof Markdown);
+		assert.ok(md, "should have a Markdown child");
+		assert.equal(md.defaultTextStyle?.italic, true, "DefaultTextStyle.italic should be true");
+	});
+
+	it("appends to existing children", () => {
+		const c = new Container();
+		c.addChild(new Text("existing", 1, 0));
+		renderThinkingBlock(c, "new thinking", mockTheme);
+		const lines = renderStripped(c);
+		assert.ok(
+			lines.some((l) => l.includes("existing")),
+			"should contain existing text",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("new thinking")),
+			"should contain thinking text",
+		);
+	});
+
+	it("long thinking text wraps at terminal width (Markdown handles wrapping)", () => {
+		const c = new Container();
+		const longText = "a".repeat(200);
+		renderThinkingBlock(c, longText, mockTheme);
+		const lines = renderRaw(c, 20);
+		// Each line should be ≤ 20 chars (wrapped)
+		for (const line of lines) {
+			const stripped = line.replace(/\x1b\[\d+m/g, "");
+			// Allow first/last lines that may have padding
+			if (stripped.trim())
+				assert.ok(
+					stripped.trim().length <= 20,
+					`expected line ≤20 chars, got: "${stripped}" (${stripped.trim().length})`,
+				);
+		}
+	});
+
+	it("empty string renders as Markdown (not skipped)", () => {
+		const c = new Container();
+		renderThinkingBlock(c, "", mockTheme);
+		const children = (c as any).children || [];
+		assert.ok(
+			children.some((child: any) => child instanceof Markdown),
+			"should add Markdown child even for empty string",
+		);
+	});
+
+	it("does not mutate theme object", () => {
+		const originalTheme = { fg: (_c: string, t: string) => t };
+		const frozen = Object.freeze({ ...originalTheme });
+		const c = new Container();
+		renderThinkingBlock(c, "test", frozen);
+		const children = (c as any).children || [];
+		assert.equal(children.length, 1, "should add exactly one child");
 	});
 });

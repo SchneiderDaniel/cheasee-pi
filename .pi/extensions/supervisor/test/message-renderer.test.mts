@@ -31,6 +31,7 @@ function makeDetails(overrides: Partial<SupervisorMessageDetails> = {}): Supervi
 
 const mockTheme = {
 	fg: (color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 };
 
@@ -730,5 +731,344 @@ describe("summary renderer (createSummaryRenderer) — no regressions", () => {
 		const message = { content: "## ✅ Success message\n\nDetails" };
 		const result = renderer(message, {}, mockTheme);
 		assert.ok(result instanceof Container, "should return Container");
+	});
+});
+
+// ─── Phase 5: Tool call result — thinking + separator ───────────
+
+/** Create a message with toolCallResult details */
+function makeToolCallMessage(tc: Record<string, unknown>) {
+	return {
+		details: { toolCallResult: tc },
+	};
+}
+
+describe("tool call result — thinking and separator", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("both resultText and thinking present → separator label between them", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "ls",
+			resultText: "file1.txt\nfile2.txt",
+			thinking: "I ran ls to list files",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		// Check all content present in correct order
+		const outputIdx = lines.findIndex((l) => l.includes("file1.txt"));
+		const thinkingLabelIdx = lines.findIndex((l) => l.includes("── Thinking ──"));
+		const thinkingContentIdx = lines.findIndex((l) => l.includes("I ran ls"));
+		assert.notEqual(outputIdx, -1, "should have resultText content");
+		assert.notEqual(thinkingLabelIdx, -1, "should have thinking separator label");
+		assert.notEqual(thinkingContentIdx, -1, "should have thinking content");
+		assert.ok(outputIdx < thinkingLabelIdx, "resultText should appear before thinking separator");
+		assert.ok(
+			thinkingLabelIdx < thinkingContentIdx,
+			"thinking separator should appear before thinking content",
+		);
+	});
+
+	it("only resultText, no thinking → no separator, no thinking block", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "ls",
+			resultText: "file1.txt",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("file1.txt")),
+			"should have resultText",
+		);
+		assert.ok(
+			!lines.some((l) => l.includes("── Thinking ──")),
+			"should NOT have thinking separator",
+		);
+	});
+
+	it("only thinking, no resultText → thinking block without separator label", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "ls",
+			thinking: "just thinking",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("just thinking")),
+			"should have thinking content",
+		);
+		assert.ok(
+			!lines.some((l) => l.includes("── Thinking ──")),
+			"should NOT have thinking separator when no resultText",
+		);
+	});
+
+	it("neither resultText nor thinking → no extra content beyond header/stats", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "ls",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		// Should have header and stats (if any), but no result or thinking lines
+		assert.ok(
+			lines.some((l) => l.includes("bash")),
+			"should have header with tool name",
+		);
+		assert.ok(!lines.some((l) => l.includes("file1")), "should NOT have resultText content");
+		assert.ok(!lines.some((l) => l.includes("thinking")), "should NOT have thinking content");
+	});
+
+	it("error tool call with both resultText and thinking → both render correctly", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "invalid",
+			resultText: "error output",
+			thinking: "I tried to run invalid command",
+			isError: true,
+			errorReason: "command not found",
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("error output")),
+			"should have resultText",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("I tried to run")),
+			"should have thinking content",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("── Thinking ──")),
+			"should have thinking separator",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("command not found")),
+			"should have error reason",
+		);
+	});
+
+	it("thinking renders via Markdown with renderThinkingBlock (italic flag on Markdown)", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "bash",
+			args: "ls",
+			thinking: "**bold** and *italic* thinking",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const children = (c as any).children || [];
+		const mdChild = children.find((child: any) => child instanceof Markdown);
+		assert.ok(mdChild, "should have a Markdown child for thinking");
+		assert.equal(
+			(mdChild as any).defaultTextStyle?.italic,
+			true,
+			"Markdown DefaultTextStyle.italic should be true",
+		);
+		assert.ok(
+			(mdChild as any).defaultTextStyle?.color,
+			"Markdown DefaultTextStyle.color should be a function",
+		);
+	});
+
+	it("resultText with ANSI-like patterns still highlights correctly", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			name: "grep",
+			args: "-r pattern",
+			resultText: "3 matches\n1. src/file.ts:42:hello\n2. src/other.ts:10:world",
+			isError: false,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("3 matches")),
+			"should show match count",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("file.ts:42:hello")),
+			"should show file:line entry",
+		);
+	});
+});
+
+// ─── Phase 6: Expanded view thinking uses renderThinkingBlock ──────
+
+describe("expanded view — thinking styling", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("thinking section uses Markdown with thinkingText + italic (not renderTextLines)", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "I think therefore\nI am",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const children = (c as any).children || [];
+		// Find the Markdown child that corresponds to thinking (after the "── Thinking ──" Text child)
+		const thinkingLabelIdx = children.findIndex(
+			(child: any) =>
+				child instanceof Text && child.render(80).some((l: string) => l.includes("Thinking")),
+		);
+		if (thinkingLabelIdx >= 0) {
+			const mdChild = children
+				.slice(thinkingLabelIdx + 1)
+				.find((child: any) => child instanceof Markdown);
+			assert.ok(mdChild, "Markdown child should follow thinking label");
+			assert.equal(
+				(mdChild as any).defaultTextStyle?.italic,
+				true,
+				"Markdown DefaultTextStyle.italic should be true",
+			);
+			assert.ok(
+				(mdChild as any).defaultTextStyle?.color,
+				"Markdown DefaultTextStyle.color should be a function",
+			);
+		} else {
+			// Fallback: just find any Markdown child with italic
+			const mdChild = children.find(
+				(child: any) =>
+					child instanceof Markdown && (child as any).defaultTextStyle?.italic === true,
+			);
+			assert.ok(mdChild, "should have a Markdown child with italic: true for thinking");
+		}
+	});
+
+	it("thinking header label still present in expanded view", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "some thinking",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("Thinking")),
+			"should have Thinking header label",
+		);
+	});
+
+	it("thinking content text still present in expanded view", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "deep thoughts here",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("deep thoughts here")),
+			"should have thinking content",
+		);
+	});
+
+	it("thinkingOutput contains markdown formatting → renders as formatted text", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "## Heading\n\n- List item\n\n**bold**",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		// Markdown rendering should not show raw markdown syntax
+		assert.ok(
+			lines.some((l) => l.includes("Heading")),
+			"should render heading content",
+		);
+	});
+
+	it("thinkingOutput is empty string → header present, no crash", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("Thinking")),
+			"should still show thinking header",
+		);
+	});
+
+	it("hasThinking=false, thinkingOutput undefined → section skipped", () => {
+		const details = makeDetails({
+			hasThinking: false,
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			!lines.some((l) => l.includes("── Thinking ──")),
+			"should NOT show thinking section when hasThinking is false",
+		);
+	});
+
+	it("collapsed view still omits thinking", () => {
+		const details = makeDetails({
+			hasThinking: true,
+			thinkingOutput: "secret thinking",
+		});
+		const c = renderMessage(details, undefined, false) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			!lines.some((l) => l.includes("secret thinking")),
+			"collapsed view should NOT show thinking content",
+		);
+		assert.ok(
+			!lines.some((l) => l.includes("── Thinking ──")),
+			"collapsed view should NOT show Thinking header",
+		);
+	});
+
+	it("regression: header, stats, task, textOutput, rawOutput sections unchanged", () => {
+		const details = makeDetails({
+			agentName: "regression-agent",
+			success: true,
+			model: "test-model",
+			durationMs: 5000,
+			taskPrompt: "some task",
+			textOutput: "## Result\n\noutput here",
+			hasRawOutput: true,
+			rawOutput: "raw content",
+		});
+		const c = renderMessage(details, undefined, true) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("regression-agent")),
+			"header should have agent name",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("── Task ──")),
+			"should have Task section",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("output here")),
+			"should have text output",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("── Raw Output ──")),
+			"should have raw output",
+		);
+		assert.ok(
+			lines.some((l) => l.includes("raw content")),
+			"should have raw content",
+		);
 	});
 });
