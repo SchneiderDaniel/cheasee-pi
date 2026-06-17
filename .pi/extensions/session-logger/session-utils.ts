@@ -9,7 +9,7 @@
 
 // ── Types ──
 
-export interface ModelChange {
+interface ModelChange {
 	time: string;
 	model: string;
 }

@@ -571,6 +571,7 @@ export function buildAgentResultEntry(
 		durationMs: result.durationMs,
 		tokenCount: result.tokenCount,
 		toolCount: result.toolCount,
+		failedToolCount: result.failedToolCount ?? undefined,
 		model,
 		errorOutput: result.errorOutput || undefined,
 	};
