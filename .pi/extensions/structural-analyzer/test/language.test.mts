@@ -107,6 +107,18 @@ describe("fileExists", () => {
 	});
 });
 
+describe("CONFIG_PRIORITY export removal", () => {
+	it("is not exported from the module", async () => {
+		// Dynamic import to inspect the module's export surface
+		const mod: Record<string, unknown> = await import("../language.ts");
+		assert.strictEqual(
+			"CONFIG_PRIORITY" in mod,
+			false,
+			"CONFIG_PRIORITY should not be a public export — it is only used internally by detectLanguage()",
+		);
+	});
+});
+
 describe("detectLanguage", () => {
 	it("returns 'typescript' when tsconfig.json exists", async () => {
 		let callCount = 0;

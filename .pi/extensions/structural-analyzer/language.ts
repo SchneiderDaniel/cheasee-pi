@@ -17,7 +17,7 @@
  */
 
 /** Project config files for language auto-detection, in priority order. */
-export const CONFIG_PRIORITY: Array<{ file: string; language: string }> = [
+const CONFIG_PRIORITY: Array<{ file: string; language: string }> = [
 	{ file: "sgconfig.yml", language: "" }, // special: parse languageGlobs from YAML
 	{ file: "tsconfig.json", language: "typescript" },
 	{ file: "pyproject.toml", language: "python" },
