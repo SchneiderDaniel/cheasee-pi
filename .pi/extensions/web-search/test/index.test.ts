@@ -12,6 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ExecFn, ExecResult } from "../types.ts";
 import webSearch, { formatResults } from "../index.ts";
+import { Value } from "typebox/value";
 
 // ── Mock exec helpers ──
 
@@ -104,6 +105,31 @@ describe("web-search extension entry point", () => {
 		assert.ok(Array.isArray(tool.promptGuidelines));
 		assert.ok(tool.promptGuidelines.length > 0);
 		assert.ok(tool.promptGuidelines.every((g: any) => typeof g === "string"));
+	});
+});
+
+// ===========================================================================
+// Schema validation — maxResults type safety
+// ===========================================================================
+
+describe("maxResults schema validation", () => {
+	it("(D) maxResults schema rejects fractional values", () => {
+		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
+		const maxResultsSchema = tool.parameters.properties.maxResults;
+		// Integer values pass
+		assert.ok(Value.Check(maxResultsSchema, 1));
+		assert.ok(Value.Check(maxResultsSchema, 10));
+		assert.ok(Value.Check(maxResultsSchema, 50));
+		// Fractional values fail
+		assert.equal(Value.Check(maxResultsSchema, 2.5), false);
+		assert.equal(Value.Check(maxResultsSchema, 0.1), false);
+		assert.equal(Value.Check(maxResultsSchema, -1.5), false);
+	});
+
+	it("(D) maxResults schema accepts the default value 10", () => {
+		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
+		const maxResultsSchema = tool.parameters.properties.maxResults;
+		assert.ok(Value.Check(maxResultsSchema, 10));
 	});
 });
 
