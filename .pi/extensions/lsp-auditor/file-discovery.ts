@@ -27,8 +27,8 @@ export function extractModifiedFiles(gitDiffOutput: string, _worktreePath: strin
 		if (!file) continue;
 
 		const resolved = file.replace(/^(\.\/)+/, "");
-		// Path traversal prevention
-		if (resolved.includes("..")) continue;
+		// Path traversal prevention — block only ".." as path component
+		if (/\.\.(\/|$)/.test(resolved)) continue;
 		if (resolved.startsWith("/")) continue;
 
 		files.push(resolved);

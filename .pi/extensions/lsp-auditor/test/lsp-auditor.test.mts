@@ -335,8 +335,21 @@ describe("extractModifiedFiles", () => {
 		assert.deepStrictEqual(extractModifiedFiles("", "/tmp/worktree"), []);
 	});
 
-	it("path with .. → filtered out", () => {
+	it("path traversal pattern ../ → filtered out", () => {
 		const result = extractModifiedFiles("src/../etc/passwd\nvalid.ts", "/tmp/worktree");
+		assert.deepStrictEqual(result, ["valid.ts"]);
+	});
+
+	it("valid ..-bearing filenames are NOT filtered", () => {
+		const result = extractModifiedFiles(
+			"release..notes.ts\n..bar.ts\nfoo..bar/baz.ts",
+			"/tmp/worktree",
+		);
+		assert.deepStrictEqual(result, ["release..notes.ts", "..bar.ts", "foo..bar/baz.ts"]);
+	});
+
+	it("trailing .. at end of line → filtered out (traversal risk)", () => {
+		const result = extractModifiedFiles("foo/bar..\nvalid.ts", "/tmp/worktree");
 		assert.deepStrictEqual(result, ["valid.ts"]);
 	});
 
