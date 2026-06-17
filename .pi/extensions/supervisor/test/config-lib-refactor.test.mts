@@ -70,11 +70,7 @@ import {
 import { extractAgentCommentBody, extractStructuredAuditOutput } from "../github/comment.ts";
 import { findIssueItem, getItemStatusName, findStatusOption } from "../github/project.ts";
 import { validateAgentResult, buildPipelineSummary } from "../pipeline/output.ts";
-import {
-	sendPipelineSummary,
-	sendAgentResultMessage,
-	sendPipelineError,
-} from "../pipeline/notifications.ts";
+import { sendPipelineSummary, sendPipelineError } from "../pipeline/notifications.ts";
 import { isStaleCheckpoint, readCheckpointFileFromPath } from "../pipeline/state-checkpoint.ts";
 import type { CheckpointName, SupervisorCheckpointState } from "../pipeline/state-checkpoint.ts";
 import type { AgentRunResult } from "../config/types.ts";
@@ -347,10 +343,6 @@ describe("config→lib refactor — consumer files (pipeline/)", () => {
 
 	it("pipeline/notifications.ts exports sendPipelineSummary", () => {
 		assert.equal(typeof sendPipelineSummary, "function");
-	});
-
-	it("pipeline/notifications.ts exports sendAgentResultMessage", () => {
-		assert.equal(typeof sendAgentResultMessage, "function");
 	});
 
 	it("pipeline/notifications.ts exports sendPipelineError", () => {

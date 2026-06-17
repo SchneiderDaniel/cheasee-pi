@@ -12,6 +12,7 @@ import { checkPrConflicts } from "../github/pr.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { runAgent } from "../agent/runner.ts";
 import { resolveTimeoutMs } from "../config/config.ts";
+import { convertAgentRunToToolResult } from "../session/result.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
@@ -158,23 +159,14 @@ export async function handlePostPipelineMerge(
 								`Developer conflict resolution: success=${devResult.success}`,
 							);
 
+							const subagentResult = convertAgentRunToToolResult(devResult, devTask);
+
 							pi.sendMessage({
 								customType: "supervisor",
 								content: `## Conflict Resolution: ${devResult.agentName} — ${devResult.success ? "SUCCESS" : "FAILED"}\n\n${devResult.output || devResult.textOutput || devResult.summaryLine}`,
 								display: true,
 								details: {
-									agentName: devResult.agentName,
-									success: devResult.success,
-									statusLabel: devResult.success ? "SUCCESS" : "FAILED",
-									toolCount: devResult.toolCount,
-									tokenCount: devResult.tokenCount,
-									durationMs: devResult.durationMs,
-									textOutput: devResult.textOutput,
-									summaryLine: devResult.summaryLine,
-									thinkingOutput: devResult.thinkingOutput,
-									hasThinking: !!devResult.thinkingOutput,
-									rawOutput: devResult.output,
-									hasRawOutput: true,
+									_subagentResult: subagentResult,
 								},
 							});
 

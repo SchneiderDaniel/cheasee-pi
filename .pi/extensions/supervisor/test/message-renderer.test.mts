@@ -1,6 +1,6 @@
 /**
- * Tests: message-renderer.ts — expanded/collapsed views + Markdown rendering
- * and task prompt section in expanded view with 50-line truncation.
+ * Tests: message-renderer.ts — _subagentResult-based rendering (new path)
+ * Replaces old SupervisorMessageDetails fallback tests.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/message-renderer.test.mts
@@ -8,24 +8,44 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { Container, Text, Spacer, type Component } from "@earendil-works/pi-tui";
-import { Markdown } from "@earendil-works/pi-tui";
+import { Container, Text, Markdown, type Component } from "@earendil-works/pi-tui";
 import { initTheme, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
-import type { SupervisorMessageDetails } from "../config/types.ts";
+import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
+import type { TextContent } from "../subagent/types.ts";
 
 // ─── Fixtures ────────────────────────────────────────────────────
 
-function makeDetails(overrides: Partial<SupervisorMessageDetails> = {}): SupervisorMessageDetails {
+function makeSubagentDetails(overrides: Partial<SubagentDetails> = {}): SubagentDetails {
 	return {
 		agentName: "test-agent",
 		success: true,
 		statusLabel: "SUCCESS",
-		toolCount: 0,
-		tokenCount: 0,
-		durationMs: 0,
-		summaryLine: "",
+		summaryLine: "Completed task",
+		model: "claude-sonnet-4",
+		inputTokens: 500,
+		outputTokens: 1000,
+		cacheRead: 200,
+		cacheWrite: 100,
+		cost: 0.0123,
+		turnCount: 3,
+		durationMs: 15000,
+		toolCalls: [],
+		toolResults: [],
+		taskPrompt: "Do the thing",
 		...overrides,
+	};
+}
+
+function makeSubagentResult(
+	details: SubagentDetails,
+	opts?: { outputText?: string },
+): AgentToolResult<SubagentDetails> {
+	return {
+		content: opts?.outputText
+			? [{ type: "text" as const, text: opts.outputText }]
+			: ([] as TextContent[]),
+		details,
 	};
 }
 
@@ -33,7 +53,19 @@ const mockTheme = {
 	fg: (color: string, text: string) => text,
 	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
+	italic: (text: string) => text,
 };
+
+/** Strip ANSI escape sequences */
+function stripAnsi(s: string): string {
+	return s.replace(/\x1b\[\d+m/g, "").replace(/\x1b\[0m/g, "");
+}
+
+/** Render any component to stripped lines */
+function renderStripped(component: Component, width = 80): string[] {
+	const raw = component.render(width);
+	return raw.map((line: string) => stripAnsi(line).trim());
+}
 
 /** Render a component to an array of stripped lines at given width */
 function renderAndStrip(component: Container | Text | Markdown, width = 80): string[] {
@@ -41,77 +73,86 @@ function renderAndStrip(component: Container | Text | Markdown, width = 80): str
 	return raw.map((line: string) => line.replace(/\x1b\[\d+m/g, "").replace(/\x1b\[0m/g, ""));
 }
 
-/** Call createMessageRenderer and get a Container result */
+/** Call createMessageRenderer with a _subagentResult message */
 function renderMessage(
-	details: SupervisorMessageDetails | undefined,
-	messageContent: string | undefined,
+	subagentResult: AgentToolResult<SubagentDetails> | undefined,
+	messageContent?: string,
 	expanded = false,
 	options?: any,
 ): Container | Text | Markdown | Component | undefined {
 	const pi = {} as any;
 	const renderer = createMessageRenderer(pi);
-	const message = {
-		content: messageContent,
-		...(details !== undefined ? { details } : {}),
-	};
+	const details = subagentResult !== undefined ? { _subagentResult: subagentResult } : undefined;
+	const message: Record<string, unknown> = {};
+	if (messageContent !== undefined) message.content = messageContent;
+	if (details !== undefined) message.details = details;
 	const result = renderer(message, options ?? { expanded }, mockTheme);
 	return result;
 }
 
-// ─── Phase 1: Collapsed view ─────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 1: Collapsed view
+// ═══════════════════════════════════════════════════════════════════
 
-describe("collapsed view (default expanded=false)", () => {
+describe("collapsed view (default expanded=false) — _subagentResult path", () => {
 	before(() => {
 		initTheme();
 	});
 
-	it("renders header line with agent name, status icon, and status text", () => {
-		const details = makeDetails({ agentName: "dev-agent", success: true });
-		const c = renderMessage(details, undefined) as Container;
+	it("returns Text component (collapsed view is single line)", () => {
+		const details = makeSubagentDetails({ agentName: "dev-agent" });
+		const result = makeSubagentResult(details, { outputText: "some output" });
+		const c = renderMessage(result, undefined, false);
+		assert.ok(c instanceof Text, "collapsed view should return Text");
+	});
+
+	it("shows agent name in output", () => {
+		const details = makeSubagentDetails({ agentName: "dev-agent", success: true });
+		const result = makeSubagentResult(details, { outputText: "done" });
+		const c = renderMessage(result, undefined, false) as Text;
 		const lines = renderAndStrip(c);
-		const headerLine = lines[0];
+		const header = lines.find((l) => l.includes("dev-agent"));
+		assert.ok(header, `header should contain agent name, got: ${JSON.stringify(lines)}`);
+	});
+
+	it("shows status icon for success", () => {
+		const details = makeSubagentDetails({ agentName: "dev-agent", success: true });
+		const result = makeSubagentResult(details, { outputText: "done" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const lines = renderAndStrip(c);
 		assert.ok(
-			headerLine.includes("dev-agent"),
-			`header should contain agent name, got: ${headerLine}`,
-		);
-		assert.ok(
-			headerLine.includes("✓") || headerLine.includes("SUCCESS"),
-			`header should show success, got: ${headerLine}`,
+			lines.some((l) => l.includes("✓") || l.includes("SUCCESS")),
+			`should show success indicator, got: ${JSON.stringify(lines)}`,
 		);
 	});
 
-	it("renders stats line (tools · tokens · duration) when metrics present", () => {
-		const details = makeDetails({ toolCount: 3, tokenCount: 1500, durationMs: 5000 });
-		const c = renderMessage(details, undefined) as Container;
+	it("shows token stats (input + output)", () => {
+		const details = makeSubagentDetails({
+			inputTokens: 500,
+			outputTokens: 1000,
+			summaryLine: "Done",
+		});
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
 		const lines = renderAndStrip(c);
-		const statsLine = lines.find(
-			(l) => l.includes("tools") || l.includes("tokens") || l.includes("s"),
-		);
-		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
+		const tokenLine = lines.find((l) => l.includes("↑500"));
+		assert.ok(tokenLine, `should show input tokens ↑500, got: ${JSON.stringify(lines)}`);
 	});
 
-	it("renders audit score when details.auditScore is set", () => {
-		const details = makeDetails({ auditScore: "5/6" });
-		const c = renderMessage(details, undefined) as Container;
-		const lines = renderAndStrip(c);
-		const auditLine = lines.find((l) => l.includes("Audit Score"));
-		assert.ok(auditLine, `expected audit score line, got: ${JSON.stringify(lines)}`);
+	it("shows summary line when present", () => {
+		const details = makeSubagentDetails({ summaryLine: "Done the thing" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		assert.ok(text.includes("Done the thing"), `should include summary, got: ${text}`);
 	});
 
-	it("renders summary line when details.summaryLine is set", () => {
-		const details = makeDetails({ summaryLine: "Done the thing" });
-		const c = renderMessage(details, undefined) as Container;
-		const lines = renderAndStrip(c);
-		const summaryLine = lines.find((l) => l.includes("Done the thing"));
-		assert.ok(summaryLine, `expected summary line, got: ${JSON.stringify(lines)}`);
-	});
-
-	it("does NOT render '── Thinking ──' header or thinking content", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("does NOT show '── Thinking ──' header in collapsed view", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "I think therefore I am",
 		});
-		const c = renderMessage(details, undefined) as Container;
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
 		const lines = renderAndStrip(c);
 		const thinkingHeader = lines.find((l) => l.includes("Thinking"));
 		assert.equal(
@@ -121,151 +162,130 @@ describe("collapsed view (default expanded=false)", () => {
 		);
 	});
 
-	it("does NOT render text output (neither emoji-styled Text nor Markdown component)", () => {
-		const details = makeDetails({ textOutput: "## Hello\nworld" });
-		const c = renderMessage(details, undefined) as Container;
+	it("does NOT show '── Output ──' header in collapsed view", () => {
+		const details = makeSubagentDetails();
+		const result = makeSubagentResult(details, { outputText: "## Hello\nworld" });
+		const c = renderMessage(result, undefined, false) as Text;
 		const lines = renderAndStrip(c);
-		const hasHello = lines.some((l) => l.includes("Hello"));
+		const outputHeader = lines.find((l) => l.includes("Output"));
 		assert.equal(
-			hasHello,
-			false,
-			`collapsed should NOT show text output, got: ${JSON.stringify(lines)}`,
-		);
-	});
-
-	it("does NOT render '── Raw Output ──' header or raw content", () => {
-		const details = makeDetails({
-			hasRawOutput: true,
-			rawOutput: "raw stuff here",
-		});
-		const c = renderMessage(details, undefined) as Container;
-		const lines = renderAndStrip(c);
-		const rawHeader = lines.find((l) => l.includes("Raw Output"));
-		assert.equal(
-			rawHeader,
+			outputHeader,
 			undefined,
-			`collapsed should NOT show raw output, got: ${JSON.stringify(lines)}`,
+			`collapsed should NOT show Output, got: ${JSON.stringify(lines)}`,
 		);
-	});
-
-	it("omits stats line entirely when tool/token/duration stats are zero", () => {
-		const details = makeDetails({ toolCount: 0, tokenCount: 0, durationMs: 0 });
-		const c = renderMessage(details, undefined) as Container;
-		const lines = renderAndStrip(c);
-		// Verify no line contains a stats-like pattern (tools/tokens/duration)
-		const statsPattern = /\btools?\b|\btokens?\b|\d+ms|\d+s$/;
-		const hasStatsLine = lines.some((l) => statsPattern.test(l.trim()));
-		assert.equal(hasStatsLine, false, `expected no stats line, got: ${JSON.stringify(lines)}`);
 	});
 });
 
-// ─── Phase 2: Expanded view ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2: Expanded view
+// ═══════════════════════════════════════════════════════════════════
 
-describe("expanded view (expanded=true)", () => {
+describe("expanded view (expanded=true) — _subagentResult path", () => {
 	before(() => {
 		initTheme();
 	});
 
-	it("renders header, stats, audit score, summary line (same as collapsed)", () => {
-		const details = makeDetails({
+	it("returns Container (expanded view has multiple sections)", () => {
+		const details = makeSubagentDetails({ agentName: "dev-agent" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true);
+		assert.ok(c instanceof Container, "expanded view should return Container");
+	});
+
+	it("renders header, stats, summary line (same as collapsed but as Container)", () => {
+		const details = makeSubagentDetails({
 			agentName: "dev-agent",
 			success: true,
-			model: "claude",
+			model: "claude-sonnet-4",
 			inputTokens: 500,
-			outputTokens: 500,
-			toolCount: 2,
+			outputTokens: 1000,
+			turnCount: 3,
 			durationMs: 3000,
-			auditScore: "4/5",
 			summaryLine: "Completed task",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(lines[0].includes("dev-agent"), "header should contain agent name");
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
-			lines.some((l) => l.includes("tools") || l.includes("model:")),
-			"should show stats",
+			lines.some((l) => l.includes("dev-agent")),
+			"header should contain agent name",
 		);
 		assert.ok(
-			lines.some((l) => l.includes("Audit Score")),
-			"should show audit score",
-		);
-		assert.ok(
-			lines.some((l) => l.includes("Completed task")),
-			"should show summary",
+			lines.some((l) => l.includes("↑500 ↓1.0K")),
+			"should show tokens",
 		);
 	});
 
-	it("renders '── Thinking ──' header and thinking content when hasThinking=true", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("renders '── Output ──' header and output content (thinkingOutput empty string → separate sections)", () => {
+		const details = makeSubagentDetails({ thinkingOutput: "" });
+		const result = makeSubagentResult(details, { outputText: "Here is the result" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		assert.ok(
+			lines.some((l) => l.includes("── Output ──")),
+			`expected Output header, got: ${JSON.stringify(lines)}`,
+		);
+	});
+
+	it("renders '── Thinking ──' header and thinking content when thinkingOutput present", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "I think therefore I am\nLine two",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		const thinkingHeader = lines.find((l) => l.includes("Thinking"));
 		assert.ok(thinkingHeader, `expected thinking header, got: ${JSON.stringify(lines)}`);
 		const thinkingContent = lines.find((l) => l.includes("I think therefore I am"));
 		assert.ok(thinkingContent, `expected thinking content, got: ${JSON.stringify(lines)}`);
 	});
 
-	it("renders text output through Markdown component (headings, lists, code fences)", () => {
-		const details = makeDetails({
-			textOutput: "## Hello\n\nThis is a **bold** statement.\n\n- Item 1\n- Item 2",
+	it("renders footer stats line with turns, tokens, model, duration", () => {
+		const details = makeSubagentDetails({
+			turnCount: 3,
+			inputTokens: 500,
+			outputTokens: 1000,
+			cacheRead: 200,
+			cacheWrite: 100,
+			cost: 0.0123,
+			model: "claude-sonnet-4",
+			durationMs: 15000,
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		// Markdown rendering: headings render without raw ##
-		const hasRawHash = lines.some((l) => l.includes("##"));
-		// It should render "Hello" without raw "##" prefix
-		assert.ok(
-			lines.some((l) => l.includes("Hello")),
-			`expected Hello in output, got: ${JSON.stringify(lines)}`,
-		);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		const footerLine = lines.find((l) => l.includes("turns") && l.includes("↑"));
+		assert.ok(footerLine, "should have footer stats line");
+		assert.ok(footerLine!.includes("3 turns"), "should show turn count");
+		assert.ok(footerLine!.includes("↑500 ↓1.0K"), "should show tokens");
+		assert.ok(footerLine!.includes("claude-sonnet-4"), "should show model");
+		assert.ok(footerLine!.includes("15s"), "should show duration");
 	});
 
-	it("renders '── Raw Output ──' header and raw content when hasRawOutput=true", () => {
-		const details = makeDetails({
-			hasRawOutput: true,
-			rawOutput: "some raw output here",
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+	it("does NOT render '── Raw Output ──' header (removed in new path)", () => {
+		const details = makeSubagentDetails();
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		const rawHeader = lines.find((l) => l.includes("Raw Output"));
-		assert.ok(rawHeader, `expected raw output header, got: ${JSON.stringify(lines)}`);
-		const rawContent = lines.find((l) => l.includes("some raw output"));
-		assert.ok(rawContent, `expected raw output content, got: ${JSON.stringify(lines)}`);
-	});
-
-	it("renders markdown code fences as formatted output (not raw backtick text)", () => {
-		const details = makeDetails({
-			textOutput: "```js\nconst x = 1;\n```",
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		// Code blocks render the content, not the raw backticks
-		const hasBackticks = lines.some((l) => l.includes("```"));
-		// Even if backticks show, code content should render
-		assert.ok(
-			lines.some((l) => l.includes("const")),
-			`expected code content, got: ${JSON.stringify(lines)}`,
-		);
+		assert.equal(rawHeader, undefined, "should NOT have Raw Output header");
 	});
 });
 
-// ─── Phase 2b: Task prompt in expanded view ─────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2b: Task prompt in expanded view
+// ═══════════════════════════════════════════════════════════════════
 
-describe("task prompt in expanded view", () => {
+describe("task prompt in expanded view — _subagentResult path", () => {
 	before(() => {
 		initTheme();
 	});
 
 	it("expanded view with task prompt shows ── Task ── header and content", () => {
-		const c = renderMessage(
-			makeDetails({ taskPrompt: "Build the feature" }),
-			undefined,
-			true,
-		) as Container;
-		const lines = renderAndStrip(c);
+		const details = makeSubagentDetails({ taskPrompt: "Build the feature" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("── Task ──")),
 			"should show Task header",
@@ -277,60 +297,20 @@ describe("task prompt in expanded view", () => {
 	});
 
 	it("collapsed view with task prompt does NOT show ── Task ── header", () => {
-		const c = renderMessage(
-			makeDetails({ taskPrompt: "Build the feature" }),
-			undefined,
-			false,
-		) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			!lines.some((l) => l.includes("── Task ──")),
-			"should NOT show Task header in collapsed view",
-		);
-	});
-
-	it("expanded view with undefined taskPrompt does not crash, no Task header", () => {
-		const c = renderMessage(makeDetails({ taskPrompt: undefined }), undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			!lines.some((l) => l.includes("── Task ──")),
-			"should NOT show Task header when taskPrompt is undefined",
-		);
-	});
-
-	it("expanded view with empty string taskPrompt shows header only", () => {
-		const c = renderMessage(makeDetails({ taskPrompt: "" }), undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			lines.some((l) => l.includes("── Task ──")),
-			"should show Task header even when content is empty",
-		);
-	});
-
-	it("task prompt of exactly 50 lines renders all lines without overflow notice", () => {
-		const fiftyLines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
-		const c = renderMessage(makeDetails({ taskPrompt: fiftyLines }), undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		for (let i = 1; i <= 50; i++) {
-			assert.ok(
-				lines.some((l) => l.includes(`line ${i}`)),
-				`should contain line ${i}`,
-			);
-		}
-		assert.ok(
-			!lines.some((l) => l.includes("more line")),
-			"should NOT show overflow notice for exactly 50 lines",
-		);
+		const details = makeSubagentDetails({ taskPrompt: "Build the feature" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false);
+		// Collapsed returns Text — verify full output string
+		const text = renderAndStrip(c as Text).join(" ");
+		assert.ok(!text.includes("── Task ──"), "should NOT show Task header in collapsed view");
 	});
 
 	it("task prompt of 75 lines truncates to 50 with overflow notice", () => {
 		const seventyFiveLines = Array.from({ length: 75 }, (_, i) => `line ${i + 1}`).join("\n");
-		const c = renderMessage(
-			makeDetails({ taskPrompt: seventyFiveLines }),
-			undefined,
-			true,
-		) as Container;
-		const lines = renderAndStrip(c);
+		const details = makeSubagentDetails({ taskPrompt: seventyFiveLines });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("line 1")),
 			"line 1 present",
@@ -345,43 +325,44 @@ describe("task prompt in expanded view", () => {
 		);
 		assert.ok(
 			lines.some((l) => l.includes("… [25 more lines]")),
-			"should show overflow notice: … [25 more lines]",
+			"should show overflow notice",
+		);
+	});
+
+	it("task prompt of exactly 50 lines renders all lines without overflow notice", () => {
+		const fiftyLines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+		const details = makeSubagentDetails({ taskPrompt: fiftyLines });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		for (let i = 1; i <= 50; i++) {
+			assert.ok(
+				lines.some((l) => l.includes(`line ${i}`)),
+				`should contain line ${i}`,
+			);
+		}
+		assert.ok(
+			!lines.some((l) => l.includes("more line")),
+			"should NOT show overflow notice for exactly 50 lines",
 		);
 	});
 
 	it("task prompt of 51 lines shows overflow notice with singular", () => {
 		const fiftyOneLines = Array.from({ length: 51 }, (_, i) => `line ${i + 1}`).join("\n");
-		const c = renderMessage(
-			makeDetails({ taskPrompt: fiftyOneLines }),
-			undefined,
-			true,
-		) as Container;
-		const lines = renderAndStrip(c);
+		const details = makeSubagentDetails({ taskPrompt: fiftyOneLines });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("… [1 more line]")),
 			"should show overflow notice: … [1 more line]",
 		);
 	});
-
-	it("successful agent with task prompt still shows task section", () => {
-		const c = renderMessage(
-			makeDetails({ taskPrompt: "Do something" }),
-			undefined,
-			true,
-		) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			lines.some((l) => l.includes("── Task ──")),
-			"task section should render regardless of success status",
-		);
-		assert.ok(
-			lines.some((l) => l.includes("Do something")),
-			"task content should render",
-		);
-	});
 });
 
-// ─── Phase 3: Edge cases and error handling ─────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3: Edge cases and error handling
+// ═══════════════════════════════════════════════════════════════════
 
 describe("edge cases and error handling", () => {
 	before(() => {
@@ -389,13 +370,17 @@ describe("edge cases and error handling", () => {
 	});
 
 	it("options is undefined → defaults to collapsed (no crash)", () => {
-		const details = makeDetails({ agentName: "test" });
+		const details = makeSubagentDetails({ agentName: "test" });
+		const result = makeSubagentResult(details, { outputText: "output" });
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
-		const message = { details };
-		const result = renderer(message, undefined, mockTheme) as Container;
-		const lines = renderAndStrip(result);
-		assert.ok(lines[0].includes("test"), `should still render, got: ${JSON.stringify(lines)}`);
+		const message = { details: { _subagentResult: result } };
+		const c = renderer(message, undefined, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		assert.ok(
+			lines.some((l) => l.includes("test")),
+			`should still render, got: ${JSON.stringify(lines)}`,
+		);
 	});
 
 	it("message.content is a string and no details → returns single Markdown component", () => {
@@ -424,274 +409,84 @@ describe("edge cases and error handling", () => {
 		}
 	});
 
-	it("details.textOutput is empty string → expanded mode renders other sections without crash", () => {
-		const details = makeDetails({
-			textOutput: "",
-			hasThinking: true,
-			thinkingOutput: "thinking...",
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+	it("_subagentResult with empty toolCalls/toolResults arrays → renders gracefully (no tools section)", () => {
+		const details = makeSubagentDetails({ toolCalls: [], toolResults: [], thinkingOutput: "" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		// Should still render normally without crashing
 		assert.ok(
-			lines.some((l) => l.includes("thinking")),
-			"should still render thinking",
+			lines.some((l) => l.includes("── Output ──")),
+			"should render Output section",
+		);
+		// No tools header since arrays are empty
+		assert.ok(
+			!lines.some((l) => l.includes("── Tools ──")),
+			"should NOT render Tools section when arrays empty",
 		);
 	});
 
-	it("details.thinkingOutput is undefined → expanded mode skips thinking section gracefully", () => {
-		const details = makeDetails({
-			hasThinking: false,
-			textOutput: "some output",
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		const thinkingHeader = lines.find((l) => l.includes("Thinking"));
-		assert.equal(
-			thinkingHeader,
-			undefined,
-			"should NOT show thinking header when hasThinking is false",
+	it("_subagentResult with thinkingOutput → thinking section renders", () => {
+		const details = makeSubagentDetails({ thinkingOutput: "deep thoughts" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		assert.ok(
+			lines.some((l) => l.includes("deep thoughts")),
+			"should show thinking content",
 		);
-	});
-
-	it("details.rawOutput is undefined → expanded mode skips raw output section gracefully", () => {
-		const details = makeDetails({
-			hasRawOutput: false,
-			textOutput: "some output",
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		const rawHeader = lines.find((l) => l.includes("Raw Output"));
-		assert.equal(
-			rawHeader,
-			undefined,
-			"should NOT show raw output header when hasRawOutput is false",
-		);
-	});
-
-	it("details.summaryLine is empty → expanded mode omits summary blank line", () => {
-		const details = makeDetails({ summaryLine: "" });
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		// Summary empty string should not add visible blank lines beyond normal spacing
-		assert.ok(true, "no crash with empty summaryLine");
-	});
-
-	it("details.auditScore is undefined → expanded mode omits audit score line", () => {
-		const details = makeDetails({ auditScore: undefined });
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		const auditLine = lines.find((l) => l.includes("Audit Score"));
-		assert.equal(auditLine, undefined, "should NOT show audit score when undefined");
 	});
 });
 
-// ─── Phase 3b: Rich stats line ───────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3b: Rich stats line in collapsed view
+// ═══════════════════════════════════════════════════════════════════
 
-describe("rich stats line (new format with per-agent breakdown)", () => {
+describe("rich stats line in collapsed view — _subagentResult path", () => {
 	before(() => {
 		initTheme();
 	});
 
-	it("full stats line rendered format", () => {
-		const details = makeDetails({
+	it("model and token stats shown in collapsed view", () => {
+		const details = makeSubagentDetails({
 			model: "claude-sonnet-4-5",
 			inputTokens: 1200,
 			outputTokens: 8500,
 			cacheRead: 500,
 			cacheWrite: 200,
 			cost: 0.0234,
-			toolCount: 3,
 			durationMs: 45000,
+			summaryLine: "Did the work",
 		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find(
-			(l) => l.includes("model:") && l.includes("↑") && l.includes("↓") && l.includes("$"),
-		);
-		assert.ok(statsLine, `expected full stats line, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("model: claude-sonnet-4-5"), "should show model");
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		// renderSubagentResult stats format: no "model:" prefix, different format
 		assert.ok(
-			statsLine!.includes("↑1.2K") || statsLine!.includes("↑1,200"),
-			"should show input tokens",
+			text.includes("↑1.2K") || text.includes("↑1,200"),
+			`should show input tokens, got: ${text}`,
 		);
-		assert.ok(
-			statsLine!.includes("↓8.5K") || statsLine!.includes("↓8,500"),
-			"should show output tokens",
-		);
-		assert.ok(statsLine!.includes("R500"), "should show cache read");
-		assert.ok(statsLine!.includes("W200"), "should show cache write");
-		assert.ok(statsLine!.includes("$0.0234"), "should show cost");
-		assert.ok(statsLine!.includes("3 tools"), "should show tool count");
-		assert.ok(statsLine!.includes("45s"), "should show duration");
+		assert.ok(text.includes("↓8.5K"), `should show output tokens, got: ${text}`);
+		assert.ok(text.includes("45s"), `should show duration, got: ${text}`);
 	});
 
-	it("model name shortened: last segment after /", () => {
-		const details = makeDetails({
-			model: "anthropic/claude-sonnet-4-20250514",
-			durationMs: 5000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("model:"));
-		assert.ok(statsLine, `expected model in line, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("claude-sonnet-4-20250514"), "should use short model name");
-		assert.ok(!statsLine!.includes("anthropic"), "should NOT include full path");
-	});
-
-	it("no model → stats line starts with ↑ or tools or duration (no model prefix)", () => {
-		const details = makeDetails({
-			inputTokens: 500,
-			outputTokens: 1000,
-			durationMs: 10000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("↑"));
-		assert.ok(statsLine, `expected stats line with ↑, got: ${JSON.stringify(lines)}`);
-		assert.ok(!statsLine!.startsWith("model:"), "should NOT start with model:");
-	});
-
-	it("no input/output tokens → no ↑N ↓N segment", () => {
-		const details = makeDetails({
+	it("no input/output tokens → no ↑↓ segment in collapsed view", () => {
+		const details = makeSubagentDetails({
 			model: "test-model",
-			cost: 0.01,
-			durationMs: 5000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("$"));
-		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
-		assert.ok(!statsLine!.includes("↑"), "should NOT have ↑↓ segment");
-		assert.ok(statsLine!.includes("model: test-model"), "should have model");
-	});
-
-	it("no cacheRead → no RN; no cacheWrite → no WN", () => {
-		const details = makeDetails({
-			model: "m",
-			inputTokens: 100,
-			outputTokens: 200,
-			durationMs: 3000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("↑100"));
-		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
-		assert.ok(!statsLine!.includes("R"), "should NOT have cache read");
-		assert.ok(!statsLine!.includes("W"), "should NOT have cache write");
-	});
-
-	it("cost at 0 → omitted (no $0.0000)", () => {
-		const details = makeDetails({
-			model: "m",
-			cost: 0,
-			durationMs: 5000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("model:"));
-		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
-		assert.ok(!statsLine!.includes("$"), "should NOT show $0.0000");
-	});
-
-	it("cost defined non-zero → $0.0234 format", () => {
-		const details = makeDetails({
-			model: "m",
-			cost: 0.0234,
-			durationMs: 5000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("$"));
-		assert.ok(statsLine, `expected cost line, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("$0.0234"), `should format cost as $0.0234, got: ${statsLine}`);
-	});
-
-	it("input/output use formatTokens (1.2K, 8.5M, 500)", () => {
-		const details = makeDetails({
-			model: "m",
-			inputTokens: 1200,
-			outputTokens: 8500000,
-			cacheRead: 500,
-			cacheWrite: 1200,
-			durationMs: 5000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("↑") || l.includes("model:"));
-		assert.ok(statsLine, `expected stats line, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("↑1.2K"), `expected 1.2K format, got: ${statsLine}`);
-		assert.ok(statsLine!.includes("↓8.5M"), `expected 8.5M format, got: ${statsLine}`);
-		assert.ok(statsLine!.includes("R500"), `expected R500, got: ${statsLine}`);
-		assert.ok(statsLine!.includes("W1.2K"), `expected W1.2K, got: ${statsLine}`);
-	});
-
-	it("backward compat: old details without new fields → header only (no stats line crash)", () => {
-		const details = makeDetails({
-			toolCount: 3,
-			tokenCount: 12500,
-			durationMs: 45000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		// With no new-format fields (model/inputTokens/outputTokens), no stats line is rendered
-		// Only the header line should be present
-		assert.ok(lines.length >= 1, "should render at least header");
-		assert.ok(lines[0].includes("test-agent"), "header should contain agent name");
-		// No crash — backward compat verified
-	});
-
-	it("backward compat: old details with partial new fields → no crash", () => {
-		const details = makeDetails({
-			model: "claude-sonnet-4-5",
-			durationMs: 30000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("model:"));
-		assert.ok(statsLine, `expected model in stats, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("model: claude-sonnet-4-5"), "should show model");
-		assert.ok(statsLine!.includes("30s"), "should show duration");
-	});
-
-	it("all fields zero → shows only model + duration", () => {
-		const details = makeDetails({
-			model: "my-model",
-			toolCount: 0,
-			tokenCount: 0,
-			durationMs: 10000,
 			inputTokens: 0,
 			outputTokens: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			cost: 0,
+			durationMs: 5000,
 		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		const statsLine = lines.find((l) => l.includes("model: my-model"));
-		assert.ok(statsLine, `expected model+duration, got: ${JSON.stringify(lines)}`);
-		assert.ok(statsLine!.includes("10s"), "should show duration");
-		assert.ok(!statsLine!.includes("↑"), "should NOT show ↑↓ for zeros");
-		assert.ok(!statsLine!.includes("R"), "should NOT show cache read for zeros");
-		assert.ok(!statsLine!.includes("W"), "should NOT show cache write for zeros");
-		assert.ok(!statsLine!.includes("$"), "should NOT show cost for zeros");
-	});
-
-	it("all fields zero + no model → only header (no stats line)", () => {
-		const details = makeDetails({
-			toolCount: 0,
-			tokenCount: 0,
-			durationMs: 10000,
-		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		// With no new-format fields, hasNewFields is false, so no stats line
-		// Only header should render
-		assert.ok(lines.length >= 1, "should render at least header");
-		assert.ok(lines[0].includes("test-agent"), "header should contain agent name");
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		assert.ok(!text.includes("↑0 ↓0"), "should NOT show zero tokens");
 	});
 });
 
-// ─── Phase 4: Summary renderer regression ───────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 4: Summary renderer regression
+// ═══════════════════════════════════════════════════════════════════
 
 describe("summary renderer (createSummaryRenderer) — no regressions", () => {
 	before(() => {
@@ -734,7 +529,9 @@ describe("summary renderer (createSummaryRenderer) — no regressions", () => {
 	});
 });
 
-// ─── Phase 5: Tool call result — thinking + separator ───────────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 5: Tool call result — thinking + separator (unchanged)
+// ═══════════════════════════════════════════════════════════════════
 
 /** Create a message with toolCallResult details */
 function makeToolCallMessage(tc: Record<string, unknown>) {
@@ -760,7 +557,6 @@ describe("tool call result — thinking and separator", () => {
 		});
 		const c = renderer(message, {}, mockTheme) as Container;
 		const lines = renderAndStrip(c);
-		// Check all content present in correct order
 		const outputIdx = lines.findIndex((l) => l.includes("file1.txt"));
 		const thinkingLabelIdx = lines.findIndex((l) => l.includes("── Thinking ──"));
 		const thinkingContentIdx = lines.findIndex((l) => l.includes("I ran ls"));
@@ -826,7 +622,6 @@ describe("tool call result — thinking and separator", () => {
 		});
 		const c = renderer(message, {}, mockTheme) as Container;
 		const lines = renderAndStrip(c);
-		// Should have header and stats (if any), but no result or thinking lines
 		assert.ok(
 			lines.some((l) => l.includes("bash")),
 			"should have header with tool name",
@@ -912,69 +707,53 @@ describe("tool call result — thinking and separator", () => {
 	});
 });
 
-// ─── Phase 6: Expanded view thinking uses renderThinkingBlock ──────
+// ═══════════════════════════════════════════════════════════════════
+// Phase 6: Expanded view — thinking via renderSubagentResult
+// ═══════════════════════════════════════════════════════════════════
 
-describe("expanded view — thinking styling", () => {
+describe("expanded view — thinking styling via renderSubagentResult", () => {
 	before(() => {
 		initTheme();
 	});
 
-	it("thinking section uses Markdown with thinkingText + italic (not renderTextLines)", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("thinking section uses Markdown with thinkingText + italic", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "I think therefore\nI am",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
 		const children = (c as any).children || [];
-		// Find the Markdown child that corresponds to thinking (after the "── Thinking ──" Text child)
-		const thinkingLabelIdx = children.findIndex(
-			(child: any) =>
-				child instanceof Text && child.render(80).some((l: string) => l.includes("Thinking")),
+		// Find the Markdown child with italic: true (thinking block)
+		const thinkingMd = children.find(
+			(child: any) => child instanceof Markdown && (child as any).defaultTextStyle?.italic === true,
 		);
-		if (thinkingLabelIdx >= 0) {
-			const mdChild = children
-				.slice(thinkingLabelIdx + 1)
-				.find((child: any) => child instanceof Markdown);
-			assert.ok(mdChild, "Markdown child should follow thinking label");
-			assert.equal(
-				(mdChild as any).defaultTextStyle?.italic,
-				true,
-				"Markdown DefaultTextStyle.italic should be true",
-			);
-			assert.ok(
-				(mdChild as any).defaultTextStyle?.color,
-				"Markdown DefaultTextStyle.color should be a function",
-			);
-		} else {
-			// Fallback: just find any Markdown child with italic
-			const mdChild = children.find(
-				(child: any) =>
-					child instanceof Markdown && (child as any).defaultTextStyle?.italic === true,
-			);
-			assert.ok(mdChild, "should have a Markdown child with italic: true for thinking");
-		}
+		assert.ok(thinkingMd, "should have a Markdown child with italic: true for thinking");
+		assert.ok(
+			(thinkingMd as any).defaultTextStyle?.color,
+			"thinking Markdown should have a color function",
+		);
 	});
 
-	it("thinking header label still present in expanded view", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("thinking header label present in expanded view", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "some thinking",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("Thinking")),
 			"should have Thinking header label",
 		);
 	});
 
-	it("thinking content text still present in expanded view", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("thinking content text present in expanded view", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "deep thoughts here",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("deep thoughts here")),
 			"should have thinking content",
@@ -982,74 +761,63 @@ describe("expanded view — thinking styling", () => {
 	});
 
 	it("thinkingOutput contains markdown formatting → renders as formatted text", () => {
-		const details = makeDetails({
-			hasThinking: true,
+		const details = makeSubagentDetails({
 			thinkingOutput: "## Heading\n\n- List item\n\n**bold**",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		// Markdown rendering should not show raw markdown syntax
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("Heading")),
 			"should render heading content",
 		);
 	});
 
-	it("thinkingOutput is empty string → header present, no crash", () => {
-		const details = makeDetails({
-			hasThinking: true,
+	it("thinkingOutput is empty string → no thinking section, output section renders, no crash", () => {
+		const details = makeSubagentDetails({
 			thinkingOutput: "",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			lines.some((l) => l.includes("Thinking")),
-			"should still show thinking header",
-		);
-	});
-
-	it("hasThinking=false, thinkingOutput undefined → section skipped", () => {
-		const details = makeDetails({
-			hasThinking: false,
-		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		// Empty thinkingOutput skips thinking section
 		assert.ok(
 			!lines.some((l) => l.includes("── Thinking ──")),
-			"should NOT show thinking section when hasThinking is false",
+			"should NOT show Thinking header when thinkingOutput is empty string",
+		);
+		// Output section still renders
+		assert.ok(
+			lines.some((l) => l.includes("── Output ──")),
+			"should show Output header",
 		);
 	});
 
 	it("collapsed view still omits thinking", () => {
-		const details = makeDetails({
-			hasThinking: true,
+		const details = makeSubagentDetails({
 			thinkingOutput: "secret thinking",
 		});
-		const c = renderMessage(details, undefined, false) as Container;
-		const lines = renderAndStrip(c);
-		assert.ok(
-			!lines.some((l) => l.includes("secret thinking")),
-			"collapsed view should NOT show thinking content",
-		);
-		assert.ok(
-			!lines.some((l) => l.includes("── Thinking ──")),
-			"collapsed view should NOT show Thinking header",
-		);
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		assert.ok(!text.includes("secret thinking"), "collapsed view should NOT show thinking content");
+		assert.ok(!text.includes("── Thinking ──"), "collapsed view should NOT show Thinking header");
 	});
 
-	it("regression: header, stats, task, textOutput, rawOutput sections unchanged", () => {
-		const details = makeDetails({
+	it("regression: header, stats, task, output all present in expanded view", () => {
+		const details = makeSubagentDetails({
 			agentName: "regression-agent",
 			success: true,
-			model: "test-model",
+			model: "claude-sonnet-4",
 			durationMs: 5000,
 			taskPrompt: "some task",
-			textOutput: "## Result\n\noutput here",
-			hasRawOutput: true,
-			rawOutput: "raw content",
+			inputTokens: 100,
+			outputTokens: 200,
+			turnCount: 2,
+			thinkingOutput: "",
 		});
-		const c = renderMessage(details, undefined, true) as Container;
-		const lines = renderAndStrip(c);
+		const result = makeSubagentResult(details, { outputText: "## Result\n\noutput here" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
 		assert.ok(
 			lines.some((l) => l.includes("regression-agent")),
 			"header should have agent name",
@@ -1059,16 +827,12 @@ describe("expanded view — thinking styling", () => {
 			"should have Task section",
 		);
 		assert.ok(
-			lines.some((l) => l.includes("output here")),
-			"should have text output",
+			lines.some((l) => l.includes("── Output ──")),
+			"should have Output section",
 		);
 		assert.ok(
-			lines.some((l) => l.includes("── Raw Output ──")),
-			"should have raw output",
-		);
-		assert.ok(
-			lines.some((l) => l.includes("raw content")),
-			"should have raw content",
+			!lines.some((l) => l.includes("── Raw Output ──")),
+			"should NOT have Raw Output section",
 		);
 	});
 });

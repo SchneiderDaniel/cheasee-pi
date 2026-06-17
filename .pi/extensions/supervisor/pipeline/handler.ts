@@ -51,7 +51,7 @@ import {
 	type CleanupOnExitDeps,
 } from "./crash-cleanup.ts";
 import { createPrOnApproval } from "./pr-creation.ts";
-import { sendPipelineSummary, sendAgentResultMessage, sendPipelineError } from "./notifications.ts";
+import { sendPipelineSummary, sendPipelineError } from "./notifications.ts";
 import { ErrorCollector, setErrorCollector, getErrorCollector } from "./error-collector.ts";
 import {
 	MAX_PIPELINE_LOOPS,
