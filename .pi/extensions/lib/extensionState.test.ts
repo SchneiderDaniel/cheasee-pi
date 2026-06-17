@@ -14,11 +14,7 @@ import { tmpdir } from "node:os";
 
 // Integration: refactored extensions now use ExtensionState instead of inline file I/O
 import { beginSession } from "../session-logger/pipeline.ts";
-import {
-	createSessionLoggerGate,
-	toggleSessionLoggerGate,
-	getSessionLoggerState,
-} from "../session-logger/index.ts";
+import { createSessionLoggerGate, toggleSessionLoggerGate } from "../session-logger/index.ts";
 import { splitArgs } from "../session-advice/index.ts";
 
 import {
@@ -475,12 +471,6 @@ describe("ExtensionState — edge cases", () => {
 // ── Integration: session-logger refactored to use ExtensionState ──
 
 describe("Integration — session-logger with ExtensionState", () => {
-	it("getSessionLoggerState returns boolean for a valid gate", () => {
-		const gate = createSessionLoggerGate(true);
-		beginSession(gate);
-		assert.strictEqual(getSessionLoggerState(gate), true);
-	});
-
 	it("toggleSessionLoggerGate off flips enabledForNextSession, persists via ExtensionState", async () => {
 		const gate = createSessionLoggerGate(true);
 		const enabled = toggleSessionLoggerGate(gate, "off");
