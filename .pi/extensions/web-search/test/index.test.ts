@@ -197,6 +197,91 @@ describe("formatResults — result formatting", () => {
 	it("(D) returns 'No results found.' for empty array", () => {
 		assert.equal(formatResults([]), "No results found.");
 	});
+
+	it("(D) encodes parentheses in URL with balanced parens (Wikipedia-style)", () => {
+		const results = [
+			{
+				title: "C (programming language)",
+				url: "https://en.wikipedia.org/wiki/C_(programming_language)",
+				snippet: "C is a general-purpose programming language",
+			},
+		];
+		const output = formatResults(results);
+		assert.ok(output.includes("%28programming_language%29"), "should percent-encode both parens");
+		assert.ok(
+			output.includes(
+				"[C (programming language)](https://en.wikipedia.org/wiki/C_%28programming_language%29)",
+			),
+			"should produce valid markdown link with encoded URL",
+		);
+		assert.ok(output.includes("C is a general-purpose programming language"));
+	});
+
+	it("(D) encodes only closing paren in URL with unbalanced parens", () => {
+		const results = [
+			{
+				title: "Example",
+				url: "https://example.com/a)",
+				snippet: "A URL with a closing paren",
+			},
+		];
+		const output = formatResults(results);
+		assert.ok(output.includes("%29"), "should percent-encode closing paren");
+		assert.ok(
+			output.includes("https://example.com/a%29"),
+			"link destination should contain encoded paren",
+		);
+		assert.ok(output.includes("[Example]"), "title should be preserved");
+	});
+
+	it("(D) leaves URLs without parens unchanged", () => {
+		const results = [
+			{ title: "Normal", url: "https://example.com/normal", snippet: "No parens here" },
+		];
+		const output = formatResults(results);
+		assert.ok(
+			output.includes("[Normal](https://example.com/normal)"),
+			"URL without parens should be unchanged",
+		);
+	});
+
+	it("(D) encodes multiple results independently, some with parens some without", () => {
+		const results = [
+			{ title: "Normal", url: "https://example.com/normal", snippet: "First" },
+			{
+				title: "Wiki",
+				url: "https://en.wikipedia.org/wiki/Foo_(bar)",
+				snippet: "Second",
+			},
+			{ title: "Plain", url: "https://example.org/end", snippet: "Third" },
+		];
+		const output = formatResults(results);
+		// First result unchanged
+		assert.ok(output.includes("[Normal](https://example.com/normal)"));
+		// Second result encoded
+		assert.ok(output.includes("https://en.wikipedia.org/wiki/Foo_%28bar%29"));
+		assert.ok(!output.includes("https://en.wikipedia.org/wiki/Foo_(bar)"));
+		// Third result unchanged
+		assert.ok(output.includes("[Plain](https://example.org/end)"));
+		// All snippets present
+		assert.ok(output.includes("First"));
+		assert.ok(output.includes("Second"));
+		assert.ok(output.includes("Third"));
+	});
+
+	it("(D) does not double-encode already percent-encoded parens", () => {
+		const results = [
+			{
+				title: "Pre-encoded",
+				url: "https://example.com/foo%28bar%29",
+				snippet: "Already encoded",
+			},
+		];
+		const output = formatResults(results);
+		// %28 and %29 should remain as-is (no raw ( or ) to match in .replace())
+		assert.ok(output.includes("https://example.com/foo%28bar%29"));
+		assert.ok(!output.includes("%2528") && !output.includes("%2529"), "should not double-encode");
+	});
 });
 
 // ===========================================================================
