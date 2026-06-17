@@ -40,6 +40,29 @@ export function wordWrap(text: string, maxWidth: number): string[] {
 	return result;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Shared formatItem that renders item name with accent on first line
+ * and multi-line word-wrapped description with dim on subsequent lines.
+ *
+ * Extracted to eliminate duplication between /explain-prompts and
+ * /explain-skills formatItem callbacks.
+ */
+export function formatWithWordWrap<T extends ExplainItem>(
+	item: T,
+	{ accent, dim, width }: FormatHelpers,
+): string[] {
+	const lines: string[] = [accent("  " + item.name)];
+	const desc = (item.description ?? "(no description)").split("\n")[0]!.trim();
+	const descWidth = Math.max(20, width - 6);
+	const wrapped = wordWrap(desc, descWidth);
+	for (const seg of wrapped) {
+		lines.push(dim("    " + seg));
+	}
+	return lines;
+}
+
 // ─── Types ────────────────────────────────────────────────────────
 
 /** Minimum shape an item needs for explain command rendering */

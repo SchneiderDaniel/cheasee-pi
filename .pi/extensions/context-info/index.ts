@@ -20,7 +20,7 @@ import { listLocalPrompts } from "./prompts.ts";
 import type { PromptMeta } from "./prompts.ts";
 import { listLocalSkills } from "./skills.ts";
 import type { SkillMeta } from "./skills.ts";
-import { createExplainCommand, wordWrap } from "./explain.ts";
+import { createExplainCommand, formatWithWordWrap } from "./explain.ts";
 
 export default function contextInfo(pi: ExtensionAPI): void {
 	// FooterState — single source of truth for all mutable state
@@ -31,30 +31,12 @@ export default function contextInfo(pi: ExtensionAPI): void {
 
 	// explain-prompts: multi-line with wordWrap
 	createExplainCommand<PromptMeta>(pi, "explain-prompts", "prompt", listLocalPrompts, {
-		formatItem: (item, { accent, dim, width }) => {
-			const lines: string[] = [accent("  " + item.name)];
-			const desc = (item.description ?? "(no description)").split("\n")[0].trim();
-			const descWidth = Math.max(20, width - 6);
-			const wrapped = wordWrap(desc, descWidth);
-			for (const seg of wrapped) {
-				lines.push(dim("    " + seg));
-			}
-			return lines;
-		},
+		formatItem: formatWithWordWrap,
 	});
 
-	// explain-skills: multi-line with wordWrap (same pattern as prompts)
+	// explain-skills: multi-line with wordWrap
 	createExplainCommand<SkillMeta>(pi, "explain-skills", "skill", listLocalSkills, {
-		formatItem: (item, { accent, dim, width }) => {
-			const lines: string[] = [accent("  " + item.name)];
-			const desc = (item.description ?? "(no description)").split("\n")[0].trim();
-			const descWidth = Math.max(20, width - 6);
-			const wrapped = wordWrap(desc, descWidth);
-			for (const seg of wrapped) {
-				lines.push(dim("    " + seg));
-			}
-			return lines;
-		},
+		formatItem: formatWithWordWrap,
 	});
 
 	// explain-extensions: single-line with error handling
