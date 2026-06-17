@@ -4,6 +4,7 @@
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateLine } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { mkdtemp, rm, stat, readdir, writeFile } from "node:fs/promises";
@@ -26,7 +27,6 @@ import {
 
 const MAX_TOTAL_RESULTS = 500;
 const DEFAULT_DISPLAY_RESULTS = 10;
-const MAX_LINE_LENGTH = 500; // truncate individual match lines to prevent context-window blowup
 
 // ---------------------------------------------------------------------------
 // Mode awareness — ExtensionMode mirrors upstream type for mode gating
@@ -135,10 +135,7 @@ export function buildStructuredSummary(
 	const displayResults = searchResult.results.slice(0, maxDisplay);
 	for (let i = 0; i < displayResults.length; i++) {
 		const r = displayResults[i]!;
-		const truncatedText =
-			r.text.length > MAX_LINE_LENGTH
-				? r.text.slice(0, MAX_LINE_LENGTH) + "... [truncated]"
-				: r.text;
+		const truncatedText = truncateLine(r.text).text;
 		text += `${i + 1}. ${r.file}:${r.line}:${r.column}:${truncatedText}\n`;
 	}
 
