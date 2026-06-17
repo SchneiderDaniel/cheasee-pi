@@ -351,3 +351,151 @@ describe("Cache functionality", () => {
 		assert.equal(callCount, 2);
 	});
 });
+
+// ===========================================================================
+// Concurrency semaphore
+// ===========================================================================
+
+describe("Concurrency semaphore", () => {
+	it("(entity) semaphore releases on venv failure: first call fails, second call succeeds", async () => {
+		// Command-aware mock:
+		// - "rm" calls succeed
+		// - "python3 -m venv" calls fail (triggers EnsureVenvError step='create')
+		// - python verify checks: first fails, subsequent pass quick path
+		// - "bash" calls (search script): return "No results" (valid output)
+		let verifyAttempts = 0;
+		const mockExec: ExecFn = async (cmd: string, args: string[]) => {
+			// rm call — always succeed
+			if (cmd === "rm") return { code: 0, stdout: "", stderr: "" };
+			// venv create call — fail to trigger EnsureVenvError
+			if (cmd === "python3" && args[0] === "-m" && args[1] === "venv") {
+				return { code: 1, stdout: "", stderr: "venv creation failed" };
+			}
+			// pip install call — succeed
+			if (cmd.includes("python3") && args[0] === "-m" && args[1] === "pip") {
+				return { code: 0, stdout: "", stderr: "" };
+			}
+			// python verify check (not bash)
+			if (cmd !== "bash" && args[0] === "-c") {
+				verifyAttempts++;
+				// First execute: verify 1 (quick check) + verify 2 (double-check) fail
+				//→ goes into venv setup which fails with EnsureVenvError
+				// Second execute: verify passes → quick path
+				if (verifyAttempts <= 2) {
+					return { code: 1, stdout: "", stderr: "import error" };
+				}
+				return { code: 0, stdout: "ok", stderr: "" };
+			}
+			// bash = search script — return empty results (valid output, becomes "No results")
+			if (cmd === "bash") {
+				return {
+					code: 0,
+					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [] })}\nSEARCH_DONE`,
+					stderr: "",
+				};
+			}
+			// fallback
+			return { code: 0, stdout: "", stderr: "" };
+		};
+
+		const tool = registerWebSearch(mockExec);
+
+		// First call should fail with EnsureVenvError (venv create step failed)
+		await assert.rejects(
+			tool.execute("call1", { query: "fail-then-succeed" }, undefined, undefined, {
+				cwd: tmp("semaphore-venv-fail-a"),
+			}),
+			{ name: "EnsureVenvError" },
+		);
+
+		// Second call should succeed — semaphore was released after first error.
+		// Use different cwd so ensureVenv cache doesn't block with previous failure.
+		const result = await tool.execute(
+			"call2",
+			{ query: "fail-then-succeed" },
+			undefined,
+			undefined,
+			{ cwd: tmp("semaphore-venv-fail-b") },
+		);
+		assert.ok(result, "second call should complete without throwing");
+		assert.ok(Array.isArray(result.content), "should have content array");
+	});
+
+	it("(entity) semaphore releases on search script failure: first call fails, second call succeeds", async () => {
+		let bashCallCount = 0;
+		const mockExec: ExecFn = async (cmd: string, args: string[]) => {
+			// bash calls = search script — handle BEFORE verify check
+			if (cmd === "bash") {
+				bashCallCount++;
+				if (bashCallCount === 1) {
+					return { code: 1, stdout: "", stderr: "search script error" };
+				}
+				return {
+					code: 0,
+					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [{ title: "Second", url: "https://example.com", snippet: "Second attempt" }] })}\nSEARCH_DONE`,
+					stderr: "",
+				};
+			}
+			// python verify check (not bash) — always pass
+			if (args[0] === "-c") {
+				return { code: 0, stdout: "ok", stderr: "" };
+			}
+			// pip install — succeed
+			if (cmd.includes("python3") && args[0] === "-m" && args[1] === "pip") {
+				return { code: 0, stdout: "", stderr: "" };
+			}
+			// All other calls — succeed
+			return { code: 0, stdout: "", stderr: "" };
+		};
+
+		const tool = registerWebSearch(mockExec);
+
+		// First call should fail with search error
+		await assert.rejects(
+			tool.execute("call1", { query: "search-fail" }, undefined, undefined, {
+				cwd: tmp("semaphore-search-fail"),
+			}),
+			{ message: /Search failed/ },
+		);
+
+		// Second call should succeed — semaphore was released
+		const result = await tool.execute("call2", { query: "search-fail" }, undefined, undefined, {
+			cwd: tmp("semaphore-search-fail"),
+		});
+		assert.ok(result.content[0].text.includes("Second attempt"), "second call should succeed");
+	});
+
+	it("(entity) sequential search calls: each completes independently", async () => {
+		const mockExec: ExecFn = async (cmd: string, args: string[]) => {
+			// bash = search script — handle BEFORE verify check
+			if (cmd === "bash") {
+				return {
+					code: 0,
+					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [{ title: "Seq", url: "https://example.com", snippet: "Sequential" }] })}\nSEARCH_DONE`,
+					stderr: "",
+				};
+			}
+			// python verify check (not bash) — pass immediately so ensureVenv takes quick path
+			if (args[0] === "-c") {
+				return { code: 0, stdout: "ok", stderr: "" };
+			}
+			// All other calls — succeed
+			return { code: 0, stdout: "", stderr: "" };
+		};
+
+		const tool = registerWebSearch(mockExec);
+
+		// Two calls with different cwds (different cache keys), execute in parallel
+		const [r1, r2] = await Promise.all([
+			tool.execute("call1", { query: "sequential-test" }, undefined, undefined, {
+				cwd: tmp("seq-a"),
+			}),
+			tool.execute("call2", { query: "sequential-test" }, undefined, undefined, {
+				cwd: tmp("seq-b"),
+			}),
+		]);
+
+		assert.ok(r1.content[0].text.includes("Sequential"), "first result should contain snippet");
+		assert.ok(r2.content[0].text.includes("Sequential"), "second result should contain snippet");
+	});
+});

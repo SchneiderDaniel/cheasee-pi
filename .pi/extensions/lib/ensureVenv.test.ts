@@ -18,6 +18,16 @@ import os from "node:os";
 import { ensureVenv, EnsureVenvError } from "./ensureVenv.ts";
 import type { ExecFn, EnsureVenvConfig } from "./ensureVenv.ts";
 
+/**
+ * Helper: get the lock dir path as created by proper-lockfile.
+ * proper-lockfile appends ".lock" to the base path returned by lockFilePathFor.
+ * Currently we construct this identically to the old lockDirFor (same path suffix).
+ */
+function lockDirPath(cwd: string, venvName: string): string {
+	const safe = venvName.replace(/[^a-zA-Z0-9_-]/g, "_");
+	return path.join(cwd, ".pi", `ensureVenv.${safe}.lock`);
+}
+
 // ── Mock exec factory ──
 
 interface MockHandlers {
@@ -277,7 +287,7 @@ describe("ensureVenv — lock behavior", () => {
 		const ctx = setupTest();
 		const config = makeConfig(ctx);
 
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 		assert.ok(!exists(lockPath), "lock should not exist before setup");
 
 		await ensureVenv(config);
@@ -291,7 +301,7 @@ describe("ensureVenv — lock behavior", () => {
 		});
 		const config = makeConfig(ctx);
 
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 
 		await assert.rejects(() => ensureVenv(config));
 
@@ -306,7 +316,7 @@ describe("ensureVenv — lock behavior", () => {
 			},
 		});
 
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 
 		await assert.rejects(() => ensureVenv(config));
 
@@ -315,14 +325,14 @@ describe("ensureVenv — lock behavior", () => {
 
 	it("(entity) orphaned lock (mtime > lockStaleMs): cleaned up then proceeds", async () => {
 		const ctx = setupTest();
-		const config = makeConfig(ctx, { lockStaleMs: 1 }); // 1ms staleness — immediately stale
+		const config = makeConfig(ctx, { lockStaleMs: 2000 }); // minimum proper-lockfile allows
 
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 		fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 		fs.mkdirSync(lockPath, { recursive: false });
-
-		// Wait for staleness
-		await new Promise((r) => setTimeout(r, 10));
+		// Set mtime to 60s in the past to make it stale
+		const past = new Date(Date.now() - 60_000);
+		fs.utimesSync(lockPath, past, past);
 
 		const result = await ensureVenv(config);
 		assert.ok(result.created, "should succeed after cleaning stale lock");
@@ -334,7 +344,7 @@ describe("ensureVenv — lock behavior", () => {
 		const config = makeConfig(ctx, { lockTimeoutMs: 50 });
 
 		// Create a persistent lock dir that never gets removed
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 		fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 		fs.mkdirSync(lockPath, { recursive: false });
 
@@ -347,18 +357,188 @@ describe("ensureVenv — lock behavior", () => {
 	});
 
 	it("(entity) config: lockTimeoutMs and lockStaleMs parameters affect behavior", async () => {
-		// Quick staleness + long timeout → should clean stale lock and succeed
 		const ctx = setupTest();
-		const config = makeConfig(ctx, { lockTimeoutMs: 1000, lockStaleMs: 1 });
+		const config = makeConfig(ctx, { lockTimeoutMs: 1000, lockStaleMs: 2000 });
 
-		const lockPath = path.join(ctx.cwd, ".pi", "ensureVenv.test-venv.lock");
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
 		// Create a stale lock
 		fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 		fs.mkdirSync(lockPath, { recursive: false });
-		await new Promise((r) => setTimeout(r, 10));
+		// Set mtime to 60s in the past so proper-lockfile treats it as stale
+		const past = new Date(Date.now() - 60_000);
+		fs.utimesSync(lockPath, past, past);
 
 		const result = await ensureVenv(config);
 		assert.ok(result.created, "should succeed with configurable lock params");
+	});
+
+	it("(entity) existing stale lock dirs (pre-migration .lock dirs) cleaned up", async () => {
+		// With proper-lockfile, stale lock dirs (even those created by old mkdir-based code)
+		// are cleaned up via proper-lockfile's built-in stale detection
+		const ctx = setupTest();
+		const config = makeConfig(ctx, { lockStaleMs: 2000 });
+
+		const lockPath = lockDirPath(ctx.cwd, config.venvName);
+		fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+		fs.mkdirSync(lockPath, { recursive: false });
+		// Set mtime to 60s in the past
+		const past = new Date(Date.now() - 60_000);
+		fs.utimesSync(lockPath, past, past);
+
+		// should succeed because proper-lockfile detects stale lock and cleans it
+		const result = await ensureVenv(config);
+		assert.ok(result.created, "should clean up old-format stale lock dir");
+		assert.ok(!exists(lockPath), "old lock dir should be removed");
+	});
+
+	it("(entity) proper-lockfile errors surface as EnsureVenvError with step='lock'", async () => {
+		// When the .pi directory is not writable, proper-lockfile's mkdirSync will fail
+		// with EACCES. This verifies the error surfaces as EnsureVenvError step='lock'.
+		const ctx = setupTest();
+		const config = makeConfig(ctx, { lockTimeoutMs: 50 });
+
+		// Create .pi dir then make it read-only so proper-lockfile can't create the lock dir
+		const piDir = path.join(ctx.cwd, ".pi");
+		fs.mkdirSync(piDir, { recursive: true });
+		fs.chmodSync(piDir, 0o444); // read-only
+
+		try {
+			await assert.rejects(
+				() => ensureVenv(config),
+				(err: unknown) => {
+					return err instanceof EnsureVenvError && err.step === "lock";
+				},
+			);
+		} finally {
+			fs.chmodSync(piDir, 0o755); // restore
+		}
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  Phase 2b: Structured logging on lock lifecycle
+// ══════════════════════════════════════════════════════════════════════
+
+describe("ensureVenv — lock lifecycle logging", () => {
+	it("(entity) onUpdate receives 'Acquiring venv lock' message at acquire start", async () => {
+		const updates: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					updates.push(c.text);
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		const acquireMsg = updates.find((t) => t.startsWith("Acquiring venv lock"));
+		assert.ok(acquireMsg, "should emit acquiring lock message");
+		assert.ok(acquireMsg!.includes(`pid=${process.pid}`), "should include process pid");
+	});
+
+	it("(entity) onUpdate receives 'Lock acquired after' message with wait time", async () => {
+		const updates: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					updates.push(c.text);
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		const acquiredMsg = updates.find((t) => t.startsWith("Lock acquired after"));
+		assert.ok(acquiredMsg, "should emit lock acquired message");
+		assert.ok(acquiredMsg!.includes("ms"), "should include wait time in ms");
+		assert.ok(acquiredMsg!.includes(`pid=${process.pid}`), "should include process pid");
+	});
+
+	it("(entity) onUpdate receives 'Releasing venv lock' message at release", async () => {
+		const updates: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					updates.push(c.text);
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		const releaseMsg = updates.find((t) => t.startsWith("Releasing venv lock"));
+		assert.ok(releaseMsg, "should emit releasing lock message");
+		assert.ok(releaseMsg!.includes(`pid=${process.pid}`), "should include process pid");
+	});
+
+	it("(entity) lock lifecycle messages appear in correct chronological order", async () => {
+		const updates: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					updates.push(c.text);
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		const lockMsgs = updates.filter(
+			(t) =>
+				t.startsWith("Acquiring venv lock") ||
+				t.startsWith("Lock acquired after") ||
+				t.startsWith("Releasing venv lock"),
+		);
+
+		assert.ok(lockMsgs.length >= 3, "should have at least 3 lock lifecycle messages");
+		// Check chronological order
+		const acquireIdx = lockMsgs.findIndex((t) => t.startsWith("Acquiring"));
+		const acquiredIdx = lockMsgs.findIndex((t) => t.startsWith("Lock acquired after"));
+		const releaseIdx = lockMsgs.findIndex((t) => t.startsWith("Releasing"));
+
+		assert.ok(acquireIdx >= 0, "acquire start should be present");
+		assert.ok(acquiredIdx >= 0, "acquire success should be present");
+		assert.ok(releaseIdx >= 0, "release should be present");
+		assert.ok(acquireIdx < acquiredIdx, "acquire start should come before acquire success");
+		assert.ok(acquiredIdx < releaseIdx, "acquire success should come before release");
+	});
+
+	it("(entity) all messages include process.pid in text content", async () => {
+		const updates: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					updates.push(c.text);
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		const lockMsgs = updates.filter(
+			(t) =>
+				t.startsWith("Acquiring venv lock") ||
+				t.startsWith("Lock acquired after") ||
+				t.startsWith("Releasing venv lock"),
+		);
+
+		for (const msg of lockMsgs) {
+			assert.ok(msg.includes(`pid=${process.pid}`), `message should include pid: "${msg}"`);
+		}
+	});
+
+	it("(entity) onUpdate undefined: no crash, lock still works", async () => {
+		const ctx = setupTest();
+		const config = makeConfig(ctx); // onUpdate is undefined
+
+		const result = await ensureVenv(config);
+		assert.ok(result.created, "lock should work without onUpdate callback");
 	});
 });
 
