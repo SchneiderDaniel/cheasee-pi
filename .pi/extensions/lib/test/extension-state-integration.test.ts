@@ -21,11 +21,7 @@ import { createExtensionStateStore } from "../extension-state.ts";
 
 // Phase 3: Both extensions now use ExtensionState instead of duplicated writeExtState
 import { beginSession } from "../../session-logger/pipeline.ts";
-import {
-	createSessionLoggerGate,
-	toggleSessionLoggerGate,
-	getSessionLoggerState,
-} from "../../session-logger/index.ts";
+import { createSessionLoggerGate, toggleSessionLoggerGate } from "../../session-logger/index.ts";
 
 import { getSessionAdviceState, splitArgs } from "../../session-advice/index.ts";
 
@@ -97,20 +93,6 @@ describe("ExtensionState integration — session-logger", () => {
 		// Next session starts
 		assert.equal(beginSession(gate), false);
 		assert.equal(gate.sessionEnabled, false);
-	});
-
-	it("getSessionLoggerState returns correct current session state", () => {
-		const gate = createSessionLoggerGate(true);
-		beginSession(gate);
-		assert.equal(getSessionLoggerState(gate), true);
-	});
-
-	it("getSessionLoggerState with null gate returns null", () => {
-		assert.equal(getSessionLoggerState(null), null);
-	});
-
-	it("getSessionLoggerState with undefined gate returns null", () => {
-		assert.equal(getSessionLoggerState(undefined), null);
 	});
 
 	it("session-logger toggle lifecycle: enabled → off → next session disabled", () => {
