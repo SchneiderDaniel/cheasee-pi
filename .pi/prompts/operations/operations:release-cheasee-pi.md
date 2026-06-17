@@ -174,11 +174,11 @@ Feature count since last release: $FEATURE_COUNT
 
 Version logic:
 
-- If `FEATURE_COUNT >= 42`: increment = 0.1
-- If `FEATURE_COUNT < 42`: increment = 0.01
+- If `FEATURE_COUNT >= 10`: increment = 0.1
+- If `FEATURE_COUNT < 10`: increment = 0.01
 
 ```bash
-if [ "$FEATURE_COUNT" -ge 42 ]; then
+if [ "$FEATURE_COUNT" -ge 10 ]; then
   export NEW_VERSION=$(echo "$BASE_VERSION + 0.1" | bc -l)
 else
   export NEW_VERSION=$(echo "$BASE_VERSION + 0.01" | bc -l)
@@ -196,7 +196,7 @@ Print:
 ```
 Base version: $BASE_VERSION
 Feature count: $FEATURE_COUNT
-Increment: $( [ "$FEATURE_COUNT" -ge 42 ] && echo "0.1" || echo "0.01" )
+Increment: $( [ "$FEATURE_COUNT" -ge 10 ] && echo "0.1" || echo "0.01" )
 New version: v$NEW_VERSION
 ```
 
@@ -385,6 +385,7 @@ To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION
 - Version base always comes from the latest semver tag (strip `v` prefix).
 - If no tags exist, start from `0.1`.
 - Only one increment applied: either +0.1 or +0.01, never both, never stacked.
+- Threshold: >= 10 features → +0.1, < 10 features → +0.01.
 - Trim version to 2 decimal places.
 - Do not overwrite existing tags — check first and stop if duplicate.
 - Use `write` tool for file creation, not `cat >` in bash.
@@ -401,7 +402,7 @@ To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION
 - [ ] All merged PRs since last tag captured (not just recent N)
 - [ ] PRs categorized by LLM reading titles
 - [ ] Feature count is accurate
-- [ ] Version calculation follows rules (>42 → +0.1, <42 → +0.01)
+- [ ] Version calculation follows rules (>=10 → +0.1, <10 → +0.01)
 - [ ] Duplicate version tag does not already exist
 - [ ] User confirmed release preview before proceeding
 - [ ] TypeScript compiles cleanly (`npm run tsc:extensions`)
