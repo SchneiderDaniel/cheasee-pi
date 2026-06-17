@@ -1802,6 +1802,22 @@ describe("EslintLinter unit tests", () => {
 		assert.ok(result.error, "should return error message");
 	});
 
+	it("lint does not produce unhandled rejection on subsequent calls after ESLint init failure", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const failingFactory = async () => {
+			throw new Error("Cannot find module 'eslint'");
+		};
+		const l = new EslintLinter(failingFactory);
+
+		// First call — establishes initError, rejected promise handled by await
+		const result1 = await l.lint("/path/file.ts");
+		assert.ok(result1.error);
+
+		// Second call — must not produce unhandled rejection
+		const result2 = await l.lint("/path/file.ts");
+		assert.ok(result2.error);
+	});
+
 	it("lint handles empty file (returns empty diagnostics)", async () => {
 		const { EslintLinter } = await import("../eslint-adapter.mts");
 		const mockESLint = async () => ({

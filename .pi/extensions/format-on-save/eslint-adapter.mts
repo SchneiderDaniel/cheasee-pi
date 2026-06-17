@@ -188,6 +188,7 @@ export class EslintLinter implements Linter {
 		if (!this.eslintPromise) {
 			this.eslintPromise = this.createESLint().catch((err) => {
 				this.initError = err instanceof Error ? err.message : String(err);
+				this.eslintPromise = null; // clear to prevent dangling rejected promise
 				throw err;
 			});
 		}
