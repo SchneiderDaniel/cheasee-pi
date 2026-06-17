@@ -12,7 +12,6 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import defaultExport, {
 	createSessionLoggerGate,
-	getSessionLoggerState,
 	toggleSessionLoggerGate,
 	generateMissingReports,
 } from "../index.ts";
@@ -278,27 +277,6 @@ describe("index.ts — named exports", () => {
 		const gate = createSessionLoggerGate(true);
 		const result = toggleSessionLoggerGate(gate, "off");
 		assert.strictEqual(result, false);
-	});
-
-	it("getSessionLoggerState returns sessionEnabled when gate is provided", () => {
-		assert.strictEqual(
-			typeof getSessionLoggerState,
-			"function",
-			"getSessionLoggerState should be a function",
-		);
-		const gate = createSessionLoggerGate();
-		const state = getSessionLoggerState(gate);
-		assert.strictEqual(state, true);
-	});
-
-	it("getSessionLoggerState returns null for null gate", () => {
-		const state = getSessionLoggerState(null);
-		assert.strictEqual(state, null);
-	});
-
-	it("getSessionLoggerState returns null for undefined gate", () => {
-		const state = getSessionLoggerState(undefined);
-		assert.strictEqual(state, null);
 	});
 
 	it("generateMissingReports is a function (re-exported)", () => {

@@ -195,7 +195,8 @@ function tokenizeBashCommand(command: string): BashToken[] {
 			}
 			current += ch;
 		} else if (inDouble) {
-			if (ch === '"') {
+			// NOTE: does not handle \\" (escaped backslash + quote delimiter) — acceptable for P3, see issue #949.
+			if (ch === '"' && (i === 0 || command[i - 1] !== "\\")) {
 				inDouble = false;
 				quoted = true;
 				continue;
@@ -415,6 +416,22 @@ describe("tokenizeBashCommand", () => {
 			{ text: "some.log", quoted: true },
 			{ text: "file.tar", quoted: true },
 		]);
+	});
+
+	it("handles escaped double quotes inside double-quoted strings", () => {
+		assert.deepStrictEqual(tokenizeBashCommand('"hello \\"world\\""'), [
+			{ text: 'hello \\"world\\"', quoted: true },
+		]);
+	});
+
+	it("handles escaped double quote at end of double-quoted string", () => {
+		assert.deepStrictEqual(tokenizeBashCommand('"text\\"more"'), [
+			{ text: 'text\\"more', quoted: true },
+		]);
+	});
+
+	it("empty double-quoted string still produces one empty token", () => {
+		assert.deepStrictEqual(tokenizeBashCommand('""'), [{ text: "", quoted: true }]);
 	});
 });
 
