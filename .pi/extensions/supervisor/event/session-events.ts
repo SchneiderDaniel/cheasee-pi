@@ -73,7 +73,7 @@ export function processSessionEvent(
  * | grep | `grep /pattern/ in /dir` |
  * | ls | `ls /path` |
  * | find | `find /path` |
- * | ripgrep_search | `grep /pattern/` (same as grep) |
+ * | ripgrep_search | `rg "query" in dir` |
  * | others | `toolName: {"key":"val"}` (JSON preview, ≤80 chars) |
  */
 export function formatToolCall(toolName: string, args?: Record<string, unknown> | null): string {
@@ -125,8 +125,7 @@ export function formatToolCall(toolName: string, args?: Record<string, unknown> 
 			return "edit";
 		}
 
-		case "grep":
-		case "ripgrep_search": {
+		case "grep": {
 			const pattern = a.pattern;
 			const path = a.path;
 			let result = "grep";
@@ -135,6 +134,19 @@ export function formatToolCall(toolName: string, args?: Record<string, unknown> 
 			}
 			if (typeof path === "string" && path) {
 				result += ` in ${path}`;
+			}
+			return result;
+		}
+
+		case "ripgrep_search": {
+			const query = a.query;
+			const directory = a.directory;
+			let result = "rg";
+			if (typeof query === "string" && query) {
+				result += ` "${query}"`;
+			}
+			if (typeof directory === "string" && directory) {
+				result += ` in ${directory}`;
 			}
 			return result;
 		}
@@ -178,6 +190,19 @@ export function isToolCallLine(line: string): boolean {
 	// Bash format: starts with "$ " or is bare "$"
 	if (line.startsWith("$ ") || line === "$") return true;
 
+	// Bare known tool name (no args)
+	if (
+		line === "edit" ||
+		line === "find" ||
+		line === "grep" ||
+		line === "ls" ||
+		line === "read" ||
+		line === "rg" ||
+		line === "write"
+	) {
+		return true;
+	}
+
 	// Tool-name-prefixed formats: "read ...", "write ...", etc.
 	// Match the first word against known tool names followed by a space
 	const spaceIdx = line.indexOf(" ");
@@ -185,12 +210,13 @@ export function isToolCallLine(line: string): boolean {
 		const firstWord = line.slice(0, spaceIdx);
 		// Known short tool names (no colon)
 		if (
-			firstWord === "read" ||
-			firstWord === "write" ||
 			firstWord === "edit" ||
+			firstWord === "find" ||
 			firstWord === "grep" ||
 			firstWord === "ls" ||
-			firstWord === "find"
+			firstWord === "read" ||
+			firstWord === "rg" ||
+			firstWord === "write"
 		) {
 			return true;
 		}

@@ -9,7 +9,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { mkdtemp, rm, stat, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { RgResult, SearchConfig } from "./types.ts";
@@ -78,7 +78,19 @@ export async function verifyDirectory(cwd: string, directory: string): Promise<s
 	}
 	try {
 		const dirStat = await stat(resolvedDir);
-		if (!dirStat.isDirectory()) throw new Error(`"${directory}" is a file, not a directory.`);
+		if (!dirStat.isDirectory()) {
+			const parentDir = dirname(resolvedDir);
+			const relDir = parentDir === resolvedCwd ? "." : relative(resolvedCwd, parentDir);
+			console.warn(
+				`[ripgrep_search] Path "${directory}" is a file, searching parent directory "${relDir}" instead.`,
+			);
+			if (parentDir !== resolvedCwd && !parentDir.startsWith(resolvedCwd + "/")) {
+				throw new Error(
+					`Directory traversal detected: parent directory of "${directory}" resolves outside project root.`,
+				);
+			}
+			return parentDir;
+		}
 		return resolvedDir;
 	} catch (err: unknown) {
 		const nodeErr = err as { code?: string };
