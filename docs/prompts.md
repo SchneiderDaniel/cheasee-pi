@@ -26,7 +26,7 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 | **pr-review** | `/pr-review` | Automated PR security/quality checks, validates against Cheasee-Pi philosophy, formats structured review comment. |
 | **quiz-master** | `/quiz-master` | List open PRs across repo + submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%. |
 | **model-select** | `/model-select <objective>` | Research + recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives: cost-optimized, performance-optimized, balanced. |
-| **package-extension** | `/package-extension` | Package selected extension from monorepo as individual npm pi-package. Sets up package.json with pi manifest, guides through publishing. |
+| **package-extension** | `/package-extension` | Package selected extension from monorepo as individual npm pi-package. Sets up package.json with pi manifest, guides through publishing. Lists extensions, discovers imports, creates README, shows `npm publish` commands. |
 | **architecture-review** | `/architecture-review` | Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors. |
 | **changelog-check** | `/changelog-check` | Analyze pi CHANGELOG.md for breaking changes affecting extensions. Generates migration report. |
 | **extension-validation** | `/extension-validation <path>` | Validate extension structure, imports, hooks against pi extension API. |

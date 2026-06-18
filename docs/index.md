@@ -22,11 +22,13 @@ Token-saving agent harness with security guardrails and a Kanban git-oriented su
 | Section | Description |
 |---------|-------------|
 | [Installation](installation) | Setup guide, prerequisites, verification |
-| [Architecture](architecture) | System design, git worktrees, multi-agent pipeline |
+| [Architecture](architecture) | System design, multi-agent pipeline, Docker |
 | [Extensions](extensions) | All 17 pi extensions — tools, pipeline, safety |
 | [Skills](skills) | Reusable skill definitions |
-| [Methodology](methodology) | Kanban pipeline, security, token efficiency |
+| [Methodology](methodology) | Kanban pipeline, quality gates, daily workflow |
 | [Prompts](prompts) | Prompt templates reference |
+| [GitHub](github) | Worktrees, project boards, CI/CD, Pages |
+| [Security](security) | No MCP, trust gates, isolation, supply chain |
 | [SBOM](sbom) | Software Bill of Materials |
 | [Acknowledgements](acknowledgements) | Credits and licenses |
 | [Full README →](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/README.md) | Complete project documentation on GitHub |

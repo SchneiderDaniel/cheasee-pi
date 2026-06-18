@@ -105,22 +105,6 @@ pi -p "Create a file named '.pi/test-file.txt' with content 'container works', t
 | `make shell`  | Enter container shell                |
 | `make pi`     | Launch pi agent inside container     |
 
-## Daily commands
-
-| Action                  | Command                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------ |
-| Start session           | `pi`                                                                                 |
-| Run supervisor pipeline | `/supervisor <issue-number>`                                                         |
-| Run TSC type-check      | `/check`                                                                             |
-| Toggle session advice   | `/session-advice on` / `/session-advice off`                                         |
-| Toggle session logger   | `/session-logger on` / `/session-logger off`                                         |
-| Toggle caveman level    | `/caveman` (cycle: lite → full → off)                                                |
-| Design an extension     | `/extension-spec <idea>`                                                             |
-| Write handover          | `/handover`                                                                          |
-| Quiz PR reviewer        | `/quiz-master`                                                                       |
-| View session logs       | `ls .pi/sessions/`                                                                   |
-| Reload config           | `/reload` (after editing .piignore, settings.json, etc.)                             |
-
 ## Troubleshooting
 
 ### Container doesn't start
@@ -132,14 +116,6 @@ docker compose build --no-cache
 ./cheasee-pi.sh
 ```
 
-### Web crawl fails with Chromium errors
-
-The extension auto-installs system libraries inside the container. If it persists:
-
-```bash
-rm -rf .pi/scrapling-venv    # Next call auto-recreates
-```
-
 ### Permission errors on bind-mounted files
 
 UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
@@ -148,30 +124,10 @@ UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose up
 ```
 
-### `gh auth status` shows "not logged in"
-
-Inside the container:
-
-```bash
-gh auth login
-```
-
-Authenticate with **Login with a web browser**.
-
-### `.piignore` blocking legitimate paths
-
-Edit `.piignore` and add a negation pattern:
-
-```
-!path/to/allow
-```
-
-Reload with `/reload`.
-
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git worktree add -b feature/amazing feature-amazing`)
+2. Create a feature branch
 3. Make your changes
 4. Run tests: `npm test`
 5. Submit a PR

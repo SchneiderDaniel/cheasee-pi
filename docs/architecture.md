@@ -65,15 +65,7 @@ The supervisor orchestrates a 5-step pipeline:
 Researcher → Architect → TestDesigner → Developer → Auditor
 ```
 
-Each agent is a Markdown file in `.pi/extensions/supervisor/agents/` with YAML frontmatter defining tools, skills, and model.
-
-| Agent            | Tools                                                      | Skills                  |
-| ---------------- | ---------------------------------------------------------- | ----------------------- |
-| **Researcher**   | read, bash, structural_search, ripgrep_search              | —                       |
-| **Architect**    | read, bash, structural_search, ripgrep_search              | `extension-spec`        |
-| **TestDesigner** | read, bash, structural_search, ripgrep_search              | —                       |
-| **Developer**    | read, bash, write, edit, structural_search, ripgrep_search | `extension-spec`        |
-| **Auditor**      | read, bash, structural_search, ripgrep_search              | `duplicate-code-hunter` |
+Each agent is a Markdown file in `.pi/extensions/supervisor/agents/` with YAML frontmatter defining tools, skills, and model. See [Extensions → Supervisor](extensions/supervisor) for the full agent table.
 
 ## Docker container
 

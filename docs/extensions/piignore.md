@@ -15,4 +15,12 @@ nav_order: 14
 
 **How it works.** Loads `.piignore` files walking up from project root to filesystem root (hierarchical loading). On every tool call, checks target paths against loaded patterns. Bash commands tokenized with shell-aware parsing — URLs, npm scoped packages, echo/printf strings are excluded from path checking. Pattern reload on `/reload` via `resources_discover` event. Shows warning toast when a path is blocked (TUI/RPC modes with UI). Global companion extension warns about overly broad patterns (`*`, `**/*secret*`) before trust is granted.
 
+**Troubleshooting:** If `.piignore` blocks a legitimate path, add a negation pattern and reload:
+
+```
+!path/to/allow
+```
+
+Then run `/reload`.
+
 **Location:** `.pi/extensions/piignore/`

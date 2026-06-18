@@ -26,35 +26,33 @@ All tools run locally. Web crawling runs on the host (network access only for th
 
 ## Agent Harness — runtime tool call validation
 
-The Agent Harness extension intercepts every tool call before execution and validates it against a set of rules:
+The [Agent Harness](extensions/agent-harness) extension intercepts every tool call and enforces guards that prevent security-relevant tool misuse:
 
-- **Tool mismatch prevention** — `bash | grep` / `bash | rg` is blocked and redirected to `ripgrep_search`. `bash cat` / `head` / `tail` is blocked and redirected to `read`
-- **Error loop prevention** — After 2 consecutive errors on the same tool, further calls are blocked with a suggestion to try a different approach
-- **Cascade prevention** — 8+ consecutive calls to the same tool (e.g., 8 `bash` calls in a row) trigger a block with a batching suggestion
-- **Read caching** — Re-reading the same file within 6 turns returns cached content instead of re-executing, preventing redundant I/O
+- **Tool mismatch prevention** — `bash | grep` / `bash cat` is blocked, agent redirected to `ripgrep_search` / `read`
+- **Error loop prevention** — After 2 consecutive errors, further calls to same tool are blocked
+- **Cascade prevention** — 8+ consecutive same-tool calls trigger a block with batching suggestion
+- **Read caching** — Re-reading the same file within 6 turns returns cached content, preventing redundant I/O
 
-Rules are configurable via `.pi/harness-config.json` with per-tool thresholds. Loaded per session; `/reload` picks up changes.
+Rules are configurable via `.pi/harness-config.json`.
 
 ## PiIgnore — path blocking
 
-The `.piignore` file blocks agent access to sensitive paths using gitignore-style patterns. Intercepts `read`, `write`, `edit`, `grep`, `find`, `ls`, and `bash` when a target path matches.
+The [PiIgnore](extensions/piignore) extension blocks agent access to sensitive paths using `.piignore` patterns (gitignore format). Intercepts `read`, `write`, `edit`, `grep`, `find`, `ls`, and `bash` when a target path matches.
 
 **Dual trust model:**
-- **Trusted project** — `.piignore` patterns are loaded and enforced as written, walking up from project root to filesystem root (hierarchical loading)
-- **Untrusted project** — `.piignore` patterns are **not honored**. Instead, a hardcoded safe-default block list is enforced: `*.env`, `.env.*`, `secrets/`, `**/*.pem`, `**/*.key`. This prevents an attacker who controls the repository from using `.piignore` to open paths or selectively block access
-
-**Shell-aware parsing:** Bash commands are tokenized before path checking — URLs, npm scoped packages, echo/printf strings are excluded from file-path matching. Commands chained after `&&`, `||`, `;`, or `|` are checked independently.
+- **Trusted project** — `.piignore` patterns are loaded and enforced as written, walking up from project root to filesystem root
+- **Untrusted project** — `.piignore` patterns are **not honored**. Instead, a hardcoded safe-default block list is enforced: `*.env`, `.env.*`, `secrets/`, `**/*.pem`, `**/*.key`. Prevents attacker-controlled repo from weaponizing `.piignore`
 
 ## Worktree Sandbox — isolation enforcement
 
-When the supervisor pipeline runs Developer and Auditor agents, each gets its own git worktree. The Worktree Sandbox enforces that agents operate ONLY within their assigned worktree:
+The [Worktree Sandbox](extensions/worktree-sandbox) extension enforces that pipeline agents operate ONLY within their assigned git worktree:
 
-- **`read`/`write`/`edit`** — Relative paths get the worktree root prepended. Absolute paths are checked — blocked if outside worktree
+- **`read`/`write`/`edit`** — Relative paths rewritten to worktree root; absolute paths outside worktree are blocked
 - **`bash`** — Prepends `cd "<worktree>" && ` to every command
-- **`cd` escape prevention** — Shell-aware parsing via `shell-quote` detects variable expansion (`$HOME` → blocked as `<HOME>`), tilde expansion (`~/escape` → blocked), command substitution (`$(...)` → blocked), pipe prefix bypasses (`echo \| cd /escape` → blocked)
-- **File write prevention** — Shell redirects (`>`, `>>`), `cp`/`mv`/`touch` destinations outside worktree are blocked
+- **`cd` escape prevention** — Shell-aware parsing detects variable expansion, tilde expansion, command substitution, pipe prefix bypasses
+- **File write prevention** — Shell redirects, `cp`/`mv`/`touch` destinations outside worktree are blocked
 
-**Trust gate:** Before resolving `WORKTREE_SANDBOX_PATH`, the extension checks `ctx.isProjectTrusted()`. Untrusted projects skip sandbox entirely — prevents attacker-controlled environment variables from redirecting sandbox operations.
+**Trust gate:** Before resolving the sandbox path, `ctx.isProjectTrusted()` is checked. Untrusted projects skip sandbox entirely — prevents attacker-controlled environment variables from redirecting sandbox operations.
 
 ## Project trust gates
 

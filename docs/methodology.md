@@ -84,6 +84,8 @@ If either fails, the issue goes back to Implementation (max 3 retries for LSP). 
 | 4 | **Developer** | low | `Implementation` | JSON + Git commit + push |
 | 5 | **Auditor** | medium | `Audit` | JSON with APPROVED/REJECTED |
 
+See [Extensions → Supervisor](extensions/supervisor) for agent definitions and tools.
+
 ## Daily workflow
 
 ### Typical session

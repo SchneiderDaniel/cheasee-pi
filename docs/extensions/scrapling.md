@@ -15,4 +15,10 @@ nav_order: 3
 
 **How it works.** Registers `web_crawl` tool. On first call, creates `.pi/scrapling-venv/` with `scrapling[fetchers]` and `markdownify`. Validates URL, acquires concurrency semaphore (max 2 concurrent — protects 8GB RAM). Runs Python subprocess: lightweight curl_cffi fetch → Playwright stealth on Cloudflare block. Extracts Markdown via `markdownify`, truncates by `maxTokens` parameter. Returns formatted `--- URL (via method) ---\ncontent`. Configurable via `config.json`.
 
+**Troubleshooting:** If crawling fails with Chromium errors, delete the venv and retry — it auto-recreates:
+
+```bash
+rm -rf .pi/scrapling-venv
+```
+
 **Location:** `.pi/extensions/scrapling/`
