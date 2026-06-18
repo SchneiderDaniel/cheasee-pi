@@ -35,6 +35,7 @@ RUN apt-get update && \
         unzip \
         universal-ctags \
         ripgrep \
+        git \
         wget \
         gosu \
     && apt-get clean \

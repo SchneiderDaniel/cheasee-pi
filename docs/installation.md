@@ -20,13 +20,15 @@ nav_order: 2
 
 **One dependency:** Docker Engine ≥24.0 with Compose V2.
 
-| Platform    | Install Link                                                                                                            |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) |
-| **macOS**   | [OrbStack](https://orbstack.dev/) (fast, lightweight Docker + Compose V2)              |
-| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      |
+| Platform    | Install Link                                                                                                            | Instructions |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
+| **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) | `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo usermod -aG docker $USER` |
+| **macOS**   | [OrbStack](https://orbstack.dev/) (fast, lightweight Docker + Compose V2)              | Download from orbstack.dev or `brew install orbstack` |
+| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      | Enable VM platform: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart` + restart (on Win ≥10 v2004, `wsl --install` does this automatically — skip `dism`). Then `wsl --install -d Ubuntu`. Inside WSL: `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo usermod -aG docker $USER` |
 
 **Platform:** Docker-only. Linux native, macOS via OrbStack, Windows via WSL2 + Docker Engine.
+
+
 
 ## Quick start
 
@@ -70,15 +72,43 @@ All worktrees live alongside each other under the workspace root. Feature branch
 
 Builds the image (first run, ~2 min) and drops you into the Pi TUI inside the container.
 
-### 4. Set provider (first session only)
+### 4. Set API key
 
-```bash
-pi --provider opencode-go --api-key "your-key"
+On first run, `./cheasee-pi.sh` detects no keys and launches an interactive setup:
+
+```
+No API keys configured yet.
+
+Configuring API keys for pi providers...
+Shell profile: ~/.bashrc
+
+Available providers:
+  [1] OPENAI_API_KEY         OpenAI GPT API key
+  [2] ANTHROPIC_API_KEY      Anthropic Claude API key
+  [3] OPENCODE_API_KEY       OpenCode Zen/OpenCode Go API key
+  [4] DEEPSEEK_API_KEY       DeepSeek API key
+  [5] GEMINI_API_KEY         Google Gemini API key
+  ...
+
+Enter numbers (e.g., '1 3 5'), 'all', or 'q':
+>
 ```
 
-Exit with `Ctrl+C` twice. The provider is persisted in `.pi/settings.json`.
+Select which providers to configure, enter each key once. Keys are saved to your shell profile and used immediately.
 
-### 5. Configure `.pi/settings.json`
+To reconfigure later:
+
+```bash
+./cheasee-pi.sh --configure
+```
+
+To override for a single session:
+
+```bash
+./cheasee-pi.sh --api-key "sk-..."
+```
+
+### 5. Configure `.pi/settings.json` (optional)
 
 `.pi/settings.json` stores all per-repo configuration. Key fields:
 

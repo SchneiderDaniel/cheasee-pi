@@ -29,6 +29,31 @@ if [ -n "$HOST_GID" ] && [ "$HOST_GID" != "$(id -g agentuser)" ]; then
     usermod -g "$HOST_GID" agentuser
 fi
 
+# --- Fix git worktree paths for container portability -----------------
+# Worktree .git files contain absolute host paths (e.g.
+# /home/user/git/.bare/worktrees/...) that don't exist inside the
+# container. Rewrite them to relative paths so git works regardless
+# of mount point.
+find /workspaces -maxdepth 3 -name '.git' -type f 2>/dev/null | while read -r f; do
+    read -r line < "$f"
+    gitdir="${line#gitdir: }"
+    [ "${gitdir:0:1}" != "/" ] && continue       # skip relative
+    [ -d "$gitdir" ] && continue                  # already valid
+    suffix="${gitdir#*/.bare}"
+    echo "gitdir: ../.bare$suffix" > "$f"
+    echo "Fixed: $f → ../.bare$suffix"
+done
+
+# Fix reciprocal gitdir files inside .bare/worktrees/<id>/gitdir
+find /workspaces/.bare/worktrees -name 'gitdir' -type f 2>/dev/null | while read -r f; do
+    read -r content < "$f"
+    [ "${content:0:1}" != "/" ] && continue      # skip relative
+    [ -f "$content" ] && continue                  # already valid
+    worktree_id=$(basename "$(dirname "$f")")
+    echo "../../$worktree_id/.git" > "$f"
+    echo "Fixed: $f → ../../$worktree_id/.git"
+done
+
 # --- Update file ownership ----------------------------------------
 # Ensure the workspace and home directory are owned by the (possibly
 # remapped) user so bind-mounted volumes are writable.

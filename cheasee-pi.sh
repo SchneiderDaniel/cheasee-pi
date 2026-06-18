@@ -12,6 +12,166 @@ set -e
 #   ./cheasee-pi.sh
 # ------------------------------------------------------------------
 
+# --- Help --------------------------------------------------------------
+show_help() {
+    cat <<EOF
+Usage: ./cheasee-pi.sh [options]
+
+Options:
+  -k, --api-key <key>   Set API key for this session (not saved to disk)
+  --configure           Interactive setup: choose providers, enter keys, save to shell profile
+  -h, --help            Show this help
+EOF
+    exit 0
+}
+
+# --- Parse args ---------------------------------------------------------
+API_KEY=""
+CONFIGURE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -k|--api-key)
+            API_KEY="$2"
+            shift 2
+            ;;
+        --configure)
+            CONFIGURE=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            ;;
+    esac
+done
+
+# --- Detect shell profile ---------------------------------------------
+detect_profile() {
+    if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+        echo "$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ] || [ -f "$HOME/.bashrc" ]; then
+        echo "$HOME/.bashrc"
+    else
+        echo "$HOME/.profile"
+    fi
+}
+
+# --- Parse provider list from pi --help ---------------------------------
+parse_providers() {
+    pi --help 2>/dev/null | awk '/^Environment Variables:/{flag=1; next} flag && /^  [A-Z]/' | grep -i 'api.key' | sed 's/  //'
+}
+
+fallback_providers=$(cat <<'FALLBACK'
+OPENAI_API_KEY - OpenAI GPT API key
+ANTHROPIC_API_KEY - Anthropic Claude API key
+OPENCODE_API_KEY - OpenCode Zen/OpenCode Go API key
+DEEPSEEK_API_KEY - DeepSeek API key
+GEMINI_API_KEY - Google Gemini API key
+FALLBACK
+)
+
+# --- Interactive provider chooser ---------------------------------------
+run_configure() {
+    local PROFILE
+    PROFILE=$(detect_profile)
+
+    echo "Configuring API keys for pi providers..."
+    echo "Shell profile: $PROFILE"
+    echo ""
+
+    local PROVIDERS
+    PROVIDERS=$(parse_providers)
+    [ -z "$PROVIDERS" ] && PROVIDERS="$fallback_providers"
+
+    # Build arrays
+    local VARS=() DESCS=()
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local var desc
+        var=$(echo "$line" | awk '{print $1}')
+        desc=$(echo "$line" | sed 's/^[A-Z_]* - //')
+        VARS+=("$var")
+        DESCS+=("$desc")
+    done <<< "$PROVIDERS"
+
+    # Helper: check if a key exists in auth.json for any provider
+    has_auth_key() {
+        local envvar="$1"
+        [ -f "$HOME/.pi/agent/auth.json" ] || return 1
+        jq -e "to_entries[] | select(.value.key != null) as \$e | \$e.key" "$HOME/.pi/agent/auth.json" >/dev/null 2>&1
+        # Map envvar back to provider names and check
+        local providers
+        case "$envvar" in
+            OPENCODE_API_KEY)     providers='"opencode-go","opencode"' ;;
+            OPENAI_API_KEY)       providers='"openai"' ;;
+            ANTHROPIC_API_KEY)    providers='"anthropic","claude"' ;;
+            DEEPSEEK_API_KEY)     providers='"deepseek"' ;;
+            GEMINI_API_KEY)       providers='"gemini","google"' ;;
+            *)                    return 1 ;;
+        esac
+        jq -e "[keys[] | select(. == $providers) | . as \$p | .[\$p].key | length > 0] | any" "$HOME/.pi/agent/auth.json" >/dev/null 2>&1
+    }
+
+    echo "Available providers:"
+    for i in "${!VARS[@]}"; do
+        local var="${VARS[$i]}" desc="${DESCS[$i]}" status=""
+        if [ -n "${!var}" ]; then
+            status="(already set)"
+        elif grep -q "^export $var=" "$PROFILE" 2>/dev/null; then
+            status="(already saved)"
+        elif has_auth_key "$var"; then
+            status="(in ~/.pi/agent/auth.json)"
+        fi
+        echo "  [$((i+1))] $var  $desc $status"
+    done
+
+    echo ""
+    echo "Enter numbers (e.g., '1 3 5'), 'all', or 'q':"
+    read -r -p "> " selection
+    [ "$selection" = "q" ] && exit 0
+    [ "$selection" = "all" ] && selection=$(seq 1 ${#VARS[@]})
+
+    # Collect keys and write profile
+    local HEADER_WRITTEN=false
+    local ENV_EXPORTS=""
+    for num in $selection; do
+        local idx=$((num - 1))
+        [ "$idx" -lt 0 ] || [ "$idx" -ge "${#VARS[@]}" ] && continue
+        local var="${VARS[$idx]}" desc="${DESCS[$idx]}"
+
+        [ -n "${!var}" ] && echo "$var already set — skipping." && continue
+        grep -q "^export $var=" "$PROFILE" 2>/dev/null && echo "$var already saved — skipping." && continue
+
+        echo ""
+        read -r -p "Key for $var ($desc): " key
+        [ -z "$key" ] && echo "Skipping $var." && continue
+
+        export "$var=$key"
+        ENV_EXPORTS="$ENV_EXPORTS export $var=$key"
+
+        if [ "$HEADER_WRITTEN" = false ]; then
+            echo "" >> "$PROFILE"
+            echo "# --- cheasee-pi API keys (added $(date +%Y-%m-%d)) ---" >> "$PROFILE"
+            HEADER_WRITTEN=true
+        fi
+        echo "export $var=$key" >> "$PROFILE"
+        echo "Saved $var to $PROFILE"
+    done
+
+    echo ""
+    echo "Keys saved to $PROFILE"
+    echo ""
+}
+
+# --- Configure mode (explicit) -------------------------------------------
+if [ "$CONFIGURE" = true ]; then
+    run_configure
+    exit 0
+fi
+
 # --- Step 1: Assert docker is on PATH ---------------------------------
 if ! command -v docker &>/dev/null; then
     echo "Error: Docker not found on PATH."
@@ -35,6 +195,87 @@ CHEASEEPI_CPUS=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json)
 export CHEASEEPI_MEMORY
 export CHEASEEPI_CPUS
 
+# --- Step 3: Resolve API key -------------------------------------------
+# Priority: --api-key flag > env vars already set > configure interactively
+
+PROVIDER=$(jq -r '.defaultProvider // "opencode-go"' .pi/settings.json)
+
+# --- Helper: map provider name to env var -----------------------------
+provider_to_envvar() {
+    case "$1" in
+        opencode-go|opencode)  echo "OPENCODE_API_KEY" ;;
+        openai*)               echo "OPENAI_API_KEY" ;;
+        anthropic*|claude*)    echo "ANTHROPIC_API_KEY" ;;
+        deepseek*)             echo "DEEPSEEK_API_KEY" ;;
+        gemini*|google*)       echo "GEMINI_API_KEY" ;;
+        groq*)                 echo "GROQ_API_KEY" ;;
+        mistral*)              echo "MISTRAL_API_KEY" ;;
+        openrouter*)           echo "OPENROUTER_API_KEY" ;;
+        *)                     echo "" ;;
+    esac
+}
+
+# --- Read keys from ~/.pi/agent/auth.json if exists -----------------
+AUTH_JSON="$HOME/.pi/agent/auth.json"
+if [ -f "$AUTH_JSON" ]; then
+    # Extract all provider keys from auth.json and export as env vars
+    while IFS= read -r provider; do
+        [ -z "$provider" ] && continue
+        key=$(jq -r ".\"$provider\".key // empty" "$AUTH_JSON")
+        if [ -n "$key" ]; then
+            envvar=$(provider_to_envvar "$provider")
+            if [ -n "$envvar" ] && [ -z "${!envvar}" ]; then
+                export "$envvar=$key"
+            fi
+        fi
+    done <<< "$(jq -r 'keys[]' "$AUTH_JSON" 2>/dev/null)"
+fi
+
+ALL_VARS=(OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY)
+HAVE_ANY=false
+
+if [ -n "$API_KEY" ]; then
+    export OPENCODE_API_KEY="$API_KEY"
+    HAVE_ANY=true
+    echo "Found API keys: OPENCODE_API_KEY (from --api-key)"
+else
+    FOUND=""
+    for var in "${ALL_VARS[@]}"; do
+        if [ -n "${!var}" ]; then
+            val="${!var}"
+            masked="${val:0:4}...${val: -4}"
+            FOUND="$FOUND\n  $var  $masked"
+            HAVE_ANY=true
+        fi
+    done
+    if [ "$HAVE_ANY" = true ]; then
+        echo -e "Found API keys:$FOUND"
+    fi
+fi
+
+if [ "$HAVE_ANY" = false ]; then
+    echo "No API keys configured yet."
+    echo ""
+    run_configure
+fi
+
+# After configure (or if keys existed), verify default provider has a key
+DEFAULT_VAR=""
+case "$PROVIDER" in
+    opencode-go|opencode) DEFAULT_VAR="OPENCODE_API_KEY" ;;
+    openai*)               DEFAULT_VAR="OPENAI_API_KEY" ;;
+    anthropic*|claude*)    DEFAULT_VAR="ANTHROPIC_API_KEY" ;;
+    deepseek*)             DEFAULT_VAR="DEEPSEEK_API_KEY" ;;
+    gemini*|google*)       DEFAULT_VAR="GEMINI_API_KEY" ;;
+    *)                     DEFAULT_VAR="OPENCODE_API_KEY" ;;
+esac
+
+if [ -z "${!DEFAULT_VAR}" ]; then
+    echo "Warning: default provider '$PROVIDER' needs key \$DEFAULT_VAR."
+    echo "The container will launch, but API calls may fail."
+    echo "Run 'source $(detect_profile)' or restart your shell."
+fi
+
 # --- Step 4: Export host identity -------------------------------------
 export HOST_UID
 HOST_UID=$(id -u)
@@ -45,8 +286,18 @@ HOST_GID=$(id -g)
 echo "Starting cheasee-pi container..."
 docker compose -f docker/docker-compose.yml up -d --build
 
-# --- Step 6: Launch interactive pi session ----------------------------
+# --- Step 6: Build env passthrough for docker exec ---------------------
+DOCKER_ENV=""
+for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY \
+           ANT_LING_API_KEY AZURE_OPENAI_API_KEY NVIDIA_API_KEY GROQ_API_KEY \
+           CEREBRAS_API_KEY XAI_API_KEY FIREWORKS_API_KEY TOGETHER_API_KEY \
+           OPENROUTER_API_KEY AI_GATEWAY_API_KEY MISTRAL_API_KEY MINIMAX_API_KEY \
+           MOONSHOT_API_KEY KIMI_API_KEY CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID; do
+    if [ -n "${!var}" ]; then
+        DOCKER_ENV="$DOCKER_ENV -e $var=${!var}"
+    fi
+done
+
+# --- Step 7: Launch interactive pi session ----------------------------
 echo "Entering pi agent inside container..."
-# Use the startup wrapper which integrates the splash loading screen
-# setupSplashIntegration() patches DefaultResourceLoader before main() runs
-docker exec -it cheasee-pi /bin/bash -c 'cd /workspaces/main && node --experimental-strip-types src/start-pi.ts "$@"' --
+docker exec $DOCKER_ENV -it cheasee-pi /bin/bash -c 'cd /workspaces/main && pi --approve "$@"' --
