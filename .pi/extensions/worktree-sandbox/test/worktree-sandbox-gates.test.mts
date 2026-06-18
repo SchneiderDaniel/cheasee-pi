@@ -14,30 +14,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-// ═══════════════════════════════════════════════════════════════════════
-// Types
-// ═══════════════════════════════════════════════════════════════════════
-
-interface ToolCallEvent {
-	type: "tool_call";
-	toolCallId: string;
-	toolName: string;
-	input: Record<string, unknown>;
-}
-
-interface MockCtx {
-	hasUI: boolean;
-	ui: { notify: (message: string, type?: string) => void };
-	mode: string | undefined;
-	isProjectTrusted?: () => boolean | undefined;
-	[key: string]: unknown;
-}
-
-interface ToolCallResult {
-	block?: boolean;
-	reason?: string;
-}
+import { makeToolCallEvent, makeCtx, makeMockPi } from "./helpers.ts";
+import type { ToolCallEvent, MockCtx, ToolCallResult } from "./helpers.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Module under test
@@ -58,66 +36,11 @@ let mod: {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// Helpers
+// Setup
 // ═══════════════════════════════════════════════════════════════════════
 
 const ENV_KEY = "WORKTREE_SANDBOX_PATH";
-
-function makeMockPi(): {
-	on: (
-		event: string,
-		handler: (event: ToolCallEvent, ctx: MockCtx) => Promise<ToolCallResult | undefined>,
-	) => void;
-	handlers: Map<
-		string,
-		(event: ToolCallEvent, ctx: MockCtx) => Promise<ToolCallResult | undefined>
-	>;
-} {
-	const handlers = new Map<
-		string,
-		(event: ToolCallEvent, ctx: MockCtx) => Promise<ToolCallResult | undefined>
-	>();
-	return {
-		handlers,
-		on: (
-			event: string,
-			handler: (event: ToolCallEvent, ctx: MockCtx) => Promise<ToolCallResult | undefined>,
-		) => {
-			handlers.set(event, handler);
-		},
-	};
-}
-
-function makeEvent(toolName: string, input: Record<string, unknown>): ToolCallEvent {
-	return {
-		type: "tool_call",
-		toolCallId: "test-call-id",
-		toolName,
-		input,
-	};
-}
-
-function makeCtx(overrides: Partial<MockCtx> = {}): MockCtx {
-	const notifications: Array<{ msg: string; level?: string }> = [];
-	const ctx: MockCtx = {
-		hasUI: false,
-		ui: {
-			notify: (message: string, type?: string) => {
-				notifications.push({ msg: message, level: type });
-			},
-		},
-		mode: "tui",
-		isProjectTrusted: () => true,
-		...overrides,
-		// Ensure notifications are accessible for test assertions
-		_notifications: notifications,
-	};
-	return ctx;
-}
-
 let sandboxDir: string;
-
-// ─── Suite setup ──────────────────────────────────────────────────
 
 describe("worktree-sandbox gates", () => {
 	before(async () => {
@@ -188,7 +111,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => false, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -200,7 +123,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("write", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("write", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => false, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -212,7 +135,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("edit", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("edit", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => false, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -224,7 +147,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "ls /etc" });
+			const event = makeToolCallEvent("bash", { command: "ls /etc" });
 			const ctx = makeCtx({ isProjectTrusted: () => false, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -237,7 +160,7 @@ describe("worktree-sandbox gates", () => {
 			const handler = pi.handlers.get("tool_call")!;
 
 			// isProjectTrusted is undefined — should fall through to sandbox enforcement
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: undefined, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -252,7 +175,7 @@ describe("worktree-sandbox gates", () => {
 			const handler = pi.handlers.get("tool_call")!;
 
 			const notifications: Array<{ msg: string; level?: string }> = [];
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({
 				hasUI: true,
 				isProjectTrusted: () => false,
@@ -277,7 +200,7 @@ describe("worktree-sandbox gates", () => {
 			const handler = pi.handlers.get("tool_call")!;
 
 			const notifications: Array<{ msg: string; level?: string }> = [];
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({
 				hasUI: false,
 				isProjectTrusted: () => false,
@@ -300,7 +223,7 @@ describe("worktree-sandbox gates", () => {
 			const handler = pi.handlers.get("tool_call")!;
 
 			// Path outside sandbox — should be blocked even when trusted
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => true, mode: "tui" });
 			const result = await handler(event, ctx);
 
@@ -319,7 +242,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ mode: "print", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -331,7 +254,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ mode: "json", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -343,7 +266,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -357,7 +280,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ mode: "rpc", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -370,7 +293,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ mode: undefined, isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -389,7 +312,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => false, mode: "print" });
 			const result = await handler(event, ctx);
 
@@ -402,7 +325,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("read", { path: "/etc/passwd" });
+			const event = makeToolCallEvent("read", { path: "/etc/passwd" });
 			const ctx = makeCtx({ isProjectTrusted: () => true, mode: "print" });
 			const result = await handler(event, ctx);
 
@@ -420,7 +343,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd src" });
+			const event = makeToolCallEvent("bash", { command: "cd src" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -434,7 +357,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd /etc" });
+			const event = makeToolCallEvent("bash", { command: "cd /etc" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -448,7 +371,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd $HOME" });
+			const event = makeToolCallEvent("bash", { command: "cd $HOME" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -461,7 +384,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd $(echo /etc)" });
+			const event = makeToolCallEvent("bash", { command: "cd $(echo /etc)" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -474,7 +397,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd ~/escape" });
+			const event = makeToolCallEvent("bash", { command: "cd ~/escape" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -487,7 +410,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "echo hi | cd /etc" });
+			const event = makeToolCallEvent("bash", { command: "echo hi | cd /etc" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -500,7 +423,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cd" });
+			const event = makeToolCallEvent("bash", { command: "cd" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -513,7 +436,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "echo hi > /etc/passwd" });
+			const event = makeToolCallEvent("bash", { command: "echo hi > /etc/passwd" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -526,7 +449,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "cp a $DEST" });
+			const event = makeToolCallEvent("bash", { command: "cp a $DEST" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -539,7 +462,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "touch /etc/passwd" });
+			const event = makeToolCallEvent("bash", { command: "touch /etc/passwd" });
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 
@@ -552,7 +475,9 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			const event = makeEvent("bash", { command: "echo hi | cd $HOME && echo data > $OUTFILE" });
+			const event = makeToolCallEvent("bash", {
+				command: "echo hi | cd $HOME && echo data > $OUTFILE",
+			});
 			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 			const result = await handler(event, ctx);
 

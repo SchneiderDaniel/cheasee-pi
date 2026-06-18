@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { withSandboxEnv, makeCtx } from "./helpers.ts";
 
 // ---- vv BOUNDARY: TDD GATE — do not remove vv ----
 import { findUnsafeCd } from "../index.ts";
@@ -346,140 +347,145 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 		};
 	}
 
-	function makeCtx(
-		_sandboxDir: string,
-		overrides: Record<string, unknown> = {},
-	): Record<string, unknown> {
-		return {
-			hasUI: false,
-			mode: "tui",
-			isProjectTrusted: () => true,
-			ui: { notify: (_msg: string, _type?: string) => {} },
-			...overrides,
-		};
-	}
-
 	it("blocks cd ~ via bash handler", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd ~ && pwd");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes('"~"'));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks cd $HOME via bash handler", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd $HOME && touch outside.txt");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<HOME>"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks bare cd via bash handler", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd && rm -rf important");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<HOME>"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("allows cd subdir via bash handler (safe, rewrites command)", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd subdir");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.equal(result, undefined);
 			assert.equal(event.input.command, `cd "${sandboxDir}" && cd subdir`);
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks cd - via bash handler with descriptive placeholder", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd - && pwd");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<previous-dir>"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks cd -- /etc && pwd via bash handler (option separator bypass)", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd -- /etc && pwd");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("/etc"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("allows cd -- subdir via bash handler (safe after separator)", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd -- subdir");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.equal(result, undefined);
 			assert.equal(event.input.command, `cd "${sandboxDir}" && cd -- subdir`);
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks cd -- via bash handler (bare cd after separator)", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd -- && pwd");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<HOME>"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 
 	it("blocks cd -- - via bash handler (previous dir after separator)", async () => {
-		process.env.WORKTREE_SANDBOX_PATH = sandboxDir;
-		try {
+		withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
 			const event = makeBashEvent("cd -- - && pwd");
-			const ctx = makeCtx(sandboxDir);
+			const ctx = makeCtx({
+				hasUI: false,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: { notify: () => {} },
+			});
 			const result = await handler(event, ctx);
 			assert.ok(result !== undefined, "handler should return a block result");
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<previous-dir>"));
-		} finally {
-			delete process.env.WORKTREE_SANDBOX_PATH;
-		}
+		});
 	});
 });
