@@ -234,6 +234,12 @@ fi
 ALL_VARS=(OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY)
 HAVE_ANY=false
 
+# Check if container already running — skip interactive prompts on subsequent calls
+FIRST_RUN=true
+if docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
+    FIRST_RUN=false
+fi
+
 if [ -n "$API_KEY" ]; then
     export OPENCODE_API_KEY="$API_KEY"
     HAVE_ANY=true
@@ -250,15 +256,10 @@ else
     done
     if [ "$HAVE_ANY" = true ]; then
         echo -e "Found API keys:$FOUND"
-        echo ""
-        read -r -p "Add more API keys? [y/N]: " ADD_MORE
-        if [ "$ADD_MORE" = "y" ] || [ "$ADD_MORE" = "Y" ]; then
-            run_configure
-        fi
     fi
 fi
 
-if [ "$HAVE_ANY" = false ]; then
+if [ "$HAVE_ANY" = false ] && [ "$FIRST_RUN" = true ]; then
     echo "No API keys configured yet."
     echo ""
     run_configure

@@ -74,7 +74,7 @@ Builds the image (first run, ~2 min) and drops you into the Pi TUI inside the co
 
 ### 4. Set API key
 
-On first run, `./cheasee-pi.sh` detects no keys and launches an interactive setup:
+On first run, `./cheasee-pi.sh` detects no keys and launches interactive setup:
 
 ```
 No API keys configured yet.
@@ -96,7 +96,9 @@ Enter numbers (e.g., '1 3 5'), 'all', or 'q':
 
 Select which providers to configure, enter each key once. Keys are saved to your shell profile and used immediately.
 
-To reconfigure later:
+The container stays running, so subsequent runs of `./cheasee-pi.sh` skip straight to launching pi — no repeated prompts.
+
+To add or change API keys later:
 
 ```bash
 ./cheasee-pi.sh --configure
@@ -107,6 +109,8 @@ To override for a single session:
 ```bash
 ./cheasee-pi.sh --api-key "sk-..."
 ```
+
+Run `./cheasee-pi.sh --help` for all options.
 
 ### 5. Configure `.pi/settings.json` (optional)
 
