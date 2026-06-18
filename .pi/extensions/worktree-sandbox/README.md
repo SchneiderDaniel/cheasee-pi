@@ -1,0 +1,74 @@
+# Worktree Sandbox
+
+**Keep agents inside their assigned worktree — no escape possible.** Intercepts `read`, `write`, `edit`, and `bash` tool calls, rewrites paths to target the worktree root, and blocks any operation that tries to escape.
+
+## Why
+
+When the Supervisor runs Developer and Auditor agents in parallel worktrees, each agent must only touch its own files. Without sandbox enforcement, an agent could:
+
+- Read or modify files from another agent's worktree (race condition + data corruption)
+- Write to the main checkout (breaks the isolation that worktrees provide)
+- Use `cd` with shell expansion to escape (`cd $HOME`, `cd ~/escape`)
+- Write files via shell redirects (`echo > /etc/passwd`)
+
+Worktree Sandbox enforces this at the tool call boundary — **deterministic enforcement**, not prompt-level. The LLM cannot bypass it because tool input mutation happens before execution.
+
+## How it works
+
+1. **Activation** — Set `WORKTREE_SANDBOX_PATH` environment variable to the worktree root directory. When unset, all handlers pass through (no-op mode)
+2. **Tool interception** — Hooks into `tool_call` event and processes every call:
+   - **`read`/`write`/`edit`** — Relative paths get the worktree root prepended. Absolute paths are checked — blocked if outside worktree
+   - **`bash`** — Prepends `cd "<worktree>" && ` to every command. Shell-aware parsing prevents `cd` escape via variables (`$HOME`), tilde expansion (`~/escape`), command substitution (`$(...)`), and pipe prefix bypasses (`echo | cd /escape`)
+3. **Trust gate** — Before resolving `WORKTREE_SANDBOX_PATH`, checks `ctx.isProjectTrusted()`. Untrusted projects skip sandbox entirely — prevents attacker-controlled env var from redirecting sandbox to malicious paths
+4. **Shell-aware parsing** — Uses `shell-quote` library to correctly tokenize bash commands, detecting:
+   - `cd` targets with shell expansion (`$VAR`, `~`, `$(cmd)`)
+   - Redirect targets (`>`, `>>`, `2>`) outside worktree
+   - `cp`/`mv`/`touch` destinations outside worktree
+5. **Block notifications** — Blocked operations show a toast notification in TUI: `[sandbox] Blocked cd to outside worktree: $HOME`
+
+### Guard flow
+
+```
+tool_call(event)
+    │
+    ├─ Mode check ── skip in print/JSON modes
+    │
+    ├─ Trust check ── skip if untrusted
+    │
+    ├─ WORKTREE_SANDBOX_PATH set? ── No → pass through (no-op)
+    │
+    ├─ read/write/edit:
+    │     ├─ Relative path → prepend worktree root
+    │     └─ Absolute path → block if outside worktree
+    │
+    └─ bash:
+          ├─ Block cd escape (shell-aware parsing)
+          ├─ Block file writes outside worktree (redirect/cp/mv/touch)
+          └─ Prepend `cd <worktree> && ` to every command
+```
+
+### Bypass prevention
+
+| Bypass vector | How it's caught |
+|--------------|-----------------|
+| `cd $HOME` | Variable expansion → `""` → blocked as `<HOME>` |
+| `cd ~/escape` | Tilde expansion → `hasShellExpansion()` |
+| `cd $(echo /escape)` | Command substitution → `hasShellExpansion()` |
+| `echo \| cd /escape` | Pipe prefix → `isCommandStart()` passes cd |
+| `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
+| `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
+| `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
+
+## Install
+
+Part of Cheasee-Pi monorepo. Activated automatically.
+
+## Requirements
+
+- Pi Coding Agent ≥ 0.79.1 (for `isProjectTrusted`)
+- `WORKTREE_SANDBOX_PATH` env var set (done by Supervisor when creating worktrees)
+- `shell-quote` npm package (dependency)
+
+## License
+
+MIT
