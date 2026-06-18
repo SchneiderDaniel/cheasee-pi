@@ -18,6 +18,51 @@ Pi auto-discovers extensions from `.pi/extensions/` in the project root. No conf
 
 ---
 
+## File manifest
+
+| File/Path | What it is |
+|-----------|------------|
+| `.pi/extensions/structural-analyzer/` | `structural_search` via ast-grep |
+| `.pi/extensions/ripgrep-search/` | `ripgrep_search` via ripgrep |
+| `.pi/extensions/scrapling/` | `web_crawl` via Scrapling |
+| `.pi/extensions/web-search/` | `web_search` via ddgs |
+| `.pi/extensions/supervisor/` | Kanban multi-agent orchestration |
+| `.pi/extensions/context-info/` | Rich TUI status bar |
+| `.pi/extensions/session-logger/` | Session logging to JSONL |
+| `.pi/extensions/session-advice/` | Post-session pattern analysis |
+| `.pi/extensions/agent-harness/` | Runtime tool call validation |
+| `.pi/extensions/ask-user/` | Interactive MC questions |
+| `.pi/extensions/caveman/` | Token-efficient protocol |
+| `.pi/extensions/format-on-save/` | Auto Prettier + ESLint |
+| `.pi/extensions/lsp-auditor/` | LSP diagnostics pre-audit |
+| `.pi/extensions/piignore.ts` | Path blocking |
+| `.pi/extensions/tsc-checkpoint.ts` | `/check` command |
+| `.pi/extensions/check-extensions/` | Extension compatibility audit |
+| `.pi/extensions/worktree-sandbox/` | Worktree path enforcement |
+| `.pi/settings.json` | Supervisor + TUI config |
+| `.pi/themes/cheasee-pi.json` | Dark cyberpunk TUI theme |
+| `.pi/prompts/requirement/` | Issue-cutter, issue-refinement |
+| `.pi/prompts/development/` | Handover, pr-review, quiz-master |
+| `.pi/prompts/operations/` | Model-select, package-extension, etc. |
+| `.pi/prompts/misc/` | writing-voice |
+| `.piignore` | Agent path blocking |
+| `AGENTS.md` | Caveman protocol (active every session) |
+| `Makefile` | Docker workflow |
+
+## Agent definitions
+
+Agents are Markdown files in `.pi/extensions/supervisor/agents/` with YAML frontmatter. The supervisor reads them at runtime.
+
+| Agent | File | Tools | Skills |
+|-------|------|-------|--------|
+| **Researcher** | `researcher.md` | read, bash, structural_search, ripgrep_search | — |
+| **Architect** | `architect.md` | read, bash, structural_search, ripgrep_search | `extension-spec` |
+| **TestDesigner** | `test-designer.md` | read, bash, structural_search, ripgrep_search | — |
+| **Developer** | `developer.md` | read, bash, write, edit, structural_search, ripgrep_search | `extension-spec` |
+| **Auditor** | `auditor.md` | read, bash, structural_search, ripgrep_search | `duplicate-code-hunter` |
+
+All agents use `opencode-go/deepseek-v4-flash` model. Developer additionally uses format-on-save and tsc-checkpoint.
+
 ## Core tools
 
 ### Structural Analyzer
@@ -135,12 +180,26 @@ Interactive multiple-choice picker for AI-to-user questions. Arrow-key navigatio
 
 ## Published packages
 
-Selected extensions are published as npm packages under the `@cheasee-pi` scope.
+Selected extensions are published as npm packages under the `@cheasee-pi` scope. They appear on the [pi.dev package gallery](https://pi.dev/packages).
 
-| Package                              | Install command                               |
-| ------------------------------------ | --------------------------------------------- |
-| `@cheasee-pi/ask-user`              | `pi install npm:@cheasee-pi/ask-user`        |
-| `@cheasee-pi/ripgrep-search`        | `pi install npm:@cheasee-pi/ripgrep-search`  |
-| `@cheasee-pi/lsp-auditor`           | `pi install npm:@cheasee-pi/lsp-auditor`     |
-| `@cheasee-pi/piignore`              | `pi install npm:@cheasee-pi/piignore`        |
-| `@cheasee-pi/structural-analyzer`   | `pi install npm:@cheasee-pi/structural-analyzer` |
+| Package | What it is | Install |
+|---------|------------|--------|
+| `@cheasee-pi/ask-user` | Interactive ask_user tool with typed dialogs, Q&A log, `/qna` command | `pi install npm:@cheasee-pi/ask-user` |
+| `@cheasee-pi/ripgrep-search` | Fast literal/regex code search — respects `.gitignore`, structured output | `pi install npm:@cheasee-pi/ripgrep-search` |
+| `@cheasee-pi/lsp-auditor` | Pre-audit code quality via LSP before commit | `pi install npm:@cheasee-pi/lsp-auditor` |
+| `@cheasee-pi/piignore` | Blocks AI access to sensitive files via `.piignore` patterns | `pi install npm:@cheasee-pi/piignore` |
+| `@cheasee-pi/structural-analyzer` | AST-aware code search via ast-grep | `pi install npm:@cheasee-pi/structural-analyzer` |
+
+**Why publish separately?** Not all extensions belong on pi.dev — some are Cheasee-Pi-specific (supervisor, session-logger, context-info). Published packages are self-contained, useful in any Pi setup.
+
+**Package structure:** Each published extension has its own `package.json` with `keywords: ["pi-package"]` and a `pi` manifest pointing to its entry file.
+
+### Publishing a package
+
+Use the `/package-extension` command in Pi's editor to package an extension for npm. The command:
+
+1. Lists all extensions in `.pi/extensions/`
+2. Reads the code to discover imports and dependencies
+3. Creates `package.json` with `@cheasee-pi/` scope, `pi-package` keyword
+4. Creates `README.md`
+5. Shows `npm publish` commands to run manually

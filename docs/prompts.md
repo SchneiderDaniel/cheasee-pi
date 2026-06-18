@@ -18,118 +18,19 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 
 ---
 
-## Requirement prompts
-
-### issue-cutter
-
-Split an epic into ordered, testable sub-issues with layer labels. Auto-links children to parent via GraphQL.
-
-```
-/issue-cutter <number>
-```
-
-**Input:** GitHub issue number of the epic
-**Output:** Multiple sub-issues with layer labels, linked to parent
-
-### issue-refinement
-
-Grill an issue against the codebase via Socratic interview. Uses `ask_user` with ≥3 MC options. Replaces body with concrete acceptance criteria.
-
-```
-/issue-refinement <number>
-```
-
-**Input:** GitHub issue number
-**Output:** Refined issue with concrete ACs
-
-## Development prompts
-
-### handover
-
-Write a handover document summarizing the conversation. Saves to `tmp/` with datetime prefix.
-
-```
-/handover
-```
-
-**Output:** Markdown file in `tmp/handover-<datetime>.md`
-
-### pr-review
-
-Automated PR security/quality checks. Validates against Cheasee-Pi philosophy. Formats structured review comment.
-
-```
-/pr-review
-```
-
-### quiz-master
-
-List open PRs across repo and submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%.
-
-```
-/quiz-master
-```
-
-## Operations prompts
-
-### model-select
-
-Research and recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives:
-
-| Objective | Focus |
-|-----------|-------|
-| `cost-optimized` | Lowest cost per token |
-| `performance-optimized` | Best quality/output |
-| `balanced` | Best trade-off |
-
-```
-/model-select <objective>
-```
-
-### package-extension
-
-Package a selected extension from the monorepo as an individual npm pi-package. Sets up `package.json` with pi manifest, guides through publishing.
-
-```
-/package-extension
-```
-
-### architecture-review
-
-Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors.
-
-```
-/architecture-review
-```
-
-### changelog-check
-
-Analyze pi CHANGELOG.md for breaking changes affecting extensions. Generates migration report.
-
-```
-/changelog-check
-```
-
-### extension-validation
-
-Validate extension structure, imports, hooks against the pi extension API.
-
-```
-/extension-validation <path>
-```
-
-## Misc prompts
-
-### writing-voice
-
-Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide.
-
-```
-/writing-voice
-```
-
-**Input:** Sample text (paste, URL, or file path)
-**Output:** Structured voice style guide
+| Template | Usage | What it does |
+|----------|-------|--------------|
+| **issue-cutter** | `/issue-cutter <number>` | Split epic into ordered, testable sub-issues with layer labels. Auto-links children to parent via GraphQL. |
+| **issue-refinement** | `/issue-refinement <number>` | Grill issue against codebase, Socratic interview via `ask_user` (≥3 MC options), replace body with concrete ACs. |
+| **handover** | `/handover` | Write handover doc summarizing conversation. Saves to `tmp/` with datetime prefix. |
+| **pr-review** | `/pr-review` | Automated PR security/quality checks, validates against Cheasee-Pi philosophy, formats structured review comment. |
+| **quiz-master** | `/quiz-master` | List open PRs across repo + submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%. |
+| **model-select** | `/model-select <objective>` | Research + recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives: cost-optimized, performance-optimized, balanced. |
+| **package-extension** | `/package-extension` | Package selected extension from monorepo as individual npm pi-package. Sets up package.json with pi manifest, guides through publishing. |
+| **architecture-review** | `/architecture-review` | Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors. |
+| **changelog-check** | `/changelog-check` | Analyze pi CHANGELOG.md for breaking changes affecting extensions. Generates migration report. |
+| **extension-validation** | `/extension-validation <path>` | Validate extension structure, imports, hooks against pi extension API. |
+| **writing-voice** | `/writing-voice` | Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. |
 
 ## Template organization
 
