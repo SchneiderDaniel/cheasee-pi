@@ -292,7 +292,35 @@ HOST_GID=$(id -g)
 echo "Starting cheasee-pi container..."
 docker compose -f docker/docker-compose.yml up -d --build
 
-# --- Step 6: Build env passthrough for docker exec ---------------------
+# --- Step 6: Verify gh CLI auth ----------------------------------------
+REQUIRED_SCOPES=("repo" "project" "workflow")
+MISSING_SCOPES=()
+GH_AUTH_OUTPUT=$(docker exec --user agentuser cheasee-pi gh auth status 2>&1) || true
+if echo "$GH_AUTH_OUTPUT" | grep -q "not logged in\|not authenticated\|auth.*required\|HTTP 401"; then
+    echo "Warning: gh CLI not authenticated inside container."
+    echo "  Run on your host (not in container):"
+    echo "    gh auth login -s repo,project,workflow"
+    echo "  Then re-run this script."
+elif echo "$GH_AUTH_OUTPUT" | grep -q "Token scopes:"; then
+    SCOPES_LINE=$(echo "$GH_AUTH_OUTPUT" | grep "Token scopes:")
+    for scope in "${REQUIRED_SCOPES[@]}"; do
+        if ! echo "$SCOPES_LINE" | grep -q "'$scope'"; then
+            MISSING_SCOPES+=("$scope")
+        fi
+    done
+    if [ ${#MISSING_SCOPES[@]} -gt 0 ]; then
+        SCOPES_STR=$(
+            IFS=,
+            echo "${MISSING_SCOPES[*]}"
+        )
+        echo "Warning: gh token missing scopes: $SCOPES_STR"
+        echo "  Run on your host:"
+        echo "    gh auth login -s repo,project,workflow"
+        echo "  Then re-run this script."
+    fi
+fi
+
+# --- Step 7: Build env passthrough for docker exec ---------------------
 DOCKER_ENV=""
 for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY \
            ANT_LING_API_KEY AZURE_OPENAI_API_KEY NVIDIA_API_KEY GROQ_API_KEY \
@@ -304,6 +332,6 @@ for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GE
     fi
 done
 
-# --- Step 7: Launch interactive pi session ----------------------------
+# --- Step 8: Launch interactive pi session ----------------------------
 echo "Entering pi agent inside container..."
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && pi --approve "$@"' --

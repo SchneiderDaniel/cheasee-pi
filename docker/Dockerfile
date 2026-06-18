@@ -46,7 +46,17 @@ RUN apt-get update && \
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
 # ---------------------------------------------------------------
-# Layer 4: npm global tools
+# Layer 4: GitHub CLI
+# ---------------------------------------------------------------
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------
+# Layer 5: npm global tools
 # ---------------------------------------------------------------
 RUN npm install -g --force \
         @earendil-works/pi-coding-agent \
@@ -55,15 +65,15 @@ RUN npm install -g --force \
         typescript
 
 # ---------------------------------------------------------------
-# Layer 5: Non-root user + workspace directory
+# Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \
     useradd --uid 1001 --gid agentuser --create-home --shell /bin/bash agentuser && \
-    mkdir -p /workspaces/main && \
+    mkdir -p /workspaces/main /home/agentuser/.config && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------
-# Layer 6: Entrypoint (last – changes most frequently)
+# Layer 7: Entrypoint (last – changes most frequently)
 # ---------------------------------------------------------------
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

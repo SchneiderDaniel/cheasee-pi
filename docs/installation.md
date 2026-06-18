@@ -33,9 +33,17 @@ nav_order: 2
 ## Quick start
 
 ```bash
-git clone --bare git@github.com:SchneiderDaniel/cheasee-pi.git .bare
+# 1. Fork https://github.com/SchneiderDaniel/cheasee-pi on GitHub
+# 2. Clone your fork (bare)
+git clone --bare git@github.com:YOUR_USER/cheasee-pi.git .bare
+# 3. Add upstream remote
+git --git-dir=.bare remote add upstream git@github.com:SchneiderDaniel/cheasee-pi.git
+# 4. Create main worktree
 git --git-dir=.bare worktree add main main
 cd main
+# 5. Init submodules (replace URLs with your own forks if desired)
+git submodule update --init --recursive
+# 6. Start
 ./cheasee-pi.sh
 ```
 
@@ -46,14 +54,17 @@ The wrapper script:
 
 ## Step-by-step
 
-### 1. Clone the bare repo
+### 1. Fork & clone the bare repo
+
+Fork [github.com/SchneiderDaniel/cheasee-pi](https://github.com/SchneiderDaniel/cheasee-pi) to your GitHub account, then clone your fork:
 
 ```bash
 mkdir cheasee-pi && cd cheasee-pi
-git clone --bare git@github.com:SchneiderDaniel/cheasee-pi.git .bare
+git clone --bare git@github.com:YOUR_USER/cheasee-pi.git .bare
+git --git-dir=.bare remote add upstream git@github.com:SchneiderDaniel/cheasee-pi.git
 ```
 
-This creates a bare repo at `.bare` — no working tree yet.
+This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo.
 
 ### 2. Create the `main` worktree
 
@@ -63,6 +74,26 @@ cd main
 ```
 
 All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
+
+### 2b. Submodules
+
+```bash
+git submodule update --init --recursive
+```
+
+The project includes one submodule (`flask_blogs`). If you want to push your own changes to a submodule, fork the submodule repo on GitHub and update the URL:
+
+```bash
+git submodule set-url flask_blogs git@github.com:YOUR_USER/flask_blogs.git
+git submodule sync
+git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
+```
+
+Then init again with your fork URL:
+
+```bash
+git submodule update --init --recursive
+```
 
 ### 3. Start the container
 
@@ -112,7 +143,56 @@ To override for a single session:
 
 Run `./cheasee-pi.sh --help` for all options.
 
-### 5. Configure `.pi/settings.json` (optional)
+### 5. GitHub CLI authentication
+
+The kanban pipeline uses `gh` to manage issues, projects, and PRs. Auth is mounted read-only into the container from your host, so you authenticate on the host once and it works inside the container.
+
+**Step 1 — Check current status:**
+
+```bash
+gh auth status
+```
+
+If already authenticated, verify required scopes are present:
+
+```text
+Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
+```
+
+Minimum required: `repo`, `project`, `workflow`. If any are missing, re-authenticate with the full scope list.
+
+**Step 2 — Authenticate (if needed):**
+
+```bash
+gh auth login -s repo,project,workflow
+```
+
+This opens a browser to generate a token with the exact scopes needed. Follow the prompts:
+
+1. Select **GitHub.com**
+2. Select **HTTPS** (or SSH if you prefer)
+3. Choose **Login with a web browser**
+4. Copy the one-time code, press Enter to open browser
+5. Paste the code on github.com, authorize
+6. Terminal shows: `✓ Logged in as YOUR_USER`
+
+To verify after login:
+
+```bash
+gh auth status
+```
+
+Expected output:
+
+```text
+github.com
+  ✓ Logged in to github.com account YOUR_USER (...)
+  - Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
+```
+
+> The container mounts `~/.config/gh/` at startup. If you authenticate after the container is already running, the new token is visible immediately — no restart needed.
+
+### 6. Configure `.pi/settings.json` (optional)
 
 `.pi/settings.json` stores all per-repo configuration. Key fields:
 

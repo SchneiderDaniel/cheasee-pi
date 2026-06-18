@@ -21,6 +21,7 @@ services:
       - HOST_GID=${HOST_GID}
     volumes:
       - ../../:/workspaces
+      - ~/.config/gh:/home/agentuser/.config/gh:ro
     deploy:
       resources:
         limits:
