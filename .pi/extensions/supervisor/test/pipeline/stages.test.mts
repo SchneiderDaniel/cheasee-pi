@@ -415,16 +415,19 @@ describe("calculateNextStatus()", () => {
 		assert.equal(result.gateRejected, undefined, "gateRejected should not be set for REJECTED");
 	});
 
-	it("auditor with no action in structured output falls through to text marker", () => {
+	it("auditor with COMPLETE (no findings, no commentBody) defaults to Done", () => {
 		const agentOutput = JSON.stringify({
 			action: "COMPLETE",
 			agentName: "auditor",
 		});
 		const result = calculateNextStatus("auditor", agentOutput, "SOME_OTHER_MARKER");
-		// Falls through from structured parsing, then no markers match, then inferForwardStatus
-		// Auditor step has no forward markers (all AUDIT_*) → inferForwardStatus returns null
-		// but success=true so it tries inferForwardStatus → null
-		assert.equal(result.status, null);
+		// Structured JSON parsing finds action: COMPLETE with no findings and no
+		// commentBody. The resolveNextStatusFromAgentOutput function has a final
+		// fallback: when hadBareComplete is true, default to APPROVED/Done to
+		// prevent pipeline deadlock (auditor used generic template instead of
+		// the auditor-specific APPROVED/REJECTED template).
+		assert.equal(result.status, "Done");
+		assert.equal(result.hadExplicitMarker, true);
 	});
 
 	it("developer → audit gate NOT evaluated even with auditContext", () => {
@@ -1271,7 +1274,8 @@ describe("handlePostAgentSuccess()", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" }, // git add succeeds
+				{ code: 0, stdout: "", stderr: "" }, // git add -A succeeds
+				{ code: 1, stdout: "", stderr: "" }, // git diff --cached --quiet (changes staged → proceed to commit)
 				{ code: 1, stdout: "", stderr: "fatal: bad object" }, // git commit fails
 			],
 			calls,
@@ -1344,10 +1348,12 @@ describe("handlePostAgentSuccess()", () => {
 
 	it("developer commit returns 'nothing to commit' — returns true (still pushes, branch may not exist on remote)", async () => {
 		const calls: ExecCall[] = [];
+		// commitAndPush now has a pre-commit git diff --cached --quiet check.
+		// When code=0 (nothing staged), commit is skipped and we proceed to push.
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "", stderr: "" }, // git add succeeds
-				{ code: 1, stdout: "", stderr: "nothing to commit, working tree clean" }, // git commit: nothing to commit
+				{ code: 0, stdout: "", stderr: "" }, // git diff --cached --quiet (nothing staged → skip commit)
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" }, // git push succeeds
 			],
 			calls,
@@ -1378,15 +1384,16 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "'nothing to commit' returns silently — pipeline continues");
-		// calls: git add, git commit, git push (branch may not exist on remote), git diff (README check)
-		assert.equal(calls.length, 4, "should call add + commit + push + diff");
+		// New flow: add, diff(cached --quiet code=0 → skip commit), push, + README check diff
+		assert.equal(calls.length, 4, "should call add + diff + push + readme-diff");
 		// Verify push was called (fix #595: branch may not exist on remote yet)
-		const pushCall = calls[2];
-		assert.equal(pushCall.cmd, "git", "third call should be git");
-		assert.equal(pushCall.args[0], "push", "third call should be push");
-		// Verify the commit call happened
-		const commitCall = calls[1];
-		assert.ok(commitCall.args.includes("commit"), "second call should be commit");
+		const pushCall = calls.find((c) => c.cmd === "git" && c.args[0] === "push");
+		assert.ok(pushCall, "should have a git push call");
+		// Verify diff --cached was called (pre-commit emptiness check, code=0 → skip commit)
+		const diffCachedCall = calls.find(
+			(c) => c.cmd === "git" && c.args.includes("diff") && c.args.includes("--cached"),
+		);
+		assert.ok(diffCachedCall, "should have git diff --cached --quiet call");
 	});
 
 	it("developer with worktreePath undefined — returns true (no-op)", async () => {

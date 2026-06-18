@@ -7,35 +7,13 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, PipelineAgentResult } from "../../config/types.ts";
 
-// ─── Set up gh-client mock BEFORE imports ─────────────────────────
-// gh() wraps calls in bash -c GH_TOKEN=... when GH_TOKEN or hosts.yml
-// exists. This breaks test assertions that expect cmd==="gh". We mock
-// gh-client.ts so gh() calls pi.exec("gh", args) directly instead.
-mock.module("../../github/gh-client.ts", () => {
-	return {
-		gh: async (_pi: ExtensionAPI, args: string[]): Promise<string> => {
-			const result = await _pi.exec("gh", args);
-			return (result.stdout || "").trim();
-		},
-		ghJson: async (_pi: ExtensionAPI, args: string[]): Promise<unknown> => {
-			const output = await _pi.exec("gh", args);
-			if (!output.stdout?.trim()) return null;
-			return JSON.parse(output.stdout.trim());
-		},
-		ghGraphQL: async (): Promise<null> => null,
-	};
-});
-
-// Dynamic import after mock.module() to ensure mocked gh-client is used
-import type { CreatePrOnApprovalFn } from "../../pipeline/pr-creation.ts";
-const _getModule = async () => {
-	return import("../../pipeline/pr-creation.ts");
-};
-let createPrOnApproval: CreatePrOnApprovalFn;
-
-await _getModule().then((m) => {
-	createPrOnApproval = m.createPrOnApproval as unknown as CreatePrOnApprovalFn;
-});
+// ─── gh-client normalization ──────────────────────────────────────
+// gh() in gh-client.ts wraps calls in bash -c GH_TOKEN=... when
+// process.env.GH_TOKEN or ~/.config/gh/hosts.yml exists. This breaks
+// test assertions that check cmd === "gh". The pi.exec mock below
+// normalizes bash -c GH_TOKEN=... gh wrappers back to native gh calls
+// so assertions work regardless of host GH auth state.
+import { createPrOnApproval } from "../../pipeline/pr-creation.ts";
 
 // ─── Call Tracking ────────────────────────────────────────────────
 
@@ -48,6 +26,30 @@ interface ExecCall {
 interface NotifyCall {
 	message: string;
 	level: string;
+}
+
+/**
+ * Normalize an ExecCall to a gh-like command. gh() in gh-client.ts wraps
+ * calls in bash -c GH_TOKEN=... gh "$@" _ <args> when GH_TOKEN or
+ * ~/.config/gh/hosts.yml exists. This helper extracts the normalized gh
+ * command from both formats so assertions work regardless of host GH auth.
+ */
+function normalizeGhCall(call: ExecCall): { cmd: string; args: string[] } | null {
+	// Case 1: gh() called pi.exec("gh", args) directly (no GH_TOKEN)
+	if (call.cmd === "gh") {
+		return { cmd: "gh", args: call.args };
+	}
+	// Case 2: gh() called pi.exec("bash", ["-c", "...", "_", ...args]) (GH_TOKEN set)
+	if (
+		call.cmd === "bash" &&
+		call.args[0] === "-c" &&
+		call.args.length >= 3 &&
+		call.args.indexOf("_") !== -1
+	) {
+		const sepIdx = call.args.indexOf("_");
+		return { cmd: "gh", args: call.args.slice(sepIdx + 1) };
+	}
+	return null;
 }
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
@@ -67,7 +69,7 @@ function createMockPi(
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
 			// Normalize bash -c GH_TOKEN=... gh wrappers into native gh calls
 			// so test assertions work regardless of GH_TOKEN env state.
-			if (cmd === "bash" && args[0] === "-c" && /\\bgh\\b/.test(args[1] ?? "")) {
+			if (cmd === "bash" && args[0] === "-c" && /\bgh\b/.test(args[1] ?? "")) {
 				const sepIdx = args.indexOf("_");
 				if (sepIdx !== -1) {
 					callLog.push({ cmd: "gh", args: args.slice(sepIdx + 1), opts: opts || {} });
@@ -445,8 +447,10 @@ describe("createPrOnApproval()", () => {
 
 		// Verify PR creation was still attempted
 		assert.equal(execCalls.length, 4, "should have 4 exec calls despite check failure");
-		assert.equal(execCalls[3].cmd, "gh");
-		assert.equal(execCalls[3].args[1], "create", "should still attempt PR creation");
+		// execCalls[3] is the pr create call
+		const lastCall = execCalls[execCalls.length - 1];
+		assert.equal(lastCall.cmd, "gh");
+		assert.equal(lastCall.args[1], "create", "should still attempt PR creation");
 	});
 
 	it("Regression: does NOT call git rev-list --count anywhere", async () => {
@@ -707,10 +711,12 @@ describe("createPrOnApproval()", () => {
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
 				// 2. git push --force attempt 2 succeeds
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
-				// 3. gh pr list
+				// 3. gh api compare (pre-check: head has commits)
+				compareAheadResponse(3),
+				// 4. gh pr list
 				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 4. gh pr create
-				{ code: 0, stdout: '{"number":456}', stderr: "" },
+				// 5. gh pr create
+				{ code: 0, stdout: "https://github.com/o/r/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
@@ -864,6 +870,8 @@ describe("createPrOnApproval()", () => {
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
+				// gh api compare (pre-check: head has commits)
+				compareAheadResponse(3),
 				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
 				// 1st gh pr create FAILS
 				{ code: 1, stdout: "", stderr: "rate limit exceeded" },
@@ -931,7 +939,6 @@ describe("createPrOnApproval()", () => {
 		);
 		assert.equal(result.prNumber, undefined, "prNumber should be undefined when no commits");
 		// Should NOT attempt pr list or pr create after compare check
-		// (gh may be wrapped in bash when GH_TOKEN is set, so check args instead of cmd)
 		const compareCalls = execCalls.filter((c) => c.args.some((a: string) => a.includes("compare")));
 		assert.equal(compareCalls.length, 1, "should have exactly 1 compare call, no pr list/create");
 		const prListCalls = execCalls.filter(
@@ -964,7 +971,7 @@ describe("createPrOnApproval()", () => {
 			"worktree-git-issue-42-test",
 		);
 
-		// No gh pr create or gh pr edit calls (check args, not cmd, since gh may wrap in bash)
+		// No gh pr create or gh pr edit calls
 		const prCreateOrEdit = execCalls.filter(
 			(c) => c.args.some((a: string) => a === "create") || c.args.some((a: string) => a === "edit"),
 		);
