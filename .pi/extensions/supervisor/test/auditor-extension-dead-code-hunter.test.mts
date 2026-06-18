@@ -1,11 +1,11 @@
 /**
- * Tests for dead-code-hunter skill added to auditor agent.
+ * Tests for extension-dead-code-hunter skill added to auditor agent.
  *
- * Phase 1: Skills frontmatter — verify `skills: dead-code-hunter` in YAML
+ * Phase 1: Skills frontmatter — verify `skills: extension-dead-code-hunter` in YAML
  * Phase 2: Regression — existing resolveSkillPaths behavior unchanged
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/supervisor/test/auditor-dead-code-hunter.test.mts
+ *   node --experimental-strip-types --test .pi/extensions/supervisor/test/auditor-extension-dead-code-hunter.test.mts
  */
 
 import assert from "node:assert";
@@ -61,23 +61,23 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 		assert.ok(skillsVal !== undefined, "YAML frontmatter should contain 'skills' field");
 	});
 
-	it("skills field value includes 'dead-code-hunter'", () => {
+	it("skills field value includes 'extension-dead-code-hunter'", () => {
 		const content = readAuditorMd();
 		const skillsVal = getFrontmatterField(content, "skills");
 		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			skillsVal!.includes("dead-code-hunter"),
-			`skills value '${skillsVal}' should include 'dead-code-hunter'`,
+			skillsVal!.includes("extension-dead-code-hunter"),
+			`skills value '${skillsVal}' should include 'extension-dead-code-hunter'`,
 		);
 	});
 
-	it("skills field value includes 'duplicate-code-hunter' (existing preserved)", () => {
+	it("skills field value includes 'extension-duplicate-code-hunter' (existing preserved)", () => {
 		const content = readAuditorMd();
 		const skillsVal = getFrontmatterField(content, "skills");
 		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			skillsVal!.includes("duplicate-code-hunter"),
-			`skills value '${skillsVal}' should include 'duplicate-code-hunter'`,
+			skillsVal!.includes("extension-duplicate-code-hunter"),
+			`skills value '${skillsVal}' should include 'extension-duplicate-code-hunter'`,
 		);
 	});
 
@@ -100,7 +100,8 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 		assert.ok(skillsVal, "skills field must exist");
 		const normalized = skillsVal!.replace(/["']/g, "").trim();
 		assert.ok(
-			normalized.includes("duplicate-code-hunter") && normalized.includes("dead-code-hunter"),
+			normalized.includes("extension-duplicate-code-hunter") &&
+				normalized.includes("extension-dead-code-hunter"),
 			`skills value '${normalized}' should contain both skills`,
 		);
 	});
@@ -109,23 +110,23 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 // ─── Phase 2: Regression — resolveSkillPaths ──────────────────────
 
 describe("resolveSkillPaths regression (Phase 2)", () => {
-	it("resolveSkillPaths('duplicate-code-hunter') returns array with correct path", () => {
-		const result = resolveSkillPaths("duplicate-code-hunter");
+	it("resolveSkillPaths('extension-duplicate-code-hunter') returns array with correct path", () => {
+		const result = resolveSkillPaths("extension-duplicate-code-hunter");
 		assert.equal(result.length, 1);
 		assert.ok(
-			result[0]!.endsWith(".pi/skills/duplicate-code-hunter/SKILL.md") ||
-				result[0]!.endsWith("duplicate-code-hunter/SKILL.md"),
-			`Path should end with duplicate-code-hunter/SKILL.md, got ${result[0]}`,
+			result[0]!.endsWith(".pi/skills/extension-duplicate-code-hunter/SKILL.md") ||
+				result[0]!.endsWith("extension-duplicate-code-hunter/SKILL.md"),
+			`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
 		);
 	});
 
-	it("resolveSkillPaths('dead-code-hunter') returns array with correct path", () => {
-		const result = resolveSkillPaths("dead-code-hunter");
+	it("resolveSkillPaths('extension-dead-code-hunter') returns array with correct path", () => {
+		const result = resolveSkillPaths("extension-dead-code-hunter");
 		assert.equal(result.length, 1);
 		assert.ok(
-			result[0]!.endsWith(".pi/skills/dead-code-hunter/SKILL.md") ||
-				result[0]!.endsWith("dead-code-hunter/SKILL.md"),
-			`Path should end with dead-code-hunter/SKILL.md, got ${result[0]}`,
+			result[0]!.endsWith(".pi/skills/extension-dead-code-hunter/SKILL.md") ||
+				result[0]!.endsWith("extension-dead-code-hunter/SKILL.md"),
+			`Path should end with extension-dead-code-hunter/SKILL.md, got ${result[0]}`,
 		);
 	});
 
@@ -355,8 +356,8 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 
 		it("generateBranchName handles special chars", () => {
 			assert.equal(
-				generateBranchName(638, "Wire dead-code-hunter into pipeline", "prefix-"),
-				"prefix-638-wire-dead-code-hunter-into-pipeline",
+				generateBranchName(638, "Wire extension-dead-code-hunter into pipeline", "prefix-"),
+				"prefix-638-wire-extension-dead-code-hunter-into-pipeline",
 			);
 		});
 

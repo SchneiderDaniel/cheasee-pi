@@ -95,7 +95,10 @@ describe("Phase 1: Structural integrity — Phase 1.5 insertion point", () => {
 		const endOfFrontmatter = skillContent.indexOf("---", 3);
 		const frontmatter = skillContent.slice(0, endOfFrontmatter + 3);
 
-		assert.ok(frontmatter.includes("name: dead-code-hunter"), "Frontmatter must have name field");
+		assert.ok(
+			frontmatter.includes("name: extension-dead-code-hunter"),
+			"Frontmatter must have name field",
+		);
 		assert.ok(frontmatter.includes("description:"), "Frontmatter must have description field");
 		assert.ok(frontmatter.includes("metadata:"), "Frontmatter must have metadata field");
 		assert.ok(

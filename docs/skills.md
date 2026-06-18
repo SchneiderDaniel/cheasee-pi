@@ -26,7 +26,7 @@ Skills differ from extensions in that they are **prompt-based instruction sets**
 
 ## Available skills
 
-### dead-code-hunter
+### extension-dead-code-hunter
 
 Systematic dead code detection for pi extensions. Picks random extension, analyzes for unused exports, unreachable paths, dead branches, orphaned utilities, and other dead code patterns. Validates with deterministic proof and creates GitHub issues.
 
@@ -47,7 +47,7 @@ Designs pi extensions — new or refactoring — with full PRD, TypeScript best 
 - **Skills:** PRD generation, TypeScript audit, migration planning
 - **Use cases:** Creating new extensions, refactoring existing ones
 
-### duplicate-code-hunter
+### extension-duplicate-code-hunter
 
 Systematic duplicate code detection for pi extensions. Analyzes for exact clones (Type 1), renamed clones (Type 2), near-miss (Type 3), and semantic clones (Type 4). Uses jscpd for token-based scanning.
 

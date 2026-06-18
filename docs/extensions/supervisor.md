@@ -23,7 +23,7 @@ nav_order: 5
 | **Architect** | read, bash, structural_search, ripgrep_search | `extension-spec` | high | `Architecture` | JSON + GitHub comment |
 | **TestDesigner** | read, bash, structural_search, ripgrep_search | — | medium | `TestDesign` | JSON + GitHub comment |
 | **Developer** | read, bash, write, edit, structural_search, ripgrep_search | `extension-spec` | low | `Implementation` | JSON + Git commit + push |
-| **Auditor** | read, bash, structural_search, ripgrep_search | `duplicate-code-hunter` | medium | `Audit` | JSON with APPROVED/REJECTED |
+| **Auditor** | read, bash, structural_search, ripgrep_search | `extension-duplicate-code-hunter` | medium | `Audit` | JSON with APPROVED/REJECTED |
 
 All agents use `opencode-go/deepseek-v4-flash` model. Developer additionally uses format-on-save and tsc-checkpoint.
 

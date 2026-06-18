@@ -70,10 +70,10 @@ describe("Fix 1 — researcher.md extensions (Issue #933)", () => {
 
 describe("Fix 2 — Skill files: zero /home/miria/git/main/ occurrences (Issue #933)", () => {
 	const skillFiles = [
-		".pi/skills/dead-code-hunter/SKILL.md",
-		".pi/skills/dead-code-hunter/references/dead-code-detection.md",
-		".pi/skills/duplicate-code-hunter/SKILL.md",
-		".pi/skills/duplicate-code-hunter/references/duplicate-code-detection.md",
+		".pi/skills/extension-dead-code-hunter/SKILL.md",
+		".pi/skills/extension-dead-code-hunter/references/dead-code-detection.md",
+		".pi/skills/extension-duplicate-code-hunter/SKILL.md",
+		".pi/skills/extension-duplicate-code-hunter/references/duplicate-code-detection.md",
 	];
 
 	for (const file of skillFiles) {
@@ -92,10 +92,10 @@ describe("Fix 2 — Skill files: zero /home/miria/git/main/ occurrences (Issue #
 
 describe("Fix 2 — Skill files: paths start with .pi/ not /home/miria/git/main/.pi/ (Issue #933)", () => {
 	const skillFiles = [
-		".pi/skills/dead-code-hunter/SKILL.md",
-		".pi/skills/dead-code-hunter/references/dead-code-detection.md",
-		".pi/skills/duplicate-code-hunter/SKILL.md",
-		".pi/skills/duplicate-code-hunter/references/duplicate-code-detection.md",
+		".pi/skills/extension-dead-code-hunter/SKILL.md",
+		".pi/skills/extension-dead-code-hunter/references/dead-code-detection.md",
+		".pi/skills/extension-duplicate-code-hunter/SKILL.md",
+		".pi/skills/extension-duplicate-code-hunter/references/duplicate-code-detection.md",
 	];
 
 	for (const file of skillFiles) {

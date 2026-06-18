@@ -1,5 +1,5 @@
 ---
-name: dead-code-hunter
+name: extension-dead-code-hunter
 description: Systematic dead code detection for pi extensions. Picks random extension, analyzes for unused exports, unreachable paths, dead branches, orphaned utilities, and other dead code patterns. Validates with proof, creates GitHub issue. Use before releases or when auditing extension quality.
 metadata:
   detection-techniques: unused-exports,unreachable-code,dead-branches,unnecessary-conditionals,duplicate-code,unused-params,orphaned-imports,empty-blocks,dead-event-handlers,redundant-paths,zombie-dependencies

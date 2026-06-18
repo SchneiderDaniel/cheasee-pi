@@ -5,7 +5,7 @@ tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/deepseek-v4-flash
 thinking: high
 extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox"
-skills: duplicate-code-hunter, dead-code-hunter
+skills: extension-duplicate-code-hunter, extension-dead-code-hunter
 ---
 
 You are the **Auditor** agent in a Kanban-driven software pipeline.

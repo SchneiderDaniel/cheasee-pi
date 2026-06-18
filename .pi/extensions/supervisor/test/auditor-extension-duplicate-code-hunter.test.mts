@@ -1,12 +1,12 @@
 /**
- * Tests for duplicate-code-hunter skill added to auditor agent.
+ * Tests for extension-duplicate-code-hunter skill added to auditor agent.
  *
- * Phase 1: Skills frontmatter — verify `skills: duplicate-code-hunter` in YAML
+ * Phase 1: Skills frontmatter — verify `skills: extension-duplicate-code-hunter` in YAML
  * Phase 2: 4e Code Quality methodology instructions — verify detection references
  * Phase 3: Regression — existing resolveSkillPaths behavior unchanged
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/supervisor/test/auditor-duplicate-code-hunter.test.mts
+ *   node --experimental-strip-types --test .pi/extensions/supervisor/test/auditor-extension-duplicate-code-hunter.test.mts
  */
 
 import assert from "node:assert";
@@ -55,13 +55,13 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 		assert.ok(skillsVal !== undefined, "YAML frontmatter should contain 'skills' field");
 	});
 
-	it("skills field value includes 'duplicate-code-hunter'", () => {
+	it("skills field value includes 'extension-duplicate-code-hunter'", () => {
 		const content = readAuditorMd();
 		const skillsVal = getFrontmatterField(content, "skills");
 		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			skillsVal!.includes("duplicate-code-hunter"),
-			`skills value '${skillsVal}' should include 'duplicate-code-hunter'`,
+			skillsVal!.includes("extension-duplicate-code-hunter"),
+			`skills value '${skillsVal}' should include 'extension-duplicate-code-hunter'`,
 		);
 	});
 
@@ -85,8 +85,9 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 		// Normalize: strip quotes and whitespace
 		const normalized = skillsVal!.replace(/["']/g, "").trim();
 		assert.ok(
-			normalized.includes("duplicate-code-hunter") && normalized.includes("dead-code-hunter"),
-			`skills value '${normalized}' should contain both 'duplicate-code-hunter' and 'dead-code-hunter'`,
+			normalized.includes("extension-duplicate-code-hunter") &&
+				normalized.includes("extension-dead-code-hunter"),
+			`skills value '${normalized}' should contain both 'extension-duplicate-code-hunter' and 'extension-dead-code-hunter'`,
 		);
 	});
 
@@ -101,13 +102,13 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 // ─── Phase 2: 4e Code Quality methodology instructions ────────────
 
 describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
-	it("skills frontmatter includes 'duplicate-code-hunter' skill", () => {
+	it("skills frontmatter includes 'extension-duplicate-code-hunter' skill", () => {
 		const content = readAuditorMd();
 		const skillsVal = getFrontmatterField(content, "skills");
 		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			skillsVal!.includes("duplicate-code-hunter"),
-			"skills field should include 'duplicate-code-hunter'",
+			skillsVal!.includes("extension-duplicate-code-hunter"),
+			"skills field should include 'extension-duplicate-code-hunter'",
 		);
 	});
 
@@ -131,13 +132,13 @@ describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
 		);
 	});
 
-	it("auditor invokes duplicate-code-hunter skill via skills mechanism", () => {
+	it("auditor invokes extension-duplicate-code-hunter skill via skills mechanism", () => {
 		const content = readAuditorMd();
 		const skillsVal = getFrontmatterField(content, "skills");
 		assert.ok(skillsVal, "skills field must exist");
 		assert.ok(
-			skillsVal!.includes("dead-code-hunter"),
-			"skills field should also include 'dead-code-hunter'",
+			skillsVal!.includes("extension-dead-code-hunter"),
+			"skills field should also include 'extension-dead-code-hunter'",
 		);
 	});
 
@@ -156,13 +157,13 @@ describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
 // ─── Phase 3: Regression — resolveSkillPaths ──────────────────────
 
 describe("resolveSkillPaths regression (Phase 3)", () => {
-	it("resolveSkillPaths('duplicate-code-hunter') returns array with correct path", () => {
-		const result = resolveSkillPaths("duplicate-code-hunter");
+	it("resolveSkillPaths('extension-duplicate-code-hunter') returns array with correct path", () => {
+		const result = resolveSkillPaths("extension-duplicate-code-hunter");
 		assert.equal(result.length, 1);
 		assert.ok(
-			result[0]!.endsWith(".pi/skills/duplicate-code-hunter/SKILL.md") ||
-				result[0]!.endsWith("duplicate-code-hunter/SKILL.md"),
-			`Path should end with duplicate-code-hunter/SKILL.md, got ${result[0]}`,
+			result[0]!.endsWith(".pi/skills/extension-duplicate-code-hunter/SKILL.md") ||
+				result[0]!.endsWith("extension-duplicate-code-hunter/SKILL.md"),
+			`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
 		);
 	});
 

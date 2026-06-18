@@ -1,5 +1,5 @@
 ---
-name: duplicate-code-hunter
+name: extension-duplicate-code-hunter
 description: Systematic duplicate code detection for pi extensions. Picks random extension, analyzes for exact, renamed, near-miss, and semantic clones. Validates with proof, creates GitHub issue. Use before releases or when auditing extension quality.
 metadata:
   detection-techniques: exact-clones,renamed-clones,near-miss-clones,semantic-clones,intra-file-clones,inter-file-clones,copy-paste-blocks,repeated-condition-chains,repeated-switch-cases,duplicate-imports,triplicate-plus
@@ -18,7 +18,7 @@ This skill powers two workflows:
 
 1. **Per-PR Gate (Automated):** The supervisor pipeline runs `jscpd` on the full worktree during the Implementation → Audit transition. Clones where at least one location is in a changed file (from `git diff <default-branch> --name-only`) are flagged. Results are surfaced as a warning and injected into the auditor's task context as the `duplicate-code` dimension.
 
-2. **One-Off Audits (Manual):** The original random-extension hunt loop for periodic quality sweeps. Run via the auditor agent when the `duplicate-code-hunter` skill is configured.
+2. **One-Off Audits (Manual):** The original random-extension hunt loop for periodic quality sweeps. Run via the auditor agent when the `extension-duplicate-code-hunter` skill is configured.
 
 The per-PR gate uses `checks/duplicate-code.ts` which applies the same minimum thresholds (5 lines, 50 tokens) and clone type classification as this skill. False positive filtering (generated code, license headers, shared abstractions, intentional symmetry) is applied by the auditor during review.
 
