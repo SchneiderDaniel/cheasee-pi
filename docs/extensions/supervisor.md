@@ -27,4 +27,52 @@ nav_order: 5
 
 All agents use `opencode-go/deepseek-v4-flash` model. Developer additionally uses format-on-save and tsc-checkpoint.
 
+### Pipeline flow
+
+```
+     ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────┐
+     │ Research │ │Architect.│ │TestDesign│ │Implement.    │ │  Audit  │
+     └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬───────┘ └────┬────┘
+          │             │            │              │              │
+    ┌─────▼──────┐ ┌───▼──────┐ ┌──▼──────────┐    │    ┌────────▼──────┐
+    │ Researcher │ │Architect │ │TestDesigner │    │    │   Auditor      │
+    │ crawls web │ │proposes  │ │writes test  │    │    │   reviews      │
+    │ for best   │ │target    │ │plan from    │    │    │   creates PR   │
+    │ practices  │ │architecture│architecture  │    │    │   or rejects   │
+    └─────┬──────┘ └───┬──────┘ └──┬──────────┘    │    └────────┬──────┘
+          │             │            │              │             │
+          ▼             ▼            ▼              │             ▼
+    GitHub Comment GitHub Comment GitHub Comment    │    GitHub Comment
+    ## Research   ## Architecture ## Test Plan       │    ## Audit
+          │             │            │              │             │
+          └─────────────┴────────────┴──────────────┘             │
+                                                          ┌──────▼──────┐
+                                                          │ QUALITY GATES│
+                                                          │ TSC + LSP    │
+                                                          │ pass/fail    │
+                                                          └──────┬──────┘
+                                                                 │
+                                                          ┌──────▼──────┐
+                                                          │ Post-pipeline│
+                                                          │ PR check &   │
+                                                          │ merge        │
+                                                          └─────────────┘
+```
+
+### Quality gates
+
+Before transitioning Implementation → Audit, the supervisor runs:
+
+1. **TSC Checkpoint** — `npx tsc --noEmit` on the worktree
+2. **LSP Pre-Audit** — Real LSP diagnostics on modified files only
+
+If either fails, the issue goes back to Implementation (max 3 retries for LSP). Quality gate failures do NOT count as Auditor rejections.
+
+### Loop rules
+
+- Auditor can reject → sends back to Implementation (counts as 1 rejection)
+- `maxRejections` (default 5) stops the loop to prevent infinite cycles
+- `agentTokenBudget` sets a soft cap on total tokens per agent (0 = unlimited)
+- `maxToolCalls` sets a hard cap on tool invocations per agent (0 = unlimited)
+
 **Location:** `.pi/extensions/supervisor/`
