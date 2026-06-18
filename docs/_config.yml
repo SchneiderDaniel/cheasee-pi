@@ -1,6 +1,6 @@
 title: Cheasee Pi
 description: Autonomous coding agent operating within the Pi Stack
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
 
 url: https://schneiderdaniel.github.io/cheasee-pi
 
