@@ -41,9 +41,11 @@ git --git-dir=.bare remote add upstream git@github.com:SchneiderDaniel/cheasee-p
 # 4. Create main worktree
 git --git-dir=.bare worktree add main main
 cd main
-# 5. Init submodules (replace URLs with your own forks if desired)
+# 5. Replace private submodule URL with your own repo (REQUIRED - see 2b below)
+git submodule set-url flask_blogs git@github.com:YOUR_USER/YOUR_REPO.git
+# 6. Init submodules
 git submodule update --init --recursive
-# 6. Start
+# 7. Start
 ./cheasee-pi.sh
 ```
 
@@ -75,24 +77,34 @@ cd main
 
 All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
 
-### 2b. Submodules
+### 2b. Submodules — replace the private submodule
+
+**⚠️ CRITICAL:** The project includes one submodule (`flask_blogs`) pointing to a **private** repo (`github.com/SchneiderDaniel/flask_blogs`). You do NOT have access. Running `git submodule update --init --recursive` as-is will **fail** with a permission error.
+
+You must replace the URL with **your own project repo** (any public or private repo you own) before initializing:
 
 ```bash
-git submodule update --init --recursive
-```
-
-The project includes one submodule (`flask_blogs`). If you want to push your own changes to a submodule, fork the submodule repo on GitHub and update the URL:
-
-```bash
-git submodule set-url flask_blogs git@github.com:YOUR_USER/flask_blogs.git
+git submodule set-url flask_blogs git@github.com:YOUR_USER/YOUR_REPO.git
 git submodule sync
-git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
 ```
 
-Then init again with your fork URL:
+Now init:
 
 ```bash
 git submodule update --init --recursive
+```
+
+> If you don't want a submodule at all, remove it entirely:
+> ```bash
+> git submodule deinit -f flask_blogs
+> git rm -f flask_blogs
+> rm -rf .git/modules/flask_blogs
+> ```
+
+To track the original repo as upstream:
+
+```bash
+git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
 ```
 
 ### 3. Start the container
