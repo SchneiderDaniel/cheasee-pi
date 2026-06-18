@@ -308,6 +308,32 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 }
 
 /**
+ * Check if a `read` tool targets a directory path.
+ * Returns a block result with guidance to use `bash ls` instead.
+ * Non-existent paths (ENOENT) and permission-denied (EACCES) pass through
+ * to pi-core's normal error handling.
+ */
+function checkReadIsDirectory(
+	pathToCheck: string,
+	toolName: "read" | "write" | "edit",
+	originalPath: string,
+): ToolCallEventResult | undefined {
+	if (toolName !== "read") return undefined;
+	try {
+		if (statSync(pathToCheck).isDirectory()) {
+			return {
+				block: true,
+				reason: `Path "${originalPath}" is a directory. Use \`bash ls ${originalPath}\` to list its contents.`,
+			};
+		}
+	} catch {
+		// ENOENT — path doesn't exist → pass through to pi-core's "not found" flow
+		// EACCES — permission denied → pass through to pi-core's "permission denied" flow
+	}
+	return undefined;
+}
+
+/**
  * Shared path-rewriting logic for read/write/edit tool handlers.
  *
  * Previously duplicated across three handlers. Extracted to eliminate
@@ -346,6 +372,8 @@ export function rewritePath(
 				reason: `Path "${originalPath}" is outside the worktree. All ${blockNoun} must stay within the worktree.`,
 			};
 		}
+		const dirCheck = checkReadIsDirectory(originalPath, toolName, originalPath);
+		if (dirCheck) return dirCheck;
 		return undefined;
 	}
 
@@ -353,6 +381,8 @@ export function rewritePath(
 	if (!isPathWithinSandbox(rewritten, sandboxRoot)) {
 		return { block: true, reason: `Path "${originalPath}" resolves outside the worktree.` };
 	}
+	const dirCheck = checkReadIsDirectory(rewritten, toolName, originalPath);
+	if (dirCheck) return dirCheck;
 	event.input.path = rewritten;
 	return undefined;
 }

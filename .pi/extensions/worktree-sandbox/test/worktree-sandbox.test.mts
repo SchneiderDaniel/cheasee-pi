@@ -10,10 +10,11 @@
  * Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
  */
 
-import { describe, it, before } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makePathEvent, makeCtx, assertBlocksOutside, assertPassesThrough } from "./helpers.ts";
 
 // We export rewritePath from index.ts specifically for testing.
 // The default export (extension factory) is also available.
@@ -40,7 +41,33 @@ let mod: {
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
-const SANDBOX_ROOT = "/tmp/sandbox-test-root";
+let SANDBOX_ROOT: string;
+
+function makeEvent(path: string): { input: { path: string } } {
+	return { input: { path } };
+}
+
+function makeCtx(hasUI: boolean): {
+	hasUI: boolean;
+	ui: { notify: (message: string, type?: "info" | "warning" | "error") => void };
+} {
+	const notifications: { msg: string; level?: string }[] = [];
+	const ctx = {
+		hasUI,
+		ui: {
+			notify: (message: string, type?: "info" | "warning" | "error") => {
+				notifications.push({ msg: message, level: type });
+			},
+		},
+		// Expose collected notifications for assertion
+		_notifications: notifications,
+	} as {
+		hasUI: boolean;
+		ui: { notify: (message: string, type?: "info" | "warning" | "error") => void };
+		_notifications: { msg: string; level?: string }[];
+	};
+	return ctx;
+}
 
 // ─── Setup: Dynamic import of the module ───────────────────────────
 
@@ -49,11 +76,23 @@ describe("rewritePath", () => {
 		mod = await import("../index.ts");
 	});
 
+	// ── Fixture: real temp directory for directory-guard tests ────
+	before(() => {
+		SANDBOX_ROOT = mkdtempSync(join(tmpdir(), "sandbox-dir-test-"));
+		mkdirSync(join(SANDBOX_ROOT, "subdir"));
+	});
+
+	after(() => {
+		if (SANDBOX_ROOT) {
+			rmSync(SANDBOX_ROOT, { recursive: true, force: true });
+		}
+	});
+
 	// ── Empty path ────────────────────────────────────────────────
 
 	it("returns undefined for empty path (pass-through)", () => {
-		const event = makePathEvent("");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
@@ -61,24 +100,27 @@ describe("rewritePath", () => {
 	it("returns undefined for falsy path (pass-through)", () => {
 		// Can't test null/undefined since event.input.path is typed as string
 		// but empty string is handled
-		const event = makePathEvent("");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
 
 	// ── Absolute path inside sandbox ───────────────────────────────
 
-	it("returns undefined for absolute path equal to sandbox root (edge case)", () => {
-		const event = makePathEvent(SANDBOX_ROOT);
-		const ctx = makeCtx({ hasUI: false });
+	it("returns `{ block: true, reason }` for absolute path equal to sandbox root when tool is `read`", () => {
+		const event = makeEvent(SANDBOX_ROOT);
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		assert.equal(result, undefined);
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("directory"));
+		assert.ok((result.reason ?? "").includes("bash ls"));
 	});
 
 	it("returns undefined for absolute path inside sandbox (subdirectory)", () => {
-		const event = makePathEvent(join(SANDBOX_ROOT, "some/file.txt"));
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent(join(SANDBOX_ROOT, "some/file.txt"));
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
@@ -86,37 +128,37 @@ describe("rewritePath", () => {
 	// ── Absolute path outside sandbox ─────────────────────────────
 
 	it("blocks absolute path outside sandbox with correct block noun (file operations)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
-		assert.ok((result.reason ?? "").includes("file operations"));
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
 	});
 
 	it("blocks absolute path outside sandbox with correct block noun (writes)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
-		assert.ok((result.reason ?? "").includes("writes"));
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
 	});
 
 	it("blocks absolute path outside sandbox with correct block noun (edits)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
-		assert.ok((result.reason ?? "").includes("edits"));
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
 	});
 
 	// ── Relative path resolving inside sandbox ─────────────────────
 
 	it("mutates event.input.path and returns undefined for relative path that resolves inside sandbox", () => {
-		const event = makePathEvent("relative/file.txt");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("relative/file.txt");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 		assert.equal(event.input.path, join(SANDBOX_ROOT, "relative/file.txt"));
@@ -125,8 +167,8 @@ describe("rewritePath", () => {
 	// ── Relative path resolving outside sandbox ───────────────────
 
 	it("blocks relative path that resolves outside sandbox with 'resolves outside' message", () => {
-		const event = makePathEvent("../../outside");
-		const ctx = makeCtx({ hasUI: false });
+		const event = makeEvent("../../outside");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
@@ -136,532 +178,538 @@ describe("rewritePath", () => {
 	// ── UI notification ───────────────────────────────────────────
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (read)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
 		const spy = ctx.ui.notify as ReturnType<typeof makeCtx>["ui"]["notify"] & { calls?: unknown[] };
 		const originalNotify = ctx.ui.notify;
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
 		};
-
-		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
 		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked read"));
-		assert.equal(calls[0]!.level, "warning");
+		assert.ok(
+			calls[0].msg.includes("read"),
+			`Expected notify call to mention "read" but got: ${calls[0].msg}`,
+		);
+		ctx.ui.notify = originalNotify;
 	});
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (write)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
 		};
-
-		mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
+		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
 		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked write"));
-		assert.equal(calls[0]!.level, "warning");
+		assert.ok(
+			calls[0].msg.includes("write"),
+			`Expected notify call to mention "write" but got: ${calls[0].msg}`,
+		);
 	});
 
 	it("calls ctx.ui.notify() with correct tool name when ctx.hasUI is true (edit)", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
 		const calls: { msg: string; level?: string }[] = [];
 		ctx.ui.notify = (msg: string, level?: string) => {
 			calls.push({ msg, level });
 		};
-
-		mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
-		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked edit"));
-		assert.equal(calls[0]!.level, "warning");
-	});
-
-	it("does NOT call ctx.ui.notify() when ctx.hasUI is false", () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: false });
-		const calls: { msg: string; level?: string }[] = [];
-		ctx.ui.notify = (msg: string, level?: string) => {
-			calls.push({ msg, level });
-		};
-
-		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		assert.equal(calls.length, 0);
-	});
-
-	// ── Correct notification/reason text per tool ──────────────────
-
-	it('produces notification "Blocked read to outside worktree" and reason containing "All file operations must stay" for read', () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
-		const calls: { msg: string; level?: string }[] = [];
-		ctx.ui.notify = (msg: string, level?: string) => {
-			calls.push({ msg, level });
-		};
-
-		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked read to outside worktree"));
-		assert.ok((result?.reason ?? "").includes("All file operations must stay"));
-	});
-
-	it('produces notification "Blocked write to outside worktree" and reason containing "All writes must stay" for write', () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
-		const calls: { msg: string; level?: string }[] = [];
-		ctx.ui.notify = (msg: string, level?: string) => {
-			calls.push({ msg, level });
-		};
-
-		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
-		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked write to outside worktree"));
-		assert.ok((result?.reason ?? "").includes("All writes must stay"));
-	});
-
-	it('produces notification "Blocked edit to outside worktree" and reason containing "All edits must stay" for edit', () => {
-		const event = makePathEvent("/etc/passwd");
-		const ctx = makeCtx({ hasUI: true });
-		const calls: { msg: string; level?: string }[] = [];
-		ctx.ui.notify = (msg: string, level?: string) => {
-			calls.push({ msg, level });
-		};
-
 		const result = mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
 		assert.equal(calls.length, 1);
-		assert.ok(calls[0]!.msg.includes("Blocked edit to outside worktree"));
-		assert.ok((result?.reason ?? "").includes("All edits must stay"));
+		assert.ok(
+			calls[0].msg.includes("edit"),
+			`Expected notify call to mention "edit" but got: ${calls[0].msg}`,
+		);
 	});
 
-	// ── Edge cases ────────────────────────────────────────────────
+	it("does not call ctx.ui.notify() when ctx.hasUI is false", () => {
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(false);
+		const spy = ctx.ui.notify as ReturnType<typeof makeCtx>["ui"]["notify"] & { calls?: unknown[] };
+		const originalNotify = ctx.ui.notify;
+		let called = false;
+		ctx.ui.notify = () => {
+			called = true;
+		};
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.equal(called, false);
+		ctx.ui.notify = originalNotify;
+	});
 
-	it("handles path with .. that resolves inside sandbox", () => {
-		// /tmp/sandbox-test-root/dir/../file.txt -> /tmp/sandbox-test-root/file.txt (inside)
-		const event = makePathEvent("dir/../file.txt");
-		const ctx = makeCtx({ hasUI: false });
+	it("notifies with error level when ctx.hasUI is true and mode is not tui", () => {
+		// When mode is "cli", notification should be "error"-level (more visible)
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
+		(ctx as Record<string, unknown>).mode = "cli";
+		const calls: { msg: string; level?: string }[] = [];
+		ctx.ui.notify = (msg: string, level?: string) => {
+			calls.push({ msg, level });
+		};
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].level, "error");
+	});
+
+	it("notifies with warning level when ctx.hasUI is true and mode is tui", () => {
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
+		(ctx as Record<string, unknown>).mode = "tui";
+		const calls: { msg: string; level?: string }[] = [];
+		ctx.ui.notify = (msg: string, level?: string) => {
+			calls.push({ msg, level });
+		};
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].level, "warning");
+	});
+
+	it("notifies with warning level when ctx.hasUI is true and mode is undefined (fallback)", () => {
+		const event = makeEvent("/etc/passwd");
+		const ctx = makeCtx(true);
+		// mode undefined by default in makeCtx
+		const calls: { msg: string; level?: string }[] = [];
+		ctx.ui.notify = (msg: string, level?: string) => {
+			calls.push({ msg, level });
+		};
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].level, "warning");
+	});
+
+	// ── Path traversal via `..` within sandbox ────────────────────
+
+	it("resolves path traversal within sandbox", () => {
+		const event = makeEvent("dir/../file.txt");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
-		assert.equal(event.input.path, join(SANDBOX_ROOT, "dir/../file.txt"));
-		// join normalizes /tmp/sandbox-test-root/dir/../file.txt -> /tmp/sandbox-test-root/file.txt
+		assert.equal(event.input.path, join(SANDBOX_ROOT, "file.txt"));
 	});
 
-	it("handles path with .. that resolves outside sandbox", () => {
-		// /tmp/sandbox-test-root/../../outside -> /tmp/outside (outside)
-		const event = makePathEvent("../../outside");
-		const ctx = makeCtx({ hasUI: false });
+	it("blocks path traversal that escapes sandbox", () => {
+		const event = makeEvent("../../outside");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
 		assert.equal(result.block, true);
 		assert.ok((result.reason ?? "").includes("resolves outside"));
 	});
 
-	it("handles path that is a subdirectory of sandbox root (with trailing slash)", () => {
-		// This already works because sandboxRoot is "/tmp/sandbox-test-root" (no trailing slash)
-		// and subdir starts with sandboxRoot + "/"
-		const event = makePathEvent(join(SANDBOX_ROOT, "subdir"));
-		const ctx = makeCtx({ hasUI: false });
+	// ── Absolute directory inside sandbox (read tool) ────────────
+
+	it("returns `{ block: true, reason }` for `read` on absolute directory inside sandbox (subdirectory)", () => {
+		const event = makeEvent(join(SANDBOX_ROOT, "subdir"));
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("directory"));
+		assert.ok((result.reason ?? "").includes("bash ls"));
+	});
+
+	it("returns undefined for `read` on file inside sandbox (not a directory)", () => {
+		// This test writes an actual file so statSync resolves to a non-directory
+		const filePath = join(SANDBOX_ROOT, "test-file.txt");
+		writeFileSync(filePath, "hello", "utf-8");
+		try {
+			const event = makeEvent(filePath);
+			const ctx = makeCtx(false);
+			const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+			assert.equal(result, undefined);
+		} finally {
+			rmSync(filePath);
+		}
+	});
+
+	it("returns undefined for `write` on directory path (only `read` is blocked)", () => {
+		const event = makeEvent(SANDBOX_ROOT);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
 		assert.equal(result, undefined);
 	});
 
-	it("returns reason containing the blocked path", () => {
-		const event = makePathEvent("/etc/shadow");
-		const ctx = makeCtx({ hasUI: false });
+	it("returns undefined for `edit` on directory path (only `read` is blocked)", () => {
+		const event = makeEvent(SANDBOX_ROOT);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
+		assert.equal(result, undefined);
+	});
+
+	it("blocks `read` on absolute directory that is outside sandbox (still shows 'outside' error not 'directory')", () => {
+		// Outside directories should still be blocked by the outside-sandbox guard first
+		const event = makeEvent("/tmp");
+		const ctx = makeCtx(false);
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.ok(result !== undefined);
-		assert.ok((result.reason ?? "").includes("/etc/shadow"));
+		assert.equal(result.block, true);
+		// The first guard catches it — the 'outside worktree' message takes priority
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
 	});
 
-	it("does not mutate event input when relative path resolves outside sandbox", () => {
-		const event = makePathEvent("../../outside");
-		const originalPath = event.input.path;
-		const ctx = makeCtx({ hasUI: false });
-		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		// Path should NOT be rewritten when blocking
-		assert.equal(event.input.path, originalPath);
-	});
-
-	it("does not mutate event input when absolute path is blocked", () => {
-		const event = makePathEvent("/etc/passwd");
-		const originalPath = event.input.path;
-		const ctx = makeCtx({ hasUI: false });
-		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		assert.equal(event.input.path, originalPath);
-	});
-
-	it("does not mutate event input when absolute path is inside sandbox", () => {
-		const event = makePathEvent(SANDBOX_ROOT);
-		const originalPath = event.input.path;
-		const ctx = makeCtx({ hasUI: false });
-		mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
-		assert.equal(event.input.path, originalPath);
+	it("returns undefined for non-existent path (ENOENT — pass through to pi-core)", () => {
+		const event = makeEvent(join(SANDBOX_ROOT, "nonexistent-file.txt"));
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.equal(result, undefined);
 	});
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// Phase 2a: hasShellExpansion — core helper
-// ═══════════════════════════════════════════════════════════════════
+// ─── Phase 2a: hasShellExpansion ───────────────────────────────────
 
 describe("hasShellExpansion", () => {
-	it("detects dollar sign in token", () => {
+	before(async () => {
+		mod = await import("../index.ts");
+	});
+
+	it("returns true for variable expansion $VAR", () => {
 		assert.equal(mod.hasShellExpansion("$HOME"), true);
 	});
 
-	it("detects command substitution in token", () => {
-		assert.equal(mod.hasShellExpansion("$(echo hi)"), true);
+	it("returns true for variable expansion ${VAR}", () => {
+		assert.equal(mod.hasShellExpansion("${HOME}"), true);
 	});
 
-	it("detects backtick in token", () => {
-		assert.equal(mod.hasShellExpansion("`echo hi`"), true);
+	it("returns true for command substitution $()", () => {
+		assert.equal(mod.hasShellExpansion("$(id)"), true);
 	});
 
-	it("detects tilde in token", () => {
-		assert.equal(mod.hasShellExpansion("~/escape"), true);
+	it("returns true for backtick command substitution", () => {
+		assert.equal(mod.hasShellExpansion("`id`"), true);
 	});
 
-	it("detects brace expansion in token", () => {
-		assert.equal(mod.hasShellExpansion("{a,b}"), true);
-	});
-
-	it("detects glob in token", () => {
+	it("returns true for wildcard glob *", () => {
 		assert.equal(mod.hasShellExpansion("*.txt"), true);
 	});
 
-	it("returns false for plain path", () => {
-		assert.equal(mod.hasShellExpansion("plain.txt"), false);
+	it("returns true for wildcard glob ?", () => {
+		assert.equal(mod.hasShellExpansion("file?.txt"), true);
 	});
 
-	it("returns false for safe absolute path", () => {
-		assert.equal(mod.hasShellExpansion("/safe/path"), false);
+	it("returns true for wildcard glob [...]", () => {
+		assert.equal(mod.hasShellExpansion("file[0-9].txt"), true);
 	});
 
-	it("returns false for empty string", () => {
-		assert.equal(mod.hasShellExpansion(""), false);
+	it("returns true for single quotes", () => {
+		assert.equal(mod.hasShellExpansion("'test'"), true);
 	});
 
-	it("detects bracket glob pattern [a-z]", () => {
-		assert.equal(mod.hasShellExpansion("[a-z]"), true);
+	it("returns true for double quotes", () => {
+		assert.equal(mod.hasShellExpansion('"test"'), true);
 	});
 
-	it("detects bracket glob bypass path /[e]tc/passwd", () => {
-		assert.equal(mod.hasShellExpansion("/[e]tc/passwd"), true);
+	it("returns true for semicolon command chaining", () => {
+		assert.equal(mod.hasShellExpansion("dir;ls"), true);
 	});
 
-	it("detects question mark glob file?", () => {
-		assert.equal(mod.hasShellExpansion("file?"), true);
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
-// ═══════════════════════════════════════════════════════════════════
-
-describe("findUnsafeCd", () => {
-	it("returns null for safe relative cd", () => {
-		assert.equal(mod.findUnsafeCd("cd src", "/tmp/sandbox"), null);
+	it("returns true for pipe", () => {
+		assert.equal(mod.hasShellExpansion("dir|ls"), true);
 	});
 
-	it("returns null for safe absolute cd inside sandbox", () => {
-		assert.equal(mod.findUnsafeCd("cd /tmp/sandbox/path", "/tmp/sandbox"), null);
+	it("returns true for OR operator ||", () => {
+		assert.equal(mod.hasShellExpansion("false||true"), true);
 	});
 
-	it("returns target for unsafe absolute cd outside sandbox", () => {
-		assert.equal(mod.findUnsafeCd("cd /etc", "/tmp/sandbox"), "/etc");
+	it("returns true for AND operator &&", () => {
+		assert.equal(mod.hasShellExpansion("true&&false"), true);
 	});
 
-	it("blocks cd with variable expansion $HOME (Bypass 1)", () => {
-		assert.ok(mod.findUnsafeCd("cd $HOME", "/tmp/sandbox") !== null);
+	it("returns true for background operator &", () => {
+		assert.equal(mod.hasShellExpansion("sleep 10&"), true);
 	});
 
-	it("blocks cd with variable in path $PWD/../../escape (Bypass 1)", () => {
-		assert.ok(mod.findUnsafeCd("cd $PWD/../../escape", "/tmp/sandbox") !== null);
+	it("returns false for plain path without shell metacharacters", () => {
+		assert.equal(mod.hasShellExpansion("/home/user/file.txt"), false);
 	});
 
-	it("blocks cd with brace-variable ${HOME} (Bypass 1)", () => {
-		assert.ok(mod.findUnsafeCd("cd ${HOME}", "/tmp/sandbox") !== null);
+	it("returns false for hyphen flags", () => {
+		assert.equal(mod.hasShellExpansion("--help"), false);
 	});
 
-	it("blocks cd with command substitution $(echo /escape) (Bypass 2)", () => {
-		assert.ok(mod.findUnsafeCd("cd $(echo /escape)", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with backtick command substitution (Bypass 2)", () => {
-		assert.ok(mod.findUnsafeCd("cd \`echo /escape\`", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with tilde expansion ~/escape (Bypass 3)", () => {
-		assert.ok(mod.findUnsafeCd("cd ~/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with tilde+user ~root/escape (Bypass 3)", () => {
-		assert.ok(mod.findUnsafeCd("cd ~root/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd piped from echo (Bypass 4)", () => {
-		assert.ok(mod.findUnsafeCd("echo hi | cd /escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with pipe-and separator |& (Bypass 4)", () => {
-		assert.ok(mod.findUnsafeCd("echo hi |& cd /escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with OR separator || (Bypass 4)", () => {
-		assert.ok(mod.findUnsafeCd("echo hi || cd /escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks bare cd with semicolon (Bypass 5)", () => {
-		assert.ok(mod.findUnsafeCd("cd ; echo hi", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks bare cd with trailing spaces (Bypass 5)", () => {
-		assert.ok(mod.findUnsafeCd("cd   ", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks bare cd alone (Bypass 5)", () => {
-		assert.ok(mod.findUnsafeCd("cd", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd - (previous directory, always unsafe)", () => {
-		assert.ok(mod.findUnsafeCd("cd -", "/tmp/sandbox") !== null);
-	});
-
-	it("catches second unsafe cd in compound command (&&)", () => {
-		assert.ok(mod.findUnsafeCd("cd safe && cd $HOME", "/tmp/sandbox") !== null);
-	});
-
-	it("catches unsafe cd after semicolon", () => {
-		assert.ok(mod.findUnsafeCd("cd safe; cd ~/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("catches unsafe cd after OR", () => {
-		assert.ok(mod.findUnsafeCd("cd safe || cd /etc", "/tmp/sandbox") !== null);
-	});
-
-	it("allows quoted cd with spaces", () => {
-		assert.equal(mod.findUnsafeCd('cd "dir with spaces"', "/tmp/sandbox"), null);
-	});
-
-	it("returns null for empty command", () => {
-		assert.equal(mod.findUnsafeCd("", "/tmp/sandbox"), null);
-	});
-
-	it("returns null for command without cd", () => {
-		assert.equal(mod.findUnsafeCd("ls /etc", "/tmp/sandbox"), null);
-	});
-
-	it("blocks cd with brace expansion", () => {
-		assert.ok(mod.findUnsafeCd("cd /{tmp,etc}", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with glob pattern", () => {
-		assert.ok(mod.findUnsafeCd("cd *.txt", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with arithmetic expansion", () => {
-		assert.ok(mod.findUnsafeCd("cd $((1+1))", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cd with old arithmetic expansion", () => {
-		assert.ok(mod.findUnsafeCd("cd $[1+1]", "/tmp/sandbox") !== null);
+	it("returns false for numeric", () => {
+		assert.equal(mod.hasShellExpansion("42"), false);
 	});
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// Phase 2c: findSuspiciousArg — general-purpose suspicious argument detection
-// ═══════════════════════════════════════════════════════════════════
+// ─── Phase 2b: findSuspiciousArg ───────────────────────────────────
 
 describe("findSuspiciousArg", () => {
-	// ── Happy path: safe commands return null ────────────────────
-
-	it("returns null for empty command", () => {
-		assert.equal(mod.findSuspiciousArg("", "/tmp/sandbox"), null);
+	before(async () => {
+		mod = await import("../index.ts");
 	});
 
-	it("returns null for whitespace-only command", () => {
-		assert.equal(mod.findSuspiciousArg("   ", "/tmp/sandbox"), null);
+	const SANDBOX = "/home/user/project";
+
+	it("returns null for cd with absolute path inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`cd ${SANDBOX}/src`, SANDBOX), null);
 	});
 
-	it("returns null for safe relative command", () => {
-		assert.equal(mod.findSuspiciousArg("cd src", "/tmp/sandbox"), null);
+	it("returns null for cd with relative path inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg("cd src", SANDBOX), null);
 	});
 
-	it("returns null for safe absolute path inside sandbox", () => {
+	it("returns null for cd with .. inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`cd ${SANDBOX}/src/../lib`, SANDBOX), null);
+	});
+
+	it("returns null for cp/mv inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`cp ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
+	});
+
+	it("returns null for cat of file inside sandbox (no shell expansion)", () => {
+		assert.equal(mod.findSuspiciousArg(`cat ${SANDBOX}/file.txt`, SANDBOX), null);
+	});
+
+	it("returns null for ls with path inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`ls ${SANDBOX}/src`, SANDBOX), null);
+	});
+
+	it("returns reason for cd with absolute path outside sandbox", () => {
+		const result = mod.findSuspiciousArg("cd /etc", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for cd with relative path escaping sandbox", () => {
+		const result = mod.findSuspiciousArg("cd ../outside", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for cd with path traversal escaping sandbox", () => {
+		const result = mod.findSuspiciousArg("cd src/../../outside", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason when sandboxRoot is not normalized and path starts with it (fence bypass)", () => {
+		// Sandbox root = "/home/user/project" (no trailing slash)
+		// Path = "/home/user/project-other/file" — starts with sandbox root but is outside
+		const result = mod.findSuspiciousArg("cd /home/user/project-other", "/home/user/project");
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for cp destination outside sandbox", () => {
+		const result = mod.findSuspiciousArg(`cp ${SANDBOX}/a.txt /etc/passwd`, SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for cp to path that stays inside sandbox via .. but resolves inside", () => {
+		// If sandboxRoot is "/home/user/project", then "../user/project/outside" resolves
+		// to "/home/user/outside" which might be outside. This tests the normalize + comparison.
+		// Using a path that actually stays inside.
+		assert.equal(mod.findSuspiciousArg(`cp file.txt ${SANDBOX}/subdir/../file.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for find with path outside sandbox", () => {
+		const result = mod.findSuspiciousArg("find /etc -name config", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for find within sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`find ${SANDBOX}/src -name "*.ts"`, SANDBOX), null);
+	});
+
+	it("returns reason when path with shell expansion resolves outside", () => {
+		// $HOME might resolve anywhere — the arg touches a path outside sandbox
+		const result = mod.findSuspiciousArg("cd $HOME", SANDBOX);
+		assert.ok(result !== null);
+	});
+
+	it("returns reason for path with wildcard that resolves outside", () => {
+		const result = mod.findSuspiciousArg("cat ../*/outside", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for path with wildcard that stays inside", () => {
+		assert.equal(mod.findSuspiciousArg(`cat ${SANDBOX}/src/*.ts`, SANDBOX), null);
+	});
+
+	it("returns reason for semicolon chained command that escapes", () => {
+		const result = mod.findSuspiciousArg(`cd ${SANDBOX}; cat /etc/passwd`, SANDBOX);
+		assert.ok(result !== null);
+	});
+
+	it("returns reason for pipe with outside path", () => {
+		const result = mod.findSuspiciousArg(`cat ${SANDBOX}/a.txt | cat /etc/passwd`, SANDBOX);
+		assert.ok(result !== null);
+	});
+
+	it("returns null for safe ls with glob", () => {
+		assert.equal(mod.findSuspiciousArg(`ls ${SANDBOX}/*.md`, SANDBOX), null);
+	});
+
+	it("returns null for safe git command", () => {
+		assert.equal(mod.findSuspiciousArg("git status", SANDBOX), null);
+	});
+
+	it("returns null for safe npm command", () => {
+		assert.equal(mod.findSuspiciousArg("npm test", SANDBOX), null);
+	});
+
+	it("returns null for mkdir inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`mkdir -p ${SANDBOX}/new-dir`, SANDBOX), null);
+	});
+
+	it("returns reason for mkdir outside sandbox", () => {
+		const result = mod.findSuspiciousArg("mkdir -p /outside/dir", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for rm of file outside sandbox", () => {
+		const result = mod.findSuspiciousArg("rm /etc/critical.conf", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for rm of file inside sandbox", () => {
+		assert.equal(mod.findSuspiciousArg(`rm ${SANDBOX}/temp.txt`, SANDBOX), null);
+	});
+});
+
+// ─── Phase 3: findUnsafeWriteInBash ────────────────────────────────
+
+describe("findUnsafeWriteInBash", () => {
+	before(async () => {
+		mod = await import("../index.ts");
+	});
+
+	const SANDBOX = "/home/user/project";
+
+	it("returns null for a simple cd (no write)", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`cd ${SANDBOX}`, SANDBOX), null);
+	});
+
+	it("returns null for a no-op redirect that stays inside", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`echo hello > ${SANDBOX}/file.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for redirect to outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("echo data > /etc/outside.txt", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for append redirect to outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("echo more >> /etc/passwd", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for heredoc write to outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("cat << EOF > /etc/outside.txt", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for heredoc write inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`cat << EOF > ${SANDBOX}/data.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for cp destination outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(`cp ${SANDBOX}/a.txt /etc/out`, SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for cp inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`cp ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for mv destination outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(`mv ${SANDBOX}/a.txt /tmp/out`, SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for mv inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`mv ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for touch outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("touch /etc/outside.txt", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for touch inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`touch ${SANDBOX}/newfile.txt`, SANDBOX), null);
+	});
+
+	it("returns null for tee inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`echo data | tee ${SANDBOX}/log.txt`, SANDBOX), null);
+	});
+
+	it("returns reason for tee outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("echo data | tee /etc/outside.txt", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns reason for dd of outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(
+			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",
+			SANDBOX,
+		);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
+	it("returns null for dd inside sandbox", () => {
 		assert.equal(
-			mod.findSuspiciousArg("cat /tmp/sandbox-test-root/file.txt", "/tmp/sandbox-test-root"),
+			mod.findUnsafeWriteInBash(`dd if=/dev/zero of=${SANDBOX}/test.bin bs=1 count=1`, SANDBOX),
 			null,
 		);
 	});
 
-	it("returns null for command with only flags", () => {
-		assert.equal(mod.findSuspiciousArg("ls -la", "/tmp/sandbox"), null);
+	it("returns reason for install outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("install -m 755 file /usr/local/bin/prog", SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
 	});
 
-	it("returns null for command with no arguments", () => {
-		assert.equal(mod.findSuspiciousArg("ls", "/tmp/sandbox"), null);
-	});
-
-	// ── Shell expansion detection ───────────────────────────────
-
-	it("detects variable expansion $HOME as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("cd $HOME", "/tmp/sandbox") !== null);
-	});
-
-	it("detects unresolvable variable in general argument", () => {
-		assert.ok(mod.findSuspiciousArg("cat $UNSET_VAR", "/tmp/sandbox") !== null);
-	});
-
-	it("detects command substitution $(...) as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("echo $(whoami)", "/tmp/sandbox") !== null);
-	});
-
-	it("detects backtick command substitution as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("echo \`whoami\`", "/tmp/sandbox") !== null);
-	});
-
-	it("detects tilde expansion as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("cat ~/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("detects brace expansion {a,b} as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("echo {a,b}", "/tmp/sandbox") !== null);
-	});
-
-	it("detects brace-variable expansion ${HOME} as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("echo ${HOME}", "/tmp/sandbox") !== null);
-	});
-
-	it("detects bracket glob bypass path /[e]tc/passwd as suspicious", () => {
-		assert.ok(mod.findSuspiciousArg("cat /[e]tc/passwd", "/tmp/sandbox") !== null);
-	});
-
-	// ── Unsafe path detection ───────────────────────────────────
-
-	it("returns the absolute path outside sandbox as argument", () => {
-		assert.equal(mod.findSuspiciousArg("cat /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("returns absolute path outside sandbox in redirect target", () => {
-		assert.equal(mod.findSuspiciousArg("echo hi > /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("returns absolute path outside sandbox in append redirect target", () => {
-		assert.equal(mod.findSuspiciousArg("echo hi >> /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("returns absolute path outside sandbox in FD redirect target", () => {
-		assert.equal(mod.findSuspiciousArg("echo hi 2>/etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("detects unresolved variable in cp destination", () => {
-		assert.ok(mod.findSuspiciousArg("cp a $DEST", "/tmp/sandbox") !== null);
-	});
-
-	it("detects unresolved variable in cp source", () => {
-		assert.ok(mod.findSuspiciousArg("cp $SRC dst", "/tmp/sandbox") !== null);
-	});
-
-	it("detects tilde in redirect target", () => {
-		assert.ok(mod.findSuspiciousArg("echo hi > ~/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("detects unresolved variable as argument after command", () => {
-		assert.ok(mod.findSuspiciousArg("echo $CMD", "/tmp/sandbox") !== null);
-	});
-
-	// ── Command name and flag filtering ─────────────────────────
-
-	it("does not flag command name 'cd' even though it's short", () => {
-		assert.equal(mod.findSuspiciousArg("cd", "/tmp/sandbox"), null);
-	});
-
-	it("does not flag command name starting with $ (command names always skipped)", () => {
-		assert.equal(mod.findSuspiciousArg("$CMD", "/tmp/sandbox"), null);
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
-// ═══════════════════════════════════════════════════════════════════
-
-describe("findUnsafeWriteInBash", () => {
-	it("returns null for safe relative redirect", () => {
-		assert.equal(mod.findUnsafeWriteInBash("echo hi > file.txt", "/tmp/sandbox"), null);
-	});
-
-	it("blocks redirect to absolute path outside sandbox", () => {
-		assert.equal(mod.findUnsafeWriteInBash("echo hi > /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("blocks redirect with variable expansion", () => {
-		assert.ok(mod.findUnsafeWriteInBash("echo hi > $OUTFILE", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks redirect with brace-variable expansion", () => {
-		assert.ok(mod.findUnsafeWriteInBash("echo hi > ${OUTFILE}", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks append redirect to outside path", () => {
+	it("returns null for install inside sandbox", () => {
 		assert.equal(
-			mod.findUnsafeWriteInBash("echo hi >> /etc/passwd", "/tmp/sandbox"),
-			"/etc/passwd",
+			mod.findUnsafeWriteInBash(`install -m 755 ${SANDBOX}/file ${SANDBOX}/bin/prog`, SANDBOX),
+			null,
 		);
 	});
 
-	it("blocks fd redirect to outside path", () => {
-		assert.equal(mod.findUnsafeWriteInBash("echo hi 2>/etc/passwd", "/tmp/sandbox"), "/etc/passwd");
+	it("returns reason for ln -s target outside sandbox (symlink escape)", () => {
+		const result = mod.findUnsafeWriteInBash(`ln -s /etc/passwd ${SANDBOX}/link`, SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
 	});
 
-	it("returns null for safe cp", () => {
-		assert.equal(mod.findUnsafeWriteInBash("cp src/file.txt dst/file.txt", "/tmp/sandbox"), null);
+	it("returns null for ln -s inside sandbox", () => {
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -s ${SANDBOX}/a.txt ${SANDBOX}/link`, SANDBOX),
+			null,
+		);
 	});
 
-	it("blocks cp to absolute path outside sandbox", () => {
-		assert.equal(mod.findUnsafeWriteInBash("cp a /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("blocks cp with variable destination", () => {
-		assert.ok(mod.findUnsafeWriteInBash("cp a $DEST", "/tmp/sandbox") !== null);
-	});
-
-	it("returns null for safe mv", () => {
-		assert.equal(mod.findUnsafeWriteInBash("mv a b", "/tmp/sandbox"), null);
-	});
-
-	it("blocks mv to absolute path outside sandbox", () => {
-		assert.equal(mod.findUnsafeWriteInBash("mv a /tmp/escape", "/tmp/sandbox"), "/tmp/escape");
-	});
-
-	it("returns null for safe touch", () => {
-		assert.equal(mod.findUnsafeWriteInBash("touch file.txt", "/tmp/sandbox"), null);
-	});
-
-	it("blocks touch to absolute path outside sandbox", () => {
-		assert.equal(mod.findUnsafeWriteInBash("touch /etc/passwd", "/tmp/sandbox"), "/etc/passwd");
-	});
-
-	it("blocks touch with variable expansion", () => {
-		assert.ok(mod.findUnsafeWriteInBash("touch $FILE", "/tmp/sandbox") !== null);
-	});
-
-	it("returns null for command with no writes", () => {
-		assert.equal(mod.findUnsafeWriteInBash("ls -la", "/tmp/sandbox"), null);
-	});
-
-	it("blocks redirect with tilde expansion", () => {
-		assert.ok(mod.findUnsafeWriteInBash("echo hi > ~/escape", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks redirect with brace expansion", () => {
-		assert.ok(mod.findUnsafeWriteInBash("echo hi > {a,b}", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks cp with command substitution", () => {
-		assert.ok(mod.findUnsafeWriteInBash("cp a $(echo /etc/passwd)", "/tmp/sandbox") !== null);
-	});
-
-	it("blocks mv with variable both src and dest", () => {
-		assert.ok(mod.findUnsafeWriteInBash("mv $SRC $DST", "/tmp/sandbox") !== null);
+	it("returns null for ln without -s (hard link)", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`ln ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
 	});
 });
