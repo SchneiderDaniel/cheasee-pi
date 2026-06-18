@@ -1,0 +1,57 @@
+// Cheasee-Pi color scheme — matches .pi/themes/cheasee-pi.json
+$color-scheme: dark;
+
+// Cheasee-Pi palette
+$cp-bg: #0d0d0d;
+$cp-bg-card: #141418;
+$cp-bg-selected: #1c1c28;
+$cp-fg: #ececf4;
+$cp-fg-dim: #b0b0c4;
+$cp-fg-muted: #d4d4e0;
+$cp-electric-blue: #4da6ff;
+$cp-neon-mint: #50fa7b;
+$cp-soft-mauve: #c9a0dc;
+$cp-safety-orange: #ff6d00;
+$cp-vivid-gold: #ffcc00;
+$cp-cyan: #00e5ff;
+$cp-slate-gray: #5a6678;
+$cp-steel-blue: #5dade2;
+$cp-coral: #ff5252;
+$cp-lavender: #b4a0e8;
+
+// Base
+$body-background-color: $cp-bg;
+$body-heading-color: $cp-fg;
+$body-text-color: $cp-fg-muted;
+
+// Links
+$link-color: $cp-electric-blue;
+$nav-child-link-color: $cp-fg-dim;
+
+// Sidebar
+$sidebar-color: $cp-bg-card;
+
+// Buttons
+$base-button-color: $cp-bg-selected;
+$btn-primary-color: $cp-electric-blue;
+
+// Code
+$code-background-color: #15151e;
+$code-linenumber-color: $cp-fg-dim;
+$code-text-color: $cp-cyan;
+
+// Feedback / selection
+$feedback-color: darken($cp-bg-card, 2%);
+
+// Tables
+$table-background-color: $cp-bg-card;
+
+// Search
+$search-background-color: $cp-bg-selected;
+$search-result-preview-color: $cp-fg-dim;
+
+// Borders
+$border-color: $cp-slate-gray;
+
+// Syntax highlighting: GitHub Dark variant
+@import "./vendor/accessible-pygments/github-dark";

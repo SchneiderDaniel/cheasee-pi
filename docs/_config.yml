@@ -10,7 +10,7 @@ aux_links:
     - https://github.com/SchneiderDaniel/cheasee-pi
 
 # Color scheme
-color_scheme: dark
+color_scheme: cheasee
 
 # Enable heading anchors
 heading_anchors: true
