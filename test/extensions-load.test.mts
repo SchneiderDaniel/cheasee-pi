@@ -36,8 +36,12 @@ function discoverExtensions(): ExtensionEntry[] {
 	const entries = readdirSync(EXTENSIONS_DIR, { withFileTypes: true });
 	const extensions: ExtensionEntry[] = [];
 
+	// Directories inside .pi/extensions/ that are shared libraries, not extensions
+	const SKIP_DIRS = new Set(["lib"]);
+
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
+		if (SKIP_DIRS.has(entry.name)) continue;
 
 		const dir = join(EXTENSIONS_DIR, entry.name);
 		const indexTs = join(dir, "index.ts");

@@ -1,0 +1,29 @@
+title: Cheasee Pi
+description: Autonomous coding agent operating within the Pi Stack
+theme: just-the-docs
+
+url: https://schneiderdaniel.github.io/cheasee-pi
+
+# Aux links
+aux_links:
+  "Cheasee-Pi on GitHub":
+    - https://github.com/SchneiderDaniel/cheasee-pi
+
+# Color scheme
+color_scheme: dark
+
+# Enable heading anchors
+heading_anchors: true
+
+# Footer content
+footer_content: "Copyright &copy; 2026 SchneiderDaniel. Distributed under the <a href=\"https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE\">MIT License.</a>"
+
+# Google Analytics
+# ga_tracking: UA-XXXXX-Y
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor

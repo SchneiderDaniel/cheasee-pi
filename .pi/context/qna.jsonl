@@ -27,3 +27,4 @@
 {"datetime":"2026-06-17T22:26:15.322Z","question":"Save release preview to /tmp/release-body.md so you can inspect it before we proceed?","answer":"save_preview"}
 {"datetime":"2026-06-17T22:27:24.431Z","question":"Release body saved to /tmp/release-body.md. Create release v0.30 now?\n\nPipeline: TSC check → tests → version bump → tag v0.30 → push → draft release.","answer":"create"}
 {"datetime":"2026-06-17T22:29:07.520Z","question":"Tests failed with pre-existing failures (15 of 823). Release blocked per workflow rules.\n\nOptions:","answer":"fix_then_retry"}
+{"datetime":"2026-06-17T22:32:37.199Z","question":"Pre-existing test failures: 12 supervisor pipeline tests (pr-creation timing/assertion issues). Not related to this release.\n\nProceed with release despite pre-existing failures, or fix those too?","answer":"fix_all"}

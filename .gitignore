@@ -17,3 +17,6 @@ benchmarks/benchmark-results/
 npm/
 custom/
 cache/
+
+# Jekyll docs build output
+docs/_site/

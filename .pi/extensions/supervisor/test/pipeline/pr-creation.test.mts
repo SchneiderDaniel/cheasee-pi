@@ -2,15 +2,40 @@
 // Unit tests for the PR creation flow. Mocks pi.exec and ctx.ui.
 // Follows the same mock pattern as handler.test.mts.
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type {
-	SupervisorConfig,
-	PipelineAgentResult,
-	PrCreationResult,
-} from "../../config/types.ts";
-import { createPrOnApproval } from "../../pipeline/pr-creation.ts";
+import type { SupervisorConfig, PipelineAgentResult } from "../../config/types.ts";
+
+// ─── Set up gh-client mock BEFORE imports ─────────────────────────
+// gh() wraps calls in bash -c GH_TOKEN=... when GH_TOKEN or hosts.yml
+// exists. This breaks test assertions that expect cmd==="gh". We mock
+// gh-client.ts so gh() calls pi.exec("gh", args) directly instead.
+mock.module("../../github/gh-client.ts", () => {
+	return {
+		gh: async (_pi: ExtensionAPI, args: string[]): Promise<string> => {
+			const result = await _pi.exec("gh", args);
+			return (result.stdout || "").trim();
+		},
+		ghJson: async (_pi: ExtensionAPI, args: string[]): Promise<unknown> => {
+			const output = await _pi.exec("gh", args);
+			if (!output.stdout?.trim()) return null;
+			return JSON.parse(output.stdout.trim());
+		},
+		ghGraphQL: async (): Promise<null> => null,
+	};
+});
+
+// Dynamic import after mock.module() to ensure mocked gh-client is used
+import type { CreatePrOnApprovalFn } from "../../pipeline/pr-creation.ts";
+const _getModule = async () => {
+	return import("../../pipeline/pr-creation.ts");
+};
+let createPrOnApproval: CreatePrOnApprovalFn;
+
+await _getModule().then((m) => {
+	createPrOnApproval = m.createPrOnApproval as unknown as CreatePrOnApprovalFn;
+});
 
 // ─── Call Tracking ────────────────────────────────────────────────
 
@@ -40,7 +65,18 @@ function createMockPi(
 	let idx = 0;
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
-			callLog.push({ cmd, args: args || [], opts: opts || {} });
+			// Normalize bash -c GH_TOKEN=... gh wrappers into native gh calls
+			// so test assertions work regardless of GH_TOKEN env state.
+			if (cmd === "bash" && args[0] === "-c" && /\\bgh\\b/.test(args[1] ?? "")) {
+				const sepIdx = args.indexOf("_");
+				if (sepIdx !== -1) {
+					callLog.push({ cmd: "gh", args: args.slice(sepIdx + 1), opts: opts || {} });
+				} else {
+					callLog.push({ cmd, args: args || [], opts: opts || {} });
+				}
+			} else {
+				callLog.push({ cmd, args: args || [], opts: opts || {} });
+			}
 			const result = results[idx++];
 			if (!result || result.code !== 0) {
 				const errMsg = result?.stderr || result?.stdout || `Command failed: ${cmd}`;
