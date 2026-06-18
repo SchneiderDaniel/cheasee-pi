@@ -23,33 +23,54 @@ nav_order: 2
 | Platform    | Install Link                                                                                                            |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) |
-| **macOS**   | [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac/) (includes Engine + Compose V2)                     |
-| **Windows** | WSL2 + [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows/)                                         |
+| **macOS**   | [OrbStack](https://orbstack.dev/) (fast, lightweight Docker + Compose V2)              |
+| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      |
 
-**Platform:** Docker-only. Linux native, macOS via Docker Desktop, Windows via WSL2 + Docker Desktop.
+**Platform:** Docker-only. Linux native, macOS via OrbStack, Windows via WSL2 + Docker Engine.
 
 ## Quick start
 
 ```bash
-git clone git@github.com:SchneiderDaniel/cheasee-pi.git
-cd cheasee-pi
+git clone --bare git@github.com:SchneiderDaniel/cheasee-pi.git .bare
+git --git-dir=.bare worktree add main main
+cd main
 ./cheasee-pi.sh
 ```
 
 The wrapper script:
 1. Builds the OCI image from `docker/Dockerfile` (first run, ~2 min)
-2. Starts the container with your repo bind-mounted, UID/GID mapped
+2. Starts the container with the workspace root bind-mounted, UID/GID mapped
 3. Drops you into the Pi TUI inside the container
 
 ## Step-by-step
 
-### 1. Clone the repo
+### 1. Clone the bare repo
 
 ```bash
-git clone git@github.com:SchneiderDaniel/cheasee-pi.git && cd cheasee-pi
+mkdir cheasee-pi && cd cheasee-pi
+git clone --bare git@github.com:SchneiderDaniel/cheasee-pi.git .bare
 ```
 
-### 2. Set provider (first session only)
+This creates a bare repo at `.bare` — no working tree yet.
+
+### 2. Create the `main` worktree
+
+```bash
+git --git-dir=.bare worktree add main main
+cd main
+```
+
+All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
+
+### 3. Start the container
+
+```bash
+./cheasee-pi.sh
+```
+
+Builds the image (first run, ~2 min) and drops you into the Pi TUI inside the container.
+
+### 4. Set provider (first session only)
 
 ```bash
 pi --provider opencode-go --api-key "your-key"
@@ -57,7 +78,7 @@ pi --provider opencode-go --api-key "your-key"
 
 Exit with `Ctrl+C` twice. The provider is persisted in `.pi/settings.json`.
 
-### 3. Configure `.pi/settings.json`
+### 5. Configure `.pi/settings.json`
 
 `.pi/settings.json` stores all per-repo configuration. Key fields:
 
@@ -78,7 +99,7 @@ Exit with `Ctrl+C` twice. The provider is persisted in `.pi/settings.json`.
 `./cheasee-pi.sh` runs `docker compose up` with:
 
 - Image built from `docker/Dockerfile` (Debian 12-slim, Node.js 22, Python 3, ripgrep, ast-grep, pi, gosu)
-- Repo root bind-mounted to `/workspaces/main` inside the container
+- Workspace root (`../` relative to `main/`) bind-mounted to `/workspaces` inside the container — your worktree at `/workspaces/main`
 - Host UID/GID mapped to container user `agentuser` (no permission issues)
 - Interactive TTY for the Pi TUI
 
@@ -137,7 +158,7 @@ docker compose build --no-cache
 UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 
 ```bash
-HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose up
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
 ```
 
 ## Daily workflow
@@ -153,7 +174,8 @@ HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose up
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
+2. Create a feature worktree: `git worktree add -b my-feature ../my-feature main`
+3. `cd ../my-feature` and make your changes
 4. Run tests: `npm test`
-5. Submit a PR
+5. Push and submit a PR
+6. Clean up: `cd /path/to/main && git worktree remove --force ../my-feature`
