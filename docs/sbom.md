@@ -21,10 +21,16 @@ nav_order: 10
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
 | `@earendil-works/pi-coding-agent` | ^0.79.1 | MIT | Pi agent runtime |
+| `@earendil-works/pi-ai` | ^0.79.1 | MIT | Pi API client |
+| `@earendil-works/pi-tui` | ^0.79.1 | MIT | Pi TUI runtime |
 | `@ast-grep/cli` | — | MIT | AST-aware code search |
 | `typescript` | ^6.0.3 | Apache-2.0 | TypeScript compiler |
 | `prettier` | ^3.8.3 | MIT | Code formatting |
 | `boxen` | ^7.1.1 | MIT | TUI box rendering |
+| `proper-lockfile` | ^4.1.2 | MIT | File-based locking for session logs |
+| `retry` | ^0.13.1 | MIT | Retry utilities for async operations |
+| `shell-quote` | ^1.8.4 | MIT | Shell command parsing for worktree sandbox |
+| `typebox` | ^1.2.8 | MIT | Runtime type validation |
 | `vscode-jsonrpc` | ^8.2.1 | MIT | LSP communication |
 
 ## System dependencies
@@ -39,6 +45,10 @@ nav_order: 10
 | ast-grep | ≥0.42 | MIT | Structural code search |
 | GitHub CLI (gh) | latest | MIT | GitHub API client |
 | jscpd | 4.2.4 | MIT | Duplicate code detection |
+| universal-ctags | latest | GPL-2.0 | Code index for tag generation |
+| jq | latest | MIT | JSON processor for shell scripts |
+| unzip | latest | Info-ZIP | Archive extraction |
+| wget | latest | GPL-3.0 | HTTP file download |
 | git | — | GPL-2.0 | Version control, worktrees |
 | gosu | — | Apache-2.0 | UID/GID mapping in container |
 
@@ -65,7 +75,7 @@ nav_order: 10
 | `session-advice` | UX | Post-session pattern analysis + feedback |
 | `agent-harness` | Safety | Runtime tool call validation |
 | `caveman` | Communication | Token-efficient protocol |
-| `ask-user` | Interaction | Interactive MC questions + CSV logging |
+| `ask-user` | Interaction | Interactive MC/freetext questions + JSONL logging |
 | `format-on-save` | DX | Auto Prettier + ESLint after write/edit |
 | `piignore` | Safety | Path blocking via `.piignore` |
 | `tsc-checkpoint` | DX | TypeScript type checking |

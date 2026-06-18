@@ -72,10 +72,30 @@ Each agent is a Markdown file in `.pi/extensions/supervisor/agents/` with YAML f
 The container is built from `docker/Dockerfile` (Debian 12-slim) and includes:
 
 - Node.js 22
-- Python 3
+- Python 3 + pip + venv
 - ripgrep
 - ast-grep
 - Pi coding agent
 - gosu (for UID/GID mapping)
+- jq (JSON processor)
+- universal-ctags (code indexing)
+- jscpd (duplicate code detection)
+- wget / curl (HTTP clients)
+- unzip (archive extraction)
+- GitHub CLI (gh)
+
+## Shared extension library (`lib/`)
+
+The `.pi/extensions/lib/` directory contains shared TypeScript modules used across multiple extensions, avoiding code duplication:
+
+| Module | Used by | Purpose |
+|--------|---------|---------|
+| `extension-state.ts` | session-logger, session-advice, caveman | File-backed state persistence with sequential write queue |
+| `bash-query.ts` | agent-harness, session-advice | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns |
+| `ensureVenv.ts` | scrapling, web-search | Python venv auto-creation and dependency installation |
+| `proper-lockfile-ambient.ts` | session-logger | Ambient type declarations for proper-lockfile |
+| `tsc-types.ts` | tsc-checkpoint | Reusable TypeScript compiler API types |
+
+These are not extensions themselves — they are imported by extension code via relative imports.
 
 The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to container user `agentuser`.

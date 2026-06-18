@@ -30,6 +30,7 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 | **architecture-review** | `/architecture-review` | Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors. |
 | **changelog-check** | `/changelog-check` | Analyze pi CHANGELOG.md for breaking changes affecting extensions. Generates migration report. |
 | **extension-validation** | `/extension-validation <path>` | Validate extension structure, imports, hooks against pi extension API. |
+| **release-cheasee-pi** | `/release-cheasee-pi` | Create GitHub release: determine version from feature count since last tag, fetch/categorize merged PRs, run tests, create tag. |
 | **writing-voice** | `/writing-voice` | Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. |
 
 ## Template organization
@@ -48,7 +49,8 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 │   ├── package-extension.md
 │   ├── architecture-review.md
 │   ├── changelog-check.md
-│   └── extension-validation.md
+│   ├── extension-validation.md
+│   └── release-cheasee-pi.md
 └── misc/
     └── writing-voice.md
 ```

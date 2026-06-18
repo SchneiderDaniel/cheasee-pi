@@ -57,6 +57,22 @@ pi --provider opencode-go --api-key "your-key"
 
 Exit with `Ctrl+C` twice. The provider is persisted in `.pi/settings.json`.
 
+### 3. Configure `.pi/settings.json`
+
+`.pi/settings.json` stores all per-repo configuration. Key fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `defaultProvider` | string | `"opencode-go"` | AI provider for agent sessions |
+| `defaultModel` | string | `"deepseek-v4-flash"` | Default model (per-agent overrides in supervisor) |
+| `quietStartup` | boolean | `false` | Skip startup banner |
+| `theme` | string | `"cheasee-pi"` | TUI theme name from `.pi/themes/` |
+| `sessionDir` | string | `".pi/sessions"` | Session log output directory |
+| `contextStatusBar.showTps` | boolean | `true` | Show tokens/sec in TUI footer |
+| `docker.memory` | string | `"4G"` | Container memory limit |
+| `docker.cpus` | string | `"2.0"` | Container CPU limit |
+| `supervisor.*` | object | — | Pipeline config — see [GitHub](github) page |
+
 ## What happens under the hood
 
 `./cheasee-pi.sh` runs `docker compose up` with:

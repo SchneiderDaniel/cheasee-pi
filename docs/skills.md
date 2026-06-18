@@ -54,6 +54,22 @@ Systematic duplicate code detection for pi extensions. Analyzes for exact clones
 - **Skills:** Clone type classification, jscpd integration, three-way-match proof
 - **Output:** GitHub issue with clone evidence
 
+### extension-reinvention-issue-hunter
+
+Systematic detection of pi built-in API reimplementations in extensions. Picks random extension, cross-references custom code against live pi documentation, finds where extensions reinvent built-in features (dialogs, file-queue, truncation, state management, rendering, bash execution, etc.). Creates GitHub issues with migration steps and LOC reduction estimates.
+
+- **Skills:** Live doc analysis, cross-reference, API catalog building
+- **Detection:** Custom UI dialogs, file mutation queue, truncation utilities, state management, tool rendering, bash execution, keybinding handling
+- **Output:** GitHub issue per confirmed finding with migration snippet
+
+### external-issue
+
+Guides the agent to autonomously file high-quality issues on external public GitHub repos. Enforces a strict 5-step checklist: read repo guidelines, read issue templates, check for duplicates, write professional issue body with neutral reproducible examples, and file via `gh issue create`.
+
+- **Skills:** Duplicate detection, issue template compliance, professional writing
+- **Scope:** External public repos only
+- **Dependency:** `gh` CLI authenticated
+
 ### writing-voice
 
 Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. Applied before drafting any user-facing prose.

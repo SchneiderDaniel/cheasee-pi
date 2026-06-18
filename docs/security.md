@@ -69,6 +69,9 @@ Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitiv
 | Session Advice | Advice generation + lesson injection | Disabled |
 | Check Extensions | Extension audit | Disabled |
 | Ask User | Q&A history persistence | History not written to disk |
+| Supervisor CI gating | GitHub check run polling | CI gate skipped (branch may not exist) |
+| Supervisor dead-code gate | knip execution | Dead code check skipped |
+| Supervisor duplicate-code gate | jscpd execution | Duplicate code check skipped |
 
 The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from running attacker-controlled configurations that could weaponize LSP servers, formatter configs, tsconfig paths, or `.piignore` patterns.
 

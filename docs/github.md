@@ -97,13 +97,44 @@ Configure the project in `.pi/settings.json`:
       "Audit": "auditor"
     },
     "statusField": "Status",
-    "maxRejections": 5,
+    "defaultBranch": "main",
+    "remote": "origin",
+    "worktreeBase": "../",
+    "branchPrefix": "worktree-git-issue-",
+    "maxRejections": 3,
+    "agentTimeoutsMin": {},
     "agentTokenBudget": 300000,
     "maxToolCalls": 0,
+    "ciGatingTimeoutSec": 300,
+    "auditScoreThreshold": 0.75,
+    "enableExperimentalFeatures": false,
     "bellOnComplete": false
   }
 }
 ```
+
+### All config fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `repo` | string | — (required) | GitHub repo (`owner/name`) |
+| `projectNumber` | number | — (required) | GitHub Project v2 number |
+| `codeowners` | string[] | — (required) | Trusted GitHub usernames for issue filtering |
+| `statusMapping` | object | — (required) | Board status → agent name mapping |
+| `statusField` | string | `"Status"` | GitHub Project status field name |
+| `defaultBranch` | string | `"main"` | Base branch for worktrees + diffs |
+| `remote` | string | `"origin"` | Git remote name |
+| `worktreeBase` | string | `"../"` | Parent dir for git worktrees |
+| `branchPrefix` | string | `"worktree-git-issue-"` | Prefix for worktree branch names |
+| `submodules` | object[] | auto from `.gitmodules` | Explicit submodule `{path, repo}` overrides |
+| `maxRejections` | number | `3` | Max audit rejection loops before human intervention |
+| `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes |
+| `agentTokenBudget` | number | `300000` | Soft token cap per agent session (0=unlimited) |
+| `maxToolCalls` | number | `0` | Hard tool call cap per agent (0=unlimited) |
+| `ciGatingTimeoutSec` | number | `300` | Max seconds to poll CI before auditor dispatch (0=disable) |
+| `auditScoreThreshold` | number | `0.75` | Minimum passing ratio for audit score gate |
+| `enableExperimentalFeatures` | boolean | `false` | Enable experimental pipeline features |
+| `bellOnComplete` | boolean | `false` | Emit terminal bell on pipeline completion |
 
 Use **Board** layout in GitHub, set **Group by** to `Workflow`.
 
@@ -120,13 +151,20 @@ Use **Board** layout in GitHub, set **Group by** to `Workflow`.
 When you run `/supervisor 42`, here is how it interacts with GitHub:
 
 1. **Fetch** — Supervisor reads settings, fetches issue #42 from GitHub, filters to trusted codeowners
-2. **Researcher** — Crawls 3-5 web pages, posts `## Research Findings` comment on the issue, moves board card to Architecture
-3. **Architect** — Analyzes codebase, proposes architecture following Clean Architecture + PEAA, posts `## Architecture Approach` comment
-4. **TestDesigner** — Writes test plan, posts `## Test Plan` comment
-5. **Developer** — Supervisor creates git worktree, Developer implements feature, commits, pushes to branch
-6. **Quality Gates** — TSC + LSP checks pass locally, moves board card to Audit
-7. **Auditor** — Reviews diff, approves or rejects. If approved, creates PR on GitHub with audit report as body, posts `## Audit` comment. If rejected, sends back to Implementation
-8. **Post-pipeline** — Checks PR for merge conflicts, asks user to auto-fix if needed
+2. **Research gate** — If issue already has `## Research Findings` comment, researcher is skipped (dedup gate)
+3. **Researcher** — Crawls 3-5 web pages, posts `## Research Findings` comment on the issue, moves board card to Architecture
+4. **Architect** — Analyzes codebase, proposes architecture following Clean Architecture + PEAA, posts `## Architecture Approach` comment. Can send back to Research via `targetStatus`
+5. **TestDesigner** — Writes test plan, posts `## Test Plan` comment
+6. **Developer** — Supervisor creates git worktree, Developer implements feature, commits, pushes to branch
+7. **Quality Gates** — Before Audit, multiple pre-transition gates run:
+   - **CI gating** — Polls GitHub check runs for the branch (configurable timeout, 0=skip)
+   - **TSC Checkpoint** — `npx tsc --noEmit` on the worktree
+   - **LSP Auditor** — Real LSP diagnostics on modified files
+   - **Dead code** (knip) — Detects unused exports in changed files
+   - **Duplicate code** (jscpd) — Detects clones in changed files
+   - **Requirements traceability** — Cross-references issue checklist against diff
+8. **Auditor** — Reviews diff against 8 audit dimensions (architecture, fulfillment, test quality, correctness, code quality, completeness, duplicate code, research incorporation). Approves or rejects with structured findings. Score must meet `auditScoreThreshold`. If approved, creates PR on GitHub with audit report as body. If rejected, sends back to Implementation
+9. **Post-pipeline** — Checks PR for merge conflicts, asks user to auto-fix if needed
 
 ### Agent deep dive
 
@@ -134,11 +172,11 @@ Each agent posts its findings as a GitHub issue comment:
 
 | # | Agent | Entry Marker | GitHub Action |
 |---|-------|-------------|--------------|
-| 1 | **Researcher** | `Research` | Posts findings comment, moves board |
-| 2 | **Architect** | `Architecture` | Posts architecture comment |
+| 1 | **Researcher** | `Research` | Posts findings comment, moves board (or skipped if findings exist) |
+| 2 | **Architect** | `Architecture` | Posts architecture comment, can loop to Research |
 | 3 | **TestDesigner** | `TestDesign` | Posts test plan comment |
 | 4 | **Developer** | `Implementation` | Commits + pushes to worktree branch |
-| 5 | **Auditor** | `Audit` | Creates PR if approved |
+| 5 | **Auditor** | `Audit` | Creates PR if approved (uses structured `AUDIT_DECISION: APPROVED` or `AUDIT_DECISION: REJECTED` markers) |
 
 ---
 
