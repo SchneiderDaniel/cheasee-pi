@@ -35,11 +35,15 @@ RUN apt-get update && \
         unzip \
         universal-ctags \
         ripgrep \
+        fd-find \
         git \
         wget \
         gosu \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# fd-find ships as fdfind; symlink to fd so pi finds it
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
 # ---------------------------------------------------------------
 # Layer 4: npm global tools
