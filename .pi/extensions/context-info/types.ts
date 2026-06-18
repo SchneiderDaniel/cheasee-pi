@@ -45,4 +45,12 @@ export interface FooterConfig {
 	/** Project trust status from ctx.isProjectTrusted() */
 	trustStatus: "trusted" | "untrusted" | undefined;
 	sessionId: string;
+
+	// ── Supervisor issue info ────────────────────────────────
+	/** Current supervisor issue number (mutable at runtime via value wrapper) */
+	issueNumber: { value: number | undefined };
+	/** Current supervisor issue repo slug like "owner/repo" (mutable at runtime) */
+	issueRepo: { value: string | undefined };
+	/** Current supervisor issue title (mutable at runtime) */
+	issueTitle: { value: string | undefined };
 }

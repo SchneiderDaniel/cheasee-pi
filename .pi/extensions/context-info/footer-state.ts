@@ -52,6 +52,9 @@ export class FooterState {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			issueNumber: { value: undefined },
+			issueRepo: { value: undefined },
+			issueTitle: { value: undefined },
 		};
 	}
 
@@ -138,5 +141,8 @@ export class FooterState {
 		this.footerConfig.sessionName = undefined;
 		this.footerConfig.trustStatus = undefined;
 		this.footerConfig.sessionId = "";
+		this.footerConfig.issueNumber.value = undefined;
+		this.footerConfig.issueRepo.value = undefined;
+		this.footerConfig.issueTitle.value = undefined;
 	}
 }
