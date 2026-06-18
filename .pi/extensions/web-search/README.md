@@ -55,6 +55,46 @@ The tool is designed to work alongside `web_crawl` — use `web_search` to disco
 - `ddgs` Python package (`pip install ddgs`)
 - Pi Coding Agent
 
+## Details
+
+### Architecture
+
+```
+├── index.ts         # Entry: tool registration, cache, concurrency semaphore
+├── python-script.ts # Inline Python script (ddgs) as string constant
+├── executor.ts      # runSearchScript: write temp file, exec subprocess, parse delimited output
+├── venv-setup.ts    # Auto-create .pi/web-search-venv + pip install ddgs
+├── types.ts         # SearchCacheEntry, SearchResult types
+└── test/            # Executor + parser tests
+```
+
+### Execution Flow
+
+```mermaid
+flowchart LR
+    A[tool_call] --> B[Acquire semaphore: max 5 concurrent]
+    B --> C{Cache hit?}
+    C -- yes, within 5min TTL --> D[Return cached results]
+    C -- miss --> E[ensureWebSearchVenv]
+    E --> F[write Python script to temp dir]
+    F --> G[exec python3 script]
+    G --> H[parseSearchResults: SEARCH_OK / SEARCH_DONE delimiters]
+    H --> I[cache in memory Map]
+    I --> J[formatResults: title + URL + snippet]
+    J --> K[Release semaphore, return]
+```
+
+### Key Design Decisions
+
+- **Per-call isolated temp directory** — Each search writes to `ignore/web-search/search-<random>/`. Prevents file races under concurrent calls.
+- **Concurrency semaphore** — Max 5 simultaneous searches. Prevents overwhelming DDGS API.
+- **Cache TTL: 5 minutes** — In-memory with timestamp-aware expiry. Stale entries pruned on each set.
+- **Python subprocess via `ddgs`** — Minimal library, no browser dependency. Venv auto-created on first call.
+- **Delimiter-based parsing** — `SEARCH_OK` / `SEARCH_DONE` markers for reliable output extraction.
+- **URL encoding for markdown** — Parentheses `()` encoded to prevent markdown link breakage.
+- **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation.
+- **Max results bounded** — `Math.min(Math.max(1, maxResults), 50)`.
+
 ## License
 
 MIT

@@ -9,7 +9,7 @@ nav_order: 3
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/scrapling/README.md)
+[📄 README](../../.pi/extensions/scrapling/README.md)
 
 **Why.** Crawl web pages behind Cloudflare and extract content as Markdown. Progressive fetching — starts lightweight (`curl_cffi`), escalates to Playwright stealth when blocked. Auto-installs Python venv on first call.
 

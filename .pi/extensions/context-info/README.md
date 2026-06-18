@@ -71,6 +71,80 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Pi Coding Agent ≥ 0.79.1 (for `isProjectTrusted`, `mode` in context)
 - Works with any TUI theme (uses theme colors from ctx.ui.theme)
 
+## Details
+
+### Architecture
+
+Reactive footer system with event-driven updates:
+
+```
+├── index.ts            # Entry: event hooks, state management, /explain-* commands
+├── footer.ts           # installFooter: builds TUI footer component tree
+├── footer-state.ts     # FooterState: mutable state container with render triggers
+├── config.ts           # Load config from .pi/settings.json
+├── types.ts            # ThresholdEntry, TpsSample, FooterConfig interfaces
+├── git-helpers.ts      # Worktree name detection
+├── telemetry.ts        # tryEmit: lightweight telemetry
+├── extensions.ts       # List active extensions
+├── prompts.ts          # List available prompt templates
+├── skills.ts           # List available skills
+├── explain.ts          # createExplainCommand factory
+├── cheasee-pi-info.ts  # /cheasee-pi-info command
+└── test/               # Unit tests
+```
+
+### Footer State Machine
+
+```mermaid
+flowchart TD
+    A[session_start] --> B[FooterState.resetProperties]
+    B --> C[loadConfig]
+    C --> D{config null?}
+    D -- yes --> E[clear UI, stopTimer]
+    D -- no --> F[set worktreeName, sessionName, trustStatus]
+    F --> G[installFooter: build TUI component]
+    G --> H[startTimer: 1s interval]
+    H --> I{Event received}
+    I -- model_select --> J[update model, contextWindow, cacheHitRate]
+    I -- thinking_level_select --> K[update thinkingLevel]
+    I -- turn_end --> L[re-render footer]
+    I -- message_end --> M[update token usage, cache stats]
+    I -- message_update --> N[sample TPS]
+    I -- tool_execution_end --> O[increment toolCallCount]
+    I -- session_shutdown --> P[stopTimer, dispose]
+```
+
+### Footer Component Tree
+
+```
+[Git branch] [Model] [Thinking] [timer] [Tokens used/max] [TPS] [Cache hit rate] [Session] [Trust] [Tool calls]
+```
+
+Each segment is a reactive Widget that updates when its backing `Reactive` value changes.
+
+### Key Design Decisions
+
+- **FooterState lifecycle** — Created on `session_start`, disposed on `session_shutdown`. Previous disposed before new to prevent stale `ctx` closures.
+- **Working indicator** — Custom dot pulse (`·` `•` `●` `•`) instead of standard spinner.
+- **TPS sampling** — On `message_update`, samples streaming output tokens via deduplicated key extraction.
+- **Cache hit rate** — `cacheRead / (cacheRead + cacheWrite)` on each `message_end`. Reset on model change.
+- **Quiet startup** — `quietStartup: true` suppresses startup hint and working indicator.
+- **Explain commands** — Widgets auto-cleared on first `input`/`before_agent_start`/`user_bash` event.
+- **Supervisor integration** — Exported `setSupervisorIssueData`/`clearSupervisorIssueData` for TUI footer display.
+- **Timer** — `setInterval` at 1s, cleared on shutdown.
+
+### Event to Footer Update Map
+
+| Event | Fields Updated |
+|-------|---------------|
+| `session_start` | worktreeName, sessionName, trustStatus, sessionId |
+| `model_select` | modelName, contextWindow, cacheHitRate |
+| `thinking_level_select` | thinkingLevel |
+| `turn_end` | sessionName |
+| `message_end` | tokensUsed, tokensMax, cacheRead/Write, hitRate |
+| `message_update` | TPS samples |
+| `tool_execution_end` | toolCallCount |
+
 ## License
 
 MIT

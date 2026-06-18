@@ -9,7 +9,7 @@ nav_order: 14
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/piignore/README.md) — [`@cheasee-pi/piignore` on npm](https://www.npmjs.com/package/@cheasee-pi/piignore)
+[📄 README](../../.pi/extensions/piignore/README.md) — [`@cheasee-pi/piignore` on npm](https://www.npmjs.com/package/@cheasee-pi/piignore)
 
 **Why.** Blocks AI from accessing sensitive paths using `.piignore` patterns (gitignore format). Intercepts `read`, `write`, `edit`, `grep`, `find`, `ls`, `bash` when a path matches. Trust model: when untrusted, uses hardcoded safe-defaults (blocks `*.env`, `.env.*`, `secrets/`, `**/*.pem`, `**/*.key`) instead of attacker-controlled `.piignore`.
 

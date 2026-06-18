@@ -9,7 +9,7 @@ nav_order: 8
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/context-info/README.md)
+[📄 README](../../.pi/extensions/context-info/README.md)
 
 **Why.** Replaces pi's default footer with a rich dashboard: git branch, model name, token usage with color thresholds, TPS during streaming, cache hit rate, session name, trust status, thinking level, live timer, and tool call counter.
 

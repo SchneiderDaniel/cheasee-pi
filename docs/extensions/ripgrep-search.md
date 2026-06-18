@@ -9,7 +9,7 @@ nav_order: 2
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/ripgrep-search/README.md) — [`@cheasee-pi/ripgrep-search` on npm](https://www.npmjs.com/package/@cheasee-pi/ripgrep-search)
+[📄 README](../../.pi/extensions/ripgrep-search/README.md) — [`@cheasee-pi/ripgrep-search` on npm](https://www.npmjs.com/package/@cheasee-pi/ripgrep-search)
 
 **Why.** Fast literal/regex code search that respects `.gitignore`, returns structured summaries with match counts, file counts, and truncation info. Falls back to `grep` if ripgrep unavailable.
 

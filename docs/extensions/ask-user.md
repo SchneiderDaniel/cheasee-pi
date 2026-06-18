@@ -9,7 +9,7 @@ nav_order: 17
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/ask-user/README.md) — [`@cheasee-pi/ask-user` on npm](https://www.npmjs.com/package/@cheasee-pi/ask-user)
+[📄 README](../../.pi/extensions/ask-user/README.md) — [`@cheasee-pi/ask-user` on npm](https://www.npmjs.com/package/@cheasee-pi/ask-user)
 
 **Why.** The LLM needs decisions, preferences, or clarifications — instead of hallucinating defaults, it calls `ask_user` and you respond through a structured dialog. Supports multiple-choice (with recommendation marker) and free-text modes.
 

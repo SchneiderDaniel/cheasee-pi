@@ -9,7 +9,7 @@ nav_order: 12
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/tsc-checkpoint/README.md)
+[📄 README](../../.pi/extensions/tsc-checkpoint/README.md)
 
 **Why.** Incremental TypeScript type-checking with watch mode. First `/check` spawns the compiler; subsequent calls return cached diagnostics instantly. Tracks error trends (regression/improvement/stable). Used by supervisor pipeline as quality gate between Implementation and Audit.
 

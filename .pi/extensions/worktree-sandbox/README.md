@@ -69,6 +69,76 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - `WORKTREE_SANDBOX_PATH` env var set (done by Supervisor when creating worktrees)
 - `shell-quote` npm package (dependency)
 
+## Details
+
+### Architecture
+
+Single-file extension with shell-aware path analysis:
+
+```
+├── index.ts        # Entry: tool_call handler, path rewrite, shell-aware escape detection
+├── shell-tokens.ts # isCommandStart, findMeaningfulToken, SEPARATORS set
+└── test/           # Unit tests for all enforcement paths
+```
+
+### Enforcement Strategy
+
+```mermaid
+flowchart TD
+    A[tool_call event] --> B{Mode gate: TUI/RPC?}
+    B -- no --> C[Pass through]
+    B -- yes --> D{Project trusted?}
+    D -- no --> E[Skip, notify warning]
+    D -- yes --> F{WORKTREE_SANDBOX_PATH set?}
+    F -- no --> G[Pass through]
+    F -- yes --> H{Tool type?}
+    H -- read/write/edit --> I[rewritePath]
+    I --> J{Path outside sandbox?}
+    J -- yes --> K[Block with reason]
+    J -- no --> L[Rewrite relative to absolute, allow]
+    H -- bash --> N[findUnsafeCd]
+    N --> O{Cd outside sandbox?}
+    O -- yes --> P[Block]
+    O -- no --> Q[findUnsafeWriteInBash]
+    Q --> R{Write outside sandbox?}
+    R -- yes --> S[Block]
+    R -- no --> T[prepend cd sandbox &&]
+    T --> U[Allow]
+```
+
+### Bypass Vectors Blocked
+
+| Vector | Example | Detection |
+|--------|---------|-----------|
+| Variable expansion | `cd $HOME/escape` | `hasShellExpansion()` |
+| Command substitution | `cd \`escape\`` | `hasShellExpansion()` |
+| Tilde expansion | `cd ~/../escape` | `hasShellExpansion()` |
+| Pipe prefix | `echo \| cd /escape` | `isCommandStart()` |
+| Bare cd | `cd && ./escape` | `findMeaningfulToken()` exhausted |
+| Redirect escape | `cmd > /escape` | Redirect detection |
+| cp/mv destination | `cp x /outside/file` | Command detection |
+| Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
+| `cd -` | `cd -` | Previous dir always potentially unsafe |
+
+### Key Design Decisions
+
+- **Deterministic enforcement** — Mutates tool input before execution. LLM cannot bypass because input mutation runs before execution.
+- **Trust gate before sandbox root resolution** — Prevents untrusted project from controlling `WORKTREE_SANDBOX_PATH`.
+- **`cd` prepend** — All bash commands get `cd "<worktree>" && ` prepended. Ensures working directory is always the worktree.
+- **Glob detection** — Tokens with `*`, `?`, `[` marked as unsafe because they could match outside files after shell expansion.
+- **Mode gate** — Only enforces in TUI/RPC modes. Print/JSON skips to avoid filesystem overhead.
+- **`--` option separator handled** — `cd -- /path` correctly detects target after `--`.
+
+### Path Rewriting Rules
+
+| Input | Type | Result |
+|-------|------|--------|
+| `relative/path.ts` | relative | Rewritten to `<sandbox>/relative/path.ts` |
+| `/absolute/within/sandbox` | absolute (within) | Pass through |
+| `/absolute/outside` | absolute (outside) | Blocked |
+| `../../outside` | traversal | Blocked |
+| Directory for `read` | any | Blocked, suggest `bash ls` |
+
 ## License
 
 MIT

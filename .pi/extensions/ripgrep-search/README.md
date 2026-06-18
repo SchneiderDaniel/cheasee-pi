@@ -85,6 +85,70 @@ ln -sf ~/.pi/agent/bin/rg ~/.local/bin/rg
 
 `~/.local/bin` is typically on PATH and persists across sessions.
 
+## Details
+
+### Architecture
+
+Dual-backend search engine with unified output format:
+
+```
+├── index.ts     # Entry: tool registration, backend resolution, execute, renderers
+├── internal.ts  # Query validation, temp directory lifecycle, in-memory result cache (FIFO, 100 entries)
+├── config.ts    # Load SearchConfig from .pi/settings.json, resolve backend, detect ripgrep on PATH
+├── args.ts      # Build rg --vimgrep args or grep -rnH args (pre-escaped, no shell injection)
+├── parse.ts     # Parse --vimgrep output (file:line:column:text) and grep -rnH output
+├── types.ts     # RgMatch, RgResult, SearchConfig interfaces
+└── test/        # Fixtures + parser tests
+```
+
+### Execution Flow
+
+```mermaid
+flowchart TD
+    A[tool_call] --> B[validate: reject structural patterns]
+    B -- invalid --> C[Throw Error]
+    B -- valid --> D[verifyDirectory: resolve + traversal check]
+    D --> E[resolveBackend]
+    E --> F{backend?}
+    F -- ripgrep --> G[buildRgArgs]
+    F -- grep --> H[buildGrepArgs]
+    G --> I[exec rg --vimgrep]
+    H --> J[exec grep -rnH]
+    I --> K[parseVimgrepOutput]
+    J --> L[parseGrepOutput]
+    K --> M[buildStructuredSummary]
+    L --> M
+    M --> N[setCachedResult]
+    N --> O[Return {content, details}]
+```
+
+### Backend Resolution
+
+| Config | rg available | Backend |
+|--------|-------------|--------|
+| `"auto"` | Yes | ripgrep |
+| `"auto"` | No | grep |
+| `"ripgrep"` | Yes | ripgrep |
+| `"ripgrep"` | No | Error thrown |
+| `"grep"` | Any | grep |
+
+`ripgrepAvailable()` uses 3-tier detection: PATH directory scan (`accessSync`), pi's own bin dir (`~/.pi/agent/bin/rg`), spawn fallback (`rg --version`).
+
+### Key Design Decisions
+
+- **`--vimgrep` + `-j1`** — Single thread prevents per-thread output buffering memory blowup (research finding: `--vimgrep` + parallelism can consume 18+ GB).
+- **`maxLineLength` capped at 2000** (default 200). Prevents context-window blowup from large single-line files.
+- **Grep fallback excludes cache dirs** — `--exclude-dir=cache --exclude-dir=.cache` prevents flooding from large cache files.
+- **Query validation** rejects `class `, `def `, `function `, `$`, `{` — redirects to `structural_search`.
+- **Cascade prevention** — `before_agent_start` injects backend note into system prompt describing active backend capabilities.
+- **Oversized output** — >500 results saved to temp file with path reference; cleaned up on `session_shutdown`.
+
+### Cache Behavior
+
+- In-memory FIFO Map, max 100 entries
+- Key: `JSON.stringify({query, directory})` with directory normalization
+- Cleared on `session_shutdown`
+
 ## License
 
 MIT

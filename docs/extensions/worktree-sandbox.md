@@ -9,7 +9,7 @@ nav_order: 7
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/worktree-sandbox/README.md)
+[📄 README](../../.pi/extensions/worktree-sandbox/README.md)
 
 **Why.** Enforces agents operate ONLY within their assigned git worktree — deterministic enforcement at the tool call boundary, not prompt-level. Blocks `cd` escape via variables, tilde expansion, command substitution, pipe prefix bypasses, and shell redirects outside worktree.
 

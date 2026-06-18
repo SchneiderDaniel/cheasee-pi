@@ -71,6 +71,75 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Pi Coding Agent ≥ 0.79.1
 - Project must be trusted for report generation
 
+## Details
+
+### Architecture
+
+Event-driven pipeline with markdown report generation:
+
+```
+├── index.ts      # Entry: command registration, event wiring, gate management
+├── pipeline.ts   # LoggerPipeline: event handlers, state accumulation, report writing
+├── report.ts     # Markdown report builder, metadata JSON builder, latest symlinks
+├── types.ts      # SessionLoggerGate, tool/event state interfaces
+└── test/         # Pipeline + report generator tests
+```
+
+### Event Flow
+
+```mermaid
+flowchart TD
+    subgraph Events
+        A[session_start] --> B[Init session state]
+        C[model_select] --> D[Track model]
+        E[turn_start] --> F[New turn entry]
+        G[message_end] --> H[Capture token usage]
+        I[tool_execution_start] --> J[Start tool timer]
+        K[tool_execution_end] --> L[Record result + duration]
+        M[tool_call] --> N[Detect file modifications]
+        O[session_shutdown] --> P[Write .md + metadata.json + symlinks]
+        Q[session_compact] --> R[Reset state]
+    end
+    subgraph Output
+        P --> S[.md: human-readable report]
+        P --> T[metadata.json: structured per-turn data]
+        P --> U[latest.md symlink]
+        P --> V[latest.metadata.json symlink]
+    end
+```
+
+### Report Sections
+
+```
+# Session Report: <id>
+
+## Overview
+- Duration, Model, Turns, Tokens, Tool Calls, Errors, Files Modified
+
+## Turn-by-Turn Breakdown
+| Turn | Tokens In | Tokens Out | Thinking | Tools | Duration |
+
+## Tool Calls
+| Tool | Args | Duration | Status |
+
+## File Modifications
+| File | Action |
+
+## Sub-Agent Output (supervisor)
+Developer, Auditor, Researcher, TestDesigner with status/tools/tokens/duration/score
+
+## Errors
+```
+
+### Key Design Decisions
+
+- **Toggle between sessions** — `/session-logger on|off` takes effect next session. State persisted in `.pi/state/session-extensions.json`.
+- **Trust-gated** — Reports only on trusted projects. `isProjectTrusted()` checked on `session_shutdown`.
+- **Latest symlinks** — `latest.md`, `latest.metadata.json`, `latest.jsonl` for easy access.
+- **File modification tracking** — Intercepted at `tool_call` level for `write`/`edit` tools.
+- **Sub-agent output** — Extracts structured output from supervisor pipeline agents with agent name, tool count, token count, duration, and audit score.
+- **Compact support** — `session_compact` resets accumulated state but preserves session file.
+
 ## License
 
 MIT

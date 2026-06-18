@@ -9,7 +9,7 @@ nav_order: 1
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/structural-analyzer/README.md) — [`@cheasee-pi/structural-analyzer` on npm](https://www.npmjs.com/package/@cheasee-pi/structural-analyzer)
+[📄 README](../../.pi/extensions/structural-analyzer/README.md) — [`@cheasee-pi/structural-analyzer` on npm](https://www.npmjs.com/package/@cheasee-pi/structural-analyzer)
 
 **Why.** AST-aware code pattern search via ast-grep — finds function calls, class definitions, try/catch blocks, method invocations without noise from comments or strings. Prevents "find definitions by grep" anti-pattern.
 

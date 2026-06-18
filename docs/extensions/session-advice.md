@@ -9,7 +9,7 @@ nav_order: 10
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/session-advice/README.md)
+[📄 README](../../.pi/extensions/session-advice/README.md)
 
 **Why.** After every session, analyzes JSONL log for wasteful patterns — tool mismatches, error loops, redundant reads, cascade cascades — and generates `.advice.md` with fix recommendations. Past lessons auto-injected into next session's system prompt.
 

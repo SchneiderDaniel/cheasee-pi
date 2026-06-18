@@ -94,6 +94,85 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - GitHub Project (v2) with matching status columns
 - `.pi/settings.json` with supervisor configuration
 
+## Details
+
+### Architecture
+
+Large extension (50+ source files) organized into workstreams:
+
+```
+├── index.ts        # Entry: command registration, pipeline lifecycle
+├── pipeline/       # Pipeline orchestration: status resolution, agent dispatch, gates
+├── agents/         # Agent definitions (MD files with YAML frontmatter)
+├── config/         # Workflow config, stage transitions, settings loading
+├── event/          # Event handlers for pipeline lifecycle
+├── github/         # GitHub API: issues, PRs, comments, project board, check runs
+├── session/        # Session management, worktree lifecycle
+├── subagent/       # Sub-agent dispatch, structured output parsing
+├── checks/         # Quality gates: CI, TSC, LSP, dead-code, duplicate-code, traceability
+├── lib/            # Shared utilities
+├── ignore/         # Temp worktree artifacts
+└── test/           # Pipeline integration tests
+```
+
+### Pipeline State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Backlog
+    Backlog --> Research
+    Research --> Architecture: RESEARCH_COMPLETE
+    Architecture --> TestDesign: ARCHITECTURE_COMPLETE
+    Architecture --> Research: FEEDBACK_RESEARCH
+    TestDesign --> Implementation: TEST_PLAN_COMPLETE
+    Implementation --> Audit: IMPLEMENTATION_COMPLETE
+    Audit --> Done: AUDIT_APPROVED
+    Audit --> Implementation: AUDIT_REJECTED
+    Implementation --> Audit: retry (if maxRejections > 0)
+    Done --> [*]
+```
+
+### Quality Gate Pipeline (pre-Audit)
+
+```mermaid
+flowchart LR
+    A[Implementation to Audit] --> B[CI gating: poll GitHub check runs]
+    B -- failing --> C[Back to Implementation]
+    B -- passing --> D[TSC Checkpoint: tsc --noEmit]
+    D --> E[LSP Pre-Audit: real LSP diagnostics]
+    E --> F[Dead code gate: knip on changed files]
+    F --> G[Duplicate code gate: jscpd on changed files]
+    G --> H[Requirements traceability: checklist vs diff]
+    H -- all pass --> I[Proceed to Audit]
+    H -- any fail --> C
+```
+
+### Key Design Decisions
+
+- **Research dedup gate** — If `## Research Findings` already exists in issue comments/body, researcher is skipped entirely.
+- **Structured JSON agent output** — `{ action, findings, commentBody, targetStatus }` with fallback to section heading detection, then legacy text markers.
+- **Gate failure != Auditor rejection** — Gate failures (CI/TSC/LSP/knip/jscpd/traceability) send back to Implementation but do NOT count toward `maxRejections`. Context accumulated in `gateFailureHistory`.
+- **Audit scoring across 8 dimensions** — Correctness, completeness, security, performance, style, test coverage, documentation, edge cases. Score must meet `auditScoreThreshold` (default 0.75).
+- **Worktree isolation** — Each issue gets its own git worktree at `../<branch-prefix><issue-number>/`. Submodules handled with matched-branch pattern.
+- **Per-agent budgets** — `agentTokenBudget` (soft cap) and `maxToolCalls` (hard cap).
+- **Push recovery** — If branch SHA not found on remote (force push), pipeline recovers by fetching latest.
+
+### Agent Definitions (YAML Frontmatter)
+
+Each agent at `.pi/extensions/supervisor/agents/<agent>.md`:
+
+```yaml
+---
+tools: [read, bash, structural_search, ripgrep_search]
+extensions: [agent-harness, caveman, piignore, ...]
+skills: [extension-spec]
+model: opencode-go/deepseek-v4-flash
+thinking: high
+entryMarker: Architecture
+outputFormat: structured-json
+---
+```
+
 ## License
 
 MIT

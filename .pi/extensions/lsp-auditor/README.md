@@ -138,6 +138,76 @@ interface StructuredDiagnostics {
 - `vscode-jsonrpc` (npm dependency, installed automatically)
 - Git repository with a default branch
 
+## Details
+
+### Architecture
+
+Multi-server LSP orchestrator with file discovery and retry logic:
+
+```
+├── index.ts              # Entry: command registration, runPreAudit export
+├── run-pre-audit.ts      # Orchestrator: discover files, group by server, audit each group
+├── lsp-client.ts         # LSP client: spawn server, didOpen, collect publishDiagnostics
+├── server-mappings.ts    # Extension to server mapping (.ts to typescript-language-server, .py to pylsp, etc.)
+├── file-discovery.ts     # git diff file discovery + extension grouping
+├── formatting.ts         # Diagnostic formatting, severity filtering, result merging
+├── settings.ts           # Read .pi/settings.json for defaultBranch
+├── retry.ts              # Retry logic: countRetryAttempts, shouldRetry, MAX_RETRIES=3
+├── output-adapter.ts     # Mode-adaptive output formatting (TUI/RPC/JSON/print)
+├── types.ts              # LspDiagnostic, ServerMapping, AuditResult interfaces
+└── test/                 # Unit + integration tests
+```
+
+### Execution Flow
+
+```mermaid
+flowchart TD
+    A[Trigger: command or supervisor] --> B[file-discovery: git diff defaultBranch]
+    B --> C[groupFilesByServer: extension to LSP server]
+    C --> D{For each server group}
+    D --> E[lsp-client: spawn LSP server]
+    E --> F[didOpen each file]
+    F --> G[collect publishDiagnostics]
+    G --> H[Filter by severityThreshold]
+    H --> I[mergeResults across servers]
+    I --> J{shouldRetry?}
+    J -- yes, < 3 retries --> D
+    J -- no --> K[format output]
+    K --> L[Return AuditResult]
+```
+
+### Server Mappings
+
+| Extension | LSP Server |
+|-----------|-----------|
+| `.ts`, `.tsx`, `.js`, `.jsx` | `typescript-language-server --stdio` |
+| `.py` | `pylsp` |
+| `.rs` | `rust-analyzer` |
+| `.go` | `gopls` |
+
+### Key Design Decisions
+
+- **File discovery via `git diff`** — Only checks modified files vs defaultBranch. `git diff <defaultBranch> --name-only`.
+- **Per-server severity threshold** — Each server configures `severityThreshold` (error/warning/info). Diagnostics below threshold filtered out.
+- **Retry with session-stored counters** — Up to 3 retries per server group. `shouldRetry()` checks both attempt count and transient vs permanent error types.
+- **Trust gate** — Untrusted projects skip entirely (returns `{ proceed: true }` with warning). Matches VS Code Restricted Mode.
+- **Passive by default** — No lifecycle hooks. Activated by supervisor's `runPreAudit()` or manual `/lsp-auditor`.
+- **Spawn + didOpen protocol** — LSP servers spawned on-demand, files opened via `didOpen`, diagnostics from `publishDiagnostics` notifications.
+
+### Retry Logic
+
+```typescript
+MAX_RETRIES = 3
+
+function shouldRetry(attempts: number, error: Error): boolean {
+  if (attempts >= MAX_RETRIES) return false;
+  // Only retry transient errors
+  return error.message.includes('ECONNREFUSED') ||
+         error.message.includes('ETIMEDOUT') ||
+         error.message.includes('process exited');
+}
+```
+
 ## License
 
 MIT

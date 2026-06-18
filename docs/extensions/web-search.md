@@ -9,7 +9,7 @@ nav_order: 4
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/web-search/README.md)
+[📄 README](../../.pi/extensions/web-search/README.md)
 
 **Why.** Web search via DuckDuckGo metasearch engine — returns ranked results with titles, URLs, snippets. Designed to discover URLs for follow-up crawling with `web_crawl`. Result cache with 5-minute TTL.
 

@@ -64,6 +64,54 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Internet access (pip install on first call)
 - ~200MB disk for venv (Playwright Chromium browser download)
 
+## Details
+
+### Architecture
+
+Port-based adapter pattern for progressive web crawling:
+
+```
+├── index.ts           # Entry: tool registration, URL validation, concurrency semaphore (max 2)
+├── crawler-engine.ts  # CrawlerEngine interface + crawl orchestration
+├── python-adapter.ts  # PythonAdapter: subprocess orchestration via pi.exec
+├── python-script.ts   # Inline Python crawler script using scrapling library
+├── venv-setup.ts      # Auto-create .pi/scrapling-venv + pip install scrapling[fetchers] + markdownify
+├── types.ts           # CrawlResult, CrawlPage types
+├── mock-adapter.ts    # Mock adapter for testing (no network)
+└── test/              # Unit + integration tests
+```
+
+### Progressive Fetch Strategy
+
+```mermaid
+flowchart TD
+    A[Crawl URL] --> B[curl_cffi: lightweight fetch]
+    B -- success --> C[Extract content]
+    B -- Cloudflare block --> D[Playwright stealth mode]
+    D -- success --> C
+    D -- failure --> E[Fallback: report error]
+    C --> F[markdownify: HTML to Markdown]
+    F --> G[Truncate by maxTokens]
+    G --> H[Return result]
+```
+
+### Key Design Decisions
+
+- **Concurrency semaphore (max 2)** — Protects 8GB RAM. Polling loop with 1000ms interval.
+- **Progressive escalation** — Starts lightweight (`curl_cffi`). If Cloudflare blocks, escalates to Playwright stealth. Never runs both.
+- **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/`. If Chromium errors, `rm -rf` and retry — auto-recreates.
+- **maxPages cap at 10** — Hard upper bound prevents runaway crawling. Default 1.
+- **maxTokens truncation** — Content truncated with notice. 0 = no limit.
+- **URL validation via `new URL()`** — Rejects invalid URLs early. No protocol restriction.
+
+### Output Format
+
+```
+--- https://example.com (via curl_cffi) ---
+# Page Title
+Content extracted as Markdown...
+```
+
 ## License
 
 MIT

@@ -58,6 +58,100 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Pi Coding Agent ≥ 0.79.1
 - Session Logger must be enabled (generates the `.jsonl` files that Session Advice analyzes)
 
+## Details
+
+### Architecture
+
+Waste signal detection + LLM-based advice generation:
+
+```
+├── index.ts           # Entry: /session-advice command, lifecycle hooks, lesson injection
+├── advisor.ts         # Pure waste signal detectors (10+ patterns)
+├── llm-advisor.ts     # LLM-based advice generation from detected signals
+├── advice-pipeline.ts # Orchestrator: analyze, generate, write, symlink
+├── symlink-manager.ts # latest.advice.md symlink management
+└── test/              # Unit tests for all detectors
+```
+
+### Waste Detectors
+
+```mermaid
+flowchart LR
+    A[.jsonl file] --> B[analyzeSession: 10+ detectors]
+    B --> C[Tool mismatch: bash|grep vs ripgrep_search]
+    B --> D[Error loop: 2+ consecutive same-tool errors]
+    B --> E[Identical call loop: same tool+args 3x in 12 calls]
+    B --> F[Same-tool cascade: 8+ consecutive same tool]
+    B --> G[Tool coverage gap: code files but no structural_search]
+    B --> H[Structural underuse: 3+ code files read, no AST search]
+    B --> I[Redundant reads: same file within 2 turns]
+    B --> J[Excessive turns: 20+ calls, no file changes]
+    B --> K[No batch: consecutive same-tool not merged]
+    B --> L[Turn inefficiency: 20+ calls per turn, no saves]
+    C --> M[Generate .advice.md with severity]
+    D --> M
+    E --> M
+    F --> M
+    G --> M
+    H --> M
+    I --> M
+    J --> M
+    K --> M
+    L --> M
+    M --> N[before_agent_start: inject top 3 lessons]
+```
+
+### Detector Details
+
+| Pattern | Severity | Detection Logic |
+|---------|----------|-----------------|
+| Tool mismatch | error | `bash | grep` instead of `ripgrep_search` |
+| Error loop | error | 2+ consecutive tool errors, same tool, no action |
+| Identical call loop | error | Same tool+args 3x in last 12 calls |
+| Same-tool cascade | warning | 8+ consecutive same-tool calls |
+| Tool coverage gap | warning | Code files present but `structural_search` unused |
+| Structural underuse | warning | 3+ code files read, no AST search |
+| Redundant reads | warning | Same file within 2 turns |
+| Excessive turns | warning | 20+ calls, zero file changes |
+| No batch | warning | Consecutive same-tool not merged |
+| Turn inefficiency | warning | 20+ calls per turn, no saves |
+
+### Key Design Decisions
+
+- **Dual analysis** — Pure function `analyzeSession()` parses JSONL for signals. LLM enriches with recommendations.
+- **Top-3 lesson injection** — Extracts first 3 actions from `latest.advice.md`, appends to system prompt on `before_agent_start`.
+- **Clean session detection** — If advice says "Clean session", no lessons injected.
+- **Signal review lifecycle** — `/session-advice report` proposes detector removals/additions, creates GitHub issues.
+- **Session cleanup** — Report command offers to delete all session files except `advice-report.md` and latest symlinks.
+- **Cross-reference with systemPromptOptions** — If >12 tools configured but few used, suggests pruning.
+- **State persistence** — Enabled/disabled in `.pi/state/session-extensions.json`.
+
+### Advice File Format
+
+```
+# Session Advice -- <session_id>
+
+**Total waste percentage:** 15.3%
+**Wasted tokens:** ~12,450
+
+## Waste Signals
+| Signal | Severity | Count | Tokens Wasted |
+
+## Recommended Actions
+- RED **Use structural_search instead of read**
+- YELLOW **Batch same-tool calls with &&**
+- GREEN **Set max_count on ripgrep_search**
+```
+
+### System Prompt Injection
+
+```
+⚠️ Past Session Lessons (from session advisor)
+  - Use structural_search instead of read for code patterns
+  - Batch same-tool calls with &&
+  - Set max_count on ripgrep_search
+```
+
 ## License
 
 MIT

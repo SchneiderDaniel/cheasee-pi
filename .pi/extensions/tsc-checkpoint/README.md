@@ -73,6 +73,66 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - `tsconfig.json` in worktree root
 - Project must be trusted (`/trust`)
 
+## Details
+
+### Architecture
+
+Wraps TypeScript watch compiler API in an incremental diagnostic cache:
+
+```
+├── index.ts      # Entry: /check command, lazily create watcher, mode-adapted output
+├── watcher.ts    # DiagnosticsWatcher: createWatchProgram, getDiagnostics, getTrend, stop
+├── adapter.ts    # TscWatchAdapter: createDefaultAdapter, diagnosticToTscDiagnostic, resolveFilePath
+├── checkpoint.ts # runTscCheckpoint: orchestrated checkpoint for supervisor pipeline
+├── format.ts     # formatDiagnostics, formatDiagnosticsJson, formatTrend
+├── types.ts      # TscDiagnostic, TscWatchOptions, DiagnosticTrend, TscCheckpointResult
+└── test/         # Watcher + formatter tests
+```
+
+### Execution Flow
+
+```mermaid
+flowchart TD
+    A[/check] --> B{tsconfig.json exists?}
+    B -- no --> C[Notify: skip]
+    B -- yes --> D{Project trusted?}
+    D -- no --> E[Notify: skip]
+    D -- yes --> F{Watcher exists?}
+    F -- no --> G[new DiagnosticsWatcher]
+    G --> H[watcher.start: ts.createWatchProgram]
+    F -- yes --> I{Watcher running?}
+    I -- no --> H
+    I -- yes --> J[watcher.getDiagnostics]
+    H --> J
+    J --> K[watcher.getTrend]
+    K --> L{diagnostics.length > 0?}
+    L -- no --> M[Notify: No type errors]
+    L -- yes --> N[formatDiagnostics: markdown with paths]
+    N --> O[Notify: N errors + trend direction]
+    Q[session_shutdown] --> R[watcher.stop: closeProgram]
+```
+
+### Key Design Decisions
+
+- **Lazy watcher creation** — `DiagnosticsWatcher` created on first `/check`, not `session_start`. Avoids starting watch program for sessions that never check.
+- **Incremental watch mode** — `ts.createWatchProgram()` runs in background. File changes trigger incremental re-check. Subsequent `/check` calls return cached diagnostics instantly.
+- **Error trending** — `getTrend()` compares current vs previous error count: `regressed` (more), `improved` (fewer), `stable` (same).
+- **Watcher lifecycle** — `watcher.stop()` on `session_shutdown` prevents file watcher leaks.
+- **Mode-adapted output** — TUI: markdown with clickable `file://` paths. JSON/RPC/Print: structured JSON.
+- **Trust gate** — Untrusted projects skip watcher creation. Prevents running `tsc` against unsafe project-local `tsconfig.json`.
+- **Backward-compatible exports** — All sub-module functions re-exported for supervisor pipeline.
+
+### DiagnosticsWatcher Internals
+
+```typescript
+class DiagnosticsWatcher {
+  start(): void { /* ts.createWatchProgram */ }
+  getDiagnostics(): TscDiagnostic[] { /* cached from last compilation */ }
+  getTrend(): DiagnosticTrend { /* compare current vs previous */ }
+  stop(): void { /* closeProgram */ }
+}
+```
+
 ## License
 
 MIT

@@ -9,7 +9,7 @@ nav_order: 11
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/format-on-save/README.md)
+[📄 README](../../.pi/extensions/format-on-save/README.md)
 
 **Why.** Auto-formats TS/JS files with Prettier and runs ESLint diagnostics after every `write` or `edit` — no manual step needed. Catches code quality issues early, before the supervisor Audit stage.
 

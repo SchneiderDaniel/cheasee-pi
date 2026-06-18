@@ -9,7 +9,7 @@ nav_order: 16
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/check-extensions/README.md)
+[📄 README](../../.pi/extensions/check-extensions/README.md)
 
 **Why.** Pi releases can break extensions silently — removed APIs, renamed hooks, deprecated signatures. Check Extensions automates auditing all `.pi/extensions/` against pi's CHANGELOG, detects breakage, and generates migration snippets with GitHub issues.
 

@@ -9,7 +9,7 @@ nav_order: 9
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/session-logger/README.md)
+[📄 README](../../.pi/extensions/session-logger/README.md)
 
 **Why.** Generates rich Markdown reports alongside pi's `.jsonl` session files — per-turn token breakdown, tool execution stats, file modifications, sub-agent output, and error summaries.
 

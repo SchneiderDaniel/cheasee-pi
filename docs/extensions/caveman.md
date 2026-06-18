@@ -9,7 +9,7 @@ nav_order: 15
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/caveman/README.md)
+[📄 README](../../.pi/extensions/caveman/README.md)
 
 **Why.** Reduces response token count 30-50% by dropping articles, filler words, pleasantries, and hedging from all agent output. Active every session via `AGENTS.md`. Saves thousands of tokens per session.
 

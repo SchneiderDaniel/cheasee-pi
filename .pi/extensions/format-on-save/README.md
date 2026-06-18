@@ -56,6 +56,77 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Prettier and ESLint installed in the project (devDependencies)
 - Project must be trusted (`/trust`)
 
+## Details
+
+### Architecture
+
+Adapter pattern with pluggable Formatter/Linter ports:
+
+```
+├── index.ts               # Entry: registerHandler, tool_result event wiring
+├── formatting.mts         # looksLikeFilePath, MAX_FILE_SIZE_BYTES
+├── eslint.mts             # formatEslintDiagnostics: diagnostic message formatting
+├── eslint-adapter.mts     # EslintLinter: ESLint adapter (dynamic import)
+├── prettier-adapter.mts   # PrettierFormatter: Prettier adapter (dynamic import)
+├── ports.mts              # Formatter, Linter interfaces
+└── test/                  # Tests
+```
+
+### Execution Flow
+
+```mermaid
+flowchart TD
+    A[tool_result: write/edit] --> B{tool isError?}
+    B -- yes --> C[Skip]
+    B -- no --> D{path is file?}
+    D -- no --> E[Skip]
+    D -- yes --> F{file exists?}
+    F -- no --> G[Skip]
+    F -- yes --> H{file < 5MB?}
+    H -- no --> I[Skip]
+    H -- yes --> J{project trusted?}
+    J -- no --> K[Skip]
+    J -- yes --> L{formatter.canHandle?}
+    L -- no --> M[Skip format]
+    L -- yes --> N[formatter.format]
+    N -- error --> O[Notify failure]
+    N -- formatted --> P[Notify success]
+    N -- no change --> Q[Silent]
+    P --> R{linter.canHandle?}
+    M --> R
+    Q --> R
+    R -- no --> S[Skip lint]
+    R -- yes --> T[linter.lint]
+    T -- error --> U[Log error]
+    T -- has diagnostics --> V[Send followUp message]
+    T -- clean --> W[Silent]
+```
+
+### Key Design Decisions
+
+- **Non-blocking advisory** — Format/lint errors never crash session. The write/edit already succeeded.
+- **Dynamic imports for adapters** — Missing prettier/eslint handled gracefully inside adapters.
+- **Trust gate** — Untrusted projects skip entirely. Prevents arbitrary formatter commands from project-local config.
+- **Mode-adaptive notifications** — TUI: `ctx.ui.notify()`. RPC: `pi.sendUserMessage(followUp)`. JSON/print: console.error only.
+- **Size gate (5MB)** — Prevents trying to format/lint large generated files.
+- **File path heuristic** — `looksLikeFilePath()` checks for `.ts`, `.tsx`, `.js`, `.mjs`, etc. Rejects `pip install` or `npm i`.
+- **ESLint config error prefixing** — Config error patterns get `[config error]` prefix in logs.
+- **Diagnostic followUp deduplication** — Only sends followUp when `diagnostics.length > 0`.
+
+### Adapter Ports
+
+```typescript
+interface Formatter {
+  canHandle(filePath: string): boolean;
+  format(filePath: string): Promise<{ formatted: boolean; error?: string }>;
+}
+
+interface Linter {
+  canHandle(filePath: string): boolean;
+  lint(filePath: string): Promise<{ diagnostics: LintDiagnostic[]; error?: string }>;
+}
+```
+
 ## License
 
 MIT

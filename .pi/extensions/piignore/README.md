@@ -121,6 +121,74 @@ cp .pi/extensions/piignore/global-companion.ts ~/.pi/agent/extensions/piignore-t
 
 Requires Pi v0.79.0+ (for the `project_trust` event).
 
+## Details
+
+### Architecture
+
+Single-file extension with hierarchical pattern loading and shell-aware bash path extraction:
+
+```
+├── index.ts  # Entry: tool_call handler, pattern loading, bash tokenization, path checking
+└── test/     # Unit tests
+```
+
+Core logic:
+- `loadPiIgnore()` — Walks up from cwd to filesystem root, collecting `.piignore` files
+- `patternToRegex()` — Converts gitignore pattern to RegExp
+- `isIgnored()` — Checks path against all loaded patterns with negation support
+- `tokenizeBashCommand()` — Shell-aware tokenization for bash commands
+- `isPathLike()` — Determines if a bash token could be a file path
+
+### Execution Flow
+
+```mermaid
+flowchart TD
+    A[tool_call event] --> B{Project trusted?}
+    B -- no --> C[Use SAFE_DEFAULT_BLOCK: *.env, .env.*, secrets/, **/*.pem, **/*.key]
+    B -- yes --> D[Load .piignore: walk up from cwd to /]
+    C --> E[checkPath: test against patterns]
+    D --> E
+    E --> F{Tool type?}
+    F -- read/write/edit/grep/find/ls --> G[checkPath(event.input.path)]
+    F -- bash --> H[tokenizeBashCommand, segmentTokens, isPathLike per segment]
+    G --> I{Path matches pattern?}
+    H --> I
+    I -- yes --> J[Block: notify warning, return {block: true, reason}]
+    I -- no --> K[Allow: pass through]
+```
+
+### Gitignore Pattern to RegExp Translation
+
+| Gitignore Pattern | Regex | Notes |
+|-------------------|-------|-------|
+| `*.env` | `(^|.*/)[^/]*\.env$` | No slash, matches anywhere |
+| `.env.*` | `(^|.*/)\.env\.[^/]*$` | Leading dot preserved |
+| `secrets/` | `(^|.*/)secrets$` | Trailing /, directory only |
+| `**/*.pem` | `(.*/)?[^/]*\.pem$` | ** matches any depth |
+| `!/secret.pub` | negation | ! prefix toggles negate flag |
+| `[Tt]emp/` | `(^|.*/)[Tt]emp(/.*)?$` | Bracket expression preserved |
+| `[!a-z]test/` | `(^|.*/)[^a-z]test(/.*)?$` | [!...] to [^...] |
+| `\#literal` | `^#literal$` | Escaped \# is literal `#` |
+
+### Bash Tokenization Pipeline
+
+- `tokenizeBashCommand()` splits command into tokens with quoted tracking
+- `segmentTokens()` splits at `&&`, `||`, `;`, `|` boundaries
+- Per segment: extract command name, filter path-like tokens via `isPathLike()`
+- `isPathLike()` excludes: flags (`-` prefix), shell operators, URLs, npm scoped packages (`@scope/...`), `echo`/`printf` args, backtick-containing tokens
+
+### Trust Model
+
+| Status | Patterns Used |
+|--------|---------------|
+| Trusted | `.piignore` files (hierarchical) |
+| Untrusted | `SAFE_DEFAULT_BLOCK` hardcoded |
+| Unavailable | Untrusted (fail-safe) |
+
+### Reload
+
+On `/reload`, listens to `resources_discover` event to reload all `.piignore` files from disk.
+
 ## License
 
 MIT

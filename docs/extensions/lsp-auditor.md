@@ -9,7 +9,7 @@ nav_order: 6
 
 {: .no_toc }
 
-[📄 README](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/extensions/lsp-auditor/README.md) — [`@cheasee-pi/lsp-auditor` on npm](https://www.npmjs.com/package/@cheasee-pi/lsp-auditor)
+[📄 README](../../.pi/extensions/lsp-auditor/README.md) — [`@cheasee-pi/lsp-auditor` on npm](https://www.npmjs.com/package/@cheasee-pi/lsp-auditor)
 
 **Why.** Runs real Language Server Protocol diagnostics on changed files before code review — catches errors, warnings, and hints the LLM might miss. Called automatically by the supervisor pipeline during the Audit stage.
 
