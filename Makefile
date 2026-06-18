@@ -26,16 +26,6 @@ up:
 		echo "Install from: https://jqlang.github.io/jq/download/"; \
 		exit 1; \
 	fi
-	@if [ ! -f ".agent_env" ]; then \
-		echo "Warning: .agent_env not found."; \
-		echo ""; \
-		echo "Copy the example file and fill in your API tokens:"; \
-		echo "  cp docker/agent_env.example .agent_env"; \
-		echo "  nano .agent_env   # (or your editor of choice)"; \
-		echo ""; \
-		echo "Creating an empty .agent_env as fallback (compose will proceed without env vars)."; \
-		touch .agent_env; \
-	fi
 	@CHEASEEPI_MEMORY=$$(jq -r '.docker.memory // "4G"' .pi/settings.json); \
 	export CHEASEEPI_MEMORY; \
 	CHEASEEPI_CPUS=$$(jq -r '.docker.cpus // "2.0"' .pi/settings.json); \

@@ -28,8 +28,6 @@ nav_order: 2
 
 **Platform:** Docker-only. Linux native, macOS via Docker Desktop, Windows via WSL2 + Docker Desktop.
 
-**API keys:** Copy `docker/agent_env.example` to `.agent_env` and fill in your keys.
-
 ## Quick start
 
 ```bash
@@ -40,7 +38,7 @@ cd cheasee-pi
 
 The wrapper script:
 1. Builds the OCI image from `docker/Dockerfile` (first run, ~2 min)
-2. Starts the container with your repo bind-mounted, API keys loaded, UID/GID mapped
+2. Starts the container with your repo bind-mounted, UID/GID mapped
 3. Drops you into the Pi TUI inside the container
 
 ## Step-by-step
@@ -51,24 +49,7 @@ The wrapper script:
 git clone git@github.com:SchneiderDaniel/cheasee-pi.git && cd cheasee-pi
 ```
 
-### 2. Configure API keys
-
-```bash
-cp docker/agent_env.example .agent_env
-# Edit .agent_env with your keys
-```
-
-Required keys:
-- `APIFY_TOKEN` — For web crawling
-- Your LLM provider API key (e.g., OpenCode, Anthropic, OpenAI)
-
-### 3. Launch
-
-```bash
-./cheasee-pi.sh
-```
-
-### 4. Set provider (first session only)
+### 2. Set provider (first session only)
 
 ```bash
 pi --provider opencode-go --api-key "your-key"
@@ -82,19 +63,12 @@ Exit with `Ctrl+C` twice. The provider is persisted in `.pi/settings.json`.
 
 - Image built from `docker/Dockerfile` (Debian 12-slim, Node.js 22, Python 3, ripgrep, ast-grep, pi, gosu)
 - Repo root bind-mounted to `/workspaces/main` inside the container
-- `.agent_env` file mounted and sourced automatically
 - Host UID/GID mapped to container user `agentuser` (no permission issues)
 - Interactive TTY for the Pi TUI
 
 ## Verification
 
 All checks run inside the container.
-
-### Environment
-
-```bash
-echo $APIFY_TOKEN   # Should print your token
-```
 
 ### Tool verification
 

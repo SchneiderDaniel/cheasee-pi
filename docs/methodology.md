@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Methodology
-nav_order: 8
+nav_order: 3
 ---
 
 # Methodology

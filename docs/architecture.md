@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Architecture
-nav_order: 3
+nav_order: 4
 ---
 
 # Architecture
@@ -86,4 +86,4 @@ The container is built from `docker/Dockerfile` (Debian 12-slim) and includes:
 - Pi coding agent
 - gosu (for UID/GID mapping)
 
-The repo root is bind-mounted at `/workspaces/main`. `.agent_env` is sourced for API keys. Host UID/GID are mapped to container user `agentuser`.
+The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to container user `agentuser`.

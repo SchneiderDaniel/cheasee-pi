@@ -22,19 +22,7 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 
-# --- Step 2: Assert/ensure .agent_env exists --------------------------
-if [ ! -f ".agent_env" ]; then
-    echo "Warning: .agent_env not found."
-    echo ""
-    echo "Copy the example file and fill in your API tokens:"
-    echo "  cp docker/agent_env.example .agent_env"
-    echo "  nano .agent_env   # (or your editor of choice)"
-    echo ""
-    echo "Creating an empty .agent_env as fallback (compose will proceed without env vars)."
-    touch .agent_env
-fi
-
-# --- Step 3: Read resource limits from .pi/settings.json --------------
+# --- Step 2: Read resource limits from .pi/settings.json --------------
 if ! command -v jq &>/dev/null; then
     echo "Error: jq is required but not found on PATH."
     echo "Install from: https://jqlang.github.io/jq/download/"

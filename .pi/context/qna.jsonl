@@ -28,3 +28,4 @@
 {"datetime":"2026-06-17T22:27:24.431Z","question":"Release body saved to /tmp/release-body.md. Create release v0.30 now?\n\nPipeline: TSC check → tests → version bump → tag v0.30 → push → draft release.","answer":"create"}
 {"datetime":"2026-06-17T22:29:07.520Z","question":"Tests failed with pre-existing failures (15 of 823). Release blocked per workflow rules.\n\nOptions:","answer":"fix_then_retry"}
 {"datetime":"2026-06-17T22:32:37.199Z","question":"Pre-existing test failures: 12 supervisor pipeline tests (pr-creation timing/assertion issues). Not related to this release.\n\nProceed with release despite pre-existing failures, or fix those too?","answer":"fix_all"}
+{"datetime":"2026-06-18T09:40:31.774Z","question":"Create release v0.30 for SchneiderDaniel/cheasee-pi?\n\nBase: v0.2 → v0.30 (61 features → +0.1 increment)\n237 merged PRs categorized: 61 features, 77 bug fixes, 35 dead-code removals, 24 duplicate-code removals, 40 other changes","answer":"create"}

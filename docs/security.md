@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Security
-nav_order: 5
+nav_order: 9
 ---
 
 # Security
@@ -73,13 +73,6 @@ Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitiv
 | Ask User | Q&A history persistence | History not written to disk |
 
 The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from running attacker-controlled configurations that could weaponize LSP servers, formatter configs, tsconfig paths, or `.piignore` patterns.
-
-## API key management
-
-- API keys are stored in `.agent_env` (sourced from `docker/agent_env.example`)
-- `.agent_env` is listed in `.gitignore` — never committed to the repository
-- The file is mounted into the Docker container at runtime, not baked into the image
-- Each LLM provider key is loaded as an environment variable inside the container
 
 ## Docker security
 

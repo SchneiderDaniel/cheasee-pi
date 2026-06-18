@@ -41,7 +41,6 @@ All components run locally. No code leaves your machine (except LLM API calls to
 ```bash
 git clone git@github.com:SchneiderDaniel/cheasee-pi.git
 cd cheasee-pi
-cp docker/agent_env.example .agent_env  # Edit with your API keys
 ./cheasee-pi.sh
 ```
 

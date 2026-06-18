@@ -16,8 +16,6 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: cheasee-pi
-    env_file:
-      - ../.agent_env
     environment:
       - HOST_UID=${HOST_UID}
       - HOST_GID=${HOST_GID}
