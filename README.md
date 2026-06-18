@@ -38,11 +38,7 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ## Quick start
 
-```bash
-git clone git@github.com:SchneiderDaniel/cheasee-pi.git
-cd cheasee-pi
-./cheasee-pi.sh
-```
+See [Installation → Quick start](https://schneiderdaniel.github.io/cheasee-pi/installation#quick-start) for setup instructions.
 
 ## Documentation
 
