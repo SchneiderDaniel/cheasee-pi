@@ -22,6 +22,46 @@ import { listLocalSkills } from "./skills.ts";
 import type { SkillMeta } from "./skills.ts";
 import { createExplainCommand, formatWithWordWrap } from "./explain.ts";
 
+// ── Module-level state reference for exported supervisor helpers ───
+// Allows setSupervisorIssueData/clearSupervisorIssueData to access
+// the current FooterState without exposing the state object directly.
+// Updated on session_start, cleared on session_shutdown.
+let stateRef: FooterState | undefined;
+
+/**
+ * Set supervisor issue data on the footer config.
+ * Called by supervisor pipeline after successful issue fetch.
+ * Mutates FooterConfig in-place and triggers immediate re-render.
+ * Graceful no-op if state is disposed or not yet initialized.
+ */
+export function setSupervisorIssueData(
+	issueNumber: number,
+	issueRepo: string,
+	issueTitle: string,
+): void {
+	const s = stateRef;
+	if (!s || s.disposed) return;
+	s.footerConfig.issueNumber.value = issueNumber;
+	s.footerConfig.issueRepo.value = issueRepo;
+	s.footerConfig.issueTitle.value = issueTitle;
+	s.callInstallFooter();
+}
+
+/**
+ * Clear supervisor issue data from the footer config.
+ * Called by supervisor pipeline on completion (any outcome).
+ * Resets all three fields to undefined and triggers immediate re-render.
+ * Idempotent — safe to call when no issue data is set.
+ */
+export function clearSupervisorIssueData(): void {
+	const s = stateRef;
+	if (!s || s.disposed) return;
+	s.footerConfig.issueNumber.value = undefined;
+	s.footerConfig.issueRepo.value = undefined;
+	s.footerConfig.issueTitle.value = undefined;
+	s.callInstallFooter();
+}
+
 export default function contextInfo(pi: ExtensionAPI): void {
 	// FooterState — single source of truth for all mutable state
 	// Initialized per session in session_start handler
@@ -63,6 +103,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 			state.dispose();
 		}
 		state = new FooterState(ctx, installFooter);
+		stateRef = state;
 		state.resetProperties();
 		state.config = loadConfig();
 
@@ -239,6 +280,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		if (state) {
 			state.stopTimer();
 		}
+		stateRef = undefined;
 	});
 }
 

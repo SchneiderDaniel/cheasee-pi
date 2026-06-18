@@ -5,7 +5,7 @@
  * session timer, token usage, and TPS.
  */
 
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
@@ -243,6 +243,31 @@ export function installFooter(
 
 				if (row3) {
 					rows.push(truncateToWidth(row3, width));
+				}
+
+				// ── Supervisor issue info (row 4) ────────────────
+				const issueNumVal = footerConfig.issueNumber?.value;
+				if (issueNumVal !== undefined && issueNumVal !== null) {
+					const issueRepoVal = footerConfig.issueRepo?.value ?? "";
+					const issueTitleVal = footerConfig.issueTitle?.value ?? "";
+					const issueUrl = `https://github.com/${issueRepoVal}/issues/${issueNumVal}`;
+					const issueLink = hyperlink(theme.fg("accent", `#${issueNumVal}`), issueUrl);
+					const sepIssue = theme.fg("dim", "│");
+
+					// Truncate title to 16 visible chars with "..." ellipsis
+					const truncatedTitle = truncateToWidth(issueTitleVal, 16, "...");
+					const titleStr =
+						issueTitleVal.length > 0
+							? " " + sepIssue + " " + theme.fg("muted", truncatedTitle)
+							: "";
+
+					let row4 = issueLink + titleStr;
+					// Pad to fill terminal width so background extends to edge
+					const row4w = visibleWidth(row4);
+					if (row4w < width) {
+						row4 += " ".repeat(width - row4w);
+					}
+					rows.push(truncateToWidth(row4, width));
 				}
 
 				return rows;

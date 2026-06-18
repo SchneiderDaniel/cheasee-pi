@@ -255,6 +255,20 @@ export async function handleSupervisorCommand(
 		if (!issueData) return;
 		issueTitle = (issueData?.title as string) || `Issue #${issueNum}`;
 
+		// Push issue data to footer (context-info extension)
+		// Dynamic import ensures graceful degradation: if context-info is
+		// not loaded, the call is a no-op and the pipeline continues.
+		{
+			try {
+				const { setSupervisorIssueData } = await import(
+					/* @vite-ignore */ "../../context-info/index.ts"
+				);
+				setSupervisorIssueData(issueNum, config.repo, issueTitle);
+			} catch {
+				// Graceful degradation — context-info not loaded, no footer
+			}
+		}
+
 		pi.sendMessage({
 			customType: "supervisor",
 			content: `## GitHub Issue: [#${issueNum}] ${issueTitle}\n\n**Repository:** \`${config.repo}\``,
@@ -1269,6 +1283,19 @@ export async function handleSupervisorCommand(
 		}
 		sendPipelineError(pi, ctx, agentResults, issueNum, issueTitle, config, errMsg);
 	} finally {
+		// Clear supervisor issue data from footer (any outcome)
+		// Dynamic import ensures graceful degradation.
+		{
+			try {
+				const { clearSupervisorIssueData } = await import(
+					/* @vite-ignore */ "../../context-info/index.ts"
+				);
+				clearSupervisorIssueData();
+			} catch {
+				// Graceful degradation — context-info not loaded, no footer
+			}
+		}
+
 		// Teardown signal handlers so they don't leak beyond pipeline
 		if (crashCleanup) {
 			crashCleanup.teardown();
