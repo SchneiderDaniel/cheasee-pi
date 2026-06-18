@@ -1,7 +1,7 @@
 ---
 layout: default
 title: SBOM
-nav_order: 8
+nav_order: 10
 ---
 
 # Software Bill of Materials

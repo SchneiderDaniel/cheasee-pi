@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Prompts
-nav_order: 7
+nav_order: 9
 ---
 
 # Prompts

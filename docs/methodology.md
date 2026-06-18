@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Methodology
-nav_order: 6
+nav_order: 8
 ---
 
 # Methodology
@@ -18,13 +18,13 @@ nav_order: 6
 
 ## Kanban-driven pipeline
 
-Cheasee-Pi uses a **GitHub Project board** (v2) to orchestrate autonomous development. The pipeline runs 5 agents in sequence:
+The pipeline runs 5 agents in sequence:
 
 ```
 Researcher → Architect → TestDesigner → Developer → Auditor
 ```
 
-Each agent reads the current issue, produces output, and moves the GitHub Project card to the next status column. The pipeline loops until the issue reaches `Done`.
+Each agent produces output and the pipeline moves to the next stage.
 
 ### Pipeline flow
 
@@ -58,33 +58,6 @@ Each agent reads the current issue, produces output, and moves the GitHub Projec
                                                           └─────────────┘
 ```
 
-### Project board setup
-
-Create a GitHub Project (v2) with these statuses:
-
-```
-Todo → Research → Architecture → TestDesign → Implementation → Audit → Done
-```
-
-Configure the project number in `.pi/settings.json`:
-
-```json
-{
-  "supervisor": {
-    "projectNumber": 3,
-    "statusMapping": {
-      "Research": "researcher",
-      "Architecture": "architect",
-      "TestDesign": "test-designer",
-      "Implementation": "developer",
-      "Audit": "auditor"
-    }
-  }
-}
-```
-
-Use **Board** layout in GitHub, set **Group by** to `Workflow`.
-
 ### Quality gates
 
 Before transitioning Implementation → Audit, the supervisor runs:
@@ -110,19 +83,6 @@ If either fails, the issue goes back to Implementation (max 3 retries for LSP). 
 | 3 | **TestDesigner** | medium | `TestDesign` | JSON + GitHub comment |
 | 4 | **Developer** | low | `Implementation` | JSON + Git commit + push |
 | 5 | **Auditor** | medium | `Audit` | JSON with APPROVED/REJECTED |
-
-### Complete walkthrough
-
-When you run `/supervisor 42`:
-
-1. **Fetch** — Supervisor reads settings, fetches issue #42 from GitHub, filters to trusted codeowners
-2. **Researcher** — Crawls 3-5 web pages, posts `## Research Findings` comment, moves board to Architecture
-3. **Architect** — Analyzes codebase, proposes architecture following Clean Architecture + PEAA, posts `## Architecture Approach`
-4. **TestDesigner** — Writes test plan, posts `## Test Plan`
-5. **Developer** — Supervisor creates git worktree, Developer implements feature, commits, pushes
-6. **Quality Gates** — TSC + LSP checks pass, moves to Audit
-7. **Auditor** — Reviews diff, approves or rejects, creates PR if approved, posts `## Audit`
-8. **Post-pipeline** — Checks PR for merge conflicts, asks user to auto-fix if needed
 
 ## Session logging
 
@@ -150,30 +110,6 @@ Reports include sub-agent output from supervisor pipeline agents (developer, aud
 | Structural-search underuse | warning | 3+ code files read, `structural_search` never called |
 | Redundant reads | warning | Same file read within 2 turns |
 | Excessive turns | warning | 20+ tool calls with no file changes |
-
-## Security-first design
-
-### No MCP servers
-
-All tools are pi extensions running inside the agent's Node.js runtime. No external MCP servers, no network-exposed endpoints, no separate processes.
-
-**Why:** MCP servers introduce network attack surface (OWASP [MCP Top 10](https://owasp.org/www-project-mcp-top-10/)). Extensions treat tool execution as a function call. No network layer = no network attack surface.
-
-### PiIgnore
-
-The `.piignore` file blocks agent access to sensitive paths. Uses gitignore-style patterns. Blocks read/write/edit/bash operations on matched paths.
-
-### Agent Harness
-
-Runtime validation intercepts dangerous patterns before execution:
-- Blocks `bash | grep` / `bash | rg` — redirects to `ripgrep_search`
-- Blocks `bash cat` / `head` / `tail` — redirects to `read`
-- Prevents error retry loops (2+ errors on same tool blocks further calls)
-- Breaks same-tool cascades (8+ consecutive calls)
-
-### Worktree Sandbox
-
-Agents in the pipeline operate only within their assigned git worktree. Paths are rewritten, operations outside the worktree are blocked.
 
 ## Token efficiency
 
@@ -213,10 +149,6 @@ Empirical token consumption comparing tool configurations on a real audit task. 
 
 ## Daily workflow
 
-### Project setup (one-time)
-
-Create a GitHub Project (v2) with Kanban statuses matching `supervisor.statusMapping` in `.pi/settings.json`. Configure the project number under `supervisor.projectNumber`. Use **Board** layout with **Group by** set to `Workflow`.
-
 ### Typical session
 
 1. Start with `pi`
@@ -233,29 +165,3 @@ Create a GitHub Project (v2) with Kanban statuses matching `supervisor.statusMap
 | **On-demand** | `.pi/prompts/*.md` | Invoked via `/prompt-name` in Pi's editor |
 
 `AGENTS.md` contains the caveman protocol (communication style + tool routing) and **Tool Discipline** section (pre-call checklist, DO/DON'T table, error recovery procedure, batching triggers).
-
-### Configuration reference
-
-```jsonc
-// .pi/settings.json — supervisor section
-{
-  "supervisor": {
-    "repo": "SchneiderDaniel/cheasee-pi",  // REQUIRED
-    "projectNumber": 3,                      // REQUIRED
-    "statusMapping": { /* board status → agent */ },
-    "codeowners": ["SchneiderDaniel"],       // REQUIRED
-    "statusField": "Status",
-    "maxRejections": 3,
-    "agentTokenBudget": 300000,
-    "bellOnComplete": false
-  }
-}
-```
-
-## Security
-
-- No MCP servers — only pi extensions (no network-exposed tool servers)
-- API keys loaded from `.agent_env`, never committed
-- `.piignore` path blocking
-- **npm package age gate** — refuses to install packages < 14 days old
-- **Scope boundary enforcement** — pre-dispatch git diff check restricts agent file writes by issue label
