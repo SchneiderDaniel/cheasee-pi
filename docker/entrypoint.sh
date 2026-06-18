@@ -16,6 +16,20 @@ set -e
 HOST_UID="${HOST_UID:-}"
 HOST_GID="${HOST_GID:-}"
 
+# --- Auto-detect UID/GID from workspace mount if env not set ------
+# Allows raw `docker compose up` to work without cheasee-pi.sh wrapper.
+WORKSPACE_UID=$(stat -c '%u' /workspaces/main 2>/dev/null || echo "")
+WORKSPACE_GID=$(stat -c '%g' /workspaces/main 2>/dev/null || echo "")
+
+if [ -z "$HOST_UID" ] && [ -n "$WORKSPACE_UID" ] && [ "$WORKSPACE_UID" != "0" ]; then
+    HOST_UID="$WORKSPACE_UID"
+    echo "Auto-detected HOST_UID=$HOST_UID from mount"
+fi
+if [ -z "$HOST_GID" ] && [ -n "$WORKSPACE_GID" ] && [ "$WORKSPACE_GID" != "0" ]; then
+    HOST_GID="$WORKSPACE_GID"
+    echo "Auto-detected HOST_GID=$HOST_GID from mount"
+fi
+
 # --- Remap UID ----------------------------------------------------
 if [ -n "$HOST_UID" ] && [ "$HOST_UID" != "$(id -u agentuser)" ]; then
     usermod -u "$HOST_UID" agentuser
@@ -57,7 +71,8 @@ done
 # --- Update file ownership ----------------------------------------
 # Ensure the workspace and home directory are owned by the (possibly
 # remapped) user so bind-mounted volumes are writable.
-chown -R agentuser:agentuser /workspaces/main /home/agentuser 2>/dev/null || true
+echo "Remapping /workspaces/main and /home/agentuser to agentuser (uid=$(id -u agentuser))..."
+chown -R agentuser:agentuser /workspaces/main /home/agentuser || echo "Warning: chown failed (non-fatal, may already match)"
 
 # --- Drop privileges and exec -------------------------------------
 if [ $# -eq 0 ]; then

@@ -300,4 +300,4 @@ done
 
 # --- Step 7: Launch interactive pi session ----------------------------
 echo "Entering pi agent inside container..."
-docker exec $DOCKER_ENV -it cheasee-pi /bin/bash -c 'cd /workspaces/main && pi --approve "$@"' --
+docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && pi --approve "$@"' --
