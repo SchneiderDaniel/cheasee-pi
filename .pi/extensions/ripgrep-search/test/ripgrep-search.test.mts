@@ -855,21 +855,23 @@ describe("verifyDirectory", () => {
 			}
 		});
 
-		it("ENOTDIR: file path throws Error with 'is a file'", async () => {
+		it("auto-corrects file path to parent directory", async () => {
 			const dir = setupTmpDir();
 			try {
 				writeFileSync(join(dir, "afile.txt"), "content");
-				await assert.rejects(verifyDirectory(dir, "afile.txt"), /is a file/);
+				const result = await verifyDirectory(dir, "afile.txt");
+				assert.equal(result, dir);
 			} finally {
 				cleanupTmpDir(dir);
 			}
 		});
 
-		it("ENOTDIR: file via relative path throws Error with 'is a file'", async () => {
+		it("auto-corrects file via relative path to parent directory", async () => {
 			const dir = setupTmpDir();
 			try {
 				writeFileSync(join(dir, "bfile.txt"), "content");
-				await assert.rejects(verifyDirectory(dir, "./bfile.txt"), /is a file/);
+				const result = await verifyDirectory(dir, "./bfile.txt");
+				assert.equal(result, dir);
 			} finally {
 				cleanupTmpDir(dir);
 			}

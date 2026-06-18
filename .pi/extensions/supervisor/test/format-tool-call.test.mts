@@ -112,16 +112,24 @@ describe("formatToolCall()", () => {
 		assert.equal(formatToolCall("find", {}), "find");
 	});
 
-	// ripgrep_search → grep format
-	it('formats ripgrep_search as grep: "grep /TODO/"', () => {
-		assert.equal(formatToolCall("ripgrep_search", { pattern: "TODO" }), "grep /TODO/");
+	// ripgrep_search
+	it('formats ripgrep_search: "rg \"TODO\" in /src"', () => {
+		assert.equal(
+			formatToolCall("ripgrep_search", { query: "TODO", directory: "/src" }),
+			'rg "TODO" in /src',
+		);
 	});
 
-	it('formats ripgrep_search with path: "grep /TODO/ in /src"', () => {
-		assert.equal(
-			formatToolCall("ripgrep_search", { pattern: "TODO", path: "/src" }),
-			"grep /TODO/ in /src",
-		);
+	it('formats ripgrep_search with query only: "rg \"TODO\""', () => {
+		assert.equal(formatToolCall("ripgrep_search", { query: "TODO" }), 'rg "TODO"');
+	});
+
+	it('formats ripgrep_search with directory only: "rg in /src"', () => {
+		assert.equal(formatToolCall("ripgrep_search", { directory: "/src" }), "rg in /src");
+	});
+
+	it('formats ripgrep_search with no args: "rg"', () => {
+		assert.equal(formatToolCall("ripgrep_search", {}), "rg");
 	});
 
 	// web_search — fallback format
@@ -200,6 +208,14 @@ describe("isToolCallLine()", () => {
 
 	it('returns true for "find /src"', () => {
 		assert.equal(isToolCallLine("find /src"), true);
+	});
+
+	it('returns true for "rg \"TODO\" in /src"', () => {
+		assert.equal(isToolCallLine('rg "TODO" in /src'), true);
+	});
+
+	it('returns true for "rg"', () => {
+		assert.equal(isToolCallLine("rg"), true);
 	});
 
 	it('returns true for fallback format like "web_search: {...}"', () => {
