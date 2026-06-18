@@ -260,14 +260,6 @@ pi -p "Create a file named '.pi/test-file.txt' with content 'container works', t
 
 **Expected:** `/workspaces/main/.pi/test-file.txt`
 
-## Makefile commands
-
-| Command       | Description                         |
-| ------------- | ----------------------------------- |
-| `make up`     | Build image and start container     |
-| `make shell`  | Enter container shell                |
-| `make pi`     | Launch pi agent inside container     |
-
 ## Troubleshooting
 
 ### Container doesn't start
