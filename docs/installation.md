@@ -124,6 +124,16 @@ UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose up
 ```
 
+## Daily workflow
+
+### Typical session
+
+1. Start with `pi`
+2. Select or create a GitHub issue
+3. Run `/supervisor <issue-number>` to start the pipeline
+4. Monitor progress via TUI status bar
+5. Review results when pipeline completes
+
 ## Contributing
 
 1. Fork the repository

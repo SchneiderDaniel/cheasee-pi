@@ -21,11 +21,10 @@ Token-saving agent harness with security guardrails and a Kanban git-oriented su
 
 | Section | Description |
 |---------|-------------|
-| [Installation](installation) | Setup guide, prerequisites, verification |
+| [Installation](installation) | Setup guide, prerequisites, verification, daily workflow |
 | [Architecture](architecture) | System design, multi-agent pipeline, Docker |
 | [Extensions](extensions) | All 17 pi extensions — tools, pipeline, safety |
 | [Skills](skills) | Reusable skill definitions |
-| [Methodology](methodology) | Kanban pipeline, quality gates, daily workflow |
 | [Prompts](prompts) | Prompt templates reference |
 | [GitHub](github) | Worktrees, project boards, CI/CD, Pages |
 | [Security](security) | No MCP, trust gates, isolation, supply chain |
