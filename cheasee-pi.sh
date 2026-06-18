@@ -250,6 +250,11 @@ else
     done
     if [ "$HAVE_ANY" = true ]; then
         echo -e "Found API keys:$FOUND"
+        echo ""
+        read -r -p "Add more API keys? [y/N]: " ADD_MORE
+        if [ "$ADD_MORE" = "y" ] || [ "$ADD_MORE" = "Y" ]; then
+            run_configure
+        fi
     fi
 fi
 
