@@ -6,6 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { join, extname, basename, dirname } from "node:path";
+import type { ExecFn } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -18,13 +19,6 @@ export interface TraceabilityGap {
 	/** Human-readable detail about the gap */
 	detail: string;
 }
-
-/** Exec function type — runs a shell command and returns the result. */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** A parsed checklist item from issue body. */
 export interface ChecklistItem {

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ExecFn } from "./shared.ts";
 
 // ─── Package Safety Check ──────────────────────────────────────────
 // Deterministic package age validation for npm install safety.
@@ -165,15 +166,6 @@ export interface PackageSafetyAuditResult {
 	/** Optional error message when status is "error" */
 	message?: string;
 }
-
-/**
- * Exec function type — runs a shell command and returns the result.
- */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 // ─── runPackageSafetyAudit ─────────────────────────────────────────
 

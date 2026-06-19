@@ -196,7 +196,10 @@ export class EslintLinter implements Linter {
 	 */
 	private async createFallbackESLint(): Promise<ESLintInstance> {
 		const { ESLint } = await import("eslint");
-		const instance = new ESLint({}) as unknown as ESLintInstance;
+		const instance = new ESLint({
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			useEslintrc: false,
+		} as any) as unknown as ESLintInstance;
 		return instance;
 	}
 
