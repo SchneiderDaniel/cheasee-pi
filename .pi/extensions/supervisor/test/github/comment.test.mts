@@ -19,12 +19,7 @@ import { isToolCallLine } from "../../event/session-events.ts";
 
 describe("comment.ts runtime exports — direct call in assertions", () => {
 	it("filterIssueData directly callable in assert", () => {
-		assert.deepEqual(
-		assert.strictEqual(
-			filterIssueData({ author: { login: "u" }, body: "b", labels: [{ name: "bug" }] }, ["u"])
-				.body,
-			"b",
-		);
+		assert.strictEqual(filterIssueData({ author: { login: "u" }, body: "b" }, ["u"]).body, "b");
 	});
 
 	it("extractStructuredAuditOutput directly callable in assert", () => {
@@ -510,7 +505,6 @@ describe("extractStructuredAuditOutput() — COMMENT_BODY_END stripping", () => 
 		assert.equal(result?.commentBody, "## Audit Approved\nLooks good.");
 	});
 });
-
 
 // ─── Tests: stripTrailingMetadata extracted helper ─────────────────
 

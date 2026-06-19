@@ -18,6 +18,8 @@ import { execSync } from "node:child_process";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Imports from extension modules (replaces inline copies)
@@ -126,6 +128,52 @@ describe("validateQuery", () => {
 	it("accepts pattern with dots and parens 'verify_token()'", () => {
 		const result = validateQuery("verify_token()");
 		assert.strictEqual(result, null);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// max_count schema type: Type.Number → Type.Integer (Issue 989)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("max_count schema — Type.Integer (Issue 989)", () => {
+	const schema = Type.Object({
+		max_count: Type.Optional(Type.Integer({ default: 10 })),
+	});
+
+	it("accepts integer 10", () => {
+		assert.ok(Value.Check(schema, { max_count: 10 }));
+	});
+
+	it("accepts integer 0", () => {
+		assert.ok(Value.Check(schema, { max_count: 0 }));
+	});
+
+	it("accepts integer 500", () => {
+		assert.ok(Value.Check(schema, { max_count: 500 }));
+	});
+
+	it("rejects float 2.5", () => {
+		assert.ok(!Value.Check(schema, { max_count: 2.5 }));
+	});
+
+	it("rejects float 3.14", () => {
+		assert.ok(!Value.Check(schema, { max_count: 3.14 }));
+	});
+
+	it("rejects string '10'", () => {
+		assert.ok(!Value.Check(schema, { max_count: "10" }));
+	});
+
+	it("rejects null", () => {
+		assert.ok(!Value.Check(schema, { max_count: null }));
+	});
+
+	it("rejects boolean true", () => {
+		assert.ok(!Value.Check(schema, { max_count: true }));
+	});
+
+	it("accepts empty object (optional with default 10)", () => {
+		assert.ok(Value.Check(schema, {}), "Optional property should accept missing value");
 	});
 });
 

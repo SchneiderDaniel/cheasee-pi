@@ -228,4 +228,4 @@ describe("commitAndPush() — Result<T>", () => {
 			);
 		}
 	});
-
+});

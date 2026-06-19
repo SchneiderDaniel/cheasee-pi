@@ -1301,8 +1301,6 @@ describe("buildAgentTask — path mapping block integration (Issue #933 Fix 3)",
 		);
 	});
 
-	});
-
 	it("existing developer resume instructions unchanged (no regression)", () => {
 		const task = buildAgentTask(
 			"developer",
@@ -1665,8 +1663,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
 			"Audit feedback block present",
 		);
-	});
-
 	});
 
 	it("developer with dead-code hint AND path mapping conditions — both blocks present", () => {
