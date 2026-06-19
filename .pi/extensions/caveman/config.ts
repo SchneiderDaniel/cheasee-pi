@@ -62,13 +62,13 @@ export function createConfigStore(configPath?: string): ConfigStore {
 
 	const saveConfig = async (newConfig: CavemanConfig): Promise<void> => {
 		config = newConfig; // Update in-memory immediately
-		const snapshot = JSON.stringify(newConfig, null, 2) + "\n";
 		saveQueue = saveQueue.then(async () => {
 			try {
+				const snapshot = JSON.stringify(newConfig, null, 2) + "\n";
 				await mkdir(dirname(resolvedPath), { recursive: true });
 				await writeFile(resolvedPath, snapshot, "utf8");
-			} catch {
-				// silent failure — best effort
+			} catch (err) {
+				console.error(`[caveman] Failed to save config to ${resolvedPath}:`, err);
 			}
 		});
 		return saveQueue;
