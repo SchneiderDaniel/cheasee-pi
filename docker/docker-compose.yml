@@ -33,6 +33,9 @@ services:
           cpus: ${CHEASEEPI_CPUS:-2.0}
     stdin_open: true
     tty: true
+    shm_size: 1g
+    ulimits:
+      nofile: 1048576
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "pi", "--version"]
