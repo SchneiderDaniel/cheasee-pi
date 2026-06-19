@@ -4,7 +4,7 @@
  * Emits JSON telemetry on first assistant response.
  */
 
-export function isJsonMode(): boolean {
+function isJsonMode(): boolean {
 	const idx = process.argv.indexOf("--mode");
 	if (idx !== -1 && idx + 1 < process.argv.length) {
 		return process.argv[idx + 1] === "json";
