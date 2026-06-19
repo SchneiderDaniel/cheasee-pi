@@ -278,6 +278,9 @@ describe("contextInfo from index.ts", () => {
 				handlers.set(event, handler);
 			},
 			registerCommand: () => {},
+			events: {
+				on: () => {},
+			},
 		};
 		contextInfo(pi as any);
 
@@ -324,6 +327,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => sessionNameValue,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 
@@ -353,6 +357,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => undefined,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 
@@ -371,6 +376,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => undefined,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 
@@ -392,6 +398,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => undefined,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 
@@ -411,6 +418,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => undefined,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 
@@ -438,6 +446,7 @@ describe("contextInfo from index.ts", () => {
 			},
 			registerCommand: () => {},
 			getSessionName: () => undefined,
+			events: { on: () => {} },
 		};
 		contextInfo(pi as any);
 

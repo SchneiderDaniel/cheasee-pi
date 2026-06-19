@@ -93,6 +93,25 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	// ── cheasee-pi-info command ────────────────────────────
 	registerCheaseePiInfo(pi);
 
+	// ── Cross-extension event listeners (shared pi.events) ─────────
+	// Listen for supervisor issue data events instead of dynamic import.
+	// Dynamic import from supervisor creates a separate module instance
+	// (jiti vs native ESM), so module-level stateRef is never set there.
+	pi.events.on("supervisor:issue-data", (raw: unknown) => {
+		if (!state || state.disposed) return;
+		if (raw === null) {
+			state.footerConfig.issueNumber.value = undefined;
+			state.footerConfig.issueRepo.value = undefined;
+			state.footerConfig.issueTitle.value = undefined;
+		} else if (typeof raw === "object" && raw !== null) {
+			const data = raw as { issueNumber: number; issueRepo: string; issueTitle: string };
+			state.footerConfig.issueNumber.value = data.issueNumber;
+			state.footerConfig.issueRepo.value = data.issueRepo;
+			state.footerConfig.issueTitle.value = data.issueTitle;
+		}
+		state.callInstallFooter();
+	});
+
 	// ── Hooks ──────────────────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {

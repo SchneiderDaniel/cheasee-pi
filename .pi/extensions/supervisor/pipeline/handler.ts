@@ -256,18 +256,16 @@ export async function handleSupervisorCommand(
 		issueTitle = (issueData?.title as string) || `Issue #${issueNum}`;
 
 		// Push issue data to footer (context-info extension)
-		// Dynamic import ensures graceful degradation: if context-info is
-		// not loaded, the call is a no-op and the pipeline continues.
-		{
-			try {
-				const { setSupervisorIssueData } = await import(
-					/* @vite-ignore */ "../../context-info/index.ts"
-				);
-				setSupervisorIssueData(issueNum, config.repo, issueTitle);
-			} catch {
-				// Graceful degradation — context-info not loaded, no footer
-			}
-		}
+		// Uses shared pi.events bus instead of dynamic import. Dynamic import
+		// creates a separate module instance (jiti vs native ESM), so the
+		// module-level stateRef in setSupervisorIssueData was never set there.
+		// Events on pi.events are safe because all extensions share the same
+		// event bus instance, and context-info's listener is registered on it.
+		pi.events.emit("supervisor:issue-data", {
+			issueNumber: issueNum,
+			issueRepo: config.repo,
+			issueTitle,
+		});
 
 		pi.sendMessage({
 			customType: "supervisor",
@@ -1284,17 +1282,8 @@ export async function handleSupervisorCommand(
 		sendPipelineError(pi, ctx, agentResults, issueNum, issueTitle, config, errMsg);
 	} finally {
 		// Clear supervisor issue data from footer (any outcome)
-		// Dynamic import ensures graceful degradation.
-		{
-			try {
-				const { clearSupervisorIssueData } = await import(
-					/* @vite-ignore */ "../../context-info/index.ts"
-				);
-				clearSupervisorIssueData();
-			} catch {
-				// Graceful degradation — context-info not loaded, no footer
-			}
-		}
+		// Uses shared pi.events bus instead of dynamic import.
+		pi.events.emit("supervisor:issue-data", null);
 
 		// Teardown signal handlers so they don't leak beyond pipeline
 		if (crashCleanup) {
