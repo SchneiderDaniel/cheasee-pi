@@ -1,14 +1,6 @@
 #!/bin/bash
 set -e
 
-# --- Mutual exclusion: prevent concurrent instances --------------------
-exec 200>/tmp/cheasee-pi.lock
-flock -n 200 || {
-    echo "Another cheasee-pi.sh instance is running. Waiting..."
-    flock 200
-}
-trap 'rm -f /tmp/cheasee-pi.lock' EXIT
-
 # ------------------------------------------------------------------
 # Cheasee-Pi — Docker Compose orchestration wrapper
 #
@@ -403,6 +395,14 @@ if [ "$CONTAINER_RUNNING" = true ] && [ "$REBUILD" = false ]; then
 
     check_container_resources
 else
+    # --- Mutual exclusion: prevent concurrent docker compose up ------------
+    exec 200>/tmp/cheasee-pi.lock
+    flock -n 200 || {
+        echo "Another cheasee-pi.sh instance is starting the container. Waiting..."
+        flock 200
+    }
+    trap 'rm -f /tmp/cheasee-pi.lock' EXIT
+
     echo "Starting cheasee-pi container (pi $PI_VERSION)..."
     docker compose -f docker/docker-compose.yml up -d --build
 fi
