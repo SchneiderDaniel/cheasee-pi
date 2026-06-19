@@ -55,6 +55,26 @@ export interface SubagentDetails {
 	compacted?: boolean;
 	/** Thinking output from the subagent, separate from result text */
 	thinkingOutput?: string;
+
+	// ─── Widget rendering fields (populated during execution) ──
+	/** Current phase: "idle" | "thinking" | "tool" | "text" */
+	phase?: string;
+	/** Current tool name during tool execution phase */
+	currentTool?: string;
+	/** Current tool arguments as JSON string */
+	currentToolArgs?: string;
+	/** Recent log entries (last N, truncated for widget budget) */
+	recentLogEntries?: string[];
+	/** Current live thinking content */
+	liveThinking?: string;
+	/** Current live text output */
+	liveText?: string;
+	/** Context token count (from contextInfoReceived event) */
+	contextTokens?: number;
+	/** Context window size (from contextInfoReceived event) */
+	contextWindow?: number;
+	/** Session start timestamp (Date.now()) */
+	startedAt?: number;
 }
 
 /** Text content block for AgentToolResult */

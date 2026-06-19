@@ -26,6 +26,7 @@ import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/
 import { runAgentSubprocess } from "../agent/runner.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
+import { renderWidgetFromDetails } from "../session/widget.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import {
 	WORKFLOW,
@@ -1136,11 +1137,11 @@ export async function executeAgent(
 		details: { _progressUpdate: true },
 	});
 
-	// Widget for quick-glance progress (above editor, zero session cost)
+	// Widget for progress display (above editor, zero session cost)
 	let clearWidget: (() => void) | undefined;
 	let widgetId: string | undefined;
 	if (ctx.hasUI) {
-		widgetId = `supervisor-${agent.config.name}-${Date.now()}`;
+		widgetId = `agent-${agent.config.name}`;
 		clearWidget = () => ctx.ui.setWidget(widgetId!, undefined);
 	} else {
 		clearWidget = () => {};
@@ -1169,45 +1170,9 @@ export async function executeAgent(
 				if (!d) return;
 
 				// Widget (above editor, zero session cost)
+				// Widget using canonical buildWidgetLines via renderWidgetFromDetails shared helper
 				if (ctx.hasUI && widgetId) {
-					const phase =
-						d.statusLabel === "IN_PROGRESS"
-							? d.summaryLine || "running"
-							: d.statusLabel || "running";
-					const elapsed = d.durationMs ? `${(d.durationMs / 1000).toFixed(0)}s` : "";
-
-					// Stats parts: tools, errors, tokens, budget, compaction
-					const wParts: string[] = [];
-					const tc = d.runningToolCount ?? d.toolCalls?.length ?? 0;
-					const tok = d.runningTokenCount;
-					const err = d.errorCount ?? 0;
-					const maxT = d.maxToolCalls;
-					const maxTok = d.agentTokenBudget;
-
-					// Tool count with budget proximity
-					if (maxT && maxT > 0) {
-						wParts.push(`${tc}/${maxT} tools`);
-					} else {
-						wParts.push(`${tc} tools`);
-					}
-					// Errors
-					if (err > 0) wParts.push(`${err} err`);
-					// Tokens with budget proximity
-					if (tok !== undefined) {
-						if (maxTok && maxTok > 0) {
-							const maxK = maxTok >= 1000 ? `${(maxTok / 1000).toFixed(0)}K` : String(maxTok);
-							wParts.push(`${tok}/${maxK} tok`);
-						} else {
-							wParts.push(`${tok} tok`);
-						}
-					}
-					// Compaction warning
-					if (d.compacted) wParts.push("!compact");
-
-					ctx.ui.setWidget(widgetId, [
-						`${agent.config.name} — ${phase}${elapsed ? ` (${elapsed})` : ""}`,
-						wParts.join(" · "),
-					]);
+					renderWidgetFromDetails(d, agent.config.name, shortModel, ctx, widgetId);
 				}
 
 				// Tool results with accumulated thinking (compact, ~200-500 tokens each)

@@ -3,6 +3,7 @@
 // Extracted from agent-stream.ts to keep files modular.
 
 import type { AgentRunState } from "../config/types.ts";
+import type { SubagentDetails } from "../subagent/types.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { formatToolCall } from "../event/session-events.ts";
 import { WIDGET_LINES, MAX_LIVE_THINKING } from "../agent/stream.ts";
@@ -107,6 +108,63 @@ export function buildWidgetLines(
 	lines.push(footer);
 
 	return lines;
+}
+
+/**
+ * Render widget from SubagentDetails — constructs AgentRunState and calls buildWidgetLines().
+ * Shared helper used by both executeAgent() onUpdate (Path A) and
+ * handlePostPipelineMerge() onUpdate (Path B) for consistent widget rendering.
+ *
+ * All new SubagentDetails fields are optional — the function gracefully degrades
+ * when fields are missing (e.g. contextTokens/contextWindow undefined → "computing...").
+ */
+export function renderWidgetFromDetails(
+	details: Partial<SubagentDetails>,
+	agentName: string,
+	model: string | undefined,
+	ctx: { ui: { setWidget: (id: string, lines?: string[] | undefined) => void } },
+	widgetId: string,
+): void {
+	// Map SubagentDetails.phase string to AgentPhase
+	const phase =
+		details.phase === "thinking" || details.phase === "tool" || details.phase === "text"
+			? details.phase
+			: "idle";
+
+	// Construct minimal AgentRunState from details
+	// buildWidgetLines() only accesses: contextInfoReceived, contextTokens, contextWindow,
+	// phase, liveThinking, currentTool, currentToolArgs, liveText, fullLog,
+	// toolCount, tokenCount, cacheRead, cacheWrite, startedAt
+	const state: AgentRunState = {
+		phase,
+		startedAt: details.startedAt ?? Date.now(),
+		tokenCount: details.runningTokenCount ?? 0,
+		toolCount: details.runningToolCount ?? details.toolCalls?.length ?? 0,
+		fullLog: details.recentLogEntries ?? [],
+		liveThinking: details.liveThinking ?? "",
+		liveText: details.liveText ?? "",
+		contextTokens: details.contextTokens,
+		contextWindow: details.contextWindow,
+		contextInfoReceived: details.contextTokens !== undefined && details.contextWindow !== undefined,
+		currentTool: details.currentTool,
+		currentToolArgs: details.currentToolArgs,
+		// Fields required by interface but unused by buildWidgetLines():
+		textOutputLines: [],
+		thinkingOutputLines: [],
+		cacheRead: undefined,
+		cacheWrite: undefined,
+		lastToolName: undefined,
+		thinkingPushedThisTurn: false,
+		textPushedThisTurn: false,
+		budgetExceeded: false,
+		budgetExceededReason: undefined,
+		maxToolCalls: details.maxToolCalls ?? 0,
+		failedToolCount: details.errorCount ?? 0,
+		agentTokenBudget: details.agentTokenBudget ?? 0,
+	};
+
+	const lines = buildWidgetLines(state, agentName, model);
+	ctx.ui.setWidget(widgetId, lines);
 }
 
 /** Build working message from phase. Priority: tool > thinking > text. */

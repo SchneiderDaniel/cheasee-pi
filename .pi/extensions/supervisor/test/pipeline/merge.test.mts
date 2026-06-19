@@ -37,9 +37,11 @@ function createMockPi(
 function createMockCtx(confirmResult: boolean = true): ExtensionCommandContext {
 	return {
 		cwd: "/repo",
+		hasUI: true,
 		ui: {
 			notify: () => {},
 			setStatus: () => {},
+			setWidget: () => {},
 			confirm: async () => confirmResult,
 		},
 	} as unknown as ExtensionCommandContext;
@@ -275,7 +277,8 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 		// Call with 6 params (old signature)
 		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx);
 
-		const ghCalls = calls.filter((c) => c.cmd === "gh");
+		// gh client may use "gh" or "bash" cmd depending on GH_TOKEN presence
+		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCalls.length > 0, "should have checked for conflicts");
 	});
 
