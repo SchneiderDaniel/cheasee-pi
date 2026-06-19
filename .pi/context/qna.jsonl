@@ -32,3 +32,5 @@
 
 {"datetime":"2026-06-18T12:02:38.452Z","question":"PR #984 got auto-closed when I force-pushed the PR branch to match main (resolved conflicts on main side). The changes are already in main. How proceed?","answer":"leave_as_is"}
 {"datetime":"2026-06-18T17:13:38.252Z","question":"How should we update the Windows row in the prerequisites table?","answer":"engine_only"}
+{"datetime":"2026-06-19T11:00:49.128Z","question":"When you open task:spawn, do you see ANY tasks in the list (even language-provided ones like bash tasks) or is the list completely empty?\n\nAlso, try: open any file in the project (like `cheasee-pi.sh` or `README.md`), then try task:spawn again — do tasks appear?","answer":"if i use sown task alt+ shift+t  i get \"no matches\""}
+{"datetime":"2026-06-19T11:02:13.015Z","question":"Two quick yes/no tests:\n\n1. Open a file (say cheasee-pi.sh or any .ts file). Then try task:spawn again. Do tasks appear now?\n\n2. Does the project panel show the `.zed/tasks.json` file when you look at the file tree?","answer":"yes, then it appears. but not, when i spawn it from the terminal tab"}
