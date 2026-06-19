@@ -6,6 +6,14 @@
 // If jscpd is unavailable, gracefully degrades with status "no_jscpd".
 // The auditor agent then uses ripgrep_search / structural_search as fallback.
 
+import {
+	type ExecFn,
+	getChangedFilesFromGitDiff,
+	filterItemsToChangedFiles,
+	sumLines,
+	isExecutableNotFound,
+} from "./shared.ts";
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface CloneLocation {
@@ -62,14 +70,6 @@ export interface JscpdOutput {
 	duplications?: JscpdClone[];
 }
 
-// ─── Exec function type ─────────────────────────────────────────────
-
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
-
 // ─── Pure Functions ─────────────────────────────────────────────────
 
 /**
@@ -88,13 +88,6 @@ export function mapJscpdType(type: number): NormalizedClone["type"] {
  */
 function cloneFiles(clone: JscpdClone): string[] {
 	return clone.fragments.map((f) => f.file);
-}
-
-/**
- * Check if a clone has at least one location in the set of changed files.
- */
-function cloneTouchesChangedFiles(clone: JscpdClone, changedFiles: Set<string>): boolean {
-	return clone.fragments.some((frag) => changedFiles.has(frag.file));
 }
 
 /**
@@ -130,11 +123,7 @@ export function filterClonesToChangedFiles(
 	clones: JscpdClone[],
 	changedFiles: string[],
 ): NormalizedClone[] {
-	if (clones.length === 0 || changedFiles.length === 0) return [];
-
-	const changedSet = new Set(changedFiles);
-
-	return clones.filter((clone) => cloneTouchesChangedFiles(clone, changedSet)).map(normalizeClone);
+	return filterItemsToChangedFiles(clones, changedFiles, cloneFiles).map(normalizeClone);
 }
 
 /**
@@ -142,13 +131,13 @@ export function filterClonesToChangedFiles(
  * For each clone, adds (endLine - startLine + 1) for each of its locations.
  */
 export function sumDuplicateLines(clones: NormalizedClone[]): number {
-	let total = 0;
-	for (const clone of clones) {
+	return sumLines(clones, (clone) => {
+		let total = 0;
 		for (const loc of clone.locations) {
 			total += loc.endLine - loc.startLine + 1;
 		}
-	}
-	return total;
+		return total;
+	});
 }
 
 /**
@@ -216,24 +205,7 @@ export async function runDuplicateCheck(
 
 	// Step 1: Get changed files from git diff
 	try {
-		const diffResult = await exec("git", ["diff", defaultBranch, "--name-only"], {
-			cwd: worktreePath,
-			timeout: 10_000,
-		});
-		if (diffResult.code !== 0) {
-			return {
-				status: "error",
-				clones: [],
-				totalDuplicateLines: 0,
-				changedFilesScanned: [],
-				message: `git diff failed: ${diffResult.stderr || "unknown error"}`,
-			};
-		}
-		changedFiles = (diffResult.stdout || "")
-			.trim()
-			.split("\n")
-			.map((f) => f.trim())
-			.filter(Boolean);
+		changedFiles = await getChangedFilesFromGitDiff(exec, worktreePath, defaultBranch);
 
 		// No changed files → nothing to check
 		if (changedFiles.length === 0) {
@@ -280,7 +252,7 @@ export async function runDuplicateCheck(
 		jscpdStdout = jscpdResult.stdout || "";
 	} catch (err: unknown) {
 		// ENOENT means jscpd not installed
-		if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") {
+		if (isExecutableNotFound(err)) {
 			return {
 				status: "no_jscpd",
 				clones: [],

@@ -54,7 +54,6 @@ export type ESLintFactory = () => Promise<ESLintInstance>;
 const defaultCreateESLint: ESLintFactory = async () => {
 	// Dynamic import: ESLint may not be installed.
 	// The call site wraps this in a try/catch and returns an error result gracefully.
-	// @ts-expect-error -- eslint may not be installed; handled at runtime
 	const { ESLint } = await import("eslint");
 	const instance = new ESLint({ fix: true }) as unknown as ESLintInstance;
 	return instance;
@@ -196,11 +195,11 @@ export class EslintLinter implements Linter {
 	 * Create a fallback ESLint instance with no project config.
 	 */
 	private async createFallbackESLint(): Promise<ESLintInstance> {
-		// @ts-expect-error -- eslint may not be installed; handled at runtime
 		const { ESLint } = await import("eslint");
 		const instance = new ESLint({
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			useEslintrc: false,
-		}) as unknown as ESLintInstance;
+		} as any) as unknown as ESLintInstance;
 		return instance;
 	}
 

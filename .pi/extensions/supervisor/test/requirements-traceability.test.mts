@@ -12,7 +12,6 @@ import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
 	type TraceabilityGap,
-	type ExecFn,
 	type FilteredIssueData,
 	isTestableFile,
 	parseIssueBodyChecklists,
@@ -21,6 +20,7 @@ import {
 	classifyDiffDirection,
 	runRequirementsTraceability,
 } from "../checks/requirements-traceability.ts";
+import type { ExecFn } from "../checks/shared.ts";
 import { WORKFLOW } from "../config/workflow.ts";
 import { stripAnsi, isSuccess } from "../agent/output.ts";
 

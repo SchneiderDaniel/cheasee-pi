@@ -10,9 +10,9 @@ import {
 	checkDependencies,
 	fetchFreshIssueData,
 	loadAgentFile,
-	type ExecFn,
 	type NotifyFn,
 } from "../../pipeline/helpers.ts";
+import type { ExecFn } from "../../checks/shared.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
 

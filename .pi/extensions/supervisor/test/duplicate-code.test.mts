@@ -20,6 +20,7 @@ import {
 	buildResult,
 	runDuplicateCheck,
 } from "../checks/duplicate-code.ts";
+import type { ExecFn } from "../checks/shared.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helper: build a JscpdClone for use in tests
@@ -276,16 +277,6 @@ interface ExecCall {
 	args: string[];
 	opts?: Record<string, unknown>;
 }
-
-type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{
-	code: number;
-	stdout: string;
-	stderr: string;
-}>;
 
 function createMockExec(
 	results: Array<{ code: number; stdout: string; stderr: string }>,

@@ -6,6 +6,14 @@
 // If knip is unavailable, gracefully degrades with status "no_knip".
 // The auditor agent then uses ripgrep_search / structural_search as fallback.
 
+import {
+	type ExecFn,
+	getChangedFilesFromGitDiff,
+	filterItemsToChangedFiles,
+	sumLines,
+	isExecutableNotFound,
+} from "./shared.ts";
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DeadCodeFinding {
@@ -76,14 +84,6 @@ export interface KnipOutput {
 	issues?: (KnipIssue | KnipFileIssue)[];
 }
 
-// ─── Exec function type ─────────────────────────────────────────────
-
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
-
 // ─── Pure Functions ─────────────────────────────────────────────────
 
 /**
@@ -128,17 +128,10 @@ function mapKnipConfidence(
 
 /**
  * Sum total dead code lines across all findings.
- * Each finding contributes 1 line (line must be > 0).
+ * Each finding contributes 1 line.
  */
 export function sumDeadLines(findings: DeadCodeFinding[]): number {
-	return findings.reduce((sum, f) => sum + 1, 0);
-}
-
-/**
- * Check if a finding's file is in the set of changed files.
- */
-function findingInChangedFiles(finding: DeadCodeFinding, changedFiles: Set<string>): boolean {
-	return changedFiles.has(finding.file);
+	return sumLines(findings, () => 1);
 }
 
 /**
@@ -148,10 +141,7 @@ export function filterFindingsToChangedFiles(
 	findings: DeadCodeFinding[],
 	changedFiles: string[],
 ): DeadCodeFinding[] {
-	if (findings.length === 0 || changedFiles.length === 0) return [];
-
-	const changedSet = new Set(changedFiles);
-	return findings.filter((f) => findingInChangedFiles(f, changedSet));
+	return filterItemsToChangedFiles(findings, changedFiles, (f) => [f.file]);
 }
 
 /**
@@ -351,24 +341,7 @@ export async function runDeadCodeCheck(
 
 	// Step 1: Get changed files from git diff
 	try {
-		const diffResult = await exec("git", ["diff", defaultBranch, "--name-only"], {
-			cwd: worktreePath,
-			timeout: 10_000,
-		});
-		if (diffResult.code !== 0) {
-			return {
-				status: "error",
-				findings: [],
-				totalDeadLines: 0,
-				changedFilesScanned: [],
-				message: `git diff failed: ${diffResult.stderr || "unknown error"}`,
-			};
-		}
-		changedFiles = (diffResult.stdout || "")
-			.trim()
-			.split("\n")
-			.map((f) => f.trim())
-			.filter(Boolean);
+		changedFiles = await getChangedFilesFromGitDiff(exec, worktreePath, defaultBranch);
 
 		// No changed files → nothing to check
 		if (changedFiles.length === 0) {
@@ -414,7 +387,7 @@ export async function runDeadCodeCheck(
 		knipStdout = knipResult.stdout || "";
 	} catch (err: unknown) {
 		// ENOENT means npx not installed
-		if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") {
+		if (isExecutableNotFound(err)) {
 			return {
 				status: "no_knip",
 				findings: [],

@@ -81,7 +81,8 @@ import {
 	fetchFreshIssueData,
 	loadAgentFile as loadAgentFileHelper,
 } from "./helpers.ts";
-import type { ExecFn, NotifyFn } from "./helpers.ts";
+import type { NotifyFn } from "./helpers.ts";
+import type { ExecFn } from "../checks/shared.ts";
 import {
 	parseSupervisorArgs,
 	enableDebugLogger,

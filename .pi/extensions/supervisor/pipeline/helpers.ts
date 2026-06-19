@@ -19,18 +19,7 @@ import {
 } from "../github/index.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-
-// ─── Dependency Injection Interfaces ──────────────────────────────
-
-/**
- * ExecFn: executes a shell command (like pi.exec).
- * Returns {code, stdout, stderr}.
- */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+import type { ExecFn } from "../checks/shared.ts";
 
 /**
  * NotifyFn: notification callbacks for UI status updates.
