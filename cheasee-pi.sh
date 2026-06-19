@@ -39,15 +39,21 @@ check_container_resources() {
     cpu_usage=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
     mem_usage=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
 
+    # Normalize CPU by allocated cores — docker stats shows per-core %
+    local allocated_cpus
+    allocated_cpus=$(jq -r '.docker.cpus // "1.0"' .pi/settings.json 2>/dev/null || echo "1.0")
+    local cpu_normalized
+    cpu_normalized=$(echo "scale=2; $cpu_usage / $allocated_cpus" | bc -l 2>/dev/null || echo "$cpu_usage")
+
     # Strip decimal for integer comparison
-    local cpu_int="${cpu_usage%.*}"
+    local cpu_int="${cpu_normalized%.*}"
     local mem_int="${mem_usage%.*}"
     [ -z "$cpu_int" ] && cpu_int=0
     [ -z "$mem_int" ] && mem_int=0
 
     echo ""
     echo "Container resource usage:"
-    echo "  CPU:  ${cpu_usage}%"
+    echo "  CPU:  ${cpu_usage}% (${cpu_normalized}% effective across ${allocated_cpus} core(s))"
     echo "  RAM:  ${mem_usage}%"
 
     if [ "$cpu_int" -gt "$threshold" ] || [ "$mem_int" -gt "$threshold" ]; then
