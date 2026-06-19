@@ -293,10 +293,16 @@ echo "Starting cheasee-pi container..."
 docker compose -f docker/docker-compose.yml up -d --build
 
 # --- Step 5b: Auto-update pi to latest npm version ---------------------
-echo "Updating pi to latest version..."
-docker exec cheasee-pi npm update -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent 2>&1 | tail -1
-UPDATED_PI_VERSION=$(docker exec cheasee-pi pi --version 2>/dev/null)
-echo "pi version: $UPDATED_PI_VERSION"
+INSTALLED_PI_VERSION=$(docker exec cheasee-pi pi --version 2>/dev/null || echo "unknown")
+LATEST_PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || echo "$INSTALLED_PI_VERSION")
+if [ "$INSTALLED_PI_VERSION" != "$LATEST_PI_VERSION" ]; then
+  echo "Updating pi $INSTALLED_PI_VERSION -> $LATEST_PI_VERSION..."
+  docker exec cheasee-pi npm install -g --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@latest 2>&1 | tail -2
+  UPDATED_PI_VERSION=$(docker exec cheasee-pi pi --version 2>/dev/null)
+  echo "pi updated to: $UPDATED_PI_VERSION"
+else
+  echo "pi $INSTALLED_PI_VERSION already latest."
+fi
 
 # --- Step 6: Verify gh CLI auth ----------------------------------------
 REQUIRED_SCOPES=("repo" "project" "workflow")
