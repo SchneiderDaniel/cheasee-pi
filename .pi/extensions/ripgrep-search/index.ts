@@ -154,7 +154,7 @@ export function buildStructuredSummary(
 	const resultsTruncated = totalReturned > maxDisplay;
 	let truncatedIndicator = "";
 	if (resultsTruncated) {
-		truncatedIndicator = `\n[Showing first ${maxDisplay} of ${totalReturned} results across ${uniqueFiles.size} file${uniqueFiles.size !== 1 ? "s" : ""}.`;
+		truncatedIndicator = `\n[Showing first ${maxDisplay} of ${totalReturned} results across ${uniqueFiles.size} file${uniqueFiles.size !== 1 ? "s" : ""}.]`;
 		text += truncatedIndicator;
 	}
 
@@ -338,11 +338,11 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 				searchDirectory: resolvedDir,
 			};
 			if (fullOutputPath) {
-				text += ` Full output saved to: ${fullOutputPath}]`;
+				text += ` Full output saved to: ${fullOutputPath}`;
 				details.truncated = true;
 				details.fullOutputPath = fullOutputPath;
 			} else if (searchResult.truncated) {
-				text += " Full output not available]";
+				text += " Full output not available";
 			}
 
 			return {

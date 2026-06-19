@@ -1418,7 +1418,7 @@ describe("buildStructuredSummary", () => {
 		assert.ok(summary.text.includes("2. config/settings.py:4:8:TIMEOUT_MS = 5000"));
 	});
 
-	it("truncated indicator formatted correctly with closing bracket placeholder", () => {
+	it("truncated indicator formatted correctly — bracket closed inline", () => {
 		const results = [];
 		for (let i = 0; i < 15; i++) {
 			results.push({
@@ -1430,8 +1430,60 @@ describe("buildStructuredSummary", () => {
 		}
 		const result: RgResult = { total_returned: 15, results, truncated: true };
 		const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
-		// Check truncated indicator format (closing bracket is added by executor)
-		assert.ok(summary.text.includes("[Showing first 10 of 15 results across 1 file."));
+		// Bracket closed inline by buildStructuredSummary
+		assert.ok(summary.text.includes("[Showing first 10 of 15 results across 1 file.]"));
+		assert.strictEqual(summary.details.truncated, true);
+	});
+
+	it("15 results, not truncated by parser — bracket closed (11-499 gap)", () => {
+		const results = [];
+		for (let i = 0; i < 15; i++) {
+			results.push({
+				file: "a.ts",
+				line: i + 1,
+				column: 1,
+				text: `match ${i + 1}`,
+			});
+		}
+		const result: RgResult = { total_returned: 15, results, truncated: false };
+		const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+		// Bracket closed inline even when parser did not truncate
+		assert.ok(summary.text.includes("[Showing first 10 of 15 results across 1 file.]"));
+		assert.strictEqual(summary.details.truncated, true);
+		// No extra trailing bracket
+		const bracketCount = (summary.text.match(/\]/g) || []).length;
+		assert.strictEqual(bracketCount, 1, "Should have exactly one closing bracket");
+	});
+
+	it("exactly 11 results, not truncated by parser — bracket closed (boundary)", () => {
+		const results = [];
+		for (let i = 0; i < 11; i++) {
+			results.push({
+				file: "a.ts",
+				line: i + 1,
+				column: 1,
+				text: `match ${i + 1}`,
+			});
+		}
+		const result: RgResult = { total_returned: 11, results, truncated: false };
+		const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+		assert.ok(summary.text.includes("[Showing first 10 of 11 results across 1 file.]"));
+		assert.strictEqual(summary.details.truncated, true);
+	});
+
+	it("exactly 499 results, not truncated by parser — bracket closed (just below MAX_TOTAL_RESULTS)", () => {
+		const results = [];
+		for (let i = 0; i < 499; i++) {
+			results.push({
+				file: "a.ts",
+				line: i + 1,
+				column: 1,
+				text: `match ${i + 1}`,
+			});
+		}
+		const result: RgResult = { total_returned: 499, results, truncated: false };
+		const summary = buildStructuredSummary(result, "ripgrep", "q", ".");
+		assert.ok(summary.text.includes("[Showing first 10 of 499 results across 1 file.]"));
 		assert.strictEqual(summary.details.truncated, true);
 	});
 
