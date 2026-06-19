@@ -288,21 +288,11 @@ HOST_UID=$(id -u)
 export HOST_GID
 HOST_GID=$(id -g)
 
-# --- Step 5: Start (or rebuild) the container -------------------------
-echo "Starting cheasee-pi container..."
+# --- Step 5: Build image with latest pi, then start container --------
+PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || echo "latest")
+export PI_VERSION
+echo "Starting cheasee-pi container (pi $PI_VERSION)..."
 docker compose -f docker/docker-compose.yml up -d --build
-
-# --- Step 5b: Auto-update pi to latest npm version ---------------------
-INSTALLED_PI_VERSION=$(docker exec cheasee-pi pi --version 2>/dev/null || echo "unknown")
-LATEST_PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || echo "$INSTALLED_PI_VERSION")
-if [ "$INSTALLED_PI_VERSION" != "$LATEST_PI_VERSION" ]; then
-  echo "Updating pi $INSTALLED_PI_VERSION -> $LATEST_PI_VERSION..."
-  docker exec cheasee-pi npm install -g --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@latest 2>&1 | tail -2
-  UPDATED_PI_VERSION=$(docker exec cheasee-pi pi --version 2>/dev/null)
-  echo "pi updated to: $UPDATED_PI_VERSION"
-else
-  echo "pi $INSTALLED_PI_VERSION already latest."
-fi
 
 # --- Step 6: Verify gh CLI auth ----------------------------------------
 REQUIRED_SCOPES=("repo" "project" "workflow")
@@ -345,5 +335,5 @@ for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GE
 done
 
 # --- Step 8: Launch interactive pi session ----------------------------
-echo "Entering pi agent inside container..."
-docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && pi --approve "$@"' --
+# Clear terminal to hide build/check output, then launch pi
+docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --

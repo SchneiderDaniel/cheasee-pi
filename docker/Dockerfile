@@ -58,8 +58,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # ---------------------------------------------------------------
 # Layer 5: npm global tools
 # ---------------------------------------------------------------
+ARG PI_VERSION=latest
 RUN npm install -g --force \
-        @earendil-works/pi-coding-agent \
+        @earendil-works/pi-coding-agent@${PI_VERSION} \
         @ast-grep/cli \
         jscpd \
         typescript
