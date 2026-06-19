@@ -14,6 +14,7 @@
 {"datetime":"2026-06-17T20:20:23.527Z","question":"What tooling should the skill assume is available? `gh` is the core requirement. Should it also assume `jq` and `curl`?","answer":"gh_only"}
 {"datetime":"2026-06-17T20:20:31.899Z","question":"After discussing all these topics — does anything else come to mind that you'd now like to add as a requirement?","answer":"no_done"}
 {"datetime":"2026-06-17T20:21:14.805Z","question":"Issue #861 is refined. What's next?","answer":"done"}
+<<<<<<< Updated upstream
 {"datetime":"2026-06-17T21:44:55.495Z","question":"Version increment: \"For each 42 features, the number is increased by 0.1. If less features where added, it only increases by 0.01.\"\n\nInterpretation A: increment = floor(features / 42) * 0.1. If features < 42, flat 0.01. So 41 features → +0.01, 42 features → +0.1, 84 features → +0.2, 126 features → +0.3.\n\nInterpretation B: If features >= 42 → +0.1 flat. If features < 42 → +0.01 flat. No stacking.\n\nWhich one?","answer":"B"}
 {"datetime":"2026-06-17T21:45:11.689Z","question":"New file name inside `.pi/`?","answer":"release-cheasee-pi.md"}
 {"datetime":"2026-06-17T21:45:38.017Z","question":"What is the GitHub repo URL for cheasee-pi? I need it to fetch tags and PRs.","answer":"that is configured in cheasee-pi. you know that."}
@@ -37,3 +38,7 @@
 {"datetime":"2026-06-19T11:17:11.646Z","question":"What does your `.zed/tasks.json` look like? Specifically:\n1. Do your tasks set `allow_concurrent_runs`?\n2. Do they use a custom `shell.program` field?\n3. Do you leave the 1st task terminal pane open when spawning the 2nd?","answer":"read it yourself, why cant you read it"}
 {"datetime":"2026-06-19T13:38:03.263Z","question":"I need to create the worktree and file a GitHub issue. First, let me confirm: what's the exact issue number and title for the current worktree? The path references issue #992 \"duplicate-code-supervisor-checks-module-orchestrat\". Can you confirm this is the issue we're working on and I should proceed?\n\nI'll:\n1. Recreate the worktree manually so the supervisor can continue\n2. File a GitHub issue about the crash-cleanup race bug","answer":"proceed"}
 {"datetime":"2026-06-19T14:11:24.539Z","question":"Which approach to fix git identity in the Docker container?","answer":"entrypoint"}
+=======
+{"datetime":"2026-06-17T21:30:09.107Z","question":"Need to add npm global bin to PATH. Which shell config file do you use?","answer":"zshrc"}
+{"datetime":"2026-06-17T21:31:03.333Z","question":"PR #977 has no merge conflict — `git merge pr-977` succeeds cleanly, based on latest main, no CI failures. GitHub UI shows transient loading errors but no actual conflict indicator. Would you like me to merge the PR instead?","answer":"merge_pr"}
+>>>>>>> Stashed changes
