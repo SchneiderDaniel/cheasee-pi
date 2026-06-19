@@ -20,6 +20,7 @@ Usage: ./cheasee-pi.sh [options]
 Options:
   -k, --api-key <key>   Set API key for this session (not saved to disk)
   --configure           Interactive setup: choose providers, enter keys, save to shell profile
+  --rebuild             Force rebuild even if container is already running
   -h, --help            Show this help
 EOF
     exit 0
@@ -28,6 +29,7 @@ EOF
 # --- Parse args ---------------------------------------------------------
 API_KEY=""
 CONFIGURE=false
+REBUILD=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -k|--api-key)
@@ -36,6 +38,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --configure)
             CONFIGURE=true
+            shift
+            ;;
+        --rebuild)
+            REBUILD=true
             shift
             ;;
         -h|--help)
@@ -288,11 +294,27 @@ HOST_UID=$(id -u)
 export HOST_GID
 HOST_GID=$(id -g)
 
-# --- Step 5: Build image with latest pi, then start container --------
+# --- Step 5: Check if container already running, rebuild only if needed ---
 PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || echo "latest")
 export PI_VERSION
-echo "Starting cheasee-pi container (pi $PI_VERSION)..."
-docker compose -f docker/docker-compose.yml up -d --build
+
+CONTAINER_RUNNING=false
+if docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
+    CONTAINER_RUNNING=true
+fi
+
+if [ "$CONTAINER_RUNNING" = true ] && [ "$REBUILD" = false ]; then
+    # Container alive — skip compose, just attach
+    INSTALLED_PI=$(docker exec cheasee-pi pi --version 2>/dev/null || echo "?")
+    if [ "$INSTALLED_PI" != "$PI_VERSION" ] && [ "$INSTALLED_PI" != "?" ]; then
+        echo "Warning: container pi $INSTALLED_PI, latest is $PI_VERSION."
+        echo "  Run './cheasee-pi.sh --rebuild' to upgrade."
+    fi
+    echo "Reusing running container cheasee-pi..."
+else
+    echo "Starting cheasee-pi container (pi $PI_VERSION)..."
+    docker compose -f docker/docker-compose.yml up -d --build
+fi
 
 # --- Step 6: Verify gh CLI auth ----------------------------------------
 REQUIRED_SCOPES=("repo" "project" "workflow")
