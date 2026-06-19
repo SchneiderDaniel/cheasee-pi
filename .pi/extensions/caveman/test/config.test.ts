@@ -7,7 +7,7 @@
 
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { writeFile, mkdir, unlink, rmdir } from "node:fs/promises";
+import { writeFile, mkdir, unlink, rmdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConfigStore } from "../config.ts";
@@ -136,6 +136,124 @@ describe("ConfigStore adapter", () => {
 			await store2.ensureConfigLoaded();
 			assert.equal(store2.getConfig().defaultLevel, "ultra");
 			assert.equal(store2.getConfig().showStatus, false);
+			await cleanDir(dir);
+		});
+	});
+
+	describe("saveConfig error handling & resilience", () => {
+		it("logs an error when write fails (path is a directory)", async () => {
+			const dir = randomDir();
+			await mkdir(dir, { recursive: true });
+
+			// Use the directory itself as the config path — writeFile will fail
+			const store = createConfigStore(dir);
+
+			const logs: any[][] = [];
+			const origError = console.error;
+			console.error = (...args: any[]) => {
+				logs.push(args);
+			};
+
+			try {
+				await store.saveConfig({ defaultLevel: "lite", showStatus: true });
+				assert.ok(logs.length > 0, "console.error should be called when file write fails");
+				const joined = logs.map((a) => a.join(" ")).join("\n");
+				assert.ok(
+					joined.includes("Failed to save"),
+					`error message should mention "Failed to save", got: ${joined.slice(0, 200)}`,
+				);
+			} finally {
+				console.error = origError;
+				await cleanDir(dir);
+			}
+		});
+
+		it("does not stall saveQueue when JSON.stringify throws (circular reference in object)", async () => {
+			const dir = randomDir();
+			await mkdir(dir, { recursive: true });
+			const path = join(dir, "caveman.json");
+			const store = createConfigStore(path);
+
+			// Create an object that throws during JSON.stringify
+			const circular: Record<string, unknown> = {
+				defaultLevel: "lite",
+				showStatus: true,
+			};
+			circular.self = circular;
+
+			// First save should fail (circular), but must not stall the queue
+			await store.saveConfig(circular as any);
+
+			// Subsequent save must still work
+			await store.saveConfig({ defaultLevel: "ultra", showStatus: false });
+
+			// New store instance should read the second (valid) config
+			const store2 = createConfigStore(path);
+			await store2.ensureConfigLoaded();
+			assert.equal(store2.getConfig().defaultLevel, "ultra");
+			assert.equal(store2.getConfig().showStatus, false);
+
+			await cleanDir(dir);
+		});
+
+		it("rapid consecutive saves preserve ordering (last write wins)", async () => {
+			const dir = randomDir();
+			await mkdir(dir, { recursive: true });
+			const path = join(dir, "caveman.json");
+			const store = createConfigStore(path);
+
+			// Fire two saves without awaiting between them
+			const p1 = store.saveConfig({ defaultLevel: "lite", showStatus: true });
+			const p2 = store.saveConfig({ defaultLevel: "ultra", showStatus: false });
+			await Promise.all([p1, p2]);
+
+			// Last config should be on disk
+			const store2 = createConfigStore(path);
+			await store2.ensureConfigLoaded();
+			assert.equal(store2.getConfig().defaultLevel, "ultra");
+			assert.equal(store2.getConfig().showStatus, false);
+
+			await cleanDir(dir);
+		});
+
+		it("returns promise that resolves after file write completes", async () => {
+			const dir = randomDir();
+			await mkdir(dir, { recursive: true });
+			const path = join(dir, "caveman.json");
+			const store = createConfigStore(path);
+
+			await store.saveConfig({ defaultLevel: "ultra", showStatus: false });
+
+			// After await, the file must exist with correct content
+			const raw = await readFile(path, "utf8");
+			const parsed = JSON.parse(raw);
+			assert.equal(parsed.defaultLevel, "ultra");
+			assert.equal(parsed.showStatus, false);
+
+			await cleanDir(dir);
+		});
+
+		it("updates in-memory config synchronously before file write begins (existing behavior preserved)", async () => {
+			const dir = randomDir();
+			await mkdir(dir, { recursive: true });
+			const path = join(dir, "caveman.json");
+			const store = createConfigStore(path);
+
+			// Call saveConfig but do NOT await — in-memory should update immediately
+			const promise = store.saveConfig({ defaultLevel: "ultra", showStatus: false });
+
+			assert.equal(
+				store.getConfig().defaultLevel,
+				"ultra",
+				"in-memory defaultLevel should update synchronously",
+			);
+			assert.equal(
+				store.getConfig().showStatus,
+				false,
+				"in-memory showStatus should update synchronously",
+			);
+
+			await promise;
 			await cleanDir(dir);
 		});
 	});
