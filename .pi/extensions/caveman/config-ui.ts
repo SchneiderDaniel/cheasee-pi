@@ -107,11 +107,11 @@ export async function openConfigDialog(
 		);
 		container.addChild(new Text("", 0, 0));
 
-		const handleApply = (id: string, newValue: string) => {
+		const handleApply = async (id: string, newValue: string) => {
 			const currentConfig = configStore.getConfig();
 			const updated = applySettingChange(id, newValue, currentConfig);
 			if (updated) {
-				configStore.saveConfig(updated);
+				await configStore.saveConfig(updated);
 				syncStatus(ctx);
 			}
 		};
@@ -138,7 +138,7 @@ export async function openConfigDialog(
 			const newValue = item.values![nextIndex]!;
 			item.currentValue = newValue;
 			settingsList.updateValue(item.id, newValue);
-			handleApply(item.id, newValue);
+			void handleApply(item.id, newValue);
 		};
 
 		return {
