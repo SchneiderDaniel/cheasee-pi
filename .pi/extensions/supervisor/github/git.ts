@@ -83,9 +83,6 @@ export async function pushBranch(
 
 /**
  * Add, commit, and push in sequence.
- * When scopePaths is provided and non-empty, stages only those paths
- * instead of all changes (git add -A). Protects files outside issue scope.
- * @param scopePaths - Optional list of paths to stage. Empty/undefined = git add -A (backward compat).
  * @returns Promise<Result<boolean>> — true if commits were pushed, false if nothing to commit.
  */
 export async function commitAndPush(
@@ -95,47 +92,26 @@ export async function commitAndPush(
 	branch: string,
 	message: string,
 	notify: NotifyFn,
-	scopePaths?: string[],
 ): Promise<Result<boolean>> {
 	const log = getDebugLogger();
 	log.info("git", `commitAndPush starting: ${branch}`, {
 		cwd,
 		remote,
 		message: message.slice(0, 100),
-		scopePaths: scopePaths?.length ? scopePaths : undefined,
 	});
 
 	try {
-		// When scopePaths is set and non-empty, use scoped git add
-		// instead of git add -A to protect files outside issue scope.
-		if (scopePaths && scopePaths.length > 0) {
-			const addArgs = ["add", "--", ...scopePaths];
-			const addResult = await pi.exec("git", addArgs, { cwd });
-			if (addResult.code !== 0) {
-				log.error("git", "git add -- <paths> failed", {
-					cwd,
-					paths: scopePaths,
-					stderr: (addResult.stderr || "").slice(0, 500),
-				});
-				throw new Error(`git add failed: ${addResult.stderr || addResult.stdout}`);
-			}
-			log.debug("git", "git add -- <paths> OK", { paths: scopePaths });
-		} else {
-			const addResult = await pi.exec("git", ["add", "-A"], { cwd });
-			if (addResult.code !== 0) {
-				log.error("git", "git add -A failed", {
-					cwd,
-					stderr: (addResult.stderr || "").slice(0, 500),
-				});
-				throw new Error(`git add failed: ${addResult.stderr || addResult.stdout}`);
-			}
-			log.debug("git", "git add -A OK");
+		const addResult = await pi.exec("git", ["add", "-A"], { cwd });
+		if (addResult.code !== 0) {
+			log.error("git", "git add -A failed", {
+				cwd,
+				stderr: (addResult.stderr || "").slice(0, 500),
+			});
+			throw new Error(`git add failed: ${addResult.stderr || addResult.stdout}`);
 		}
+		log.debug("git", "git add -A OK");
 
 		// Pre-commit emptiness check: verify whether any changes are actually staged.
-		// When scopePaths filters out all in-scope changes, git add succeeds but nothing
-		// is staged. Skipping the commit avoids a false-positive failure from the
-		// "no changes added to commit" message.
 		let didCommit = false;
 		const diffResult = await pi.exec("git", ["diff", "--cached", "--quiet"], { cwd });
 		if (diffResult.code === 0) {

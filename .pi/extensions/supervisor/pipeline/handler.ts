@@ -22,7 +22,7 @@ import {
 	postIssueComment,
 } from "../github/index.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
-import { deriveScopeFromLabels, isInScope } from "../agent/scope.ts";
+
 import { runAgentSubprocess } from "../agent/runner.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { convertToolResultToAgentRunResult } from "../session/result.ts";
@@ -406,24 +406,6 @@ export async function handleSupervisorCommand(
 			getDebugLogger().info("handler", "Crash cleanup handlers registered (SIGTERM/SIGINT)");
 		}
 
-		// ── Extension Directory Discovery ──────────────────────────────
-		// Read extension directories for scope derivation.
-		// Non-blocking — if read fails, scope will just not match custom labels.
-		let extensionDirs: string[] = [];
-		try {
-			const lsResult = await pi.exec("ls", [".pi/extensions/"], { cwd: ctx.cwd });
-			extensionDirs = (lsResult.stdout || "")
-				.split("\n")
-				.filter(Boolean)
-				.map((d: string) => d.replace(/\/$/, ""));
-		} catch {
-			// Non-blocking — scope derivation won't match custom extension labels
-			extensionDirs = [];
-		}
-		getDebugLogger().info("handler", "Extension directories discovered", {
-			dirs: extensionDirs,
-		});
-
 		for (let i = 0; i < MAX_PIPELINE_LOOPS; i++) {
 			ctx.ui.setStatus("supervisor", `Status: ${loopStatus}`);
 			ctx.ui.notify(`Issue #${issueNum}: "${issueTitle}" — Status: ${loopStatus}`, "info");
@@ -495,21 +477,6 @@ export async function handleSupervisorCommand(
 				break;
 			}
 
-			// ── Scope Derivation ─────────────────────────────────────────
-			// Derive issue scope from labels for file-scope enforcement.
-			// When no scope-mapped label exists, scope is null (no restriction — backward compat).
-			const currentScope = deriveScopeFromLabels(loopFilteredData.labels || [], extensionDirs);
-			// Derive scope paths for git add -- <paths> from scope string
-			// Returns undefined when scope is null or "*.md" (no git add restriction).
-			const currentScopePaths: string[] | undefined =
-				currentScope && currentScope !== "*.md" ? [currentScope] : undefined;
-
-			getDebugLogger().info("handler", "Scope derived from labels", {
-				labels: loopFilteredData.labels,
-				scope: currentScope,
-				scopePaths: currentScopePaths,
-			});
-
 			// Deduplication gate: skip researcher if findings already exist
 			if (agentName === "researcher" && shouldSkipResearcher(loopStatus, loopFilteredData)) {
 				ctx.ui.notify(
@@ -570,190 +537,6 @@ export async function handleSupervisorCommand(
 			ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
 			const timeoutMs = resolveTimeoutMs(agentName, config.agentTimeoutsMin!);
 
-			// ── Pre-Dispatch Scope Check ─────────────────────────────────
-			// For developer/auditor agents: check if any files outside the
-			// issue scope exist on the worktree branch (committed or dirty).
-			// Self-heals by resetting out-of-scope files to base branch state
-			// instead of aborting. Catches stale cross-extension changes from
-			// prior pipeline runs or agent sessions.
-			if (
-				worktreePath &&
-				currentScope !== null &&
-				(agentName === "developer" || agentName === "auditor")
-			) {
-				try {
-					// Check BOTH committed changes (diff from base) and dirty files (unstaged/untracked)
-					const diffResult = await pi.exec(
-						"git",
-						[
-							"diff",
-							"--name-only",
-							`${config.remote || "origin"}/${config.defaultBranch || "main"}..HEAD`,
-						],
-						{ cwd: worktreePath },
-					);
-
-					const committedFiles = (diffResult.stdout || "").split("\n").filter(Boolean);
-
-					// Also check dirty (unstaged/untracked) files
-					let dirtyFiles: string[] = [];
-					try {
-						const statusResult = await pi.exec("git", ["status", "--porcelain"], {
-							cwd: worktreePath,
-						});
-						dirtyFiles = parseGitStatusPorcelain(statusResult.stdout || "");
-					} catch {
-						// Non-fatal — log and continue with committed-only check
-						getDebugLogger().warn(
-							"handler",
-							"git status --porcelain failed — checking committed files only",
-						);
-					}
-
-					const allChangedFiles = [...new Set([...committedFiles, ...dirtyFiles])];
-					const unexpectedFiles = allChangedFiles.filter(
-						(f: string) => !isInScope(f, currentScope),
-					);
-
-					if (unexpectedFiles.length > 0) {
-						// Self-heal: reset out-of-scope files to base branch state
-						// instead of aborting. Prevents wasted pipeline runs when
-						// stale cross-extension changes exist from prior sessions.
-						const baseRef = `${config.remote || "origin"}/${config.defaultBranch || "main"}`;
-						const resetFiles: string[] = [];
-						const removedFiles: string[] = [];
-						const failedFiles: string[] = [];
-
-						for (const file of unexpectedFiles) {
-							let handled = false;
-
-							// Case 1: File exists in base branch → reset to base version
-							try {
-								await pi.exec("git", ["show", `${baseRef}:${file}`], { cwd: worktreePath });
-								await pi.exec("git", ["checkout", baseRef, "--", file], { cwd: worktreePath });
-								resetFiles.push(file);
-								handled = true;
-							} catch {
-								// Not in base — try next case
-							}
-
-							if (!handled) {
-								// Case 2: File is tracked in git (but not in base) → git rm
-								try {
-									const tracked = await pi.exec("git", ["ls-files", file], { cwd: worktreePath });
-									if (tracked.stdout?.trim()) {
-										await pi.exec("git", ["rm", "-f", file], { cwd: worktreePath });
-										removedFiles.push(file);
-										handled = true;
-									}
-								} catch {
-									// Not tracked — try next case
-								}
-							}
-
-							if (!handled) {
-								// Case 3: Untracked file → remove from filesystem
-								try {
-									await pi.exec("rm", ["-f", file], { cwd: worktreePath });
-									removedFiles.push(file);
-									handled = true;
-								} catch {
-									failedFiles.push(file);
-								}
-							}
-						}
-
-						// Commit the cleanup
-						if (resetFiles.length > 0 || removedFiles.length > 0) {
-							const commitResult = await pi.exec(
-								"git",
-								[
-									"commit",
-									"-m",
-									`fix(#${issueNum}): revert ${unexpectedFiles.length} out-of-scope file(s)`,
-								],
-								{ cwd: worktreePath, timeout: 15000 },
-							);
-							if (commitResult.code === 0) {
-								// Push the cleanup commit
-								const pushResult = await pi.exec(
-									"git",
-									["push", config.remote || "origin", worktreeBranch],
-									{ cwd: worktreePath, timeout: 30000 },
-								);
-								if (pushResult.code !== 0) {
-									getDebugLogger().warn("handler", "Failed to push scope cleanup commit", {
-										stderr: (pushResult.stderr || "").slice(0, 300),
-									});
-								}
-							} else {
-								// May say "nothing to commit" if files were already reset
-								const output = (commitResult.stderr || "") + (commitResult.stdout || "");
-								if (!output.includes("nothing to commit")) {
-									getDebugLogger().warn("handler", "Scope cleanup commit failed", {
-										output: output.slice(0, 300),
-									});
-								}
-							}
-						}
-
-						const summaryParts: string[] = [];
-						if (resetFiles.length > 0) summaryParts.push(`${resetFiles.length} reset to base`);
-						if (removedFiles.length > 0)
-							summaryParts.push(`${removedFiles.length} removed (new on branch)`);
-						if (failedFiles.length > 0) summaryParts.push(`${failedFiles.length} failed`);
-						const summary = summaryParts.join(", ");
-
-						ctx.ui.notify(
-							`Scope cleanup: ${unexpectedFiles.length} file(s) outside "${currentScope}" — ${summary}. Pipeline continues.`,
-							"warning",
-						);
-						getDebugLogger().warn("handler", "Pre-dispatch scope cleanup applied", {
-							scope: currentScope,
-							resetFiles,
-							removedFiles,
-							failedFiles,
-						});
-
-						// Post issue comment about the cleanup
-						try {
-							const cleanupMsg = [
-								`## 🔄 Scope Cleanup Applied`,
-								`Found ${unexpectedFiles.length} file(s) outside issue scope \`${currentScope}\`.`,
-								`These were reset to \`${config.defaultBranch || "main"}\` state to keep branch clean.`,
-								``,
-								`**Reset to base:** ${resetFiles.length} file(s)`,
-								resetFiles.length > 0 ? "```\n" + resetFiles.join("\n") + "\n```" : "(none)",
-								`**Removed (new on branch):** ${removedFiles.length} file(s)`,
-								removedFiles.length > 0 ? "```\n" + removedFiles.join("\n") + "\n```" : "(none)",
-							].join("\n");
-							await postIssueComment(pi, issueNum, config.repo, cleanupMsg);
-							ctx.ui.notify(`Posted scope cleanup notice on issue #${issueNum}`, "info");
-						} catch (commentErr: unknown) {
-							collector?.push(
-								"handler",
-								"warn",
-								`Failed to post scope cleanup comment: ${
-									commentErr instanceof Error ? commentErr.message : String(commentErr)
-								}`,
-							);
-						}
-
-						// Pipeline continues instead of aborting
-					}
-				} catch (diffErr: unknown) {
-					// Diff check failure is non-fatal — log and continue
-					const diffMsg = diffErr instanceof Error ? diffErr.message : String(diffErr);
-					getDebugLogger().warn(
-						"handler",
-						"Pre-dispatch git diff failed — continuing without scope check",
-						{
-							error: diffMsg,
-						},
-					);
-				}
-			}
-
 			// Build task
 			const dupContext: string | undefined =
 				agentName === "auditor"
@@ -808,7 +591,6 @@ export async function handleSupervisorCommand(
 				deadContext,
 				stageState.gateFailureContext,
 				systemPromptOptions,
-				currentScope ?? undefined,
 			);
 
 			getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
@@ -849,53 +631,6 @@ export async function handleSupervisorCommand(
 				lastAgent: agentResults[agentResults.length - 1]?.agentName,
 				iteration: i,
 			});
-
-			// ── Post-Agent Scope Cleanup ─────────────────────────────────
-			// Immediately after agent finishes, revert any dirty files outside
-			// scope BEFORE commitAndPush. This prevents the cycle where agent
-			// modifies out-of-scope files (e.g. lsp-auditor/lib/types.ts),
-			// cleanup reverts them in next pre-dispatch check, and agent repeats
-			// the same modification on next run.
-			// Silent revert — no extra commits, no issue comments.
-			if (
-				worktreePath &&
-				currentScope !== null &&
-				(agentName === "developer" || agentName === "auditor")
-			) {
-				try {
-					const baseRef = `${config.remote || "origin"}/${config.defaultBranch || "main"}`;
-					const statusResult = await pi.exec("git", ["status", "--porcelain"], {
-						cwd: worktreePath,
-					});
-					const dirtyFiles = parseGitStatusPorcelain(statusResult.stdout || "");
-
-					const outOfScopeDirty = dirtyFiles.filter((f: string) => !isInScope(f, currentScope));
-
-					if (outOfScopeDirty.length > 0) {
-						for (const file of outOfScopeDirty) {
-							try {
-								// Check if file exists in base branch
-								await pi.exec("git", ["show", `${baseRef}:${file}`], { cwd: worktreePath });
-								await pi.exec("git", ["checkout", baseRef, "--", file], { cwd: worktreePath });
-							} catch {
-								// File not in base — remove it
-								try {
-									await pi.exec("git", ["rm", "-f", file], { cwd: worktreePath });
-								} catch {
-									await pi.exec("rm", ["-f", file], { cwd: worktreePath });
-								}
-							}
-						}
-						getDebugLogger().warn("handler", "Post-agent scope cleanup", {
-							scope: currentScope,
-							revertedFiles: outOfScopeDirty,
-						});
-					}
-				} catch (cleanupErr: unknown) {
-					const msg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-					getDebugLogger().warn("handler", "Post-agent scope cleanup failed", { error: msg });
-				}
-			}
 
 			// Track audit score
 			const auditInfo = trackAuditScore(result.textOnly, stageState);
@@ -957,7 +692,6 @@ export async function handleSupervisorCommand(
 					collector,
 					gateRejected,
 					notify,
-					currentScopePaths,
 				);
 				if (!continuePipeline) {
 					stopReason = `commitAndPush failed for ${agentName}`;
@@ -1633,19 +1367,4 @@ export async function executeAgent(
 	}
 
 	return { result, usedRetry };
-}
-
-/**
- * Parse `git status --porcelain` output into an array of file paths.
- * Filters duplicates and resolves renamed files ("R  old -> new") to the target path.
- * Extracted to eliminate clone: used in both pre-dispatch scope check
- * and post-agent scope cleanup.
- */
-export function parseGitStatusPorcelain(stdout: string): string[] {
-	return (stdout || "")
-		.split("\n")
-		.filter(Boolean)
-		.map((line: string) => line.trim().slice(2).trim())
-		.map((p: string) => p.split(" -> ").pop()?.trim() || p)
-		.filter(Boolean);
 }

@@ -255,7 +255,7 @@ export function installFooter(
 					const sepIssue = theme.fg("dim", "│");
 
 					// Truncate title to 16 visible chars with "..." ellipsis
-					const truncatedTitle = truncateToWidth(issueTitleVal, 16, "...");
+					const truncatedTitle = truncateToWidth(issueTitleVal, 32, "...");
 					const titleStr =
 						issueTitleVal.length > 0
 							? " " + sepIssue + " " + theme.fg("muted", truncatedTitle)

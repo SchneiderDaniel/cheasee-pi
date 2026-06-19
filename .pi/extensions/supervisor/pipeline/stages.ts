@@ -651,7 +651,6 @@ export async function handlePostAgentSuccess(
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
 	notify?: NotifyFn,
-	scopePaths?: string[],
 ): Promise<boolean> {
 	// Agent comments: architect, test-designer, researcher
 	if (agentName === "architect" || agentName === "test-designer" || agentName === "researcher") {
@@ -877,7 +876,6 @@ export async function handlePostAgentSuccess(
 			worktreeBranch,
 			commitMsg,
 			pushNotify,
-			scopePaths,
 		);
 		if (!commitResult.ok) {
 			ctx.ui.notify(`commitAndPush failed: ${commitResult.error}`, "warning");

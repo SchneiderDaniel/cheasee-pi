@@ -20,9 +20,10 @@ import { isToolCallLine } from "../../event/session-events.ts";
 describe("comment.ts runtime exports — direct call in assertions", () => {
 	it("filterIssueData directly callable in assert", () => {
 		assert.deepEqual(
+		assert.strictEqual(
 			filterIssueData({ author: { login: "u" }, body: "b", labels: [{ name: "bug" }] }, ["u"])
-				.labels,
-			["bug"],
+				.body,
+			"b",
 		);
 	});
 
@@ -510,72 +511,6 @@ describe("extractStructuredAuditOutput() — COMMENT_BODY_END stripping", () => 
 	});
 });
 
-// ─── Tests: filterIssueData — labels passthrough ────────────────
-
-describe("filterIssueData — labels passthrough", () => {
-	it("preserves labels from RawIssueData in FilteredIssueData output", () => {
-		const rawIssue = {
-			author: { login: "user1" },
-			body: "Issue body",
-			labels: [{ name: "supervisor" }, { name: "bug" }],
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		assert.deepEqual(result.labels, ["supervisor", "bug"]);
-	});
-
-	it("extracts label names from label objects", () => {
-		const rawIssue = {
-			author: { login: "user1" },
-			body: "Body",
-			labels: [{ name: "documentation" }, { name: "enhancement" }],
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		assert.deepEqual(result.labels, ["documentation", "enhancement"]);
-	});
-
-	it("labels is undefined when no labels in raw data", () => {
-		const rawIssue = {
-			author: { login: "user1" },
-			body: "Body",
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		assert.strictEqual(result.labels, undefined);
-	});
-
-	it("labels is undefined when labels array is empty", () => {
-		const rawIssue = {
-			author: { login: "user1" },
-			body: "Body",
-			labels: [],
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		assert.strictEqual(result.labels, undefined);
-	});
-
-	it("existing filterIssueData behavior with author filtering unchanged when labels present", () => {
-		const rawIssue = {
-			author: { login: "outsider" },
-			body: "Secret body",
-			labels: [{ name: "supervisor" }],
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		// Author not trusted — body should be hidden
-		assert.ok(result.body.startsWith("[Issue body hidden"));
-		// But labels are still present (unfiltered, public metadata)
-		assert.deepEqual(result.labels, ["supervisor"]);
-	});
-
-	it("returns empty comments array when no comments (existing behavior preserved)", () => {
-		const rawIssue = {
-			author: { login: "user1" },
-			body: "Body",
-			labels: [{ name: "supervisor" }],
-		};
-		const result = filterIssueData(rawIssue, ["user1"]);
-		assert.deepEqual(result.comments, []);
-		assert.deepEqual(result.labels, ["supervisor"]);
-	});
-});
 
 // ─── Tests: stripTrailingMetadata extracted helper ─────────────────
 
