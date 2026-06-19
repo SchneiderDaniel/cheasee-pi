@@ -18,7 +18,20 @@ nav_order: 2
 
 ## Prerequisites
 
-**One dependency:** Docker Engine ≥24.0 with Compose V2.
+**Dependencies:** Docker Engine ≥24.0 with Compose V2 + git configured identity.
+
+Git identity is required so the supervisor extension can commit changes inside the
+container. The host's `git config user.name` and `git config user.email` are passed
+into the container automatically by `cheasee-pi.sh`. If unset on the host, the
+container defaults to `Cheasee-Pi <cheasee-pi@localhost>`.
+
+```bash
+# Verify host git identity (set if not configured)
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
+
+
 
 | Platform    | Install Link                                                                                                            | Instructions |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
@@ -55,6 +68,9 @@ The wrapper script:
 3. Drops you into the Pi TUI inside the container
 
 ## Step-by-step
+
+> **Prerequisite:** Ensure your [git identity](#prerequisites) is configured on the host.
+> The container uses it for commit authorship.
 
 ### 1. Fork & clone the bare repo
 

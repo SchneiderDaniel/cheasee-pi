@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# --- Mutual exclusion: prevent concurrent instances --------------------
+exec 200>/tmp/cheasee-pi.lock
+flock -n 200 || {
+    echo "Another cheasee-pi.sh instance is running. Waiting..."
+    flock 200
+}
+trap 'rm -f /tmp/cheasee-pi.lock' EXIT
+
 # ------------------------------------------------------------------
 # Cheasee-Pi — Docker Compose orchestration wrapper
 #
@@ -19,6 +27,7 @@ Usage: ./cheasee-pi.sh [options]
 
 Options:
   -k, --api-key <key>   Set API key for this session (not saved to disk)
+  -a, --attach          Attach to running container (skip startup checks)
   --configure           Interactive setup: choose providers, enter keys, save to shell profile
   --rebuild             Force rebuild even if container is already running
   -h, --help            Show this help
@@ -26,15 +35,56 @@ EOF
     exit 0
 }
 
+# --- Resource check: prompt if container exceeds threshold -------------
+check_container_resources() {
+    local threshold=80
+    local stats container_name
+    container_name="cheasee-pi"
+
+    stats=$(docker stats "$container_name" --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}' 2>/dev/null) || return 0
+
+    local cpu_usage mem_usage
+    cpu_usage=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
+    mem_usage=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
+
+    # Strip decimal for integer comparison
+    local cpu_int="${cpu_usage%.*}"
+    local mem_int="${mem_usage%.*}"
+    [ -z "$cpu_int" ] && cpu_int=0
+    [ -z "$mem_int" ] && mem_int=0
+
+    echo ""
+    echo "Container resource usage:"
+    echo "  CPU:  ${cpu_usage}%"
+    echo "  RAM:  ${mem_usage}%"
+
+    if [ "$cpu_int" -gt "$threshold" ] || [ "$mem_int" -gt "$threshold" ]; then
+        echo ""
+        echo "Resource usage exceeds ${threshold}% threshold!"
+        echo ""
+        read -r -p "Continue? [Y/n]: " choice
+        case "$choice" in
+            n|N|q|Q) echo "Aborting."; exit 1 ;;
+            *)       echo "Continuing..." ;;
+        esac
+    fi
+    echo ""
+}
+
 # --- Parse args ---------------------------------------------------------
 API_KEY=""
 CONFIGURE=false
 REBUILD=false
+ATTACH=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -k|--api-key)
             API_KEY="$2"
             shift 2
+            ;;
+        -a|--attach)
+            ATTACH=true
+            shift
             ;;
         --configure)
             CONFIGURE=true
@@ -178,6 +228,37 @@ if [ "$CONFIGURE" = true ]; then
     exit 0
 fi
 
+# --- Attach mode: fast path for extra terminals ------------------------
+# Skips all startup checks (pi-version, gh auth, API key prompts).
+# Relies on API keys already set in shell environment.
+if [ "$ATTACH" = true ]; then
+    if ! command -v docker &>/dev/null; then
+        echo "Error: Docker not found."
+        exit 1
+    fi
+    if ! docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
+        echo "Error: cheasee-pi container is not running."
+        echo "Start it first with: ./cheasee-pi.sh"
+        exit 1
+    fi
+
+    # Build env passthrough from current shell env (fast, no auth.json parse)
+    DOCKER_ENV=""
+    for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY \
+               ANT_LING_API_KEY AZURE_OPENAI_API_KEY NVIDIA_API_KEY GROQ_API_KEY \
+               CEREBRAS_API_KEY XAI_API_KEY FIREWORKS_API_KEY TOGETHER_API_KEY \
+               OPENROUTER_API_KEY AI_GATEWAY_API_KEY MISTRAL_API_KEY MINIMAX_API_KEY \
+               MOONSHOT_API_KEY KIMI_API_KEY CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID; do
+        if [ -n "${!var}" ]; then
+            DOCKER_ENV="$DOCKER_ENV -e $var=${!var}"
+        fi
+    done
+
+    check_container_resources
+
+    exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
+fi
+
 # --- Step 1: Assert docker is on PATH ---------------------------------
 if ! command -v docker &>/dev/null; then
     echo "Error: Docker not found on PATH."
@@ -195,7 +276,7 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-CHEASEEPI_MEMORY=$(jq -r '.docker.memory // "4G"' .pi/settings.json)
+CHEASEEPI_MEMORY=$(jq -r '.docker.memory // "2G"' .pi/settings.json)
 CHEASEEPI_CPUS=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json)
 
 export CHEASEEPI_MEMORY
@@ -294,6 +375,14 @@ HOST_UID=$(id -u)
 export HOST_GID
 HOST_GID=$(id -g)
 
+# --- Step 4b: Export host git identity for container commits -----------
+# Supervisor extension does git commit inside container. Use host identity
+# so commits show the actual user. Falls back to Cheasee-Pi if unset.
+export HOST_GIT_NAME
+HOST_GIT_NAME=$(git config user.name 2>/dev/null || echo "Cheasee-Pi")
+export HOST_GIT_EMAIL
+HOST_GIT_EMAIL=$(git config user.email 2>/dev/null || echo "cheasee-pi@localhost")
+
 # --- Step 5: Check if container already running, rebuild only if needed ---
 PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || echo "latest")
 export PI_VERSION
@@ -311,6 +400,8 @@ if [ "$CONTAINER_RUNNING" = true ] && [ "$REBUILD" = false ]; then
         echo "  Run './cheasee-pi.sh --rebuild' to upgrade."
     fi
     echo "Reusing running container cheasee-pi..."
+
+    check_container_resources
 else
     echo "Starting cheasee-pi container (pi $PI_VERSION)..."
     docker compose -f docker/docker-compose.yml up -d --build

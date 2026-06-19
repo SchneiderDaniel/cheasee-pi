@@ -25,6 +25,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 
 # ---------------------------------------------------------------
 # Layer 3: Toolchain packages (Python, ctags, ripgrep, gosu, …)
+#          + Playwright system libraries for scrapling Chromium fetcher
 # ---------------------------------------------------------------
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -39,6 +40,21 @@ RUN apt-get update && \
         git \
         wget \
         gosu \
+        libasound2t64 \
+        libatk-bridge2.0-0t64 \
+        libatk1.0-0t64 \
+        libcairo2 \
+        libcups2t64 \
+        libdbus-1-3 \
+        libdrm2 \
+        libgbm1 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxkbcommon0 \
+        libxrandr2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -62,8 +78,36 @@ ARG PI_VERSION=latest
 RUN npm install -g --force \
         @earendil-works/pi-coding-agent@${PI_VERSION} \
         @ast-grep/cli \
+        eslint \
         jscpd \
-        typescript
+        prettier \
+        pyright \
+        typescript \
+        typescript-language-server
+
+# ---------------------------------------------------------------
+# Layer 5b: LSP server binaries (rust-analyzer, gopls)
+# Downloads static binaries — no Rust/Go toolchain needed.
+# ---------------------------------------------------------------
+RUN case "$(dpkg --print-architecture)" in \
+        amd64) \
+            ra_asset="rust-analyzer-x86_64-unknown-linux-gnu.gz" \
+            gopls_pattern='gopls-*.linux-amd64.tar.gz' ;; \
+        arm64) \
+            ra_asset="rust-analyzer-aarch64-unknown-linux-gnu.gz" \
+            gopls_pattern='gopls-*.linux-arm64.tar.gz' ;; \
+        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/${ra_asset}" -o "/tmp/${ra_asset}" && \
+    gunzip "/tmp/${ra_asset}" && \
+    install -m 755 "/tmp/${ra_asset%.gz}" /usr/local/bin/rust-analyzer && \
+    rm -f "/tmp/${ra_asset%.gz}" && \
+    GH_HOST=github.com gh release download -R golang/tools \
+        --pattern "$gopls_pattern" \
+        --dir /tmp && \
+    tar xzf /tmp/gopls-*.tar.gz -C /usr/local/bin/ gopls && \
+    chmod +x /usr/local/bin/gopls && \
+    rm -rf /tmp/gopls-*
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory

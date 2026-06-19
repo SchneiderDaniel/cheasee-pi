@@ -21,14 +21,21 @@ services:
     environment:
       - HOST_UID=${HOST_UID}
       - HOST_GID=${HOST_GID}
+      - HOST_GIT_NAME=${HOST_GIT_NAME}
+      - HOST_GIT_EMAIL=${HOST_GIT_EMAIL}
     volumes:
       - ../../:/workspaces
       - ~/.config/gh:/home/agentuser/.config/gh:ro
     deploy:
       resources:
         limits:
-          memory: ${CHEASEEPI_MEMORY:-4G}
+          memory: ${CHEASEEPI_MEMORY:-2G}
           cpus: ${CHEASEEPI_CPUS:-2.0}
     stdin_open: true
     tty: true
     command: ["sleep", "infinity"]
+    healthcheck:
+      test: ["CMD", "pi", "--version"]
+      interval: 10s
+      retries: 3
+      start_period: 15s
