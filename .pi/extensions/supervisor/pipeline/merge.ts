@@ -4,15 +4,12 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { PrConflictInfo, SupervisorConfig } from "../config/types.ts";
-import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
 import { tryAutoMerge } from "../config/merge.ts";
 import { checkPrConflicts } from "../github/pr.ts";
-import { parseAgentFile } from "../agent/loader.ts";
-import { runAgent } from "../agent/runner.ts";
-import { resolveTimeoutMs } from "../config/config.ts";
-import { convertAgentRunToToolResult } from "../session/result.ts";
+import { renderWidgetFromDetails } from "../session/widget.ts";
+import type { AgentToolResult, SubagentDetails } from "../subagent/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
@@ -126,71 +123,82 @@ export async function handlePostPipelineMerge(
 						"warning",
 					);
 
-					const devAgentPath = `.pi/extensions/supervisor/agents/developer.md`;
-					if (existsSync(devAgentPath)) {
-						try {
-							const devAgent = parseAgentFile(devAgentPath);
-							const devTask = [
-								`## Task: Resolve Merge Conflicts`,
-								``,
-								`**Branch:** ${branch}`,
-								`**Worktree:** ${wt}`,
-								`**Base branch:** ${config.defaultBranch}`,
-								`**Conflicted files:** ${mergeResult.conflictFiles.join(", ") || "(unknown)"}`,
-								``,
-								`### Steps`,
-								`1. Enter worktree: \`cd ${wt}\``,
-								`2. Fetch base: \`git fetch ${config.remote} ${config.defaultBranch}\``,
-								`3. Merge base: \`git merge ${config.remote}/${config.defaultBranch}\``,
-								`4. Resolve conflicts in the conflicted files`,
-								`5. Stage resolved files: \`git add -A\``,
-								`6. Commit merge: \`git commit -m "fix: resolve merge conflicts for PR #${conflictInfo.number}"\``,
-								`7. Push: \`git push ${config.remote} ${branch}\``,
-								``,
-								`When done, output CONFLICTS_RESOLVED on its own line.`,
-							].join("\n");
+					const devTask = [
+						`## Task: Resolve Merge Conflicts`,
+						``,
+						`**Branch:** ${branch}`,
+						`**Worktree:** ${wt}`,
+						`**Base branch:** ${config.defaultBranch}`,
+						`**Conflicted files:** ${mergeResult.conflictFiles.join(", ") || "(unknown)"}`,
+						``,
+						`### Steps`,
+						`1. Enter worktree: \`cd ${wt}\``,
+						`2. Fetch base: \`git fetch ${config.remote} ${config.defaultBranch}\``,
+						`3. Merge base: \`git merge ${config.remote}/${config.defaultBranch}\``,
+						`4. Resolve conflicts in the conflicted files`,
+						`5. Stage resolved files: \`git add -A\``,
+						`6. Commit merge: \`git commit -m "fix: resolve merge conflicts for PR #${conflictInfo.number}"\``,
+						`7. Push: \`git push ${config.remote} ${branch}\``,
+						``,
+						`When done, output CONFLICTS_RESOLVED on its own line.`,
+					].join("\n");
 
-							log.info("pipeline-merge", "Dispatching developer for conflict resolution");
-							const devTimeoutMs = resolveTimeoutMs("developer", config.agentTimeoutsMin);
-							const devResult = await runAgent(devAgent, devTask, ctx, pi, devTimeoutMs);
+					// Dispatch developer via subagent tool for consistent widget rendering
+					// (replaces old runAgent() path which used different widget code)
+					const widgetId = `agent-developer`;
 
-							log.info(
-								"pipeline-merge",
-								`Developer conflict resolution: success=${devResult.success}`,
-							);
-
-							const subagentResult = convertAgentRunToToolResult(devResult, devTask);
-
-							pi.sendMessage({
-								customType: "supervisor",
-								content: `## Conflict Resolution: ${devResult.agentName} — ${devResult.success ? "SUCCESS" : "FAILED"}\n\n${devResult.output || devResult.textOutput || devResult.summaryLine}`,
-								display: true,
-								details: {
-									_subagentResult: subagentResult,
+					log.info("pipeline-merge", "Dispatching developer for conflict resolution");
+					try {
+						const devResult = await pi.executeTool(
+							"subagent",
+							{
+								agent: "developer",
+								task: devTask,
+								cwd: wt,
+								maxToolCalls: config.maxToolCalls,
+								agentTokenBudget: config.agentTokenBudget,
+							},
+							{
+								signal: ctx.signal,
+								onUpdate: (partial: AgentToolResult<Partial<SubagentDetails>>) => {
+									const d = partial.details;
+									if (!d || !ctx.hasUI) return;
+									renderWidgetFromDetails(d, "developer", undefined, ctx, widgetId);
 								},
-							});
-
-							if (devResult.success) {
-								log.info("pipeline-merge", "Developer resolved conflicts");
-								ctx.ui.notify("Developer resolved merge conflicts successfully!", "info");
-							} else {
-								log.warn("pipeline-merge", "Developer failed to resolve conflicts");
-								ctx.ui.notify(
-									"Developer failed to resolve conflicts. Manual intervention required.",
-									"error",
-								);
-							}
-						} catch (devErr: unknown) {
-							const msg = devErr instanceof Error ? devErr.message : String(devErr);
-							log.error("pipeline-merge", `Failed to dispatch developer: ${msg}`);
-							ctx.ui.notify(`Failed to dispatch developer: ${msg}`, "error");
-						}
-					} else {
-						log.warn("pipeline-merge", "Developer agent not found");
-						ctx.ui.notify(
-							"Developer agent not found. Cannot resolve conflicts automatically.",
-							"error",
+							},
 						);
+
+						const dd = devResult.details || (devResult as any);
+						const devSuccess = dd?.success === true;
+
+						log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`);
+
+						pi.sendMessage({
+							customType: "supervisor",
+							content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${dd?.summaryLine || ""}`,
+							display: true,
+							details: {
+								_subagentResult: devResult as any,
+							},
+						});
+
+						if (devSuccess) {
+							log.info("pipeline-merge", "Developer resolved conflicts");
+							ctx.ui.notify("Developer resolved merge conflicts successfully!", "info");
+						} else {
+							log.warn("pipeline-merge", "Developer failed to resolve conflicts");
+							ctx.ui.notify(
+								"Developer failed to resolve conflicts. Manual intervention required.",
+								"error",
+							);
+						}
+					} catch (devErr: unknown) {
+						const msg = devErr instanceof Error ? devErr.message : String(devErr);
+						log.error("pipeline-merge", `Failed to dispatch developer: ${msg}`);
+						ctx.ui.notify(`Failed to dispatch developer: ${msg}`, "error");
+					} finally {
+						// Clear developer widget on completion
+						ctx.ui.setWidget(widgetId, undefined);
 					}
 				}
 			}
@@ -203,5 +211,7 @@ export async function handlePostPipelineMerge(
 		}
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);
+		// Clear developer widget in case it wasn't cleaned up
+		ctx.ui.setWidget("agent-developer", undefined);
 	}
 }

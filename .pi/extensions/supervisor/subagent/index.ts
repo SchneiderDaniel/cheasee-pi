@@ -227,6 +227,10 @@ export async function executeSubagent(
 			if (thinkOutput) contentParts.push(thinkOutput);
 			if (liveOutput) contentParts.push(liveOutput);
 
+			// Build recent log entries (last 10, matching widget budget)
+			const MAX_LOG_ENTRIES = 10;
+			const recentLogEntries = state.fullLog.slice(-MAX_LOG_ENTRIES);
+
 			onUpdate({
 				content: [{ type: "text", text: contentParts.join("\n\n") }],
 				details: {
@@ -251,6 +255,16 @@ export async function executeSubagent(
 					maxToolCalls: state.maxToolCalls,
 					agentTokenBudget: state.agentTokenBudget,
 					compacted: hasCompacted,
+					// Widget rendering fields
+					phase: state.phase,
+					currentTool: state.currentTool,
+					currentToolArgs: state.currentToolArgs,
+					recentLogEntries: recentLogEntries.length > 0 ? recentLogEntries : undefined,
+					liveThinking: state.liveThinking || undefined,
+					liveText: state.liveText || undefined,
+					contextTokens: state.contextTokens,
+					contextWindow: state.contextWindow,
+					startedAt,
 				},
 			});
 		};
@@ -444,6 +458,10 @@ export async function executeSubagent(
 
 		// Send final onUpdate
 		if (onUpdate) {
+			// Build recent log entries (last 10, matching widget budget)
+			const MAX_LOG_ENTRIES = 10;
+			const recentLogEntries = state.fullLog.slice(-MAX_LOG_ENTRIES);
+
 			const finalStatus = state.budgetExceeded
 				? `✓ ${agentName} — budget exceeded (${state.toolCount} tools, ${state.tokenCount} tokens)`
 				: `✓ ${agentName} — complete`;
@@ -471,6 +489,16 @@ export async function executeSubagent(
 					maxToolCalls: state.maxToolCalls,
 					agentTokenBudget: state.agentTokenBudget,
 					compacted: hasCompacted,
+					// Widget rendering fields
+					phase: state.phase,
+					currentTool: state.currentTool,
+					currentToolArgs: state.currentToolArgs,
+					recentLogEntries: recentLogEntries.length > 0 ? recentLogEntries : undefined,
+					liveThinking: state.liveThinking || undefined,
+					liveText: state.liveText || undefined,
+					contextTokens: state.contextTokens,
+					contextWindow: state.contextWindow,
+					startedAt,
 				},
 			});
 		}

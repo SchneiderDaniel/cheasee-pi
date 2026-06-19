@@ -9,7 +9,8 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunState } from "../config/types.ts";
-import { buildWidgetLines } from "../session/widget.ts";
+import { buildWidgetLines, renderWidgetFromDetails } from "../session/widget.ts";
+import type { SubagentDetails } from "../subagent/types.ts";
 
 // ─── Shared State ──────────────────────────────────────────────────
 
@@ -723,5 +724,248 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		// Second call clears
 		assert.equal(widgetCalls[1].lines, undefined, "widget should be cleared");
+	});
+
+	// ═══════════════════════════════════════════════════════════════
+	// renderWidgetFromDetails user-journey (Phase 5 — Audit Finding 4)
+	// ═══════════════════════════════════════════════════════════════
+
+	it("renderWidgetFromDetails produces same widget format as buildWidgetLines (identical structure)", () => {
+		const ctx = createMockCtx();
+		const details: Partial<SubagentDetails> = {
+			agentName: "developer",
+			phase: "thinking",
+			liveThinking: "Analyzing code...",
+			runningTokenCount: 500,
+			runningToolCount: 2,
+			startedAt: Date.now() - 5000,
+		};
+
+		renderWidgetFromDetails(details, "developer", "claude-sonnet-4", ctx, "agent-developer");
+
+		// Compare with direct buildWidgetLines call
+		const state = createState({
+			phase: "thinking",
+			liveThinking: "Analyzing code...",
+			tokenCount: 500,
+			toolCount: 2,
+			startedAt: details.startedAt!,
+		});
+		const expectedLines = buildWidgetLines(state, "developer", "claude-sonnet-4");
+
+		assert.equal(widgetCalls.length, 1);
+		assert.deepEqual(
+			widgetCalls[0].lines,
+			expectedLines,
+			"renderWidgetFromDetails should produce same lines as direct buildWidgetLines",
+		);
+	});
+
+	it("renderWidgetFromDetails uses widget ID 'agent-{name}' matching canonical format", () => {
+		const ctx = createMockCtx();
+		const details: Partial<SubagentDetails> = {
+			agentName: "developer",
+			phase: "idle",
+		};
+
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-developer");
+		assert.equal(widgetCalls[0].id, "agent-developer");
+
+		// Also works for architect
+		renderWidgetFromDetails(
+			{ agentName: "architect", phase: "thinking" },
+			"architect",
+			undefined,
+			ctx,
+			"agent-architect",
+		);
+		assert.equal(widgetCalls[1].id, "agent-architect");
+	});
+
+	it("both pipeline (executeAgent) and merge (handlePostPipelineMerge) produce same widget structure", () => {
+		// This test verifies the shared helper produces identical output
+		// whether called from the pipeline path (Path A) or merge path (Path B)
+		const ctx1 = createMockCtx();
+		const ctx2 = createMockCtx();
+
+		const details: Partial<SubagentDetails> = {
+			agentName: "developer",
+			phase: "tool",
+			currentTool: "bash",
+			currentToolArgs: '{"command": "npm test"}',
+			runningTokenCount: 1200,
+			runningToolCount: 7,
+			errorCount: 0,
+			startedAt: Date.now() - 20000,
+			contextTokens: 600,
+			contextWindow: 16000,
+		};
+
+		// Pipeline path (Path A): renderWidgetFromDetails called from executeAgent's onUpdate
+		renderWidgetFromDetails(details, "developer", "claude-sonnet-4", ctx1, "agent-developer");
+
+		// Merge path (Path B): renderWidgetFromDetails called from handlePostPipelineMerge's onUpdate
+		renderWidgetFromDetails(details, "developer", "claude-sonnet-4", ctx2, "agent-developer");
+
+		// Both should produce identical widget lines
+		assert.equal(widgetCalls.length, 2);
+		assert.deepEqual(
+			widgetCalls[0].lines,
+			widgetCalls[1].lines,
+			"both paths should produce identical widget lines from same details",
+		);
+	});
+
+	it("renderWidgetFromDetails gracefully handles missing fields (liveThinking undefined)", () => {
+		const ctx = createMockCtx();
+		const details: Partial<SubagentDetails> = {
+			agentName: "architect",
+			phase: "thinking",
+			// liveThinking intentionally undefined
+			startedAt: Date.now() - 5000,
+		};
+
+		// Should not throw
+		renderWidgetFromDetails(details, "architect", undefined, ctx, "agent-architect");
+
+		assert.equal(widgetCalls.length, 1);
+		const headerLine = widgetCalls[0].lines?.find((l) => l.includes("architect"));
+		assert.ok(headerLine, "should still show header even without thinking content");
+	});
+
+	it("renderWidgetFromDetails widget shows context info when contextTokens/contextWindow are provided", () => {
+		const ctx = createMockCtx();
+		const details: Partial<SubagentDetails> = {
+			agentName: "developer",
+			phase: "idle",
+			contextTokens: 500,
+			contextWindow: 32000,
+			startedAt: Date.now() - 1000,
+		};
+
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-developer");
+
+		const contextLine = widgetCalls[0].lines?.find((l) => l.includes("Context:"));
+		assert.ok(contextLine, "widget should include context line");
+		assert.ok(contextLine?.includes("500"), "should show context token count");
+	});
+
+	it("renderWidgetFromDetails widget shows 'computing...' when context info not yet received", () => {
+		const ctx = createMockCtx();
+		const details: Partial<SubagentDetails> = {
+			agentName: "developer",
+			phase: "idle",
+			contextTokens: undefined,
+			contextWindow: undefined,
+			startedAt: Date.now() - 1000,
+		};
+
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-developer");
+
+		const contextLine = widgetCalls[0].lines?.find((l) => l.includes("Context:"));
+		assert.ok(contextLine, "widget should include context line");
+		assert.ok(
+			contextLine?.includes("computing"),
+			"should show 'computing...' when context not ready",
+		);
+	});
+
+	it("pipeline dispatches agent → onUpdate calls renderWidgetFromDetails → widget shows progress", () => {
+		// Simulate what executeAgent does: onUpdate callback calls renderWidgetFromDetails
+		const ctx = createMockCtx();
+
+		// Phase 1: idle — initial state
+		renderWidgetFromDetails(
+			{ agentName: "developer", phase: "idle", startedAt: Date.now() - 1000 },
+			"developer",
+			"claude-sonnet-4",
+			ctx,
+			"agent-developer",
+		);
+		assert.ok(
+			widgetCalls[0].lines?.some((l) => l.includes("developer")),
+			"initial widget should show agent name",
+		);
+
+		// Phase 2: thinking
+		renderWidgetFromDetails(
+			{
+				agentName: "developer",
+				phase: "thinking",
+				liveThinking: "Analyzing requirements...",
+				startedAt: Date.now() - 1000,
+			},
+			"developer",
+			"claude-sonnet-4",
+			ctx,
+			"agent-developer",
+		);
+		assert.ok(
+			widgetCalls[1].lines?.some((l) => l.includes("Analyzing")),
+			"widget should update with thinking content",
+		);
+
+		// Phase 3: tool
+		renderWidgetFromDetails(
+			{
+				agentName: "developer",
+				phase: "tool",
+				currentTool: "read",
+				currentToolArgs: '{"path": "file.ts"}',
+				startedAt: Date.now() - 1000,
+			},
+			"developer",
+			"claude-sonnet-4",
+			ctx,
+			"agent-developer",
+		);
+		assert.ok(
+			widgetCalls[2].lines?.some((l) => l.includes("file.ts") || l.includes("read")),
+			"widget should show tool call",
+		);
+
+		// Phase 4: text
+		renderWidgetFromDetails(
+			{
+				agentName: "developer",
+				phase: "text",
+				liveText: "Here is the implementation...",
+				startedAt: Date.now() - 1000,
+			},
+			"developer",
+			"claude-sonnet-4",
+			ctx,
+			"agent-developer",
+		);
+		assert.ok(
+			widgetCalls[3].lines?.some((l) => l.includes("implementation")),
+			"widget should show live text",
+		);
+
+		// Final state: completed with stats
+		renderWidgetFromDetails(
+			{
+				agentName: "developer",
+				phase: "text",
+				runningToolCount: 5,
+				runningTokenCount: 2500,
+				startedAt: Date.now() - 60000,
+			},
+			"developer",
+			"claude-sonnet-4",
+			ctx,
+			"agent-developer",
+		);
+
+		// Verify all 5 phases produced widget calls
+		assert.equal(widgetCalls.length, 5, "should have 5 widget updates for 5 phases");
+
+		// All widget calls use same canonical format (buildWidgetLines)
+		for (const call of widgetCalls) {
+			assert.equal(call.id, "agent-developer", "all widget calls should use agent-developer ID");
+			if (call.lines) {
+				assert.ok(call.lines.length >= 2, "each widget should have at least 2 lines");
+			}
+		}
 	});
 });

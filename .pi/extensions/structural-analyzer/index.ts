@@ -30,22 +30,65 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 	function getSgBinary(): Promise<string> {
 		if (binaryPromise) return binaryPromise;
 
-		binaryPromise = pi
-			.exec("ast-grep", ["--version"], { timeout: 5_000 })
-			.then((result) => {
-				if (result.code !== 0) {
-					throw new Error(
-						"ast-grep is not installed or not working. " +
-							"Install it with: npm i -g @ast-grep/cli",
-					);
+		const COMMON_PATHS = [
+			"/home/miria/.npm-global/bin/ast-grep",
+			process.env.HOME ? `${process.env.HOME}/.npm-global/bin/ast-grep` : "",
+			process.env.HOME ? `${process.env.HOME}/.local/bin/ast-grep` : "",
+		];
+
+		async function tryResolve(): Promise<string> {
+			// 1) Try PATH-based lookup
+			try {
+				const result = await pi.exec("ast-grep", ["--version"], {
+					timeout: 5_000,
+				});
+				if (result.code === 0) return "ast-grep";
+			} catch {
+				// not in PATH — continue
+			}
+
+			// 2) Try common npm global bin paths
+			try {
+				const prefixResult = await pi.exec("npm", ["config", "get", "prefix"], {
+					timeout: 3_000,
+				});
+				if (prefixResult.code === 0) {
+					const prefix = prefixResult.stdout?.trim();
+					if (prefix) {
+						const candidate = `${prefix}/bin/ast-grep`;
+						const testResult = await pi.exec(candidate, ["--version"], {
+							timeout: 5_000,
+						});
+						if (testResult.code === 0) return candidate;
+					}
 				}
-				return "ast-grep";
-			})
-			.catch((err: unknown) => {
-				// Reset so next caller retries (transient failure recovery)
-				binaryPromise = null;
-				throw err;
-			});
+			} catch {
+				// npm config failed — continue
+			}
+
+			// 3) Try common hardcoded fallback paths
+			for (const candidate of COMMON_PATHS) {
+				if (!candidate) continue;
+				try {
+					const testResult = await pi.exec(candidate, ["--version"], {
+						timeout: 3_000,
+					});
+					if (testResult.code === 0) return candidate;
+				} catch {
+					// not at this path — continue
+				}
+			}
+
+			throw new Error(
+				"ast-grep is not installed or not working. " + "Install it with: npm i -g @ast-grep/cli",
+			);
+		}
+
+		binaryPromise = tryResolve().catch((err: unknown) => {
+			// Reset so next caller retries (transient failure recovery)
+			binaryPromise = null;
+			throw err;
+		});
 
 		return binaryPromise;
 	}

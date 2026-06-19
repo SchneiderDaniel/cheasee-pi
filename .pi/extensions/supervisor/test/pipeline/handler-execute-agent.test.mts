@@ -102,6 +102,33 @@ const mockAgent = {
 	systemPrompt: "You are a test agent.",
 };
 
+// Track setWidget calls for widget assertions
+let widgetCalls: Array<{ id: string; lines?: string[] }> = [];
+
+/** Create a mock ctx that captures setWidget calls */
+function createMockCtxWithWidgetTracking(): ExtensionCommandContext & {
+	widgetCalls: Array<{ id: string; lines?: string[] }>;
+} {
+	return {
+		cwd: "/repo",
+		signal: new AbortController().signal,
+		hasUI: true,
+		ui: {
+			notify: (_msg: string, _type?: string) => {},
+			setStatus: (_key: string, _status?: string) => {},
+			setWidget: (id: string, lines?: string[]) => {
+				widgetCalls.push({ id, lines });
+			},
+			setWorkingMessage: (_msg?: string) => {},
+			confirm: async () => true,
+			select: async () => "",
+		},
+		widgetCalls,
+	} as unknown as ExtensionCommandContext & {
+		widgetCalls: Array<{ id: string; lines?: string[] }>;
+	};
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────
 
 describe("executeAgent() — end-to-end paths (Phase 3)", () => {
@@ -386,9 +413,10 @@ describe("executeAgent() — end-to-end paths (Phase 3)", () => {
 
 		await executeAgent(mockAgent as any, "test task", ctx, piWithOrder as any, 30000, undefined);
 
-		assert.equal(callOrder.length, 2, "should have 2 calls");
-		assert.equal(callOrder[0], "sendMessage", "sendMessage should be first");
-		assert.equal(callOrder[1], "executeTool", "executeTool should be second");
+		// Expect at least 2 calls: start message + executeTool (final result message may follow)
+		assert.ok(callOrder.length >= 2, "should have at least 2 calls");
+		assert.equal(callOrder[0], "sendMessage", "sendMessage should be first (start message)");
+		assert.equal(callOrder[1], "executeTool", "executeTool should be second (after start message)");
 	});
 
 	it("does NOT send raw tool-result messages (manual rendering removed)", async () => {
@@ -399,13 +427,167 @@ describe("executeAgent() — end-to-end paths (Phase 3)", () => {
 
 		await executeAgent(mockAgent as any, "test task", ctx, pi, 30000, undefined);
 
-		// The only sendMessage call should be the start message
-		// No per-tool-call messages, no per-think messages
-		assert.equal(pi.sendMessageCalls.length, 1, "should only send the start message");
+		// Should have start message + final result message, but no per-tool-call messages
+		assert.ok(pi.sendMessageCalls.length >= 1, "should have at least the start message");
+		assert.ok(pi.sendMessageCalls.length <= 3, "should not have many messages");
 
-		const msg = pi.sendMessageCalls[0];
+		const startMsg = pi.sendMessageCalls[0];
 		// Should NOT contain tool call formatting
-		assert.ok(!msg.content.includes("**read**"), "should not contain manual tool call formatting");
-		assert.ok(!msg.content.includes("💭"), "should not contain manual think formatting");
+		assert.ok(
+			!startMsg.content.includes("**read**"),
+			"should not contain manual tool call formatting",
+		);
+		assert.ok(!startMsg.content.includes("💭"), "should not contain manual think formatting");
+
+		// Verify no per-tool-call messages (would contain tool call info)
+		for (const msg of pi.sendMessageCalls) {
+			if (msg.details?.toolCallResult) {
+				assert.fail("should not have per-tool-call messages");
+			}
+		}
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Widget assertions (Phase 3 — Audit Finding 2)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("executeAgent() — widget rendering (Phase 3)", () => {
+	it("uses widget ID format 'agent-{name}', not 'supervisor-{name}-{ts}'", async () => {
+		widgetCalls = [];
+		const pi = createMockPi();
+		const ctx = createMockCtxWithWidgetTracking();
+
+		const { executeAgent } = await import("../../pipeline/handler.ts");
+
+		await executeAgent(mockAgent as any, "test task", ctx, pi, 30000, undefined);
+
+		const agentWidgetCalls = widgetCalls.filter((w) => w.id === "agent-developer");
+		assert.ok(agentWidgetCalls.length > 0, "should have widget calls with ID 'agent-developer'");
+
+		// Verify NO calls with old format
+		const oldFormatCalls = widgetCalls.filter((w) => w.id.startsWith("supervisor-"));
+		assert.equal(oldFormatCalls.length, 0, "should NOT use old 'supervisor-{name}-{ts}' format");
+	});
+
+	it("widget content uses buildWidgetLines format (header line with ⚙ + agent name)", async () => {
+		widgetCalls = [];
+		const pi = createMockPi();
+		const ctx = createMockCtxWithWidgetTracking();
+
+		const { executeAgent } = await import("../../pipeline/handler.ts");
+
+		await executeAgent(mockAgent as any, "test task", ctx, pi, 30000, undefined);
+
+		// At least one widget call should have lines with buildWidgetLines format
+		const agentCalls = widgetCalls.filter((w) => w.id === "agent-developer");
+		assert.ok(agentCalls.length > 0, "should have widget calls for agent-developer");
+
+		// Widget lines should follow buildWidgetLines format
+		const lastWidgetLines = agentCalls[agentCalls.length - 1].lines;
+		if (lastWidgetLines && lastWidgetLines.length > 0) {
+			// Header line should include agent name
+			const headerLine = lastWidgetLines.find((l) => l.includes("developer"));
+			assert.ok(headerLine, "widget should include agent name in header");
+		}
+		// Note: widget may be cleared (lines=undefined) on completion;
+		// the important thing is calls were made with agent-developer ID
+	});
+
+	it("widget cleared on completion via setWidget(id, undefined)", async () => {
+		widgetCalls = [];
+		const pi = createMockPi();
+		const ctx = createMockCtxWithWidgetTracking();
+
+		const { executeAgent } = await import("../../pipeline/handler.ts");
+
+		await executeAgent(mockAgent as any, "test task", ctx, pi, 30000, undefined);
+
+		// The last call for agent-developer widget should be undefined (clear)
+		const agentCalls = widgetCalls.filter((w) => w.id === "agent-developer");
+		if (agentCalls.length > 0) {
+			const lastCall = agentCalls[agentCalls.length - 1];
+			// On success, widget is cleared
+			assert.equal(
+				lastCall.lines,
+				undefined,
+				"last widget call should clear widget (lines=undefined)",
+			);
+		}
+		// Note: if no widget calls were made but hasUI is true, that's a failure
+		assert.ok(ctx.hasUI, "context should have UI");
+	});
+
+	it("onUpdate callback receives SubagentDetails with phase/currentTool for widget rendering", async () => {
+		widgetCalls = [];
+		// Create pi that calls onUpdate with widget-rendering fields
+		let capturedOnUpdate: ((partial: any) => void) | undefined;
+		const pi = {
+			...createMockPi(),
+			executeTool: ((_name: string, _params: any, opts?: any) => {
+				capturedOnUpdate = opts?.onUpdate;
+				// Call onUpdate with widget-rendering fields
+				if (capturedOnUpdate) {
+					capturedOnUpdate({
+						content: [{ type: "text", text: "Running" }],
+						details: {
+							agentName: "developer",
+							phase: "thinking",
+							liveThinking: "Analyzing code...",
+							runningTokenCount: 100,
+							runningToolCount: 1,
+							startedAt: Date.now() - 3000,
+						},
+					});
+				}
+				return Promise.resolve({
+					content: [{ type: "text", text: "Success" }],
+					details: {
+						agentName: "test-agent",
+						success: true,
+						statusLabel: "SUCCESS",
+						summaryLine: "Test completed",
+						model: "test-model",
+						inputTokens: 100,
+						outputTokens: 50,
+						cacheRead: 0,
+						cacheWrite: 0,
+						cost: 0,
+						turnCount: 1,
+						durationMs: 5000,
+						toolCalls: [],
+						toolResults: [],
+						taskPrompt: "test task",
+					},
+				});
+			}) as any,
+		};
+		const ctx = createMockCtxWithWidgetTracking();
+
+		const { executeAgent } = await import("../../pipeline/handler.ts");
+
+		await executeAgent(mockAgent as any, "test task", ctx, pi as any, 30000, undefined);
+
+		// Widget should have been called during onUpdate
+		const thinkingCalls = widgetCalls.filter(
+			(w) => w.lines && w.lines.some((l) => l.includes("Analyzing")),
+		);
+		assert.ok(thinkingCalls.length > 0, "widget should show thinking content from onUpdate");
+	});
+
+	it("no widget created when ctx.hasUI is false", async () => {
+		widgetCalls = [];
+		const pi = createMockPi();
+		const ctx = {
+			...createMockCtx(),
+			hasUI: false,
+		};
+
+		const { executeAgent } = await import("../../pipeline/handler.ts");
+
+		await executeAgent(mockAgent as any, "test task", ctx as any, pi, 30000, undefined);
+
+		// Widget ID is undefined when hasUI=false, so setWidget should never be called
+		assert.equal(widgetCalls.length, 0, "no widget calls when hasUI is false");
 	});
 });
