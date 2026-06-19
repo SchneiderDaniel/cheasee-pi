@@ -103,6 +103,20 @@ GIT_EMAIL="${HOST_GIT_EMAIL:-cheasee-pi@localhost}"
 gosu agentuser git config --global user.name "$GIT_NAME" 2>/dev/null || true
 gosu agentuser git config --global user.email "$GIT_EMAIL" 2>/dev/null || true
 
+# --- Rewrite SSH remote URLs to HTTPS for Docker --------------------------
+# Docker image has no SSH client. gh CLI is installed with an HTTPS OAuth
+# token passed via bind-mount (~/.config/gh). Use git insteadOf to
+# transparently rewrite SSH GitHub URLs to HTTPS so git push works without
+# SSH. This is a global git config — does not modify the repo's .git/config.
+#
+# Equivalent to: git remote set-url origin https://github.com/org/repo.git
+# but without touching the shared working tree .git/config.
+gosu agentuser git config --global --add url."https://github.com/".insteadOf "git@github.com:" 2>/dev/null || true
+# Also handle SSH-style without colon (rare, but covers edge cases)
+gosu agentuser git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" 2>/dev/null || true
+# Use gh as credential helper for HTTPS pushes
+gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
+
 # --- Drop privileges and exec -------------------------------------
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)

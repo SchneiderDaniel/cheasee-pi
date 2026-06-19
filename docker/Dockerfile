@@ -40,11 +40,11 @@ RUN apt-get update && \
         git \
         wget \
         gosu \
-        libasound2t64 \
-        libatk-bridge2.0-0t64 \
-        libatk1.0-0t64 \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
         libcairo2 \
-        libcups2t64 \
+        libcups2 \
         libdbus-1-3 \
         libdrm2 \
         libgbm1 \
@@ -91,23 +91,15 @@ RUN npm install -g --force \
 # ---------------------------------------------------------------
 RUN case "$(dpkg --print-architecture)" in \
         amd64) \
-            ra_asset="rust-analyzer-x86_64-unknown-linux-gnu.gz" \
-            gopls_pattern='gopls-*.linux-amd64.tar.gz' ;; \
+            ra_asset="rust-analyzer-x86_64-unknown-linux-gnu.gz" ;; \
         arm64) \
-            ra_asset="rust-analyzer-aarch64-unknown-linux-gnu.gz" \
-            gopls_pattern='gopls-*.linux-arm64.tar.gz' ;; \
+            ra_asset="rust-analyzer-aarch64-unknown-linux-gnu.gz" ;; \
         *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac && \
     curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/${ra_asset}" -o "/tmp/${ra_asset}" && \
     gunzip "/tmp/${ra_asset}" && \
     install -m 755 "/tmp/${ra_asset%.gz}" /usr/local/bin/rust-analyzer && \
-    rm -f "/tmp/${ra_asset%.gz}" && \
-    GH_HOST=github.com gh release download -R golang/tools \
-        --pattern "$gopls_pattern" \
-        --dir /tmp && \
-    tar xzf /tmp/gopls-*.tar.gz -C /usr/local/bin/ gopls && \
-    chmod +x /usr/local/bin/gopls && \
-    rm -rf /tmp/gopls-*
+    rm -f "/tmp/${ra_asset%.gz}"
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
