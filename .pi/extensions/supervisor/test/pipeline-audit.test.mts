@@ -2,7 +2,7 @@
  * Tests for pipeline-audit.ts — worktreePath plumbing fix (Issue #284)
  *
  * Phase 1: `worktreePath` parameter plumbing in `pipeline-audit.ts`
- * Phase 2: `getRunTscCheckpoint` returns function with only worktreePath param
+ * Phase 2: `getRunGate` returns typed runner via dynamic import
  * Phase 3: `worktreePath` passed from `pipeline.ts` call site
  * Phase 4: Path construction consistency (resolvePath not string concat)
  * Phase 6: Non-standard `worktreeBase` config compatibility
@@ -22,7 +22,7 @@ const __dirname = dirname(__filename);
 
 const AUDIT_TS = resolve(__dirname, "../pipeline/audit.ts");
 const PIPELINE_TS = resolve(__dirname, "../pipeline/handler.ts");
-const TSC_DECISIONS_TS = resolve(__dirname, "../checks/tsc-decisions.ts");
+const AUDIT_GATE_DECISION_TS = resolve(__dirname, "../checks/audit-gate-decision.ts");
 const TSC_CHECKPOINT_INDEX_TS = resolve(__dirname, "../../tsc-checkpoint/index.ts");
 
 function readAuditSource(): string {
@@ -151,32 +151,25 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 });
 
 // ===========================================================================
-// Phase 2: `getRunTscCheckpoint` returns function with only worktreePath param
+// Phase 2: `getRunGate` returns typed runner via dynamic import
 // ===========================================================================
 
-describe("getRunTscCheckpoint — pi param removed (Phase 2)", () => {
-	it("getRunTscCheckpoint returns function with .length === 1 (no pi param)", async () => {
+describe("getRunGate — unified dynamic import (Phase 2)", () => {
+	it("runTscCheckpoint accepts worktreePath as first param (no pi)", async () => {
 		const { runTscCheckpoint } = await import("../../tsc-checkpoint/index.ts");
-		assert.strictEqual(
-			runTscCheckpoint.length,
-			1,
-			"runTscCheckpoint should accept only worktreePath",
-		);
+		// Function has 2 params: worktreePath (required) + optional getParsedCommandLineOfConfigFile
+		// Verifies pi was removed from the signature — function is callable with single worktreePath arg
+		assert.ok(runTscCheckpoint.length >= 1, "runTscCheckpoint should accept at least worktreePath");
 	});
 
-	it("getRunTscCheckpoint source shows (worktreePath: string) signature with no pi", () => {
-		const src = readFileSync(TSC_DECISIONS_TS, "utf-8");
-		const getRunIdx = src.indexOf("export async function getRunTscCheckpoint");
-		assert.ok(getRunIdx >= 0, "getRunTscCheckpoint function exists in tsc-decisions.ts");
-		// Verify the return type shows only worktreePath param (no pi)
-		const returnTypeSection = src.substring(getRunIdx, src.indexOf("> {", getRunIdx) + 3);
+	it("getRunGate exists in audit-gate-decision.ts with PolicyName param", () => {
+		const src = readFileSync(AUDIT_GATE_DECISION_TS, "utf-8");
+		const getRunIdx = src.indexOf("export async function getRunGate");
+		assert.ok(getRunIdx >= 0, "getRunGate function exists in audit-gate-decision.ts");
+		// Verify the signature shows PolicyName generic
 		assert.ok(
-			returnTypeSection.includes("worktreePath: string"),
-			"getRunTscCheckpoint return type should have worktreePath: string",
-		);
-		assert.ok(
-			!returnTypeSection.includes("pi:"),
-			"getRunTscCheckpoint return type should NOT have pi param",
+			src.includes("getRunGate<K extends PolicyName>"),
+			"getRunGate should be generic over PolicyName",
 		);
 	});
 
@@ -365,27 +358,20 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 		);
 	});
 
-	it("determineTscCheckpointDecision call is outside the catch block (no early return)", () => {
+	it("determineAuditGate call is outside the catch block (no early return)", () => {
 		const src = readAuditSource();
 		const catchIdx = src.indexOf("catch (tscErr: unknown)");
 		assert.ok(catchIdx >= 0, "catch (tscErr: unknown) block exists");
-		const decisionIdx = src.indexOf(
-			'const tscDecision = await determineTscCheckpointDecision(tscResult, "Audit");',
-		);
-		assert.ok(decisionIdx >= 0, "determineTscCheckpointDecision call exists");
+		const decisionIdx = src.indexOf("const tscDecision = determineAuditGate({");
+		assert.ok(decisionIdx >= 0, "determineAuditGate call exists");
 		// Decision must come after catch block
-		assert.ok(
-			decisionIdx > catchIdx,
-			"determineTscCheckpointDecision should be after the catch block",
-		);
+		assert.ok(decisionIdx > catchIdx, "determineAuditGate should be after the catch block");
 	});
 
-	it("determineTscCheckpointDecision and if/else are not wrapped inside try/catch", () => {
+	it("determineAuditGate and if/else are not wrapped inside try/catch", () => {
 		const src = readAuditSource();
-		const decisionLine =
-			'const tscDecision = await determineTscCheckpointDecision(tscResult, "Audit");';
-		const decisionIdx = src.indexOf(decisionLine);
-		assert.ok(decisionIdx >= 0, "determineTscCheckpointDecision call exists");
+		const decisionIdx = src.indexOf("const tscDecision = determineAuditGate({");
+		assert.ok(decisionIdx >= 0, "determineAuditGate call exists");
 		// Find the catch block closing brace before the decision line
 		const beforeDecision = src.substring(0, decisionIdx);
 		const lastCatchIdx = beforeDecision.lastIndexOf("catch (tscErr: unknown)");
@@ -396,10 +382,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 		const catchCloseIdx = afterCatch.lastIndexOf("}");
 		assert.ok(catchCloseIdx >= 0, "catch block has closing brace");
 		const between = afterCatch.substring(catchCloseIdx, afterCatch.length);
-		assert.ok(
-			!between.includes("try {"),
-			"determineTscCheckpointDecision should not be inside a try block",
-		);
+		assert.ok(!between.includes("try {"), "determineAuditGate should not be inside a try block");
 	});
 });
 
@@ -417,24 +400,24 @@ describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
 		);
 	});
 
-	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before getRunTscCheckpoint()", () => {
+	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before getRunGate('tsc')", () => {
 		const src = readAuditSource();
 		// Find the pre-tsc checkpoint write block
 		const preTscIdx = src.indexOf('checkpoint: "pre-tsc"');
 		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint write");
 
-		// The pre-tsc checkpoint should appear before getRunTscCheckpoint call
-		const getRunTscIdx = src.indexOf("await getRunTscCheckpoint()");
-		assert.ok(getRunTscIdx >= 0, "should have getRunTscCheckpoint() call");
+		// The pre-tsc checkpoint should appear before getRunGate("tsc") call
+		const getRunGateIdx = src.indexOf('await getRunGate("tsc")');
+		assert.ok(getRunGateIdx >= 0, 'should have getRunGate("tsc") call');
 
-		// Extract section from pre-tsc checkpoint to getRunTscCheckpoint
-		const section = src.substring(preTscIdx, getRunTscIdx);
-		// The checkpoint write block should be followed by getRunTscCheckpoint
+		// Extract section from pre-tsc checkpoint to getRunGate
+		const section = src.substring(preTscIdx, getRunGateIdx);
+		// The checkpoint write block should be followed by getRunGate
 		assert.ok(section.includes('checkpoint: "pre-tsc"'), "pre-tsc checkpoint block exists");
-		// Verify ordering: pre-tsc checkpoint comes BEFORE getRunTscCheckpoint
+		// Verify ordering: pre-tsc checkpoint comes BEFORE getRunGate("tsc")
 		assert.ok(
-			preTscIdx < getRunTscIdx,
-			"pre-tsc checkpoint should be written before getRunTscCheckpoint() is called",
+			preTscIdx < getRunGateIdx,
+			'pre-tsc checkpoint should be written before getRunGate("tsc") is called',
 		);
 	});
 

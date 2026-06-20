@@ -7,7 +7,7 @@
  *
  * This is the extension entry point and backward-compatible re-export hub.
  * All public API surface from sub-modules is re-exported for external consumers:
- *   supervisor/checks/tsc-decisions.ts  (static + dynamic imports)
+ *   supervisor/checks/audit-gate-decision.ts  (dynamic import via getRunGate)
  *   supervisor/test/pipeline-audit.test.mts  (static import)
  */
 
