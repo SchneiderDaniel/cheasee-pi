@@ -9,12 +9,8 @@ import { resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { generateBranchName } from "../agent/task.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-import {
-	determineTscCheckpointDecision,
-	getRunTscCheckpoint,
-	type TscCheckpointResult,
-} from "../checks/tsc-decisions.ts";
-import { determineLspPreAuditDecision, getRunPreAudit } from "../checks/lsp-decisions.ts";
+import { determineAuditGate, getRunGate } from "../checks/audit-gate-decision.ts";
+import type { TscCheckpointResult } from "../../lib/tsc-types.ts";
 import { pollCiChecks } from "../checks/ci-gating.ts";
 import { runDuplicateCheck } from "../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
@@ -280,7 +276,7 @@ export async function runTscAndLspAudit(
 				);
 			}
 		}
-		const runTscCheckpointFn = await getRunTscCheckpoint();
+		const runTscCheckpointFn = await getRunGate("tsc");
 
 		if (runTscCheckpointFn) {
 			ctx.ui.setStatus("supervisor", "Running TSC checkpoint...");
@@ -294,7 +290,11 @@ export async function runTscAndLspAudit(
 				getDebugLogger().warn("pipeline-audit", "TSC checkpoint threw", { error: tscMsg });
 				collector?.push("pipeline-audit", "warn", `TSC checkpoint threw: ${tscMsg}`);
 			}
-			const tscDecision = await determineTscCheckpointDecision(tscResult, "Audit");
+			const tscDecision = determineAuditGate({
+				policyName: "tsc",
+				intendedNext: "Audit",
+				result: tscResult,
+			});
 
 			getDebugLogger().info("pipeline-audit", "TSC result", {
 				nextStatus: tscDecision.nextStatus,
@@ -378,7 +378,7 @@ async function runLspPreAudit(
 	worktreePath: string,
 	collector?: ErrorCollector,
 ): Promise<{ nextStatus: string; note: string }> {
-	const runPreAuditFn = await getRunPreAudit();
+	const runPreAuditFn = await getRunGate("lsp");
 	let preAuditResult: any = null;
 
 	try {
@@ -431,12 +431,12 @@ async function runLspPreAudit(
 			}
 		}
 
-		const decision = determineLspPreAuditDecision(
-			"Audit",
-			preAuditResult,
-			retryCount,
-			hasModifiedFiles,
-		);
+		const decision = determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: preAuditResult,
+			context: { hasModifiedFiles, retryCount },
+		});
 
 		if (decision.note) {
 			ctx.ui.notify(decision.note, "info");
