@@ -9,8 +9,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { parseJsonlFile, analyzeSession, buildSessionAnalysis } from "./advisor.ts";
-import type { SessionAnalysis, SessionData } from "./advisor.ts";
+import { parseJsonlFile } from "./jsonl-parser.ts";
+import { analyzeSession, buildSessionAnalysis } from "./session-analyzer.ts";
+import type { SessionAnalysis, SessionData } from "./types.ts";
 import { generateAdvice, generateReportAdvice } from "./llm-advisor.ts";
 import type {
 	AdviceResult,
@@ -676,7 +677,7 @@ export function createSignalIssues(
 			v.falsePositiveRisk,
 			``,
 			`### What to Do`,
-			`1. Remove \`${v.signal}\` detector from \`.pi/extensions/session-advice/advisor.ts\``,
+			`1. Remove \`${v.signal}\` detector from \`.pi/extensions/session-advice/session-analyzer.ts\``,
 			`2. Remove corresponding fix entry from \`.pi/extensions/session-advice/advice-pipeline.ts\``,
 			`3. Run tests to verify no regressions`,
 			``,
@@ -716,7 +717,7 @@ export function createSignalIssues(
 			n.detectionApproach,
 			``,
 			`### What to Do`,
-			`1. Implement \`${n.signal}\` detector in \`.pi/extensions/session-advice/advisor.ts\``,
+			`1. Implement \`${n.signal}\` detector in \`.pi/extensions/session-advice/session-analyzer.ts\``,
 			`2. Add test cases in \`.pi/extensions/session-advice/test/\``,
 			`3. Add fix entry in \`.pi/extensions/session-advice/advice-pipeline.ts\``,
 			``,

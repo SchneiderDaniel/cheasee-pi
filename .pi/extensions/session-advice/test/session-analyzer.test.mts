@@ -1,15 +1,15 @@
 /**
- * Tests for session-advice/advisor.ts — pure waste-signal detectors
+ * Tests for session-advice/session-analyzer.ts — pure waste-signal detectors
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/session-advice/test/session-advice-advisor.test.mts
+ *   node --experimental-strip-types --test .pi/extensions/session-advice/test/session-analyzer.test.mts
  */
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { analyzeSession } from "../advisor.ts";
+import { analyzeSession } from "../session-analyzer.ts";
 import { detectTurnInefficiency } from "../waste-signals/turn-inefficiency.ts";
-import type { SessionData, SessionEntry } from "../advisor.ts";
+import type { SessionData, SessionEntry } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1180,9 +1180,9 @@ describe("detectStructuralSearchUnderuse", () => {
 });
 
 describe("analyzeSessionFile removed (dead code)", () => {
-	it("should NOT be exported from advisor.ts", async () => {
-		const advisor = await import("../advisor.ts");
-		const exportNames = Object.keys(advisor);
+	it("should NOT be exported from session-analyzer.ts", async () => {
+		const analyzer = await import("../session-analyzer.ts");
+		const exportNames = Object.keys(analyzer);
 		assert.ok(
 			!exportNames.includes("analyzeSessionFile"),
 			"analyzeSessionFile was dead code (zero consumers) and should have been removed",

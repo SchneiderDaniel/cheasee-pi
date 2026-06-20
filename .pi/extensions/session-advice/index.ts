@@ -38,7 +38,8 @@ import {
 	writeAdvice,
 } from "./advice-pipeline.ts";
 import type { SystemPromptOptions } from "./llm-advisor.ts";
-import { analyzeSession, parseJsonlFile } from "./advisor.ts";
+import { analyzeSession } from "./session-analyzer.ts";
+import { parseJsonlFile } from "./jsonl-parser.ts";
 
 // ── Arg parsing helpers ──
 
