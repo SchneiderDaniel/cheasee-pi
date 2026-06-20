@@ -184,11 +184,68 @@ describe("createCrashCleanup() — Phase 1: setup/teardown", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// Phase 2: cleanupOnExit — guard, timeout, error handling
+// Phase 2: cleanupOnExit — timeout race, error handling, reordered branch deletion
 // ══════════════════════════════════════════════════════════════════
+//
+// Branch deletion now runs FIRST (before the race), so exec order invariant:
+//   execCall[0] = git branch -D
+//   execCall[1] = git worktree remove --force
+//   execCall[2] = git worktree prune
 
-describe("cleanupOnExit() — Phase 2: cleanup logic", () => {
-	it("SIGTERM happy path: cleanupWorktree runs three git commands and exit(0) called", async () => {
+async function makeTimeoutDeps(
+	overrides?: Partial<CleanupOnExitDeps> & {
+		execResults?: Array<{ code: number; stdout: string; stderr: string }>;
+		execCalls?: ExecCall[];
+	},
+): Promise<{
+	deps: CleanupOnExitDeps;
+	timeoutInfo: {
+		ms: number | null;
+		unrefCalled: boolean;
+		reject: ((err: Error) => void) | null;
+	};
+	cleanupPromise: Promise<void>;
+}> {
+	const execCalls = overrides?.execCalls || [];
+	const pi = createMockPi(overrides?.execResults || [], execCalls);
+	const exitSpy = mock.fn() as unknown as (code: number) => void;
+	const debugLogger = createMockedDebugLogger();
+
+	const timeoutInfo: {
+		ms: number | null;
+		unrefCalled: boolean;
+		reject: ((err: Error) => void) | null;
+	} = { ms: null, unrefCalled: false, reject: null };
+
+	mock.method(globalThis, "setTimeout", ((fn: (...args: unknown[]) => void, ms: number) => {
+		timeoutInfo.ms = ms;
+		timeoutInfo.reject = fn as (err: Error) => void;
+		return {
+			unref: () => {
+				timeoutInfo.unrefCalled = true;
+				return {} as NodeJS.Timeout;
+			},
+		} as unknown as NodeJS.Timeout;
+	}) as typeof globalThis.setTimeout);
+
+	const deps = createMinimalDeps({
+		pi,
+		exit: exitSpy,
+		debugLogger,
+		...overrides,
+	});
+
+	const cleanupPromise = cleanupOnExit("SIGTERM", deps);
+
+	// Wait for branch deletion to complete (the await deleteBranch call)
+	await Promise.resolve();
+	await Promise.resolve();
+
+	return { deps, timeoutInfo, cleanupPromise };
+}
+
+describe("cleanupOnExit() — Phase 2: cleanup logic (reordered: branch first)", () => {
+	it("SIGTERM happy path: exec order = [branch -D, worktree remove --force, worktree prune]; exit(0)", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
@@ -203,19 +260,22 @@ describe("cleanupOnExit() — Phase 2: cleanup logic", () => {
 
 		await cleanupOnExit("SIGTERM", deps);
 
-		// Three git commands executed
+		// Three git commands executed: branch -D FIRST, then remove + prune
 		assert.equal(execCalls.length, 3);
-		assert.deepEqual(execCalls[0]!.args, ["worktree", "remove", "--force", WORKTREE_PATH]);
-		assert.deepEqual(execCalls[1]!.args, ["worktree", "prune"]);
-		assert.deepEqual(execCalls[2]!.args, ["branch", "-D", WORKTREE_BRANCH]);
+		assert.deepEqual(
+			execCalls[0]!.args,
+			["branch", "-D", WORKTREE_BRANCH],
+			"branch -D must be first exec call",
+		);
+		assert.deepEqual(execCalls[1]!.args, ["worktree", "remove", "--force", WORKTREE_PATH]);
+		assert.deepEqual(execCalls[2]!.args, ["worktree", "prune"]);
 
-		// exit(0) called
 		const exitMock = exitSpy as unknown as MockedFn;
 		assert.equal(exitMock.mock.calls.length, 1);
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
 	});
 
-	it("SIGINT happy path: same cleanup as SIGTERM", async () => {
+	it("SIGINT happy path: same exec order as SIGTERM", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
@@ -231,7 +291,14 @@ describe("cleanupOnExit() — Phase 2: cleanup logic", () => {
 
 		await cleanupOnExit("SIGINT", deps);
 
+		// Verify exec order invariant
 		assert.equal(execCalls.length, 3);
+		assert.deepEqual(
+			execCalls[0]!.args,
+			["branch", "-D", WORKTREE_BRANCH],
+			"branch -D must be first exec call",
+		);
+
 		const exitMock = exitSpy as unknown as MockedFn;
 		assert.equal(exitMock.mock.calls.length, 1);
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
@@ -297,46 +364,131 @@ describe("cleanupOnExit() — Phase 2: cleanup logic", () => {
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
 	});
 
-	it("cleanupWorktree fails (git worktree remove returns non-zero): error logged → exit(0) still called", async () => {
+	it("branch deletion fails, race succeeds: error logged for branch; worktree remove + prune still run", async () => {
 		const execCalls: ExecCall[] = [];
-		// First exec (git worktree remove --force) fails
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "worktree not found" }], execCalls);
+		const pi = createMockPi(
+			[
+				{ code: 1, stdout: "", stderr: "branch not found" }, // branch -D fails
+				{ code: 0, stdout: "", stderr: "" }, // worktree remove succeeds
+				{ code: 0, stdout: "", stderr: "" }, // worktree prune succeeds
+			],
+			execCalls,
+		);
 		const exitSpy = mock.fn() as unknown as (code: number) => void;
 		const debugLogger = createMockedDebugLogger();
 		const deps = createMinimalDeps({ pi, exit: exitSpy, debugLogger });
 
 		await cleanupOnExit("SIGTERM", deps);
 
-		// Error was logged via debugLogger.error with signal name
-		assert.ok(debugLogger.error.mock.calls.length >= 1, "Expected at least one error log call");
-		const loggedComponent: string = debugLogger.error.mock.calls[0]!.arguments[0] as string;
-		const loggedMsg: string = debugLogger.error.mock.calls[0]!.arguments[1] as string;
-		assert.equal(loggedComponent, "handler");
-		assert.ok(loggedMsg.includes("SIGTERM"), "Error message should include signal name");
+		// All 3 exec calls made (branch fail, remove, prune)
+		assert.equal(execCalls.length, 3);
+		assert.deepEqual(execCalls[0]!.args, ["branch", "-D", WORKTREE_BRANCH]);
 
-		// exit(0) still called despite error
+		// Branch deletion error logged
+		assert.ok(debugLogger.error.mock.calls.length >= 1, "Branch deletion error logged");
+		const branchErrMsg: string = debugLogger.error.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			branchErrMsg.includes("branch deletion failed"),
+			"First error should mention branch deletion",
+		);
+
+		// exit(0) still called
 		const exitMock = exitSpy as unknown as MockedFn;
 		assert.equal(exitMock.mock.calls.length, 1);
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
 	});
 
-	it("cleanup hangs past timeout: setTimeout fires rejection → error logged → exit(0) called", async () => {
-		// Use hanging pi.exec so cleanupWorktree never resolves
-		const hangingPi = createMockPi();
+	it("branch deletion fails, race also fails: both errors logged; exit(0) still called", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 1, stdout: "", stderr: "branch not found" }, // branch -D fails
+				{ code: 1, stdout: "", stderr: "worktree locked" }, // worktree remove fails
+			],
+			execCalls,
+		);
+		const exitSpy = mock.fn() as unknown as (code: number) => void;
+		const debugLogger = createMockedDebugLogger();
+		const deps = createMinimalDeps({ pi, exit: exitSpy, debugLogger });
+
+		await cleanupOnExit("SIGTERM", deps);
+
+		// 2 exec calls: branch -D fails, worktree remove fails
+		assert.equal(execCalls.length, 2);
+		assert.deepEqual(execCalls[0]!.args, ["branch", "-D", WORKTREE_BRANCH]);
+
+		// Branch error logged
+		assert.ok(
+			debugLogger.error.mock.calls.length >= 2,
+			"Both branch deletion and race errors logged",
+		);
+		const branchErrMsg: string = debugLogger.error.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			branchErrMsg.includes("branch deletion failed"),
+			"First error should mention branch deletion",
+		);
+
+		// Race error also logged
+		const raceErrMsg: string = debugLogger.error.mock.calls[1]!.arguments[1] as string;
+		assert.ok(raceErrMsg.includes("cleanup failed"), "Second error should mention cleanup failure");
+
+		// exit(0) still called
+		const exitMock = exitSpy as unknown as MockedFn;
+		assert.equal(exitMock.mock.calls.length, 1);
+		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
+	});
+
+	it("race cleanup fails (worktree remove non-zero): error caught in catch; exit(0) called; branch already deleted", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" }, // branch -D succeeds
+				{ code: 1, stdout: "", stderr: "failed to remove" }, // worktree remove fails
+			],
+			execCalls,
+		);
+		const exitSpy = mock.fn() as unknown as (code: number) => void;
+		const debugLogger = createMockedDebugLogger();
+		const deps = createMinimalDeps({ pi, exit: exitSpy, debugLogger });
+
+		await cleanupOnExit("SIGTERM", deps);
+
+		// 2 exec calls: branch -D, worktree remove (prune never reached)
+		assert.equal(execCalls.length, 2);
+		assert.deepEqual(
+			execCalls[0]!.args,
+			["branch", "-D", WORKTREE_BRANCH],
+			"Branch -D must still be first exec call",
+		);
+
+		// Error logged for race failure
+		assert.ok(debugLogger.error.mock.calls.length >= 1, "Race error should be logged");
+		const raceErrMsg: string = debugLogger.error.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			raceErrMsg.includes("cleanup failed"),
+			"Error should mention cleanup failure, not branch deletion",
+		);
+
+		const exitMock = exitSpy as unknown as MockedFn;
+		assert.equal(exitMock.mock.calls.length, 1);
+		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
+	});
+
+	it("timeout wins race (worktree remove hangs): branch already deleted; timeout caught; exit(0) called", async () => {
+		// Branch deletion succeeds (1 result), worktree remove hangs (no more results)
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], execCalls);
 		const exitSpy = mock.fn() as unknown as (code: number) => void;
 		const debugLogger = createMockedDebugLogger();
 
-		// Track timeout details — use mutable container to avoid TS narrowing issues
 		const timeoutInfo: {
 			ms: number | null;
 			unrefCalled: boolean;
 			reject: ((err: Error) => void) | null;
 		} = { ms: null, unrefCalled: false, reject: null };
 
-		// Mock setTimeout to capture the reject callback without firing it automatically
 		mock.method(globalThis, "setTimeout", ((fn: (...args: unknown[]) => void, ms: number) => {
 			timeoutInfo.ms = ms;
-			// Store the reject function so we can trigger it manually from the test
 			timeoutInfo.reject = fn as (err: Error) => void;
 			return {
 				unref: () => {
@@ -346,43 +498,55 @@ describe("cleanupOnExit() — Phase 2: cleanup logic", () => {
 			} as unknown as NodeJS.Timeout;
 		}) as typeof globalThis.setTimeout);
 
-		const deps = createMinimalDeps({
-			pi: hangingPi,
-			exit: exitSpy,
-			debugLogger,
-		});
+		const deps = createMinimalDeps({ pi, exit: exitSpy, debugLogger });
 
-		// Start cleanupOnExit but don't await — it will yield at Promise.race
+		// Start cleanup — branch deletion completes synchronously (resolved promise),
+		// then race starts with hanging worktree remove
 		const cleanupPromise = cleanupOnExit("SIGTERM", deps);
 
-		// At this point, setTimeout has been called and timeoutInfo.reject is populated
-		assert.ok(timeoutInfo.reject !== null, "setTimeout should have been called");
+		// Let microtasks drain: branch deletion resolved, setTimeout called for race
+		await Promise.resolve();
+		await Promise.resolve();
 
-		// Timeout was set with correct duration
+		// At this point, branch -D completed and worktree remove was attempted
+		// (but hangs). execCalls[0] is always git branch -D.
+		assert.ok(execCalls.length >= 1, "At least branch -D exec call happened before timeout");
+		assert.deepEqual(
+			execCalls[0]!.args,
+			["branch", "-D", WORKTREE_BRANCH],
+			"Invariant: exec call #1 is always git branch -D",
+		);
+
+		// Timeout was configured
+		assert.ok(timeoutInfo.reject !== null, "setTimeout should have been called for race");
 		assert.equal(timeoutInfo.ms, CLEANUP_TIMEOUT_MS);
 
 		// Manually trigger the timeout rejection
 		timeoutInfo.reject!(new Error(`Cleanup timed out after ${CLEANUP_TIMEOUT_MS}ms`));
 
-		// Now await the cleanup promise
 		await cleanupPromise;
 
-		// .unref() was called on the timer
+		// .unref() was called
 		assert.ok(timeoutInfo.unrefCalled, "setTimeout(...).unref() should be called");
 
 		// Error logged for timeout
-		assert.ok(debugLogger.error.mock.calls.length >= 1, "Expected at least one error log call");
-		// Second argument is the log message: "Signal SIGTERM cleanup failed"
+		assert.ok(debugLogger.error.mock.calls.length >= 1, "Expected error log for timeout");
 		const loggedMsg: string = debugLogger.error.mock.calls[0]!.arguments[1] as string;
 		assert.equal(loggedMsg, "Signal SIGTERM cleanup failed");
-		// Third argument is the data object containing the timeout error
 		const loggedData = debugLogger.error.mock.calls[0]!.arguments[2] as Record<string, unknown>;
 		assert.ok(String(loggedData?.error).includes("timed out"), "Data error should mention timeout");
 
-		// exit(0) still called despite timeout
 		const exitMock = exitSpy as unknown as MockedFn;
 		assert.equal(exitMock.mock.calls.length, 1);
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
+
+		// execCalls[0] is always branch -D (invariant preserved)
+		// worktree remove may have been attempted (pushed to execCalls) but hangs
+		assert.deepEqual(
+			execCalls[0]!.args,
+			["branch", "-D", WORKTREE_BRANCH],
+			"Invariant: exec call #0 is always git branch -D (preserved across timeout)",
+		);
 	});
 });
 
@@ -428,9 +592,9 @@ describe("createCrashCleanup() — Phase 2: guard", () => {
 		assert.equal(exitMock.mock.calls.length, 1);
 		assert.equal(exitMock.mock.calls[0]!.arguments[0], 1);
 
-		// cleanupWorktree should NOT have been started a second time
-		// (guard returns before reaching cleanupOnExit)
-		// First call started cleanupWorktree which pushed 1 exec call
+		// cleanupOnExit should NOT have been entered a second time
+		// (guard returns before reaching cleanupOnExit).
+		// First call started deleteBranch which pushed 1 exec call
 		// (the hanging pi.exec promise). Second call was guarded.
 		// If guard were missing, we'd see 2 exec calls.
 		assert.equal(execCalls.length, 1, "Exactly 1 exec call (from first signal only)");
