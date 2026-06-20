@@ -35,7 +35,6 @@ Compression engine with intensity levels and mode awareness:
 ├── index.ts        # Entry: lifecycle hooks (session_start, agent_start, before_agent_start)
 ├── config.ts       # ConfigStore: load/save caveman.json, getConfig/setLevel
 ├── config-ui.ts    # Configuration UI for TUI mode
-├── session.ts      # resolveSessionLevel: detect level from AGENTS.md, session entries
 ├── compression.ts  # resolveCompression: intensity selection, mode-aware skip logic
 ├── command.ts      # /caveman command handler: cycle through levels
 ├── prompts.ts      # CAVEMAN_BASE + INTENSITY prompt templates

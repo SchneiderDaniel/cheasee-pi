@@ -4,9 +4,8 @@
  * Consolidates duplicated writeExtState logic from session-logger and
  * session-advice into a single importable module.
  *
- * Also contains session-level resolver pure functions extracted from
- * caveman/session.ts: resolveSessionLevel, resetSessionLevel,
- * shouldAppendCavemanEntry.
+ * Also contains session-level resolver pure functions:
+ * resolveSessionLevel, resetSessionLevel, shouldAppendCavemanEntry.
  *
  * Architecture:
  * - Closure-based factory (see config.ts pattern)
@@ -148,7 +147,7 @@ export function createExtensionStateStore(statePath: string): ExtensionStateStor
 }
 
 // ===========================================================================
-// Session-level resolvers (moved from caveman/session.ts)
+// Session-level resolvers
 // ===========================================================================
 
 import type { Level } from "../caveman/types.ts";

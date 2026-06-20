@@ -2,7 +2,7 @@
  * Phase 1: Config store adapter — ensureConfigLoaded contract
  *
  * Verifies config.ts no longer sets currentLevel during load.
- * Session-policy decisions moved to use-case layer (session.ts).
+ * Session-policy decisions moved to use-case layer (lib/extension-state.ts).
  */
 
 import { describe, it, before, after, beforeEach } from "node:test";
