@@ -4,21 +4,19 @@
  * Composes all 8 detectors, runs them on parsed SessionData, deduplicates
  * overlapping signals, and merges results into sorted WasteSignal[].
  *
- * Application layer: imports detectors via barrel, owns dedup/merge logic.
+ * Application layer: imports 8 detectors directly, owns dedup/merge logic.
  * No I/O, no node:fs.
  */
 
 import type { SessionData, WasteSignal, SessionAnalysis } from "./types.ts";
-import {
-	detectRedundantReads,
-	detectIdenticalArgs,
-	detectBashGrep,
-	detectBashCat,
-	detectErrorLoop,
-	detectNoBatch,
-	detectTurnInefficiency,
-	detectStructuralSearchUnderuse,
-} from "./waste-signals/index.ts";
+import { detectRedundantReads } from "./waste-signals/redundant-reads.ts";
+import { detectIdenticalArgs } from "./waste-signals/identical-args.ts";
+import { detectBashGrep } from "./waste-signals/bash-grep.ts";
+import { detectBashCat } from "./waste-signals/bash-cat.ts";
+import { detectErrorLoop } from "./waste-signals/error-loop.ts";
+import { detectNoBatch } from "./waste-signals/no-batch.ts";
+import { detectTurnInefficiency } from "./waste-signals/turn-inefficiency.ts";
+import { detectStructuralSearchUnderuse } from "./waste-signals/structural-underuse.ts";
 
 /**
  * Run all detectors on a parsed session.
