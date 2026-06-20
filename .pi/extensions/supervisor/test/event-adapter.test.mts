@@ -8,6 +8,7 @@ import {
 	jsonLineToNormalizedEvent,
 	sessionEventToNormalizedEvent,
 	processNormalizedEvent,
+	filterStderr,
 } from "../event/adapter.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -666,5 +667,61 @@ describe("processNormalizedEvent", () => {
 		assert.equal(state.fullLog.filter((l) => l === "B").length, 1, "'B' once");
 		assert.equal(state.fullLog.filter((l) => l === "C").length, 1, "'C' once");
 		assert.equal(state.fullLog.filter((l) => l === "D").length, 1, "'D' once");
+	});
+});
+
+// ─── filterStderr — stderr noise filter (Phase 1) ──────────────────
+// filterStderr was relocated from agent/stream.ts to event/adapter.ts
+
+describe("filterStderr — stderr noise filter", () => {
+	it("normal mixed stderr: lines without filter patterns pass through unchanged", () => {
+		const result = filterStderr("line 1\nline 2\nline 3");
+		assert.equal(result, "line 1\nline 2\nline 3");
+	});
+
+	it("telemetry rule: line starting with context_info JSON removed", () => {
+		const result = filterStderr('normal\n{"type":"context_info","t":1}\nnormal');
+		assert.equal(result, "normal\nnormal");
+	});
+
+	it("empty input: returns empty string", () => {
+		assert.equal(filterStderr(""), "");
+	});
+
+	it("all lines filtered: returns empty string", () => {
+		const result = filterStderr(
+			'import { x } from "y"\n  \n\n    at Object.<anonymous> (/x.js:1:2)',
+		);
+		assert.equal(result, "");
+	});
+
+	it("jiti import rule: line starting with 'import ' removed", () => {
+		const result = filterStderr('normal\nimport { something } from "module"\nnormal');
+		assert.equal(result, "normal\nnormal");
+	});
+
+	it("jiti export rule: line starting with 'export ' removed", () => {
+		const result = filterStderr("normal\nexport default class\nnormal");
+		assert.equal(result, "normal\nnormal");
+	});
+
+	it("stack trace rule: line matching /^\\s+at\\s/ removed", () => {
+		const result = filterStderr("normal\n    at Function.run (/path/file.js:1:2)\nnormal");
+		assert.equal(result, "normal\nnormal");
+	});
+
+	it("empty-line rule: blank and whitespace-only lines removed", () => {
+		const result = filterStderr("line 1\n  \n\nline 2");
+		assert.equal(result, "line 1\nline 2");
+	});
+
+	it("no filterable lines: input returned unchanged", () => {
+		const result = filterStderr("just\nregular\nlines");
+		assert.equal(result, "just\nregular\nlines");
+	});
+
+	it("leading/trailing whitespace: .trim() applied to result", () => {
+		const result = filterStderr("  \nline 1\n  \n");
+		assert.equal(result, "line 1");
 	});
 });

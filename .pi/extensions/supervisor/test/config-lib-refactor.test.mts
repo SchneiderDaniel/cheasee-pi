@@ -47,14 +47,8 @@ import { buildAgentSystemPrompt } from "../lib/shared-prompts.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { stripAnsi, normalizeEscapes, parseAgentOutput, isSuccess } from "../agent/output.ts";
 import { createAgentRunState } from "../agent/runner.ts";
-import {
-	MAX_FULL_LOG,
-	WIDGET_LINES,
-	MAX_LIVE_THINKING,
-	filterStderr,
-	pushLog,
-	processJsonLine,
-} from "../agent/stream.ts";
+import { filterStderr } from "../event/adapter.ts";
+import { pushLog, MAX_FULL_LOG } from "../agent/state-helpers.ts";
 import {
 	handleToolExecutionStart,
 	handleToolExecutionEnd,
@@ -200,21 +194,18 @@ describe("config→lib refactor — consumer files (agent/)", () => {
 		assert.equal(state.agentTokenBudget, 100_000);
 	});
 
-	it("agent/stream.ts exports constants", () => {
+	it("agent/state-helpers.ts exports MAX_FULL_LOG constant", () => {
 		assert.equal(typeof MAX_FULL_LOG, "number");
-		assert.equal(typeof WIDGET_LINES, "number");
-		assert.equal(typeof MAX_LIVE_THINKING, "number");
-		assert.ok(MAX_FULL_LOG > 0);
-		assert.ok(WIDGET_LINES > 0);
+		assert.equal(MAX_FULL_LOG, 500);
 	});
 
-	it("agent/stream.ts exports filterStderr (pure function)", () => {
+	it("event/adapter.ts exports filterStderr (pure function)", () => {
 		assert.equal(typeof filterStderr, "function");
 		const result = filterStderr("normal line\n[some stderr stuff]\nanother line\n");
 		assert.ok(typeof result === "string");
 	});
 
-	it("agent/stream.ts exports pushLog", () => {
+	it("agent/state-helpers.ts exports pushLog", () => {
 		assert.equal(typeof pushLog, "function");
 		const state = createMinimalRunState();
 		pushLog(state, "test entry");

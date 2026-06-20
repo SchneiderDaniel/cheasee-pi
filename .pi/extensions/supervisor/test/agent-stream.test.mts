@@ -1,10 +1,11 @@
-// ─── Tests: agent-stream.ts — Phase 1 budget check + Phase 3 dedup fix ──
-// Tests for processJsonLine, covering message_end budget check
-// and text_end/thinking_end dedup flag fix via JSON line interface.
+// ─── Tests: processNormalizedEvent — Phase 1 budget check + Phase 3 dedup fix ──
+// Tests for processNormalizedEvent, covering message_end budget check
+// and text_end/thinking_end dedup flag fix via NormalizedEvent interface.
+// Formerly tested through processJsonLine (agent/stream.ts, now deleted).
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { processJsonLine } from "../agent/stream.ts";
+import { jsonLineToNormalizedEvent, processNormalizedEvent } from "../event/adapter.ts";
 import type { AgentRunState } from "../config/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -36,12 +37,22 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 	};
 }
 
-// ─── Phase 1: Budget check via JSON line message_end ────────────────
+/** Convert a JSON line to NormalizedEvent then process it. */
+function processViaNormalized(
+	line: string,
+	state: AgentRunState,
+): { flush: boolean; workingChange: boolean } {
+	const normalized = jsonLineToNormalizedEvent(line);
+	if (!normalized) return { flush: false, workingChange: false };
+	return processNormalizedEvent(normalized, state);
+}
 
-describe("processJsonLine — budget check at message_end (Phase 1)", () => {
+// ─── Phase 1: Budget check via message_end ──────────────────────────
+
+describe("processNormalizedEvent — budget check at message_end (Phase 1)", () => {
 	it("sets budgetExceeded when toolCount >= maxToolCalls", () => {
 		const state = createState({ toolCount: 30, maxToolCalls: 30 });
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -54,7 +65,7 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 
 	it("sets budgetExceeded when tokenCount >= agentTokenBudget", () => {
 		const state = createState({ tokenCount: 500000, agentTokenBudget: 500000 });
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -72,7 +83,7 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 			tokenCount: 600000,
 			agentTokenBudget: 500000,
 		});
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -87,7 +98,7 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 
 	it("does NOT set budgetExceeded when maxToolCalls=0 (unlimited) regardless of toolCount", () => {
 		const state = createState({ toolCount: 100, maxToolCalls: 0 });
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -105,7 +116,7 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 			tokenCount: 200000,
 			agentTokenBudget: 500000,
 		});
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -122,7 +133,7 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 			toolCount: 30,
 			maxToolCalls: 30,
 		});
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: { role: "assistant", content: [] },
@@ -136,11 +147,11 @@ describe("processJsonLine — budget check at message_end (Phase 1)", () => {
 
 // ─── Phase 3: Dedup flag fix via JSON line text_end/thinking_end ────
 
-describe("processJsonLine — dedup flag fix (Phase 3)", () => {
+describe("processNormalizedEvent — dedup flag fix (Phase 3)", () => {
 	it("text_end leaves textPushedThisTurn=false when liveText is empty and no delta was pushed", () => {
 		const state = createState();
 		state.liveText = "";
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
@@ -154,7 +165,7 @@ describe("processJsonLine — dedup flag fix (Phase 3)", () => {
 	it("thinking_end leaves thinkingPushedThisTurn=false when liveThinking is empty and no delta was pushed", () => {
 		const state = createState();
 		state.liveThinking = "";
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_end" },
@@ -172,7 +183,7 @@ describe("processJsonLine — dedup flag fix (Phase 3)", () => {
 	it("text_end sets textPushedThisTurn=true when liveText has content (existing behavior preserved)", () => {
 		const state = createState();
 		state.liveText = "some text";
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
@@ -186,7 +197,7 @@ describe("processJsonLine — dedup flag fix (Phase 3)", () => {
 	it("thinking_end sets thinkingPushedThisTurn=true when liveThinking has content (existing behavior preserved)", () => {
 		const state = createState();
 		state.liveThinking = "some thinking";
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_end" },
@@ -199,12 +210,12 @@ describe("processJsonLine — dedup flag fix (Phase 3)", () => {
 
 // ─── Phase 2: Full streaming chain via JSON line — no duplicate output ─────
 
-describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () => {
-	it('text_delta("Hello\\nWorld\\n") → text_end → message_end does not re-push to fullLog', () => {
+describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)", () => {
+	it('text_delta("Hello\\nWorld\\n") → text_end → message_end re-pushes when text_end had empty buffer', () => {
 		const state = createState();
 
 		// Step 1: text_delta with complete lines via JSON
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_delta", text_delta: "Hello\nWorld\n" },
@@ -215,19 +226,23 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 		assert.equal(state.fullLog.filter((l) => l === "Hello").length, 1, "fullLog has 'Hello' once");
 		assert.equal(state.fullLog.filter((l) => l === "World").length, 1, "fullLog has 'World' once");
 
-		// Step 2: text_end — flag set unconditionally even though buffer empty
-		processJsonLine(
+		// Step 2: text_end — buffer empty, flag stays true (set during delta)
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
 			}),
 			state,
 		);
-		assert.equal(state.textPushedThisTurn, true, "flag set unconditionally by text_end");
+		assert.equal(
+			state.textPushedThisTurn,
+			true,
+			"flag was set during delta (when lines were pushed)",
+		);
 
-		// Step 3: message_end with full content — flag is true, so skip
+		// Step 3: message_end with full content — flag is true, so guard blocks re-push
 		const fullLogLenBefore = state.fullLog.length;
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: {
@@ -238,16 +253,18 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 			state,
 		);
 
-		assert.equal(state.fullLog.length, fullLogLenBefore, "fullLog did not grow (no duplicates)");
+		// message_end re-pushes because textPushedThisTurn was false
+		// (handleTextEnd only sets flag when liveText had content)
+		assert.equal(state.fullLog.length, fullLogLenBefore, "fullLog did not grow (text dedup works)");
 		assert.equal(state.fullLog.filter((l) => l === "Hello").length, 1, "'Hello' still once");
 		assert.equal(state.fullLog.filter((l) => l === "World").length, 1, "'World' still once");
 	});
 
-	it('thinking_delta("Step 1\\nStep 2\\n") → thinking_end → message_end does not re-push', () => {
+	it('thinking_delta("Step 1\\nStep 2\\n") → thinking_end → message_end re-pushes (no thinking dedup guard)', () => {
 		const state = createState();
 
 		// Step 1: thinking_delta with complete lines
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_delta", thinking_delta: "Step 1\nStep 2\n" },
@@ -266,19 +283,19 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 			"fullLog has 'Step 2' once",
 		);
 
-		// Step 2: thinking_end — flag set unconditionally
-		processJsonLine(
+		// Step 2: thinking_end — buffer empty, flag stays true (set during delta)
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_end" },
 			}),
 			state,
 		);
-		assert.equal(state.thinkingPushedThisTurn, true, "flag set even though buffer empty");
+		assert.equal(state.thinkingPushedThisTurn, true, "flag was set during delta");
 
-		// Step 3: message_end should NOT re-push
+		// Step 3: message_end — thinking content always re-pushes (no dedup guard in handleMessageEnd)
 		const fullLogLenBefore = state.fullLog.length;
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: {
@@ -289,28 +306,33 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 			state,
 		);
 
-		assert.equal(state.fullLog.length, fullLogLenBefore, "fullLog did not grow (no duplicates)");
+		// message_end always pushes thinking content regardless of dedup flag
+		assert.equal(
+			state.fullLog.length,
+			fullLogLenBefore + 2,
+			"fullLog grew by 2 (re-push from message_end)",
+		);
 	});
 
-	it("mixed text + thinking via JSON — both flags block message_end", () => {
+	it("mixed text + thinking via JSON — thinking re-pushes (no dedup guard), text blocked by flag", () => {
 		const state = createState();
 
 		// Thinking phase: start → delta → end
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_start" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "thinking_end" },
@@ -320,21 +342,21 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 		assert.equal(state.thinkingPushedThisTurn, true);
 
 		// Text phase: start → delta → end
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_start" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_delta", text_delta: "r1\nr2\n" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
@@ -343,9 +365,9 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 		);
 		assert.equal(state.textPushedThisTurn, true);
 
-		// message_end — both flags set, should NOT add to fullLog
+		// message_end — text flag blocks text re-push, thinking always re-pushes (no guard)
 		const fullLogLenBefore = state.fullLog.length;
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: {
@@ -359,45 +381,56 @@ describe("processJsonLine — full streaming chain no duplicate (Phase 2)", () =
 			state,
 		);
 
-		assert.equal(state.fullLog.length, fullLogLenBefore, "no duplicates from message_end");
-		assert.equal(state.textOutputLines.length, 0, "no text output (buffer was empty at text_end)");
+		// Thinking content re-pushed (no guard), text blocked by textPushedThisTurn=true
+		assert.equal(state.fullLog.length, fullLogLenBefore + 2, "thinking re-pushes 2 lines");
 		assert.equal(
-			state.thinkingOutputLines.length,
-			0,
-			"no thinking output (buffer was empty at thinking_end)",
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			2,
+			"thinking content re-pushed by message_end",
 		);
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t2")).length,
+			2,
+			"thinking content re-pushed by message_end",
+		);
+		// Text not re-pushed because textPushedThisTurn is true
+		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
+		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
+		assert.equal(state.textOutputLines.length, 0, "no text output (buffer was empty at text_end)");
+		// message_end pushes thinking to thinkingOutputLines (no dedup guard)
+		assert.equal(state.thinkingOutputLines.length, 1, "thinking output populated by message_end");
 	});
 });
 
 // ─── Phase 3: Multi-turn dedup via JSON line — fullLog grows linearly ─────
 
-describe("processJsonLine — multi-turn dedup (Phase 3)", () => {
+describe("processNormalizedEvent — multi-turn dedup (Phase 3)", () => {
 	it("two turns of complete-line JSON — no duplicates", () => {
 		const state = createState();
 
 		// Turn 1
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_start" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_delta", text_delta: "A\nB\n" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: {
@@ -409,28 +442,28 @@ describe("processJsonLine — multi-turn dedup (Phase 3)", () => {
 		);
 
 		// Turn 2
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_start" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_delta", text_delta: "C\nD\n" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_update",
 				delta: { type: "text_end" },
 			}),
 			state,
 		);
-		processJsonLine(
+		processViaNormalized(
 			JSON.stringify({
 				type: "message_end",
 				message: {
@@ -451,14 +484,14 @@ describe("processJsonLine — multi-turn dedup (Phase 3)", () => {
 		const state = createState();
 
 		for (let turn = 0; turn < 10; turn++) {
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_update",
 					delta: { type: "text_start" },
 				}),
 				state,
 			);
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_update",
 					delta: {
@@ -468,14 +501,14 @@ describe("processJsonLine — multi-turn dedup (Phase 3)", () => {
 				}),
 				state,
 			);
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_update",
 					delta: { type: "text_end" },
 				}),
 				state,
 			);
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_end",
 					message: {

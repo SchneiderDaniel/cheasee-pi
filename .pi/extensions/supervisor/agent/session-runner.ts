@@ -23,7 +23,7 @@ import {
 import { getModel } from "@earendil-works/pi-ai";
 import { resolveExtensionPaths } from "../lib/extensions.ts";
 import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
-import { pushLog } from "./stream.ts";
+import { pushLog } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { resolveModel, buildToolList } from "../session/model.ts";
 // Widget-based progress replaces sendAgentProgressMessage/clearAgentProgressMessage

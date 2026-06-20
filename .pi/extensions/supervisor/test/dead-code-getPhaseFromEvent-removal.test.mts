@@ -1,10 +1,15 @@
 /**
  * Tests: Removal of dead export `getPhaseFromEvent` from agent/stream.ts
  *
- * Verifies the function is no longer exported, remaining exports still
- * resolve, header comment is updated, stale JSDoc is removed, and the
- * replacement pipeline (processJsonLine → jsonLineToNormalizedEvent →
- * processNormalizedEvent) still produces correct phase transitions.
+ * The entire agent/stream.ts module has been deleted as part of the
+ * "ICA: supervisor/agent/stream.ts thin wrapper around event adapter"
+ * refactoring (issue #1022).
+ *
+ * Verifies:
+ *   - stream.ts no longer exists (file was deleted)
+ *   - Remaining exports (filterStderr, pushLog, constants) resolve from
+ *     their new locations (event/adapter.ts, agent/state-helpers.ts)
+ *   - Phase mapping still works via processNormalizedEvent (replacement path)
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/dead-code-getPhaseFromEvent-removal.test.mts
@@ -12,71 +17,36 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-	MAX_FULL_LOG,
-	WIDGET_LINES,
-	MAX_LIVE_THINKING,
-	filterStderr,
-	pushLog,
-	processJsonLine,
-} from "../agent/stream.ts";
+import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { filterStderr } from "../event/adapter.ts";
+import { pushLog, MAX_FULL_LOG } from "../agent/state-helpers.ts";
+import { processNormalizedEvent } from "../event/adapter.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 1: Dead export removed — getPhaseFromEvent no longer exported
+// Phase 1: stream.ts deleted — file no longer exists
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("getPhaseFromEvent — dead export removed", () => {
-	it("dynamic import of getPhaseFromEvent from agent/stream.ts throws or is undefined", async () => {
-		// Dynamic import resolves the module, then we check the named export
-		const mod = await import("../agent/stream.ts");
-		assert.equal(
-			(mod as any).getPhaseFromEvent,
-			undefined,
-			"getPhaseFromEvent must not be a named export from agent/stream.ts",
-		);
+describe("agent/stream.ts — file deleted", () => {
+	it("agent/stream.ts no longer exists on disk", () => {
+		const streamPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent", "stream.ts");
+		assert.equal(existsSync(streamPath), false, "stream.ts must be deleted");
 	});
 
-	it("remaining exports still resolve as functions/constants", () => {
+	it("dynamic require of stream.ts fails at runtime (file no longer exists)", () => {
+		const streamPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent", "stream.ts");
+		// File existence already verified above; module resolution failure
+		// is caught by TS compilation, so we verify the file is gone instead
+		assert.equal(existsSync(streamPath), false, "stream.ts file must not exist");
+	});
+
+	it("remaining exports resolve from new locations", () => {
 		assert.equal(typeof filterStderr, "function");
 		assert.equal(typeof pushLog, "function");
-		assert.equal(typeof processJsonLine, "function");
 		assert.equal(typeof MAX_FULL_LOG, "number");
-		assert.equal(typeof WIDGET_LINES, "number");
-		assert.equal(typeof MAX_LIVE_THINKING, "number");
-		assert.ok(MAX_FULL_LOG > 0);
-		assert.ok(WIDGET_LINES > 0);
-	});
-
-	it("header comment at stream.ts no longer mentions getPhaseFromEvent() in 'Owns' list", () => {
-		const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent", "stream.ts");
-		const source = readFileSync(sourcePath, "utf-8");
-		const ownsLine = source.split("\n").find((l) => l.includes("Owns:"));
-		assert.ok(ownsLine, "should find 'Owns:' line in header comment");
-		assert.ok(
-			!ownsLine!.includes("getPhaseFromEvent"),
-			"Owns line must not mention getPhaseFromEvent()",
-		);
-	});
-
-	it("stale JSDoc block at lines 68-69 is removed (no 'Preserved for backward compat' note)", () => {
-		const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent", "stream.ts");
-		const source = readFileSync(sourcePath, "utf-8");
-		assert.ok(
-			!source.includes("Preserved for backward compat"),
-			"source must not contain 'Preserved for backward compat' anywhere",
-		);
-	});
-
-	it("function body getPhaseFromEvent no longer exists in source file", () => {
-		const sourcePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent", "stream.ts");
-		const source = readFileSync(sourcePath, "utf-8");
-		assert.ok(
-			!source.includes("export function getPhaseFromEvent"),
-			"source must not contain 'export function getPhaseFromEvent'",
-		);
+		assert.equal(MAX_FULL_LOG, 500);
 	});
 });
 
@@ -92,12 +62,9 @@ describe("config-lib-refactor.test.mts — contract test removed", () => {
 		);
 		const source = readFileSync(testPath, "utf-8");
 		// The import block should not contain 'getPhaseFromEvent'
-		const importLine = source
-			.split("\n")
-			.find((l) => l.includes("from") && l.includes("agent/stream.ts"));
 		const importBlock = source.slice(
-			source.lastIndexOf("import {", source.indexOf("agent/stream.ts")),
-			source.indexOf("agent/stream.ts") + 'agent/stream.ts"'.length,
+			source.lastIndexOf("import {", source.indexOf("state-helpers")),
+			source.indexOf("state-helpers") + 'state-helpers.ts"'.length,
 		);
 		assert.ok(
 			!importBlock.includes("getPhaseFromEvent"),
@@ -122,39 +89,23 @@ describe("config-lib-refactor.test.mts — contract test removed", () => {
 // Phase 3: Phase mapping still works via replacement path
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("phase mapping — replacement pipeline (processJsonLine → processNormalizedEvent)", () => {
-	it('processJsonLine with tool_execution_start JSON line → state.phase === "tool"', () => {
+describe("phase mapping — replacement pipeline (processNormalizedEvent)", () => {
+	it('processNormalizedEvent with tool_execution_start event → state.phase === "tool"', () => {
 		const state = createMinimalRunState();
-		processJsonLine(
-			JSON.stringify({
-				type: "tool_execution_start",
-				name: "read",
-				input: "{}",
-			}),
-			state,
-		);
+		processNormalizedEvent({ kind: "tool_execution_start", toolName: "read", args: {} }, state);
 		assert.equal(state.phase, "tool");
 	});
 
-	it('processJsonLine with text_delta in message_update → state.phase === "text"', () => {
+	it('processNormalizedEvent with text_start event → state.phase === "text"', () => {
 		const state = createMinimalRunState();
-		processJsonLine(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_start" },
-			}),
-			state,
-		);
+		processNormalizedEvent({ kind: "text_start" }, state);
 		assert.equal(state.phase, "text");
 	});
 
-	it('processJsonLine with message_end → state.phase === "idle"', () => {
+	it('processNormalizedEvent with message_end event → state.phase === "idle"', () => {
 		const state = createMinimalRunState();
-		processJsonLine(
-			JSON.stringify({
-				type: "message_end",
-				message: { role: "assistant", content: [] },
-			}),
+		processNormalizedEvent(
+			{ kind: "message_end", message: { role: "assistant", content: [] } },
 			state,
 		);
 		assert.equal(state.phase, "idle");
