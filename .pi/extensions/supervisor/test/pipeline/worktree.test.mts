@@ -5,7 +5,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createWorktree, installWorktreeDeps, cleanupWorktree } from "../../pipeline/worktree.ts";
+import {
+	createWorktree,
+	installWorktreeDeps,
+	cleanupWorktree,
+	deleteBranch,
+} from "../../pipeline/worktree.ts";
 import type { NotifyFn } from "../../pipeline/helpers.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -193,6 +198,30 @@ describe("installWorktreeDeps()", () => {
 	});
 });
 
+// ─── Tests: deleteBranch() ───────────────────────────────────────
+
+describe("deleteBranch()", () => {
+	it("calls git branch -D with correct cwd — returns { ok: true }", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const result = await deleteBranch(pi, "/repo", "feature-branch");
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1);
+		assert.deepEqual(calls[0].args, ["branch", "-D", "feature-branch"]);
+		assert.deepEqual(calls[0].opts, { cwd: "/repo", timeout: 10000 });
+	});
+
+	it("git failure — returns { ok: false, error }", async () => {
+		const pi = createMockPi([{ code: 1, stdout: "", stderr: "branch 'missing-branch' not found" }]);
+		const result = await deleteBranch(pi, "/repo", "missing-branch");
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.ok(result.error.includes("not found"), "Error should include git stderr");
+			assert.equal(result.source, "worktree");
+		}
+	});
+});
+
 // ─── Tests: cleanupWorktree() ────────────────────────────────────
 
 describe("cleanupWorktree()", () => {
@@ -242,5 +271,60 @@ describe("cleanupWorktree()", () => {
 		if (!result.ok) {
 			assert.equal(result.source, "worktree");
 		}
+	});
+
+	it("skipBranch=true: executes exactly 2 git commands, no branch -D", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, true);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 2, "Only 2 git commands with skipBranch=true");
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
+		// No third call for branch -D
+	});
+
+	it("skipBranch=false (explicit): executes all 3 commands including branch -D", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, false);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 3, "All 3 git commands with skipBranch=false");
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
+		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
+	});
+
+	it("skipBranch omitted (default false): executes all 3 commands — backward compat", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		// Same 5-arg call as handler.ts uses — no skipBranch argument
+		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 3, "All 3 git commands when skipBranch omitted");
+		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
 	});
 });

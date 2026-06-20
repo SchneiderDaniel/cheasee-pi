@@ -118,14 +118,44 @@ export async function installWorktreeDeps(
 	);
 }
 
+// ─── Delete Branch ───────────────────────────────────────────────
+
+/**
+ * Deletes a git branch via `git branch -D`.
+ * Extracted from cleanupWorktree so crash-cleanup can run this
+ * before the timeout race, preventing orphaned branches.
+ * Returns Result<void> — never throws.
+ */
+export async function deleteBranch(
+	pi: ExtensionAPI,
+	cwd: string,
+	worktreeBranch: string,
+): Promise<Result<void>> {
+	try {
+		await pi.exec("git", ["branch", "-D", worktreeBranch], { cwd, timeout: 10000 });
+		return { ok: true, value: undefined };
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return { ok: false, error: msg, source: "worktree" };
+	}
+}
+
 // ─── Cleanup Worktree ────────────────────────────────────────────
 
+/**
+ * Removes a git worktree and optionally deletes its branch.
+ *
+ * When `skipBranch` is true, skips `git branch -D` — use when the
+ * branch was already deleted via deleteBranch() before the race.
+ * Defaults to false for backward compatibility with handler.ts.
+ */
 export async function cleanupWorktree(
 	pi: ExtensionAPI,
 	cwd: string,
 	worktreePath: string,
 	worktreeBranch: string,
 	notify: NotifyFn,
+	skipBranch?: boolean,
 ): Promise<Result<void>> {
 	return withNotify(
 		async () => {
@@ -137,8 +167,10 @@ export async function cleanupWorktree(
 			});
 			await pi.exec("git", ["worktree", "prune"], { cwd, timeout: 15000 });
 			log.info("worktree", "Worktree removed");
-			await pi.exec("git", ["branch", "-D", worktreeBranch], { cwd, timeout: 10000 });
-			log.info("worktree", `Branch ${worktreeBranch} deleted`);
+			if (!skipBranch) {
+				await pi.exec("git", ["branch", "-D", worktreeBranch], { cwd, timeout: 10000 });
+				log.info("worktree", `Branch ${worktreeBranch} deleted`);
+			}
 		},
 		notify,
 		"worktree",

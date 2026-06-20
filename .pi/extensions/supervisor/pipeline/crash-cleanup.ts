@@ -6,7 +6,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DebugLogger } from "../lib/debug.ts";
 import type { NotifyFn } from "./helpers.ts";
-import { cleanupWorktree } from "./worktree.ts";
+import { cleanupWorktree, deleteBranch } from "./worktree.ts";
 import type { Result } from "./result.ts";
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -37,12 +37,29 @@ export interface CrashCleanup {
 
 /**
  * Async cleanup that runs on SIGTERM/SIGINT.
- * Calls cleanupWorktree (git worktree remove –force, prune, branch -D)
- * with a 10s timeout. On failure, logs via debugLogger and still calls exit(0).
+ *
+ * 1. Deletes branch via deleteBranch() BEFORE the timeout race
+ *    (prevents orphaned branches if cleanup is interrupted).
+ * 2. Calls cleanupWorktree (worktree remove –force, prune) with
+ *    skipBranch=true inside a 10s Promise.race.
+ *
+ * On failure, logs via debugLogger and still calls exit(0).
  * If worktreePath or worktreeBranch is missing, skips cleanup.
  */
 export async function cleanupOnExit(signal: string, deps: CleanupOnExitDeps): Promise<void> {
 	if (deps.worktreePath && deps.worktreeBranch) {
+		// Step 1: Delete branch BEFORE the race — near-instant ref operation.
+		// This guarantees no orphaned branch even if the process is killed
+		// mid-cleanup by the timeout or a second signal.
+		const branchResult = await deleteBranch(deps.pi, deps.cwd, deps.worktreeBranch);
+		if (!branchResult.ok) {
+			deps.debugLogger.error("handler", `Signal ${signal} branch deletion failed`, {
+				error: branchResult.error,
+			});
+		}
+
+		// Step 2: Cleanup worktree (remove + prune) inside timeout race.
+		// Branch was already deleted above, so skipBranch=true.
 		try {
 			const cleanup = cleanupWorktree(
 				deps.pi,
@@ -50,6 +67,7 @@ export async function cleanupOnExit(signal: string, deps: CleanupOnExitDeps): Pr
 				deps.worktreePath,
 				deps.worktreeBranch,
 				deps.notify,
+				true, // skipBranch — already deleted above
 			);
 			const timeout = new Promise<void>((_, reject) => {
 				const timer = setTimeout(
