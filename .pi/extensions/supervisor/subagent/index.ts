@@ -452,9 +452,6 @@ export async function executeSubagent(
 		if (state.liveText.trim()) {
 			state.textOutputLines.push(state.liveText.trim());
 		}
-		if (state.liveThinking.trim()) {
-			state.thinkingOutputLines.push(state.liveThinking.trim());
-		}
 
 		// Send final onUpdate
 		if (onUpdate) {
