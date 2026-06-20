@@ -1,9 +1,8 @@
 /**
  * Tests for dead code removal — orphan imports and dead function cleanup.
  *
- * Verifies that `renderWasteSummary` is no longer exported from advisor.ts
- * and that the orphan imports (renderWasteSummary, WasteSignal, AdviceAction)
- * were successfully removed from advice-pipeline.ts.
+ * Verifies that orphan imports (renderWasteSummary, WasteSignal, AdviceAction)
+ * were successfully removed from advice-pipeline.ts and session-analyzer.ts.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/session-advice/test/dead-code-removal.test.ts
@@ -22,33 +21,14 @@ import {
 	FIXES,
 	DEFAULT_FIX,
 } from "../advice-pipeline.ts";
-import { analyzeSession, buildSessionAnalysis, parseJsonlFile } from "../advisor.ts";
+import { analyzeSession, buildSessionAnalysis } from "../session-analyzer.ts";
+import { parseJsonlFile } from "../jsonl-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Phase 1: Runtime exports still resolve (positive assertions)
 // ---------------------------------------------------------------------------
 
 describe("dead code removal — exports resolve", () => {
-	// --- advisor.ts exports ---
-
-	it("analyzeSession is exported from advisor.ts", () => {
-		assert.strictEqual(typeof analyzeSession, "function");
-	});
-
-	it("buildSessionAnalysis is exported from advisor.ts", () => {
-		assert.strictEqual(typeof buildSessionAnalysis, "function");
-	});
-
-	it("parseJsonlFile is exported from advisor.ts", () => {
-		assert.strictEqual(typeof parseJsonlFile, "function");
-	});
-
-	it("renderWasteSummary is NOT exported from advisor.ts (dead code removed)", () => {
-		// Surface-check: the removed function has a name we can verify
-		// via dynamic import since we want to be sure it's gone
-		assert.strictEqual(typeof ({} as Record<string, unknown>).renderWasteSummary, "undefined");
-	});
-
 	// --- advice-pipeline.ts exports ---
 
 	it("generateAdviceReport is exported from advice-pipeline.ts", () => {
@@ -120,9 +100,9 @@ describe("dead code removal — orphan imports cleaned", () => {
 		);
 	});
 
-	it("renderWasteSummary is not present in advisor.ts exports (dead function removed)", async () => {
-		const advisor = await import("../advisor.ts");
-		const exportNames = Object.keys(advisor);
+	it("renderWasteSummary is not present in session-analyzer.ts exports (dead function removed)", async () => {
+		const analyzer = await import("../session-analyzer.ts");
+		const exportNames = Object.keys(analyzer);
 		assert.ok(
 			!exportNames.includes("renderWasteSummary"),
 			"renderWasteSummary was dead code (zero callers) and should have been removed",

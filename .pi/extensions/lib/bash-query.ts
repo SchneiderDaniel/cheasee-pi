@@ -62,7 +62,7 @@ export function isBashSearch(cmd: string): boolean {
 	if (!lower) return false;
 
 	// Piped file→grep: starts with file-read cmd and pipes to grep/rg
-	// Subsumes advisor.ts isPipedFileGrep()
+	// Subsumes isPipedFileGrep()
 	for (const fileCmd of READ_CMDS) {
 		if (lower.startsWith(fileCmd + " ") && /\|\s*grep\b|\|\s*rg\b/.test(lower)) {
 			return true;
@@ -123,7 +123,7 @@ export function isBashFileRead(cmd: string): boolean {
  *
  * Includes `find` as a search-like command (unlike `isBashSearch`
  * which excludes it) to match the existing behavior of the inline
- * `isBashSearchOrRead` function in advisor.ts.
+ * `isBashSearchOrRead` function.
  */
 export function isBashSearchOrRead(cmd: string): boolean {
 	if (!cmd) return false;

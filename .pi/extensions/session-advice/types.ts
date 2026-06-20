@@ -1,7 +1,7 @@
 /**
  * types.ts — Shared types for session-advice extension
  *
- * All type definitions extracted from advisor.ts for reuse across
+ * All type definitions extracted from session-analyzer.ts for reuse across
  * detectors, analyzer, jsonl parser, and consumers.
  *
  * Domain layer: zero pi dependencies, zero I/O.

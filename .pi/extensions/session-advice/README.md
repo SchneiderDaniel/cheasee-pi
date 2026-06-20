@@ -66,7 +66,7 @@ Waste signal detection + LLM-based advice generation:
 
 ```
 ├── index.ts           # Entry: /session-advice command, lifecycle hooks, lesson injection
-├── advisor.ts         # Pure waste signal detectors (10+ patterns)
+├── session-analyzer.ts # Pure waste signal detectors (10+ patterns)
 ├── llm-advisor.ts     # LLM-based advice generation from detected signals
 ├── advice-pipeline.ts # Orchestrator: analyze, generate, write, symlink
 ├── symlink-manager.ts # latest.advice.md symlink management

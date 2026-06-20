@@ -26,7 +26,6 @@ const MODIFIED_FILES = [
 	".pi/extensions/ripgrep-search/args.ts",
 	".pi/extensions/supervisor/lib/shared-prompts.ts",
 	".pi/extensions/agent-harness/lib/harness-rules.ts",
-	".pi/extensions/session-advice/advisor.ts",
 ];
 
 const MODIFIED_MD_FILES = [
@@ -41,7 +40,6 @@ const MODIFIED_TEST_FILES = [
 	".pi/extensions/agent-harness/lib/harness-rules.test.ts",
 	".pi/extensions/agent-harness/test/index.test.ts",
 	".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts",
-	".pi/extensions/session-advice/test/session-advice-advisor.test.mts",
 	".pi/extensions/supervisor/test/shared-prompts.test.mts",
 	".pi/extensions/supervisor/test/supervisor-extensions.test.mts",
 	".pi/extensions/check-extensions/test/check-extensions.test.mts",
