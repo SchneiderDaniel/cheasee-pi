@@ -13,9 +13,9 @@ import type { ContextStatusBarConfig, ThresholdEntry } from "./types.js";
 // ─── Default thresholds ───────────────────────────────────────────
 
 /** Default welcome timeout: 0 = no auto-dismiss */
-export const DEFAULT_WELCOME_TIMEOUT_MS = 0;
+const DEFAULT_WELCOME_TIMEOUT_MS = 0;
 
-export const DEFAULT_THRESHOLDS: ThresholdEntry[] = [
+const DEFAULT_THRESHOLDS: ThresholdEntry[] = [
 	{ maxTokens: 100_000 },
 	{ maxTokens: 150_000 },
 	{ maxTokens: null },
