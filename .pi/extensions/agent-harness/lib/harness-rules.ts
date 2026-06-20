@@ -197,7 +197,7 @@ export function isCodeFilePath(path: string): boolean {
 
 /**
  * Check if text contains grep-like patterns.
- * Used by both advisor.ts (post-hoc) and agent-harness (runtime).
+ * Used by both session-analyzer.ts (post-hoc) and agent-harness (runtime).
  */
 export function grepLike(s: string): boolean {
 	if (!s) return false;

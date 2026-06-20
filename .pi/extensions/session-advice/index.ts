@@ -5,7 +5,7 @@
  * Detects waste signals from session data, uses LLM to generate
  * actionable advice. Injects past lessons into agent system prompt.
  *
- * Detection logic in advisor.ts (pure).
+ * Detection logic in session-analyzer.ts (pure).
  * LLM advice generation + signal review in llm-advisor.ts.
  * Report pipeline in advice-pipeline.ts.
  * Symlink management in symlink-manager.ts.
