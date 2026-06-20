@@ -11,7 +11,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-	type ExecFn,
 	getChangedFilesFromGitDiff,
 	filterItemsToChangedFiles,
 	sumLines,
@@ -21,6 +20,12 @@ import {
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════
+
+type ExecFn = (
+	cmd: string,
+	args: string[],
+	opts?: Record<string, unknown>,
+) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 function makeExec(results: Array<{ code: number; stdout: string; stderr: string }>): ExecFn {
 	let idx = 0;
@@ -205,21 +210,5 @@ describe("isExecutableNotFound()", () => {
 
 	it("null input returns false", () => {
 		assert.equal(isExecutableNotFound(null), false);
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// ExecFn type — compile-time check
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("ExecFn type", () => {
-	it("is a valid function type (compile-time check)", () => {
-		// Compile-time: if ExecFn is defined and usable, this test passes
-		const fn: ExecFn = async (_cmd, _args, _opts) => ({
-			code: 0,
-			stdout: "",
-			stderr: "",
-		});
-		assert.equal(typeof fn, "function");
 	});
 });

@@ -12,7 +12,7 @@ import {
 	loadAgentFile,
 	type NotifyFn,
 } from "../../pipeline/helpers.ts";
-import type { ExecFn } from "../../checks/shared.ts";
+import type { ExecFn } from "../../pipeline/helpers.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
 

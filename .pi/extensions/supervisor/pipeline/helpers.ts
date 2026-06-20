@@ -19,7 +19,13 @@ import {
 } from "../github/index.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-import type { ExecFn } from "../checks/shared.ts";
+
+/** Exec function type for gh CLI subprocess calls (3-field return — code, stdout, stderr) */
+export type ExecFn = (
+	cmd: string,
+	args: string[],
+	opts?: Record<string, unknown>,
+) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /**
  * NotifyFn: notification callbacks for UI status updates.

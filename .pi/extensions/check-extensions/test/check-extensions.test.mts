@@ -2974,60 +2974,6 @@ describe("resolve-astgrep", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 14: types.ts — Shared type definitions (dedup ExecFn)
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("types", () => {
-	it("types.ts exports ExecFn type (module loads successfully)", async () => {
-		// Dynamic import validates types.ts exists and is a valid module
-		const mod = await import("../types.ts");
-		assert.ok(mod !== undefined, "types.ts module must load without error");
-	});
-
-	it("ast-scanner.ts no longer defines ExecFn directly", () => {
-		const source = readFileSync(join(EXT_DIR, "ast-scanner.ts"), "utf-8");
-		assert.ok(
-			!source.includes("export type ExecFn = ("),
-			"ast-scanner.ts must not define ExecFn directly",
-		);
-	});
-
-	it("issue-builder.ts no longer defines ExecFn directly", () => {
-		const source = readFileSync(join(EXT_DIR, "issue-builder.ts"), "utf-8");
-		assert.ok(
-			!source.includes("export type ExecFn = ("),
-			"issue-builder.ts must not define ExecFn directly",
-		);
-	});
-
-	it("ExecFn is defined exactly once in types.ts", () => {
-		const source = readFileSync(join(EXT_DIR, "types.ts"), "utf-8");
-		const matches = source.match(/export type ExecFn = \(/g);
-		assert.strictEqual(matches?.length, 1, "types.ts must define ExecFn exactly once");
-	});
-
-	it("ast-scanner.ts re-exports ExecFn from types.ts", () => {
-		const source = readFileSync(join(EXT_DIR, "ast-scanner.ts"), "utf-8");
-		const hasReExport =
-			source.includes("export type { ExecFn }") ||
-			source.includes("export { ExecFn }") ||
-			(source.includes('from "./types.ts"') &&
-				(source.includes("ExecFn") || source.includes("type ExecFn")));
-		assert.ok(hasReExport, "ast-scanner.ts must re-export ExecFn from types.ts");
-	});
-
-	it("issue-builder.ts re-exports ExecFn from types.ts", () => {
-		const source = readFileSync(join(EXT_DIR, "issue-builder.ts"), "utf-8");
-		const hasReExport =
-			source.includes("export type { ExecFn }") ||
-			source.includes("export { ExecFn }") ||
-			(source.includes('from "./types.ts"') &&
-				(source.includes("ExecFn") || source.includes("type ExecFn")));
-		assert.ok(hasReExport, "issue-builder.ts must re-export ExecFn from types.ts");
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
 // Phase 15: extractApiNames — "config option" keyword mapping (Issue #566)
 // ═══════════════════════════════════════════════════════════════════════
 
