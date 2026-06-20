@@ -307,7 +307,10 @@ describe("handleThinkingEnd", () => {
 		handleThinkingEnd(state, { kind: "thinking_end" });
 		assert.equal(state.thinkingPushedThisTurn, true);
 		assert.equal(state.liveThinking, "");
-		assert.ok(state.thinkingOutputLines.length > 0);
+		// thinkingOutputLines no longer populated by handleThinkingEnd — only by terminal events (message_end/done)
+		assert.equal(state.thinkingOutputLines.length, 0);
+		// Log entries still pushed
+		assert.ok(state.fullLog.some((l) => l.includes("deep thought")));
 	});
 });
 
@@ -422,20 +425,53 @@ describe("handleMessageEnd", () => {
 		assert.equal(state.textOutputLines[0], "answer");
 	});
 
-	it("skips thinking recovery when thinkingPushedThisTurn is already true", () => {
+	it("recovers thinking from multiple thinking blocks", () => {
+		const state = createState();
+		handleMessageEnd(state, {
+			kind: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "first block" },
+					{ type: "thinking", thinking: "second block" },
+					{ type: "text", text: "result" },
+				],
+			},
+		});
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.ok(state.thinkingOutputLines[0].includes("first block"));
+		assert.ok(state.thinkingOutputLines[0].includes("second block"));
+		assert.equal(state.textOutputLines[0], "result");
+	});
+
+	it("skips thinking recovery when no thinking blocks in content (should not create empty entries)", () => {
+		const state = createState();
+		handleMessageEnd(state, {
+			kind: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "only text" }],
+			},
+		});
+		assert.equal(state.thinkingOutputLines.length, 0);
+		assert.equal(state.textOutputLines[0], "only text");
+	});
+
+	it("always recovers thinking from msg.content even when flag is set", () => {
 		const state = createState({ thinkingPushedThisTurn: true });
 		handleMessageEnd(state, {
 			kind: "message_end",
 			message: {
 				role: "assistant",
 				content: [
-					{ type: "thinking", thinking: "should not appear" },
+					{ type: "thinking", thinking: "full thinking content" },
 					{ type: "text", text: "answer" },
 				],
 			},
 		});
-		// thinkingPushedThisTurn was already set — thinking recovery is skipped
-		assert.equal(state.thinkingOutputLines.length, 0);
+		// Thinking recovery always runs from msg.content regardless of flag
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.ok(state.thinkingOutputLines[0].includes("full thinking content"));
 		assert.equal(state.textOutputLines[0], "answer");
 	});
 
@@ -664,6 +700,57 @@ describe("handleDone", () => {
 		});
 		assert.equal(state.phase, "idle");
 	});
+
+	it("always recovers thinking from msg.content even when thinkingPushedThisTurn is already set", () => {
+		const state = createState({ thinkingPushedThisTurn: true });
+		handleDone(state, {
+			kind: "done",
+			message: {
+				content: [{ type: "thinking", thinking: "full thinking" }],
+			},
+		});
+		// Thinking recovery always runs from msg.content regardless of flag
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.ok(state.thinkingOutputLines[0].includes("full thinking"));
+		assert.equal(state.thinkingPushedThisTurn, true);
+	});
+
+	it("text recovery still gated by textPushedThisTurn when thinking recovered", () => {
+		const state = createState({ textPushedThisTurn: true });
+		handleDone(state, {
+			kind: "done",
+			message: {
+				content: [
+					{ type: "thinking", thinking: "thought content" },
+					{ type: "text", text: "should not appear" },
+				],
+			},
+		});
+		// Thinking recovered regardless
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.ok(state.thinkingOutputLines[0].includes("thought content"));
+		// Text still gated by flag
+		assert.equal(state.textPushedThisTurn, true);
+		assert.equal(state.textOutputLines.length, 0);
+	});
+
+	it("recovers thinking from multiple thinking blocks", () => {
+		const state = createState();
+		handleDone(state, {
+			kind: "done",
+			message: {
+				content: [
+					{ type: "thinking", thinking: "first block" },
+					{ type: "thinking", thinking: "second block" },
+					{ type: "text", text: "result" },
+				],
+			},
+		});
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.ok(state.thinkingOutputLines[0].includes("first block"));
+		assert.ok(state.thinkingOutputLines[0].includes("second block"));
+		assert.equal(state.textOutputLines[0], "result");
+	});
 });
 
 // ─── handleContextInfo ────────────────────────────────────────────
@@ -832,5 +919,99 @@ describe("handleDone — string content (no streaming models)", () => {
 		});
 		assert.equal(state.textPushedThisTurn, true);
 		assert.equal(state.textOutputLines[0], "array content works");
+	});
+});
+
+// ─── Integration: Full event sequence ─────────────────────────────
+
+describe("Full event sequence", () => {
+	it("full thinking content recovered after streaming + thinking_end + message_end", () => {
+		const state = createState();
+		const fullThinking = "step 1\nstep 2\nstep 3";
+
+		// Simulate thinking_start → thinking_delta (partial chunk) → thinking_end → message_end
+		handleThinkingStart(state, { kind: "thinking_start" });
+		handleThinkingDelta(state, { kind: "thinking_delta", delta: "step 1\nstep 2\n" });
+		handleThinkingDelta(state, { kind: "thinking_delta", delta: "step 3" });
+		handleThinkingEnd(state, { kind: "thinking_end" });
+
+		// After thinking_end: liveThinking cleared, thinkingPushedThisTurn true
+		assert.equal(state.liveThinking, "");
+		assert.equal(state.thinkingPushedThisTurn, true);
+		// thinkingOutputLines should NOT have the fragment (handleThinkingEnd no longer pushes)
+		assert.equal(state.thinkingOutputLines.length, 0);
+
+		// message_end carries authoritative full thinking
+		handleMessageEnd(state, {
+			kind: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: fullThinking },
+					{ type: "text", text: "result" },
+				],
+			},
+		});
+
+		// Full thinking recovered from msg.content, not the truncated fragment
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.equal(state.thinkingOutputLines[0], fullThinking);
+		assert.equal(state.textOutputLines[0], "result");
+	});
+
+	it("truncation resilience — msg.content overrides truncated liveThinking", () => {
+		const state = createState();
+
+		// Build a delta larger than MAX_LIVE_THINKING*2 (1000 chars) to trigger truncation
+		const longChunk = "a".repeat(600);
+		const fullThinking = "The complete thinking content that should survive truncation.";
+
+		handleThinkingStart(state, { kind: "thinking_start" });
+		handleThinkingDelta(state, { kind: "thinking_delta", delta: longChunk });
+		handleThinkingDelta(state, { kind: "thinking_delta", delta: longChunk });
+		handleThinkingEnd(state, { kind: "thinking_end" });
+
+		// liveThinking truncated to last 500 chars
+		assert.equal(state.liveThinking, "");
+		assert.ok(state.liveThinking.length < longChunk.length * 2 || state.liveThinking === "");
+
+		// message_end recovers full thinking from authoritative source
+		handleMessageEnd(state, {
+			kind: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: fullThinking },
+					{ type: "text", text: "result" },
+				],
+			},
+		});
+
+		assert.equal(state.thinkingOutputLines.length, 1);
+		assert.equal(state.thinkingOutputLines[0], fullThinking);
+		assert.equal(state.textOutputLines[0], "result");
+	});
+
+	it("text recovery remains gated by textPushedThisTurn (regression guard)", () => {
+		const state = createState({ textPushedThisTurn: true });
+
+		handleMessageEnd(state, {
+			kind: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "should not appear" }],
+			},
+		});
+		assert.equal(state.textOutputLines.length, 0);
+	});
+
+	it("handleDone with no message object does not crash", () => {
+		const state = createState();
+		const result = handleDone(state, {
+			kind: "done",
+			message: undefined as any,
+		});
+		assert.equal(result.flush, true);
+		assert.equal(state.phase, "idle");
 	});
 });

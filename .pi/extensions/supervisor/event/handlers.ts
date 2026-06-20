@@ -129,7 +129,6 @@ export function handleThinkingEnd(
 	_ev: NormalizedEvent & { kind: "thinking_end" },
 ): HandlerResult {
 	if (state.liveThinking.trim()) {
-		state.thinkingOutputLines.push(state.liveThinking.trim());
 		for (const t of state.liveThinking.split("\n")) {
 			const trimmed = t.trim();
 			if (trimmed) pushLog(state, `💭 ${trimmed.slice(0, 500)}`);
@@ -211,7 +210,7 @@ export function handleMessageEnd(
 	if (!msg) return { flush: false, workingChange: false };
 
 	if (msg.role === "assistant") {
-		if (!state.thinkingPushedThisTurn && Array.isArray(msg.content)) {
+		if (Array.isArray(msg.content)) {
 			const thinkingParts: string[] = [];
 			for (const block of msg.content) {
 				if (block.type === "thinking" && block.thinking) {
@@ -334,7 +333,7 @@ export function handleDone(
 				}
 			}
 		}
-		if (!state.thinkingPushedThisTurn && thinkingParts.length > 0) {
+		if (thinkingParts.length > 0) {
 			const allThinking = thinkingParts.join("\n").trim();
 			if (allThinking) {
 				state.thinkingOutputLines.push(allThinking);
