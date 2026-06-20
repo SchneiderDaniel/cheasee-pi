@@ -311,8 +311,5 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 }
 
-// Re-export types for consumers
-export type { ThresholdEntry, TpsSample, ContextStatusBarConfig, FooterConfig } from "./types.ts";
-
 // Named export alongside default — needed by tests for named import compatibility
 export { contextInfo };
