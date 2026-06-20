@@ -8,7 +8,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createConfigStore } from "./config.ts";
 import { registerCavemanCommand } from "./command.ts";
-import { resolveSessionLevel, resetSessionLevel, shouldAppendCavemanEntry } from "./session.ts";
+import {
+	resolveSessionLevel,
+	resetSessionLevel,
+	shouldAppendCavemanEntry,
+} from "../lib/extension-state.ts";
 import { resolveCompression, shouldLightenCompression } from "./compression.ts";
 import { CAVEMAN_BASE, INTENSITY } from "./prompts.ts";
 

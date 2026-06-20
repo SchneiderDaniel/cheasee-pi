@@ -58,7 +58,6 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 ├── index.ts        # Entry: lifecycle hooks, command registration
 ├── config.ts       # ConfigStore: load/save caveman.json, getConfig/setLevel
 ├── config-ui.ts    # Configuration UI for TUI mode
-├── session.ts      # resolveSessionLevel: detect level from AGENTS.md, session entries
 ├── compression.ts  # resolveCompression: intensity selection, mode-aware skip
 ├── command.ts      # /caveman command handler: cycle levels
 ├── prompts.ts      # CAVEMAN_BASE + INTENSITY prompt templates
