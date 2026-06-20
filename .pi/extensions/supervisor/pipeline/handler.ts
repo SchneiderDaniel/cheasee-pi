@@ -40,6 +40,13 @@ import { runTscAndLspAudit } from "../pipeline/audit.ts";
 import { buildPipelineSummary, validateAgentResult } from "../pipeline/output.ts";
 import { handlePostPipelineMerge } from "../pipeline/merge.ts";
 import { createWorktree, installWorktreeDeps, cleanupWorktree } from "./worktree.ts";
+
+/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
+type ExecFn = (
+	cmd: string,
+	args: string[],
+	opts?: Record<string, unknown>,
+) => Promise<{ code: number; stdout: string; stderr: string }>;
 import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
@@ -83,7 +90,6 @@ import {
 	loadAgentFile as loadAgentFileHelper,
 } from "./helpers.ts";
 import type { NotifyFn } from "./helpers.ts";
-import type { ExecFn } from "../checks/shared.ts";
 import {
 	parseSupervisorArgs,
 	enableDebugLogger,

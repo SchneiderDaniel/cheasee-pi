@@ -5,13 +5,9 @@
 // All check modules import from here instead of defining their own ExecFn
 // or reimplementing git-diff / filter / sum logic.
 
-// ─── Exec function type ─────────────────────────────────────────────
+// ─── Exec function type (local — not exported; each consumer declares its own)
 
-/**
- * ExecFn: executes a shell command (like pi.exec).
- * Returns {code, stdout, stderr}.
- */
-export type ExecFn = (
+type ExecFn = (
 	cmd: string,
 	args: string[],
 	opts?: Record<string, unknown>,

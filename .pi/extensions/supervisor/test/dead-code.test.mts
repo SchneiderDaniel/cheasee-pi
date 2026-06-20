@@ -23,7 +23,7 @@ import {
 	buildResult,
 	runDeadCodeCheck,
 } from "../checks/dead-code.ts";
-import type { ExecFn } from "../checks/shared.ts";
+import type { ExecFn } from "../checks/dead-code.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers

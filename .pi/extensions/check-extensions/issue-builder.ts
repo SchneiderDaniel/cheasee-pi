@@ -8,8 +8,12 @@ import type { ASTFinding } from "./ast-scanner.ts";
 import type { MigrationSnippet } from "./migration-generator.ts";
 import type { ImpactScore } from "./impact-scorer.ts";
 
-import { type ExecFn } from "./types.ts";
-export type { ExecFn };
+/** Exec function type for gh CLI subprocess calls */
+export type ExecFn = (
+	command: string,
+	args: string[],
+	options?: { cwd?: string; timeout?: number },
+) => Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
 
 /**
  * Build issue title following spec:

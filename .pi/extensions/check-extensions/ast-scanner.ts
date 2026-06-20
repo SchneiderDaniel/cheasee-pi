@@ -42,8 +42,12 @@ export interface ASTScanningResult {
 	skipCount: number;
 }
 
-import { type ExecFn } from "./types.ts";
-export type { ExecFn };
+/** Exec function type for ast-grep subprocess calls */
+export type ExecFn = (
+	command: string,
+	args: string[],
+	options?: { cwd?: string; timeout?: number },
+) => Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
 
 /**
  * Mapping from normalized API names to their ast-grep search patterns.
