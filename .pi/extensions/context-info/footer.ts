@@ -22,7 +22,7 @@ import {
 } from "./formatting.ts";
 
 /** Module-scope process start time — captures true pi process launch time */
-export const processStartTime = Date.now();
+const processStartTime = Date.now();
 
 export function installFooter(
 	ctx: ExtensionContext,
