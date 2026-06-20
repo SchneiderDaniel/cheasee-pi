@@ -219,11 +219,13 @@ describe("footer — 4th row (supervisor issue info)", () => {
 		assert.ok(idxSep > idxNum, "separator should appear after issue number");
 	});
 
-	it("title truncated to 16 visible chars with ... when longer", () => {
+	it("title truncated to 50 visible chars with ... when longer", () => {
 		const footerConfig = defaultFooterConfig();
 		footerConfig.issueNumber.value = 862;
 		footerConfig.issueRepo.value = "owner/repo";
-		footerConfig.issueTitle.value = "This is a very long issue title for testing";
+		// 58 chars — exceeds 50-char truncation limit
+		footerConfig.issueTitle.value =
+			"This is an extremely long issue title that exceeds the 50-char limit";
 		const render = installAndGetRender(defaultConfig(), footerConfig);
 		const rows = render(80);
 		const issueRow = lastRow(rows)!;
@@ -232,12 +234,12 @@ describe("footer — 4th row (supervisor issue info)", () => {
 		assert.ok(issueRow.includes("..."), "issue row should contain ellipsis for long title");
 		// Should NOT contain the full title end
 		assert.ok(
-			!issueRow.includes("for testing"),
-			"issue row should NOT contain full title when it exceeds 16 chars",
+			!issueRow.includes("50-char limit"),
+			"issue row should NOT contain full title when it exceeds 50 chars",
 		);
 	});
 
-	it("full title shown without ellipsis when ≤16 visible chars", () => {
+	it("full title shown without ellipsis when ≤50 visible chars", () => {
 		const footerConfig = defaultFooterConfig();
 		footerConfig.issueNumber.value = 862;
 		footerConfig.issueRepo.value = "owner/repo";

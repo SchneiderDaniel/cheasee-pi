@@ -109,7 +109,15 @@ export default function contextInfo(pi: ExtensionAPI): void {
 			state.footerConfig.issueRepo.value = data.issueRepo;
 			state.footerConfig.issueTitle.value = data.issueTitle;
 		}
-		state.callInstallFooter();
+		// Trigger re-render through stored TUI callback if available.
+		// This avoids re-installing the entire footer via setFooter() which
+		// may not trigger an immediate render — causing a race where issue
+		// data is set and cleared (via finally block) before any render occurs.
+		if (state.footerConfig._requestRender) {
+			state.footerConfig._requestRender();
+		} else {
+			state.callInstallFooter();
+		}
 	});
 
 	// ── Hooks ──────────────────────────────────────────────────────

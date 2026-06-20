@@ -53,4 +53,10 @@ export interface FooterConfig {
 	issueRepo: { value: string | undefined };
 	/** Current supervisor issue title (mutable at runtime) */
 	issueTitle: { value: string | undefined };
+
+	// ── Runtime hooks (set by factory) ───────────────────────
+	/** Trigger TUI re-render from external code (e.g., event listeners).
+	 *  Set by the footer factory when first called. Avoids re-installing
+	 *  the entire footer just to reflect mutated state. */
+	_requestRender?: () => void;
 }

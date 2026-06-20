@@ -53,6 +53,12 @@ export function installFooter(
 
 		const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
 
+		// Store re-render trigger so external code (supervisor issue data event
+		// listener) can reflect mutated footerConfig without re-installing the
+		// entire footer via setFooter(). Avoids race where issue data is set
+		// and cleared before setFooter's deferred factory update takes effect.
+		footerConfig._requestRender = () => tui.requestRender();
+
 		return {
 			dispose: unsubBranch,
 			invalidate() {},
@@ -254,8 +260,8 @@ export function installFooter(
 					const issueLink = hyperlink(theme.fg("accent", `#${issueNumVal}`), issueUrl);
 					const sepIssue = theme.fg("dim", "│");
 
-					// Truncate title to 16 visible chars with "..." ellipsis
-					const truncatedTitle = truncateToWidth(issueTitleVal, 32, "...");
+					// Truncate title to 50 visible chars with "..." ellipsis
+					const truncatedTitle = truncateToWidth(issueTitleVal, 50, "...");
 					const titleStr =
 						issueTitleVal.length > 0
 							? " " + sepIssue + " " + theme.fg("muted", truncatedTitle)
