@@ -1,19 +1,19 @@
 /**
  * web_crawl — Web page crawling and content extraction via Scrapling
  *
- * Uses CrawlerEngine port with PythonAdapter (production) for subprocess
- * orchestration. Handler owns presentation concerns only:
+ * Uses PythonAdapter (concrete) for subprocess orchestration.
+ * Handler owns presentation concerns only:
  *   - URL validation
  *   - Concurrency semaphore (MAX_CONCURRENT_CRAWLS = 2) for RAM protection
  *   - Result formatting for LLM
  *   - onUpdate progress
  *
- * Convenience: 3-line execute body delegates to CrawlerEngine.
+ * Injection seam: setCrawlFactory/resetCrawlFactory for tests.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { PythonAdapter } from "./python-adapter.ts";
+import { PythonAdapter, type CrawlFn } from "./python-adapter.ts";
 import { ensureScraplingVenv } from "./venv-setup.ts";
 
 // Concurrency lock: Max 2 simultaneous web crawls to protect 8GB RAM
@@ -29,6 +29,33 @@ async function acquireCrawlLock(): Promise<void> {
 
 function releaseCrawlLock(): void {
 	activeCrawls = Math.max(0, activeCrawls - 1);
+}
+
+// ── Factory injection seam (replaces CrawlerEngine port + MockAdapter) ──
+
+let injectedCrawl: CrawlFn | undefined;
+
+/**
+ * Override the default crawl factory with a custom function.
+ * Used by tests to inject canned CrawlResult values without
+ * subprocess, venv, or module mocking.
+ *
+ * @param fn - CrawlFn to use, or undefined to reset
+ * @throws TypeError if fn is undefined
+ */
+export function setCrawlFactory(fn: CrawlFn): void {
+	if (fn === undefined) {
+		throw new TypeError("setCrawlFactory requires a CrawlFn argument");
+	}
+	injectedCrawl = fn;
+}
+
+/**
+ * Reset the injected crawl factory to use the default PythonAdapter.
+ * Must be called in afterEach to prevent cross-test bleed.
+ */
+export function resetCrawlFactory(): void {
+	injectedCrawl = undefined;
 }
 
 export default function webCrawlExtension(pi: ExtensionAPI): void {
@@ -76,9 +103,14 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 					details: {} as Record<string, unknown>,
 				});
 
-				// Delegate to CrawlerEngine (3 lines)
-				const engine = new PythonAdapter(pi.exec, _ctx.cwd, onUpdate, ensureScraplingVenv);
-				const result = await engine.crawl({
+				// Delegate to crawl factory (injectable for tests)
+				const crawlFn: CrawlFn =
+					injectedCrawl ??
+					(async (p) => {
+						const engine = new PythonAdapter(pi.exec, _ctx.cwd, onUpdate, ensureScraplingVenv);
+						return engine.crawl(p);
+					});
+				const result = await crawlFn({
 					url: params.url,
 					maxPages,
 					maxTokens: params.maxTokens,

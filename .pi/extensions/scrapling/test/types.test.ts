@@ -224,75 +224,7 @@ describe("types.ts — CrawlResult and CrawledPage types", () => {
 	});
 });
 
-describe("crawler-engine.ts — CrawlerEngine interface", () => {
-	const source = readSource("crawler-engine.ts");
-
-	it("(D) crawler-engine.ts exports CrawlerEngine interface", () => {
-		assert.ok(
-			/export\s+interface\s+CrawlerEngine/.test(source),
-			"crawler-engine.ts should export CrawlerEngine",
-		);
-	});
-
-	it("(D) CrawlerEngine has crawl method returning Promise<CrawlResult>", () => {
-		assert.ok(
-			/Promise<CrawlResult>/.test(source),
-			"CrawlerEngine.crawl should return Promise<CrawlResult>",
-		);
-	});
-
-	it("(D) CrawlerEngine imports CrawlParams from types.ts", () => {
-		assert.ok(
-			source.includes("CrawlParams") && source.includes("./types"),
-			"crawler-engine.ts should import CrawlParams from ./types",
-		);
-	});
-
-	it("(D) CrawlerEngine imports CrawlResult from types.ts", () => {
-		assert.ok(
-			source.includes("CrawlResult") && source.includes("./types"),
-			"crawler-engine.ts should import CrawlResult from ./types",
-		);
-	});
-});
-
-describe("mock-adapter.ts — MockAdapter implements CrawlerEngine", () => {
-	const source = readSource("mock-adapter.ts");
-
-	it("(D) mock-adapter.ts exports MockAdapter class", () => {
-		assert.ok(
-			/export\s+class\s+MockAdapter/.test(source),
-			"mock-adapter.ts should export MockAdapter class",
-		);
-	});
-
-	it("(D) MockAdapter implements CrawlerEngine", () => {
-		assert.ok(
-			/implements\s+CrawlerEngine/.test(source),
-			"MockAdapter should implement CrawlerEngine",
-		);
-	});
-
-	it("(D) MockAdapter constructor accepts CrawlResult", () => {
-		assert.ok(
-			/constructor/.test(source) && /CrawlResult/.test(source),
-			"MockAdapter constructor should accept CrawlResult",
-		);
-	});
-
-	it("(D) MockAdapter imports from crawler-engine.ts", () => {
-		assert.ok(
-			source.includes("crawler-engine"),
-			"MockAdapter should import from crawler-engine.ts",
-		);
-	});
-
-	it("(D) MockAdapter imports from types.ts", () => {
-		assert.ok(source.includes("types"), "MockAdapter should import from types.ts");
-	});
-});
-
-describe("python-adapter.ts — PythonAdapter implements CrawlerEngine", () => {
+describe("python-adapter.ts — CrawlFn type export", () => {
 	const source = readSource("python-adapter.ts");
 
 	it("(D) python-adapter.ts exports PythonAdapter class", () => {
@@ -302,21 +234,31 @@ describe("python-adapter.ts — PythonAdapter implements CrawlerEngine", () => {
 		);
 	});
 
-	it("(D) PythonAdapter implements CrawlerEngine", () => {
+	it("(D) python-adapter.ts exports type CrawlFn", () => {
 		assert.ok(
-			/implements\s+CrawlerEngine/.test(source),
-			"PythonAdapter should implement CrawlerEngine",
+			/export\s+type\s+CrawlFn/.test(source),
+			"python-adapter.ts should export type CrawlFn",
 		);
 	});
 
-	it("(D) PythonAdapter imports from crawler-engine.ts", () => {
+	it("(D) CrawlFn signature: (params: CrawlParams & { signal?: AbortSignal }) => Promise<CrawlResult>", () => {
+		const pattern = /CrawlFn\s*=\s*\(/;
+		assert.ok(pattern.test(source), "CrawlFn should be a function type");
 		assert.ok(
-			source.includes("crawler-engine"),
-			"PythonAdapter should import from crawler-engine.ts",
+			/CrawlParams\s*&/.test(source),
+			"CrawlFn should accept CrawlParams & { signal?: AbortSignal }",
+		);
+		assert.ok(/Promise<CrawlResult>/.test(source), "CrawlFn should return Promise<CrawlResult>");
+	});
+
+	it("(D) PythonAdapter no longer implements CrawlerEngine", () => {
+		assert.ok(
+			!/implements\s+CrawlerEngine/.test(source),
+			"PythonAdapter should NOT implement CrawlerEngine",
 		);
 	});
 
-	it("(D) PythonAdapter imports SCRAPLING_SCRIPT from python-script.ts", () => {
+	it("(D) PythonAdapter imports from python-script.ts", () => {
 		assert.ok(
 			source.includes("python-script"),
 			"PythonAdapter should import from python-script.ts",
@@ -325,5 +267,27 @@ describe("python-adapter.ts — PythonAdapter implements CrawlerEngine", () => {
 
 	it("(D) PythonAdapter imports ensureScraplingVenv from venv-setup.ts", () => {
 		assert.ok(source.includes("venv-setup"), "PythonAdapter should import from venv-setup.ts");
+	});
+});
+
+// ── Phase 7: Deleted files verification ──
+
+describe("crawler-engine.ts — deleted", () => {
+	it("(D) crawler-engine.ts no longer exists", () => {
+		assert.throws(
+			() => readSource("crawler-engine.ts"),
+			/ENOENT/,
+			"crawler-engine.ts should be deleted",
+		);
+	});
+});
+
+describe("mock-adapter.ts — deleted", () => {
+	it("(D) mock-adapter.ts no longer exists", () => {
+		assert.throws(
+			() => readSource("mock-adapter.ts"),
+			/ENOENT/,
+			"mock-adapter.ts should be deleted",
+		);
 	});
 });

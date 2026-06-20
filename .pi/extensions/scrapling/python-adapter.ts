@@ -15,7 +15,6 @@
 
 import { ensureScraplingVenv as defaultEnsureVenv } from "./venv-setup.ts";
 import { SCRAPLING_SCRIPT } from "./python-script.ts";
-import type { CrawlerEngine } from "./crawler-engine.ts";
 import type { CrawlParams, CrawlResult, CrawledPage, ExecFn, OnUpdateCallback } from "./types.ts";
 
 // ── Truncation suffix template ──
@@ -41,7 +40,18 @@ export type EnsureVenvFn = (
 	onUpdate?: OnUpdateCallback,
 ) => Promise<string>;
 
-export class PythonAdapter implements CrawlerEngine {
+// ── CrawlFn — Replaces CrawlerEngine port ──
+
+/**
+ * CrawlFn — injectable crawl factory for the handler seam
+ *
+ * Replaces the CrawlerEngine interface. The handler in index.ts
+ * uses an injected CrawlFn (set via setCrawlFactory/resetCrawlFactory)
+ * for testing without needing a MockAdapter class.
+ */
+export type CrawlFn = (params: CrawlParams & { signal?: AbortSignal }) => Promise<CrawlResult>;
+
+export class PythonAdapter {
 	private readonly exec: ExecFn;
 	private readonly cwd: string;
 	private readonly onUpdate?: OnUpdateCallback;
