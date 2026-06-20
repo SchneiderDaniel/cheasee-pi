@@ -6,7 +6,7 @@ import type { ThresholdEntry, TpsSample } from "./types.js";
 
 // ─── Hex colors for threshold levels ─────────────────────────────
 
-export const THRESHOLD_HEX_COLORS = [
+const THRESHOLD_HEX_COLORS = [
 	"#50fa7b", // green (neonMint)
 	"#ff6d00", // orange (safetyOrange)
 	"#ff5252", // red (coral)
