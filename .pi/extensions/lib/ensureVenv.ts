@@ -151,8 +151,8 @@ async function acquireLock(
 	});
 
 	// Map timeout to proper-lockfile retry options.
-	// Retry count: target ~7 retries for 5000ms timeout (matching original behavior).
-	const retryCount = Math.max(1, Math.ceil(timeoutMs / 800));
+	// Retry count: target ~1 retry per 1000ms of timeout, cap at 120.
+	const retryCount = Math.min(120, Math.max(5, Math.ceil(timeoutMs / 1000)));
 	const retryOpts = {
 		retries: retryCount,
 		factor: 2,
@@ -225,7 +225,7 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 		pipArgs,
 		verifyCommand,
 		postInstall,
-		lockTimeoutMs = 5000,
+		lockTimeoutMs = 60_000,
 		lockStaleMs = 30_000,
 		onUpdate,
 	} = config;

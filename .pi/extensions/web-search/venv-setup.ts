@@ -34,6 +34,7 @@ export async function ensureWebSearchVenv(
 		pipArgs: ["-r", join(cwd, ".pi/extensions/web-search/requirements.txt")],
 		verifyCommand: "import ddgs; print('ok')",
 		onUpdate,
+		lockTimeoutMs: 120_000, // 2 min — pip install can take 30s+ when concurrent sessions exist
 	});
 
 	return result.pythonPath;

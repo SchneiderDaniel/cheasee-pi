@@ -68,16 +68,14 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 
 ### Architecture
 
-Port-based adapter pattern for progressive web crawling:
+Concrete adapter pattern with injectable crawl factory:
 
 ```
 ├── index.ts           # Entry: tool registration, URL validation, concurrency semaphore (max 2)
-├── crawler-engine.ts  # CrawlerEngine interface + crawl orchestration
-├── python-adapter.ts  # PythonAdapter: subprocess orchestration via pi.exec
+├── python-adapter.ts  # PythonAdapter: subprocess orchestration via pi.exec, exports CrawlFn type
 ├── python-script.ts   # Inline Python crawler script using scrapling library
 ├── venv-setup.ts      # Auto-create .pi/scrapling-venv + pip install scrapling[fetchers] + markdownify
 ├── types.ts           # CrawlResult, CrawlPage types
-├── mock-adapter.ts    # Mock adapter for testing (no network)
 └── test/              # Unit + integration tests
 ```
 
