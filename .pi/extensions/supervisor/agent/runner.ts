@@ -3,7 +3,8 @@
 // Subprocess path retained as backward-compatible fallback.
 //
 // In-process runner lives in agent-session-runner.ts
-// Subprocess lifecycle lives in this file (parsing in agent-stream.ts).
+// Subprocess lifecycle lives in this file (event processing via
+// jsonLineToNormalizedEvent + processNormalizedEvent from adapter).
 
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -11,7 +12,12 @@ import { spawn } from "node:child_process";
 import { resolveTools, resolveExtensions, resolveSkillPaths } from "../lib/extensions.ts";
 import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { processJsonLine, filterStderr, pushLog } from "./stream.ts";
+import {
+	jsonLineToNormalizedEvent,
+	processNormalizedEvent,
+	filterStderr,
+} from "../event/adapter.ts";
+import { pushLog } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { runAgentInProcess } from "./session-runner.ts";
 import { buildErrorNotificationContext } from "../config/diagnostics.ts";
@@ -302,9 +308,16 @@ export async function runAgentSubprocess(
 
 		// Event-driven flush at 300ms debounce + 2s heartbeat.
 		// Try-catch prevents uncaught exceptions from breaking the JSON stream processing.
+		// Inlines the former processJsonLine() logic from deleted agent/stream.ts:
+		//   - jsonLineToNormalizedEvent has inner try-catch, returns null on parse fail
+		//   - outer catch preserves error reporting (getDebugLogger.warn +
+		//     getErrorCollector.push) that was formerly inside processJsonLine
 		const handleLine = (line: string) => {
 			try {
-				const result = processJsonLine(line, state);
+				if (!line.trim()) return;
+				const normalized = jsonLineToNormalizedEvent(line);
+				if (!normalized) return;
+				const result = processNormalizedEvent(normalized, state);
 				if (result.workingChange) {
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
@@ -314,13 +327,13 @@ export async function runAgentSubprocess(
 				if (state.budgetExceeded && !childExited) {
 					child.kill("SIGTERM");
 				}
-			} catch (lineErr: unknown) {
-				const msg = lineErr instanceof Error ? lineErr.message : String(lineErr);
-				getErrorCollector().push(
-					"runner",
-					"warn",
-					`JSON line processing error for ${agentName}: ${msg}`,
-				);
+			} catch (parseErr: unknown) {
+				const preview = line.length > 200 ? line.slice(0, 200) + "…" : line;
+				const errMsg = String(parseErr).slice(0, 200);
+				getDebugLogger().warn("agent-stream", `JSON parse error: ${errMsg}`, { preview });
+				if (line.trim()) {
+					getErrorCollector().push("stream", "warn", `JSON parse error: ${errMsg}`);
+				}
 			}
 		};
 

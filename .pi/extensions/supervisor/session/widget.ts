@@ -6,10 +6,6 @@ import type { AgentRunState } from "../config/types.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import { formatToolCall } from "../event/session-events.ts";
-import { WIDGET_LINES, MAX_LIVE_THINKING } from "../agent/stream.ts";
-
-// Re-export constants for backward compatibility
-export { WIDGET_LINES, MAX_LIVE_THINKING } from "../agent/stream.ts";
 
 /**
  * Build widget lines from state. Pure function — no side effects.

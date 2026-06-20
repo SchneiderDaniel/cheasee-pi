@@ -2,6 +2,10 @@
 // Converts JSON lines (from pi --mode json subprocess stdout) and
 // SDK session events (from session.subscribe()) into NormalizedEvent.
 // Provides processNormalizedEvent() which delegates to shared handlers.
+//
+// Also owns: filterStderr() — stderr noise filter for subprocess output.
+// Extracted from deleted agent/stream.ts; stderr filtering is an
+// external-output transformation that belongs in the adapter layer.
 
 import type { AgentRunState } from "../config/types.ts";
 import type { NormalizedEvent, HandlerResult } from "./types.ts";
@@ -92,6 +96,38 @@ export function jsonLineToNormalizedEvent(line: string): NormalizedEvent | null 
 	} catch {
 		return null;
 	}
+}
+
+// ─── Stderr Filter ────────────────────────────────────────────────
+
+/**
+ * Filter known non-error patterns from stderr output.
+ * Prevents telemetry noise and jiti diagnostic context from
+ * polluting error detection.
+ *
+ * In --mode json, pi redirects process.stdout.write to stderr
+ * (takeOverStdout), so extension console.log calls end up here.
+ * Additionally, jiti prints source context lines from the
+ * importing file (resource-loader.js) when module resolution
+ * fails — these look like "import { ... } from \"...\"" fragments.
+ */
+export function filterStderr(raw: string): string {
+	return raw
+		.split("\n")
+		.filter((line) => {
+			const trimmed = line.trim();
+			// Skip JSON telemetry events
+			if (trimmed.startsWith('{"type":"context_info"')) return false;
+			// Skip jiti source-context lines (JS import/export fragments)
+			if (/^(import\s+|export\s+)/.test(trimmed)) return false;
+			// Skip Node.js stack trace lines
+			if (/^\s+at\s/.test(line)) return false;
+			// Skip empty lines
+			if (!trimmed) return false;
+			return true;
+		})
+		.join("\n")
+		.trim();
 }
 
 // ─── Session Event → NormalizedEvent ─────────────────────────────

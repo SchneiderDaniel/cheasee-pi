@@ -6,7 +6,7 @@
 // Delegates: processSessionEvent() → sessionEventToNormalizedEvent() + processNormalizedEvent().
 
 import type { AgentRunState } from "../config/types.ts";
-import { pushLog } from "../agent/stream.ts";
+import { pushLog } from "../agent/state-helpers.ts";
 import { sessionEventToNormalizedEvent, processNormalizedEvent } from "./adapter.ts";
 import { phasePriority } from "./types.ts";
 

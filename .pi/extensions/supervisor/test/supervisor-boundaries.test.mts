@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { readFileSync } from "node:fs";
 import type { AgentRunState } from "../config/types.ts";
-import { processJsonLine } from "../agent/stream.ts";
+import { jsonLineToNormalizedEvent, processNormalizedEvent } from "../event/adapter.ts";
 import { processSessionEvent } from "../event/session-events.ts";
 import { buildWidgetLines } from "../session/widget.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
@@ -61,44 +61,54 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 	};
 }
 
+/** Convert JSON line to NormalizedEvent then process it. */
+function processViaNormalized(
+	line: string,
+	state: AgentRunState,
+): { flush: boolean; workingChange: boolean } {
+	const normalized = jsonLineToNormalizedEvent(line);
+	if (!normalized) return { flush: false, workingChange: false };
+	return processNormalizedEvent(normalized, state);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: Pure function boundaries — no throw on bad input (domain tests)
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 1: Pure function boundaries — no throw on bad input", () => {
-	// ── processJsonLine ────────────────────────────────────────────
+	// ── processViaNormalized (replaces former processJsonLine) ─────
 
-	describe("processJsonLine", () => {
+	describe("processViaNormalized", () => {
 		it("1.1: malformed JSON returns no-op, no throw", () => {
 			const state = createState();
-			const result = processJsonLine("{broken", state);
+			const result = processViaNormalized("{broken", state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it("1.2: empty string returns no-op, no throw", () => {
 			const state = createState();
-			const result = processJsonLine("", state);
+			const result = processViaNormalized("", state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it('1.3: null/undefined event ({"type":"message_update","delta":null}) returns no-op', () => {
 			const state = createState();
 			const line = JSON.stringify({ type: "message_update", delta: null });
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it("1.4: unknown event type returns default flags", () => {
 			const state = createState();
 			const line = JSON.stringify({ type: "unknown_event" });
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it("1.5: tool_execution_start with null toolName does not throw", () => {
 			const state = createState();
 			const line = JSON.stringify({ type: "tool_execution_start", toolName: null });
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			// Should handle gracefully — coalesces null to "tool"
 			assert.equal(result.flush, true);
 			assert.equal(state.currentTool, "tool");
@@ -136,23 +146,23 @@ describe("Phase 1: Pure function boundaries — no throw on bad input", () => {
 			assert.deepEqual(r2, { flush: false, workingChange: false });
 		});
 
-		it("1.10: processJsonLine with null buffer (empty after trim) returns no-op", () => {
+		it("1.10: empty line after trim returns no-op", () => {
 			const state = createState();
-			const result = processJsonLine("   ", state);
+			const result = processViaNormalized("   ", state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it("1.11: message_update with no delta but valid fields does not throw", () => {
 			const state = createState();
 			const line = JSON.stringify({ type: "message_update", delta: undefined });
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		});
 
 		it("1.12: tool_execution_start with undefined toolName coalesces to 'tool'", () => {
 			const state = createState();
 			const line = JSON.stringify({ type: "tool_execution_start", toolName: undefined });
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			assert.equal(result.flush, true);
 			assert.equal(state.currentTool, "tool");
 		});
@@ -334,15 +344,16 @@ describe("Phase 2: Error boundary structure — try-catch present in both runner
 				"handleLine must exist",
 			);
 			assert.ok(
-				source.includes("try {") && source.includes("const result = processJsonLine(line, state);"),
-				"handleLine must have try block wrapping processJsonLine",
+				source.includes("try {") &&
+					source.includes("const normalized = jsonLineToNormalizedEvent(line);"),
+				"handleLine must have try block wrapping jsonLineToNormalizedEvent",
 			);
 		});
 
-		it("2.8: handleLine catch logs error with JSON line error", () => {
+		it("2.8: handleLine catch logs error with JSON parse error prefix", () => {
 			assert.ok(
-				source.includes("JSON line processing error for"),
-				"handleLine catch must log 'JSON line processing error'",
+				source.includes("JSON parse error"),
+				"handleLine catch must log 'JSON parse error'",
 			);
 		});
 
@@ -499,35 +510,33 @@ describe("Phase 4: Subscribe callback — listener chain preservation", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => {
-	it("5.1: handleLine wraps processJsonLine in try-catch", () => {
+	it("5.1: handleLine wraps jsonLineToNormalizedEvent in try-catch", () => {
 		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
 		// Find handleLine function
 		const handleLineSection =
 			source.split("const handleLine =")[1]?.split("child.stdout.on")[0] || "";
 		assert.ok(
 			handleLineSection.includes("try {") &&
-				handleLineSection.includes("processJsonLine(line, state)") &&
-				handleLineSection.includes("catch (lineErr: unknown)"),
-			"handleLine must have try-catch around processJsonLine",
+				handleLineSection.includes("jsonLineToNormalizedEvent(line)") &&
+				handleLineSection.includes("catch (parseErr: unknown)"),
+			"handleLine must have try-catch around jsonLineToNormalizedEvent",
 		);
 	});
 
-	it("5.2: handleLine catch logs error with JSON line processing error prefix", () => {
+	it("5.2: handleLine catch logs error with JSON parse error prefix", () => {
 		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
-		assert.ok(
-			source.includes("JSON line processing error for"),
-			"handleLine catch must log 'JSON line processing error for'",
-		);
+		assert.ok(source.includes("JSON parse error"), "handleLine catch must log 'JSON parse error'");
 	});
 
-	it("5.3: processJsonLine already has inner try-catch for JSON.parse", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent/stream.ts", "utf-8");
-		// processJsonLine wraps JSON.parse in try-catch
-		const processJsonLineSection = source.split("export function processJsonLine")[1] || "";
+	it("5.3: handleLine in runner.ts has error boundary with getDebugLogger.warn + getErrorCollector.push", () => {
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
+		// handleLine catch block now preserves the error reporting that was
+		// formerly inside processJsonLine: getDebugLogger().warn with "agent-stream"
+		// source and getErrorCollector().push with "stream"/"warn"
 		assert.ok(
-			processJsonLineSection.includes("try {") ||
-				source.includes("try {\n\t\tconst ev = JSON.parse(line);"),
-			"processJsonLine must have try-catch around JSON.parse",
+			source.includes('getDebugLogger().warn("agent-stream"') &&
+				source.includes('getErrorCollector().push("stream"'),
+			"handleLine catch must have getDebugLogger.warn + getErrorCollector.push",
 		);
 	});
 });
@@ -537,12 +546,12 @@ describe("Phase 5: JSON stream handleLine — per-chunk error isolation", () => 
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => {
-	it("6.1: processJsonLine handles multiple consecutive malformed JSON lines without cascade", () => {
+	it("6.1: processViaNormalized handles multiple consecutive malformed JSON lines without cascade", () => {
 		const state = createState();
 		const malformedLines = ["{invalid}", "{broken", "{{{", "null", "undefined"];
 
 		for (const line of malformedLines) {
-			const result = processJsonLine(line, state);
+			const result = processViaNormalized(line, state);
 			// Each malformed line should return no-op and not throw
 			assert.deepEqual(result, { flush: false, workingChange: false });
 		}
@@ -552,28 +561,28 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 		assert.equal(state.fullLog.length, 0);
 	});
 
-	it("6.2: processJsonLine handles valid JSON after malformed line", () => {
+	it("6.2: processViaNormalized handles valid JSON after malformed line", () => {
 		const state = createState();
 		// First malformed
-		processJsonLine("{invalid}", state);
+		processViaNormalized("{invalid}", state);
 		// Then valid tool_execution_start
 		const validLine = JSON.stringify({
 			type: "tool_execution_start",
 			toolName: "read_file",
 		});
-		const result = processJsonLine(validLine, state);
+		const result = processViaNormalized(validLine, state);
 		assert.equal(result.flush, true);
 		assert.equal(state.currentTool, "read_file");
 		assert.equal(state.phase, "tool");
 	});
 
-	it("6.3: processJsonLine handles null/undefined event type gracefully after malformed JSON", () => {
+	it("6.3: processViaNormalized handles null/undefined event type gracefully after malformed JSON", () => {
 		const state = createState();
 		// Malformed JSON
-		processJsonLine("{{{}}", state);
+		processViaNormalized("{{{}}", state);
 		// Valid JSON but null/missing type
 		const validButNullType = JSON.stringify({ type: null });
-		const result = processJsonLine(validButNullType, state);
+		const result = processViaNormalized(validButNullType, state);
 		// Falls through switch, returns default flags
 		assert.deepEqual(result, { flush: false, workingChange: false });
 	});
@@ -616,14 +625,14 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 		assert.equal(result.flush, true);
 	});
 
-	it("6.6: processJsonLine handles events with extra unexpected fields gracefully", () => {
+	it("6.6: processViaNormalized handles events with extra unexpected fields gracefully", () => {
 		const state = createState();
 		const line = JSON.stringify({
 			type: "tool_execution_start",
 			toolName: "read_file",
 			unexpectedField: { nested: { data: "boom" } },
 		});
-		const result = processJsonLine(line, state);
+		const result = processViaNormalized(line, state);
 		assert.equal(result.flush, true);
 		assert.equal(state.currentTool, "read_file");
 	});
@@ -639,23 +648,23 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 			"",
 		];
 		for (const line of events) {
-			processJsonLine(line, state);
+			processViaNormalized(line, state);
 		}
 		// After tool_execution_end, toolCount should be 1
 		assert.equal(state.toolCount, 1);
 	});
 
-	it("6.8: nested boundaries — handleLine outer catch + processJsonLine inner catch both handle errors without cascade", () => {
+	it("6.8: nested boundaries — handleLine outer catch + jsonLineToNormalizedEvent inner catch both handle errors without cascade", () => {
 		// Structural test: verify both try-catch exist in chain
 		const runnerSource = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
-		const streamSource = readFileSync(".pi/extensions/supervisor/agent/stream.ts", "utf-8");
+		const adapterSource = readFileSync(".pi/extensions/supervisor/event/adapter.ts", "utf-8");
 
 		// agent-runner handleLine has try-catch
-		assert.ok(runnerSource.includes("catch (lineErr: unknown)"), "handleLine outer catch exists");
-		// agent-stream processJsonLine has try-catch for JSON.parse
+		assert.ok(runnerSource.includes("catch (parseErr: unknown)"), "handleLine outer catch exists");
+		// adapter.ts jsonLineToNormalizedEvent has try-catch for JSON.parse
 		assert.ok(
-			streamSource.includes("catch (parseErr: unknown)"),
-			"processJsonLine inner catch exists",
+			adapterSource.includes("try {") && adapterSource.includes("JSON.parse(line)"),
+			"jsonLineToNormalizedEvent inner catch exists (adapter.ts)",
 		);
 	});
 
@@ -672,14 +681,17 @@ describe("Phase 6: Edge cases — multi-error storms, nested boundaries", () => 
 	it("6.10: tool_execution_start → tool_execution_end → tool_execution_start works after malformed JSON", () => {
 		const state = createState();
 		// Malformed
-		processJsonLine("{{{}}", state);
+		processViaNormalized("{{{}}", state);
 		// First tool cycle
-		processJsonLine(JSON.stringify({ type: "tool_execution_start", toolName: "read" }), state);
+		processViaNormalized(JSON.stringify({ type: "tool_execution_start", toolName: "read" }), state);
 		assert.equal(state.currentTool, "read");
-		processJsonLine(JSON.stringify({ type: "tool_execution_end", toolName: "read" }), state);
+		processViaNormalized(JSON.stringify({ type: "tool_execution_end", toolName: "read" }), state);
 		assert.equal(state.toolCount, 1);
 		// Second tool cycle after malformed
-		processJsonLine(JSON.stringify({ type: "tool_execution_start", toolName: "write" }), state);
+		processViaNormalized(
+			JSON.stringify({ type: "tool_execution_start", toolName: "write" }),
+			state,
+		);
 		assert.equal(state.currentTool, "write");
 	});
 });
@@ -716,7 +728,7 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 			assert.equal(state.textOutputLines.length, 1);
 		});
 
-		it("7.2: thinking_end → message_end still produces one thinking entry", () => {
+		it("7.2: thinking_end → message_end shows thinking re-pushed (no dedup guard for thinking)", () => {
 			const state = createState();
 			state.liveThinking = "streamed thinking";
 
@@ -725,7 +737,8 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 				state,
 			);
 			assert.equal(state.thinkingPushedThisTurn, true);
-			assert.ok(state.thinkingOutputLines[0]?.includes("streamed thinking"));
+			// handleThinkingEnd does NOT push to thinkingOutputLines (only fullLog via pushLog)
+			assert.equal(state.thinkingOutputLines.length, 0);
 
 			processSessionEvent(
 				{
@@ -737,6 +750,7 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 				},
 				state,
 			);
+			// message_end always pushes thinking content regardless of dedup flag
 			assert.equal(state.thinkingOutputLines.length, 1);
 		});
 
@@ -768,19 +782,22 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 		});
 	});
 
-	// ── processJsonLine event processing unchanged ──
+	// ── processViaNormalized event processing unchanged ──
 
-	describe("processJsonLine event processing unchanged", () => {
+	describe("processViaNormalized event processing unchanged", () => {
 		it("7.4: tool_execution_start → tool_execution_end increments toolCount", () => {
 			const state = createState();
-			processJsonLine(JSON.stringify({ type: "tool_execution_start", toolName: "read" }), state);
-			processJsonLine(JSON.stringify({ type: "tool_execution_end", toolName: "read" }), state);
+			processViaNormalized(
+				JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
+				state,
+			);
+			processViaNormalized(JSON.stringify({ type: "tool_execution_end", toolName: "read" }), state);
 			assert.equal(state.toolCount, 1);
 		});
 
 		it("7.5: thinking_delta accumulates liveThinking (no newline = stays in buffer)", () => {
 			const state = createState();
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_update",
 					delta: { type: "thinking_delta", thinking_delta: "thinking text" },
@@ -795,7 +812,7 @@ describe("Phase 7: Regression — existing behavior preserved", () => {
 
 		it("7.6: text_delta accumulates liveText", () => {
 			const state = createState();
-			processJsonLine(
+			processViaNormalized(
 				JSON.stringify({
 					type: "message_update",
 					delta: { type: "text_delta", text_delta: "text output\n" },

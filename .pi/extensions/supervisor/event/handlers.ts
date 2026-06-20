@@ -9,7 +9,7 @@
 import type { AgentRunState } from "../config/types.ts";
 import type { NormalizedEvent, HandlerResult } from "./types.ts";
 import { phasePriority } from "./types.ts";
-import { pushLog } from "../agent/stream.ts";
+import { pushLog } from "../agent/state-helpers.ts";
 import { formatToolCall } from "./session-events.ts";
 import { extractTextFromContent } from "../lib/formatting.ts";
 
