@@ -110,10 +110,11 @@ RUN groupadd --gid 1001 agentuser && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------
-# Layer 7: Entrypoint (last – changes most frequently)
+# Layer 7: Entrypoint + worktree fix library (last – changes most frequently)
 # ---------------------------------------------------------------
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY docker/lib/ /usr/local/bin/lib/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/lib/worktree-fix.sh
 
 WORKDIR /workspaces/main
 

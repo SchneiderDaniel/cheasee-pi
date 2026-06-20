@@ -51,32 +51,14 @@ fi
 # container. Rewrite them to relative paths so git works regardless
 # of mount point.
 #
-# Uses sentinel file on bind mount so rewrite runs once per host path.
-WORKTREE_SENTINEL="/workspaces/.cheasee-pi-worktrees-fixed"
-if [ ! -f "$WORKTREE_SENTINEL" ]; then
-    echo "Fixing git worktree paths in /workspaces..."
-    find /workspaces -maxdepth 3 -name '.git' -type f 2>/dev/null | while read -r f; do
-    read -r line < "$f"
-    gitdir="${line#gitdir: }"
-    [ "${gitdir:0:1}" != "/" ] && continue       # skip relative
-    [ -d "$gitdir" ] && continue                  # already valid
-    suffix="${gitdir#*/.bare}"
-    echo "gitdir: ../.bare$suffix" > "$f"
-    echo "Fixed: $f → ../.bare$suffix"
-done
-
-# Fix reciprocal gitdir files inside .bare/worktrees/<id>/gitdir
-find /workspaces/.bare/worktrees -name 'gitdir' -type f 2>/dev/null | while read -r f; do
-    read -r content < "$f"
-    [ "${content:0:1}" != "/" ] && continue      # skip relative
-    [ -f "$content" ] && continue                  # already valid
-    worktree_id=$(basename "$(dirname "$f")")
-    echo "../../$worktree_id/.git" > "$f"
-    echo "Fixed: $f → ../../$worktree_id/.git"
-done
-    touch "$WORKTREE_SENTINEL"
-    echo "Worktree paths fixed (sentinel: $WORKTREE_SENTINEL)"
-fi
+# Uses the unbreak_worktrees() function from worktree-fix.sh which
+# idempotently rewrites paths, recovers pruned registrations, and
+# locks worktrees to prevent future pruning. Runs on every container
+# start but is fast because it skips already-relative paths.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib/worktree-fix.sh
+source "$SCRIPT_DIR/lib/worktree-fix.sh"
+unbreak_worktrees
 
 # --- Update file ownership ----------------------------------------
 # Ensure the workspace and home directory are owned by the (possibly
