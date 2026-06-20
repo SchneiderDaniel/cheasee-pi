@@ -13,12 +13,7 @@
  *   detectMismatchAndSuggest() → BashCommand(cmd).detectMismatch()
  *   suggestRedirection()   → BashCommand(cmd).suggestRedirection()
  *
- * Constants imported from constants.ts (shared with harness-rules.ts).
  */
-
-// ── Imports ──
-
-import { READ_BASH_CMDS, FILE_MODIFY_SIGNALS } from "./constants.ts";
 
 // ── Re-export the segment type ──
 
@@ -136,6 +131,30 @@ export function parseBashCmd(cmd: string): BashSegment[] {
  * ```
  */
 export class BashCommand {
+	/** Bash file-reading commands that should use `read` tool instead. */
+	private static readonly READ_BASH_CMDS: readonly string[] = Object.freeze([
+		"cat",
+		"head",
+		"tail",
+		"less",
+		"more",
+	]);
+
+	/**
+	 * Bash commands that modify files — triggers read cache invalidation.
+	 */
+	private static readonly FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
+		"sed",
+		"echo",
+		"cat",
+		"tee",
+		"mv",
+		"cp",
+		"rm",
+		"chmod",
+		"dd",
+	]);
+
 	/** The original command string. */
 	readonly raw: string;
 	/** Parsed segments (pipe-delimited parts of the command). */
@@ -222,7 +241,7 @@ export class BashCommand {
 
 		// Check first token against READ_BASH_CMDS
 		const firstToken = firstSeg.tokens[0];
-		if (READ_BASH_CMDS.includes(firstToken as (typeof READ_BASH_CMDS)[number])) {
+		if (BashCommand.READ_BASH_CMDS.includes(firstToken)) {
 			return true;
 		}
 
@@ -249,7 +268,7 @@ export class BashCommand {
 		if (!firstSeg || firstSeg.tokens.length === 0) return false;
 
 		const firstToken = firstSeg.tokens[0];
-		return (FILE_MODIFY_SIGNALS as readonly string[]).includes(firstToken);
+		return BashCommand.FILE_MODIFY_SIGNALS.includes(firstToken);
 	}
 
 	/**
@@ -330,7 +349,7 @@ export class BashCommand {
 		const firstSeg = this.segments[0];
 		if (firstSeg && firstSeg.tokens.length >= 1 && !firstSeg.redirect) {
 			const first = firstSeg.tokens[0];
-			for (const c of READ_BASH_CMDS) {
+			for (const c of BashCommand.READ_BASH_CMDS) {
 				if (first === c) {
 					return "file-read";
 				}
