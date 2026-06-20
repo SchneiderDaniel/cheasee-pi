@@ -36,7 +36,8 @@ export async function ensureScraplingVenv(
 			await exec(pythonPath, ["-m", "scrapling.cli", "install"], { timeout: 120_000 });
 		},
 		onUpdate,
-		lockStaleMs: 180_000, // 3 minutes — accommodates browser binary download
+		lockTimeoutMs: 180_000, // 3 min — browser binary download needs long wait
+		lockStaleMs: 180_000,
 	});
 
 	return result.pythonPath;
