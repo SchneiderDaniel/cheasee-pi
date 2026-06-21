@@ -2,56 +2,44 @@
 // Phase 1: Diagnostic output for event processing errors, idle detection,
 // and gap warnings. All functions are pure — no side effects.
 
-// ─── Idle Warning ──────────────────────────────────────────────────
-
-/**
- * Calculate an idle warning string when no events have been received
- * for longer than the specified threshold.
- *
- * @param now - Current timestamp (ms since epoch)
- * @param lastEventTime - Timestamp of the last received event (ms since epoch)
- * @param thresholdMs - Idle threshold in milliseconds
- * @returns Warning string if idle exceeds threshold, null otherwise
- */
-export function calculateIdleWarning(
-	now: number,
-	lastEventTime: number | undefined,
-	thresholdMs: number,
-): string | null {
-	if (lastEventTime === undefined) return null;
-	const elapsed = now - lastEventTime;
-	if (elapsed > thresholdMs) {
-		const seconds = Math.round(elapsed / 1000);
-		return `⚠ No events for ${seconds}s`;
-	}
-	return null;
-}
-
 // ─── Event Gap Detection ──────────────────────────────────────────
 
 /**
- * Build a log entry when the gap since the last event exceeds a threshold.
+ * Result of a gap detection check.
+ */
+export interface EventGap {
+	/** Elapsed time in milliseconds between now and lastEventTime */
+	elapsedMs: number;
+	/** Whether the elapsed time strictly exceeds the threshold */
+	exceeded: boolean;
+}
+
+/**
+ * Detect whether the gap since the last event exceeds a threshold.
+ * Pure comparison — no formatting, no side effects.
+ *
+ * Uses strict greater-than (`>`), not `>=`, so exact-boundary
+ * (elapsed === thresholdMs) returns `exceeded: false`.
+ * Negative elapsed (future lastEventTime) also returns `exceeded: false`.
  *
  * @param now - Current timestamp (ms since epoch)
- * @param lastEventTime - Timestamp of the last received event (ms since epoch)
- * @param gapThresholdMs - Gap threshold in milliseconds
- * @returns Log entry object if gap exceeds threshold, undefined otherwise
+ * @param lastEventTime - Timestamp of the last received event, or undefined
+ * @param thresholdMs - Threshold in milliseconds
+ * @returns `{ elapsedMs, exceeded }` — never throws
  */
-export function buildEventGapEntry(
+export function detectEventGap(
 	now: number,
 	lastEventTime: number | undefined,
-	gapThresholdMs: number,
-): { level: "warn"; message: string } | undefined {
-	if (lastEventTime === undefined) return undefined;
-	const elapsed = now - lastEventTime;
-	if (elapsed > gapThresholdMs) {
-		const seconds = Math.round(elapsed / 1000);
-		return {
-			level: "warn",
-			message: `[gap] No events for ${seconds}s (threshold: ${gapThresholdMs}ms)`,
-		};
+	thresholdMs: number,
+): EventGap {
+	if (lastEventTime === undefined) {
+		return { elapsedMs: 0, exceeded: false };
 	}
-	return undefined;
+	const elapsedMs = now - lastEventTime;
+	return {
+		elapsedMs,
+		exceeded: elapsedMs > thresholdMs,
+	};
 }
 
 // ─── Error Notification Context ───────────────────────────────────
