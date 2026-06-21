@@ -220,21 +220,27 @@ github.com
 
 > The container mounts `~/.config/gh/` at startup. If you authenticate after the container is already running, the new token is visible immediately — no restart needed.
 
-### 6. Configure `.pi/settings.json` (optional)
+### 6. Configure `.pi/settings.json` — **REQUIRED after fork**
 
-`.pi/settings.json` stores all per-repo configuration. Key fields:
+`.pi/settings.json` stores per-repo configuration. After forking, **you must update the `supervisor.repo` field** to point to your fork, otherwise the kanban pipeline and issue-creation skills will target the original repo.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `defaultProvider` | string | `"opencode-go"` | AI provider for agent sessions |
-| `defaultModel` | string | `"deepseek-v4-flash"` | Default model (per-agent overrides in supervisor) |
-| `quietStartup` | boolean | `false` | Skip startup banner |
-| `theme` | string | `"cheasee-pi"` | TUI theme name from `.pi/themes/` |
-| `sessionDir` | string | `".pi/sessions"` | Session log output directory |
-| `contextStatusBar.showTps` | boolean | `true` | Show tokens/sec in TUI footer |
-| `docker.memory` | string | `"4G"` | Container memory limit |
-| `docker.cpus` | string | `"2.0"` | Container CPU limit |
-| `supervisor.*` | object | — | Pipeline config — see [GitHub](github) page |
+```bash
+# Edit .pi/settings.json and change:
+#   "repo": "SchneiderDaniel/cheasee-pi" → "repo": "YOUR_USER/cheasee-pi"
+```
+
+Key fields:
+
+| Field | Type | Must change? | Description |
+|-------|------|-------------|-------------|
+| `supervisor.repo` | string | **Yes** | Your fork (`YOUR_USER/cheasee-pi`) — pipeline targets this repo |
+| `supervisor.projectNumber` | number | If using kanban | GitHub project number for your repo's board |
+| `supervisor.statusField` | string | If using kanban | Single-select field name on your project board |
+| `defaultProvider` | string | Optional | AI provider for agent sessions |
+| `defaultModel` | string | Optional | Default model (per-agent overrides in supervisor) |
+| `theme` | string | Optional | TUI theme name from `.pi/themes/` |
+| `docker.memory` | string | Optional | Container memory limit |
+| `docker.cpus` | string | Optional | Container CPU limit |
 
 ## What happens under the hood
 
