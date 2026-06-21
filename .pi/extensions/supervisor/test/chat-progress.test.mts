@@ -969,3 +969,38 @@ describe("User-journey: widget progress during pipeline", () => {
 		}
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// idleWarning formatting — via buildWidgetLines
+// ═══════════════════════════════════════════════════════════════════
+
+describe("idleWarning formatting", () => {
+	it("idle warning line appears when provided", () => {
+		const state = createState();
+		const lines = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
+		const found = lines.find((l) => l.includes("⚠ No events for 20s"));
+		assert.ok(found, "idle warning should appear in widget lines");
+	});
+
+	it("null idle warning omitted", () => {
+		const state = createState();
+		const lines = buildWidgetLines(state, "test", "model", null);
+		const found = lines.find((l) => l.includes("No events for"));
+		assert.equal(found, undefined, "should not contain idle warning when null");
+	});
+
+	it("undefined idle warning omitted", () => {
+		const state = createState();
+		const lines = buildWidgetLines(state, "test", "model", undefined);
+		const found = lines.find((l) => l.includes("No events for"));
+		assert.equal(found, undefined, "should not contain idle warning when undefined");
+	});
+
+	it("multiple idle warnings show latest only (line count stable)", () => {
+		const state = createState();
+		const lines1 = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
+		const lines2 = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
+		// Same args produce same result — line count is stable, no duplication
+		assert.deepEqual(lines1, lines2);
+	});
+});

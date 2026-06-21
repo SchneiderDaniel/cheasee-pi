@@ -1,101 +1,88 @@
 // ─── Tests: diagnostics.ts — pure diagnostic functions ────────────
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-	calculateIdleWarning,
-	buildEventGapEntry,
+	detectEventGap,
+	type EventGap,
 	buildErrorNotificationContext,
 } from "../config/diagnostics.ts";
 
-// ─── calculateIdleWarning ────────────────────────────────────────
+// ─── detectEventGap ─────────────────────────────────────────────
 
-describe("calculateIdleWarning", () => {
-	const THRESHOLD_MS = 15_000;
-	let now: number;
+describe("detectEventGap", () => {
+	interface Row {
+		name: string;
+		now: number;
+		lastEventTime: number | undefined;
+		thresholdMs: number;
+		expected: EventGap;
+	}
 
-	beforeEach(() => {
-		now = Date.now();
-	});
+	const rows: Row[] = [
+		{
+			name: "undefined lastEventTime",
+			now: 1000,
+			lastEventTime: undefined,
+			thresholdMs: 500,
+			expected: { elapsedMs: 0, exceeded: false },
+		},
+		{
+			name: "exact boundary (strict >)",
+			now: 1000,
+			lastEventTime: 500,
+			thresholdMs: 500,
+			expected: { elapsedMs: 500, exceeded: false },
+		},
+		{
+			name: "sub-threshold",
+			now: 1000,
+			lastEventTime: 600,
+			thresholdMs: 500,
+			expected: { elapsedMs: 400, exceeded: false },
+		},
+		{
+			name: "exceeds threshold",
+			now: 1000,
+			lastEventTime: 400,
+			thresholdMs: 500,
+			expected: { elapsedMs: 600, exceeded: true },
+		},
+		{
+			name: "large elapsed",
+			now: 10_000,
+			lastEventTime: 1000,
+			thresholdMs: 500,
+			expected: { elapsedMs: 9000, exceeded: true },
+		},
+		{
+			name: "negative elapsed (future timestamp)",
+			now: 1000,
+			lastEventTime: 2000,
+			thresholdMs: 500,
+			expected: { elapsedMs: -1000, exceeded: false },
+		},
+		{
+			name: "zero threshold, elapsed > 0",
+			now: 1000,
+			lastEventTime: 999,
+			thresholdMs: 0,
+			expected: { elapsedMs: 1, exceeded: true },
+		},
+		{
+			name: "zero threshold, elapsed === 0",
+			now: 1000,
+			lastEventTime: 1000,
+			thresholdMs: 0,
+			expected: { elapsedMs: 0, exceeded: false },
+		},
+	];
 
-	it("returns null when lastEventTime is undefined", () => {
-		assert.equal(calculateIdleWarning(now, undefined, THRESHOLD_MS), null);
-	});
-
-	it("returns null when elapsed is under threshold", () => {
-		const lastEventTime = now - 5_000; // 5s ago
-		assert.equal(calculateIdleWarning(now, lastEventTime, THRESHOLD_MS), null);
-	});
-
-	it("returns null when elapsed equals threshold (no warning at boundary)", () => {
-		const lastEventTime = now - THRESHOLD_MS;
-		assert.equal(calculateIdleWarning(now, lastEventTime, THRESHOLD_MS), null);
-	});
-
-	it("returns warning string when elapsed exceeds threshold", () => {
-		const lastEventTime = now - 20_000; // 20s ago
-		const result = calculateIdleWarning(now, lastEventTime, THRESHOLD_MS);
-		assert.ok(result);
-		assert.ok(result!.includes("No events for"));
-		assert.ok(result!.includes("20"));
-	});
-
-	it("includes correct elapsed seconds in warning", () => {
-		const lastEventTime = now - 60_000; // 60s ago
-		const result = calculateIdleWarning(now, lastEventTime, THRESHOLD_MS);
-		assert.ok(result!.includes("60s"));
-	});
-
-	it("works with zero threshold (always warn if elapsed > 0)", () => {
-		const lastEventTime = now - 1;
-		assert.ok(calculateIdleWarning(now, lastEventTime, 0));
-	});
-
-	it("handles negative elapsed (future timestamp)", () => {
-		const lastEventTime = now + 10_000; // future
-		assert.equal(calculateIdleWarning(now, lastEventTime, THRESHOLD_MS), null);
-	});
-});
-
-// ─── buildEventGapEntry ──────────────────────────────────────────
-
-describe("buildEventGapEntry", () => {
-	const GAP_THRESHOLD_MS = 30_000;
-	let now: number;
-
-	beforeEach(() => {
-		now = Date.now();
-	});
-
-	it("returns undefined when lastEventTime is undefined", () => {
-		assert.equal(buildEventGapEntry(now, undefined, GAP_THRESHOLD_MS), undefined);
-	});
-
-	it("returns undefined when gap is under threshold", () => {
-		const lastEventTime = now - 10_000;
-		assert.equal(buildEventGapEntry(now, lastEventTime, GAP_THRESHOLD_MS), undefined);
-	});
-
-	it("returns undefined at exact boundary", () => {
-		const lastEventTime = now - GAP_THRESHOLD_MS;
-		assert.equal(buildEventGapEntry(now, lastEventTime, GAP_THRESHOLD_MS), undefined);
-	});
-
-	it("returns entry with level 'warn' when gap exceeds threshold", () => {
-		const lastEventTime = now - 45_000;
-		const result = buildEventGapEntry(now, lastEventTime, GAP_THRESHOLD_MS);
-		assert.ok(result);
-		assert.equal(result!.level, "warn");
-		assert.ok(result!.message.includes("45"));
-		assert.ok(result!.message.includes("gap"));
-	});
-
-	it("returns correct elapsed seconds in message", () => {
-		const lastEventTime = now - 120_000; // 2 min
-		const result = buildEventGapEntry(now, lastEventTime, GAP_THRESHOLD_MS);
-		assert.ok(result!.message.includes("120s"));
-		assert.ok(result!.message.includes(String(GAP_THRESHOLD_MS)));
-	});
+	for (const { name, now, lastEventTime, thresholdMs, expected } of rows) {
+		it(name, () => {
+			assert.deepEqual(detectEventGap(now, lastEventTime, thresholdMs), expected);
+		});
+	}
 });
 
 // ─── buildErrorNotificationContext ────────────────────────────────

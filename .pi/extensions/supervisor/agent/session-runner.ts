@@ -33,7 +33,7 @@ import { processSessionEvent } from "../event/session-events.ts";
 import { buildAgentRunResult } from "../session/result.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import { createAgentRunState } from "./runner.ts";
-import { calculateIdleWarning, buildErrorNotificationContext } from "../config/diagnostics.ts";
+import { detectEventGap, buildErrorNotificationContext } from "../config/diagnostics.ts";
 import { createWatchdog } from "../lib/watchdog.ts";
 import type { WatchdogHandle } from "../lib/watchdog.ts";
 import { createInstrumenter } from "../lib/instrumentation.ts";
@@ -228,11 +228,10 @@ export async function runAgentInProcess(
 				flushTimer = null;
 			}
 			try {
-				const idleWarning = calculateIdleWarning(
-					Date.now(),
-					lastEventTime,
-					IDLE_WARNING_THRESHOLD_MS,
-				);
+				const gap = detectEventGap(Date.now(), lastEventTime, IDLE_WARNING_THRESHOLD_MS);
+				const idleWarning = gap.exceeded
+					? `⚠ No events for ${Math.round(gap.elapsedMs / 1000)}s`
+					: null;
 				ctx.ui.setWidget(
 					widgetId,
 					buildWidgetLines(state, agentName, agent.config.model, idleWarning),
