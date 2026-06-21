@@ -85,13 +85,6 @@ export function mapJscpdType(type: number): NormalizedClone["type"] {
 }
 
 /**
- * Extract files from a jscpd clone's fragments.
- */
-function cloneFiles(clone: JscpdClone): string[] {
-	return clone.fragments.map((f) => f.file);
-}
-
-/**
  * Normalize a jscpd clone into our internal format.
  */
 function normalizeClone(clone: JscpdClone): NormalizedClone {

@@ -1,9 +1,10 @@
 // ─── Shared Utilities for Supervisor Checks ─────────────────────────
-// Extracted common patterns from dead-code.ts, duplicate-code.ts,
-// requirements-traceability.ts, package-safety.ts, and pipeline/helpers.ts.
+// Git-diff parsing and ENOENT error classification for supervisor checks.
 //
-// All check modules import from here instead of defining their own ExecFn
-// or reimplementing git-diff / filter / sum logic.
+// Originally included filter / sum wrappers now inlined at their call sites
+// (dead-code.ts, duplicate-code.ts) — those were 1-line stdlib calls whose
+// indirection added no clarity. Only functions with non-trivial domain logic
+// (git parsing, ENOENT detection) remain.
 
 // ─── Exec function type (local — not exported; each consumer declares its own)
 
@@ -39,17 +40,6 @@ export async function getChangedFilesFromGitDiff(
 		.map((f) => f.trim())
 		.filter(Boolean);
 }
-
-// ─── Generic changed-file filter ───────────────────────────────────
-
-/**
- * Generic filter that keeps only items associated with at least one changed file.
- *
- * @param items - Items to filter
- * @param changedFiles - List of changed file paths
- * @param getFiles - Function returning all file paths associated with an item
- * @returns Filtered items
- */
 
 // ─── ENOENT type guard ─────────────────────────────────────────────
 
