@@ -81,6 +81,7 @@ nav_order: 10
 | `tsc-checkpoint` | DX | TypeScript type checking |
 | `check-extensions` | DX | Extension compatibility audit |
 | `worktree-sandbox` | Safety | Worktree path enforcement |
+| `rtk` | Core tool | Token-saving bash rewrite via `rtk` binary (60-90% less output) |
 | `lsp-auditor` | Pipeline | LSP diagnostics pre-audit |
 
 ## Docker image base

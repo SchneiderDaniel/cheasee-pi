@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
+This page lists all 19 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
 
 ## File manifest
 
@@ -35,6 +35,7 @@ This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own p
 | `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
 | `.pi/extensions/check-extensions/` | [Check Extensions](extensions/check-extensions) |
 | `.pi/extensions/worktree-sandbox/` | [Worktree Sandbox](extensions/worktree-sandbox) |
+| `.pi/extensions/rtk/` | [RTK](extensions/rtk) |
 | `.pi/extensions/lib/` | Shared library (not an extension) — `extension-state.ts`, `bash-query.ts`, `ensureVenv.ts` |
 
 ## Published packages

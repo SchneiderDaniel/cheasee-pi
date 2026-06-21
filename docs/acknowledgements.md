@@ -23,6 +23,7 @@ Cheasee-Pi stands on the shoulders of the [Pi coding agent](https://pi.dev) — 
 ## Runtime & tools
 
 - **[scrapling](https://github.com/nicofirst/scrapling)** — Memory-optimized web scraper with progressive fetching
+- **[rtk](https://github.com/rtk-ai/rtk)** — Token-saving CLI proxy that rewrites agent shell commands for 60-90% less output
 - **[Zed](https://zed.dev)** — The editor
 
 ## Agent best practices

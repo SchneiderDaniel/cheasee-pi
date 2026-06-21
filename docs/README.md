@@ -35,6 +35,7 @@ All components run locally. No code leaves your machine (except LLM API calls to
 | **TSC Checkpoint** | `/check` command: `tsc --noEmit` |
 | **Check Extensions** | Extension compatibility audit |
 | **Worktree Sandbox** | Worktree path enforcement |
+| **RTK** | Token-saving bash rewrite — 60-90% less output per command |
 | **LSP Auditor** | LSP diagnostics pre-audit for pipeline |
 
 ## Quick start
@@ -53,7 +54,7 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 |---------|-------------|
 | [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
 | [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
-| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 17 extensions, agent definitions, published packages |
+| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 19 extensions, agent definitions, published packages |
 | [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 5 reusable skill definitions |
 | [Methodology](https://schneiderdaniel.github.io/cheasee-pi/methodology) | Kanban pipeline, security, token efficiency, daily use |
 | [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | 11 prompt templates |
