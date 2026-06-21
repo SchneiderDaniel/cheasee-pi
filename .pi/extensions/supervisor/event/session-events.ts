@@ -7,7 +7,7 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import { pushLog } from "../agent/state-helpers.ts";
-import { sessionEventToNormalizedEvent, processNormalizedEvent } from "./adapter.ts";
+import { normalizeEvent, processNormalizedEvent } from "./adapter.ts";
 import { phasePriority } from "./types.ts";
 
 // ─── Re-exports for backward compat ───────────────────────────────
@@ -51,7 +51,7 @@ export function processSessionEvent(
 	ev: SessionEvent,
 	state: AgentRunState,
 ): { flush: boolean; workingChange: boolean } {
-	const normalized = sessionEventToNormalizedEvent(ev);
+	const normalized = normalizeEvent("session", ev);
 	if (!normalized) return { flush: false, workingChange: false };
 	return processNormalizedEvent(normalized, state);
 }
