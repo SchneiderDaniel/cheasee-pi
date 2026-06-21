@@ -28,7 +28,7 @@ Wraps TypeScript watch compiler API in an incremental diagnostic cache:
 ├── watcher.ts    # DiagnosticsWatcher: createWatchProgram, getDiagnostics, getTrend, stop
 ├── adapter.ts    # TscWatchAdapter: createDefaultAdapter, diagnosticToTscDiagnostic, resolveDiagnosticFilePath
 ├── checkpoint.ts # runTscCheckpoint: orchestrated checkpoint for supervisor pipeline
-├── format.ts     # formatDiagnostics, formatDiagnosticsJson, formatTscDiagnostics, formatTrend
+├── format.ts     # formatDiagnostics, formatDiagnosticsJson, formatTrend
 ├── types.ts      # TscDiagnostic, TscWatchOptions, DiagnosticTrend, TscCheckpointResult
 └── test/         # Watcher + formatter tests
 ```
@@ -68,7 +68,7 @@ flowchart TD
 - **Watcher lifecycle** — `watcher.stop()` called on `session_shutdown`. Prevents file watcher leaks (TypeScript's watch program holds fs watchers on the project dir).
 - **Mode-adapted output** — TUI: markdown with clickable `file://` paths. JSON/RPC/Print: structured JSON `{ type: "tsc-checkpoint", files: [{path, issues}] }`.
 - **Trust gate** — Untrusted projects skip watcher creation. Prevents running `tsc` against potentially unsafe project-local `tsconfig.json` configurations.
-- **Backward-compatible exports** — All sub-module functions re-exported for supervisor pipeline imports. `formatTscDiagnostics` marked deprecated in favor of `formatDiagnostics`.
+- **Backward-compatible exports** — All sub-module functions re-exported for supervisor pipeline imports.
 
 ### DiagnosticsWatcher Internals
 
