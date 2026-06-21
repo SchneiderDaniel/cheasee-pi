@@ -175,7 +175,7 @@ describe("structuralAnalyzer extension wiring", () => {
 			execOverride: async (cmd: string, args: string[]) => {
 				if (args.includes("--version"))
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -195,7 +195,7 @@ describe("structuralAnalyzer extension wiring", () => {
 			execOverride: async (cmd: string, args: string[]) => {
 				if (args.includes("--version"))
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -216,7 +216,7 @@ describe("structuralAnalyzer extension wiring", () => {
 				if (args.includes("--version"))
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { stdout: "", stderr: "", code: 1, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -238,7 +238,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { stdout: "", stderr: "", code: 1, killed: false };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: "", stderr: "unknown language", code: 1, killed: false };
 				}
@@ -292,7 +292,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { code: 1, stdout: "" };
 				}
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					const langIdx = args.indexOf("--lang");
 					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
@@ -314,7 +314,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					const langIdx = args.indexOf("--lang");
 					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
@@ -336,7 +336,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" }; // no files exist
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					const langIdx = args.indexOf("--lang");
 					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
@@ -365,7 +365,7 @@ describe("structuralAnalyzer extension wiring", () => {
 				if (cmd === "cat") {
 					return { code: 0, stdout: "languageGlobs:\n  rust: '*.rs'\n" };
 				}
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					const langIdx = args.indexOf("--lang");
 					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
@@ -389,7 +389,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: manyMatches, stderr: "", code: 0, killed: false };
+				if (args[0] === "scan") return { stdout: manyMatches, stderr: "", code: 0, killed: false };
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			},
 		});
@@ -413,7 +413,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: fiveMatches, stderr: "", code: 0, killed: false };
+				if (args[0] === "scan") return { stdout: fiveMatches, stderr: "", code: 0, killed: false };
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			},
 		});
@@ -435,7 +435,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run")
+				if (args[0] === "scan")
 					return { stdout: hundredMatches, stderr: "", code: 0, killed: false };
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			},
@@ -458,7 +458,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: matches, stderr: "", code: 0, killed: false };
+				if (args[0] === "scan") return { stdout: matches, stderr: "", code: 0, killed: false };
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			},
 		});
@@ -600,7 +600,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					return { stdout: "", stderr: "unknown language", code: 1, killed: false };
 				}
 				return { stdout: "", stderr: "", code: 0, killed: false };
@@ -621,7 +621,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					return { stdout: "", stderr: "Permission denied", code: 126, killed: false };
 				}
 				return { stdout: "", stderr: "", code: 0, killed: false };
@@ -642,7 +642,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					return { stdout: "", stderr: "some error", code: 2, killed: false };
 				}
 				return { stdout: "", stderr: "", code: 0, killed: false };
@@ -660,7 +660,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					return { stdout: "", stderr: "", code: 1, killed: false };
 				}
 				return { stdout: "", stderr: "", code: 0, killed: false };
@@ -681,7 +681,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -703,7 +703,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					scanCallCount++;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -725,7 +725,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					passedSignal = opts?.signal;
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				}
@@ -763,7 +763,7 @@ describe("structuralAnalyzer extension wiring", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					passedSignal = opts?.signal;
 					// Reject if signal already aborted — verify it's forwarded correctly
 					if (opts?.signal?.aborted) throw new Error("AbortError");
@@ -795,7 +795,7 @@ describe("structuralAnalyzer extension wiring", () => {
 				if (cmd === "cat") {
 					return { code: 0, stdout: "languageGlobs:\n  rust: '*.rs'\n" };
 				}
-				if (args[0] === "run") {
+				if (args[0] === "scan") {
 					const langIdx = args.indexOf("--lang");
 					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
 					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };

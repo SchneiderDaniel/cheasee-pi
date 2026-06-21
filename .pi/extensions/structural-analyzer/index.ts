@@ -151,7 +151,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 
 			// Get binary (lazy init, cached for subsequent calls)
 			const binary = await getSgBinary();
-			const args = ["run", "--pattern", pattern, "--json=stream", "--lang", language];
+			const args = ["scan", "--pattern", pattern, "--json=stream", "--lang", language];
 
 			const result = await pi.exec(binary, args, {
 				cwd: ctx.cwd,
