@@ -51,7 +51,7 @@ flowchart TD
     J --> K[watcher.getTrend: compare vs previous]
     K --> L{diagnostics.length > 0?}
     L -- no --> M[Notify: ✓ No type errors]
-    L -- yes --> N[formatDiagnostics: markdown with clickable paths]
+    L -- yes --> N[formatDiagnostics: markdown with relative file paths]
     N --> O[Notify: N errors + trend direction]
     
     J -.-> P[On file change: ts updater diagnostics]

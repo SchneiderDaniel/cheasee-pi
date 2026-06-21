@@ -251,7 +251,7 @@ describe("Extension entry point (/check command)", () => {
 		assert.strictEqual(filePath, resolve(tsconfigDir, "src/app.ts"));
 	});
 
-	it("formatDiagnostics produces clickable paths", () => {
+	it("formatDiagnostics emits relative file paths", () => {
 		const diags: TscDiagnostic[] = [
 			{
 				file: "src/app.ts",
@@ -264,7 +264,7 @@ describe("Extension entry point (/check command)", () => {
 			},
 		];
 		const formatted = formatDiagnostics(diags);
-		assert.ok(formatted.includes("/project/src/app.ts"));
+		assert.ok(formatted.includes("src/app.ts"));
 		assert.ok(formatted.includes("Line 10"));
 		assert.ok(formatted.includes("(TS2322)"));
 	});
@@ -496,7 +496,7 @@ describe("Trust gate (isProjectTrusted)", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Mode-adapted output (/check with ctx.mode)", () => {
-	it("TUI mode sends markdown with clickable file paths", async () => {
+	it("TUI mode sends markdown with relative file paths", async () => {
 		const adapter = new MockAdapter();
 		const { handleCheck } = createCheckHandler(adapter, {
 			isProjectTrusted: true,
@@ -523,7 +523,7 @@ describe("Mode-adapted output (/check with ctx.mode)", () => {
 		// Find the error message
 		const errorMsg = result.messages.find((m) => m.content.includes("Type Error(s) Found"));
 		assert.ok(errorMsg, "Should have error message in TUI mode");
-		assert.ok(errorMsg!.content.includes("/project/src/app.ts"));
+		assert.ok(errorMsg!.content.includes("src/app.ts"));
 		assert.ok(errorMsg!.content.includes("Line 10"));
 		assert.ok(errorMsg!.content.includes("(TS2322)"));
 	});
