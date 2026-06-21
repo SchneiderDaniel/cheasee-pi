@@ -1,11 +1,11 @@
 /**
- * tsc-types.ts — Shared TypeScript type-check types and formatter.
+ * tsc-types.ts — Shared TypeScript type-check types.
  *
  * Extracted from tsc-checkpoint/index.ts. Decision logic migrated to
  * supervisor/checks/audit-gate-decision.ts.
  * to eliminate the cross-extension direct import from supervisor → tsc-checkpoint.
  *
- * Layer: domain — zero pi dependencies. Pure types + one pure format function.
+ * Layer: domain — zero pi dependencies. Pure types only.
  */
 
 // ── Types ──
