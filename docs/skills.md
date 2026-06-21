@@ -70,6 +70,21 @@ Guides the agent to autonomously file high-quality issues on external public Git
 - **Scope:** External public repos only
 - **Dependency:** `gh` CLI authenticated
 
+### ponytail (lazy senior dev mode)
+
+Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills:
+
+| Skill | Trigger | Purpose |
+|-------|---------|--------|
+| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) |
+| ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review: yagni, stdlib, native, shrink tags |
+| ponytail-audit | `/skill:ponytail-audit` | Whole-repo bloat scan (same tags, repo-wide) |
+| ponytail-debt | `/skill:ponytail-debt` | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger |
+| ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard: less code, less cost, more speed |
+| ponytail-help | `/skill:ponytail-help` | Quick-reference card for all ponytail modes and skills |
+
+**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package symlinked into `.pi/skills/ponytail/`.
+
 ### writing-voice
 
 Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. Applied before drafting any user-facing prose.

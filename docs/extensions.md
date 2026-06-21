@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists all 17 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
+This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
 
 ## File manifest
 
@@ -30,6 +30,7 @@ This page lists all 17 extensions in the Cheasee-Pi monorepo. Each has its own p
 | `.pi/extensions/caveman/` | [Caveman Protocol](extensions/caveman) |
 | `.pi/extensions/format-on-save/` | [Format on Save](extensions/format-on-save) |
 | `.pi/extensions/lsp-auditor/` | [LSP Auditor](extensions/lsp-auditor) |
+| `.pi/extensions/ponytail/` | [Ponytail](extensions/ponytail) |
 | `.pi/extensions/piignore/` | [PiIgnore](extensions/piignore) |
 | `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
 | `.pi/extensions/check-extensions/` | [Check Extensions](extensions/check-extensions) |
