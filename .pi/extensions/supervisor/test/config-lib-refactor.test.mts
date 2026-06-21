@@ -67,7 +67,7 @@ import {
 	handleContextInfo,
 } from "../event/handlers.ts";
 import { extractAgentCommentBody, extractStructuredAuditOutput } from "../github/comment.ts";
-import { findIssueItem, getItemStatusName, findStatusOption } from "../github/project.ts";
+import { findIssueItem } from "../github/project.ts";
 import { validateAgentResult, buildPipelineSummary } from "../pipeline/output.ts";
 import { sendPipelineSummary, sendPipelineError } from "../pipeline/notifications.ts";
 import { isStaleCheckpoint, readCheckpointFileFromPath } from "../pipeline/state-checkpoint.ts";
@@ -279,27 +279,6 @@ describe("config→lib refactor — consumer files (github/)", () => {
 
 		const notFound = findIssueItem(items as any, 1);
 		assert.equal(notFound, null);
-	});
-
-	it("github/project.ts exports getItemStatusName (pure function)", () => {
-		assert.equal(typeof getItemStatusName, "function");
-		assert.equal(getItemStatusName({ status: "Done" } as any), "Done");
-		assert.equal(getItemStatusName({} as any), "Unknown");
-	});
-
-	it("github/project.ts exports findStatusOption (pure function)", () => {
-		assert.equal(typeof findStatusOption, "function");
-		const fields = [
-			{
-				id: "status",
-				options: [
-					{ id: "opt1", name: "Todo" },
-					{ id: "opt2", name: "In Progress" },
-				],
-			},
-		];
-		const result = findStatusOption(fields as any, "status", "todo");
-		assert.equal(result, "opt1");
 	});
 });
 

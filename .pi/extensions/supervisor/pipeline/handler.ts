@@ -15,12 +15,7 @@ import type {
 	SupervisorMessageDetails,
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
-import {
-	findIssueItem,
-	getItemStatusName,
-	filterIssueData,
-	postIssueComment,
-} from "../github/index.ts";
+import { findIssueItem, filterIssueData, postIssueComment } from "../github/index.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { runAgentSubprocess } from "../agent/runner.ts";
@@ -318,7 +313,7 @@ export async function handleSupervisorCommand(
 
 		getDebugLogger().info("handler", "Project board read OK", {
 			itemId: loopItem.id,
-			status: getItemStatusName(loopItem),
+			status: loopItem.status || "Unknown",
 		});
 
 		// Dependency gate
@@ -330,7 +325,7 @@ export async function handleSupervisorCommand(
 
 		// Pipeline main loop
 		ctx.ui.setStatus("supervisor", "Setting up pipeline...");
-		const stageState = createStageState(getItemStatusName(loopItem));
+		const stageState = createStageState(loopItem.status || "Unknown");
 		let { loopStatus } = stageState;
 
 		// Create worktree before loop — available for ALL agents (researcher, architect, developer, auditor).

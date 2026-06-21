@@ -9,8 +9,6 @@ export {
 	getProjectItems,
 	getProjectId,
 	findIssueItem,
-	getItemStatusName,
-	findStatusOption,
 	setItemStatus,
 } from "./project.ts";
 export { checkBlockedByDependencies } from "./deps.ts";

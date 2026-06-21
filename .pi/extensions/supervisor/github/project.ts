@@ -1,6 +1,6 @@
 // ─── Project Board Operations ─────────────────────────────────────
 // getProjectFields, getProjectItems, getProjectId, findIssueItem,
-// getItemStatusName, findStatusOption, setItemStatus.
+// setItemStatus.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ProjectField, ProjectItem } from "../config/types.ts";
@@ -183,25 +183,6 @@ export function findIssueItem(items: ProjectItem[], issueNumber: number): Projec
 		if (url.includes(`/issues/${issueNumber}`) || url.includes(`/pull/${issueNumber}`)) return item;
 	}
 	return null;
-}
-
-// ─── Get Item Status Name ─────────────────────────────────────────
-
-export function getItemStatusName(item: ProjectItem): string {
-	return item.status || "Unknown";
-}
-
-// ─── Find Status Option ───────────────────────────────────────────
-
-export function findStatusOption(
-	fields: ProjectField[],
-	statusFieldId: string,
-	statusName: string,
-): string | null {
-	const field = fields.find((f) => f.id === statusFieldId);
-	if (!field?.options) return null;
-	const option = field.options.find((o) => o.name.toLowerCase() === statusName.toLowerCase());
-	return option?.id || null;
 }
 
 // ─── Set Item Status ──────────────────────────────────────────────

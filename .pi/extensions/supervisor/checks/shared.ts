@@ -50,28 +50,6 @@ export async function getChangedFilesFromGitDiff(
  * @param getFiles - Function returning all file paths associated with an item
  * @returns Filtered items
  */
-export function filterItemsToChangedFiles<T>(
-	items: T[],
-	changedFiles: string[],
-	getFiles: (item: T) => string[],
-): T[] {
-	if (items.length === 0 || changedFiles.length === 0) return [];
-	const changedSet = new Set(changedFiles);
-	return items.filter((item) => getFiles(item).some((f) => changedSet.has(f)));
-}
-
-// ─── Generic line counter ──────────────────────────────────────────
-
-/**
- * Generic line counter.
- *
- * @param items - Items to sum over
- * @param extractor - Function returning line count per item
- * @returns Total line count
- */
-export function sumLines<T>(items: T[], extractor: (item: T) => number): number {
-	return items.reduce((sum, item) => sum + extractor(item), 0);
-}
 
 // ─── ENOENT type guard ─────────────────────────────────────────────
 

@@ -13,12 +13,7 @@ export type ExecFn = (
 	opts?: Record<string, unknown>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-import {
-	getChangedFilesFromGitDiff,
-	filterItemsToChangedFiles,
-	sumLines,
-	isExecutableNotFound,
-} from "./shared.ts";
+import { getChangedFilesFromGitDiff, isExecutableNotFound } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -137,7 +132,7 @@ function mapKnipConfidence(
  * Each finding contributes 1 line.
  */
 export function sumDeadLines(findings: DeadCodeFinding[]): number {
-	return sumLines(findings, () => 1);
+	return findings.length;
 }
 
 /**
@@ -147,7 +142,9 @@ export function filterFindingsToChangedFiles(
 	findings: DeadCodeFinding[],
 	changedFiles: string[],
 ): DeadCodeFinding[] {
-	return filterItemsToChangedFiles(findings, changedFiles, (f) => [f.file]);
+	if (findings.length === 0 || changedFiles.length === 0) return [];
+	const changedSet = new Set(changedFiles);
+	return findings.filter((f) => changedSet.has(f.file));
 }
 
 /**

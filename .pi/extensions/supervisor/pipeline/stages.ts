@@ -25,7 +25,7 @@ import {
 	type WorkflowStep,
 	WORKFLOW,
 } from "../config/workflow.ts";
-import { findStatusOption, setItemStatus } from "../github/project.ts";
+import { setItemStatus } from "../github/project.ts";
 import {
 	postIssueComment,
 	extractAgentCommentBody,
@@ -91,6 +91,22 @@ export function createStageState(initialStatus: string): StageState {
 // ─── Built-in: Backlog ────────────────────────────────────────────
 
 /**
+ * Find a status option by field ID and name (case-insensitive).
+ * Returns the option ID or null if not found.
+ * Inlined from the removed findStatusOption in project.ts.
+ */
+function findOption(
+	fields: ProjectField[],
+	statusFieldId: string,
+	statusName: string,
+): string | null {
+	const field = fields.find((f) => f.id === statusFieldId);
+	if (!field?.options) return null;
+	const option = field.options.find((o) => o.name.toLowerCase() === statusName.toLowerCase());
+	return option?.id || null;
+}
+
+/**
  * Handle Backlog → Research transition.
  * Returns new status on success, throws with a message on failure.
  */
@@ -101,7 +117,7 @@ export async function handleBacklogTransition(
 	itemId: string,
 	projectId: string,
 ): Promise<string> {
-	const optId = findStatusOption(fields, statusFieldId, "Research");
+	const optId = findOption(fields, statusFieldId, "Research");
 	if (!optId) {
 		throw new Error("Cannot find 'Research' status option");
 	}
@@ -548,7 +564,7 @@ export async function applyStatusTransition(
 	statusFieldId: string,
 	targetStatus: string,
 ): Promise<string> {
-	const optId = findStatusOption(fields, statusFieldId, targetStatus);
+	const optId = findOption(fields, statusFieldId, targetStatus);
 	if (!optId) {
 		throw new Error(`Cannot find '${targetStatus}' option on board.`);
 	}

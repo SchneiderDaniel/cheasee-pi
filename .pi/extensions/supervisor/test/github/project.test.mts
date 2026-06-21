@@ -9,8 +9,6 @@ import {
 	getProjectItems,
 	getProjectId,
 	findIssueItem,
-	getItemStatusName,
-	findStatusOption,
 	setItemStatus,
 } from "../../github/project.ts";
 import type { ProjectItem, ProjectField } from "../../config/types";
@@ -163,58 +161,6 @@ describe("findIssueItem()", () => {
 		];
 		const result = findIssueItem(items, 300);
 		assert.equal(result?.id, "i1");
-	});
-});
-
-// ─── Tests: getItemStatusName() ───────────────────────────────────
-
-describe("getItemStatusName()", () => {
-	it("returns item.status if set", () => {
-		const item: ProjectItem = { id: "i1", status: "In Progress" };
-		assert.equal(getItemStatusName(item), "In Progress");
-	});
-
-	it("returns 'Unknown' when status is undefined", () => {
-		const item: ProjectItem = { id: "i1" };
-		assert.equal(getItemStatusName(item), "Unknown");
-	});
-});
-
-// ─── Tests: findStatusOption() ────────────────────────────────────
-
-describe("findStatusOption()", () => {
-	const fields: ProjectField[] = [
-		{
-			id: "f_status",
-			name: "Status",
-			type: "SINGLE_SELECT",
-			options: [
-				{ id: "opt_backlog", name: "Backlog" },
-				{ id: "opt_done", name: "Done" },
-				{ id: "opt_audit", name: "Audit" },
-			],
-		},
-	];
-
-	it("returns matching option id by name (case-insensitive)", () => {
-		const result = findStatusOption(fields, "f_status", "done");
-		assert.equal(result, "opt_done");
-	});
-
-	it("returns null when field not found", () => {
-		const result = findStatusOption(fields, "nonexistent", "Done");
-		assert.equal(result, null);
-	});
-
-	it("returns null when field has no options", () => {
-		const noOptFields: ProjectField[] = [{ id: "f_priority", name: "Priority", type: "TEXT" }];
-		const result = findStatusOption(noOptFields, "f_priority", "High");
-		assert.equal(result, null);
-	});
-
-	it("returns null when option name not found", () => {
-		const result = findStatusOption(fields, "f_status", "Nonexistent");
-		assert.equal(result, null);
 	});
 });
 

@@ -30,12 +30,7 @@ import {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 import { DiagnosticsWatcher } from "./watcher.ts";
-import {
-	formatTrend,
-	formatDiagnostics,
-	formatDiagnosticsJson,
-	formatTscDiagnostics,
-} from "./format.ts";
+import { formatTrend, formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
 import { runTscCheckpoint } from "./checkpoint.ts";
 
 // ── parseArgs: structural import, not yet used in handler ──────────
@@ -63,16 +58,7 @@ export {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 export { DiagnosticsWatcher } from "./watcher.ts";
-export {
-	formatTrend,
-	formatDiagnostics,
-	formatDiagnosticsJson,
-	/**
-	 * @deprecated Use `formatDiagnostics` instead.
-	 * Kept for backward compatibility with supervisor pipeline.
-	 */
-	formatTscDiagnostics,
-} from "./format.ts";
+export { formatTrend, formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
 export { runTscCheckpoint } from "./checkpoint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
