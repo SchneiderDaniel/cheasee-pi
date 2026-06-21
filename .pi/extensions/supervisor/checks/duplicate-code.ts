@@ -13,12 +13,7 @@ export type ExecFn = (
 	opts?: Record<string, unknown>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-import {
-	getChangedFilesFromGitDiff,
-	filterItemsToChangedFiles,
-	sumLines,
-	isExecutableNotFound,
-} from "./shared.ts";
+import { getChangedFilesFromGitDiff, isExecutableNotFound } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -129,7 +124,9 @@ export function filterClonesToChangedFiles(
 	clones: JscpdClone[],
 	changedFiles: string[],
 ): NormalizedClone[] {
-	return filterItemsToChangedFiles(clones, changedFiles, cloneFiles).map(normalizeClone);
+	if (clones.length === 0 || changedFiles.length === 0) return [];
+	const changedSet = new Set(changedFiles);
+	return clones.filter((c) => cloneFiles(c).some((f) => changedSet.has(f))).map(normalizeClone);
 }
 
 /**
@@ -137,13 +134,13 @@ export function filterClonesToChangedFiles(
  * For each clone, adds (endLine - startLine + 1) for each of its locations.
  */
 export function sumDuplicateLines(clones: NormalizedClone[]): number {
-	return sumLines(clones, (clone) => {
+	return clones.reduce((sum, clone) => {
 		let total = 0;
 		for (const loc of clone.locations) {
 			total += loc.endLine - loc.startLine + 1;
 		}
-		return total;
-	});
+		return sum + total;
+	}, 0);
 }
 
 /**

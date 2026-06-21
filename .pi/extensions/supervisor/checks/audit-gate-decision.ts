@@ -5,7 +5,7 @@
 // determineAuditGate: sync, pure, shared frame for all audit-gate policies.
 // getRunGate: async, performs dynamic import of the runner module.
 
-import { formatTscDiagnostics } from "../../lib/tsc-types.ts";
+import { formatDiagnostics } from "../../tsc-checkpoint/format.ts";
 import type { TscCheckpointResult } from "../../lib/tsc-types.ts";
 
 // ── Types ──
@@ -52,7 +52,7 @@ const POLICIES: Record<string, PolicyEntry> = {
 		evaluate: (result: unknown): AuditGateDecision => {
 			const r = result as TscCheckpointResult;
 			if (r.hasErrors) {
-				const formatted = formatTscDiagnostics(r.diagnostics);
+				const formatted = formatDiagnostics(r.diagnostics);
 				return {
 					nextStatus: "Implementation",
 					note: `TSC checkpoint: ${r.diagnostics.length} type error(s) found — fix before proceeding.\n${formatted}`,
