@@ -4,7 +4,7 @@ description: Reviews implementation, creates PR if approved, rejects back to Imp
 tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/minimax-m3
 thinking: high
-extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox"
+extensions: "agent-harness,caveman,piignore,ponytail,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox"
 skills: extension-duplicate-code-hunter, extension-dead-code-hunter
 ---
 

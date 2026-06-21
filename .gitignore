@@ -13,6 +13,7 @@ benchmarks/benchmark-results/
 .pi/web-search-venv/
 .pi/chromium-deps
 .pi/crawl4ai-venv
+.pi/git/
 npm/
 custom/
 cache/

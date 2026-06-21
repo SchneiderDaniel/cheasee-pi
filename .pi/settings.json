@@ -1,4 +1,11 @@
 {
+	"packages": [
+		{
+			"source": "https://github.com/DietrichGebert/ponytail",
+			"extensions": [],
+			"skills": []
+		}
+	],
 	"defaultProvider": "opencode-go",
 	"defaultModel": "deepseek-v4-flash",
 	"quietStartup": true,

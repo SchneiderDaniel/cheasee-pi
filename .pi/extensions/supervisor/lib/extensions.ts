@@ -26,16 +26,20 @@ export function resolveExtensionPathsWithFs(
 
 	const paths: string[] = [];
 	for (const ext of extensions) {
-		// Try single-file extension first, then directory-based
-		const filePath = resolvePath(cwd, `.pi/extensions/${ext}.ts`);
-		const dirPath = resolvePath(cwd, `.pi/extensions/${ext}/index.ts`);
-		if (existsSyncFn(filePath)) {
-			paths.push(filePath);
-		} else if (existsSyncFn(dirPath)) {
-			paths.push(dirPath);
+		// Try single-file extensions: .ts first, then .js
+		const fileTs = resolvePath(cwd, `.pi/extensions/${ext}.ts`);
+		const fileJs = resolvePath(cwd, `.pi/extensions/${ext}.js`);
+		// Try directory-based: index.ts first, then index.js
+		const dirTs = resolvePath(cwd, `.pi/extensions/${ext}/index.ts`);
+		const dirJs = resolvePath(cwd, `.pi/extensions/${ext}/index.js`);
+
+		const found = [fileTs, fileJs, dirTs, dirJs].find((p) => existsSyncFn(p));
+
+		if (found) {
+			paths.push(found);
 		} else {
-			// Default to single-file path (will fail at runtime, but preserves existing behavior)
-			paths.push(filePath);
+			// Default to .ts path (will fail at runtime, but preserves existing behavior)
+			paths.push(fileTs);
 		}
 	}
 

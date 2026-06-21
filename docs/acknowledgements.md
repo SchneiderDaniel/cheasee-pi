@@ -33,6 +33,7 @@ Cheasee-Pi stands on the shoulders of the [Pi coding agent](https://pi.dev) — 
   - **Developer agent:** Clean Code (R. Martin), Code Complete (S. McConnell), The Pragmatic Programmer (Hunt & Thomas)
 - **[WoJiSama/skill-based-architecture](https://github.com/WoJiSama/skill-based-architecture)** (224 ★) — AI agent rule system lifecycle
 - **[charles-adedotun/claude-code-sub-agents](https://github.com/charles-adedotun/claude-code-sub-agents)** (30 ★) — Agent-architect bootstrapper pattern
+- **[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)** — Lazy senior dev mode: YAGNI, stdlib-first, minimal code
 
 ## Communication & workflow
 

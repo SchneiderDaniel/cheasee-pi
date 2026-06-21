@@ -28,6 +28,7 @@ All components run locally. No code leaves your machine (except LLM API calls to
 | **Session Advice** | Post-session pattern analysis + feedback loop |
 | **Agent Harness** | Runtime tool call validation (blocks dangerous patterns) |
 | **Caveman Protocol** | Token-efficient communication |
+| **Ponytail** | Lazy senior dev mode — YAGNI, stdlib-first, minimal code |
 | **Ask User** | Interactive MC dialogs + CSV logging |
 | **Format on Save** | Auto Prettier + ESLint after write/edit |
 | **PiIgnore** | Path blocking via `.piignore` patterns |
