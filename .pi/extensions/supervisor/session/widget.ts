@@ -17,8 +17,9 @@ export function buildWidgetLines(
 	agentName: string,
 	model?: string,
 	idleWarning?: string | null,
+	now?: number,
 ): string[] {
-	const now = Date.now();
+	const nowTs = now ?? Date.now();
 
 	// pi caps string-array widgets at 10 lines. Keep footer always visible.
 	const MAX = 10;
@@ -79,7 +80,7 @@ export function buildWidgetLines(
 		statsParts.push(`📦 ${fmtCacheVal(cacheRead)}/${fmtCacheVal(cacheWrite)}`);
 	}
 	if (state.toolCount > 0) statsParts.push(`🔧 ${state.toolCount} tools`);
-	statsParts.push(`⏱ ${formatDuration(now - state.startedAt)}`);
+	statsParts.push(`⏱ ${formatDuration(nowTs - state.startedAt)}`);
 	const footer = `  ${statsParts.join(" · ")}`;
 
 	// ── Compute space for log entries ──
