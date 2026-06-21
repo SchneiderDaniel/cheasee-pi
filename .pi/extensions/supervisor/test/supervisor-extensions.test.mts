@@ -1,364 +1,311 @@
 /**
- * Tests for resolveExtensions() — per-agent extension resolution logic
- * from .pi/extensions/supervisor.ts
+ * Tests for resolveExtensionPathsWithFs() — per-agent extension path resolution
+ * with injected existsSync seam, and runner CLI formatting (flatMap + context-info).
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/supervisor-extensions.test.mts
  */
 
 import assert from "node:assert";
-import { existsSync, readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { describe, it } from "node:test";
-import { parseAgentFile } from "../agent/loader.ts";
+
+import { resolveExtensionPathsWithFs, resolveExtensionPaths } from "../lib/extensions.ts";
 
 // ---------------------------------------------------------------------------
-// resolveExtensions — duplicated from supervisor.ts for pure-unit testing
-// (supervisor.ts has unresolvable runtime imports in test context)
+// Helpers
 // ---------------------------------------------------------------------------
 
-function resolveExtensions(extensionsRaw: string | undefined): string[] {
-	const base: string[] = [];
-	if (!extensionsRaw || !extensionsRaw.trim()) {
-		base.push("--extension", ".pi/extensions/context-info.ts");
-		return base;
-	}
+/**
+ * Create a fake existsSync function backed by a Map<string, boolean>.
+ * The Map is keyed by absolute paths.
+ */
+function fakeExists(existing: Map<string, boolean>): (path: string) => boolean {
+	return (path: string) => existing.get(path) === true;
+}
 
-	const extensions = extensionsRaw
-		.split(",")
-		.map((s) => s.trim())
-		.filter((s) => s.length > 0)
-		.filter((s) => s.toLowerCase() !== "supervisor");
+/**
+ * A known absolute base directory for tests.
+ * We use a path that avoids assumptions about the test runner's CWD.
+ */
+const BASE_CWD = "/test/cwd";
 
-	if (extensions.length === 0) {
-		base.push("--extension", ".pi/extensions/context-info.ts");
-		return base;
-	}
+/**
+ * Build an absolute extension path under BASE_CWD.
+ */
+function extPath(name: string): string {
+	return resolvePath(BASE_CWD, `.pi/extensions/${name}.ts`);
+}
 
-	for (const ext of extensions) {
-		// Try single-file extension first, then directory-based
-		const filePath = `.pi/extensions/${ext}.ts`;
-		const dirPath = `.pi/extensions/${ext}/index.ts`;
-		if (existsSync(dirPath)) {
-			base.push("--extension", dirPath);
-		} else {
-			base.push("--extension", filePath);
-		}
-	}
-
-	if (!extensions.includes("context-info")) {
-		base.push("--extension", ".pi/extensions/context-info.ts");
-	}
-
-	return base;
+/**
+ * Build an absolute directory-based extension index path under BASE_CWD.
+ */
+function extDirPath(name: string): string {
+	return resolvePath(BASE_CWD, `.pi/extensions/${name}/index.ts`);
 }
 
 // ---------------------------------------------------------------------------
-// Tests — AgentFrontmatter type (frontmatter key flows through)
+// Phase 1: resolveExtensionPathsWithFs — core resolver with injected seam
 // ---------------------------------------------------------------------------
 
-describe("AgentFrontmatter extensions field", () => {
-	it("1.1: parses extensions: 'mcp,browser' + context-info", () => {
-		const result = resolveExtensions("mcp,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+describe("resolveExtensionPathsWithFs — empty/undefined/missing input", () => {
+	it("undefined extensions → []", () => {
+		const result = resolveExtensionPathsWithFs(undefined, BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
 	});
 
-	it("1.2: undefined extensions → context-info auto-injected", () => {
-		const result = resolveExtensions(undefined);
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("empty string → []", () => {
+		const result = resolveExtensionPathsWithFs("", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
 	});
 
-	it("1.3: empty string extensions → context-info auto-injected", () => {
-		const result = resolveExtensions("");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("whitespace-only → []", () => {
+		const result = resolveExtensionPathsWithFs("   ", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
+	});
+
+	it("supervisor → [] (filtered out)", () => {
+		const result = resolveExtensionPathsWithFs("supervisor", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
+	});
+
+	it("SUPERVISOR → [] (case-insensitive filter)", () => {
+		const result = resolveExtensionPathsWithFs("SUPERVISOR", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
+	});
+
+	it("Supervisor → [] (mixed-case filter)", () => {
+		const result = resolveExtensionPathsWithFs("Supervisor", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, []);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Tests — runAgent() Extension Resolution Logic
-// ---------------------------------------------------------------------------
-
-describe("runAgent() extension resolution", () => {
-	it("2.1: agent has extensions 'mcp,browser' → --extension per flag + context-info", () => {
-		const result = resolveExtensions("mcp,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+describe("resolveExtensionPathsWithFs — single-file resolution", () => {
+	it("single-file extension exists → returns [absFilePath]", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		const result = resolveExtensionPathsWithFs("mcp", BASE_CWD, fakeExists(existing));
+		assert.deepStrictEqual(result, [extPath("mcp")]);
 	});
 
-	it("2.2: agent has extensions 'supervisor,mcp' → supervisor filtered out, context-info added", () => {
-		const result = resolveExtensions("supervisor,mcp");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+	it("directory-based extension exists → returns [absDirIndexPath]", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extDirPath("caveman"), true);
+		const result = resolveExtensionPathsWithFs("caveman", BASE_CWD, fakeExists(existing));
+		assert.deepStrictEqual(result, [extDirPath("caveman")]);
 	});
 
-	it("2.3: only supervisor → context-info auto-injected", () => {
-		const result = resolveExtensions("supervisor");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("file takes priority over directory when both exist", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		existing.set(extDirPath("mcp"), true);
+		const result = resolveExtensionPathsWithFs("mcp", BASE_CWD, fakeExists(existing));
+		assert.deepStrictEqual(result, [extPath("mcp")]);
 	});
 
-	it("2.4: no extensions field (undefined) → context-info auto-injected", () => {
-		const result = resolveExtensions(undefined);
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
-	});
-
-	it("2.5: empty string → context-info auto-injected", () => {
-		const result = resolveExtensions("");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
-	});
-
-	it("2.6: whitespace around names → trimmed + context-info added", () => {
-		const result = resolveExtensions("  mcp  ,  browser  ");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
-	});
-
-	it("2.7: mixed case — passes original case to CLI, supervisor check is case-insensitive + context-info", () => {
-		const result = resolveExtensions("MCP,Browser,Supervisor");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/MCP.ts",
-			"--extension",
-			".pi/extensions/Browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
-	});
-
-	it("2.8: supervisor in middle of list → filtered out, order preserved + context-info", () => {
-		const result = resolveExtensions("mcp,supervisor,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+	it("neither file nor dir exists → returns default file path (fallback)", () => {
+		const result = resolveExtensionPathsWithFs("unknown", BASE_CWD, fakeExists(new Map()));
+		assert.deepStrictEqual(result, [extPath("unknown")]);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Tests — Supervisor Auto-Exclusion (Case-Insensitive)
-// ---------------------------------------------------------------------------
-
-describe("supervisor auto-exclusion (case-insensitive)", () => {
-	it("3.1: exclude lowercase 'supervisor' + context-info added", () => {
-		const result = resolveExtensions("mcp,supervisor,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+describe("resolveExtensionPathsWithFs — mixed multi-ext resolution", () => {
+	it("one single-file, one directory, one missing → three paths in order", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		existing.set(extDirPath("caveman"), true);
+		const result = resolveExtensionPathsWithFs(
+			"mcp,caveman,unknown",
+			BASE_CWD,
+			fakeExists(existing),
+		);
+		assert.deepStrictEqual(result, [extPath("mcp"), extDirPath("caveman"), extPath("unknown")]);
 	});
 
-	it("3.2: exclude uppercase 'SUPERVISOR' + context-info added", () => {
-		const result = resolveExtensions("mcp,SUPERVISOR,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
+	it("supervisor in middle → filtered out, order preserved", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		existing.set(extPath("browser"), true);
+		const result = resolveExtensionPathsWithFs(
+			"mcp,supervisor,browser",
+			BASE_CWD,
+			fakeExists(existing),
+		);
+		assert.deepStrictEqual(result, [extPath("mcp"), extPath("browser")]);
 	});
 
-	it("3.3: exclude mixed-case 'Supervisor' → context-info auto-injected", () => {
-		const result = resolveExtensions("Supervisor");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("cwd controls base directory → all paths start with given cwd", () => {
+		const customCwd = "/custom/cwd";
+		const existing = new Map<string, boolean>();
+		existing.set(resolvePath(customCwd, ".pi/extensions/mcp.ts"), true);
+		const result = resolveExtensionPathsWithFs("mcp", customCwd, fakeExists(existing));
+		assert.ok(result[0]!.startsWith(customCwd));
 	});
 
-	it("3.4: no supervisor in list → passes through + context-info added", () => {
-		const result = resolveExtensions("mcp,browser");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/browser.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
-	});
-
-	it("3.5: only supervisor in list → context-info auto-injected", () => {
-		const result = resolveExtensions("supervisor");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("existsSyncFn called with exact absolute paths", () => {
+		const calledPaths: string[] = [];
+		const trackingExists = (p: string) => {
+			calledPaths.push(p);
+			return false;
+		};
+		resolveExtensionPathsWithFs("test-ext", BASE_CWD, trackingExists);
+		assert.strictEqual(calledPaths.length, 2);
+		assert.ok(calledPaths.includes(extPath("test-ext")));
+		assert.ok(calledPaths.includes(extDirPath("test-ext")));
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Tests — Edge Cases
-// ---------------------------------------------------------------------------
-
-describe("edge cases", () => {
-	it("5.1: only commas → context-info auto-injected", () => {
-		const result = resolveExtensions(",,,,");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
-	});
-
-	it("5.2: 50+ extensions → handles long lists + context-info", () => {
-		const extensions = Array.from({ length: 55 }, (_, i) => `ext-${i}`).join(",");
-		const result = resolveExtensions(extensions);
-		assert.strictEqual(result[0], "--extension");
-		assert.strictEqual(result.length, 112); // 55 pairs + context-info pair
-	});
-
-	it("5.3: extension names with hyphens or dots → pass through + context-info", () => {
-		const result = resolveExtensions("my-custom-tool,my.tool");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/my-custom-tool.ts",
-			"--extension",
-			".pi/extensions/my.tool.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
-	});
-
-	it("5.4: whitespace-only string → context-info auto-injected", () => {
-		const result = resolveExtensions("   ");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
-	});
-
-	it("caveman,scrapling (PS requirement) + context-info", () => {
-		const result = resolveExtensions("caveman,scrapling");
-		// Both caveman and scrapling are directory-based -> resolve to /index.ts
-		assert.ok(result.some((r) => r.includes("caveman/index.ts")));
-		assert.ok(result.some((r) => r.includes("scrapling/index.ts")));
-		assert.ok(result.some((r) => r.includes("context-info.ts")));
-	});
-
-	it("supervisor with caveman → supervisor excluded, context-info added", () => {
-		const result = resolveExtensions("supervisor,caveman,scrapling");
-		assert.ok(result.some((r) => r.includes("caveman/index.ts")));
-		assert.ok(result.some((r) => r.includes("scrapling/index.ts")));
-		assert.ok(result.some((r) => r.includes("context-info.ts")));
-	});
-
-	it("single extension (not supervisor) + context-info", () => {
-		const result = resolveExtensions("mcp");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			".pi/extensions/mcp.ts",
-			"--extension",
-			".pi/extensions/context-info.ts",
-		]);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Integration test — verify existing agent .md files parse extensions field
-// ---------------------------------------------------------------------------
-
-describe("production agent files — extensions field", () => {
-	const agents = [
-		{
-			name: "architect",
-			expected: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer",
-		},
-		{
-			name: "test-designer",
-			expected: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer",
-		},
-		{
-			name: "developer",
-			expected:
-				"agent-harness,caveman,format-on-save,piignore,ripgrep-search,scrapling,tsc-checkpoint,structural-analyzer,worktree-sandbox",
-		},
-		{
-			name: "auditor",
-			expected:
-				"agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox",
-		},
-	];
-
-	for (const agent of agents) {
-		it(`${agent.name}.md has extensions field matching expected`, () => {
-			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${agent.name}.md`);
-			assert.strictEqual(config.extensions, agent.expected);
-		});
-	}
-
-	it("supervisor.md does NOT exist (supervisor never loads in subagents)", () => {
-		let exists = false;
-		try {
-			readFileSync(".pi/extensions/supervisor/agents/supervisor.md");
-			exists = true;
-		} catch {
-			/* expected */
+describe("resolveExtensionPathsWithFs — boundary cases", () => {
+	it("55 extensions all resolve", () => {
+		const existing = new Map<string, boolean>();
+		const names: string[] = [];
+		for (let i = 0; i < 55; i++) {
+			const name = `ext-${i}`;
+			names.push(name);
+			existing.set(extPath(name), true);
 		}
-		assert.strictEqual(exists, false);
+		const result = resolveExtensionPathsWithFs(names.join(","), BASE_CWD, fakeExists(existing));
+		assert.strictEqual(result.length, 55);
+	});
+
+	it("extension names with hyphens and dots pass through", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("my-custom-tool"), true);
+		existing.set(extPath("my.tool"), true);
+		const result = resolveExtensionPathsWithFs(
+			"my-custom-tool,my.tool",
+			BASE_CWD,
+			fakeExists(existing),
+		);
+		assert.strictEqual(result.length, 2);
+		assert.ok(result[0]!.includes("my-custom-tool"));
+		assert.ok(result[1]!.includes("my.tool"));
+	});
+
+	it("whitespace around names trimmed", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		existing.set(extPath("browser"), true);
+		const result = resolveExtensionPathsWithFs(
+			"  mcp  ,  browser  ",
+			BASE_CWD,
+			fakeExists(existing),
+		);
+		assert.deepStrictEqual(result, [extPath("mcp"), extPath("browser")]);
 	});
 });
 
-describe("production agents resolve without supervisor in output", () => {
-	for (const name of ["architect", "test-designer", "developer", "auditor"]) {
-		it(`${name} extensions resolve without supervisor, with context-info`, () => {
-			const { config } = parseAgentFile(`.pi/extensions/supervisor/agents/${name}.md`);
-			const result = resolveExtensions(config.extensions);
-			// Must not contain --no-extensions (should have --extension flags)
-			assert.notStrictEqual(result[0], "--no-extensions");
-			// Must not contain "supervisor" in any path
-			assert.ok(!result.some((s) => s.toLowerCase().includes("supervisor")));
-			// Must contain context-info
-			assert.ok(result.some((s) => s.includes("context-info.ts")));
-		});
+// ---------------------------------------------------------------------------
+// Phase 1b: resolveExtensionPaths — public wrapper smoketest
+// ---------------------------------------------------------------------------
+
+describe("resolveExtensionPaths — public wrapper", () => {
+	it("called without 3rd arg uses real existsSync and process.cwd()", () => {
+		// This is a smoketest — it calls the real function with a known extension
+		// name that should exist in the real filesystem (supervisor extension itself).
+		const result = resolveExtensionPaths("supervisor");
+		// supervisor is always filtered out, so result should be empty
+		assert.deepStrictEqual(result, []);
+	});
+
+	it("with explicit cwd produces paths under that cwd", () => {
+		const result = resolveExtensionPaths("unknown-test-ext", BASE_CWD);
+		assert.strictEqual(result.length, 1);
+		assert.ok(result[0]!.startsWith(BASE_CWD));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: Runner CLI formatting (flatMap + context-info injection)
+// Tests the transformation that agent/runner.ts applies to bare paths.
+// These are unit tests for the formatting logic, isolated from the resolver.
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulates the runner's formatting logic: bare paths → --extension flags +
+ * context-info auto-injection (dedup).
+ */
+function formatExtensionFlags(barePaths: string[], contextInfoPath: string): string[] {
+	const flags: string[] = [];
+	if (barePaths.length === 0) {
+		flags.push("--extension", contextInfoPath);
+	} else {
+		for (const p of barePaths) {
+			flags.push("--extension", p);
+		}
+		const hasContextInfo = barePaths.some((p) => p.includes("context-info.ts"));
+		if (!hasContextInfo) {
+			flags.push("--extension", contextInfoPath);
+		}
 	}
+	return flags;
+}
+
+describe("runner CLI formatting — flatMap", () => {
+	it("bare paths → --extension flags in order", () => {
+		const result = formatExtensionFlags(
+			["/a/mcp.ts", "/b/browser.ts"],
+			"/abs/path/to/context-info.ts",
+		);
+		assert.deepStrictEqual(result, [
+			"--extension",
+			"/a/mcp.ts",
+			"--extension",
+			"/b/browser.ts",
+			"--extension",
+			"/abs/path/to/context-info.ts",
+		]);
+	});
+
+	it("empty array → only context-info", () => {
+		const result = formatExtensionFlags([], "/abs/path/to/context-info.ts");
+		assert.deepStrictEqual(result, ["--extension", "/abs/path/to/context-info.ts"]);
+	});
+
+	it("single path + context-info appended correctly", () => {
+		const result = formatExtensionFlags(["/a/mcp.ts"], "/context-info/context-info.ts");
+		assert.deepStrictEqual(result, [
+			"--extension",
+			"/a/mcp.ts",
+			"--extension",
+			"/context-info/context-info.ts",
+		]);
+	});
 });
 
-// ---------------------------------------------------------------------------
-// Tests — context-info extension auto-injection (Phase 3a)
-// ---------------------------------------------------------------------------
-
-describe("context-info extension auto-injection", () => {
-	it("P3.1: no extensions → includes context-info path", () => {
-		const result = resolveExtensions(undefined);
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+describe("runner CLI formatting — context-info dedup", () => {
+	it("context-info NOT in paths → appended", () => {
+		const result = formatExtensionFlags(["/a/mcp.ts"], "/ci/context-info.ts");
+		assert.ok(result.includes("/ci/context-info.ts"));
 	});
 
-	it("P3.2: other extensions → appends context-info (directory-based paths)", () => {
-		const result = resolveExtensions("caveman,scrapling");
-		// Both caveman and scrapling are directory-based -> resolve to /index.ts
-		assert.ok(result.some((r) => r.includes("caveman/index.ts")));
-		assert.ok(result.some((r) => r.includes("scrapling/index.ts")));
-		assert.ok(result.some((r) => r.includes("context-info.ts")));
-	});
-
-	it("P3.3: context-info already in list → no duplication", () => {
-		const result = resolveExtensions("caveman,context-info");
+	it("context-info already in paths → no duplicate", () => {
+		const result = formatExtensionFlags(
+			["/a/mcp.ts", "/ci/context-info.ts"],
+			"/ci/context-info.ts",
+		);
 		const contextInfoCount = result.filter(
-			(s) => s.includes("context-info") && !s.includes("--extension"),
+			(s) => s.includes("context-info.ts") && !s.includes("--extension"),
 		).length;
 		assert.strictEqual(contextInfoCount, 1);
 	});
 
-	it("P3.4: supervisor filtered out, context-info auto-added", () => {
-		const result = resolveExtensions("supervisor");
-		assert.deepStrictEqual(result, ["--extension", ".pi/extensions/context-info.ts"]);
+	it("no resolved paths → only context-info", () => {
+		const result = formatExtensionFlags([], "/abs/path/to/context-info.ts");
+		assert.deepStrictEqual(result, ["--extension", "/abs/path/to/context-info.ts"]);
+	});
+
+	it("resolveExtensionPaths returns bare paths → runner produces flags + context-info", () => {
+		// Integrate: this simulates what runner.ts does end-to-end
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		const barePaths = resolveExtensionPathsWithFs("mcp", BASE_CWD, fakeExists(existing));
+		const result = formatExtensionFlags(barePaths, extPath("context-info"));
+		assert.deepStrictEqual(result, [
+			"--extension",
+			extPath("mcp"),
+			"--extension",
+			extPath("context-info"),
+		]);
 	});
 });

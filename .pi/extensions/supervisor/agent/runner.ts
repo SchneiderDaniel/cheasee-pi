@@ -9,7 +9,8 @@
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
-import { resolveTools, resolveExtensions, resolveSkillPaths } from "../lib/extensions.ts";
+import { resolve as resolvePath } from "node:path";
+import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
 import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
@@ -192,7 +193,21 @@ export async function runAgentSubprocess(
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
 	const model = agent.config.model || "";
-	const extFlags = resolveExtensions(agent.config.extensions);
+	const bareExtPaths = resolveExtensionPaths(agent.config.extensions, effectiveCwd);
+	const extFlags: string[] = [];
+	const CONTEXT_INFO_PATH = resolvePath(effectiveCwd, ".pi/extensions/context-info.ts");
+	if (bareExtPaths.length === 0) {
+		// No extensions resolved → just context-info
+		extFlags.push("--extension", CONTEXT_INFO_PATH);
+	} else {
+		for (const p of bareExtPaths) {
+			extFlags.push("--extension", p);
+		}
+		// Auto-inject context-info (dedup if already present in any path)
+		if (!bareExtPaths.some((p: string) => p.includes("context-info.ts"))) {
+			extFlags.push("--extension", CONTEXT_INFO_PATH);
+		}
+	}
 	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	const args: string[] = [
