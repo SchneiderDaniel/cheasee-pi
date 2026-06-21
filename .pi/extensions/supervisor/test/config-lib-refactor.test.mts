@@ -20,7 +20,12 @@ import assert from "node:assert/strict";
 // These have dedicated test files, but we re-test imports here for
 // belt-and-suspenders coverage.
 
-import { resolveTools, resolveExtensions, resolveSkillPaths } from "../lib/extensions.ts";
+import {
+	resolveTools,
+	resolveExtensionPaths,
+	resolveExtensionPathsWithFs,
+	resolveSkillPaths,
+} from "../lib/extensions.ts";
 import {
 	getDebugLogger,
 	setDebugLogger,
@@ -104,8 +109,12 @@ describe("config→lib refactor — moved lib/ files", () => {
 		assert.equal(typeof resolveTools, "function");
 	});
 
-	it("lib/extensions.ts exports resolveExtensions", () => {
-		assert.equal(typeof resolveExtensions, "function");
+	it("lib/extensions.ts exports resolveExtensionPaths", () => {
+		assert.equal(typeof resolveExtensionPaths, "function");
+	});
+
+	it("lib/extensions.ts exports resolveExtensionPathsWithFs", () => {
+		assert.equal(typeof resolveExtensionPathsWithFs, "function");
 	});
 
 	it("lib/extensions.ts exports resolveSkillPaths", () => {

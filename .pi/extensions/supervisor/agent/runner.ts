@@ -9,7 +9,7 @@
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
-import { resolveTools, resolveExtensions, resolveSkillPaths } from "../lib/extensions.ts";
+import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
 import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
@@ -192,7 +192,8 @@ export async function runAgentSubprocess(
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
 	const model = agent.config.model || "";
-	const extFlags = resolveExtensions(agent.config.extensions);
+	const bareExtPaths = resolveExtensionPaths(agent.config.extensions, effectiveCwd);
+	const extFlags = bareExtPaths.flatMap((p) => ["--extension", p]);
 	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	const args: string[] = [

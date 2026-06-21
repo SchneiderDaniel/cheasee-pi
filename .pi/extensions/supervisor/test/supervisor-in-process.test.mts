@@ -147,77 +147,66 @@ describe("buildToolList()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 2b: extensions.ts — resolveExtensionPaths
+// Phase 2b: extensions.ts — resolveExtensionPaths (via injected seam)
 // ---------------------------------------------------------------------------
 
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { resolveExtensionPathsWithFs } from "../lib/extensions.ts";
 
-// Duplicated from extensions.ts for unit testing (same pattern as other tests)
-function resolveExtensionPaths(extensionsRaw: string | undefined, cwd?: string): string[] {
-	if (!extensionsRaw || !extensionsRaw.trim()) return [];
-
-	const baseCwd = cwd || process.cwd();
-
-	const extensions = extensionsRaw
-		.split(",")
-		.map((s) => s.trim())
-		.filter((s) => s.length > 0)
-		.filter((s) => s.toLowerCase() !== "supervisor");
-
-	const paths: string[] = [];
-	for (const ext of extensions) {
-		const filePath = resolvePath(baseCwd, `.pi/extensions/${ext}.ts`);
-		const dirPath = resolvePath(baseCwd, `.pi/extensions/${ext}/index.ts`);
-		if (existsSync(filePath)) {
-			paths.push(filePath);
-		} else if (existsSync(dirPath)) {
-			paths.push(dirPath);
-		} else {
-			paths.push(filePath);
-		}
-	}
-
-	return paths;
+/**
+ * Create a fake existsSync backed by a Map<string, boolean>.
+ */
+function fakeExists(existing: Map<string, boolean>): (path: string) => boolean {
+	return (path: string) => existing.get(path) === true;
 }
 
-describe("resolveExtensionPaths()", () => {
+describe("resolveExtensionPaths — via injected seam", () => {
 	it("2.12: empty extensions → empty array", () => {
-		const result = resolveExtensionPaths(undefined, "/tmp");
+		const result = resolveExtensionPathsWithFs(undefined, "/test/cwd", fakeExists(new Map()));
 		assert.deepStrictEqual(result, []);
 	});
 
 	it("2.13: empty string extensions → empty array", () => {
-		const result = resolveExtensionPaths("", "/tmp");
+		const result = resolveExtensionPathsWithFs("", "/test/cwd", fakeExists(new Map()));
 		assert.deepStrictEqual(result, []);
 	});
 
 	it("2.14: supervisor filtered out → empty array", () => {
-		const result = resolveExtensionPaths("supervisor", "/tmp");
+		const result = resolveExtensionPathsWithFs("supervisor", "/test/cwd", fakeExists(new Map()));
 		assert.deepStrictEqual(result, []);
 	});
 
 	it("2.15: whitespace-only → empty array", () => {
-		const result = resolveExtensionPaths("   ", "/tmp");
+		const result = resolveExtensionPathsWithFs("   ", "/test/cwd", fakeExists(new Map()));
 		assert.deepStrictEqual(result, []);
 	});
 
 	it("2.16: non-existent extension returns default path", () => {
-		const result = resolveExtensionPaths("nonexistent", "/tmp");
+		const result = resolveExtensionPathsWithFs("nonexistent", "/test/cwd", fakeExists(new Map()));
 		assert.strictEqual(result.length, 1);
 		assert.ok(result[0]!.endsWith(".pi/extensions/nonexistent.ts"));
-		assert.ok(result[0]!.startsWith("/tmp/"));
+		assert.ok(result[0]!.startsWith("/test/cwd/"));
 	});
 
 	it("2.17: supervisor filtered from multi-ext list, others remain", () => {
-		const result = resolveExtensionPaths("supervisor,mcp,browser", "/tmp");
+		const existing = new Map<string, boolean>();
+		existing.set(resolvePath("/test/cwd", ".pi/extensions/mcp.ts"), true);
+		existing.set(resolvePath("/test/cwd", ".pi/extensions/browser.ts"), true);
+		const result = resolveExtensionPathsWithFs(
+			"supervisor,mcp,browser",
+			"/test/cwd",
+			fakeExists(existing),
+		);
 		assert.strictEqual(result.length, 2);
 		assert.ok(result[0]!.endsWith(".pi/extensions/mcp.ts"));
 		assert.ok(result[1]!.endsWith(".pi/extensions/browser.ts"));
 	});
 
 	it("2.18: multiple extensions all resolved", () => {
-		const result = resolveExtensionPaths("mcp,browser", "/tmp");
+		const existing = new Map<string, boolean>();
+		existing.set(resolvePath("/test/cwd", ".pi/extensions/mcp.ts"), true);
+		existing.set(resolvePath("/test/cwd", ".pi/extensions/browser.ts"), true);
+		const result = resolveExtensionPathsWithFs("mcp,browser", "/test/cwd", fakeExists(existing));
 		assert.strictEqual(result.length, 2);
 	});
 });

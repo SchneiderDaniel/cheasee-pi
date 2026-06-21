@@ -5,24 +5,18 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
-// ─── Extension flag resolution ──────────────────────────────────────
+// ─── Extension path resolution ──────────────────────────────────────
 
 /**
- * Resolve the extensions CLI flags for a given agent frontmatter.
- * - If extensions field is present and non-empty, split, trim, filter out
- *   "supervisor" (case-insensitive), and return `--extension <path>` flags.
- * - If extensions field is missing or empty, return no extensions.
- * - Context-info is NOT auto-injected — it's a TUI extension (footer, widgets,
- *   telemetry) that adds noise to stderr in --mode json subprocess agents.
- *   Reason: pi's takeOverStdout() redirects process.stdout.write → stderr
- *   in non-interactive modes, so any console.log from extensions ends up
- *   in stderr where the supervisor captures it as error output.
- *   Agents that want context-info must declare it explicitly.
+ * Internal version of resolveExtensionPaths that accepts a custom existsSync
+ * function for testing. Public API wraps this with real existsSync.
  */
-export function resolveExtensions(extensionsRaw: string | undefined): string[] {
-	if (!extensionsRaw || !extensionsRaw.trim()) {
-		return [];
-	}
+export function resolveExtensionPathsWithFs(
+	extensionsRaw: string | undefined,
+	cwd: string,
+	existsSyncFn: (path: string) => boolean,
+): string[] {
+	if (!extensionsRaw || !extensionsRaw.trim()) return [];
 
 	const extensions = extensionsRaw
 		.split(",")
@@ -30,26 +24,33 @@ export function resolveExtensions(extensionsRaw: string | undefined): string[] {
 		.filter((s) => s.length > 0)
 		.filter((s) => s.toLowerCase() !== "supervisor");
 
-	if (extensions.length === 0) {
-		return [];
-	}
-
-	const result: string[] = [];
+	const paths: string[] = [];
 	for (const ext of extensions) {
 		// Try single-file extension first, then directory-based
-		const filePath = resolvePath(process.cwd(), `.pi/extensions/${ext}.ts`);
-		const dirPath = resolvePath(process.cwd(), `.pi/extensions/${ext}/index.ts`);
-		if (existsSync(filePath)) {
-			result.push("--extension", filePath);
-		} else if (existsSync(dirPath)) {
-			result.push("--extension", dirPath);
+		const filePath = resolvePath(cwd, `.pi/extensions/${ext}.ts`);
+		const dirPath = resolvePath(cwd, `.pi/extensions/${ext}/index.ts`);
+		if (existsSyncFn(filePath)) {
+			paths.push(filePath);
+		} else if (existsSyncFn(dirPath)) {
+			paths.push(dirPath);
 		} else {
 			// Default to single-file path (will fail at runtime, but preserves existing behavior)
-			result.push("--extension", filePath);
+			paths.push(filePath);
 		}
 	}
 
-	return result;
+	return paths;
+}
+
+/**
+ * Resolve extension names from agent frontmatter to absolute file paths.
+ * Returns bare absolute paths (not CLI flags). Callers format flags
+ * as needed (e.g., flatMap to "--extension" flags).
+ *
+ * Use resolveExtensionPathsWithFs for testing with a mock existsSync.
+ */
+export function resolveExtensionPaths(extensionsRaw: string | undefined, cwd?: string): string[] {
+	return resolveExtensionPathsWithFs(extensionsRaw, cwd ?? process.cwd(), existsSync);
 }
 
 // ─── Skill path resolution ───────────────────────────────────────────
@@ -180,43 +181,6 @@ export function discoverExtensionTools(cwd?: string): Map<string, string[]> {
 }
 
 // ─── Tool merging ──────────────────────────────────────────────────
-
-/**
- * Merge agent-declared tools with tools from agent's extensions.
- * Returns a comma-separated string for --tools flag.
- */
-/**
- * Resolve extension names from agent frontmatter to absolute file paths
- * suitable for DefaultResourceLoader.additionalExtensionPaths.
- * Returns array of absolute file paths (not CLI flags).
- */
-export function resolveExtensionPaths(extensionsRaw: string | undefined, cwd?: string): string[] {
-	if (!extensionsRaw || !extensionsRaw.trim()) return [];
-
-	const baseCwd = cwd || process.cwd();
-
-	const extensions = extensionsRaw
-		.split(",")
-		.map((s) => s.trim())
-		.filter((s) => s.length > 0)
-		.filter((s) => s.toLowerCase() !== "supervisor");
-
-	const paths: string[] = [];
-	for (const ext of extensions) {
-		const filePath = resolvePath(baseCwd, `.pi/extensions/${ext}.ts`);
-		const dirPath = resolvePath(baseCwd, `.pi/extensions/${ext}/index.ts`);
-		if (existsSync(filePath)) {
-			paths.push(filePath);
-		} else if (existsSync(dirPath)) {
-			paths.push(dirPath);
-		} else {
-			// Default to single-file path (will fail at runtime, but preserves existing behavior)
-			paths.push(filePath);
-		}
-	}
-
-	return paths;
-}
 
 /**
  * Merge agent-declared tools with tools from agent's extensions.
