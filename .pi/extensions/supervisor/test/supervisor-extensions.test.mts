@@ -1,6 +1,6 @@
 /**
  * Tests for resolveExtensionPathsWithFs() — per-agent extension path resolution
- * with injected existsSync seam, and runner CLI formatting (flatMap + context-info).
+ * with injected existsSync seam, and runner CLI formatting (flatMap).
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/supervisor-extensions.test.mts
@@ -216,96 +216,60 @@ describe("resolveExtensionPaths — public wrapper", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 2: Runner CLI formatting (flatMap + context-info injection)
-// Tests the transformation that agent/runner.ts applies to bare paths.
-// These are unit tests for the formatting logic, isolated from the resolver.
+// Phase 2: Runner CLI formatting — flatMap on bare paths
+// agent/runner.ts applies: bareExtPaths.flatMap(p => ["--extension", p])
+// These tests verify the flatMap transformation directly.
 // ---------------------------------------------------------------------------
 
-/**
- * Simulates the runner's formatting logic: bare paths → --extension flags +
- * context-info auto-injection (dedup).
- */
-function formatExtensionFlags(barePaths: string[], contextInfoPath: string): string[] {
-	const flags: string[] = [];
-	if (barePaths.length === 0) {
-		flags.push("--extension", contextInfoPath);
-	} else {
-		for (const p of barePaths) {
-			flags.push("--extension", p);
-		}
-		const hasContextInfo = barePaths.some((p) => p.includes("context-info.ts"));
-		if (!hasContextInfo) {
-			flags.push("--extension", contextInfoPath);
-		}
-	}
-	return flags;
-}
-
-describe("runner CLI formatting — flatMap", () => {
+describe("runner CLI formatting — flatMap on bare paths", () => {
 	it("bare paths → --extension flags in order", () => {
-		const result = formatExtensionFlags(
-			["/a/mcp.ts", "/b/browser.ts"],
-			"/abs/path/to/context-info.ts",
-		);
-		assert.deepStrictEqual(result, [
-			"--extension",
-			"/a/mcp.ts",
-			"--extension",
-			"/b/browser.ts",
-			"--extension",
-			"/abs/path/to/context-info.ts",
-		]);
-	});
-
-	it("empty array → only context-info", () => {
-		const result = formatExtensionFlags([], "/abs/path/to/context-info.ts");
-		assert.deepStrictEqual(result, ["--extension", "/abs/path/to/context-info.ts"]);
-	});
-
-	it("single path + context-info appended correctly", () => {
-		const result = formatExtensionFlags(["/a/mcp.ts"], "/context-info/context-info.ts");
-		assert.deepStrictEqual(result, [
-			"--extension",
-			"/a/mcp.ts",
-			"--extension",
-			"/context-info/context-info.ts",
-		]);
-	});
-});
-
-describe("runner CLI formatting — context-info dedup", () => {
-	it("context-info NOT in paths → appended", () => {
-		const result = formatExtensionFlags(["/a/mcp.ts"], "/ci/context-info.ts");
-		assert.ok(result.includes("/ci/context-info.ts"));
-	});
-
-	it("context-info already in paths → no duplicate", () => {
-		const result = formatExtensionFlags(
-			["/a/mcp.ts", "/ci/context-info.ts"],
-			"/ci/context-info.ts",
-		);
-		const contextInfoCount = result.filter(
-			(s) => s.includes("context-info.ts") && !s.includes("--extension"),
-		).length;
-		assert.strictEqual(contextInfoCount, 1);
-	});
-
-	it("no resolved paths → only context-info", () => {
-		const result = formatExtensionFlags([], "/abs/path/to/context-info.ts");
-		assert.deepStrictEqual(result, ["--extension", "/abs/path/to/context-info.ts"]);
-	});
-
-	it("resolveExtensionPaths returns bare paths → runner produces flags + context-info", () => {
-		// Integrate: this simulates what runner.ts does end-to-end
 		const existing = new Map<string, boolean>();
 		existing.set(extPath("mcp"), true);
-		const barePaths = resolveExtensionPathsWithFs("mcp", BASE_CWD, fakeExists(existing));
-		const result = formatExtensionFlags(barePaths, extPath("context-info"));
-		assert.deepStrictEqual(result, [
+		existing.set(extPath("browser"), true);
+		const barePaths = resolveExtensionPathsWithFs("mcp,browser", BASE_CWD, fakeExists(existing));
+		const flags = barePaths.flatMap((p) => ["--extension", p]);
+		assert.deepStrictEqual(flags, [
 			"--extension",
 			extPath("mcp"),
 			"--extension",
-			extPath("context-info"),
+			extPath("browser"),
 		]);
+	});
+
+	it("empty bare paths → empty flags", () => {
+		const barePaths = resolveExtensionPathsWithFs(undefined, BASE_CWD, fakeExists(new Map()));
+		const flags = barePaths.flatMap((p) => ["--extension", p]);
+		assert.deepStrictEqual(flags, []);
+	});
+
+	it("single path → two-element flag array", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("mcp"), true);
+		const barePaths = resolveExtensionPathsWithFs("mcp", BASE_CWD, fakeExists(existing));
+		const flags = barePaths.flatMap((p) => ["--extension", p]);
+		assert.deepStrictEqual(flags, ["--extension", extPath("mcp")]);
+	});
+
+	it("no resolved paths (supervisor only) → empty flags", () => {
+		const barePaths = resolveExtensionPathsWithFs("supervisor", BASE_CWD, fakeExists(new Map()));
+		const flags = barePaths.flatMap((p) => ["--extension", p]);
+		assert.deepStrictEqual(flags, []);
+	});
+
+	it("extensions with hyphens and dots format correctly as flags", () => {
+		const existing = new Map<string, boolean>();
+		existing.set(extPath("my-custom-tool"), true);
+		existing.set(extPath("my.tool"), true);
+		const barePaths = resolveExtensionPathsWithFs(
+			"my-custom-tool,my.tool",
+			BASE_CWD,
+			fakeExists(existing),
+		);
+		const flags = barePaths.flatMap((p) => ["--extension", p]);
+		assert.strictEqual(flags.length, 4);
+		assert.strictEqual(flags[0], "--extension");
+		assert.ok(flags[1]!.includes("my-custom-tool"));
+		assert.strictEqual(flags[2], "--extension");
+		assert.ok(flags[3]!.includes("my.tool"));
 	});
 });

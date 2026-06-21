@@ -43,14 +43,11 @@ export function resolveExtensionPathsWithFs(
 }
 
 /**
- * Resolve extension names from agent frontmatter to absolute file paths
- * suitable for DefaultResourceLoader.additionalExtensionPaths.
- * Returns array of absolute file paths (not CLI flags).
+ * Resolve extension names from agent frontmatter to absolute file paths.
+ * Returns bare absolute paths (not CLI flags). Callers format flags
+ * as needed (e.g., flatMap to "--extension" flags).
  *
  * Use resolveExtensionPathsWithFs for testing with a mock existsSync.
- *
- * Context-info is NOT auto-injected — it's the caller's responsibility
- * to append it if needed (see agent/runner.ts for CLI flag formatting).
  */
 export function resolveExtensionPaths(extensionsRaw: string | undefined, cwd?: string): string[] {
 	return resolveExtensionPathsWithFs(extensionsRaw, cwd ?? process.cwd(), existsSync);
