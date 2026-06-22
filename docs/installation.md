@@ -18,41 +18,20 @@ nav_order: 2
 
 ## Prerequisites
 
-**Dependencies:** Docker Engine ≥24.0 with Compose V2 + git configured identity.
+**Dependencies:** [Docker Engine](https://docs.docker.com/engine/install/) ≥24.0 with Compose V2 + [git](https://git-scm.com/) + [GitHub CLI](https://cli.github.com/) (`gh`).
 
 Git identity is required so the supervisor extension can commit changes inside the
 container. The host's `git config user.name` and `git config user.email` are passed
 into the container automatically by `cheasee-pi.sh`. If unset on the host, the
 container defaults to `Cheasee-Pi <cheasee-pi@localhost>`.
 
-```bash
-# Verify host git identity (set if not configured)
-git config --global user.name "Your Name"
-git config --global user.email "your.email@example.com"
-```
 
-### Git
 
-Install git if missing:
+## Installation
 
-| Platform   | Command |
-|------------|---------|
-| **Linux**  | `sudo apt install git` |
-| **macOS**  | `brew install git` |
-| **Windows** | `sudo apt install git` (inside WSL) |
+### Step 1: Install Docker
 
-Authenticate with GitHub via HTTPS using a personal access token:
-
-```bash
-git config --global credential.helper store
-# Next git push/pull prompts for:
-#   Username: YOUR_USER
-#   Password: YOUR_GITHUB_PAT
-# Credentials saved to ~/.git-credentials
-```
-
-Generate a [GitHub Personal Access Token](https://github.com/settings/tokens) (classic, scopes: `repo`, `workflow`, `read:org`) or a fine-grained token with repository access.
-
+Pick your platform:
 
 | Platform    | Install Link                                                                                                            | Instructions |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
@@ -62,218 +41,171 @@ Generate a [GitHub Personal Access Token](https://github.com/settings/tokens) (c
 
 **Platform:** Docker-only. Linux native, macOS via OrbStack, Windows via WSL2 + Docker Engine.
 
+> **Windows advice:** WSL2 is resource-heavy (RAM, disk). We strongly recommend Linux for the best experience. If using Windows, ensure your system has ≥16 GB RAM.
 
+> ▶ **Execute — Linux:**
+> ```bash
+> sudo sh -c "$(curl -fsSL https://get.docker.com)"
+> sudo groupadd -f docker
+> sudo usermod -aG docker $USER
+> newgrp docker
+> ```
+>
+> **macOS:** download OrbStack or `brew install orbstack`.
+>
+> **Windows (WSL):** run the WSL setup first, then the same Linux commands inside WSL.
 
-## Quick start
+### Step 2: Install git & GitHub CLI — authenticate
 
-```bash
-# 1. Fork https://github.com/SchneiderDaniel/cheasee-pi on GitHub
-# 2. Create workspace & clone your fork (bare)
-mkdir cheasee-pi && cd cheasee-pi
-git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
-# 3. Add upstream remote
-git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
-# 4. Create main worktree
-git --git-dir=.bare worktree add main main
-cd main
-# 5. Replace private submodule URL with your own repo (REQUIRED - see 2b below)
-git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
-git submodule sync
-# 6. Init submodules
-git submodule update --init --recursive
-# 7. Start
-./cheasee-pi.sh
+> ▶ **Execute:**
+> ```bash
+> # Linux
+> sudo apt install git gh
+>
+> # macOS
+> brew install git gh
+>
+> # Windows (inside WSL)
+> sudo apt install git gh
+> ```
+
+Set your git identity and authenticate with GitHub via browser:
+
+> ▶ **Execute:**
+> ```bash
+> git config --global user.name "Your Name"
+> git config --global user.email "your.email@example.com"
+> gh auth login -s repo,project,workflow
+> ```
+
+`gh auth login` opens a browser for OAuth. Follow the prompts:
+1. Select **GitHub.com**
+2. Select **HTTPS**
+3. Choose **Login with a web browser**
+4. Copy the one-time code, press Enter to open browser
+5. Paste the code, authorize
+6. Terminal shows: `✓ Logged in as YOUR_USER`
+
+Verify the token scopes:
+
+> ▶ **Execute:**
+> ```bash
+> gh auth status
+> ```
+
+Expected output includes:
+```text
+Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
 ```
 
-The wrapper script:
-1. Builds the OCI image from `docker/Dockerfile` (first run, ~2 min)
-2. Starts the container with the workspace root bind-mounted, UID/GID mapped
-3. Drops you into the Pi TUI inside the container
+Minimum scopes: `repo`, `project`, `workflow`. Re-run `gh auth login -s repo,project,workflow` if any are missing.
 
-## Step-by-step
+The container mounts `~/.config/gh/` read-only, so host auth works inside automatically.
 
-> **Prerequisite:** Ensure your [git identity](#prerequisites) is configured on the host.
-> The container uses it for commit authorship.
-
-### 1. Fork & clone the bare repo
+### Step 3: Fork & clone the bare repo
 
 Fork [github.com/SchneiderDaniel/cheasee-pi](https://github.com/SchneiderDaniel/cheasee-pi) to your GitHub account, then clone your fork:
 
-```bash
-mkdir cheasee-pi && cd cheasee-pi
-git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
-git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
-```
+> ▶ **Execute:**
+> ```bash
+> mkdir cheasee-pi && cd cheasee-pi
+> git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
+> git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
+> ```
 
 This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo.
 
-### 2. Create the `main` worktree
+### Step 4: Create the worktree
 
-```bash
-git --git-dir=.bare worktree add main main
-cd main
-```
+> ▶ **Execute:**
+> ```bash
+> git --git-dir=.bare worktree add main main
+> cd main
+> ```
 
 All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
 
-### 2b. Submodules — replace the private submodule
+### Step 5: Configure the submodule
 
-**⚠️ CRITICAL:** The project includes one submodule (`flask_blogs`) pointing to a **private** repo (`github.com/SchneiderDaniel/flask_blogs`). You do NOT have access. Running `git submodule update --init --recursive` as-is will **fail** with a permission error.
+**⚠️ CRITICAL:** The project includes one submodule (`flask_blogs`) pointing to a **private** repo (`github.com/SchneiderDaniel/flask_blogs`). You do NOT have access. `git submodule update --init --recursive` as-is will **fail**.
 
-You must replace the URL with **your own project repo** (any public or private repo you own) before initializing:
+Replace the URL with **your own project repo** (any public or private repo you own) before initializing:
 
-```bash
-git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
-git submodule sync
-```
+> ▶ **Execute:**
+> ```bash
+> git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
+> git submodule sync
+> git submodule update --init --recursive
+> ```
 
-Now init:
+To optionally track the original repo as upstream:
 
-```bash
-git submodule update --init --recursive
-```
+> ▶ **Execute:**
+> ```bash
+> git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
+> ```
 
-> If you don't want a submodule at all, remove it entirely:
+> Don't want a submodule at all? Remove it:
 > ```bash
 > git submodule deinit -f flask_blogs
 > git rm -f flask_blogs
 > rm -rf .git/modules/flask_blogs
 > ```
 
-To track the original repo as upstream:
+### Step 6: Start the container
 
-```bash
-git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
-```
+> ▶ **Execute:**
+> ```bash
+> ./cheasee-pi.sh
+> ```
 
-### 3. Start the container
+First run builds the OCI image (~2 min), then drops you into the Pi TUI inside the container. The wrapper:
+- Builds from `docker/Dockerfile`
+- Starts the container with workspace root bind-mounted, UID/GID mapped
+- Launches the Pi TUI
 
-```bash
-./cheasee-pi.sh
-```
+The container stays running — subsequent runs of `./cheasee-pi.sh` skip straight to the TUI.
 
-Builds the image (first run, ~2 min) and drops you into the Pi TUI inside the container.
+### Step 7: Set API key
 
-### 4. Set API key
+On first run, `./cheasee-pi.sh` detects no keys and launches interactive setup. Select your providers and enter keys. They're saved to your shell profile.
 
-On first run, `./cheasee-pi.sh` detects no keys and launches interactive setup:
+To add or change keys later:
 
-```
-No API keys configured yet.
-
-Configuring API keys for pi providers...
-Shell profile: ~/.bashrc
-
-Available providers:
-  [1] OPENAI_API_KEY         OpenAI GPT API key
-  [2] ANTHROPIC_API_KEY      Anthropic Claude API key
-  [3] OPENCODE_API_KEY       OpenCode Zen/OpenCode Go API key
-  [4] DEEPSEEK_API_KEY       DeepSeek API key
-  [5] GEMINI_API_KEY         Google Gemini API key
-  ...
-
-Enter numbers (e.g., '1 3 5'), 'all', or 'q':
->
-```
-
-Select which providers to configure, enter each key once. Keys are saved to your shell profile and used immediately.
-
-The container stays running, so subsequent runs of `./cheasee-pi.sh` skip straight to launching pi — no repeated prompts.
-
-To add or change API keys later:
-
-```bash
-./cheasee-pi.sh --configure
-```
+> ▶ **Execute:**
+> ```bash
+> ./cheasee-pi.sh --configure
+> ```
 
 To override for a single session:
 
-```bash
-./cheasee-pi.sh --api-key "sk-..."
-```
+> ▶ **Execute:**
+> ```bash
+> ./cheasee-pi.sh --api-key "sk-..."
+> ```
 
-Run `./cheasee-pi.sh --help` for all options.
+See `./cheasee-pi.sh --help` for all options.
 
-### 5. GitHub CLI authentication
+### Step 8: Configure repository settings
 
-The kanban pipeline uses `gh` to manage issues, projects, and PRs. Auth is mounted read-only into the container from your host, so you authenticate on the host once and it works inside the container.
-
-#### Install gh
-
-| Platform   | Command |
-|------------|---------|
-| **Linux**  | `sudo apt install gh` |
-| **macOS**  | `brew install gh` |
-| **Windows** | `sudo apt install gh` (inside WSL) |
-
-After install, verify with `gh --version`.
-
-**Step 1 — Check current status:**
-
-```bash
-gh auth status
-```
-
-If already authenticated, verify required scopes are present:
-
-```text
-Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
-```
-
-Minimum required: `repo`, `project`, `workflow`. If any are missing, re-authenticate with the full scope list.
-
-**Step 2 — Authenticate (if needed):**
-
-```bash
-gh auth login -s repo,project,workflow
-```
-
-This opens a browser to generate a token with the exact scopes needed. Follow the prompts:
-
-1. Select **GitHub.com**
-2. Select **HTTPS** (or SSH if you prefer)
-3. Choose **Login with a web browser**
-4. Copy the one-time code, press Enter to open browser
-5. Paste the code on github.com, authorize
-6. Terminal shows: `✓ Logged in as YOUR_USER`
-
-To verify after login:
-
-```bash
-gh auth status
-```
-
-Expected output:
-
-```text
-github.com
-  ✓ Logged in to github.com account YOUR_USER (...)
-  - Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
-```
-
-> The container mounts `~/.config/gh/` at startup. If you authenticate after the container is already running, the new token is visible immediately — no restart needed.
-
-### 6. Configure `.pi/settings.json` — **REQUIRED after fork**
-
-`.pi/settings.json` stores per-repo configuration. After forking, **you must update the `supervisor.repo` field** to point to your fork, otherwise the kanban pipeline and issue-creation skills will target the original repo.
-
-```bash
-# Edit .pi/settings.json and change:
-#   "repo": "SchneiderDaniel/cheasee-pi" → "repo": "YOUR_USER/cheasee-pi"
-```
-
-Key fields:
+After forking, **you must update** `.pi/settings.json` so the pipeline targets your fork instead of the original repo:
 
 | Field | Type | Must change? | Description |
 |-------|------|-------------|-------------|
-| `supervisor.repo` | string | **Yes** | Your fork (`YOUR_USER/cheasee-pi`) — pipeline targets this repo |
-| `supervisor.projectNumber` | number | If using kanban | GitHub project number for your repo's board |
-| `supervisor.statusField` | string | If using kanban | Single-select field name on your project board |
-| `defaultProvider` | string | Optional | AI provider for agent sessions |
-| `defaultModel` | string | Optional | Default model (per-agent overrides in supervisor) |
-| `theme` | string | Optional | TUI theme name from `.pi/themes/` |
+| `supervisor.repo` | string | **Yes** | Your fork (`YOUR_USER/cheasee-pi`) |
+| `supervisor.projectNumber` | number | If using kanban | GitHub project number |
+| `supervisor.statusField` | string | If using kanban | Single-select field name |
+| `defaultProvider` | string | Optional | AI provider for agents |
+| `defaultModel` | string | Optional | Default model |
+| `theme` | string | Optional | TUI theme from `.pi/themes/` |
 | `docker.memory` | string | Optional | Container memory limit |
 | `docker.cpus` | string | Optional | Container CPU limit |
+
+> ▶ **Execute — edit the file:**
+> ```bash
+> # Change "SchneiderDaniel/cheasee-pi" → "YOUR_USER/cheasee-pi"
+> nano .pi/settings.json
+> ```
 
 ## IDE (optional)
 
@@ -345,21 +277,3 @@ UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
 ```
 
-## Daily workflow
-
-### Typical session
-
-1. Start with `pi`
-2. Select or create a GitHub issue
-3. Run `/supervisor <issue-number>` to start the pipeline
-4. Monitor progress via TUI status bar
-5. Review results when pipeline completes
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature worktree: `git worktree add -b my-feature ../my-feature main`
-3. `cd ../my-feature` and make your changes
-4. Run tests: `npm test`
-5. Push and submit a PR
-6. Clean up: `cd /path/to/main && git worktree remove --force ../my-feature`

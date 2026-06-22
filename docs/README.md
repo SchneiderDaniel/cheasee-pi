@@ -40,11 +40,17 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ## Quick start
 
+See the [installation guide](https://schneiderdaniel.github.io/cheasee-pi/installation) for full step-by-step instructions.
+
+TL;DR for Linux:
+
 ```bash
-git clone git@github.com:SchneiderDaniel/cheasee-pi.git
+git clone https://github.com/SchneiderDaniel/cheasee-pi.git
 cd cheasee-pi
 ./cheasee-pi.sh
 ```
+
+First run of `./cheasee-pi.sh` builds the Docker image (~2 min) and drops you into the Pi TUI — follow the prompts to set your API key.
 
 ## Documentation
 
@@ -60,6 +66,23 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | 11 prompt templates |
 | [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
 | [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses |
+
+## Daily workflow
+
+1. Start with `pi`
+2. Select or create a GitHub issue
+3. Run `/supervisor <issue-number>` to start the Kanban pipeline
+4. Monitor progress via TUI status bar
+5. Review results when pipeline completes
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature worktree: `git worktree add -b my-feature ../my-feature main`
+3. `cd ../my-feature` and make your changes
+4. Run tests: `npm test`
+5. Push and submit a PR
+6. Clean up: `git worktree remove --force ../my-feature`
 
 ## Philosophy
 
