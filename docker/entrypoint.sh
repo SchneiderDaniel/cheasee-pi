@@ -99,6 +99,16 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "ss
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
 
+# --- Install workspace npm dependencies if missing -------------------
+# The workspace is a bind-mount from the host; node_modules is local to the
+# container and must be installed at runtime. Skip if already present so
+# subsequent container starts are fast.
+if [ ! -d /workspaces/main/node_modules ]; then
+    echo "Installing workspace npm dependencies…"
+    gosu agentuser bash -c 'cd /workspaces/main && npm install --no-audit --no-fund' \
+        || echo "Warning: npm install failed (non-fatal — pi may still work depending on which extensions are loaded)"
+fi
+
 # --- Drop privileges and exec -------------------------------------
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)

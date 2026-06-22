@@ -453,6 +453,50 @@ for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GE
     fi
 done
 
-# --- Step 8: Launch interactive pi session ----------------------------
+# --- Step 8: Ensure npm dependencies are installed ---------------------
+# Extensions need proper-lockfile, typescript, shell-quote, typebox, vscode-jsonrpc
+# from the workspace package.json. These are only available after npm install.
+# Run it synchronously here (not relying on the entrypoint) so pi doesn't
+# start before all modules are ready. Idempotent — npm is fast when nothing changed.
+echo "Ensuring workspace npm dependencies…"
+docker exec --user agentuser cheasee-pi \
+    bash -c 'cd /workspaces/main && npm install --no-audit --no-fund' \
+    || echo "Warning: npm install failed (non-fatal — extensions may not load)"
+
+# --- Step 9: Verify all extension prerequisites are available -----------
+# Checks system binaries and npm packages that extensions depend on.
+# This does not abort — all errors are warnings so the session can
+# still start (developers can fix missing items later).
+#
+# To add a new check, add an entry to one of the arrays below.
+echo "Verifying extension prerequisites…"
+
+docker exec --user agentuser cheasee-pi bash -c '
+  any_missing=false
+
+  # ── System binaries that extensions expect in PATH ──
+  bins="rtk rg ast-grep python3 pip3 node npm gh git jq fd eslint prettier ctags"
+  for b in $bins; do
+    if ! command -v "$b" &>/dev/null; then
+      echo "  ⚠️  MISSING: $b not found in PATH"
+      any_missing=true
+    fi
+  done
+
+  # ── npm packages from package.json that extensions import ──
+  pkgs="proper-lockfile typebox shell-quote typescript vscode-jsonrpc"
+  for p in $pkgs; do
+    if [ ! -d "/workspaces/main/node_modules/$p" ]; then
+      echo "  ⚠️  MISSING: $p not in node_modules"
+      any_missing=true
+    fi
+  done
+
+  if [ "$any_missing" = false ]; then
+    echo "  ✓ All extension prerequisites are satisfied"
+  fi
+' || echo "Warning: health check could not complete"
+
+# --- Step 10: Launch interactive pi session ---------------------------
 # Clear terminal to hide build/check output, then launch pi
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --

@@ -102,6 +102,15 @@ RUN case "$(dpkg --print-architecture)" in \
     rm -f "/tmp/${ra_asset%.gz}"
 
 # ---------------------------------------------------------------
+# Layer 5c: rtk binary (Rust CLI — token-saving bash rewrite)
+# Installs to /usr/local/bin/rtk for all users.
+# ---------------------------------------------------------------
+RUN RTK_INSTALL_DIR=/usr/local/bin sh -c "\
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+        && rtk --version \
+    "
+
+# ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \
