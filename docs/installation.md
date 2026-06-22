@@ -31,13 +31,34 @@ git config --global user.name "Your Name"
 git config --global user.email "your.email@example.com"
 ```
 
+### Git
+
+Install git if missing:
+
+| Platform   | Command |
+|------------|---------|
+| **Linux**  | `sudo apt install git` |
+| **macOS**  | `brew install git` |
+| **Windows** | `sudo apt install git` (inside WSL) |
+
+Authenticate with GitHub via HTTPS using a personal access token:
+
+```bash
+git config --global credential.helper store
+# Next git push/pull prompts for:
+#   Username: YOUR_USER
+#   Password: YOUR_GITHUB_PAT
+# Credentials saved to ~/.git-credentials
+```
+
+Generate a [GitHub Personal Access Token](https://github.com/settings/tokens) (classic, scopes: `repo`, `workflow`, `read:org`) or a fine-grained token with repository access.
 
 
 | Platform    | Install Link                                                                                                            | Instructions |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
-| **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) | `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo usermod -aG docker $USER` |
+| **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) | `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo groupadd -f docker && sudo usermod -aG docker $USER`, then `newgrp docker` to activate |
 | **macOS**   | [OrbStack](https://orbstack.dev/) (fast, lightweight Docker + Compose V2)              | Download from orbstack.dev or `brew install orbstack` |
-| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      | Enable VM platform: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart` + restart (on Win ≥10 v2004, `wsl --install` does this automatically — skip `dism`). Then `wsl --install -d Ubuntu`. Inside WSL: `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo usermod -aG docker $USER` |
+| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      | Enable VM platform: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart` + restart (on Win ≥10 v2004, `wsl --install` does this automatically — skip `dism`). Then `wsl --install -d Ubuntu`. Inside WSL: `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo groupadd -f docker && sudo usermod -aG docker $USER`, then `newgrp docker` to activate |
 
 **Platform:** Docker-only. Linux native, macOS via OrbStack, Windows via WSL2 + Docker Engine.
 
@@ -47,15 +68,17 @@ git config --global user.email "your.email@example.com"
 
 ```bash
 # 1. Fork https://github.com/SchneiderDaniel/cheasee-pi on GitHub
-# 2. Clone your fork (bare)
-git clone --bare git@github.com:YOUR_USER/cheasee-pi.git .bare
+# 2. Create workspace & clone your fork (bare)
+mkdir cheasee-pi && cd cheasee-pi
+git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
 # 3. Add upstream remote
-git --git-dir=.bare remote add upstream git@github.com:SchneiderDaniel/cheasee-pi.git
+git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
 # 4. Create main worktree
 git --git-dir=.bare worktree add main main
 cd main
 # 5. Replace private submodule URL with your own repo (REQUIRED - see 2b below)
-git submodule set-url flask_blogs git@github.com:YOUR_USER/YOUR_REPO.git
+git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
+git submodule sync
 # 6. Init submodules
 git submodule update --init --recursive
 # 7. Start
@@ -78,8 +101,8 @@ Fork [github.com/SchneiderDaniel/cheasee-pi](https://github.com/SchneiderDaniel/
 
 ```bash
 mkdir cheasee-pi && cd cheasee-pi
-git clone --bare git@github.com:YOUR_USER/cheasee-pi.git .bare
-git --git-dir=.bare remote add upstream git@github.com:SchneiderDaniel/cheasee-pi.git
+git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
+git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
 ```
 
 This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo.
@@ -100,7 +123,7 @@ All worktrees live alongside each other under the workspace root. Feature branch
 You must replace the URL with **your own project repo** (any public or private repo you own) before initializing:
 
 ```bash
-git submodule set-url flask_blogs git@github.com:YOUR_USER/YOUR_REPO.git
+git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
 git submodule sync
 ```
 
@@ -175,6 +198,16 @@ Run `./cheasee-pi.sh --help` for all options.
 
 The kanban pipeline uses `gh` to manage issues, projects, and PRs. Auth is mounted read-only into the container from your host, so you authenticate on the host once and it works inside the container.
 
+#### Install gh
+
+| Platform   | Command |
+|------------|---------|
+| **Linux**  | `sudo apt install gh` |
+| **macOS**  | `brew install gh` |
+| **Windows** | `sudo apt install gh` (inside WSL) |
+
+After install, verify with `gh --version`.
+
 **Step 1 — Check current status:**
 
 ```bash
@@ -242,6 +275,17 @@ Key fields:
 | `docker.memory` | string | Optional | Container memory limit |
 | `docker.cpus` | string | Optional | Container CPU limit |
 
+## IDE (optional)
+
+Any IDE works with the workspace. We recommend [Zed](https://zed.dev/) for optimal experience:
+
+```bash
+curl -f https://zed.dev/install.sh | sh
+sudo ln -s ~/.local/bin/zed /usr/local/bin/zed
+```
+
+Open the workspace: `zed .` from the `cheasee-pi` root.
+
 ## What happens under the hood
 
 `./cheasee-pi.sh` runs `docker compose up` with:
@@ -289,7 +333,7 @@ pi -p "Create a file named '.pi/test-file.txt' with content 'container works', t
 Rebuild the image without cache:
 
 ```bash
-docker compose build --no-cache
+docker compose -f docker/docker-compose.yml build --no-cache
 ./cheasee-pi.sh
 ```
 
