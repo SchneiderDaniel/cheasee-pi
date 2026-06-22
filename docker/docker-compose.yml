@@ -19,10 +19,10 @@ services:
         PI_VERSION: ${PI_VERSION:-latest}
     container_name: cheasee-pi
     environment:
-      - HOST_UID=${HOST_UID}
-      - HOST_GID=${HOST_GID}
-      - HOST_GIT_NAME=${HOST_GIT_NAME}
-      - HOST_GIT_EMAIL=${HOST_GIT_EMAIL}
+      - HOST_UID=${HOST_UID:-}
+      - HOST_GID=${HOST_GID:-}
+      - HOST_GIT_NAME=${HOST_GIT_NAME:-Cheasee-Pi}
+      - HOST_GIT_EMAIL=${HOST_GIT_EMAIL:-cheasee-pi@localhost}
     volumes:
       - ../../:/workspaces
       - ~/.config/gh:/home/agentuser/.config/gh:ro
