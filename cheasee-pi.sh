@@ -511,6 +511,14 @@ docker exec --user agentuser cheasee-pi bash -c '
   fi
 ' || echo "Warning: health check could not complete"
 
+# --- Step 9b: Sync extension packages to latest ------------------------
+# Keeps packages from settings.json up to date so "Package Updates
+# Available" nag never shows. Idempotent — fast when nothing changed.
+echo "Syncing extension packages…"
+docker exec --user agentuser cheasee-pi \
+    bash -c 'cd /workspaces/main && pi update --extensions 2>&1 | tail -1' \
+    || echo "Warning: pi update --extensions failed (non-fatal)"
+
 # --- Step 10: Launch interactive pi session ---------------------------
 # Clear terminal to hide build/check output, then launch pi
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
