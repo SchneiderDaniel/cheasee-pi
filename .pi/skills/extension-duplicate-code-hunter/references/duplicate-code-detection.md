@@ -196,23 +196,23 @@ structural_search "switch ($VALUE) { $$$CASES }" ts
 ```bash
 # Step 1: Extract blocks to temp files
 read .pi/extensions/<name>/file.ts --offset 100 --limit 20 \
-  > /tmp/blockA.ts
+  > ignore/blockA.ts
 read .pi/extensions/<name>/other.ts --offset 50 --limit 20 \
-  > /tmp/blockB.ts
+  > ignore/blockB.ts
 
 # Step 2: Diff them
-diff /tmp/blockA.ts /tmp/blockB.ts
+diff ignore/blockA.ts ignore/blockB.ts
 
 # Step 3: Normalize identifiers for Type 2 detection
-sed -E 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' /tmp/blockA.ts > /tmp/blockA.norm
-sed -E 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' /tmp/blockB.ts > /tmp/blockB.norm
-diff /tmp/blockA.norm /tmp/blockB.norm
+sed -E 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' ignore/blockA.ts > ignore/blockA.norm
+sed -E 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' ignore/blockB.ts > ignore/blockB.norm
+diff ignore/blockA.norm ignore/blockB.norm
 
 # Step 4: Side-by-side diff for visual comparison
-diff --side-by-sid e --width=160 /tmp/blockA.ts /tmp/blockB.ts
+diff --side-by-sid e --width=160 ignore/blockA.ts ignore/blockB.ts
 
 # Clean up temp files
-rm /tmp/blockA.ts /tmp/blockB.ts /tmp/blockA.norm /tmp/blockB.norm
+rm ignore/blockA.ts ignore/blockB.ts ignore/blockA.norm ignore/blockB.norm
 ```
 
 **diff exit codes:**
@@ -227,8 +227,8 @@ For borderline cases (Type 2 vs 3), calculate similarity score:
 
 ```bash
 # Count matching lines using diff
-diff /tmp/blockA.norm /tmp/blockB.norm 2>&1 | grep -c '^[<>]'   # changed lines
-diff /tmp/blockA.norm /tmp/blockB.norm 2>&1 | grep -c '^[[:space:]]'  # unchanged lines
+diff ignore/blockA.norm ignore/blockB.norm 2>&1 | grep -c '^[<>]'   # changed lines
+diff ignore/blockA.norm ignore/blockB.norm 2>&1 | grep -c '^[[:space:]]'  # unchanged lines
 
 # Similarity = unchanged / total_lines
 # >90% identical lines → Type 2

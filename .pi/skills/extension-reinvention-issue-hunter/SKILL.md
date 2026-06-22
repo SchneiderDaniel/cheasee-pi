@@ -866,7 +866,7 @@ Quote: `<direct quote showing built-in API>`
 
 ```bash
 # Write body to temp file
-cat > /tmp/reinvention-report-<ext-name>-<seq>.md << 'ISSUEOF'
+cat > ignore/reinvention-report-<ext-name>-<seq>.md << 'ISSUEOF'
 <body content>
 ISSUEOF
 
@@ -874,7 +874,7 @@ gh issue create \
   --repo "$(grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Reinvention: <ext-name> - <short description>" \
   --label "reinvention" \
-  --body-file /tmp/reinvention-report-<ext-name>-<seq>.md
+  --body-file ignore/reinvention-report-<ext-name>-<seq>.md
 ```
 
 #### Labels

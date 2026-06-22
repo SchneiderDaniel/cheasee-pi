@@ -221,7 +221,7 @@ Use the format described in `CONTRIBUTING.md`. Extract section requirements, exp
 Write the composed body to a temporary file for step 5:
 
 ```bash
-cat > /tmp/issue-body-OWNER-REPO-$(date +%s).md << 'EOF'
+cat > ignore/issue-body-OWNER-REPO-$(date +%s).md << 'EOF'
 <body content>
 EOF
 ```
@@ -238,7 +238,7 @@ Create the issue on the target repo using `gh issue create` with the `--body-fil
 gh issue create \
   --repo OWNER/REPO \
   --title "ISSUE TITLE" \
-  --body-file /tmp/issue-body-OWNER-REPO-$(date +%s).md
+  --body-file ignore/issue-body-OWNER-REPO-$(date +%s).md
 ```
 
 **After creation:**
@@ -246,7 +246,7 @@ gh issue create \
 1. Capture the output URL (e.g., `https://github.com/OWNER/REPO/issues/123`).
 2. Clean up the temp file:
    ```bash
-   rm /tmp/issue-body-OWNER-REPO-$(date +%s).md
+   rm ignore/issue-body-OWNER-REPO-$(date +%s).md
    ```
 3. Report the result to the user: "Issue filed: https://github.com/OWNER/REPO/issues/N"
 
@@ -315,7 +315,7 @@ This skill has explicit boundaries. It does **NOT**:
 3. **Neutral code only** — All reproducible examples must use generic code. Never reference cheasee-pi.
 4. **Template priority** — Repo template > CONTRIBUTING.md format > Universal Fallback Format.
 5. **Temp file cleanup** — Delete temp files after issue creation.
-6. **Unique temp paths** — Use `/tmp/issue-body-OWNER-REPO-$(date +%s).md` to avoid collisions.
+6. **Unique temp paths** — Use `ignore/issue-body-OWNER-REPO-$(date +%s).md` to avoid collisions.
 7. **`--body-file` required** — Always use `--body-file` for issue creation. Never use `--body` inline.
 8. **Report outcome** — After filing, provide the issue URL to the user.
 9. **One issue per invocation** — This skill handles one issue at a time.

@@ -48,20 +48,20 @@ Each sub-issue must be a **vertical slice** — self-contained, independently te
 
 ### Step 1 — Fetch the Epic
 
-⚠️ Save output to a **project-relative path** (e.g. `tmp/epic.json`). Do NOT use `/tmp/` — the bash tool blocks absolute paths outside the project directory.
+⚠️ Save output to a **project-relative path** (e.g. `ignore/epic.json`). Do NOT use `/tmp/` — the bash tool blocks absolute paths outside the project directory.
 
 ```bash
-gh issue view $1 --repo "$REPO" --json title,body,comments,labels > tmp/epic.json
+gh issue view $1 --repo "$REPO" --json title,body,comments,labels > ignore/epic.json
 ```
 
-Read the full output before proceeding (use `cat tmp/epic.json | jq '{title, body, labels: [.labels[].name]}'` for a readable summary).
+Read the full output before proceeding (use `cat ignore/epic.json | jq '{title, body, labels: [.labels[].name]}'` for a readable summary).
 
 ### Step 1.5 — Refinement Gate
 
 Check that the epic has the `refined` label. Extract labels from the JSON fetched in Step 1:
 
 ```bash
-jq -r '.labels[].name' tmp/epic.json | grep -x 'refined'
+jq -r '.labels[].name' ignore/epic.json | grep -x 'refined'
 ```
 
 If `grep` finds **no** match (empty output, exit code 1), **stop immediately** and tell the user:
@@ -80,7 +80,7 @@ Follow these steps in order. Record all findings in a **discovery map** — a st
 
 #### 2.1 — Extract Keywords from the Epic
 
-Read the epic title and body (from `tmp/epic.json` fetched in Step 1). Extract **up to 5 keywords** that are most likely to match code in the codebase. Prioritize:
+Read the epic title and body (from `ignore/epic.json` fetched in Step 1). Extract **up to 5 keywords** that are most likely to match code in the codebase. Prioritize:
 
 - **Nouns** and **entity names** (e.g. "User", "Recipe", "Tag", "Profile")
 - **Route paths** (e.g. `/api/users`, `/dashboard` — strip leading `/` and use as token: `api users`, `dashboard`)
@@ -89,7 +89,7 @@ Read the epic title and body (from `tmp/epic.json` fetched in Step 1). Extract *
 
 ```bash
 # Read a summary of the epic to extract keywords from
-cat tmp/epic.json | jq '{title, body}'
+cat ignore/epic.json | jq '{title, body}'
 ```
 
 **If 0 keywords can be extracted** (epic body too short or generic), skip to the **Greenfield Fallback** (2.5) immediately.
@@ -241,7 +241,7 @@ EPIC_ID=$(gh api graphql \
       }
     }' --jq '.data.repository.issue.id')
 
-echo "$EPIC_ID" > tmp/epic_id.txt
+echo "$EPIC_ID" > ignore/epic_id.txt
 echo "Epic ID: $EPIC_ID"
 ```
 
@@ -251,12 +251,12 @@ Every sub-issue gets exactly two labels: `refined` and its **layer label** (e.g.
 
 **Step-by-step for each sub-issue:**
 
-**Step 1: Write the body to a file first.** This avoids inline escaping issues and path validation on multi-line content. Use project-relative paths like `tmp/sub<N>_body.md`.
+**Step 1: Write the body to a file first.** This avoids inline escaping issues and path validation on multi-line content. Use project-relative paths like `ignore/sub<N>_body.md`.
 
 **Step 2: Create the issue, reading body from file.**
 
 ```bash
-BODY=$(cat tmp/sub1_body.md)
+BODY=$(cat ignore/sub1_body.md)
 CHILD_URL=$(gh issue create \
   --repo "$REPO" \
   --title "Your slash-free title here" \
@@ -291,7 +291,7 @@ echo "Child ID: $CHILD_ID"
 **Step 5: Link child as sub-issue via GraphQL (this creates the real parent-child relationship, NOT a comment or body mention).**
 
 ```bash
-EPIC_ID=$(cat tmp/epic_id.txt)
+EPIC_ID=$(cat ignore/epic_id.txt)
 RESULT=$(gh api graphql \
   -F issueId="$EPIC_ID" \
   -F subIssueId="$CHILD_ID" \
@@ -318,18 +318,18 @@ echo "Sub-issue #$CHILD_NUM linked as child of Epic #$1 (GraphQL parent-child, n
 
 > **If only 1 sub-issue was created (N ≤ 1), skip the dependency wiring step entirely.** No `addBlockedBy` call is needed for a single sub-issue.
 
-Sub-issues form a linear chain: sub-issue N is blocked by sub-issue N−1 (for N > 1). The first sub-issue has no blocker. The chain is stored via `tmp/prev_child_id.txt`.
+Sub-issues form a linear chain: sub-issue N is blocked by sub-issue N−1 (for N > 1). The first sub-issue has no blocker. The chain is stored via `ignore/prev_child_id.txt`.
 
 **For the first sub-issue (N=1):** save its node ID as the blocker for the next sub-issue. No mutation call.
 
 ```bash
-echo "$CHILD_ID" > tmp/prev_child_id.txt
+echo "$CHILD_ID" > ignore/prev_child_id.txt
 ```
 
 **For each subsequent sub-issue (N > 1):** read the previous sub-issue ID, set the `blockedBy` relationship, then overwrite the file with its own ID for the next iteration.
 
 ```bash
-PREV_CHILD_ID=$(cat tmp/prev_child_id.txt)
+PREV_CHILD_ID=$(cat ignore/prev_child_id.txt)
 gh api graphql \
   -F issueId="$CHILD_ID" \
   -F blockingIssueId="$PREV_CHILD_ID" \
@@ -349,7 +349,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "🔗 Blocked #$CHILD_NUM by previous sub-issue"
 # Save current child ID as the blocker for the next sub-issue
-echo "$CHILD_ID" > tmp/prev_child_id.txt
+echo "$CHILD_ID" > ignore/prev_child_id.txt
 ```
 
 ⚠️ **Do ALL SIX steps for each sub-issue before moving to the next one. Do NOT batch all creations and then try to link afterward. Stop immediately on any failure — remaining sub-issues must NOT be created.**
@@ -357,7 +357,7 @@ echo "$CHILD_ID" > tmp/prev_child_id.txt
 **Save each sub-issue number** for dependency references in later sub-issues:
 
 ```bash
-echo "$CHILD_NUM" > tmp/sub<N>_num.txt
+echo "$CHILD_NUM" > ignore/sub<N>_num.txt
 ```
 
 **Tip:** You can combine steps 2–6 into one chained command per sub-issue (using `&&`), but keep steps 1 (file write) separate since the body file won't change within a chained command after writing.
@@ -472,7 +472,7 @@ Before creating any sub-issue, verify mentally:
 | Symptom                                                 | Likely Cause                                                      | Fix                                                                                                                         |
 | ------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `Blocked: absolute path "/..."`                         | Command contains a standalone `/` (in title, body, or file path). | Remove `/` from issue titles. Replace standalone `/paths` in body with inline equivalents. Use project-relative file paths. |
-| Body not appearing in created issue                     | Inline body in single quotes contains unescaped characters.       | Always write body to file first (`tmp/sub<N>_body.md`), then read via `BODY=$(cat file)`.                                   |
+| Body not appearing in created issue                     | Inline body in single quotes contains unescaped characters.       | Always write body to file first (`ignore/sub<N>_body.md`), then read via `BODY=$(cat file)`.                                   |
 | `gh issue create` fails with "422 Unprocessable Entity" | Label does not exist in the repo.                                 | Run `gh label list --repo "$REPO"` to verify labels exist.                                                                  |
 | Sub-issues not appearing under epic                     | Step 5 (link) was skipped or failed silently.                     | Run the verification GraphQL query from Step 6c. Re-link any unlinked sub-issues manually.                                  |
 | `addBlockedBy` mutation fails with error in JSON        | `issueId` or `blockingIssueId` is not a valid node ID.            | Verify both IDs are GraphQL node IDs (format `I_xxx`), not plain issue numbers. Use Step 4 to resolve node IDs correctly.   |

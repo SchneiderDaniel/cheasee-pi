@@ -162,9 +162,9 @@ ripgrep_search "literal unique string from block" .pi/extensions/<name>/
 
 ```bash
 # Extract suspected duplicate blocks to temp files and diff them
-read .pi/extensions/<name>/file.ts --offset 100 --limit 20 > /tmp/block1
-read .pi/extensions/<name>/other.ts --offset 50 --limit 20 > /tmp/block2
-diff /tmp/block1 /tmp/block2
+read .pi/extensions/<name>/file.ts --offset 100 --limit 20 > ignore/block1
+read .pi/extensions/<name>/other.ts --offset 50 --limit 20 > ignore/block2
+diff ignore/block1 ignore/block2
 ```
 
 **Patterns:**
@@ -231,9 +231,9 @@ jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 50 --output json
 ```bash
 # Extract blocks, normalize identifiers, then diff
 # Create normalized versions by replacing identifiers with placeholders
-sed 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' /tmp/block1 > /tmp/block1.norm
-sed 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' /tmp/block2 > /tmp/block2.norm
-diff /tmp/block1.norm /tmp/block2.norm
+sed 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' ignore/block1 > ignore/block1.norm
+sed 's/\b[a-zA-Z_][a-zA-Z0-9_]*\b/ID/g' ignore/block2 > ignore/block2.norm
+diff ignore/block1.norm ignore/block2.norm
 ```
 
 **Patterns:**
@@ -283,7 +283,7 @@ jscpd .pi/extensions/<name>/ --min-lines 5 --min-tokens 30 \
 
 ```bash
 # Extract two similar blocks and side-by-side diff
-diff --side-by-side --width=160 /tmp/block1 /tmp/block2
+diff --side-by-side --width=160 ignore/block1 ignore/block2
 # Count matching vs differing lines. If >60% match, classified as near-miss
 ```
 
@@ -743,7 +743,7 @@ File: path/to/other.ts, line N-M
 
 ```bash
 # Write body to temp file to avoid shell escaping issues
-cat > /tmp/duplicate-code-report-<ext-name>.md << 'EOF'
+cat > ignore/duplicate-code-report-<ext-name>.md << 'EOF'
 <body content>
 EOF
 
@@ -751,10 +751,10 @@ gh issue create \
   --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Duplicate Code: <ext-name> - <short description>" \
   --label "duplicate-code" \
-  --body-file /tmp/duplicate-code-report-<ext-name>.md
+  --body-file ignore/duplicate-code-report-<ext-name>.md
 
 # Clean up
-rm /tmp/duplicate-code-report-<ext-name>.md
+rm ignore/duplicate-code-report-<ext-name>.md
 ```
 
 Read repo from `.pi/settings.json`:

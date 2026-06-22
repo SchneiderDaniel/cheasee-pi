@@ -22,7 +22,7 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 |----------|-------|--------------|
 | **issue-cutter** | `/issue-cutter <number>` | Split epic into ordered, testable sub-issues with layer labels. Auto-links children to parent via GraphQL. |
 | **issue-refinement** | `/issue-refinement <number>` | Grill issue against codebase, Socratic interview via `ask_user` (≥3 MC options), replace body with concrete ACs. |
-| **handover** | `/handover` | Write handover doc summarizing conversation. Saves to `tmp/` with datetime prefix. |
+| **handover** | `/handover` | Write handover doc summarizing conversation. Saves to `ignore/` with datetime prefix. |
 | **pr-review** | `/pr-review` | Automated PR security/quality checks, validates against Cheasee-Pi philosophy, formats structured review comment. |
 | **quiz-master** | `/quiz-master` | List open PRs across repo + submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%. |
 | **model-select** | `/model-select <objective>` | Research + recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives: cost-optimized, performance-optimized, balanced. |

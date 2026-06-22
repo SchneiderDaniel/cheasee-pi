@@ -81,7 +81,7 @@ Create a structured inventory of changes relevant to **extension authors**. Cate
 Write to a temp file:
 
 ```bash
-cat > tmp/changelog-inventory.json << 'EOF'
+cat > ignore/changelog-inventory.json << 'EOF'
 {
   "release": "0.79.0",
   "changes": [

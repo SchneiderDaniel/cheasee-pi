@@ -227,7 +227,7 @@ Actual:   <actual behavior>
 
 ```bash
 # Write body to temp file to avoid shell escaping issues
-cat > /tmp/bug-report-<ext-name>.md << 'EOF'
+cat > ignore/bug-report-<ext-name>.md << 'EOF'
 <body content>
 EOF
 
@@ -235,10 +235,10 @@ gh issue create \
   --repo "$(cat /home/miria/git/main/.pi/settings.json | grep -o '"repo"[^,]*' | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Bug: <ext-name> - <short description>" \
   --label "bug" \
-  --body-file /tmp/bug-report-<ext-name>.md
+  --body-file ignore/bug-report-<ext-name>.md
 
 # Clean up
-rm /tmp/bug-report-<ext-name>.md
+rm ignore/bug-report-<ext-name>.md
 ```
 
 Read repo from `.pi/settings.json`:

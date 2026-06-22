@@ -706,7 +706,7 @@ File: path/to/file.ts, line N-M
 
 ```bash
 # Write body to temp file (include ## Related Issues placeholder)
-cat > /tmp/dead-code-report-<ext-name>-<seq>.md << 'ISSUEOF'
+cat > ignore/dead-code-report-<ext-name>-<seq>.md << 'ISSUEOF'
 <body content>
 
 ## Related Issues
@@ -721,7 +721,7 @@ gh issue create \
   --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Dead Code: <ext-name> - <short description>" \
   --label "$github_label" \
-  --body-file /tmp/dead-code-report-<ext-name>-<seq>.md
+  --body-file ignore/dead-code-report-<ext-name>-<seq>.md
 
 # Save the resulting issue URL for clustering
 ISSUE_URLS+=("$NEW_ISSUE_URL")
@@ -743,10 +743,10 @@ done
 for URL in "${ISSUE_URLS[@]}"; do
   NUM=$(echo "$URL" | grep -oE '[0-9]+$')
   # Read original body, append cross-references, write back
-  gh issue view "$NUM" --repo "$REPO" --json body --jq '.body' > /tmp/update-${NUM}.md
-  echo -e "\n$TABLE" >> /tmp/update-${NUM}.md
-  gh issue edit "$NUM" --repo "$REPO" --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file /tmp/update-${NUM}.md
-  rm /tmp/update-${NUM}.md
+  gh issue view "$NUM" --repo "$REPO" --json body --jq '.body' > ignore/update-${NUM}.md
+  echo -e "\n$TABLE" >> ignore/update-${NUM}.md
+  gh issue edit "$NUM" --repo "$REPO" --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file ignore/update-${NUM}.md
+  rm ignore/update-${NUM}.md
 done
 ```
 

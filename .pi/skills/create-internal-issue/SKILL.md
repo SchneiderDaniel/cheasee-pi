@@ -153,7 +153,7 @@ Run for each permutation. Collect results.
 #### 4a — Write to temp file
 
 ```bash
-TEMP_FILE="/tmp/issue-body-internal-$(date +%s).md"
+TEMP_FILE="ignore/issue-body-internal-$(date +%s).md"
 ```
 
 #### 4b — For bug reports
@@ -361,14 +361,14 @@ Build a mapping of status name → option ID from the response.
 gh project item-add "$PROJECT_NUM" \
   --owner "$OWNER" \
   --url "$ISSUE_URL" \
-  --format json > /tmp/project-add-result.json
+  --format json > ignore/project-add-result.json
 ```
 
 Capture item ID:
 
 ```bash
-ITEM_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" < /tmp/project-add-result.json)
-rm /tmp/project-add-result.json
+ITEM_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" < ignore/project-add-result.json)
+rm ignore/project-add-result.json
 ```
 
 #### 6c — Set initial status
