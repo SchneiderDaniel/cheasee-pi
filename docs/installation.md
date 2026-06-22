@@ -111,9 +111,11 @@ Fork [github.com/SchneiderDaniel/cheasee-pi](https://github.com/SchneiderDaniel/
 > mkdir cheasee-pi && cd cheasee-pi
 > git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
 > git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
+> # Ensure origin has a fetch refspec
+> git --git-dir=.bare config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
 > ```
 
-This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo.
+This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo. The `config` line ensures `origin` has a fetch refspec — without it, `git fetch --all` silently skips `origin` (only `upstream` refs appear).
 
 ### Step 4: Create the worktree
 
