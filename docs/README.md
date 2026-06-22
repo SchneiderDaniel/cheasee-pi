@@ -69,11 +69,23 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 
 ## Daily workflow
 
+### Typical session
+
 1. Start with `pi`
 2. Select or create a GitHub issue
 3. Run `/supervisor <issue-number>` to start the Kanban pipeline
 4. Monitor progress via TUI status bar
 5. Review results when pipeline completes
+
+### Update after dependency changes
+
+When pi, ponytail, or any container dependency updates, rebuild the image:
+
+```bash
+./cheasee-pi.sh --rebuild
+```
+
+This rebuilds the Docker image with updated packages. The container restarts automatically.
 
 ## Contributing
 

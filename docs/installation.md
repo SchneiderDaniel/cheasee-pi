@@ -121,7 +121,15 @@ This creates a bare repo at `.bare` with **origin** pointing to your fork and **
 > ```bash
 > git --git-dir=.bare worktree add main main
 > cd main
+> git fetch --all
 > ```
+
+**⚠️ Fetch is required.** Without it, no remote-tracking branches (`origin/main`, `upstream/main`) exist locally. Git GUIs (Zed, VS Code, GitKraken…) will:
+- Show **Publish** instead of **Fetch** — no upstream ref to compare against
+- Hide the local-vs-remote commit overview — nothing to diff `HEAD` against
+- Require re-selecting upstream on every branch switch
+
+One `git fetch --all` populates all remote refs (`origin`, `upstream`) and makes any git GUI behave the same as on your other machines.
 
 All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
 
