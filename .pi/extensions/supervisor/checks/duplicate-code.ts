@@ -122,6 +122,13 @@ function cloneFiles(clone: JscpdClone): string[] {
 }
 
 /**
+ * Extract file paths from a jscpd clone's fragments.
+ */
+function cloneFiles(clone: JscpdClone): string[] {
+	return clone.fragments.map((f) => f.file);
+}
+
+/**
  * Filter jscpd clones to only those where at least one location
  * is in the changed files list.
  */
@@ -131,7 +138,9 @@ export function filterClonesToChangedFiles(
 ): NormalizedClone[] {
 	if (clones.length === 0 || changedFiles.length === 0) return [];
 	const changedSet = new Set(changedFiles);
-	return clones.filter((c) => cloneFiles(c).some((f) => changedSet.has(f))).map(normalizeClone);
+	return clones
+		.filter((c: JscpdClone) => cloneFiles(c).some((f: string) => changedSet.has(f)))
+		.map(normalizeClone);
 }
 
 /**
