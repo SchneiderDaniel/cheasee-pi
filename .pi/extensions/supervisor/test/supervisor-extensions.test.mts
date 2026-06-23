@@ -44,6 +44,20 @@ function extDirPath(name: string): string {
 	return resolvePath(BASE_CWD, `.pi/extensions/${name}/index.ts`);
 }
 
+/**
+ * Build an absolute extension .js path under BASE_CWD.
+ */
+function extPathJs(name: string): string {
+	return resolvePath(BASE_CWD, `.pi/extensions/${name}.js`);
+}
+
+/**
+ * Build an absolute directory-based extension index.js path under BASE_CWD.
+ */
+function extDirPathJs(name: string): string {
+	return resolvePath(BASE_CWD, `.pi/extensions/${name}/index.js`);
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1: resolveExtensionPathsWithFs — core resolver with injected seam
 // ---------------------------------------------------------------------------
@@ -149,9 +163,11 @@ describe("resolveExtensionPathsWithFs — mixed multi-ext resolution", () => {
 			return false;
 		};
 		resolveExtensionPathsWithFs("test-ext", BASE_CWD, trackingExists);
-		assert.strictEqual(calledPaths.length, 2);
+		assert.strictEqual(calledPaths.length, 4);
 		assert.ok(calledPaths.includes(extPath("test-ext")));
+		assert.ok(calledPaths.includes(extPathJs("test-ext")));
 		assert.ok(calledPaths.includes(extDirPath("test-ext")));
+		assert.ok(calledPaths.includes(extDirPathJs("test-ext")));
 	});
 });
 
