@@ -31,7 +31,7 @@ services:
     init: true
     stdin_open: true
     tty: true
-    shm_size: 1g
+    shm_size: 64m
     ulimits:
       nofile: 1048576
     command: ["sleep", "infinity"]
