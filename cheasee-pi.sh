@@ -22,6 +22,7 @@ Options:
   -a, --attach          Attach to running container (skip startup checks)
   --configure           Interactive setup: choose providers, enter keys, save to shell profile
   --rebuild             Force rebuild even if container is already running
+  --clean               Kill orphaned pi/node processes inside container
   -h, --help            Show this help
 EOF
     exit 0
@@ -79,6 +80,7 @@ check_container_resources() {
 
 # --- Parse args ---------------------------------------------------------
 API_KEY=""
+CLEAN=false
 CONFIGURE=false
 REBUILD=false
 ATTACH=false
@@ -90,6 +92,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -a|--attach)
             ATTACH=true
+            shift
+            ;;
+        --clean)
+            CLEAN=true
             shift
             ;;
         --configure)
@@ -109,6 +115,21 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Cleanup mode: kill orphaned pi/node processes --------------------
+# Uses bash builtins only — /proc/*/comm gives process name without external tools
+if [ "$CLEAN" = true ]; then
+    docker exec cheasee-pi bash -c '
+      for f in /proc/[0-9]*/comm; do
+        cmd=$(< "$f")
+        case "$cmd" in
+          pi|node) pid="${f%/comm}"; kill -9 "${pid##*/}" 2>/dev/null || true ;;
+        esac
+      done
+    ' 2>/dev/null || { echo "Container not running."; exit 1; }
+    echo "Cleaned up orphaned pi/node processes."
+    exit 0
+fi
 
 # --- Detect shell profile ---------------------------------------------
 detect_profile() {
@@ -566,5 +587,20 @@ docker exec --user agentuser cheasee-pi \
     || echo "Warning: pi update --extensions failed (non-fatal)"
 
 # --- Step 10: Launch interactive pi session ---------------------------
-# Clear terminal to hide build/check output, then launch pi
+# After pi exits, kill orphaned pi/node processes (PPID=1 means parent died).
+# Keeps concurrent sessions alive (PPID > 1, still attached to their bash).
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
+
+# Cleanup: kill pi/node whose parent is dead (PPID=1) — true orphans only
+docker exec cheasee-pi bash -c '
+  for f in /proc/[0-9]*/comm; do
+    c=$(< "$f")
+    case "$c" in
+      pi|node)
+        pid="${f%/comm}"; pid="${pid##*/}"
+        read -r _ _ _ ppid _ < /proc/$pid/stat 2>/dev/null
+        [ "$ppid" = 1 ] && kill -9 "$pid" 2>/dev/null || true
+        ;;
+    esac
+  done
+' 2>/dev/null || true
