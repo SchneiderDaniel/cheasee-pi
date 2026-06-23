@@ -26,11 +26,9 @@ services:
     volumes:
       - ../../:/workspaces
       - ~/.config/gh:/home/agentuser/.config/gh:rw
-    deploy:
-      resources:
-        limits:
-          memory: ${CHEASEEPI_MEMORY:-2G}
-          cpus: ${CHEASEEPI_CPUS:-2.0}
+    mem_limit: ${CHEASEEPI_MEMORY:-2G}
+    cpus: ${CHEASEEPI_CPUS:-2.0}
+    init: true
     stdin_open: true
     tty: true
     shm_size: 1g
