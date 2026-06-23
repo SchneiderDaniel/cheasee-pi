@@ -547,7 +547,7 @@ docker exec --user agentuser cheasee-pi bash -c '
 # Available" nag never shows. Idempotent — fast when nothing changed.
 echo "Syncing extension packages…"
 docker exec --user agentuser cheasee-pi \
-    bash -c 'cd /workspaces/main && pi update --extensions 2>&1 | tail -1' \
+    bash -c 'cd /workspaces/main && pi update --extensions --approve 2>&1' \
     || echo "Warning: pi update --extensions failed (non-fatal)"
 
 # --- Step 10: Launch interactive pi session ---------------------------
