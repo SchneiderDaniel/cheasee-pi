@@ -75,11 +75,7 @@ export const FIXES: Record<string, FixSuggestion> = {
 		effort: "Low",
 	},
 	"redundant-read": {
-		idea: "Agent should avoid re-reading files already in context. Session advisor detects and advises this per-session. If persists after N sessions, add guidance to AGENTS.md (e.g., 'use offset-based read, not re-read from start'). Harness cache is not recommended: request tokens already consumed by the time cache would help, invalidation is fragile, and marginal gain (~18K tokens/session) doesn't justify complexity.",
-		effort: "Low",
-	},
-	"structural-search-underuse": {
-		idea: "Agent should use structural_search (AST-aware query) when working with code files instead of reading/editing multiple files blindly. Session advisor detects and advises this per-session. If persists after N sessions, add to AGENTS.md: 'Use structural_search to find code structures before reading files'. Harness-level auto-detection hook not recommended: agent should learn the tool set; counters and reminders add prompt overhead.",
+		idea: "Agent should avoid re-reading files already in context. Paginate with offset/limit from where you stopped instead of re-reading from the start. Session advisor detects and advises this per-session. If persists after N sessions, add guidance to AGENTS.md (e.g., 'use offset-based read, not re-read from start'). Harness cache is not recommended: request tokens already consumed by the time cache would help, invalidation is fragile, and marginal gain (~18K tokens/session) doesn't justify complexity.",
 		effort: "Low",
 	},
 	"turn-inefficiency": {

@@ -38,8 +38,10 @@ describe("FIXES inlining — domain tests", () => {
 		assert.equal(mod.DEFAULT_FIX.effort, "Medium");
 	});
 
-	it("FIXES contains all 8 expected keys", async () => {
+	it("FIXES contains all 7 expected keys (structural-search-underuse removed)", async () => {
 		const mod = await import("../advice-pipeline.ts");
+		// structural-search-underuse removed — wrong premise (code reads ≠ waste).
+		// See issue #1084.
 		const expectedKeys = [
 			"bash-cat",
 			"bash-grep",
@@ -47,11 +49,15 @@ describe("FIXES inlining — domain tests", () => {
 			"identical-args",
 			"no-batch",
 			"redundant-read",
-			"structural-search-underuse",
 			"turn-inefficiency",
 		];
 		const actualKeys = Object.keys(mod.FIXES).sort();
 		assert.deepEqual(actualKeys, [...expectedKeys].sort());
+		assert.equal(
+			actualKeys.length,
+			7,
+			"FIXES should have 7 keys after structural-search-underuse removal",
+		);
 	});
 
 	it("DEFAULT_FIX.idea is a non-empty string", async () => {

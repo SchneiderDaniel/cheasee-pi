@@ -20,7 +20,7 @@ Each detector identifies a specific pattern of wasted tokens/cost in an agent se
 | D5 | `error-loop.ts` | `detectErrorLoop` | Tool error followed by retrying same tool with same args |
 | D6 | `no-batch.ts` | `detectNoBatch` | 3+ consecutive same-tool calls in different turns (could batch) |
 | D7 | `turn-inefficiency.ts` | `detectTurnInefficiency` | Turns with 0 file changes but many tool calls |
-| D8 | `structural-underuse.ts` | `detectStructuralSearchUnderuse` | Code file reads/edits without `structural_search` |
+| ~~D8~~ | ~~`structural-underuse.ts`~~ | ~~`detectStructuralSearchUnderuse`~~ | **Removed** — wrong premise: reading code to understand it is legitimate, not waste. `structural_search` locates AST patterns, it does not replace comprehension reads. See issue #1084. |
 
 ## Composition
 

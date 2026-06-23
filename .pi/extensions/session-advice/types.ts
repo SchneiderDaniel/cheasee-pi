@@ -45,6 +45,13 @@ export interface SessionEntry {
 	usage?: { input: number; output: number; totalTokens: number; cost?: number };
 	/** Tool result text length (chars) */
 	outputSize?: number;
+	/**
+	 * Estimated tokens of the paired tool_result's content — i.e. the amount
+	 * this call injected into context. Preferred over `assistantCost` for waste
+	 * accounting because `assistantCost` carries the full growing prompt and
+	 * sums cumulatively, inflating waste ~5-10x. See issue #1084.
+	 */
+	resultTokens?: number;
 }
 
 export interface SessionData {

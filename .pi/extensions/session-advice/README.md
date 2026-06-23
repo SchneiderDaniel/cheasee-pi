@@ -19,7 +19,7 @@ Detected patterns are ranked by severity (error/warning), aggregated into `lates
 ## How it works
 
 1. **Session shutdown** — When a session closes, the extension reads its `.jsonl` file
-2. **Signal detection** — Runs 10+ waste signal detectors against the session data:
+2. **Signal detection** — Runs 7 waste signal detectors against the session data:
    - `bash-grep.ts` — Detects `bash | grep/rg` instead of `ripgrep_search`
    - `bash-cat.ts` — Detects `bash cat/head/tail` instead of `read`
    - `error-loop.ts` — Tracks consecutive errors without approach change
@@ -66,7 +66,7 @@ Waste signal detection + LLM-based advice generation:
 
 ```
 ├── index.ts           # Entry: /session-advice command, lifecycle hooks, lesson injection
-├── session-analyzer.ts # Pure waste signal detectors (10+ patterns)
+├── session-analyzer.ts # Pure waste signal detectors (7 patterns)
 ├── llm-advisor.ts     # LLM-based advice generation from detected signals
 ├── advice-pipeline.ts # Orchestrator: analyze, generate, write, symlink
 ├── symlink-manager.ts # latest.advice.md symlink management
@@ -77,13 +77,11 @@ Waste signal detection + LLM-based advice generation:
 
 ```mermaid
 flowchart LR
-    A[.jsonl file] --> B[analyzeSession: 10+ detectors]
+    A[.jsonl file] --> B[analyzeSession: 7 detectors]
     B --> C[Tool mismatch: bash|grep vs ripgrep_search]
     B --> D[Error loop: 2+ consecutive same-tool errors]
     B --> E[Identical call loop: same tool+args 3x in 12 calls]
     B --> F[Same-tool cascade: 8+ consecutive same tool]
-    B --> G[Tool coverage gap: code files but no structural_search]
-    B --> H[Structural underuse: 3+ code files read, no AST search]
     B --> I[Redundant reads: same file within 2 turns]
     B --> J[Excessive turns: 20+ calls, no file changes]
     B --> K[No batch: consecutive same-tool not merged]
@@ -92,8 +90,6 @@ flowchart LR
     D --> M
     E --> M
     F --> M
-    G --> M
-    H --> M
     I --> M
     J --> M
     K --> M
@@ -109,8 +105,6 @@ flowchart LR
 | Error loop | error | 2+ consecutive tool errors, same tool, no action |
 | Identical call loop | error | Same tool+args 3x in last 12 calls |
 | Same-tool cascade | warning | 8+ consecutive same-tool calls |
-| Tool coverage gap | warning | Code files present but `structural_search` unused |
-| Structural underuse | warning | 3+ code files read, no AST search |
 | Redundant reads | warning | Same file within 2 turns |
 | Excessive turns | warning | 20+ calls, zero file changes |
 | No batch | warning | Consecutive same-tool not merged |

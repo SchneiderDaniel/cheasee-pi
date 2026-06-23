@@ -10,6 +10,7 @@
 
 import { readFileSync } from "node:fs";
 import type { SessionData, SessionEntry } from "./types.ts";
+import { charsToTokens } from "./token-utils.ts";
 
 /**
  * Parse a .jsonl session file into SessionData with token cost data.
@@ -30,6 +31,9 @@ export function parseJsonlFile(filepath: string): SessionData | null {
 	const timestamp: string = header.timestamp ?? "";
 
 	const entries: SessionEntry[] = [];
+	// FIFO queues of unmatched tool_use entry indices per tool name, used to pair
+	// each toolResult back onto its originating tool_use as `resultTokens`.
+	const pendingByTool = new Map<string, number[]>();
 	let turnIndex = -1;
 	let pendingAssistantCost = 0;
 	let pendingUsage: SessionEntry["usage"] = undefined;
@@ -66,6 +70,14 @@ export function parseJsonlFile(filepath: string): SessionData | null {
 						assistantCost: pendingAssistantCost || undefined,
 						usage: pendingUsage,
 					});
+					// Register this tool_use as awaiting its result, for resultTokens pairing.
+					const tn = c.name ?? "?";
+					let q = pendingByTool.get(tn);
+					if (!q) {
+						q = [];
+						pendingByTool.set(tn, q);
+					}
+					q.push(entries.length - 1);
 					// Reset so we don't double-count if multiple tool calls in one assistant msg
 					pendingAssistantCost = 0;
 					pendingUsage = undefined;
@@ -91,6 +103,14 @@ export function parseJsonlFile(filepath: string): SessionData | null {
 			const text = textParts.join("\n");
 			const toolName = rawEntry.message?.toolName ?? "?";
 			const isError = rawEntry.message?.isError ?? false;
+
+			// Pair this result onto the earliest unmatched tool_use of the same tool,
+			// recording how many tokens the call injected into context.
+			const q = pendingByTool.get(toolName);
+			if (q && q.length > 0) {
+				const idx = q.shift()!;
+				if (entries[idx]) entries[idx].resultTokens = charsToTokens(text);
+			}
 
 			entries.push({
 				type: "tool_result",

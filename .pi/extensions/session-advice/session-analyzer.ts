@@ -16,7 +16,10 @@ import { detectBashCat } from "./waste-signals/bash-cat.ts";
 import { detectErrorLoop } from "./waste-signals/error-loop.ts";
 import { detectNoBatch } from "./waste-signals/no-batch.ts";
 import { detectTurnInefficiency } from "./waste-signals/turn-inefficiency.ts";
-import { detectStructuralSearchUnderuse } from "./waste-signals/structural-underuse.ts";
+// Note: structural-search-underuse detector removed — its premise (code reads
+// imply structural_search should have been used) is wrong: reading a file to
+// understand it is legitimate, and structural_search only locates AST patterns.
+// Its cumulative-cost accounting also inflated waste ~10x. See issue #1084.
 
 /**
  * Run all detectors on a parsed session.
@@ -34,7 +37,6 @@ export function analyzeSession(data: SessionData): WasteSignal[] {
 		...detectErrorLoop(data),
 		...detectNoBatch(data),
 		...detectTurnInefficiency(data),
-		...detectStructuralSearchUnderuse(data),
 	];
 
 	// Dedup by signal+context (same key = same underlying issue, merge)
