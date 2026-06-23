@@ -227,12 +227,12 @@ export function buildAgentRunResult(
  */
 // ─── Adapter: AgentRunResult → AgentToolResult<SubagentDetails> ──────
 // Converts the pipeline's AgentRunResult (returned by runAgent) to the subagent
-// tool result format (_subagentResult) for rich message rendering.
+// tool result format (eventType: "subagent-result") for rich message rendering.
 // Symmetric counterpart to convertToolResultToAgentRunResult above.
 
 /**
  * Convert an AgentRunResult (from runAgent) to AgentToolResult<SubagentDetails>
- * for use as _subagentResult in pi.sendMessage.
+ * for use as eventType: "subagent-result" in pi.sendMessage.
  *
  * Maps fields:
  * - textOutput/output → content[0].text

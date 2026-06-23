@@ -671,7 +671,7 @@ export async function handleSupervisorCommand(
 				}
 			}
 
-			// Agent result is already sent by executeAgent with _subagentResult.
+			// Agent result is already sent by executeAgent with eventType: "subagent-result".
 
 			// Post-processing — pass pre-computed gateRejected so auditor
 			// comment posting can show gate rejection instead of approval
@@ -1146,7 +1146,7 @@ export async function executeAgent(
 		customType: "supervisor",
 		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
 		display: true,
-		details: { _progressUpdate: true },
+		details: { eventType: "phase-change", agentName: agent.config.name, phase: "starting" },
 	});
 
 	// Widget for progress display (above editor, zero session cost)
@@ -1159,13 +1159,16 @@ export async function executeAgent(
 		clearWidget = () => {};
 	}
 
-	// Track last tool result count for delta dispatch
+	// Track state for delta event dispatch
+	let lastPhase: string | undefined;
+	let lastCurrentTool: string | undefined;
 	let lastResultCount = 0;
+	let lastCompacted = false;
+	let lastStatusLabel: string | undefined;
 	let lastSentThinking = "";
 
-	// Primary: pi.executeTool dispatches through registered tool.
-	// onUpdate sends COMPACT tool result messages during execution (~100 tokens each).
-	// No thinking/phase progress — thinking posted once in final agent result.
+	// Primary: pi.executeTool dispatches through registered tool with expanded onUpdate.
+	// onUpdate sends per-event messages for ALL lifecycle events via eventType discriminator.
 	const toolResult = await pi.executeTool(
 		"subagent",
 		{
@@ -1182,17 +1185,49 @@ export async function executeAgent(
 				if (!d) return;
 
 				// Widget (above editor, zero session cost)
-				// Widget using canonical buildWidgetLines via renderWidgetFromDetails shared helper
 				if (ctx.hasUI && widgetId) {
 					renderWidgetFromDetails(d, agent.config.name, shortModel, ctx, widgetId);
 				}
 
-				// Tool results with accumulated thinking (compact, ~200-500 tokens each)
+				// ── Per-event lifecycle messages via eventType discriminator ──
+				const agentName = agent.config.name;
+
+				// 1. Phase change
+				if (d.phase && d.phase !== lastPhase) {
+					lastPhase = d.phase;
+					pi.sendMessage({
+						customType: "supervisor",
+						content: `⏳ ${agentName} — ${d.phase} phase`,
+						display: true,
+						details: { eventType: "phase-change", agentName, phase: d.phase },
+					});
+				}
+
+				// 2. Tool start
+				if (d.currentTool && d.currentTool !== lastCurrentTool) {
+					lastCurrentTool = d.currentTool;
+					let argsStr = "";
+					if (d.currentToolArgs) {
+						try {
+							const parsed = JSON.parse(d.currentToolArgs);
+							argsStr = JSON.stringify(parsed).slice(0, 120);
+						} catch {
+							argsStr = d.currentToolArgs.slice(0, 120);
+						}
+					}
+					pi.sendMessage({
+						customType: "supervisor",
+						content: `⏳ ${agentName} — ${d.currentTool} ${argsStr}`,
+						display: true,
+						details: { eventType: "tool-start", agentName, toolName: d.currentTool, args: argsStr },
+					});
+				}
+
+				// 3. Tool completed (delta-based on toolResults length)
 				const tr = d.toolResults;
 				const trCount = tr?.length || 0;
 				if (trCount > lastResultCount && tr) {
 					const tc = d.toolCalls || [];
-					// Extract accumulated thinking — full for error scan, incremental for message
 					const content0 = partial.content?.[0];
 					const fullText = content0 && content0.type === "text" ? content0.text : "";
 					const thinking = fullText.slice(0, 4000);
@@ -1204,7 +1239,6 @@ export async function executeAgent(
 						let paramsStr = "";
 						if (call?.args) {
 							const a = call.args;
-							// Build primary arg + extra params per tool type
 							if (typeof a.path === "string") {
 								argsStr = a.path;
 								const parts = [];
@@ -1247,14 +1281,12 @@ export async function executeAgent(
 								argsStr = JSON.stringify(a).slice(0, 120);
 							}
 						}
-						// For blocked/failed tools, extract error reason from result or thinking
 						const rWithResult = r as any;
 						let errorReason = "";
 						if (r.isError) {
 							if (typeof rWithResult.result === "string" && rWithResult.result) {
 								errorReason = rWithResult.result.slice(0, 300);
 							} else {
-								// No structured result — extract last error-like line from thinking
 								const errLine = thinking
 									.split("\n")
 									.filter((l) => /error|fail|denied|ENOENT|not found|blocked/i.test(l))
@@ -1262,7 +1294,6 @@ export async function executeAgent(
 								errorReason = errLine ? errLine.slice(0, 200) : "Tool failed";
 							}
 						}
-						// Compute incremental thinking per tool (avoids duplicating same thinking across batch)
 						const thinkMatch = fullText.match(/(?:^|\n)💭\n([\s\S]*?)(?:\n\n|$)/);
 						const currentThinking = thinkMatch ? thinkMatch[1] : "";
 						const incremental = currentThinking.startsWith(lastSentThinking)
@@ -1274,32 +1305,56 @@ export async function executeAgent(
 							content: `${r.name} \`${argsStr}\``,
 							display: true,
 							details: {
-								toolCallResult: {
-									name: r.name,
-									args: argsStr,
-									params: paramsStr || undefined,
-									isError: !!r.isError,
-									errorReason,
-									// Incremental thinking (new since last tool result)
-									thinking: incremental,
-									// Tool result output text (truncated)
-									resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
-									// Simple per-call stat: tool ordinal (e.g. "#3")
-									toolIndex: `#${i + 1}`,
-									// Running totals for the session
-									runningTokenCount: d.runningTokenCount,
-									runningToolCount: d.runningToolCount,
-									// Per-tool execution duration (ms)
-									toolDurationMs: (r as any).durationMs,
-									errorCount: d.errorCount,
-									maxToolCalls: d.maxToolCalls,
-									agentTokenBudget: d.agentTokenBudget,
-									compacted: d.compacted,
-								},
+								eventType: "tool-complete",
+								agentName,
+								toolName: r.name,
+								args: argsStr,
+								params: paramsStr || undefined,
+								isError: !!r.isError,
+								errorReason,
+								thinking: incremental,
+								resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
+								toolIndex: `#${i + 1}`,
+								runningTokenCount: d.runningTokenCount,
+								runningToolCount: d.runningToolCount,
+								toolDurationMs: (r as any).durationMs,
+								errorCount: d.errorCount,
+								maxToolCalls: d.maxToolCalls,
+								agentTokenBudget: d.agentTokenBudget,
+								compacted: d.compacted,
 							},
 						});
 					}
 					lastResultCount = trCount;
+				}
+
+				// 4. Compaction detection
+				if (d.compacted && !lastCompacted) {
+					lastCompacted = true;
+					pi.sendMessage({
+						customType: "supervisor",
+						content: "⚠ compacted",
+						display: true,
+						details: { eventType: "compaction", agentName },
+					});
+				}
+
+				// 5. Budget exceeded detection
+				if (d.statusLabel === "BUDGET_EXCEEDED" && lastStatusLabel !== "BUDGET_EXCEEDED") {
+					lastStatusLabel = d.statusLabel;
+					pi.sendMessage({
+						customType: "supervisor",
+						content: `⚠ ${agentName} — budget exceeded (${d.runningToolCount ?? "?"} tools, ${d.runningTokenCount ?? "?"} tokens)`,
+						display: true,
+						details: {
+							eventType: "budget-exceeded",
+							agentName,
+							toolCount: d.runningToolCount ?? 0,
+							tokenCount: d.runningTokenCount ?? 0,
+						},
+					});
+				} else if (d.statusLabel && d.statusLabel !== lastStatusLabel) {
+					lastStatusLabel = d.statusLabel;
 				}
 			},
 		},
@@ -1307,7 +1362,7 @@ export async function executeAgent(
 
 	if (clearWidget) clearWidget();
 
-	// Send final result — single message with _subagentResult for rich expandable view
+	// Send final result — single message with eventType: "subagent-result" for rich expandable view
 	const partial = toolResult as any;
 	const d = partial.details || partial;
 	if (d && d.agentName) {
@@ -1317,7 +1372,10 @@ export async function executeAgent(
 			content: `${finalStatus} ${agent.config.name} — ${d.statusLabel || "Done"}\n\n${d.summaryLine || ""}`,
 			display: true,
 			details: {
-				_subagentResult: partial,
+				eventType: "subagent-result",
+				agentName: agent.config.name,
+				content: partial.content,
+				details: partial.details,
 			},
 		});
 	}

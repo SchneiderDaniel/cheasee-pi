@@ -419,7 +419,7 @@ describe("executeAgent() — end-to-end paths (Phase 3)", () => {
 		assert.equal(callOrder[1], "executeTool", "executeTool should be second (after start message)");
 	});
 
-	it("does NOT send raw tool-result messages (manual rendering removed)", async () => {
+	it("uses eventType discriminator instead of old toolCallResult format", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
 
@@ -427,11 +427,16 @@ describe("executeAgent() — end-to-end paths (Phase 3)", () => {
 
 		await executeAgent(mockAgent as any, "test task", ctx, pi, 30000, undefined);
 
-		// Should have start message + final result message, but no per-tool-call messages
+		// Should have start message + final result message
 		assert.ok(pi.sendMessageCalls.length >= 1, "should have at least the start message");
-		assert.ok(pi.sendMessageCalls.length <= 3, "should not have many messages");
 
 		const startMsg = pi.sendMessageCalls[0];
+		// Start message uses eventType: "phase-change"
+		assert.equal(
+			startMsg.details?.eventType,
+			"phase-change",
+			"start message should use phase-change eventType",
+		);
 		// Should NOT contain tool call formatting
 		assert.ok(
 			!startMsg.content.includes("**read**"),
@@ -439,10 +444,17 @@ describe("executeAgent() — end-to-end paths (Phase 3)", () => {
 		);
 		assert.ok(!startMsg.content.includes("💭"), "should not contain manual think formatting");
 
-		// Verify no per-tool-call messages (would contain tool call info)
+		// Verify no old-format toolCallResult messages (replaced by eventType: "tool-complete")
 		for (const msg of pi.sendMessageCalls) {
 			if (msg.details?.toolCallResult) {
-				assert.fail("should not have per-tool-call messages");
+				assert.fail("should not have old-format toolCallResult messages");
+			}
+			// All supervisor messages should use eventType discriminator
+			if (msg.customType === "supervisor" && msg.details) {
+				assert.ok(
+					typeof msg.details.eventType === "string",
+					`all supervisor messages should have eventType discriminator, got: ${JSON.stringify(Object.keys(msg.details))}`,
+				);
 			}
 		}
 	});

@@ -22,8 +22,7 @@ let sentMessages: Array<{
 }> = [];
 
 /**
- * Helper: simulate pi.sendMessage with _subagentResult format.
- * Replaces the removed sendAgentResultMessage function.
+ * Helper: simulate pi.sendMessage with eventType: "subagent-result" format.
  */
 function sendAgentResult(
 	pi: ExtensionAPI,
@@ -43,25 +42,25 @@ function sendAgentResult(
 		content: `## ${opts.agentName} — ${opts.statusLabel}\n\n${opts.summaryLine}`,
 		display: true,
 		details: {
-			_subagentResult: {
-				content: [{ type: "text", text: opts.textOutput }],
-				details: {
-					agentName: opts.agentName,
-					success: opts.success,
-					statusLabel: opts.statusLabel,
-					summaryLine: opts.summaryLine,
-					model: "",
-					inputTokens: 0,
-					outputTokens: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					cost: 0,
-					turnCount: 0,
-					durationMs: opts.durationMs,
-					toolCalls: [],
-					toolResults: [],
-					taskPrompt: "",
-				},
+			eventType: "subagent-result",
+			agentName: opts.agentName,
+			content: [{ type: "text", text: opts.textOutput }],
+			details: {
+				agentName: opts.agentName,
+				success: opts.success,
+				statusLabel: opts.statusLabel,
+				summaryLine: opts.summaryLine,
+				model: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: 0,
+				turnCount: 0,
+				durationMs: opts.durationMs,
+				toolCalls: [],
+				toolResults: [],
+				taskPrompt: "",
 			},
 		},
 	});
@@ -378,7 +377,7 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 		// Widget uses ctx.ui.setWidget
 		ctx.ui.setWidget("supervisor-agent", ["⚙ developer"]);
 
-		// Final result uses pi.sendMessage with _subagentResult
+		// Final result uses pi.sendMessage with eventType: "subagent-result"
 		sendAgentResult(pi, {
 			agentName: "developer",
 			success: true,
@@ -633,8 +632,9 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		assert.equal(widgetCalls.length, 2);
 		assert.equal(widgetCalls[1].lines, undefined, "widget should be cleared");
-		const subagentResult = (sentMessages[0].details as any)?._subagentResult;
-		assert.equal(subagentResult?.details?.statusLabel, "FAILED");
+		const detailMap = sentMessages[0].details as any;
+		assert.equal(detailMap?.eventType, "subagent-result");
+		assert.equal(detailMap?.details?.statusLabel, "FAILED");
 	});
 
 	it("agent times out → widget shows timeout state, cleared, result shows FAILED", () => {
@@ -660,8 +660,9 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		assert.equal(widgetCalls.length, 2);
 		assert.equal(widgetCalls[1].lines, undefined);
-		const subagentResult = (sentMessages[0].details as any)?._subagentResult;
-		assert.equal(subagentResult?.details?.statusLabel, "FAILED");
+		const detailMap = sentMessages[0].details as any;
+		assert.equal(detailMap?.eventType, "subagent-result");
+		assert.equal(detailMap?.details?.statusLabel, "FAILED");
 	});
 
 	it("widget updates during agent execution without scrolling chat history", () => {
