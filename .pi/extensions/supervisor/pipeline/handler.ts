@@ -15,7 +15,7 @@ import type {
 	SupervisorMessageDetails,
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
-import { findIssueItem, filterIssueData, postIssueComment } from "../github/index.ts";
+import { findIssueItem, filterIssueData, postIssueComment, gh } from "../github/index.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { runAgentSubprocess } from "../agent/runner.ts";
@@ -752,6 +752,21 @@ export async function handleSupervisorCommand(
 						worktreeBranch,
 						config: config.defaultBranch,
 					});
+					// Close issue on GitHub: no changes needed (already resolved)
+					try {
+						await postIssueComment(
+							pi,
+							issueNum,
+							config.repo,
+							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
+						);
+						await gh(pi, ["issue", "close", String(issueNum), "--repo", config.repo]);
+						ctx.ui.notify(`Issue #${issueNum} closed — already resolved`, "info");
+					} catch (closeErr: unknown) {
+						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
+						ctx.ui.notify(`Failed to close issue: ${closeMsg}`, "warning");
+						collector?.push("handler", "warn", `Failed to close issue #${issueNum}: ${closeMsg}`);
+					}
 					break;
 				}
 			}
