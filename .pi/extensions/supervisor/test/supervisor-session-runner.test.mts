@@ -13,42 +13,6 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 
-// ─── resolveModelString (duplicated from agent-session-runner.ts) ──
-// Same pattern as existing test file (supervisor-in-process.test.mts)
-// Tests here verify the function signature/behavior — they pass before AND after fix.
-
-function resolveModelString(modelString: string): { provider: string; modelId: string } | null {
-	if (!modelString || !modelString.trim()) return null;
-	const parts = modelString.split("/");
-	if (parts.length !== 2) return null;
-	return { provider: parts[0]!, modelId: parts[1]! };
-}
-
-describe("resolveModelString() — boundary conditions", () => {
-	it("2.1: parses valid provider/model string", () => {
-		const result = resolveModelString("opencode-go/deepseek-v4-flash");
-		assert.deepStrictEqual(result, {
-			provider: "opencode-go",
-			modelId: "deepseek-v4-flash",
-		});
-	});
-
-	it("2.2: returns null for empty/whitespace/null/undefined", () => {
-		assert.strictEqual(resolveModelString(""), null);
-		assert.strictEqual(resolveModelString("   "), null);
-		assert.strictEqual(resolveModelString(null as any), null);
-		assert.strictEqual(resolveModelString(undefined as any), null);
-	});
-
-	it("2.3: returns null for string without slash", () => {
-		assert.strictEqual(resolveModelString("just-a-model"), null);
-	});
-
-	it("2.4: returns null for three-part path", () => {
-		assert.strictEqual(resolveModelString("a/b/c"), null);
-	});
-});
-
 // ─── Source code structure tests ───────────────────────────────────
 // These verify the source file has the expected fix patterns.
 // Use readFileSync — no module imports needed.

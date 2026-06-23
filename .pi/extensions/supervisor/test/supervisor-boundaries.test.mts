@@ -31,7 +31,6 @@ import { buildRawOutputFromMessages } from "../session/result.ts";
 import { isStaleCheckpoint } from "../pipeline/state-checkpoint.ts";
 import { createExtensionStateStore } from "../../lib/extension-state.ts";
 import { parseAgentFile } from "../agent/loader.ts";
-import { resolveModelString } from "../session/model.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -863,10 +862,6 @@ describe("Phase 8: Module export coverage — impl files from diff", () => {
 
 	it("output exports validateAgentResult as a function", () => {
 		assert.equal(typeof validateAgentResult, "function");
-	});
-
-	it("model exports resolveModelString as a function", () => {
-		assert.equal(typeof resolveModelString, "function");
 	});
 
 	it("result exports buildRawOutputFromMessages as a function", () => {

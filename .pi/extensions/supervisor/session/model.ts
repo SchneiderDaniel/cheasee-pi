@@ -11,9 +11,7 @@ import type { ParsedAgent } from "../config/types.ts";
  * Parse a model string (e.g. "opencode-go/deepseek-v4-flash") into
  * provider and modelId components. Returns null if invalid.
  */
-export function resolveModelString(
-	modelString: string,
-): { provider: string; modelId: string } | null {
+function resolveModelString(modelString: string): { provider: string; modelId: string } | null {
 	if (!modelString || !modelString.trim()) return null;
 	const parts = modelString.split("/");
 	if (parts.length !== 2) return null;
