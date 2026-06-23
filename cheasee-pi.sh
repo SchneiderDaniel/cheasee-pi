@@ -240,6 +240,15 @@ if [ "$ATTACH" = true ]; then
         exit 1
     fi
 
+    # Extract gh token from host keyring if not already in env
+    if [ -z "${GH_TOKEN:-}" ] && command -v gh &>/dev/null; then
+        GH_TOKEN_EXTRACTED=$(gh auth token 2>/dev/null || true)
+        if [ -n "$GH_TOKEN_EXTRACTED" ]; then
+            export GH_TOKEN="$GH_TOKEN_EXTRACTED"
+        fi
+        unset GH_TOKEN_EXTRACTED
+    fi
+
     # Build env passthrough from current shell env (fast, no auth.json parse)
     DOCKER_ENV=""
     for var in OPENAI_API_KEY ANTHROPIC_API_KEY OPENCODE_API_KEY DEEPSEEK_API_KEY GEMINI_API_KEY \
@@ -428,15 +437,35 @@ else
     docker compose -f docker/docker-compose.yml up -d --build
 fi
 
-# --- Step 6: Verify gh CLI auth ----------------------------------------
+# --- Step 6a: Extract gh token from host keyring for container use ---
+# gh 2.95+ stores tokens in system keyring (libsecret) on Linux.
+# Container has no keyring daemon, so hosts.yml never gets the token.
+# Extract via host's gh and pass as GH_TOKEN env var instead.
+# gh reads GH_TOKEN natively -- no file needed.
+if [ -z "${GH_TOKEN:-}" ] && command -v gh &>/dev/null; then
+    GH_TOKEN_EXTRACTED=$(gh auth token 2>/dev/null || true)
+    if [ -n "$GH_TOKEN_EXTRACTED" ]; then
+        export GH_TOKEN="$GH_TOKEN_EXTRACTED"
+        GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "?")
+        echo "gh token: extracted for $GH_USER from host keyring"
+    fi
+    unset GH_TOKEN_EXTRACTED GH_USER
+fi
+
+# --- Step 6b: Verify gh CLI auth inside container ---------------------
 REQUIRED_SCOPES=("repo" "project" "workflow")
 MISSING_SCOPES=()
-GH_AUTH_OUTPUT=$(docker exec --user agentuser cheasee-pi gh auth status 2>&1) || true
+GH_AUTH_OUTPUT=$(docker exec ${GH_TOKEN:+-e GH_TOKEN="$GH_TOKEN"} --user agentuser cheasee-pi gh auth status 2>&1) || true
 if echo "$GH_AUTH_OUTPUT" | grep -q "not logged in\|not authenticated\|auth.*required\|HTTP 401"; then
-    echo "Warning: gh CLI not authenticated inside container."
-    echo "  Run on your host (not in container):"
-    echo "    gh auth login -s repo,project,workflow"
-    echo "  Then re-run this script."
+    # Check if token was extracted but still fails inside container
+    if [ -n "${GH_TOKEN:-}" ]; then
+        echo "Warning: gh CLI auth via GH_TOKEN failed inside container (may need container restart)."
+    else
+        echo "Warning: gh CLI not authenticated inside container."
+        echo "  Run on your host (not in container):"
+        echo "    gh auth login -s repo,project,workflow"
+        echo "  Then re-run this script."
+    fi
 elif echo "$GH_AUTH_OUTPUT" | grep -q "Token scopes:"; then
     SCOPES_LINE=$(echo "$GH_AUTH_OUTPUT" | grep "Token scopes:")
     for scope in "${REQUIRED_SCOPES[@]}"; do
