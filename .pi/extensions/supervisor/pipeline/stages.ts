@@ -122,7 +122,7 @@ export async function handleBacklogTransition(
 		throw new Error("Cannot find 'Research' status option");
 	}
 	try {
-		await setItemStatus(pi, itemId, projectId, statusFieldId, optId);
+		await setItemStatus(pi.exec.bind(pi), itemId, projectId, statusFieldId, optId);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		throw new Error(`Failed to set status: ${msg}`);
@@ -568,7 +568,7 @@ export async function applyStatusTransition(
 	if (!optId) {
 		throw new Error(`Cannot find '${targetStatus}' option on board.`);
 	}
-	await setItemStatus(pi, itemId, projectId, statusFieldId, optId);
+	await setItemStatus(pi.exec.bind(pi), itemId, projectId, statusFieldId, optId);
 	return targetStatus;
 }
 
@@ -815,7 +815,7 @@ export async function handlePostAgentSuccess(
 
 		if (commentBody) {
 			try {
-				await postIssueComment(pi, issueNum, config.repo, commentBody);
+				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, commentBody);
 				ctx.ui.notify(`Posted ${agentName} comment on issue #${issueNum}`, "info");
 			} catch (commentErr: unknown) {
 				collector?.push(
@@ -851,7 +851,7 @@ export async function handlePostAgentSuccess(
 					);
 				}
 				try {
-					await postIssueComment(pi, issueNum, config.repo, fallbackComment);
+					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, fallbackComment);
 					ctx.ui.notify(
 						`Posted ${agentName} comment (graceful degradation) on issue #${issueNum}`,
 						"info",
@@ -886,7 +886,7 @@ export async function handlePostAgentSuccess(
 			error: (msg) => ctx.ui.notify(msg, "error"),
 		};
 		const commitResult = await commitAndPush(
-			pi,
+			pi.exec.bind(pi),
 			worktreePath,
 			config.remote!,
 			worktreeBranch,
@@ -962,7 +962,7 @@ async function handleAuditorOutput(
 		const gateBody = buildGateRejectionComment(gateRejected);
 		if (gateBody) {
 			try {
-				await postIssueComment(pi, issueNum, config.repo, gateBody);
+				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, gateBody);
 				ctx.ui.notify(
 					`Audit score gate rejected: ${gateRejected.score.passing}/${gateRejected.total} < ${gateRejected.required}/${gateRejected.total}`,
 					"warning",
@@ -1002,7 +1002,7 @@ async function handleAuditorOutput(
 			const bodyToPost = auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput);
 			if (bodyToPost) {
 				try {
-					await postIssueComment(pi, issueNum, config.repo, bodyToPost);
+					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit comment posted (text marker fallback)", "info");
 				} catch (acErr: unknown) {
 					collector?.push(
@@ -1018,7 +1018,7 @@ async function handleAuditorOutput(
 			const bodyToPost = auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput);
 			if (bodyToPost) {
 				try {
-					await postIssueComment(pi, issueNum, config.repo, bodyToPost);
+					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit rejection comment posted (text marker fallback)", "info");
 				} catch (rcErr: unknown) {
 					collector?.push(
@@ -1039,7 +1039,7 @@ async function handleAuditorOutput(
 		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput);
 		if (bodyToPost) {
 			try {
-				await postIssueComment(pi, issueNum, config.repo, bodyToPost);
+				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 				ctx.ui.notify("Audit approval comment posted (from structured output)", "info");
 			} catch (acErr: unknown) {
 				collector?.push(
@@ -1053,7 +1053,7 @@ async function handleAuditorOutput(
 		const bodyToPost = commentBodyFromOutput || buildRejectionCommentFromOutput(agentOutput);
 		if (bodyToPost) {
 			try {
-				await postIssueComment(pi, issueNum, config.repo, bodyToPost);
+				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 				ctx.ui.notify("Audit rejection comment posted (from structured output)", "info");
 			} catch (rcErr: unknown) {
 				collector?.push(

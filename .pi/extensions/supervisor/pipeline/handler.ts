@@ -36,12 +36,6 @@ import { buildPipelineSummary, validateAgentResult } from "../pipeline/output.ts
 import { handlePostPipelineMerge } from "../pipeline/merge.ts";
 import { createWorktree, installWorktreeDeps, cleanupWorktree } from "./worktree.ts";
 
-/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
-type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
 import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
@@ -84,7 +78,7 @@ import {
 	fetchFreshIssueData,
 	loadAgentFile as loadAgentFileHelper,
 } from "./helpers.ts";
-import type { NotifyFn } from "./helpers.ts";
+import type { NotifyFn, ExecFn } from "./helpers.ts";
 import {
 	parseSupervisorArgs,
 	enableDebugLogger,
@@ -212,7 +206,7 @@ export async function handleSupervisorCommand(
 	// Mode adaptation: ctx.ui.notify is fire-and-forget (safe in all modes,
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
-	const exec: ExecFn = (cmd, args, opts) => pi.exec(cmd, args, opts);
+	const exec: ExecFn = pi.exec.bind(pi);
 	const notify: NotifyFn = {
 		info: (msg) => {
 			if (ctx.hasUI) {
@@ -813,7 +807,7 @@ export async function handleSupervisorCommand(
 					if (!result.success) {
 						const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
 						try {
-							await postIssueComment(pi, issueNum, config.repo, budgetExceededMsg);
+							await postIssueComment(exec, issueNum, config.repo, budgetExceededMsg);
 							ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
 						} catch (commentErr: unknown) {
 							collector?.push(

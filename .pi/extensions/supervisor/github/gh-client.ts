@@ -2,7 +2,7 @@
 // Low-level gh/ghJson/ghGraphQL with typed generic returns.
 // Replaces raw `Promise<any>` returns from the old github.ts.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
@@ -37,7 +37,7 @@ const getGhToken = (() => {
 })();
 
 export async function gh(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	args: string[],
 	opts?: { signal?: AbortSignal; timeout?: number },
 ): Promise<string> {
@@ -48,14 +48,14 @@ export async function gh(
 		timeout: opts?.timeout,
 	});
 
-	// Call gh via bash to inject GH_TOKEN, working around pi.exec auth
+	// Call gh via bash to inject GH_TOKEN, working around exec auth
 	// context issues on WSL.  Uses "$@" passthrough to avoid shell escaping.
 	const ghToken = getGhToken();
 	const shellArgs = ghToken
 		? ["-c", `GH_TOKEN='${ghToken.replace(/'/g, "'\\''")}' gh "$@"`, "_", ...args]
 		: args;
 
-	const result = await pi.exec(ghToken ? "bash" : "gh", shellArgs, {
+	const result = await exec(ghToken ? "bash" : "gh", shellArgs, {
 		signal: opts?.signal,
 		timeout: opts?.timeout ?? 30_000,
 	});
@@ -75,11 +75,11 @@ export async function gh(
 // ─── ghJson<T>() — typed JSON output ──────────────────────────────
 
 export async function ghJson<T = unknown>(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	args: string[],
 	opts?: { signal?: AbortSignal; timeout?: number },
 ): Promise<T | null> {
-	const output = await gh(pi, args, opts);
+	const output = await gh(exec, args, opts);
 	if (!output) return null;
 	return JSON.parse(output) as T;
 }
@@ -87,7 +87,7 @@ export async function ghJson<T = unknown>(
 // ─── ghGraphQL<T>() — typed GraphQL wrapper ───────────────────────
 
 export async function ghGraphQL<T = unknown>(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	query: string,
 	opts?: { signal?: AbortSignal; timeout?: number },
 ): Promise<T | null> {
@@ -95,7 +95,7 @@ export async function ghGraphQL<T = unknown>(
 	const queryPreview = query.replace(/\s+/g, " ").slice(0, 120);
 	log.debug("gh-client", `ghGraphQL: ${queryPreview}...`);
 	const result = await gh(
-		pi,
+		exec,
 		["api", "graphql", "--header", "Accept: application/vnd.github+json", "-f", `query=${query}`],
 		opts,
 	);

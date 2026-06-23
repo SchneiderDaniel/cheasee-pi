@@ -11,7 +11,8 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { pushBranch, commitChanges, commitAndPush } from "../github/git.ts";
 import { createPullRequest } from "../github/pr.ts";
-import type { NotifyFn } from "../pipeline/helpers.ts";
+import type { ExecFn, NotifyFn } from "../pipeline/helpers.ts";
+import type { ExecOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,21 +29,21 @@ const noopNotify: NotifyFn = {
 	error: () => {},
 };
 
-function makeMockPi(results: Array<{ code: number; stdout?: string; stderr?: string }> = []) {
+function makeMockExec(results: Array<{ code: number; stdout?: string; stderr?: string }> = []) {
 	let callIndex = 0;
 	const calls: ExecCall[] = [];
-	const pi = {
-		exec: (_cmd: string, _args: string[], _opts?: Record<string, unknown>) => {
-			const idx = callIndex++;
-			calls.push({ cmd: _cmd, args: _args, opts: _opts });
-			const result = idx < results.length ? results[idx] : { code: 0, stdout: "", stderr: "" };
-			return Promise.resolve(result);
-		},
-		registerCommand: () => {},
-		registerTool: () => {},
-		sendMessage: () => {},
+	const exec: ExecFn = async (_cmd: string, _args: string[], _opts?: ExecOptions) => {
+		const idx = callIndex++;
+		calls.push({ cmd: _cmd, args: _args, opts: (_opts || {}) as Record<string, unknown> });
+		const result = idx < results.length ? results[idx] : { code: 0, stdout: "", stderr: "" };
+		return {
+			code: result.code ?? 0,
+			stdout: result.stdout ?? "",
+			stderr: result.stderr ?? "",
+			killed: false,
+		};
 	};
-	return { pi, calls };
+	return { exec, calls };
 }
 
 // ---------------------------------------------------------------------------
@@ -51,8 +52,8 @@ function makeMockPi(results: Array<{ code: number; stdout?: string; stderr?: str
 
 describe("commitChanges", () => {
 	it("calls pi.exec(git, [commit, -m, msg], {cwd}) and returns on code 0", async () => {
-		const { pi, calls } = makeMockPi([{ code: 0, stdout: "1 file changed" }]);
-		await commitChanges(pi as any, "/some/cwd", "feat(#42): add feature");
+		const { exec, calls } = makeMockExec([{ code: 0, stdout: "1 file changed" }]);
+		await commitChanges(exec, "/some/cwd", "feat(#42): add feature");
 		assert.strictEqual(calls.length, 1);
 		assert.strictEqual(calls[0].cmd, "git");
 		assert.deepStrictEqual(calls[0].args, ["commit", "-m", "feat(#42): add feature"]);
@@ -60,18 +61,15 @@ describe("commitChanges", () => {
 	});
 
 	it("throws error when pi.exec returns non-zero", async () => {
-		const { pi } = makeMockPi([{ code: 1, stderr: "nothing to commit" }]);
-		await assert.rejects(() => commitChanges(pi as any, "/cwd", "msg"), /git commit failed/i);
+		const { exec } = makeMockExec([{ code: 1, stderr: "nothing to commit" }]);
+		await assert.rejects(() => commitChanges(exec, "/cwd", "msg"), /git commit failed/i);
 	});
 
 	it("throws error when pi.exec throws", async () => {
-		const pi = {
-			exec: () => Promise.reject(new Error("git not found")),
-			registerCommand: () => {},
-			registerTool: () => {},
-			sendMessage: () => {},
+		const exec: ExecFn = async () => {
+			throw new Error("git not found");
 		};
-		await assert.rejects(() => commitChanges(pi as any, "/cwd", "msg"), /git not found/i);
+		await assert.rejects(() => commitChanges(exec, "/cwd", "msg"), /git not found/i);
 	});
 });
 
@@ -81,8 +79,8 @@ describe("commitChanges", () => {
 
 describe("pushBranch", () => {
 	it("calls pi.exec(git, [push, remote, branch], {cwd})", async () => {
-		const { pi, calls } = makeMockPi([{ code: 0, stdout: "Everything up-to-date" }]);
-		const result = await pushBranch(pi as any, "/cwd", "origin", "my-branch", noopNotify);
+		const { exec, calls } = makeMockExec([{ code: 0, stdout: "Everything up-to-date" }]);
+		const result = await pushBranch(exec, "/cwd", "origin", "my-branch", noopNotify);
 		assert.strictEqual(result.ok, true);
 		assert.strictEqual(calls.length, 1);
 		assert.strictEqual(calls[0].cmd, "git");
@@ -91,8 +89,8 @@ describe("pushBranch", () => {
 	});
 
 	it("returns { ok: false } on push failure (auth fail, rejected, no remote)", async () => {
-		const { pi } = makeMockPi([{ code: 128, stderr: "fatal: Authentication failed" }]);
-		const result = await pushBranch(pi as any, "/cwd", "origin", "branch", noopNotify);
+		const { exec } = makeMockExec([{ code: 128, stderr: "fatal: Authentication failed" }]);
+		const result = await pushBranch(exec, "/cwd", "origin", "branch", noopNotify);
 		assert.strictEqual(result.ok, false);
 	});
 });
@@ -103,14 +101,14 @@ describe("pushBranch", () => {
 
 describe("commitAndPush", () => {
 	it("calls git add, diff, commit, then push in sequence", async () => {
-		const { pi, calls } = makeMockPi([
+		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "" }, // add -A
 			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
 			{ code: 0, stdout: "1 file changed" }, // commit
 			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);
 		const result = await commitAndPush(
-			pi as any,
+			exec,
 			"/cwd",
 			"origin",
 			"branch",
@@ -130,21 +128,21 @@ describe("commitAndPush", () => {
 	});
 
 	it("returns { ok: false } if add fails (short-circuit)", async () => {
-		const { pi, calls } = makeMockPi([{ code: 1, stderr: "permission denied" }]);
-		const result = await commitAndPush(pi as any, "/cwd", "origin", "branch", "msg", noopNotify);
+		const { exec, calls } = makeMockExec([{ code: 1, stderr: "permission denied" }]);
+		const result = await commitAndPush(exec, "/cwd", "origin", "branch", "msg", noopNotify);
 		assert.strictEqual(result.ok, false);
 		assert.strictEqual(calls.length, 1); // only add, not commit/push
 	});
 
 	it("handles 'nothing to commit' gracefully — calls pushBranch anyway", async () => {
-		const { pi, calls } = makeMockPi([
+		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "" }, // add -A
 			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
 			{ code: 1, stderr: "nothing to commit" }, // commit fails
 			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);
 		// Should NOT throw — pipeline continues gracefully
-		const result = await commitAndPush(pi as any, "/cwd", "origin", "branch", "msg", noopNotify);
+		const result = await commitAndPush(exec, "/cwd", "origin", "branch", "msg", noopNotify);
 		assert.strictEqual(result.ok, true);
 		// pushBranch is called even when nothing to commit (branch may not exist on remote)
 		assert.strictEqual(calls.length, 4); // add + diff + commit + push
@@ -159,11 +157,11 @@ describe("commitAndPush", () => {
 
 describe("createPullRequest", () => {
 	it("calls gh pr create with correct args without --json flag", async () => {
-		const { pi, calls } = makeMockPi([
+		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "https://github.com/owner/repo/pull/123" },
 		]);
 		const result = await createPullRequest(
-			pi as any,
+			exec,
 			"owner/repo",
 			"main",
 			"branch",
@@ -193,10 +191,10 @@ describe("createPullRequest", () => {
 	});
 
 	it("includes --body-file flag when bodyFile provided", async () => {
-		const { pi, calls } = makeMockPi([
+		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "https://github.com/owner/repo/pull/456" },
 		]);
-		await createPullRequest(pi as any, "owner/repo", "main", "branch", "title", "/tmp/body.md");
+		await createPullRequest(exec, "owner/repo", "main", "branch", "title", "/tmp/body.md");
 		assert.strictEqual(calls.length, 1);
 		const cmd = calls[0].cmd;
 		const args = calls[0].args;
@@ -209,37 +207,37 @@ describe("createPullRequest", () => {
 	});
 
 	it("throws on text-with-number like 'PR #42' (tightened regex guard)", async () => {
-		const { pi } = makeMockPi([{ code: 0, stdout: "PR #42" }]);
+		const { exec } = makeMockExec([{ code: 0, stdout: "PR #42" }]);
 		await assert.rejects(
-			() => createPullRequest(pi as any, "owner/repo", "main", "branch", "title"),
+			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
 			/failed to parse PR number/i,
 		);
 	});
 
 	it("parses PR number when gh outputs plain URL (backward compat)", async () => {
-		const { pi } = makeMockPi([{ code: 0, stdout: "https://github.com/owner/repo/pull/321" }]);
-		const result = await createPullRequest(pi as any, "owner/repo", "main", "branch", "title");
+		const { exec } = makeMockExec([{ code: 0, stdout: "https://github.com/owner/repo/pull/321" }]);
+		const result = await createPullRequest(exec, "owner/repo", "main", "branch", "title");
 		assert.deepStrictEqual(result, { number: 321 });
 	});
 
 	it("parses PR number when gh outputs plain number (backward compat)", async () => {
-		const { pi } = makeMockPi([{ code: 0, stdout: "555" }]);
-		const result = await createPullRequest(pi as any, "owner/repo", "main", "branch", "title");
+		const { exec } = makeMockExec([{ code: 0, stdout: "555" }]);
+		const result = await createPullRequest(exec, "owner/repo", "main", "branch", "title");
 		assert.deepStrictEqual(result, { number: 555 });
 	});
 
 	it("throws when gh returns non-zero", async () => {
-		const { pi } = makeMockPi([{ code: 1, stderr: "gh: Not authenticated" }]);
+		const { exec } = makeMockExec([{ code: 1, stderr: "gh: Not authenticated" }]);
 		await assert.rejects(
-			() => createPullRequest(pi as any, "owner/repo", "main", "branch", "title"),
+			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
 			/gh pr failed/i,
 		);
 	});
 
 	it("throws when gh output does not contain a number", async () => {
-		const { pi } = makeMockPi([{ code: 0, stdout: "" }]);
+		const { exec } = makeMockExec([{ code: 0, stdout: "" }]);
 		await assert.rejects(
-			() => createPullRequest(pi as any, "owner/repo", "main", "branch", "title"),
+			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
 			/failed to parse PR number/i,
 		);
 	});

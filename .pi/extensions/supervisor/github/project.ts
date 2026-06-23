@@ -2,7 +2,7 @@
 // getProjectFields, getProjectItems, getProjectId, findIssueItem,
 // setItemStatus.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";
 import type { ProjectField, ProjectItem } from "../config/types.ts";
 import { ghGraphQL, gh } from "./gh-client.ts";
 import type { ProjectFieldsResponse, ProjectItemsResponse, ProjectIdResponse } from "./types.ts";
@@ -11,13 +11,13 @@ import { getDebugLogger } from "../lib/debug.ts";
 // ─── Get Project Fields ───────────────────────────────────────────
 
 export async function getProjectFields(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	projectNumber: number,
 ): Promise<ProjectField[]> {
 	const log = getDebugLogger();
 	log.info("project", `Reading fields for project #${projectNumber}`);
 	const resp = await ghGraphQL<ProjectFieldsResponse>(
-		pi,
+		exec,
 		`{
 		viewer {
 			projectV2(number: ${projectNumber}) {
@@ -47,10 +47,7 @@ export async function getProjectFields(
 
 // ─── Get Project Items (paginated) ────────────────────────────────
 
-export async function getProjectItems(
-	pi: ExtensionAPI,
-	projectNumber: number,
-): Promise<ProjectItem[]> {
+export async function getProjectItems(exec: ExecFn, projectNumber: number): Promise<ProjectItem[]> {
 	const log = getDebugLogger();
 	log.info("project", `Reading items for project #${projectNumber}`);
 	const allItems: ProjectItem[] = [];
@@ -62,7 +59,7 @@ export async function getProjectItems(
 		pageCount++;
 		const afterArg: string = after ? `, after: "${after}"` : "";
 		const resp = await ghGraphQL<ProjectItemsResponse>(
-			pi,
+			exec,
 			`{
 			viewer {
 				projectV2(number: ${projectNumber}) {
@@ -153,11 +150,11 @@ export async function getProjectItems(
 
 // ─── Get Project ID ───────────────────────────────────────────────
 
-export async function getProjectId(pi: ExtensionAPI, projectNumber: number): Promise<string> {
+export async function getProjectId(exec: ExecFn, projectNumber: number): Promise<string> {
 	const log = getDebugLogger();
 	log.debug("project", `Get project ID for #${projectNumber}`);
 	const resp = await ghGraphQL<ProjectIdResponse>(
-		pi,
+		exec,
 		`{
 		viewer {
 			projectV2(number: ${projectNumber}) {
@@ -188,7 +185,7 @@ export function findIssueItem(items: ProjectItem[], issueNumber: number): Projec
 // ─── Set Item Status ──────────────────────────────────────────────
 
 export async function setItemStatus(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	itemId: string,
 	projectId: string,
 	fieldId: string,
@@ -199,7 +196,7 @@ export async function setItemStatus(
 		itemId: itemId.slice(0, 16) + "...",
 		optionId: optionId.slice(0, 16) + "...",
 	});
-	await gh(pi, [
+	await gh(exec, [
 		"project",
 		"item-edit",
 		"--id",
