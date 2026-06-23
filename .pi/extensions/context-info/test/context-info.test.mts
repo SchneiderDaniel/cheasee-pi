@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import {
 	formatCacheHitRate,
 	formatSessionTimer,
@@ -25,8 +25,14 @@ import { contextInfo } from "../index.ts";
 // Runtime imports from prompts.ts, skills.ts — these files
 // had import extension changes (.js → .ts) needed for the test runner.
 // The imports verify their module-level exports are valid at runtime.
-import { listLocalPrompts } from "../prompts.ts";
-import { listLocalSkills } from "../skills.ts";
+import { listLocalPrompts, promptsLocator, promptsNameOf } from "../prompts.ts";
+import { listLocalSkills, skillsLocator, skillsNameOf } from "../skills.ts";
+import { listMarkdownResources, type ResourceMeta } from "../markdown-resources.ts";
+
+// Temp-directory helpers for walker tests
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Replicate context-info extension logic for isolated unit testing
@@ -456,6 +462,169 @@ describe("contextInfo from index.ts", () => {
 
 		// Cleanup: stop timer via session_shutdown
 		await handlers.get("session_shutdown")!();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// listMarkdownResources tests (using temp directories)
+// ---------------------------------------------------------------------------
+
+describe("listMarkdownResources — prompts locator", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = mkdtempSync(join(tmpdir(), "ctxt-info-pr-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("returns .md files in subdirectory and top-level", () => {
+		writeFileSync(join(tmpDir, "readme.md"), "---\ndescription: Top-level\n---\nContent");
+		const subDir = join(tmpDir, "sub");
+		mkdirSync(subDir);
+		writeFileSync(join(subDir, "guide.md"), "---\ndescription: Subdir guide\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: promptsLocator,
+			nameOf: promptsNameOf,
+		});
+
+		assert.strictEqual(result.length, 2, "should find 2 .md files");
+		// Sorted by name: guide, readme
+		assert.strictEqual(result[0]!.name, "guide");
+		assert.strictEqual(result[0]!.description, "Subdir guide");
+		assert.strictEqual(result[1]!.name, "readme");
+		assert.strictEqual(result[1]!.description, "Top-level");
+	});
+
+	it("skips non-.md files in subdirectories", () => {
+		const subDir = join(tmpDir, "sub");
+		mkdirSync(subDir);
+		writeFileSync(join(subDir, "readme.txt"), "not markdown");
+		writeFileSync(join(subDir, "notes.md"), "---\ndescription: Notes\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: promptsLocator,
+			nameOf: promptsNameOf,
+		});
+
+		assert.strictEqual(result.length, 1);
+		assert.strictEqual(result[0]!.name, "notes");
+	});
+
+	it("returns empty array for empty directory", () => {
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: promptsLocator,
+			nameOf: promptsNameOf,
+		});
+		assert.strictEqual(result.length, 0);
+	});
+
+	it("returns empty array for missing directory", () => {
+		const result = listMarkdownResources({
+			dir: join(tmpDir, "nonexistent"),
+			locate: promptsLocator,
+			nameOf: promptsNameOf,
+		});
+		assert.strictEqual(result.length, 0);
+	});
+
+	it("maintains sort order (case-insensitive)", () => {
+		writeFileSync(join(tmpDir, "alpha.md"), "---\ndescription: A\n---\nContent");
+		writeFileSync(join(tmpDir, "Beta.md"), "---\ndescription: B\n---\nContent");
+		writeFileSync(join(tmpDir, "gamma.md"), "---\ndescription: G\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: promptsLocator,
+			nameOf: promptsNameOf,
+		});
+
+		assert.strictEqual(result.length, 3);
+		assert.strictEqual(result[0]!.name, "alpha");
+		assert.strictEqual(result[1]!.name, "Beta");
+		assert.strictEqual(result[2]!.name, "gamma");
+	});
+});
+
+describe("listMarkdownResources — skills locator", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = mkdtempSync(join(tmpdir(), "ctxt-info-sk-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("finds SKILL.md in subdirectory, uses dir name as resource name", () => {
+		const skillDir = join(tmpDir, "my-skill");
+		mkdirSync(skillDir);
+		writeFileSync(join(skillDir, "SKILL.md"), "---\ndescription: My skill\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: skillsLocator,
+			nameOf: skillsNameOf,
+		});
+
+		assert.strictEqual(result.length, 1);
+		assert.strictEqual(result[0]!.name, "my-skill");
+		assert.strictEqual(result[0]!.description, "My skill");
+	});
+
+	it("finds standalone .md at top level", () => {
+		writeFileSync(join(tmpDir, "readme.md"), "---\ndescription: Readme\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: skillsLocator,
+			nameOf: skillsNameOf,
+		});
+
+		assert.strictEqual(result.length, 1);
+		assert.strictEqual(result[0]!.name, "readme");
+	});
+
+	it("skips subdirectories without SKILL.md", () => {
+		const subDir = join(tmpDir, "no-skill");
+		mkdirSync(subDir);
+		writeFileSync(join(subDir, "other.md"), "---\ndescription: Other\n---\nContent");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: skillsLocator,
+			nameOf: skillsNameOf,
+		});
+
+		assert.strictEqual(result.length, 0, "sub without SKILL.md should be skipped");
+	});
+
+	it("ignores .gitkeep", () => {
+		writeFileSync(join(tmpDir, ".gitkeep"), "");
+
+		const result = listMarkdownResources({
+			dir: tmpDir,
+			locate: skillsLocator,
+			nameOf: skillsNameOf,
+		});
+
+		assert.strictEqual(result.length, 0, ".gitkeep should be ignored");
+	});
+
+	it("returns empty array for missing directory", () => {
+		const result = listMarkdownResources({
+			dir: join(tmpDir, "nonexistent"),
+			locate: skillsLocator,
+			nameOf: skillsNameOf,
+		});
+		assert.strictEqual(result.length, 0);
 	});
 });
 
