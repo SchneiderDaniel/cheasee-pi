@@ -117,14 +117,28 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Cleanup mode: kill orphaned pi/node processes --------------------
-# Uses bash builtins only — /proc/*/comm gives process name without external tools
+# Kills pi/node processes that have no active PID marker file.
+# Session marker files are created by the interactive session launcher.
 if [ "$CLEAN" = true ]; then
     docker exec cheasee-pi bash -c '
+      # Collect active PIDs from marker files
+      active=""
+      for f in /tmp/pi-active-*; do
+        [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
+      done
+      # Kill pi/node processes not in active list
       for f in /proc/[0-9]*/comm; do
-        cmd=$(< "$f")
-        case "$cmd" in
-          pi|node) pid="${f%/comm}"; kill -9 "${pid##*/}" 2>/dev/null || true ;;
+        c=$(< "$f")
+        case "$c" in
+          pi|node)
+            pid="${f%/comm}"; pid="${pid##*/}"
+            case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+            ;;
         esac
+      done
+      # Remove stale marker files
+      for f in /tmp/pi-active-*; do
+        [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$f" 2>/dev/null || true
       done
     ' 2>/dev/null || { echo "Container not running."; exit 1; }
     echo "Cleaned up orphaned pi/node processes."
@@ -587,20 +601,31 @@ docker exec --user agentuser cheasee-pi \
     || echo "Warning: pi update --extensions failed (non-fatal)"
 
 # --- Step 10: Launch interactive pi session ---------------------------
-# After pi exits, kill orphaned pi/node processes (PPID=1 means parent died).
-# Keeps concurrent sessions alive (PPID > 1, still attached to their bash).
-docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
+# Writes PID marker before exec so cleanup can distinguish active sessions
+# from stale orphans (crashed/disconnected docker exec sessions).
+docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+  echo $$ > /tmp/pi-active-$$
+  cd /workspaces/main && clear && exec pi --approve "$@"
+' --
 
-# Cleanup: kill pi/node whose parent is dead (PPID=1) — true orphans only
+# Cleanup: kill pi/node processes without an active PID marker file
+# (exec replaced bash with pi, preserving the PID — so the marker is valid).
 docker exec cheasee-pi bash -c '
+  active=""
+  for f in /tmp/pi-active-*; do
+    [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
+  done
   for f in /proc/[0-9]*/comm; do
     c=$(< "$f")
     case "$c" in
       pi|node)
         pid="${f%/comm}"; pid="${pid##*/}"
-        read -r _ _ _ ppid _ < /proc/$pid/stat 2>/dev/null
-        [ "$ppid" = 1 ] && kill -9 "$pid" 2>/dev/null || true
+        case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
         ;;
     esac
+  done
+  # Remove stale marker files (process no longer exists)
+  for f in /tmp/pi-active-*; do
+    [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$f" 2>/dev/null || true
   done
 ' 2>/dev/null || true
