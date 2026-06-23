@@ -75,6 +75,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/worktree-fix.sh"
 unbreak_worktrees
 
+# --- Pre-install Python venvs for web tools -------------------------
+# Copy pre-built venvs from /opt/venvs/ to .pi/ if missing.
+# This saves first-call latency in web_search and web_crawl extensions.
+if [ -d /opt/venvs/web-search-venv ] && [ ! -d /workspaces/main/.pi/web-search-venv ]; then
+    echo "Pre-installing web-search venv…"
+    mkdir -p /workspaces/main/.pi
+    cp -a /opt/venvs/web-search-venv /workspaces/main/.pi/web-search-venv
+fi
+if [ -d /opt/venvs/scrapling-venv ] && [ ! -d /workspaces/main/.pi/scrapling-venv ]; then
+    echo "Pre-installing scrapling venv…"
+    mkdir -p /workspaces/main/.pi
+    cp -a /opt/venvs/scrapling-venv /workspaces/main/.pi/scrapling-venv
+fi
+# Symlink Playwright browser cache so agentuser finds Chromium
+if [ -d /opt/playwright-browsers ]; then
+    mkdir -p /home/agentuser/.cache
+    ln -sf /opt/playwright-browsers /home/agentuser/.cache/ms-playwright 2>/dev/null || true
+fi
+
 # --- Update file ownership ----------------------------------------
 # Ensure the workspace and home directory are owned by the (possibly
 # remapped) user so bind-mounted volumes are writable.

@@ -25,6 +25,20 @@ container. The host's `git config user.name` and `git config user.email` are pas
 into the container automatically by `cheasee-pi.sh`. If unset on the host, the
 container defaults to `Cheasee-Pi <cheasee-pi@localhost>`.
 
+**Emoji font (optional, recommended):** The `context-info` extension and various
+TUI components display emoji icons (🧠, 🔧, 🔒, 📦, ⏱). The container image
+includes `fonts-noto-color-emoji`, but the host terminal emulator must also
+possess an emoji-capable font for glyph rendering. Most desktop environments
+ship one by default (Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji).
+If emoji appear as empty boxes (`□`, `▯`), install an emoji font on the host:
+
+```bash
+# Debian / Ubuntu host
+sudo apt install fonts-noto-color-emoji
+```
+
+No action is required on macOS or Windows — both ship a bundled emoji font.
+
 
 
 ## Installation
@@ -285,5 +299,40 @@ UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
+```
+
+### Emoji / icons not displaying
+
+Emoji icons (🧠, 🔧, 🔒, 📦, ⏱) in the footer bar or TUI appear as empty boxes
+(`□`, `▯`) when the host terminal emulator lacks an emoji-capable font.
+
+The container includes `fonts-noto-color-emoji` since Layer 3 of the Docker
+image. The host terminal performs the final rendering, however — the container
+merely transmits the encoded bytes.
+
+**To verify inside the container:**
+
+```bash
+printf "\U1F9E0 \U1F527 \U1F512 \U1F4E6 \U23F1\n"
+```
+
+If the output displays correctly, the host terminal supports emoji and the issue
+resides elsewhere (extension configuration, mode guard, terminal encoding). If
+the output shows boxes, install an emoji font on the host:
+
+```bash
+# Debian / Ubuntu host
+sudo apt install fonts-noto-color-emoji
+
+# Fedora / RHEL
+sudo dnf install google-noto-color-emoji-fonts
+
+# macOS / Windows — fonts are bundled; no action required
+```
+
+**Rebuild the container after any Dockerfile change:**
+
+```bash
+./cheasee-pi.sh --rebuild
 ```
 
