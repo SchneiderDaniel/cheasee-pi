@@ -30,14 +30,21 @@ TUI components display emoji icons (🧠, 🔧, 🔒, 📦, ⏱). The container 
 includes `fonts-noto-color-emoji`, but the host terminal emulator must also
 possess an emoji-capable font for glyph rendering. Most desktop environments
 ship one by default (Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji).
-If emoji appear as empty boxes (`□`, `▯`), install an emoji font on the host:
+If emoji appear as empty boxes (`□`, `▯`) when running the Pi TUI, install
+an emoji font on the host:
 
 ```bash
 # Debian / Ubuntu host
 sudo apt install fonts-noto-color-emoji
+
+# Fedora / RHEL
+sudo dnf install google-noto-color-emoji-fonts
+
+# macOS / Windows — fonts are bundled; no action required
 ```
 
-No action is required on macOS or Windows — both ship a bundled emoji font.
+See the [Troubleshooting](#emoji--icons-not-displaying) section if icons still
+don't render after installation.
 
 
 
@@ -317,8 +324,8 @@ printf "\U1F9E0 \U1F527 \U1F512 \U1F4E6 \U23F1\n"
 ```
 
 If the output displays correctly, the host terminal supports emoji and the issue
-resides elsewhere (extension configuration, mode guard, terminal encoding). If
-the output shows boxes, install an emoji font on the host:
+resides elsewhere (extension configuration, terminal encoding, Pi session
+stale). If the output shows boxes, install an emoji font on the host:
 
 ```bash
 # Debian / Ubuntu host
@@ -329,6 +336,37 @@ sudo dnf install google-noto-color-emoji-fonts
 
 # macOS / Windows — fonts are bundled; no action required
 ```
+
+After installing, rebuild font cache and restart the Pi session:
+
+```bash
+sudo fc-cache -fv
+# Exit pi (/exit), then restart:
+./cheasee-pi.sh
+```
+
+**Nerd Font for git branch icon:** The footer also uses `` (U+E0A0) from
+[Nerd Font](https://www.nerdfonts.com/) for the git branch indicator. Noto
+Color Emoji does not cover this. Install a Nerd Font on the host:
+
+```bash
+wget -P /tmp https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/JetBrainsMono.zip
+sudo unzip /tmp/JetBrainsMono.zip -d /usr/share/fonts/truetype/jetbrains-nerd
+sudo fc-cache -fv
+```
+
+Then configure Zed (if using it) to use the Nerd Font:
+
+```json
+{
+  "terminal": {
+    "font_family": "JetBrainsMono Nerd Font"
+  }
+}
+```
+
+The project-level `.zed/settings.json` already contains this setting — adjust
+the font name to match the Nerd Font you installed.
 
 **Rebuild the container after any Dockerfile change:**
 
