@@ -442,7 +442,14 @@ else
     trap 'rm -f /tmp/cheasee-pi.lock' EXIT
 
     echo "Starting cheasee-pi container (pi $PI_VERSION)..."
+
+    # Remove old container before rebuild to avoid orphan conflicts
+    docker rm -f cheasee-pi 2>/dev/null || true
+
     docker compose -f docker/docker-compose.yml up -d --build
+
+    # Prune dangling images left from previous builds
+    docker image prune -f || true
 fi
 
 # --- Step 6a: Extract gh token from host keyring for container use ---
