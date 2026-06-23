@@ -2,21 +2,55 @@
  * Skill enumeration and metadata extraction for context-info
  *
  * Provides listLocalSkills() used by welcome banner and /explain-skills command.
- * Reads description from YAML frontmatter (`description:` field) of SKILL.md files
- * in .pi/skills/ directories. Falls back to first content line if no frontmatter found.
+ * Thin wrapper around the shared listMarkdownResources engine.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join as joinPath } from "node:path";
-import { extractDescription } from "./frontmatter.ts";
+import { existsSync } from "node:fs";
+import { join as joinPath, basename, dirname } from "node:path";
+import {
+	listMarkdownResources,
+	type ResourceMeta,
+	type Locator,
+	type NameOf,
+} from "./markdown-resources.ts";
+import type { Dirent } from "node:fs";
 
 // ─── Types ────────────────────────────────────────────────────────
 
-export interface SkillMeta {
-	name: string;
-	filePath: string;
-	description: string | null;
-}
+export type SkillMeta = ResourceMeta;
+
+// ─── Locator strategy ─────────────────────────────────────────────
+
+/**
+ * Skills locator: look for <dir>/SKILL.md in subdirectories,
+ * or standalone .md files at the top level.
+ * Skips .gitkeep entries.
+ */
+export const skillsLocator: Locator = (dir, entry) => {
+	if (entry.name === ".gitkeep") return null;
+	if (entry.isDirectory() && entry.name !== "." && entry.name !== "..") {
+		const skillMdPath = joinPath(dir, entry.name, "SKILL.md");
+		if (existsSync(skillMdPath)) {
+			return [skillMdPath];
+		}
+		return null;
+	} else if (entry.isFile() && entry.name.endsWith(".md")) {
+		return [joinPath(dir, entry.name)];
+	}
+	return null;
+};
+
+/**
+ * Derive name from file path:
+ * - For SKILL.md, use the parent directory name
+ * - For standalone .md, strip extension
+ */
+export const skillsNameOf: NameOf = (filePath) => {
+	if (basename(filePath) === "SKILL.md") {
+		return basename(dirname(filePath));
+	}
+	return basename(filePath).replace(/\.md$/, "");
+};
 
 // ─── Skill enumeration ────────────────────────────────────────────
 
@@ -26,43 +60,9 @@ export interface SkillMeta {
  * Returns sorted by name.
  */
 export function listLocalSkills(): SkillMeta[] {
-	const skillsDir = ".pi/skills";
-	try {
-		if (!existsSync(skillsDir)) return [];
-		const entries = readdirSync(skillsDir, { withFileTypes: true });
-		const result: SkillMeta[] = [];
-
-		for (const entry of entries) {
-			if (entry.name === ".gitkeep") continue;
-			if (entry.isDirectory() && entry.name !== "." && entry.name !== "..") {
-				const skillMdPath = joinPath(skillsDir, entry.name, "SKILL.md");
-				if (!existsSync(skillMdPath)) continue;
-				try {
-					const content = readFileSync(skillMdPath, "utf-8");
-					const description = extractDescription(content);
-					result.push({
-						name: entry.name,
-						filePath: skillMdPath,
-						description,
-					});
-				} catch {
-					// skip unreadable files
-				}
-			} else if (entry.isFile() && entry.name.endsWith(".md")) {
-				const filePath = joinPath(skillsDir, entry.name);
-				try {
-					const content = readFileSync(filePath, "utf-8");
-					const description = extractDescription(content);
-					const name = entry.name.replace(/\.md$/, "");
-					result.push({ name, filePath, description });
-				} catch {
-					// skip unreadable files
-				}
-			}
-		}
-
-		return result.sort((a, b) => a.name.localeCompare(b.name));
-	} catch {
-		return [];
-	}
+	return listMarkdownResources({
+		dir: ".pi/skills",
+		locate: skillsLocator,
+		nameOf: skillsNameOf,
+	});
 }
