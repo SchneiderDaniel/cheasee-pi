@@ -25,7 +25,7 @@
 2. If language omitted, the extension auto-detects from project config files in scope (tsconfig.json → typescript, pyproject.toml → python, go.mod → go, Cargo.toml → rust, sgconfig.yml → languageGlobs). Defaults to `ts`.
 3. The extension validates the pattern — rejects text-only patterns (redirects to `ripgrep_search`)
 4. Checks the result cache — if the same (pattern, language, cwd) was searched before, returns cached result immediately
-5. Runs `ast-grep scan --pattern <pattern> --json=stream --lang <language>`
+5. Runs `ast-grep run --pattern <pattern> --json=stream --lang <language>`
 6. Parses NDJSON output into structured `SgMatch[]` results
 7. If >100 matches, returns truncated summary with total count; otherwise returns full results
 8. Caches the result for subsequent calls
@@ -103,7 +103,7 @@ flowchart LR
     B -- valid --> D[cache.ts: check key]
     D -- hit --> E[Return cached result]
     D -- miss --> F[await getSgBinary]
-    F --> G[exec ast-grep scan --json=stream]
+    F --> G[exec ast-grep run --json=stream]
     G --> H[parser.ts: interpret exit code]
     H -- error --> I[Throw Error with stderr]
     H -- success --> J[cache.ts: setCache]
