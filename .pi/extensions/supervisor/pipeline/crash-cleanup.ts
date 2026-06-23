@@ -133,20 +133,3 @@ export function setupCrashCleanup(deps: CleanupOnExitDeps): CrashCleanup {
 	cc.register();
 	return cc;
 }
-
-/**
- * Runs an async function with crash cleanup lifecycle.
- * Registers SIGTERM/SIGINT handlers before fn, tears down in finally.
- * Extracted for testability of the wiring pattern.
- */
-export async function withCrashCleanup<T>(
-	deps: CleanupOnExitDeps,
-	fn: (cc: CrashCleanup) => Promise<T>,
-): Promise<T> {
-	const cc = setupCrashCleanup(deps);
-	try {
-		return await fn(cc);
-	} finally {
-		cc.teardown();
-	}
-}

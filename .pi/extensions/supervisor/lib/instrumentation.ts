@@ -136,11 +136,3 @@ export function createInstrumenter(): InstrumenterHandle {
 
 	return handle;
 }
-
-/**
- * Create a snapshot from an instrumenter handle.
- * Convenience wrapper around handle.snapshot().
- */
-export function createInstrumenterSnapshot(handle: InstrumenterHandle): InstrumentSnapshot {
-	return handle.snapshot();
-}
