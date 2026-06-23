@@ -111,6 +111,13 @@ RUN RTK_INSTALL_DIR=/usr/local/bin sh -c "\
     "
 
 # ---------------------------------------------------------------
+# Layer 5d: Set UTF-8 locale for Unicode/emoji support
+# C.utf8 ships with Debian 12 glibc — no locales package needed
+# ---------------------------------------------------------------
+ENV LANG=C.UTF-8
+ENV LC_CTYPE=C.UTF-8
+
+# ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \
