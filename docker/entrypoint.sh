@@ -13,9 +13,24 @@ set -e
 #   HOST_GID       – host group ID to map agentuser group to
 #   HOST_GIT_NAME  – host git user.name (default: Cheasee-Pi)
 #   HOST_GIT_EMAIL – host git user.email (default: cheasee-pi@localhost)
+#   CHEASEEPI_CPUS – CPU limit (e.g. 4.0). Applied to cgroup directly
+#                    because Docker Compose `cpus:` doesn't always apply
+#                    reliably on all platforms.
 # ------------------------------------------------------------------
 
 HOST_UID="${HOST_UID:-}"
+
+# --- Apply CPU limit from CHEASEEPI_CPUS to cgroup v2 ---------------
+# Docker Compose `cpus:` at service level is silently ignored on some
+# platforms. Writing directly to cpu.max guarantees the limit applies.
+if [ -n "${CHEASEEPI_CPUS:-}" ]; then
+    PERIOD=100000
+    QUOTA=$(awk "BEGIN {printf %d, $CHEASEEPI_CPUS * $PERIOD}" 2>/dev/null)
+    if [ -n "$QUOTA" ] && [ "$QUOTA" -gt 0 ] 2>/dev/null; then
+        echo "$QUOTA $PERIOD" > /sys/fs/cgroup/cpu.max 2>/dev/null || \
+            echo "Warning: could not write CPU limit to cgroup (non-fatal)"
+    fi
+fi
 HOST_GID="${HOST_GID:-}"
 
 # --- Auto-detect UID/GID from workspace mount if env not set ------

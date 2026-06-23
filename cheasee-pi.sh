@@ -35,26 +35,34 @@ check_container_resources() {
 
     stats=$(docker stats "$container_name" --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}' 2>/dev/null) || return 0
 
-    local cpu_usage mem_usage
-    cpu_usage=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
-    mem_usage=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
+    local cpu_raw mem_raw
+    cpu_raw=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
+    mem_raw=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
 
-    # Normalize CPU by allocated cores — docker stats shows per-core %
+    # CPU as fraction of allocated cores, capped at 100%
+    # docker stats CPUPerc shows usage relative to total host CPUs
+    # (e.g., 200% = 2 cores on 8-core host). Divide by allocated
+    # cores to get a 0-100% reading of budget used.
     local allocated_cpus
-    allocated_cpus=$(jq -r '.docker.cpus // "1.0"' .pi/settings.json 2>/dev/null || echo "1.0")
-    local cpu_normalized
-    cpu_normalized=$(echo "scale=2; $cpu_usage / $allocated_cpus" | bc -l 2>/dev/null || echo "$cpu_usage")
+    allocated_cpus=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json 2>/dev/null || echo "2.0")
+    local cpu_pct
+    cpu_pct=$(echo "scale=2; $cpu_raw / $allocated_cpus" | bc -l 2>/dev/null || echo "$cpu_raw")
+    # Cap at 100
+    cpu_pct=$(echo "if ($cpu_pct > 100) 100 else $cpu_pct" | bc -l 2>/dev/null || echo "$cpu_pct")
 
-    # Strip decimal for integer comparison
-    local cpu_int="${cpu_normalized%.*}"
-    local mem_int="${mem_usage%.*}"
+    # Cap mem at 100 too
+    mem_pct=$(echo "if ($mem_raw > 100) 100 else $mem_raw" | bc -l 2>/dev/null || echo "$mem_raw")
+
+    # Integer for threshold comparison
+    local cpu_int="${cpu_pct%.*}"
+    local mem_int="${mem_pct%.*}"
     [ -z "$cpu_int" ] && cpu_int=0
     [ -z "$mem_int" ] && mem_int=0
 
     echo ""
     echo "Container resource usage:"
-    echo "  CPU:  ${cpu_usage}% (${cpu_normalized}% effective across ${allocated_cpus} core(s))"
-    echo "  RAM:  ${mem_usage}%"
+    echo "  CPU: ${cpu_pct}% (of ${allocated_cpus} core(s))"
+    echo "  RAM: ${mem_pct}%"
 
     if [ "$cpu_int" -gt "$threshold" ] || [ "$mem_int" -gt "$threshold" ]; then
         echo ""

@@ -27,7 +27,7 @@ services:
       - ../../:/workspaces
       - ~/.config/gh:/home/agentuser/.config/gh:rw
     mem_limit: ${CHEASEEPI_MEMORY:-2G}
-    cpus: ${CHEASEEPI_CPUS:-2.0}
+    cpus: ${CHEASEEPI_CPUS:-4.0}
     init: true
     stdin_open: true
     tty: true
