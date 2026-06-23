@@ -55,3 +55,4 @@
 {"datetime":"2026-06-21T19:24:22.390Z","question":"How to handle new-user setup for ponytail?","answer":"packages"}
 {"datetime":"2026-06-21T19:24:51.778Z","question":"The extension symlink is needed for supervisor sub-agents (developer, auditor) to find ponytail. Keep it but filter package to not auto-load the extension?","answer":"keep_symlink_filtered"}
 {"datetime":"2026-06-23T08:08:58.836Z","question":"How do you want to fix gh auth? Option A (device flow — visit URL + enter code) or Option B (paste a GitHub PAT token)?","answer":"device_flow"}
+{"datetime":"2026-06-23T09:06:51.258Z","question":"Ready to apply these two fixes to `test-designer.md`?\n\n**Fix 1:** Rewrite role description to drop \"with an architecture comment\" framing  \n**Fix 2:** Add explicit `## Test Plan` heading mandate with pipeline-rejection warning","answer":"apply_both"}
