@@ -55,6 +55,10 @@ export class FooterState {
 			issueNumber: { value: undefined },
 			issueRepo: { value: undefined },
 			issueTitle: { value: undefined },
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 	}
 
@@ -78,7 +82,14 @@ export class FooterState {
 		this.timerInterval = setInterval(() => {
 			if (this.disposed || !this.config) return;
 			try {
-				this.callInstallFooter();
+				// Use lightweight re-render instead of full footer re-install
+				// to avoid flickering. _requestRender is set by footer factory
+				// after first install.
+				if (this.footerConfig._requestRender) {
+					this.footerConfig._requestRender();
+				} else {
+					this.callInstallFooter();
+				}
 			} catch (e) {
 				// If ctx is stale from session replacement, stop silently
 				this.disposed = true;
@@ -144,5 +155,9 @@ export class FooterState {
 		this.footerConfig.issueNumber.value = undefined;
 		this.footerConfig.issueRepo.value = undefined;
 		this.footerConfig.issueTitle.value = undefined;
+		this.footerConfig.prevCpuUsage = 0;
+		this.footerConfig.prevCpuTime = 0;
+		this.footerConfig.allocatedCpus = 4;
+		this.footerConfig.containerDisplay.value = "";
 	}
 }

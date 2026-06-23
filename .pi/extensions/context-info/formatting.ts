@@ -151,3 +151,10 @@ export function formatCacheHitRate(rate: number | undefined): string {
 	if (rate === undefined || rate === null || Number.isNaN(rate)) return "";
 	return `CH: ${Math.round(rate)}%`;
 }
+
+/** Format container CPU percentage for footer display */
+export function formatCpuPct(pct: number): string {
+	if (pct < 0.1) return "0%";
+	if (pct > 99.5) return "100%";
+	return `${pct.toFixed(0)}%`;
+}
