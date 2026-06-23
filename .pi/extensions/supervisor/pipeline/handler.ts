@@ -1160,7 +1160,7 @@ export async function executeAgent(
 
 	// Track last tool result count for delta dispatch
 	let lastResultCount = 0;
-	let lastThinkingLen = 0;
+	let lastSentThinking = "";
 
 	// Primary: pi.executeTool dispatches through registered tool.
 	// onUpdate sends COMPACT tool result messages during execution (~100 tokens each).
@@ -1195,8 +1195,6 @@ export async function executeAgent(
 					const content0 = partial.content?.[0];
 					const fullText = content0 && content0.type === "text" ? content0.text : "";
 					const thinking = fullText.slice(0, 4000);
-					const incrementalThinking = fullText.slice(lastThinkingLen, lastThinkingLen + 2000);
-					lastThinkingLen = fullText.length;
 					for (let i = lastResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
@@ -1263,6 +1261,13 @@ export async function executeAgent(
 								errorReason = errLine ? errLine.slice(0, 200) : "Tool failed";
 							}
 						}
+						// Compute incremental thinking per tool (avoids duplicating same thinking across batch)
+						const thinkMatch = fullText.match(/(?:^|\n)💭\n([\s\S]*?)(?:\n\n|$)/);
+						const currentThinking = thinkMatch ? thinkMatch[1] : "";
+						const incremental = currentThinking.startsWith(lastSentThinking)
+							? currentThinking.slice(lastSentThinking.length).trimStart()
+							: currentThinking;
+						lastSentThinking = currentThinking;
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
@@ -1274,8 +1279,8 @@ export async function executeAgent(
 									params: paramsStr || undefined,
 									isError: !!r.isError,
 									errorReason,
-									// Incremental thinking (new since last batch)
-									thinking: incrementalThinking,
+									// Incremental thinking (new since last tool result)
+									thinking: incremental,
 									// Tool result output text (truncated)
 									resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
 									// Simple per-call stat: tool ordinal (e.g. "#3")
