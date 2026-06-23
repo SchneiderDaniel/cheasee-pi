@@ -20,3 +20,4 @@ cache/
 
 # Jekyll docs build output
 docs/_site/
+ignore/
