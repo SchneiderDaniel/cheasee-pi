@@ -54,6 +54,16 @@ export interface FooterConfig {
 	/** Current supervisor issue title (mutable at runtime) */
 	issueTitle: { value: string | undefined };
 
+	// ── Container resource monitoring ────────────────────────
+	/** Previous CPU usage in microseconds (from cpu.stat usage_usec) */
+	prevCpuUsage: number;
+	/** Timestamp of previous CPU sample (ms) */
+	prevCpuTime: number;
+	/** Number of allocated CPUs for percentage calculation */
+	allocatedCpus: number;
+	/** Cached container display string, re-read at most every ~1s */
+	containerDisplay: { value: string };
+
 	// ── Runtime hooks (set by factory) ───────────────────────
 	/** Trigger TUI re-render from external code (e.g., event listeners).
 	 *  Set by the footer factory when first called. Avoids re-installing

@@ -41,7 +41,7 @@ import {
 	getTermWidth,
 	boldText,
 } from "../lib/formatting.ts";
-import { createInstrumenter, createInstrumenterSnapshot } from "../lib/instrumentation.ts";
+import { createInstrumenter } from "../lib/instrumentation.ts";
 import type { InstrumenterHandle, InstrumentSnapshot } from "../lib/instrumentation.ts";
 import { createWatchdog } from "../lib/watchdog.ts";
 import type { WatchdogOptions, WatchdogHandle } from "../lib/watchdog.ts";
@@ -145,9 +145,8 @@ describe("config→lib refactor — moved lib/ files", () => {
 		assert.equal(typeof extractSummaryLine, "function");
 	});
 
-	it("lib/instrumentation.ts exports createInstrumenter and types", () => {
+	it("lib/instrumentation.ts exports createInstrumenter", () => {
 		assert.equal(typeof createInstrumenter, "function");
-		assert.equal(typeof createInstrumenterSnapshot, "function");
 	});
 
 	it("lib/watchdog.ts exports createWatchdog and types", () => {

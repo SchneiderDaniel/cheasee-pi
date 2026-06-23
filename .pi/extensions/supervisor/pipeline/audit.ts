@@ -8,6 +8,7 @@ import type { SupervisorConfig, DebugLogger } from "../config/types.ts";
 import { resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { generateBranchName } from "../agent/task.ts";
+import type { ExecFn } from "./helpers.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import { determineAuditGate, getRunGate } from "../checks/audit-gate-decision.ts";
 import type { TscCheckpointResult } from "../../lib/tsc-types.ts";
@@ -51,8 +52,7 @@ export async function runTscAndLspAudit(
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
 	// Shared exec function for running shell commands via pi.exec
-	const execFn = (cmd: string, args: string[], opts?: Record<string, unknown>) =>
-		pi.exec(cmd, args, opts);
+	const execFn: ExecFn = (cmd, args, opts) => pi.exec(cmd, args, opts);
 
 	// Collect ALL gate failures across every blocking gate.
 	// Gates run to completion regardless of individual failures.
@@ -168,7 +168,7 @@ export async function runTscAndLspAudit(
 					"",
 					deadContext || "(see pre-audit gate output for details)",
 				];
-				await postIssueComment(pi, issueNum, config.repo, commentLines.join("\n"));
+				await postIssueComment(execFn, issueNum, config.repo, commentLines.join("\n"));
 			} catch {
 				// Comment posting is best-effort
 			}
@@ -460,14 +460,7 @@ async function runLspPreAudit(
  * Fail-safe: if no commit exists (e.g., developer made no changes), the error
  * is silently caught — the worktree is already in the desired state.
  */
-async function uncommitDeveloperWork(
-	execFn: (
-		cmd: string,
-		args: string[],
-		opts?: Record<string, unknown>,
-	) => Promise<{ code: number; stdout: string; stderr: string }>,
-	worktreePath: string,
-): Promise<void> {
+async function uncommitDeveloperWork(execFn: ExecFn, worktreePath: string): Promise<void> {
 	try {
 		await execFn("git", ["reset", "--soft", "HEAD~1"], {
 			cwd: worktreePath,

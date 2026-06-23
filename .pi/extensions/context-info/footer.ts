@@ -5,6 +5,7 @@
  * session timer, token usage, and TPS.
  */
 
+import { readFileSync } from "node:fs";
 import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
@@ -19,6 +20,7 @@ import {
 	formatCacheStats,
 	formatCacheHitRate,
 	computeTps,
+	formatCpuPct,
 } from "./formatting.ts";
 
 /** Module-scope process start time — captures true pi process launch time */
@@ -38,6 +40,21 @@ export function installFooter(
 	}
 
 	const { worktreeName, thinkingLevel } = footerConfig;
+
+	// ── Init container CPU core count from cgroup ──
+	if (footerConfig.allocatedCpus === 4) {
+		try {
+			const cpuSet = readFileSync("/sys/fs/cgroup/cpuset.cpus.effective", "utf-8").trim();
+			const count = cpuSet.split(",").reduce((acc, p) => {
+				const r = p.split("-");
+				return acc + (r.length === 2 ? parseInt(r[1]!, 10) - parseInt(r[0]!, 10) + 1 : 1);
+			}, 0);
+			if (count > 0) footerConfig.allocatedCpus = count;
+		} catch {
+			/* keep default */
+		}
+	}
+
 	if (!config || config.enabled === false) {
 		ctx.ui.setFooter(undefined);
 		return;
@@ -151,8 +168,54 @@ export function installFooter(
 					tokenDisplay = theme.fg("dim", "◉ .../?");
 				}
 
-				// Combine timer and token display
-				if (timerStr && tokenDisplay) {
+				// ── Container resource usage from cgroup v2 ──
+				// Throttle cgroup reads to ~1s to avoid flicker during typing.
+				// prevCpuTime doubles as last-read timestamp.
+				const now = Date.now();
+				if (now - footerConfig.prevCpuTime >= 1000) {
+					try {
+						const usageLine = readFileSync("/sys/fs/cgroup/cpu.stat", "utf-8");
+						const m = usageLine.match(/^usage_usec (\d+)/m);
+						if (m) {
+							const curUsage = parseInt(m[1]!, 10);
+							const prevUsage = footerConfig.prevCpuUsage;
+							const prevTime = footerConfig.prevCpuTime;
+
+							const memCur = parseInt(
+								readFileSync("/sys/fs/cgroup/memory.current", "utf-8").trim(),
+								10,
+							);
+							const memMaxRaw = readFileSync("/sys/fs/cgroup/memory.max", "utf-8").trim();
+							const memMax = memMaxRaw === "max" ? 0 : parseInt(memMaxRaw, 10);
+
+							if (prevUsage > 0 && prevTime > 0 && now - prevTime >= 500 && curUsage >= prevUsage) {
+								const deltaCpu = curUsage - prevUsage;
+								const cpuPct = Math.min(
+									100,
+									deltaCpu / (now - prevTime) / footerConfig.allocatedCpus / 10,
+								);
+								const memPct = memMax > 0 ? Math.round((memCur / memMax) * 100) : 0;
+								footerConfig.containerDisplay.value = `\u{1F40B} CPU ${formatCpuPct(cpuPct)}\u00b7RAM ${memPct}%`;
+							}
+
+							footerConfig.prevCpuUsage = curUsage;
+							footerConfig.prevCpuTime = now;
+						}
+					} catch {
+						// Not in a cgroup v2 container — skip
+					}
+				}
+
+				// Use cached display string (updated ~1s by the block above)
+				const containerRaw = footerConfig.containerDisplay.value;
+
+				// Combine container, timer, and token display
+				if (containerRaw) {
+					const parts = [theme.fg("dim", containerRaw)];
+					if (timerStr) parts.push(timerStr);
+					if (tokenDisplay) parts.push(tokenDisplay);
+					rightStr = parts.join(" \u00b7 ");
+				} else if (timerStr && tokenDisplay) {
 					rightStr = `${timerStr} \u00b7 ${tokenDisplay}`;
 				} else if (timerStr) {
 					rightStr = timerStr;

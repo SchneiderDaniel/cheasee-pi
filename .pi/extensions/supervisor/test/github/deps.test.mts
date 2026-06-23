@@ -3,16 +3,14 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../../pipeline/helpers.ts";
 import { checkBlockedByDependencies } from "../../github/deps.ts";
 import type { GhTimelineResponse } from "../../config/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-function createMockPi(ghResult: { code: number; stdout: string; stderr: string }): ExtensionAPI {
-	return {
-		exec: async () => ghResult,
-	} as unknown as ExtensionAPI;
+function createMockExec(ghResult: { code: number; stdout: string; stderr: string }): ExecFn {
+	return async () => ({ ...ghResult, killed: false });
 }
 
 // ─── Tests: checkBlockedByDependencies() ──────────────────────────
@@ -22,8 +20,8 @@ describe("checkBlockedByDependencies()", () => {
 		const response: GhTimelineResponse = {
 			data: { repository: { issue: { timelineItems: { nodes: [] } } } },
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result = await checkBlockedByDependencies(pi, 123, "owner/repo");
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
+		const result = await checkBlockedByDependencies(exec, 123, "owner/repo");
 		assert.equal(result.blocked, false);
 		assert.deepEqual(result.blockers, []);
 	});
@@ -50,8 +48,8 @@ describe("checkBlockedByDependencies()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result = await checkBlockedByDependencies(pi, 123, "owner/repo");
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
+		const result = await checkBlockedByDependencies(exec, 123, "owner/repo");
 		assert.equal(result.blocked, false);
 		assert.equal(result.blockers.length, 0);
 	});
@@ -73,8 +71,8 @@ describe("checkBlockedByDependencies()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result = await checkBlockedByDependencies(pi, 123, "owner/repo");
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
+		const result = await checkBlockedByDependencies(exec, 123, "owner/repo");
 		assert.equal(result.blocked, true);
 		assert.equal(result.blockers.length, 1);
 		assert.equal(result.blockers[0].number, 456);
@@ -102,25 +100,25 @@ describe("checkBlockedByDependencies()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result = await checkBlockedByDependencies(pi, 123, "owner/repo");
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
+		const result = await checkBlockedByDependencies(exec, 123, "owner/repo");
 		assert.equal(result.blocked, false, "last event was removed, so not blocked");
 		assert.equal(result.blockers.length, 0);
 	});
 
 	it("throws on invalid repo format", async () => {
-		const pi = createMockPi({ code: 0, stdout: "{}", stderr: "" });
+		const exec = createMockExec({ code: 0, stdout: "{}", stderr: "" });
 		await assert.rejects(
-			() => checkBlockedByDependencies(pi, 123, "invalid-repo"),
+			() => checkBlockedByDependencies(exec, 123, "invalid-repo"),
 			/Invalid repo format/,
 		);
 	});
 
 	it("throws on GraphQL errors", async () => {
 		const response = { errors: [{ message: "Not authorized" }] };
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(response), stderr: "" });
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
 		await assert.rejects(
-			() => checkBlockedByDependencies(pi, 123, "owner/repo"),
+			() => checkBlockedByDependencies(exec, 123, "owner/repo"),
 			/GitHub GraphQL error: Not authorized/,
 		);
 	});

@@ -3,6 +3,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
 import {
 	fetchIssue,
@@ -11,8 +12,8 @@ import {
 	fetchFreshIssueData,
 	loadAgentFile,
 	type NotifyFn,
+	type ExecFn,
 } from "../../pipeline/helpers.ts";
-import type { ExecFn } from "../../pipeline/helpers.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
 
@@ -22,16 +23,16 @@ function makeExec(
 ): ExecFn {
 	const callLog = calls || [];
 	let idx = 0;
-	return async (cmd: string, args: string[], opts?: Record<string, unknown>) => {
-		callLog.push({ cmd, args: args || [], opts: opts || {} });
+	return async (cmd: string, args: string[], opts?: ExecOptions): Promise<ExecResult> => {
+		callLog.push({ cmd, args: args || [], opts: (opts || {}) as Record<string, unknown> });
 		const result = results[idx++];
 		if (!result) {
-			return { code: 0, stdout: "", stderr: "" };
+			return { code: 0, stdout: "", stderr: "", killed: false };
 		}
 		if (result.code !== 0) {
 			throw new Error(result.stderr || result.stdout || `Command failed: ${cmd}`);
 		}
-		return result;
+		return { ...result, killed: false };
 	};
 }
 

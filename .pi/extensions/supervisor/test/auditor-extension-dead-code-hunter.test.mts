@@ -14,12 +14,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
-import {
-	buildAgentTask,
-	generateBranchName,
-	summarizeComments,
-	truncateComment,
-} from "../agent/task.ts";
+import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 import type { FilteredIssueData } from "../config/types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -372,14 +367,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 
 		it("summarizeComments returns fallback for empty", () => {
 			assert.equal(summarizeComments([]), "(no trusted comments)");
-		});
-
-		it("truncateComment inline in assertion line", () => {
-			assert.equal(truncateComment("short", 100), "short");
-		});
-
-		it("truncateComment truncates long text", () => {
-			assert.ok(truncateComment("a".repeat(100), 10).includes("[+90 more chars]"));
 		});
 
 		it("buildAgentTask inline in assertion line for auditor", () => {

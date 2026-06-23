@@ -55,8 +55,14 @@ RUN apt-get update && \
         libxdamage1 \
         libxkbcommon0 \
         libxrandr2 \
+        fonts-noto-color-emoji \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Enable Noto Color Emoji as fallback for emoji/icon characters
+# The package installs fonts in /usr/share/fonts/truetype/noto/
+# and a fontconfig snippet in /etc/fonts/conf.avail/66-noto-color-emoji.conf
+RUN fc-cache -f -v
 
 # fd-find ships as fdfind; symlink to fd so pi finds it
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
@@ -109,6 +115,37 @@ RUN RTK_INSTALL_DIR=/usr/local/bin sh -c "\
     curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
         && rtk --version \
     "
+
+# ---------------------------------------------------------------
+# Layer 5d: Set UTF-8 locale for Unicode/emoji support
+# ---------------------------------------------------------------
+ENV LANG=C.UTF-8
+ENV LC_CTYPE=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# ---------------------------------------------------------------
+# Layer 5e: Pre-built Python venvs for web_search + web_crawl
+#           Packages + Chromium pre-installed so agent workflows
+#           skip first-call venv setup.
+# ---------------------------------------------------------------
+# web_search venv: ddgs (DuckDuckGo search)
+RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
+    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs
+
+# scrapling venv: progressive web crawler (Playwright stealth)
+RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
+    /opt/venvs/scrapling-venv/bin/pip install --no-cache-dir \
+        scrapling[fetchers] \
+        markdownify \
+        beautifulsoup4
+
+# Pre-download Chromium browser for scrapling Playwright fetcher
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN /opt/venvs/scrapling-venv/bin/python -m playwright install chromium && \
+    chmod -R a+rX /opt/playwright-browsers
+
+# World-readable so agentuser (created next layer) can access
+RUN chmod -R a+rX /opt/venvs
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory

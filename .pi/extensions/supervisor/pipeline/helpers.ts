@@ -2,7 +2,7 @@
 // Extracted from handler.ts with injected ExecFn/NotifyFn/ErrorCollector dependencies.
 // Independently unit-testable: no direct pi/ctx dependency.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import type {
 	SupervisorConfig,
 	FilteredIssueData,
@@ -20,12 +20,8 @@ import {
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
-/** Exec function type for gh CLI subprocess calls (3-field return — code, stdout, stderr) */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+/** Exec function type for subprocess calls — port matching the real dependency. */
+export type ExecFn = (cmd: string, args: string[], opts?: ExecOptions) => Promise<ExecResult>;
 
 /**
  * NotifyFn: notification callbacks for UI status updates.
@@ -33,12 +29,6 @@ export type ExecFn = (
 export interface NotifyFn {
 	info: (msg: string) => void;
 	error: (msg: string) => void;
-}
-
-// ─── Internal: wrap exec as ExtensionAPI for github module functions ──
-
-function execAsPi(exec: ExecFn): ExtensionAPI {
-	return { exec } as ExtensionAPI;
 }
 
 // ─── Fetch Issue ─────────────────────────────────────────────────
@@ -84,11 +74,10 @@ export async function readProjectBoard(
 	_issueNum: number,
 	collector?: ErrorCollector,
 ): Promise<ProjectBoardResult> {
-	const pi = execAsPi(exec);
 	try {
-		const fields = await getProjectFields(pi, config.projectNumber);
-		const items = await getProjectItems(pi, config.projectNumber);
-		const projectId = await getProjectId(pi, config.projectNumber);
+		const fields = await getProjectFields(exec, config.projectNumber);
+		const items = await getProjectItems(exec, config.projectNumber);
+		const projectId = await getProjectId(exec, config.projectNumber);
 
 		const statusField =
 			fields.find((f) => f.name.toLowerCase() === config.statusField?.toLowerCase()) || null;
@@ -122,9 +111,8 @@ export async function checkDependencies(
 	issueNum: number,
 	collector?: ErrorCollector,
 ): Promise<boolean> {
-	const pi = execAsPi(exec);
 	try {
-		const depsResult = await checkBlockedByDependencies(pi, issueNum, config.repo);
+		const depsResult = await checkBlockedByDependencies(exec, issueNum, config.repo);
 		if (depsResult.blocked) {
 			const lines = depsResult.blockers.map(
 				(b) => `${b.type === "pullrequest" ? "!" : "#"}${b.number}: ${b.title} (open)`,

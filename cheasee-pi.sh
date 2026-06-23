@@ -22,6 +22,7 @@ Options:
   -a, --attach          Attach to running container (skip startup checks)
   --configure           Interactive setup: choose providers, enter keys, save to shell profile
   --rebuild             Force rebuild even if container is already running
+  --clean               Kill orphaned pi/node processes inside container
   -h, --help            Show this help
 EOF
     exit 0
@@ -35,26 +36,34 @@ check_container_resources() {
 
     stats=$(docker stats "$container_name" --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}' 2>/dev/null) || return 0
 
-    local cpu_usage mem_usage
-    cpu_usage=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
-    mem_usage=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
+    local cpu_raw mem_raw
+    cpu_raw=$(echo "$stats" | cut -d'|' -f1 | tr -d '%' | tr ',' '.')
+    mem_raw=$(echo "$stats" | cut -d'|' -f2 | tr -d '%' | tr ',' '.')
 
-    # Normalize CPU by allocated cores — docker stats shows per-core %
+    # CPU as fraction of allocated cores, capped at 100%
+    # docker stats CPUPerc shows usage relative to total host CPUs
+    # (e.g., 200% = 2 cores on 8-core host). Divide by allocated
+    # cores to get a 0-100% reading of budget used.
     local allocated_cpus
-    allocated_cpus=$(jq -r '.docker.cpus // "1.0"' .pi/settings.json 2>/dev/null || echo "1.0")
-    local cpu_normalized
-    cpu_normalized=$(echo "scale=2; $cpu_usage / $allocated_cpus" | bc -l 2>/dev/null || echo "$cpu_usage")
+    allocated_cpus=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json 2>/dev/null || echo "2.0")
+    local cpu_pct
+    cpu_pct=$(echo "scale=2; $cpu_raw / $allocated_cpus" | bc -l 2>/dev/null || echo "$cpu_raw")
+    # Cap at 100
+    cpu_pct=$(echo "if ($cpu_pct > 100) 100 else $cpu_pct" | bc -l 2>/dev/null || echo "$cpu_pct")
 
-    # Strip decimal for integer comparison
-    local cpu_int="${cpu_normalized%.*}"
-    local mem_int="${mem_usage%.*}"
+    # Cap mem at 100 too
+    mem_pct=$(echo "if ($mem_raw > 100) 100 else $mem_raw" | bc -l 2>/dev/null || echo "$mem_raw")
+
+    # Integer for threshold comparison
+    local cpu_int="${cpu_pct%.*}"
+    local mem_int="${mem_pct%.*}"
     [ -z "$cpu_int" ] && cpu_int=0
     [ -z "$mem_int" ] && mem_int=0
 
     echo ""
     echo "Container resource usage:"
-    echo "  CPU:  ${cpu_usage}% (${cpu_normalized}% effective across ${allocated_cpus} core(s))"
-    echo "  RAM:  ${mem_usage}%"
+    echo "  CPU: ${cpu_pct}% (of ${allocated_cpus} core(s))"
+    echo "  RAM: ${mem_pct}%"
 
     if [ "$cpu_int" -gt "$threshold" ] || [ "$mem_int" -gt "$threshold" ]; then
         echo ""
@@ -71,6 +80,7 @@ check_container_resources() {
 
 # --- Parse args ---------------------------------------------------------
 API_KEY=""
+CLEAN=false
 CONFIGURE=false
 REBUILD=false
 ATTACH=false
@@ -82,6 +92,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -a|--attach)
             ATTACH=true
+            shift
+            ;;
+        --clean)
+            CLEAN=true
             shift
             ;;
         --configure)
@@ -101,6 +115,35 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Cleanup mode: kill orphaned pi/node processes --------------------
+# Kills pi/node processes that have no active PID marker file.
+# Session marker files are created by the interactive session launcher.
+if [ "$CLEAN" = true ]; then
+    docker exec cheasee-pi bash -c '
+      # Collect active PIDs from marker files
+      active=""
+      for f in /tmp/pi-active-*; do
+        [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
+      done
+      # Kill pi/node processes not in active list
+      for f in /proc/[0-9]*/comm; do
+        c=$(< "$f")
+        case "$c" in
+          pi|node)
+            pid="${f%/comm}"; pid="${pid##*/}"
+            case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+            ;;
+        esac
+      done
+      # Remove stale marker files
+      for f in /tmp/pi-active-*; do
+        [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$f" 2>/dev/null || true
+      done
+    ' 2>/dev/null || { echo "Container not running."; exit 1; }
+    echo "Cleaned up orphaned pi/node processes."
+    exit 0
+fi
 
 # --- Detect shell profile ---------------------------------------------
 detect_profile() {
@@ -434,7 +477,14 @@ else
     trap 'rm -f /tmp/cheasee-pi.lock' EXIT
 
     echo "Starting cheasee-pi container (pi $PI_VERSION)..."
+
+    # Remove old container before rebuild to avoid orphan conflicts
+    docker rm -f cheasee-pi 2>/dev/null || true
+
     docker compose -f docker/docker-compose.yml up -d --build
+
+    # Prune dangling images left from previous builds
+    docker image prune -f || true
 fi
 
 # --- Step 6a: Extract gh token from host keyring for container use ---
@@ -551,5 +601,31 @@ docker exec --user agentuser cheasee-pi \
     || echo "Warning: pi update --extensions failed (non-fatal)"
 
 # --- Step 10: Launch interactive pi session ---------------------------
-# Clear terminal to hide build/check output, then launch pi
-docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
+# Writes PID marker before exec so cleanup can distinguish active sessions
+# from stale orphans (crashed/disconnected docker exec sessions).
+docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+  echo $$ > /tmp/pi-active-$$
+  cd /workspaces/main && clear && exec pi --approve "$@"
+' --
+
+# Cleanup: kill pi/node processes without an active PID marker file
+# (exec replaced bash with pi, preserving the PID — so the marker is valid).
+docker exec cheasee-pi bash -c '
+  active=""
+  for f in /tmp/pi-active-*; do
+    [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
+  done
+  for f in /proc/[0-9]*/comm; do
+    c=$(< "$f")
+    case "$c" in
+      pi|node)
+        pid="${f%/comm}"; pid="${pid##*/}"
+        case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+        ;;
+    esac
+  done
+  # Remove stale marker files (process no longer exists)
+  for f in /tmp/pi-active-*; do
+    [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$f" 2>/dev/null || true
+  done
+' 2>/dev/null || true

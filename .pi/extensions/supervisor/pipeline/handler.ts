@@ -16,6 +16,7 @@ import type {
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
 import { findIssueItem, filterIssueData, postIssueComment } from "../github/index.ts";
+import { gh } from "../github/gh-client.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { runAgentSubprocess } from "../agent/runner.ts";
@@ -36,12 +37,6 @@ import { buildPipelineSummary, validateAgentResult } from "../pipeline/output.ts
 import { handlePostPipelineMerge } from "../pipeline/merge.ts";
 import { createWorktree, installWorktreeDeps, cleanupWorktree } from "./worktree.ts";
 
-/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
-type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
 import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
@@ -84,7 +79,7 @@ import {
 	fetchFreshIssueData,
 	loadAgentFile as loadAgentFileHelper,
 } from "./helpers.ts";
-import type { NotifyFn } from "./helpers.ts";
+import type { NotifyFn, ExecFn } from "./helpers.ts";
 import {
 	parseSupervisorArgs,
 	enableDebugLogger,
@@ -212,7 +207,7 @@ export async function handleSupervisorCommand(
 	// Mode adaptation: ctx.ui.notify is fire-and-forget (safe in all modes,
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
-	const exec: ExecFn = (cmd, args, opts) => pi.exec(cmd, args, opts);
+	const exec: ExecFn = pi.exec.bind(pi);
 	const notify: NotifyFn = {
 		info: (msg) => {
 			if (ctx.hasUI) {
@@ -752,6 +747,21 @@ export async function handleSupervisorCommand(
 						worktreeBranch,
 						config: config.defaultBranch,
 					});
+					// Close issue on GitHub: no changes needed (already resolved)
+					try {
+						await postIssueComment(
+							exec,
+							issueNum,
+							config.repo,
+							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
+						);
+						await gh(exec, ["issue", "close", String(issueNum), "--repo", config.repo]);
+						ctx.ui.notify(`Issue #${issueNum} closed — already resolved`, "info");
+					} catch (closeErr: unknown) {
+						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
+						ctx.ui.notify(`Failed to close issue: ${closeMsg}`, "warning");
+						collector?.push("handler", "warn", `Failed to close issue #${issueNum}: ${closeMsg}`);
+					}
 					break;
 				}
 			}
@@ -798,7 +808,7 @@ export async function handleSupervisorCommand(
 					if (!result.success) {
 						const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
 						try {
-							await postIssueComment(pi, issueNum, config.repo, budgetExceededMsg);
+							await postIssueComment(exec, issueNum, config.repo, budgetExceededMsg);
 							ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
 						} catch (commentErr: unknown) {
 							collector?.push(
@@ -1151,7 +1161,7 @@ export async function executeAgent(
 
 	// Track last tool result count for delta dispatch
 	let lastResultCount = 0;
-	let lastThinkingLen = 0;
+	let lastSentThinking = "";
 
 	// Primary: pi.executeTool dispatches through registered tool.
 	// onUpdate sends COMPACT tool result messages during execution (~100 tokens each).
@@ -1186,8 +1196,6 @@ export async function executeAgent(
 					const content0 = partial.content?.[0];
 					const fullText = content0 && content0.type === "text" ? content0.text : "";
 					const thinking = fullText.slice(0, 4000);
-					const incrementalThinking = fullText.slice(lastThinkingLen, lastThinkingLen + 2000);
-					lastThinkingLen = fullText.length;
 					for (let i = lastResultCount; i < trCount; i++) {
 						const r = tr[i];
 						if (!r) continue;
@@ -1254,6 +1262,13 @@ export async function executeAgent(
 								errorReason = errLine ? errLine.slice(0, 200) : "Tool failed";
 							}
 						}
+						// Compute incremental thinking per tool (avoids duplicating same thinking across batch)
+						const thinkMatch = fullText.match(/(?:^|\n)💭\n([\s\S]*?)(?:\n\n|$)/);
+						const currentThinking = thinkMatch ? thinkMatch[1] : "";
+						const incremental = currentThinking.startsWith(lastSentThinking)
+							? currentThinking.slice(lastSentThinking.length).trimStart()
+							: currentThinking;
+						lastSentThinking = currentThinking;
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
@@ -1265,8 +1280,8 @@ export async function executeAgent(
 									params: paramsStr || undefined,
 									isError: !!r.isError,
 									errorReason,
-									// Incremental thinking (new since last batch)
-									thinking: incrementalThinking,
+									// Incremental thinking (new since last tool result)
+									thinking: incremental,
 									// Tool result output text (truncated)
 									resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
 									// Simple per-call stat: tool ordinal (e.g. "#3")

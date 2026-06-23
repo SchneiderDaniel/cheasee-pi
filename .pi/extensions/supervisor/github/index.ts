@@ -1,5 +1,6 @@
 // ─── GitHub Module Entry ─────────────────────────────────────────
 // Re-exports consumed through the barrel.
+// Submodules are imported directly where their consumers reside.
 
 export { getProjectFields, getProjectItems, getProjectId, findIssueItem } from "./project.ts";
 export { checkBlockedByDependencies } from "./deps.ts";

@@ -137,7 +137,7 @@ export async function createPrOnApproval(
 	// no worktree since there are no new commits to PR.
 	if (worktreePath) {
 		try {
-			const compareResult = await gh(pi, [
+			const compareResult = await gh(pi.exec.bind(pi), [
 				"api",
 				`repos/${config.repo}/compare/${config.defaultBranch}...${headBranch}`,
 				"--jq",
@@ -170,7 +170,7 @@ export async function createPrOnApproval(
 	// ─── Phase 4: Check for existing PR ────────────────────────────
 	let existingPr: PrConflictInfo | null = null;
 	try {
-		existingPr = await checkPrConflicts(pi, headBranch, config.repo);
+		existingPr = await checkPrConflicts(pi.exec.bind(pi), headBranch, config.repo);
 	} catch (checkErr: unknown) {
 		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
 		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
@@ -185,7 +185,7 @@ export async function createPrOnApproval(
 		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
 		try {
 			ctx.ui.notify(`Updating PR #${existingPr.number} with latest changes`, "info");
-			await gh(pi, [
+			await gh(pi.exec.bind(pi), [
 				"pr",
 				"edit",
 				String(existingPr.number),
@@ -220,7 +220,7 @@ export async function createPrOnApproval(
 			}
 
 			const prResult = await createPullRequest(
-				pi,
+				pi.exec.bind(pi),
 				config.repo,
 				config.defaultBranch!,
 				headBranch,

@@ -42,7 +42,7 @@ flowchart LR
     B -- valid --> D[cache.ts: check key]
     D -- hit --> E[Return cached result]
     D -- miss --> F[await getSgBinary]
-    F --> G[exec ast-grep scan --json=stream]
+    F --> G[exec ast-grep run --json=stream]
     G --> H[parser.ts: interpret exit code]
     H -- error --> I[Throw Error with stderr]
     H -- success --> J[cache.ts: setCache]

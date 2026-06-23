@@ -1,7 +1,7 @@
 // ─── PR Operations ────────────────────────────────────────────────
 // checkPrConflicts, createPullRequest.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";
 import type { PrConflictInfo } from "../config/types.ts";
 import { gh, ghJson } from "./gh-client.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -10,7 +10,7 @@ import { getErrorCollector } from "../pipeline/error-collector.ts";
 // ─── Check PR Conflicts ──────────────────────────────────────────
 
 export async function checkPrConflicts(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	branch: string,
 	repo: string,
 ): Promise<PrConflictInfo | null> {
@@ -25,7 +25,7 @@ export async function checkPrConflicts(
 				headRefName: string;
 				baseRefName: string;
 			}>
-		>(pi, [
+		>(exec, [
 			"pr",
 			"list",
 			"--repo",
@@ -64,7 +64,7 @@ export async function checkPrConflicts(
 // ─── Create Pull Request ──────────────────────────────────────────
 
 export async function createPullRequest(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	repo: string,
 	base: string,
 	head: string,
@@ -99,7 +99,7 @@ export async function createPullRequest(
 
 	// gh pr create returns PR URL (e.g. https://github.com/o/r/pull/123)
 	// Parse PR number via URL regex, with numeric fallback
-	const rawOutput = await gh(pi, args);
+	const rawOutput = await gh(exec, args);
 
 	// Parse PR number from URL output
 	const urlMatch = rawOutput.match(/pull\/(\d+)/);

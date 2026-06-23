@@ -7,7 +7,7 @@
 
 import { writeFile, unlink } from "node:fs/promises";
 import { join as joinPath } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";
 import type { FilteredIssueData, AgentOutput } from "../config/types.ts";
 import { gh } from "./gh-client.ts";
 import {
@@ -32,7 +32,7 @@ import { getDebugLogger } from "../lib/debug.ts";
 const MAX_COMMENT_CHARS = 50_000;
 
 export async function postIssueComment(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	issueNum: number,
 	repo: string,
 	body: string,
@@ -72,7 +72,7 @@ export async function postIssueComment(
 	}
 
 	try {
-		await gh(pi, ["issue", "comment", String(issueNum), "--repo", repo, "--body-file", tempFile]);
+		await gh(exec, ["issue", "comment", String(issueNum), "--repo", repo, "--body-file", tempFile]);
 		log.info("comment", `Comment posted on #${issueNum}`);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);

@@ -25,6 +25,27 @@ container. The host's `git config user.name` and `git config user.email` are pas
 into the container automatically by `cheasee-pi.sh`. If unset on the host, the
 container defaults to `Cheasee-Pi <cheasee-pi@localhost>`.
 
+**Emoji font (optional, recommended):** The `context-info` extension and various
+TUI components display emoji icons (🧠, 🔧, 🔒, 📦, ⏱). The container image
+includes `fonts-noto-color-emoji`, but the host terminal emulator must also
+possess an emoji-capable font for glyph rendering. Most desktop environments
+ship one by default (Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji).
+If emoji appear as empty boxes (`□`, `▯`) when running the Pi TUI, install
+an emoji font on the host:
+
+```bash
+# Debian / Ubuntu host
+sudo apt install fonts-noto-color-emoji
+
+# Fedora / RHEL
+sudo dnf install google-noto-color-emoji-fonts
+
+# macOS / Windows — fonts are bundled; no action required
+```
+
+See the [Troubleshooting](#emoji--icons-not-displaying) section if icons still
+don't render after installation.
+
 
 
 ## Installation
@@ -285,5 +306,71 @@ UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
 
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
+```
+
+### Emoji / icons not displaying
+
+Emoji icons (🧠, 🔧, 🔒, 📦, ⏱) in the footer bar or TUI appear as empty boxes
+(`□`, `▯`) when the host terminal emulator lacks an emoji-capable font.
+
+The container includes `fonts-noto-color-emoji` since Layer 3 of the Docker
+image. The host terminal performs the final rendering, however — the container
+merely transmits the encoded bytes.
+
+**To verify inside the container:**
+
+```bash
+printf "\U1F9E0 \U1F527 \U1F512 \U1F4E6 \U23F1\n"
+```
+
+If the output displays correctly, the host terminal supports emoji and the issue
+resides elsewhere (extension configuration, terminal encoding, Pi session
+stale). If the output shows boxes, install an emoji font on the host:
+
+```bash
+# Debian / Ubuntu host
+sudo apt install fonts-noto-color-emoji
+
+# Fedora / RHEL
+sudo dnf install google-noto-color-emoji-fonts
+
+# macOS / Windows — fonts are bundled; no action required
+```
+
+After installing, rebuild font cache and restart the Pi session:
+
+```bash
+sudo fc-cache -fv
+# Exit pi (/exit), then restart:
+./cheasee-pi.sh
+```
+
+**Nerd Font for git branch icon:** The footer also uses `` (U+E0A0) from
+[Nerd Font](https://www.nerdfonts.com/) for the git branch indicator. Noto
+Color Emoji does not cover this. Install a Nerd Font on the host:
+
+```bash
+wget -P /tmp https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/JetBrainsMono.zip
+sudo unzip /tmp/JetBrainsMono.zip -d /usr/share/fonts/truetype/jetbrains-nerd
+sudo fc-cache -fv
+```
+
+Then configure Zed (if using it) to use the Nerd Font:
+
+```json
+{
+  "terminal": {
+    "font_family": "JetBrainsMono Nerd Font"
+  }
+}
+```
+
+The project-level `.zed/settings.json` already contains this setting — adjust
+the font name to match the Nerd Font you installed.
+
+**Rebuild the container after any Dockerfile change:**
+
+```bash
+./cheasee-pi.sh --rebuild
 ```
 
