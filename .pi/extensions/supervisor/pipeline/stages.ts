@@ -161,64 +161,6 @@ export function shouldSkipResearcher(
 	return hasResearchFindings(filteredData);
 }
 
-// ─── README Change Detection ───────────────────────────────────────
-
-/**
- * Check if the README needs updating based on git diff analysis.
- * If the diff contains user-facing changes (new features, config changes,
- * CLI changes, API changes, dependency changes) but README is not modified,
- * this returns a warning that should be surfaced.
- */
-export async function checkReadmeUpdated(
-	execFn: (
-		cmd: string,
-		args: string[],
-		opts?: Record<string, unknown>,
-	) => Promise<{ code: number; stdout: string; stderr: string }>,
-	worktreePath: string,
-	defaultBranch: string,
-): Promise<{ updated: boolean; warning?: string }> {
-	try {
-		// Get list of changed files vs. default branch
-		const diffResult = await execFn("git", ["diff", defaultBranch, "--name-only"], {
-			cwd: worktreePath,
-		});
-		const changedFiles = (diffResult.stdout || "").trim().split("\n").filter(Boolean);
-
-		// Check if README was modified
-		const readmeModified = changedFiles.some((f: string) => f.toLowerCase().includes("readme"));
-
-		// Check if changes are user-facing (not just test/internal files)
-		const userFacingChanges = changedFiles.some((f: string) => {
-			const lower = f.toLowerCase();
-			// Internal-only files don't need README updates
-			if (
-				lower.startsWith("test/") ||
-				lower.startsWith(".pi/") ||
-				lower.endsWith(".test.ts") ||
-				lower.endsWith(".test.mts")
-			) {
-				return false;
-			}
-			// Source files, config files, etc. are potentially user-facing
-			return true;
-		});
-
-		if (userFacingChanges && !readmeModified) {
-			return {
-				updated: false,
-				warning:
-					"README.md was not updated despite user-facing changes. Please update README.md to reflect the changes.",
-			};
-		}
-
-		return { updated: true };
-	} catch {
-		// If git diff fails, we can't verify — return updated=true to not block
-		return { updated: true };
-	}
-}
-
 /**
  * Build a formatted string from DuplicateCodeResult for injection into auditor task context.
  * Returns null if no duplicates found or result is null.
@@ -902,23 +844,6 @@ export async function handlePostAgentSuccess(
 			ctx.ui.notify("Changes committed and pushed to branch", "info");
 		} else {
 			ctx.ui.notify("No changes to commit — pipeline continues", "info");
-		}
-
-		// README change detection: warn if README was not updated for user-facing changes
-		try {
-			const execFn = (cmd: string, args: string[], opts?: Record<string, unknown>) =>
-				pi.exec(cmd, args, opts);
-			const readmeCheck = await checkReadmeUpdated(
-				execFn,
-				worktreePath,
-				config.defaultBranch || "main",
-			);
-			if (!readmeCheck.updated && readmeCheck.warning) {
-				ctx.ui.notify(readmeCheck.warning, "warning");
-				collector?.push("stages", "warn", readmeCheck.warning);
-			}
-		} catch {
-			// README check is advisory — don't block pipeline
 		}
 	}
 

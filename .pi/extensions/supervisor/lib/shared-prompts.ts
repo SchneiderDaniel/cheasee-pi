@@ -74,16 +74,6 @@ const DEDUPLICATION_SCAN_INSTRUCTION = `### 1. Deduplication Scan
 Scan the provided issue data for an existing comment containing \`## Research Findings\`. If one exists, skip all research and output a JSON object with \`"action": "COMPLETE", "agentName": "researcher"\` (see Structured Output Format in your task). Fallback: if you cannot output JSON, output \`RESEARCH_COMPLETE\` on its own line. Do nothing else.`;
 
 /**
- * Instruction for developer README update check.
- * Previously embedded in developer.md, now a shared constant.
- */
-const README_CHECK_INSTRUCTION = `**Step D — Update README if needed:**
-- Review your changes. Did you add, remove, or change any feature, config, CLI flag, env var, API endpoint, dependency, or user-facing behavior?
-- If yes: update README.md to reflect the change (new section, updated example, changed instructions)
-- If no: skip. Do not touch README for purely internal refactors or bug fixes with no user-facing impact.
-- Run \`git diff --stat\` to confirm README.md is either updated (if needed) or unchanged (if not needed).`;
-
-/**
  * Centralized comment format templates.
  * Previously defined in individual agent .md files, now code-generated.
  */

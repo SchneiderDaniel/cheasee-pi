@@ -64,7 +64,6 @@ import {
 	buildAgentResultEntry,
 	handlePostAgentSuccess,
 	shouldSkipResearcher,
-	checkReadmeUpdated,
 	inferForwardStatus,
 	hasBranchCommits,
 	buildDuplicateCodeContext,

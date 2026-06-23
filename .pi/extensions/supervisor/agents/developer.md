@@ -31,7 +31,6 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments 
 - **NEVER** merge to main or create pull requests
 - **NEVER** modify files outside the worktree
 - **NEVER** fetch the issue from GitHub — use ONLY the data provided in your task
-- **ALWAYS** update README.md when changes are user-facing (new features, changed behavior, config/env/CLI changes). Skip only for internal-only changes (refactors, bug fixes with no visible impact).
 - Follow the architecture and test plan from the trusted comments
 - When finished, output a JSON object with `"action": "COMPLETE", "agentName": "developer"` including your summary (see Structured Output Format in your task). The pipeline commits and pushes — do NOT run git commands. Fallback: if you cannot output JSON, output `IMPLEMENTATION_COMPLETE` on its own line
 
