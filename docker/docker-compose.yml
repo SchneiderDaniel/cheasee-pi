@@ -25,7 +25,7 @@ services:
       - HOST_GIT_EMAIL=${HOST_GIT_EMAIL:-cheasee-pi@localhost}
     volumes:
       - ../../:/workspaces
-      - ~/.config/gh:/home/agentuser/.config/gh:ro
+      - ~/.config/gh:/home/agentuser/.config/gh:rw
     deploy:
       resources:
         limits:

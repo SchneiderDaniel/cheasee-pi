@@ -20,7 +20,6 @@ const {
 	normalizeMode,
 	normalizeConfigMode,
 	normalizePersistedMode,
-	isDeactivationCommand,
 	writeDefaultMode,
 } = require(resolve(PKG, "hooks/ponytail-config.js"));
 const { getPonytailInstructions, filterSkillBodyForMode } = require(
@@ -168,6 +167,13 @@ export default function ponytailExtension(pi) {
 		description: "Run /skill:ponytail-help",
 		handler: (_args, ctx) => sendAlias("/skill:ponytail-help", "", ctx),
 	});
+
+	const isDeactivationCommand = (text) => {
+		const lower = String(text || "")
+			.trim()
+			.toLowerCase();
+		return lower === "stop ponytail" || lower === "normal mode";
+	};
 
 	pi.on("input", async (event) => {
 		if (event?.source === "extension") return;
