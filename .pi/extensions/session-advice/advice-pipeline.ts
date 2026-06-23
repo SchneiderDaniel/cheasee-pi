@@ -463,12 +463,16 @@ export async function writeAdvice(
 
 		// Try LLM advice
 		if (model && modelRegistry) {
-			try {
-				llmAdvice = await generateAdvice(analysis, model, modelRegistry);
-			} catch (err) {
-				// LLM failed — proceed without
-				const msg = (err as Error).message;
-				console.error(`[session-advice] LLM advice failed: ${msg}`);
+			const auth = await modelRegistry
+				.getApiKeyAndHeaders(model)
+				.catch(() => ({ ok: false, error: "exception" }));
+			if (auth.ok && auth.apiKey) {
+				try {
+					llmAdvice = await generateAdvice(analysis, model, modelRegistry);
+				} catch (err) {
+					const msg = (err as Error).message;
+					console.error(`[session-advice] LLM advice failed: ${msg}`);
+				}
 			}
 		}
 
