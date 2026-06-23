@@ -210,7 +210,7 @@ export function handleMessageEnd(
 	if (!msg) return { flush: false, workingChange: false };
 
 	if (msg.role === "assistant") {
-		if (Array.isArray(msg.content)) {
+		if (Array.isArray(msg.content) && !state.thinkingPushedThisTurn) {
 			const thinkingParts: string[] = [];
 			for (const block of msg.content) {
 				if (block.type === "thinking" && block.thinking) {
@@ -226,8 +226,8 @@ export function handleMessageEnd(
 			}
 			if (thinkingParts.length > 0) {
 				state.thinkingOutputLines.push(thinkingParts.join("\n").trim());
+				state.thinkingPushedThisTurn = true;
 			}
-			state.thinkingPushedThisTurn = true;
 		}
 		if (!state.textPushedThisTurn) {
 			const text = extractTextFromContent(msg.content);
@@ -333,7 +333,7 @@ export function handleDone(
 				}
 			}
 		}
-		if (thinkingParts.length > 0) {
+		if (thinkingParts.length > 0 && !state.thinkingPushedThisTurn) {
 			const allThinking = thinkingParts.join("\n").trim();
 			if (allThinking) {
 				state.thinkingOutputLines.push(allThinking);
