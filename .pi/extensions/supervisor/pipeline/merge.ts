@@ -40,7 +40,7 @@ export async function handlePostPipelineMerge(
 		ctx.ui.setStatus("supervisor", "Checking PR for merge conflicts...");
 		let conflictInfo: PrConflictInfo | null;
 		try {
-			conflictInfo = await checkPrConflicts(pi, branch, config.repo);
+			conflictInfo = await checkPrConflicts(pi.exec.bind(pi), branch, config.repo);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`PR conflict check failed: ${msg}`, "error");

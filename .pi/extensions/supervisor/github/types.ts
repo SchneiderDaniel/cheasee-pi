@@ -1,26 +1,6 @@
 // ─── GitHub Module Types ─────────────────────────────────────────
 // Typed wrappers for ghJson/ghGraphQL and GraphQL response shapes.
 
-// ─── GhClient interface ───────────────────────────────────────────
-
-export interface GhClient {
-	gh(
-		pi: ExtensionAPI,
-		args: string[],
-		opts?: { signal?: AbortSignal; timeout?: number },
-	): Promise<string>;
-	ghJson<T = unknown>(
-		pi: ExtensionAPI,
-		args: string[],
-		opts?: { signal?: AbortSignal; timeout?: number },
-	): Promise<T | null>;
-	ghGraphQL<T = unknown>(
-		pi: ExtensionAPI,
-		query: string,
-		opts?: { signal?: AbortSignal; timeout?: number },
-	): Promise<T | null>;
-}
-
 // ─── GraphQL Response Types ───────────────────────────────────────
 
 export interface ProjectFieldsResponse {
@@ -76,4 +56,4 @@ export interface ProjectIdResponse {
 	errors?: Array<{ message: string }>;
 }
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";

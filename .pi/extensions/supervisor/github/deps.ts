@@ -2,7 +2,7 @@
 // checkBlockedByDependencies — queries GitHub timeline to detect
 // "blocked by" links for a given issue.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../pipeline/helpers.ts";
 import type { DepsResult, GhTimelineResponse } from "../config/types.ts";
 import { ghGraphQL } from "./gh-client.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -57,7 +57,7 @@ function parseTimelineResponse(response: GhTimelineResponse | null): DepsResult 
 // ─── Check Blocked By Dependencies ────────────────────────────────
 
 export async function checkBlockedByDependencies(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	issueNumber: number,
 	repo: string,
 ): Promise<DepsResult> {
@@ -101,7 +101,7 @@ export async function checkBlockedByDependencies(
 
 	let response: GhTimelineResponse | null;
 	try {
-		response = await ghGraphQL<GhTimelineResponse>(pi, query);
+		response = await ghGraphQL<GhTimelineResponse>(exec, query);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log.error("deps", `Dependency query failed: ${msg}`);

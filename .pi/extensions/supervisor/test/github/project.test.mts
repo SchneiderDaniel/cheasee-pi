@@ -3,7 +3,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../../pipeline/helpers.ts";
 import {
 	getProjectFields,
 	getProjectItems,
@@ -15,10 +15,8 @@ import type { ProjectItem, ProjectField } from "../../config/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-function createMockPi(ghResult: { code: number; stdout: string; stderr: string }): ExtensionAPI {
-	return {
-		exec: async () => ghResult,
-	} as unknown as ExtensionAPI;
+function createMockExec(ghResult: { code: number; stdout: string; stderr: string }): ExecFn {
+	return async () => ({ ...ghResult, killed: false });
 }
 
 // ─── Tests: getProjectFields() ────────────────────────────────────
@@ -44,8 +42,8 @@ describe("getProjectFields()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const fields = await getProjectFields(pi, 1);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const fields = await getProjectFields(exec, 1);
 		assert.equal(fields.length, 2);
 		assert.equal(fields[0].name, "Status");
 		assert.equal(fields[0].type, "SINGLE_SELECT");
@@ -56,8 +54,8 @@ describe("getProjectFields()", () => {
 
 	it("returns empty array when no fields found", async () => {
 		const ghResponse = { data: { viewer: { projectV2: { fields: { nodes: [] } } } } };
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const fields = await getProjectFields(pi, 999);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const fields = await getProjectFields(exec, 999);
 		assert.deepEqual(fields, []);
 	});
 });
@@ -86,8 +84,8 @@ describe("getProjectItems()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const items = await getProjectItems(pi, 1);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const items = await getProjectItems(exec, 1);
 		assert.equal(items.length, 1);
 		assert.equal(items[0].id, "item1");
 		assert.equal(items[0].status, "In Progress");
@@ -107,8 +105,8 @@ describe("getProjectItems()", () => {
 				},
 			},
 		};
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const items = await getProjectItems(pi, 999);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const items = await getProjectItems(exec, 999);
 		assert.deepEqual(items, []);
 	});
 });
@@ -118,15 +116,15 @@ describe("getProjectItems()", () => {
 describe("getProjectId()", () => {
 	it("extracts project ID from ghGraphQL response", async () => {
 		const ghResponse = { data: { viewer: { projectV2: { id: "PVT_123" } } } };
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const id = await getProjectId(pi, 1);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const id = await getProjectId(exec, 1);
 		assert.equal(id, "PVT_123");
 	});
 
 	it("returns empty string when project not found", async () => {
 		const ghResponse = { data: { viewer: { projectV2: null } } };
-		const pi = createMockPi({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
-		const id = await getProjectId(pi, 999);
+		const exec = createMockExec({ code: 0, stdout: JSON.stringify(ghResponse), stderr: "" });
+		const id = await getProjectId(exec, 999);
 		assert.equal(id, "");
 	});
 });
@@ -169,13 +167,11 @@ describe("findIssueItem()", () => {
 describe("setItemStatus()", () => {
 	it("calls gh() with project item-edit command and correct args", async () => {
 		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const pi = {
-			exec: ((cmd: string, args: string[]) => {
-				calls.push({ cmd, args: args || [] });
-				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
-			}) as ExtensionAPI["exec"],
-		} as unknown as ExtensionAPI;
-		await setItemStatus(pi, "item1", "proj1", "f_status", "opt_done");
+		const exec: ExecFn = async (cmd: string, args: string[]) => {
+			calls.push({ cmd, args: args || [] });
+			return { code: 0, stdout: "", stderr: "", killed: false };
+		};
+		await setItemStatus(exec, "item1", "proj1", "f_status", "opt_done");
 		assert.equal(calls.length, 1);
 		const callArgs = calls[0].args;
 		assert.ok(callArgs.includes("item-edit"));

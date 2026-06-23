@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../../pipeline/helpers.ts";
 import {
 	postIssueComment,
 	extractStructuredAuditOutput,
@@ -37,10 +37,8 @@ describe("comment.ts runtime exports — direct call in assertions", () => {
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-function createMockPi(execResult: { code: number; stdout: string; stderr: string }): ExtensionAPI {
-	return {
-		exec: async () => execResult,
-	} as unknown as ExtensionAPI;
+function createMockExec(execResult: { code: number; stdout: string; stderr: string }): ExecFn {
+	return async () => ({ ...execResult, killed: false });
 }
 
 // ─── Tests: postIssueComment() ────────────────────────────────────
@@ -48,13 +46,11 @@ function createMockPi(execResult: { code: number; stdout: string; stderr: string
 describe("postIssueComment()", () => {
 	it("calls gh issue comment with --body-file (not --body)", async () => {
 		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const pi = {
-			exec: ((cmd: string, args: string[]) => {
-				calls.push({ cmd, args });
-				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
-			}) as ExtensionAPI["exec"],
-		} as unknown as ExtensionAPI;
-		await postIssueComment(pi, 123, "owner/repo", "Comment body");
+		const exec: ExecFn = async (cmd: string, args: string[]) => {
+			calls.push({ cmd, args });
+			return { code: 0, stdout: "", stderr: "", killed: false };
+		};
+		await postIssueComment(exec, 123, "owner/repo", "Comment body");
 		assert.equal(calls.length, 1);
 		// gh() may call via "bash" when GH_TOKEN env is available (gh-client.ts)
 		assert.ok(
