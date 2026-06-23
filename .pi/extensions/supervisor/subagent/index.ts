@@ -30,7 +30,6 @@ import { resolveExtensionPaths } from "../lib/extensions.ts";
 import { extractSummaryLine } from "../lib/formatting.ts";
 import { processSessionEvent, formatToolCall } from "../event/session-events.ts";
 import { createAgentRunState } from "../agent/runner.ts";
-import { renderSubagentCall, renderSubagentResult } from "./renderer.ts";
 import type {
 	AgentToolResult,
 	SubagentDetails,
@@ -595,8 +594,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 				description: "Full task description for the sub-agent to execute",
 			}),
 		}),
-		renderCall: renderSubagentCall as any,
-		renderResult: renderSubagentResult as any,
+
 		execute: (async (_toolCallId: any, params: any, signal: any, onUpdate: any, _ctx: any) => {
 			const agent = String(params?.agent || "");
 			const task = String(params?.task || "");

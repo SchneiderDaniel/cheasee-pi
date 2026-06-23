@@ -17,7 +17,7 @@ import type { ErrorCollector } from "./error-collector.ts";
 // pi.sendMessage({ customType: "supervisor-progress", display: false }) messages.
 // Replaced by ctx.ui.setWidget() in executeSubagent() for live widget-based progress.
 // The widget approach shows live tool calls, thinking, and text above the editor
-// without scrolling the chat history. Final result message uses _subagentResult format.
+// without scrolling the chat history. Final result message uses eventType: "subagent-result" format.
 
 /**
  * Send pipeline completion notification.

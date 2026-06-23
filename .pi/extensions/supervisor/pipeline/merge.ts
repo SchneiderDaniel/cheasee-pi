@@ -178,7 +178,10 @@ export async function handlePostPipelineMerge(
 							content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${dd?.summaryLine || ""}`,
 							display: true,
 							details: {
-								_subagentResult: devResult as any,
+								eventType: "subagent-result",
+								agentName: "developer",
+								content: (devResult as any).content,
+								details: (devResult as any).details,
 							},
 						});
 
