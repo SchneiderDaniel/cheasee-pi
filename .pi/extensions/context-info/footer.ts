@@ -41,15 +41,20 @@ export function installFooter(
 
 	const { worktreeName, thinkingLevel } = footerConfig;
 
-	// ── Init container CPU core count from cgroup ──
+	// ── Init container CPU core count from cgroup v2 cpu.max ──
+	// Docker `cpus: N` sets CFS quota via cpu.max (format: "$quota $period").
+	// Do NOT use cpuset.cpus.effective — that returns host CPUs, not the Docker limit.
 	if (footerConfig.allocatedCpus === 4) {
 		try {
-			const cpuSet = readFileSync("/sys/fs/cgroup/cpuset.cpus.effective", "utf-8").trim();
-			const count = cpuSet.split(",").reduce((acc, p) => {
-				const r = p.split("-");
-				return acc + (r.length === 2 ? parseInt(r[1]!, 10) - parseInt(r[0]!, 10) + 1 : 1);
-			}, 0);
-			if (count > 0) footerConfig.allocatedCpus = count;
+			const cpuMax = readFileSync("/sys/fs/cgroup/cpu.max", "utf-8").trim();
+			const parts = cpuMax.split(/\s+/);
+			if (parts.length >= 2 && parts[0] !== "max") {
+				const quota = parseInt(parts[0]!, 10);
+				const period = parseInt(parts[1]!, 10);
+				if (quota > 0 && period > 0) {
+					footerConfig.allocatedCpus = quota / period;
+				}
+			}
 		} catch {
 			/* keep default */
 		}
