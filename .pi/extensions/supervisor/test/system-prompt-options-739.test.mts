@@ -4,12 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-	buildAgentTask,
-	generateBranchName,
-	summarizeComments,
-	truncateComment,
-} from "../agent/task.ts";
+import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 import type { FilteredIssueData } from "../config/types.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -83,10 +78,6 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 
 	it("summarizeComments is a function exported from agent/task.ts", () => {
 		assert.equal(typeof summarizeComments, "function", "summarizeComments should be exported");
-	});
-
-	it("truncateComment is a function exported from agent/task.ts", () => {
-		assert.equal(typeof truncateComment, "function", "truncateComment should be exported");
 	});
 
 	it("generateBranchName returns correct branch name", () => {

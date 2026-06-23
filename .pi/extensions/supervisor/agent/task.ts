@@ -92,16 +92,6 @@ export function summarizeComments(comments: Array<{ author: string; body: string
 }
 
 /**
- * Truncate a string to `maxLength` chars with overflow notice.
- * Utility available for pipeline code, not used internally.
- */
-export function truncateComment(body: string, maxLength: number = 2000): string {
-	if (body.length <= maxLength) return body;
-	const overflow = body.length - maxLength;
-	return body.slice(0, maxLength) + `\n…[+${overflow} more chars]`;
-}
-
-/**
  * Build audit dimensions checklist for the auditor prompt.
  */
 function buildAuditChecklist(dimensionCount: number): string {

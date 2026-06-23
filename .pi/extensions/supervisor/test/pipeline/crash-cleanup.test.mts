@@ -15,7 +15,6 @@ import {
 	createCrashCleanup,
 	cleanupOnExit,
 	setupCrashCleanup,
-	withCrashCleanup,
 	CLEANUP_TIMEOUT_MS,
 	type CleanupOnExitDeps,
 } from "../../pipeline/crash-cleanup.ts";
@@ -637,95 +636,5 @@ describe("setupCrashCleanup() — Phase 3: signal handler setup", () => {
 		// Cleanup
 		cc.teardown();
 		onSpy.mock.restore();
-	});
-});
-
-describe("withCrashCleanup() — Phase 3: lifecycle wrapper", () => {
-	it("calls process.on before callback and process.removeListener after on success", async () => {
-		const order: string[] = [];
-		const origOn = process.on.bind(process);
-		const origRemove = process.removeListener.bind(process);
-
-		// Spy with implementation to track order
-		const onSpy = mock.method(
-			process,
-			"on",
-			(signal: string, handler: (...args: unknown[]) => void) => {
-				order.push("on");
-				return origOn(signal, handler);
-			},
-		);
-		const removeSpy = mock.method(
-			process,
-			"removeListener",
-			(signal: string, handler: (...args: unknown[]) => void) => {
-				order.push("removeListener");
-				return origRemove(signal, handler);
-			},
-		);
-
-		const deps = createMinimalDeps();
-
-		await withCrashCleanup(deps, async () => {
-			order.push("callback");
-			return "ok";
-		});
-
-		// Order: setup (process.on) → callback → teardown (process.removeListener)
-		assert.ok(order.indexOf("on") < order.indexOf("callback"), "process.on before callback");
-		assert.ok(
-			order.indexOf("callback") < order.indexOf("removeListener"),
-			"callback before process.removeListener",
-		);
-
-		onSpy.mock.restore();
-		removeSpy.mock.restore();
-	});
-
-	it("calls process.removeListener in finally even when callback throws", async () => {
-		const origOn = process.on.bind(process);
-		const origRemove = process.removeListener.bind(process);
-
-		const onSpy = mock.method(process, "on", (...args: unknown[]) =>
-			origOn(...(args as [string, (...args: unknown[]) => void])),
-		);
-		const removeSpy = mock.method(process, "removeListener", (...args: unknown[]) =>
-			origRemove(...(args as [string, (...args: unknown[]) => void])),
-		);
-
-		const deps = createMinimalDeps();
-		const testError = new Error("callback error");
-
-		await assert.rejects(
-			withCrashCleanup(deps, async () => {
-				throw testError;
-			}),
-			testError,
-		);
-
-		// removeListener was called even though callback threw
-		assert.ok(
-			removeSpy.mock.calls.length >= 2,
-			"removeListener should be called (SIGTERM + SIGINT)",
-		);
-
-		onSpy.mock.restore();
-		removeSpy.mock.restore();
-	});
-
-	it("passes the crashCleanup instance to the callback", async () => {
-		const deps = createMinimalDeps();
-		let receivedCC: unknown;
-
-		await withCrashCleanup(deps, async (cc) => {
-			receivedCC = cc;
-			return "ok";
-		});
-
-		// cc should have register and teardown methods
-		assert.ok(receivedCC, "crashCleanup instance passed to callback");
-		const cc = receivedCC as { register: () => void; teardown: () => void };
-		assert.equal(typeof cc.register, "function");
-		assert.equal(typeof cc.teardown, "function");
 	});
 });

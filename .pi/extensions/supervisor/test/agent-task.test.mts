@@ -9,12 +9,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import {
-	generateBranchName,
-	buildAgentTask,
-	truncateComment,
-	summarizeComments,
-} from "../agent/task.ts";
+import { generateBranchName, buildAgentTask, summarizeComments } from "../agent/task.ts";
 import type { FilteredIssueData } from "../config/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -27,10 +22,6 @@ import type { FilteredIssueData } from "../config/types.ts";
 describe("task.ts runtime exports — direct call in assertions", () => {
 	it("generateBranchName directly callable in assert", () => {
 		assert.strictEqual(generateBranchName(1, "x"), "worktree-git-issue-1-x");
-	});
-
-	it("truncateComment directly callable in assert", () => {
-		assert.strictEqual(truncateComment("hello", 100), "hello");
 	});
 
 	it("summarizeComments directly callable in assert", () => {
@@ -118,54 +109,6 @@ describe("generateBranchName", () => {
 	it("accepts custom prefix", () => {
 		const result = generateBranchName(5, "test", "custom-");
 		assert.strictEqual(result, "custom-5-test");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Phase 1: truncateComment
-// ---------------------------------------------------------------------------
-
-describe("truncateComment", () => {
-	it("body ≤2000 chars → returned unchanged, no overflow note", () => {
-		const body = "short body";
-		const result = truncateComment(body);
-		assert.strictEqual(result, body);
-	});
-
-	it("body exactly 2000 chars → returned unchanged", () => {
-		const body = "x".repeat(2000);
-		const result = truncateComment(body);
-		assert.strictEqual(result, body);
-	});
-
-	it("body 2001 chars → truncated at 2000 with overflow note", () => {
-		const body = "x".repeat(2001);
-		const result = truncateComment(body);
-		assert.ok(result.endsWith("\n…[+1 more chars]"));
-		assert.strictEqual(result.split("\n")[0].length, 2000);
-	});
-
-	it("body 10000 chars → truncated at 2000 with correct overflow count", () => {
-		const body = "x".repeat(10000);
-		const result = truncateComment(body);
-		assert.ok(result.endsWith("\n…[+8000 more chars]"));
-	});
-
-	it("body empty string → returns empty string", () => {
-		const result = truncateComment("");
-		assert.strictEqual(result, "");
-	});
-
-	it("custom maxLength parameter truncates at custom boundary", () => {
-		const body = "x".repeat(100);
-		const result = truncateComment(body, 50);
-		assert.ok(result.endsWith("\n…[+50 more chars]"));
-	});
-
-	it("body shorter than custom maxLength → no truncation", () => {
-		const body = "short";
-		const result = truncateComment(body, 100);
-		assert.strictEqual(result, "short");
 	});
 });
 

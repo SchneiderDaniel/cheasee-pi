@@ -2,7 +2,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createInstrumenter, createInstrumenterSnapshot } from "../lib/instrumentation.ts";
+import { createInstrumenter } from "../lib/instrumentation.ts";
 import type { InstrumenterHandle, InstrumentSnapshot } from "../lib/instrumentation.ts";
 
 // ─── createInstrumenter ──────────────────────────────────────────
@@ -180,41 +180,5 @@ describe("setTokenCount", () => {
 		inst.setTokenCount(500);
 		inst.setTokenCount(1200);
 		assert.equal(inst.snapshot().tokenCount, 1200);
-	});
-});
-
-// ─── createInstrumenterSnapshot ─────────────────────────────────
-
-describe("createInstrumenterSnapshot", () => {
-	it("returns same shape as handle.snapshot()", () => {
-		const inst = createInstrumenter();
-		inst.incrementEvent("tool_execution_start");
-		inst.trackPhase("tool");
-		inst.setTokenCount(500);
-
-		const snap = createInstrumenterSnapshot(inst);
-		assert.ok(snap.eventsTotal >= 1);
-		assert.ok(snap.timestamp > 0);
-		assert.equal(typeof snap.phaseTiming, "object");
-	});
-
-	it("produces valid InstrumentSnapshot with all fields", () => {
-		const inst = createInstrumenter();
-		const snap = createInstrumenterSnapshot(inst);
-		const requiredKeys: (keyof InstrumentSnapshot)[] = [
-			"eventsTotal",
-			"toolCalls",
-			"toolErrors",
-			"thinkingDeltas",
-			"textDeltas",
-			"tokenCount",
-			"phaseTiming",
-			"currentPhase",
-			"phaseTransitions",
-			"timestamp",
-		];
-		for (const key of requiredKeys) {
-			assert.ok(key in snap, `missing field: ${key}`);
-		}
 	});
 });
