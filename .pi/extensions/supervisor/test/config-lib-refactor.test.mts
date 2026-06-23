@@ -74,7 +74,7 @@ import { isStaleCheckpoint, readCheckpointFileFromPath } from "../pipeline/state
 import type { CheckpointName, SupervisorCheckpointState } from "../pipeline/state-checkpoint.ts";
 import type { AgentRunResult } from "../config/types.ts";
 import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
-import { resolveModelString, resolveModel, buildToolList } from "../session/model.ts";
+import { resolveModel, buildToolList } from "../session/model.ts";
 import { buildRawOutputFromMessages, buildAgentRunResult } from "../session/result.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 
@@ -370,17 +370,28 @@ describe("config→lib refactor — consumer files (session/)", () => {
 		assert.equal(typeof createSummaryRenderer, "function");
 	});
 
-	it("session/model.ts exports resolveModelString (pure function)", () => {
-		assert.equal(typeof resolveModelString, "function");
-		const result = resolveModelString("openai/gpt-4");
-		assert.deepEqual(result, { provider: "openai", modelId: "gpt-4" });
+	it("resolveModel returns undefined for null input", async () => {
+		assert.equal(await resolveModel(null as any), undefined);
 	});
 
-	it("session/model.ts exports resolveModelString edge cases", () => {
-		assert.equal(typeof resolveModelString, "function");
-		assert.equal(resolveModelString(""), null);
-		assert.equal(resolveModelString("   "), null);
-		assert.equal(resolveModelString("invalid"), null);
+	it("resolveModel returns undefined for undefined input", async () => {
+		assert.equal(await resolveModel(undefined as any), undefined);
+	});
+
+	it("resolveModel returns undefined for empty string", async () => {
+		assert.equal(await resolveModel(""), undefined);
+	});
+
+	it("resolveModel returns undefined for whitespace-only string", async () => {
+		assert.equal(await resolveModel("   "), undefined);
+	});
+
+	it("resolveModel returns undefined for string without slash", async () => {
+		assert.equal(await resolveModel("invalid"), undefined);
+	});
+
+	it("resolveModel returns undefined for three-part path (a/b/c)", async () => {
+		assert.equal(await resolveModel("a/b/c"), undefined);
 	});
 
 	it("session/model.ts exports buildToolList", () => {

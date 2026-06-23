@@ -3,7 +3,7 @@
 
 // ─── GhClient interface ───────────────────────────────────────────
 
-export interface GhClient {
+interface GhClient {
 	gh(
 		pi: ExtensionAPI,
 		args: string[],

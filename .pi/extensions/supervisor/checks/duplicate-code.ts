@@ -17,7 +17,7 @@ import { getChangedFilesFromGitDiff, isExecutableNotFound } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export interface CloneLocation {
+interface CloneLocation {
 	file: string;
 	startLine: number;
 	endLine: number;
@@ -42,7 +42,7 @@ export interface DuplicateCodeResult {
 // ─── jscpd Output Types ────────────────────────────────────────────
 
 /** A fragment from jscpd output — represents one location of a clone. */
-export interface JscpdFragment {
+interface JscpdFragment {
 	fragment: string;
 	file: string;
 	start: number;
@@ -107,6 +107,13 @@ function normalizeClone(clone: JscpdClone): NormalizedClone {
 		similarity,
 		locations,
 	};
+}
+
+/**
+ * Extract file paths from a jscpd clone's fragments.
+ */
+function cloneFiles(clone: JscpdClone): string[] {
+	return clone.fragments.map((frag) => frag.file);
 }
 
 /**
