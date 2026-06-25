@@ -75,6 +75,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
     apt-get update && \
     apt-get install -y --no-install-recommends gh && \
+    rm -rf /root/.cache/* /tmp/* && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------
@@ -89,7 +90,9 @@ RUN npm install -g --force \
         prettier \
         pyright \
         typescript \
-        typescript-language-server
+        typescript-language-server \
+    && npm cache clean --force \
+    && rm -rf /tmp/*
 
 # ---------------------------------------------------------------
 # Layer 5b: LSP server binaries (rust-analyzer, gopls)
@@ -137,7 +140,8 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
     /opt/venvs/scrapling-venv/bin/pip install --no-cache-dir \
         scrapling[fetchers] \
         markdownify \
-        beautifulsoup4
+        beautifulsoup4 \
+    && rm -rf /root/.cache/pip /tmp/*
 
 # Pre-download Chromium browser for scrapling Playwright fetcher
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
@@ -145,7 +149,8 @@ RUN /opt/venvs/scrapling-venv/bin/python -m playwright install chromium && \
     chmod -R a+rX /opt/playwright-browsers
 
 # World-readable so agentuser (created next layer) can access
-RUN chmod -R a+rX /opt/venvs
+RUN chmod -R a+rX /opt/venvs && \
+    rm -rf /root/.cache/* /tmp/*
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
