@@ -27,8 +27,7 @@ import { Value } from "typebox/value";
 
 import type { RgMatch, RgResult, SearchConfig } from "../types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "../config.ts";
-import { buildRgArgs, buildGrepArgs } from "../args.ts";
-import { parseVimgrepOutput } from "../parse.ts";
+import { buildRgArgs, buildGrepArgs, parseVimgrepOutput } from "../backends.ts";
 import {
 	buildStructuredSummary,
 	buildSearchErrorText,
