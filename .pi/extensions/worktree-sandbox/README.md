@@ -76,8 +76,7 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 Single-file extension with shell-aware path analysis:
 
 ```
-├── index.ts        # Entry: tool_call handler, path rewrite, shell-aware escape detection
-├── shell-tokens.ts # isCommandStart, findMeaningfulToken, SEPARATORS set
+├── index.ts        # Entry: tool_call handler, path rewrite, shell-aware escape detection + inlined token helpers
 └── test/           # Unit tests for all enforcement paths
 ```
 
