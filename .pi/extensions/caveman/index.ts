@@ -12,7 +12,7 @@ import {
 	resolveSessionLevel,
 	resetSessionLevel,
 	shouldAppendCavemanEntry,
-} from "../lib/extension-state.ts";
+} from "./session-level.ts";
 import { resolveCompression, shouldLightenCompression } from "./compression.ts";
 import { CAVEMAN_BASE, INTENSITY } from "./prompts.ts";
 
