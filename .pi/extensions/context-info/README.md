@@ -79,17 +79,16 @@ Reactive footer system with event-driven updates:
 
 ```
 ├── index.ts            # Entry: event hooks, state management, /explain-* commands
+│                       #   inlined: getWorktreeName, tryEmit, CASTLE_ART / cheasee-pi-info
 ├── footer.ts           # installFooter: builds TUI footer component tree
 ├── footer-state.ts     # FooterState: mutable state container with render triggers
 ├── config.ts           # Load config from .pi/settings.json
 ├── types.ts            # ThresholdEntry, TpsSample, FooterConfig interfaces
-├── git-helpers.ts      # Worktree name detection
-├── telemetry.ts        # tryEmit: lightweight telemetry
+├── markdown-resources.ts # Walker+extract: listMarkdownResources, inlined extractDescription
 ├── extensions.ts       # List active extensions
 ├── prompts.ts          # List available prompt templates
 ├── skills.ts           # List available skills
 ├── explain.ts          # createExplainCommand factory
-├── cheasee-pi-info.ts  # /cheasee-pi-info command
 └── test/               # Unit tests
 ```
 

@@ -9,8 +9,19 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join as joinPath } from "node:path";
-import { extractDescription } from "./frontmatter.ts";
 import type { Dirent } from "node:fs";
+
+// ── Inlined from frontmatter.ts (single consumer: this module) ──
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
+const DESCR_RE = /^description:\s*(.+)$/m;
+
+function extractDescription(content: string): string | null {
+	const head = content.split("\n").slice(0, 30).join("\n");
+	const fmMatch = FRONTMATTER_RE.exec(head);
+	if (!fmMatch) return null;
+	const descMatch = DESCR_RE.exec(fmMatch[1]);
+	return descMatch ? descMatch[1]!.trim() : null;
+}
 
 // ─── Types ────────────────────────────────────────────────────────
 

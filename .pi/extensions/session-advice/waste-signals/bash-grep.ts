@@ -1,23 +1,15 @@
 /**
  * bash-grep.ts — D3: bash | grep/rg/find where ripgrep_search exists
  *
- * Uses BashCommand from agent-harness for accurate command classification.
+ * Uses isBashSearch from lib/bash-query.ts for accurate command classification.
  * Pure function: takes SessionData, returns WasteSignal[].
  *
- * Domain layer: imports from agent-harness (covered by candidate #784).
+ * Domain layer: imports from lib/bash-query.ts (shared classification module).
  */
 
-import { BashCommand } from "../../agent-harness/lib/bash-command.ts";
+import { isBashSearch } from "../../lib/bash-query.ts";
 import type { SessionData, WasteSignal, SessionEntry } from "../types.ts";
 import { sumTokenCost, sumDollarCost } from "../token-utils.ts";
-
-/** Check if a bash command pipes from a file-reading command to grep/rg. */
-function isPipedFileGrep(cmd: string): boolean {
-	const low = cmd.toLowerCase();
-	return (
-		/^(cat|head|tail|less|more)\s/.test(low) && (low.includes("| grep") || low.includes("| rg"))
-	);
-}
 
 /**
  * Detect bash commands that use grep/rg for file searching instead of ripgrep_search.
@@ -29,7 +21,7 @@ export function detectBashGrep(data: SessionData): WasteSignal[] {
 	for (const e of data.entries) {
 		if (e.toolName !== "bash") continue;
 		const cmd = e.text ?? "";
-		if (new BashCommand(cmd).isSearch() || isPipedFileGrep(cmd)) {
+		if (isBashSearch(cmd)) {
 			bashGrepCalls.push(e);
 		}
 	}

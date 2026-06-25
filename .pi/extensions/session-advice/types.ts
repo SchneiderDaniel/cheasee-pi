@@ -59,9 +59,3 @@ export interface SessionData {
 	timestamp: string;
 	entries: SessionEntry[];
 }
-
-/**
- * Detector type signature — each waste-signal detector is a pure function
- * that takes parsed SessionData and returns zero or more WasteSignal objects.
- */
-export type Detector = (data: SessionData) => WasteSignal[];
