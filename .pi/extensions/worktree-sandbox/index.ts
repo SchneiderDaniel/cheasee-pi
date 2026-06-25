@@ -24,7 +24,6 @@ import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { parse } from "shell-quote";
 import type { ParseEntry } from "shell-quote";
-import { SEPARATORS, isCommandStart, findMeaningfulToken } from "./shell-tokens.ts";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -75,8 +74,6 @@ export function tokenizeCommand(cmd: string): ParseEntry[] {
 export function hasShellExpansion(token: string): boolean {
 	return /[\$`~{*?\[]/.test(token);
 }
-
-// SEPARATORS moved to shell-tokens.ts — re-exported below.
 
 /**
  * Shell-aware suspicious argument detection.
@@ -387,10 +384,93 @@ export function rewritePath(
 	return undefined;
 }
 
-// ─── Export ─────────────────────────────────────────────────────────
+// ─── Shell token helpers (inlined from shell-tokens.ts) ─────────────
+//
+// These helpers (isCommandStart, findMeaningfulToken, SEPARATORS) were
+// extracted to eliminate a triplicate isCommandStart/isCommandName/isStart
+// clone across findSuspiciousArg, findUnsafeCd, and findUnsafeWriteInBash.
+// They are inlined here because index.ts is the sole consumer — a dedicated
+// module is not justified until a second consumer materializes.
+// ──────────────────────────────────────────────────────────────────────
 
-export { SEPARATORS, isCommandStart, findMeaningfulToken } from "./shell-tokens.ts";
-export type { MeaningfulTokenResult } from "./shell-tokens.ts";
+/**
+ * Shell operators that start a new command in a pipeline.
+ */
+export const SEPARATORS = new Set(["|", "||", "|&", ";", ";;", "&&", "&"]);
+
+/**
+ * Result of findMeaningfulToken, giving callers full control over
+ * how separator/comment/glob/exhausted cases are handled.
+ *
+ * - kind: "token" → a string word was found
+ * - kind: "glob" → a glob operator ({ op: "glob" }) was found
+ * - kind: "separator" → a command separator (|, ||, etc.) was found
+ * - kind: "comment" → a shell comment was found
+ * - kind: "exhausted" → no more tokens to scan
+ */
+export type MeaningfulTokenResult =
+	| { kind: "token"; value: string; index: number }
+	| { kind: "glob"; pattern: string; index: number }
+	| { kind: "separator"; op: string; index: number }
+	| { kind: "comment"; index: number }
+	| { kind: "exhausted" };
+
+/**
+ * Check if a token at the given index starts a new command.
+ *
+ * A token starts a command if it is the first token (index 0) or
+ * the previous token is a separator operator (|, ||, |&, ;, ;;, &&, &).
+ */
+export function isCommandStart(tokens: ParseEntry[], index: number): boolean {
+	if (index === 0) return true;
+	const prev = tokens[index - 1];
+	return typeof prev === "object" && "op" in prev && SEPARATORS.has((prev as { op: string }).op);
+}
+
+/**
+ * Find the next meaningful token starting from the given position.
+ *
+ * Scans through the token array skipping non-separator operators (>, >>, (, ), etc.)
+ * but returns:
+ * - glob operators immediately (they're semantically file patterns that affect safety)
+ * - separator operators as-is (caller decides how to treat the command boundary)
+ * - comments as-is (caller decides whether to treat as end-of-interest)
+ * - string tokens (the next actual word argument)
+ */
+export function findMeaningfulToken(tokens: ParseEntry[], start: number): MeaningfulTokenResult {
+	let j = start;
+	while (j < tokens.length) {
+		const nextToken = tokens[j]!;
+
+		if (typeof nextToken === "object" && "op" in nextToken) {
+			if (nextToken.op === "glob") {
+				return { kind: "glob", pattern: nextToken.pattern ?? "", index: j };
+			}
+			if (SEPARATORS.has(nextToken.op)) {
+				return { kind: "separator", op: nextToken.op, index: j };
+			}
+			// Skip non-separator operators (e.g., >, >>, (, ))
+			j++;
+			continue;
+		}
+
+		if (typeof nextToken === "object" && "comment" in nextToken) {
+			return { kind: "comment", index: j };
+		}
+
+		// After filtering objects, remaining type must be string
+		if (typeof nextToken !== "string") {
+			// Unknown token type — skip defensively
+			j++;
+			continue;
+		}
+
+		// String token — meaningful word
+		return { kind: "token", value: nextToken, index: j };
+	}
+
+	return { kind: "exhausted" };
+}
 
 export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
