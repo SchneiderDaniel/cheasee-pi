@@ -6,11 +6,12 @@
  * - Bug 2: Discovery tools expanded beyond just read
  * - Bug 3: Threshold raised to >=15 tool calls, combined discovery check
  *
- * Co-locates DISCOVERY_TOOLS and isBashSearchOrRead (single-consumer helpers).
+ * Uses isBashSearchOrRead from lib/bash-query.ts for bash classification.
  * Pure function: takes SessionData, returns WasteSignal[].
  * Domain layer: zero pi dependencies, zero I/O.
  */
 
+import { isBashSearchOrRead } from "../../lib/bash-query.ts";
 import type { SessionData, WasteSignal, SessionEntry } from "../types.ts";
 import { getEntryPath, sumTokenCost, sumDollarCost } from "../token-utils.ts";
 
@@ -22,26 +23,6 @@ const DISCOVERY_TOOLS = new Set([
 	"web_crawl",
 	"ask_user",
 ]);
-
-/** True if a bash command is a search/read operation (grep, cat, head, tail). */
-function isBashSearchOrRead(cmd: string): boolean {
-	if (!cmd) return false;
-	const low = cmd.toLowerCase();
-	// Check piped grep/rg from file-reading commands only
-	if (/^(cat|head|tail|less|more)\s/.test(low) && /\|\s*grep\b|\|\s*rg\b/.test(low)) return true;
-	// Check file read commands
-	if (
-		low.startsWith("cat ") ||
-		low.startsWith("head ") ||
-		low.startsWith("tail ") ||
-		low.startsWith("less ") ||
-		low.startsWith("more ")
-	)
-		return true;
-	// Check using rg/grep/find as primary command
-	if (low.startsWith("grep ") || low.startsWith("rg ") || low.startsWith("find ")) return true;
-	return false;
-}
 
 /**
  * Detect turns with >=15 tool calls, 0 file changes, and 0 discovery events.
