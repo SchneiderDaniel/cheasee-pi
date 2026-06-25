@@ -462,7 +462,7 @@ export async function writeAdvice(
 			const auth = await modelRegistry
 				.getApiKeyAndHeaders(model)
 				.catch(() => ({ ok: false, error: "exception" }));
-			if (auth.ok && auth.apiKey) {
+			if (auth.ok && "apiKey" in auth && auth.apiKey) {
 				try {
 					llmAdvice = await generateAdvice(analysis, model, modelRegistry);
 				} catch (err) {

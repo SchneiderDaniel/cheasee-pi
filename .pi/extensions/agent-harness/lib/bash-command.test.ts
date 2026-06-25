@@ -7,144 +7,59 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { BashCommand } from "./bash-command.ts";
 
-// ── Entity: isSearch ──
+// ── Entity: isSearch (delegation wiring to bash-query) ──
 
-describe("BashCommand.isSearch", () => {
-	it("detects standalone grep", () => {
+describe("BashCommand.isSearch — delegation to bash-query", () => {
+	it("standalone grep → true", () => {
 		assert.equal(new BashCommand("grep foo").isSearch(), true);
 	});
 
-	it("detects standalone rg", () => {
-		assert.equal(new BashCommand("rg pattern").isSearch(), true);
+	it("piped file→grep: cat file | grep foo → true (new via delegation)", () => {
+		assert.equal(new BashCommand("cat file | grep foo").isSearch(), true);
 	});
 
-	it("false for piped rg (cmd | rg)", () => {
-		assert.equal(new BashCommand("ls | rg foo").isSearch(), false);
+	it("non-file pipe: ls | grep foo → false", () => {
+		assert.equal(new BashCommand("ls | grep foo").isSearch(), false);
 	});
 
-	it("false for semicolon chained rg (cmd; rg)", () => {
-		assert.equal(new BashCommand("cmd; rg foo").isSearch(), false);
-	});
-
-	it("false for && chained rg (cd src && rg)", () => {
+	it("&& chained: cd src && rg foo → false", () => {
 		assert.equal(new BashCommand("cd src && rg foo").isSearch(), false);
 	});
 
-	it("detects backtick grep", () => {
-		assert.equal(new BashCommand("`grep foo`").isSearch(), true);
+	it("; chained: echo hi; grep foo → false", () => {
+		assert.equal(new BashCommand("echo hi; grep foo").isSearch(), false);
 	});
 
-	it("detects backtick rg", () => {
-		assert.equal(new BashCommand("`rg`").isSearch(), true);
-	});
-
-	it("false for && chained with backtick grep in string arg", () => {
-		assert.equal(
-			new BashCommand("cd src && gh issue comment --body '`` `grep` ``'").isSearch(),
-			false,
-		);
-	});
-
-	it("false for && chained with backtick rg in string arg", () => {
-		assert.equal(new BashCommand("cd src && echo 'testing `rg` in body'").isSearch(), false);
-	});
-
-	// ── Phase 1: standalone commands with backtick grep/rg in quoted string args ──
-
-	it("false for standalone gh issue with backtick grep in body", () => {
-		assert.equal(
-			new BashCommand("gh issue create --body 'uses `grep` for searching'").isSearch(),
-			false,
-		);
-	});
-
-	it("false for standalone echo with backtick rg in string", () => {
-		assert.equal(new BashCommand("echo 'testing `rg` in the code'").isSearch(), false);
-	});
-
-	it("false for standalone gh issue with backtick grep pattern in body", () => {
-		assert.equal(
-			new BashCommand("gh issue create --body 'found by `grep` pattern'").isSearch(),
-			false,
-		);
-	});
-
-	it("false for grep with redirect", () => {
-		assert.equal(new BashCommand("grep foo > out.txt").isSearch(), true);
-	});
-
-	it("false for empty command", () => {
+	it("empty → false", () => {
 		assert.equal(new BashCommand("").isSearch(), false);
+	});
+
+	it("BashCommand.from('grep foo').isSearch() → true", () => {
+		assert.equal(BashCommand.from("grep foo").isSearch(), true);
 	});
 });
 
-// ── Entity: isFileRead ──
+// ── Entity: isFileRead (delegation wiring to bash-query) ──
 
-describe("BashCommand.isFileRead", () => {
-	it("detects cat file read", () => {
+describe("BashCommand.isFileRead — delegation to bash-query", () => {
+	it("cat file.ts → true", () => {
 		assert.equal(new BashCommand("cat file.ts").isFileRead(), true);
 	});
 
-	it("detects head file read", () => {
-		assert.equal(new BashCommand("head -5 file.ts").isFileRead(), true);
-	});
-
-	it("detects tail file read", () => {
-		assert.equal(new BashCommand("tail -10 file.ts").isFileRead(), true);
-	});
-
-	it("detects less file read", () => {
-		assert.equal(new BashCommand("less file.ts").isFileRead(), true);
-	});
-
-	it("detects more file read", () => {
-		assert.equal(new BashCommand("more file.ts").isFileRead(), true);
-	});
-
-	// ── Phase 1 characterization: each READ_BASH_CMDS value triggers isFileRead ──
-
-	it("cat triggers isFileRead (characterization)", () => {
-		assert.equal(new BashCommand("cat file.ts").isFileRead(), true);
-	});
-
-	it("head triggers isFileRead (characterization)", () => {
-		assert.equal(new BashCommand("head -5 f.ts").isFileRead(), true);
-	});
-
-	it("tail triggers isFileRead (characterization)", () => {
-		assert.equal(new BashCommand("tail -10 f.ts").isFileRead(), true);
-	});
-
-	it("less triggers isFileRead (characterization)", () => {
-		assert.equal(new BashCommand("less f.ts").isFileRead(), true);
-	});
-
-	it("more triggers isFileRead (characterization)", () => {
-		assert.equal(new BashCommand("more f.ts").isFileRead(), true);
-	});
-
-	it("false for cat with write redirect (cat >)", () => {
+	it("cat > /tmp/foo → false (redirect suppresses)", () => {
 		assert.equal(new BashCommand("cat > /tmp/foo").isFileRead(), false);
 	});
 
-	it("false for cat with append redirect (cat >>)", () => {
-		assert.equal(new BashCommand("cat >> file").isFileRead(), false);
-	});
-
-	it("false for cat with concat redirect (cat > combined)", () => {
-		assert.equal(new BashCommand("cat a.ts b.ts > combined.ts").isFileRead(), false);
-	});
-
-	it("false for head in pipe (not first)", () => {
+	it("ls -la | head -5 → false (piped read, not first segment)", () => {
 		assert.equal(new BashCommand("ls -la | head -5").isFileRead(), false);
 	});
 
-	it("false for tail in pipe (not first)", () => {
-		assert.equal(new BashCommand("ls -lt | tail -10").isFileRead(), false);
+	it("empty → false", () => {
+		assert.equal(new BashCommand("").isFileRead(), false);
 	});
 
-	it("false for empty command", () => {
-		assert.equal(new BashCommand("").isFileRead(), false);
+	it("BashCommand.from('cat file.ts').isFileRead() → true", () => {
+		assert.equal(BashCommand.from("cat file.ts").isFileRead(), true);
 	});
 });
 
@@ -378,6 +293,22 @@ describe("BashCommand.detectMismatch", () => {
 		assert.ok(result!.suggestion.includes("ripgrep_search"));
 	});
 
+	// ── Phase 2: piped file→grep now detected via delegation ──
+
+	it("piped file→grep: cat file | grep foo → mismatch (new via delegation)", () => {
+		const result = new BashCommand("cat file | grep foo").detectMismatch();
+		assert.notEqual(result, null);
+		assert.equal(result!.category, "tool-mismatch");
+		assert.ok(result!.suggestion.includes("ripgrep_search"));
+	});
+
+	it("piped file→rg: cat file | rg foo → mismatch (new via delegation)", () => {
+		const result = new BashCommand("cat file | rg foo").detectMismatch();
+		assert.notEqual(result, null);
+		assert.equal(result!.category, "tool-mismatch");
+		assert.ok(result!.suggestion.includes("ripgrep_search"));
+	});
+
 	it("grep with redirect in standalone → mismatch", () => {
 		const result = new BashCommand("grep foo > out.txt").detectMismatch();
 		assert.notEqual(result, null);
@@ -490,6 +421,16 @@ describe("BashCommand.suggestRedirection", () => {
 
 	it("more triggers suggestRedirection 'read' (characterization)", () => {
 		assert.equal(new BashCommand("more f.ts").suggestRedirection(), "read");
+	});
+
+	// ── Phase 2: piped file→grep now detected via delegation ──
+
+	it("piped file→grep: cat file | grep foo → ripgrep_search (new via delegation)", () => {
+		assert.equal(new BashCommand("cat file | grep foo").suggestRedirection(), "ripgrep_search");
+	});
+
+	it("piped file→rg: cat file | rg foo → ripgrep_search (new via delegation)", () => {
+		assert.equal(new BashCommand("cat file | rg foo").suggestRedirection(), "ripgrep_search");
 	});
 
 	// ── Phase 1 characterization: edge cases for suggestRedirection ──

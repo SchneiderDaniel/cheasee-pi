@@ -110,4 +110,21 @@ describe("detectBashGrep", () => {
 	it("empty session → 0 signals", () => {
 		assert.strictEqual(detectBashGrep(makeSession([])).length, 0);
 	});
+
+	// ── Bug fix: variant pipe spacing now handled by bash-query regex ──
+
+	it("variant spacing: cat file |  grep foo (two spaces after pipe) → 1 signal", () => {
+		const data = makeSession([bashEntry("cat file |  grep foo", 0)]);
+		assert.strictEqual(detectBashGrep(data).length, 1);
+	});
+
+	it("variant spacing: cat file |grep foo (no space after pipe) → 1 signal", () => {
+		const data = makeSession([bashEntry("cat file |grep foo", 0)]);
+		assert.strictEqual(detectBashGrep(data).length, 1);
+	});
+
+	it("word boundary: cat file | grepped → 0 signals (prefix match rejected)", () => {
+		const data = makeSession([bashEntry("cat file | grepped", 0)]);
+		assert.strictEqual(detectBashGrep(data).length, 0);
+	});
 });
