@@ -14,7 +14,7 @@ import {
 	resetSessionLevel,
 	resolveSessionLevel,
 	shouldAppendCavemanEntry,
-} from "../../lib/extension-state.ts";
+} from "../session-level.ts";
 import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 import type { Level } from "../types.ts";
 
