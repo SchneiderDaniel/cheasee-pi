@@ -95,8 +95,7 @@ Dual-backend search engine with unified output format:
 ├── index.ts     # Entry: tool registration, backend resolution, execute, renderers
 ├── internal.ts  # Query validation, temp directory lifecycle, in-memory result cache (FIFO, 100 entries)
 ├── config.ts    # Load SearchConfig from .pi/settings.json, resolve backend, detect ripgrep on PATH
-├── args.ts      # Build rg --vimgrep args or grep -rnH args (pre-escaped, no shell injection)
-├── parse.ts     # Parse --vimgrep output (file:line:column:text) and grep -rnH output
+├── backends.ts  # Build + parse for each search backend: ripgrep (--vimgrep) and grep (-rnH)
 ├── types.ts     # RgMatch, RgResult, SearchConfig interfaces
 └── test/        # Fixtures + parser tests
 ```

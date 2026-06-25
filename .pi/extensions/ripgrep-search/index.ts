@@ -14,8 +14,7 @@ import { pathToFileURL } from "node:url";
 
 import type { RgResult, SearchConfig } from "./types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "./config.ts";
-import { buildRgArgs, buildGrepArgs } from "./args.ts";
-import { parseVimgrepOutput, parseGrepOutput } from "./parse.ts";
+import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "./backends.ts";
 import {
 	validateQuery,
 	registerTempDir,
@@ -181,6 +180,7 @@ async function saveOversizedOutput(rawStdout: string | undefined): Promise<strin
 	return fop;
 }
 
+/** @public */
 export default function ripgrepSearch(pi: ExtensionAPI): void {
 	let rgAvailable: boolean | null = null;
 	let searchConfig: SearchConfig | null = null;
