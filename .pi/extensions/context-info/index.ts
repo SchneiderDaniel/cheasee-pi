@@ -7,13 +7,15 @@
  * Works with any theme. Use /explain-extensions to list all active extensions.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { existsSync, readFileSync } from "node:fs";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { loadConfig, readPiSetting } from "./config.ts";
-import { getWorktreeName } from "./git-helpers.ts";
-import { tryEmit } from "./telemetry.ts";
 import { installFooter } from "./footer.ts";
 import { FooterState } from "./footer-state.ts";
-import { registerCheaseePiInfo } from "./cheasee-pi-info.ts";
 import { listLocalExtensions } from "./extensions.ts";
 import type { ExtensionMeta } from "./extensions.ts";
 import { listLocalPrompts } from "./prompts.ts";
@@ -21,6 +23,82 @@ import type { PromptMeta } from "./prompts.ts";
 import { listLocalSkills } from "./skills.ts";
 import type { SkillMeta } from "./skills.ts";
 import { createExplainCommand, formatWithWordWrap } from "./explain.ts";
+
+// ── Inlined helpers ──────────────────────────────────────────
+// Inlined from git-helpers.ts (single consumer: this module)
+
+function getWorktreeName(cwd: string): string | null {
+	try {
+		const gitFile = `${cwd}/.git`;
+		if (!existsSync(gitFile)) return null;
+		const content = readFileSync(gitFile, "utf-8");
+		const match = content.match(/^gitdir:\s*(.+)$/m);
+		if (!match) return null;
+		const gitDir = match[1]!.trim();
+		const wtMatch = gitDir.match(/worktrees\/(.+?)(\/|$)/);
+		return wtMatch ? wtMatch[1]! : "worktree";
+	} catch {
+		return null;
+	}
+}
+
+function isJsonMode(): boolean {
+	const idx = process.argv.indexOf("--mode");
+	if (idx !== -1 && idx + 1 < process.argv.length) {
+		return process.argv[idx + 1] === "json";
+	}
+	return false;
+}
+
+function tryEmit(
+	ctx: { getContextUsage: () => { tokens?: number | null; contextWindow?: number } | undefined },
+	state: {
+		emitted: boolean;
+		footerConfig: { lastContextWindow: { value: number | undefined } };
+	},
+): void {
+	if (state.emitted) return;
+	const cw = state.footerConfig.lastContextWindow.value;
+	if (!cw || cw <= 0) return;
+	const usage = ctx.getContextUsage();
+	if (!usage || typeof usage.tokens !== "number" || usage.tokens <= 0) return;
+	state.emitted = true;
+	if (isJsonMode()) return;
+	console.log(
+		JSON.stringify({
+			type: "context_info",
+			contextTokens: usage.tokens,
+			contextWindow: cw,
+		}),
+	);
+}
+
+// Inlined from cheasee-pi-info.ts (single consumer: this module)
+const CASTLE_ART: string[] = [
+	"                                                #@@@%+:",
+	"                                              %@#===+#%@@@#:",
+	"                                             %@+=========+*%@@#.",
+	"                                            #@======------====#%@#:",
+	"                                          :#@+==========-----====*%@%:",
+	"                                        :#@#===+@@%*+=======--:-====*%@*.",
+	"                                      -#@*=======+*#@@%*+=====--======+#@%-",
+	"                                    =@@*=============+*%@%+-=======++**==*%%",
+	"                                  =%%*==================+**====+#%@@#*=    #@",
+	"                                +%%*=========================*@@+.         @=",
+	"                              -*#=:---================+*#%%@@@=             @%",
+	"                            =#*-:--:-=====-:::-==*#+%@+==.                  %@",
+	"                         .#%+=::-:-==:*#%@#+%@%+.                           #@",
+	"                       .@@#=:===%*%%*+#=:   Session:  \u{1F7E2} Logger  \u{1F7E2} Advice  #@",
+	"                      #@#-:.+%-..                                           %@",
+	"                      %%                                                    @@",
+	"                      %%   \u{1F9F0} Extensions: 8  (/explain-extensions)         #@",
+	"                      %%   \u{1F4DD} Prompts:    6  (/explain-prompts)            =@",
+	"                      %%   \u{1F3A8} Themes:     3                               #@",
+	"                      %%   \u{1F527} Skills:     4  (/explain-skills)             =@",
+	"                      %@                                                 ## %@",
+	"                      #@*==+**#%@@%#+:.@*%%+-.@*%%=@.@*%%+-. *%%+-==*%%+-. *%%",
+	"                      #@*=%==*%%+-.=+**#%%=@.@*%%+-. *%%+-@@%#+:.@*%%+-.@* *%%",
+];
 
 // ── Module-level state reference for exported supervisor helpers ───
 // Allows setSupervisorIssueData/clearSupervisorIssueData to access
@@ -91,7 +169,14 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	// ── cheasee-pi-info command ────────────────────────────
-	registerCheaseePiInfo(pi);
+	// ponytail: inlined from cheasee-pi-info.ts — single consumer
+	pi.registerCommand("cheasee-pi-info", {
+		description: "Show castle ASCII art — static info display",
+		handler: async (_args: string | undefined, ctx: ExtensionCommandContext) => {
+			const art = CASTLE_ART.join("\n");
+			ctx.ui.notify(art, "info");
+		},
+	});
 
 	// ── Cross-extension event listeners (shared pi.events) ─────────
 	// Listen for supervisor issue data events instead of dynamic import.

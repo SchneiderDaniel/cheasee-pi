@@ -15,6 +15,8 @@
  *
  */
 
+import { isBashSearch, isBashFileRead } from "../../lib/bash-query.ts";
+
 // ── Re-export the segment type ──
 
 /** A single segment of a piped bash command. */
@@ -131,15 +133,6 @@ export function parseBashCmd(cmd: string): BashSegment[] {
  * ```
  */
 export class BashCommand {
-	/** Bash file-reading commands that should use `read` tool instead. */
-	private static readonly READ_BASH_CMDS: readonly string[] = Object.freeze([
-		"cat",
-		"head",
-		"tail",
-		"less",
-		"more",
-	]);
-
 	/**
 	 * Bash commands that modify files — triggers read cache invalidation.
 	 */
@@ -184,68 +177,23 @@ export class BashCommand {
 	}
 
 	/**
-	 * True if this is a pure, un-piped grep/rg call that should use
+	 * True if this bash command is a search operation that should use
 	 * the ripgrep_search tool instead.
 	 *
-	 * Logic matches harness-rules.ts isSearchInBash():
-	 *  - Piped, && chained, ; chained → not search (pass through)
-	 *  - Standalone grep/rg as first token → search
-	 *  - Backtick grep/rg as first token → search (standalone only)
-	 *  - Backtick grep/rg inside quoted string args → NOT search
+	 * Delegates to `isBashSearch` from lib/bash-query.ts for classification.
 	 */
 	isSearch(): boolean {
-		if (!this.raw) return false;
-
-		// Only standalone calls — complex pipelines pass through
-		if (!this.isStandalone()) {
-			return false;
-		}
-
-		// For standalone commands, check first segment only
-		if (this.segments.length === 0) return false;
-
-		const firstSeg = this.segments[0];
-		if (!firstSeg || firstSeg.tokens.length === 0) return false;
-
-		const first = firstSeg.tokens[0];
-
-		// Backtick patterns: `grep`, `rg` — search when first token
-		// starts with backtick + grep/rg (actual command, not string arg)
-		if (first.startsWith("`grep") || first.startsWith("`rg")) {
-			return true;
-		}
-
-		return first === "grep" || first === "rg";
+		return isBashSearch(this.raw);
 	}
 
 	/**
 	 * True if the command is a bash file-read that should use the
 	 * `read` tool instead (cat/head/tail/less/more as first command).
 	 *
-	 * Logic matches harness-rules.ts isCatHeadTailInBash():
-	 *  - Checks FIRST segment only (pipe-chain head)
-	 *  - Redirect (write/append) → not a read
-	 *  - Piped context → not a read
+	 * Delegates to `isBashFileRead` from lib/bash-query.ts for classification.
 	 */
 	isFileRead(): boolean {
-		if (!this.raw) return false;
-
-		if (this.segments.length === 0) return false;
-
-		// Check the FIRST segment only (pipe-chain head)
-		const firstSeg = this.segments[0];
-		if (!firstSeg || firstSeg.tokens.length === 0) return false;
-
-		// If first segment has redirect (write/append), it's not a read
-		if (firstSeg.redirect) return false;
-
-		// Check first token against READ_BASH_CMDS
-		const firstToken = firstSeg.tokens[0];
-		if (BashCommand.READ_BASH_CMDS.includes(firstToken)) {
-			return true;
-		}
-
-		return false;
+		return isBashFileRead(this.raw);
 	}
 
 	/**
@@ -317,6 +265,7 @@ export class BashCommand {
 	 * Used by both detectMismatch() (which maps to category/suggestion objects)
 	 * and suggestRedirection() (which maps to tool-name strings).
 	 *
+	 * Delegates to isSearch()/isFileRead() which delegate to lib/bash-query.ts.
 	 * NOTE: Redirect (>) does NOT suppress grep/rg search detection —
 	 * a user piping grep results to a file should still be told to use
 	 * ripgrep_search. However, redirect DOES suppress file-read detection
@@ -324,37 +273,10 @@ export class BashCommand {
 	 */
 	private detectMismatchKind(): "search" | "file-read" | null {
 		if (!this.raw) return null;
-
 		if (this.segments.length === 0) return null;
 
-		// Search in bash (grep/rg as first token — standalone only, not piped)
-		// Redirect does NOT suppress search detection
-		if (this.isStandalone()) {
-			for (const seg of this.segments) {
-				if (seg.tokens.length >= 1) {
-					const first = seg.tokens[0];
-					// Backtick patterns: `grep`, `rg` — search when first token
-					// starts with backtick + grep/rg (actual command, not string arg)
-					if (first.startsWith("`grep") || first.startsWith("`rg")) {
-						return "search";
-					}
-					if (first === "grep" || first === "rg") {
-						return "search";
-					}
-				}
-			}
-		}
-
-		// File read in bash (cat/head/tail — first segment, no redirect)
-		const firstSeg = this.segments[0];
-		if (firstSeg && firstSeg.tokens.length >= 1 && !firstSeg.redirect) {
-			const first = firstSeg.tokens[0];
-			for (const c of BashCommand.READ_BASH_CMDS) {
-				if (first === c) {
-					return "file-read";
-				}
-			}
-		}
+		if (this.isSearch()) return "search";
+		if (this.isFileRead()) return "file-read";
 
 		return null;
 	}
