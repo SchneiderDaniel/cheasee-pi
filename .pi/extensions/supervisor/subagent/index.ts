@@ -315,6 +315,40 @@ export async function executeSubagent(
 									? r.text.slice(0, 2_000)
 									: JSON.stringify(r, null, 2).slice(0, 2_000);
 					}
+					// ponytail: fallback when session event has no result field
+					// (e.g., afterToolCall returns undefined in subagent session).
+					// Try extracting from session agent messages (toolResult role).
+					if (!resultStr && session) {
+						try {
+							const msgs = (session as any).messages || [];
+							const lastToolResult = [...msgs]
+								.reverse()
+								.find((m: any) => m.role === "toolResult" && m.toolCallId === rawEvt.toolCallId);
+							if (lastToolResult) {
+								const content = lastToolResult.content;
+								if (Array.isArray(content)) {
+									const tb = content.find(
+										(c: any) => c.type === "text" && typeof c.text === "string",
+									);
+									if (tb) resultStr = tb.text.slice(0, 2_000);
+								} else if (typeof content === "string") {
+									resultStr = content.slice(0, 2_000);
+								}
+							}
+						} catch {
+							// Ignore errors from messages fallback
+						}
+					}
+					// ponytail: last-resort fallback — show raw event JSON so box
+					// never appears empty when result extraction fails.
+					if (!resultStr) {
+						try {
+							const preview = JSON.stringify(rawEvt).slice(0, 2_000);
+							if (preview && preview !== "{}") resultStr = preview;
+						} catch {
+							// ignore
+						}
+					}
 					// Compute tool duration
 					const tcId = (event.toolCallId as string) || `tool_${toolResults.length}`;
 					const startTs = toolStartTimestamps.get(tcId);

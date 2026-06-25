@@ -1143,7 +1143,7 @@ export async function executeAgent(
 	const taskPreview = issueTitle || task.split("\n")[0]?.slice(0, 120) || "";
 	pi.sendMessage({
 		customType: "supervisor",
-		content: `**⚙ ${agent.config.name}** — Starting\n\nModel: \`${shortModel}\`\nTask: ${taskPreview}`,
+		content: `subagent ${agent.config.name} — ${taskPreview}`,
 		display: true,
 		details: { eventType: "phase-change", agentName: agent.config.name, phase: "starting" },
 	});
@@ -1158,16 +1158,13 @@ export async function executeAgent(
 		clearWidget = () => {};
 	}
 
-	// Track state for delta event dispatch
-	let lastPhase: string | undefined;
-	let lastCurrentTool: string | undefined;
+	// Track last tool result count for delta dispatch
 	let lastResultCount = 0;
-	let lastCompacted = false;
-	let lastStatusLabel: string | undefined;
 	let lastSentThinking = "";
 
-	// Primary: pi.executeTool dispatches through registered tool with expanded onUpdate.
-	// onUpdate sends per-event messages for ALL lifecycle events via eventType discriminator.
+	// ponytail: widget provides live step-by-step progress above editor.
+	// Per-tool-result messages with colored rendering sent as eventType: "tool-complete"
+	// for rich step-by-step TUI feedback (green ✓ / red ✗ with full-width background).
 	const toolResult = await pi.executeTool(
 		"subagent",
 		{
@@ -1183,46 +1180,12 @@ export async function executeAgent(
 				const d = partial.details;
 				if (!d) return;
 
-				// Widget (above editor, zero session cost)
+				// Widget (above editor, zero session cost, always renders)
 				if (ctx.hasUI && widgetId) {
 					renderWidgetFromDetails(d, agent.config.name, shortModel, ctx, widgetId);
 				}
 
-				// ── Per-event lifecycle messages via eventType discriminator ──
-				const agentName = agent.config.name;
-
-				// 1. Phase change
-				if (d.phase && d.phase !== lastPhase) {
-					lastPhase = d.phase;
-					pi.sendMessage({
-						customType: "supervisor",
-						content: `⏳ ${agentName} — ${d.phase} phase`,
-						display: true,
-						details: { eventType: "phase-change", agentName, phase: d.phase },
-					});
-				}
-
-				// 2. Tool start
-				if (d.currentTool && d.currentTool !== lastCurrentTool) {
-					lastCurrentTool = d.currentTool;
-					let argsStr = "";
-					if (d.currentToolArgs) {
-						try {
-							const parsed = JSON.parse(d.currentToolArgs);
-							argsStr = JSON.stringify(parsed).slice(0, 120);
-						} catch {
-							argsStr = d.currentToolArgs.slice(0, 120);
-						}
-					}
-					pi.sendMessage({
-						customType: "supervisor",
-						content: `⏳ ${agentName} — ${d.currentTool} ${argsStr}`,
-						display: true,
-						details: { eventType: "tool-start", agentName, toolName: d.currentTool, args: argsStr },
-					});
-				}
-
-				// 3. Tool completed (delta-based on toolResults length)
+				// ── Per-tool-result colored messages ──
 				const tr = d.toolResults;
 				const trCount = tr?.length || 0;
 				if (trCount > lastResultCount && tr) {
@@ -1240,13 +1203,13 @@ export async function executeAgent(
 							const a = call.args;
 							if (typeof a.path === "string") {
 								argsStr = a.path;
-								const parts = [];
+								const parts: string[] = [];
 								if (a.offset !== undefined) parts.push(`offset=${a.offset}`);
 								if (a.limit !== undefined) parts.push(`limit=${a.limit}`);
 								if (parts.length) paramsStr = parts.join(" ");
 							} else if (typeof a.url === "string") {
 								argsStr = a.url;
-								const parts = [];
+								const parts: string[] = [];
 								if (a.maxPages !== undefined) parts.push(`maxPages=${a.maxPages}`);
 								if (a.maxTokens !== undefined) parts.push(`maxTokens=${a.maxTokens}`);
 								if (parts.length) paramsStr = parts.join(" ");
@@ -1255,14 +1218,14 @@ export async function executeAgent(
 								if (a.timeout !== undefined) paramsStr = `timeout=${a.timeout}s`;
 							} else if (typeof a.query === "string") {
 								argsStr = a.query.slice(0, 100);
-								const parts = [];
+								const parts: string[] = [];
 								if (a.directory) parts.push(`dir:${a.directory}`);
 								if (a.max_count !== undefined) parts.push(`max=${a.max_count}`);
 								if (a.maxResults) parts.push(`maxResults=${a.maxResults}`);
 								if (parts.length) paramsStr = parts.join(" ");
 							} else if (typeof a.agent === "string") {
 								argsStr = a.agent;
-								const parts = [];
+								const parts: string[] = [];
 								if (a.maxToolCalls !== undefined) parts.push(`maxTools=${a.maxToolCalls}`);
 								if (a.agentTokenBudget !== undefined) parts.push(`budget=${a.agentTokenBudget}`);
 								if (parts.length) paramsStr = parts.join(" ");
@@ -1280,6 +1243,7 @@ export async function executeAgent(
 								argsStr = JSON.stringify(a).slice(0, 120);
 							}
 						}
+						// Error reason from result or thinking
 						const rWithResult = r as any;
 						let errorReason = "";
 						if (r.isError) {
@@ -1288,30 +1252,46 @@ export async function executeAgent(
 							} else {
 								const errLine = thinking
 									.split("\n")
-									.filter((l) => /error|fail|denied|ENOENT|not found|blocked/i.test(l))
+									.filter((l: string) => /error|fail|denied|ENOENT|not found|blocked/i.test(l))
 									.pop();
 								errorReason = errLine ? errLine.slice(0, 200) : "Tool failed";
 							}
 						}
+						// Incremental thinking (new since last sent)
 						const thinkMatch = fullText.match(/(?:^|\n)💭\n([\s\S]*?)(?:\n\n|$)/);
 						const currentThinking = thinkMatch ? thinkMatch[1] : "";
 						const incremental = currentThinking.startsWith(lastSentThinking)
 							? currentThinking.slice(lastSentThinking.length).trimStart()
 							: currentThinking;
 						lastSentThinking = currentThinking;
+
+						// Send thinking as its own message block (before tool result)
+						// so the TUI shows: 💭 thinking ... ➜ ✓ tool call result
+						if (incremental) {
+							pi.sendMessage({
+								customType: "supervisor",
+								content: `💭 ${agent.config.name} — ${r.name}`,
+								display: true,
+								details: {
+									eventType: "thinking",
+									content: incremental,
+									agentName: agent.config.name,
+								},
+							});
+						}
+
 						pi.sendMessage({
 							customType: "supervisor",
 							content: `${r.name} \`${argsStr}\``,
 							display: true,
 							details: {
 								eventType: "tool-complete",
-								agentName,
 								toolName: r.name,
 								args: argsStr,
 								params: paramsStr || undefined,
 								isError: !!r.isError,
 								errorReason,
-								thinking: incremental,
+								// thinking NOT embedded — sent as separate message above
 								resultText: rWithResult.result ? rWithResult.result.slice(0, 2000) : undefined,
 								toolIndex: `#${i + 1}`,
 								runningTokenCount: d.runningTokenCount,
@@ -1325,35 +1305,6 @@ export async function executeAgent(
 						});
 					}
 					lastResultCount = trCount;
-				}
-
-				// 4. Compaction detection
-				if (d.compacted && !lastCompacted) {
-					lastCompacted = true;
-					pi.sendMessage({
-						customType: "supervisor",
-						content: "⚠ compacted",
-						display: true,
-						details: { eventType: "compaction", agentName },
-					});
-				}
-
-				// 5. Budget exceeded detection
-				if (d.statusLabel === "BUDGET_EXCEEDED" && lastStatusLabel !== "BUDGET_EXCEEDED") {
-					lastStatusLabel = d.statusLabel;
-					pi.sendMessage({
-						customType: "supervisor",
-						content: `⚠ ${agentName} — budget exceeded (${d.runningToolCount ?? "?"} tools, ${d.runningTokenCount ?? "?"} tokens)`,
-						display: true,
-						details: {
-							eventType: "budget-exceeded",
-							agentName,
-							toolCount: d.runningToolCount ?? 0,
-							tokenCount: d.runningTokenCount ?? 0,
-						},
-					});
-				} else if (d.statusLabel && d.statusLabel !== lastStatusLabel) {
-					lastStatusLabel = d.statusLabel;
 				}
 			},
 		},
