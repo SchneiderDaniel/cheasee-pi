@@ -48,8 +48,7 @@ Refactor `.pi/extensions/ripgrep-search.ts` from a 806-line monolith into a dire
 ├── index.ts          # Entry: registrations, events, render (< 150 lines)
 ├── types.ts          # Shared types: RgMatch, RgResult, SearchConfig (~30 lines)
 ├── config.ts         # Config loading + backend resolution (~80 lines)
-├── args.ts           # CLI arg builders for rg/grep (~50 lines)
-├── parse.ts          # Output parsers for rg --vimgrep and grep -rnH (~70 lines)
+├── backends.ts       # Backend build + parse: ripgrep (--vimgrep) and grep (-rnH) (~200 lines)
 ├── validate.ts       # Query validation, collision rules (~45 lines)
 └── temp.ts           # Temp dir tracking + lifecycle cleanup (~35 lines)
 ```
@@ -59,14 +58,13 @@ Refactor `.pi/extensions/ripgrep-search.ts` from a 806-line monolith into a dire
 ```
 types.ts          (zero deps)
 ├── config.ts     (imports types)
-├── parse.ts      (imports types)
-├── args.ts       (imports nothing — standalone)
+├── backends.ts   (imports types)
 ├── validate.ts   (imports nothing — standalone)
 ├── temp.ts       (imports nothing — standalone)
-└── index.ts      (imports types, config, args, parse, validate, temp)
+└── index.ts      (imports types, config, backends, validate, temp)
 ```
 
-No circular imports. Pure modules (parse, args, validate, temp) import zero pi SDK.
+No circular imports. Pure modules (backends, validate, temp) import zero pi SDK (backends imports only types.ts).
 
 ### Tools
 
@@ -140,8 +138,7 @@ export interface SearchConfig {
 | ------------- | --------------------------------------------------------------- | ------ |
 | `types.ts`    | RgMatch, RgResult, SearchConfig interfaces                      | 30     |
 | `config.ts`   | `loadSearchConfig()`, `resolveBackend()`, `ripgrepAvailable()`  | 80     |
-| `args.ts`     | `buildRgArgs()`, `buildGrepArgs()`                              | 50     |
-| `parse.ts`    | `parseVimgrepOutput()`, `parseGrepOutput()`                     | 70     |
+| `backends.ts` | `buildRgArgs()`, `buildGrepArgs()`, `parseVimgrepOutput()`, `parseGrepOutput()` | ~200   |
 | `validate.ts` | `validateQuery()` — collision rule logic                        | 45     |
 | `temp.ts`     | `registerTempDir()`, `cleanupTrackedTempDirs()`                 | 35     |
 | `index.ts`    | Default export, event hooks, tool registration, execute, render | 250    |
@@ -151,7 +148,7 @@ Total: ~560 lines (vs 806 in monolith) — reduction from de-duplicated import/t
 ### Test Strategy
 
 **Phase 1 — Reexport pure functions from modules**
-After extracting modules, update `test/ripgrep-search.test.mts` to `import` from `../../.pi/extensions/ripgrep-search/parse.ts` etc. instead of maintaining inline copies. This eliminates the 1362-line test duplication.
+After extracting modules, update `test/ripgrep-search.test.mts` to `import` from `../../.pi/extensions/ripgrep-search/backends.ts` etc. instead of maintaining inline copies. This eliminates the 1362-line test duplication.
 
 **Phase 2 — Integration test**
 Keep the existing rg-binary integration test. Update imports.
@@ -188,16 +185,15 @@ Keep the existing rg-binary integration test. Update imports.
 1. **Create directory** `.pi/extensions/ripgrep-search/`
 2. **Extract `types.ts`** — interfaces only, zero deps
 3. **Extract `config.ts`** — config loading + backend resolution
-4. **Extract `args.ts`** — arg builders (pure)
-5. **Extract `parse.ts`** — output parsers (pure)
-6. **Extract `validate.ts`** — query validation (pure)
-7. **Extract `temp.ts`** — temp dir tracking + cleanup
-8. **Rewrite `index.ts`** — imports all modules, contains only entry logic, tool registration, execute, renders
-9. **Verify**: `pi -e .pi/extensions/ripgrep-search/index.ts -p "test"` loads without error
-10. **Delete** old monolith `.pi/extensions/ripgrep-search.ts`
-11. **Update benchmark script** path: `ripgrep-search.ts` → `ripgrep-search/index.ts`
-12. **Update tests**: import from modules instead of inline copies
-13. **Final verification**: run tests + extension loads in real session
+4. **Extract `backends.ts`** — backend build+parse: `buildRgArgs()`, `buildGrepArgs()`, `parseVimgrepOutput()`, `parseGrepOutput()` (pure)
+5. **Extract `validate.ts`** — query validation (pure)
+6. **Extract `temp.ts`** — temp dir tracking + cleanup
+7. **Rewrite `index.ts`** — imports all modules, contains only entry logic, tool registration, execute, renders
+8. **Verify**: `pi -e .pi/extensions/ripgrep-search/index.ts -p "test"` loads without error
+9. **Delete** old monolith `.pi/extensions/ripgrep-search.ts`
+10. **Update benchmark script** path: `ripgrep-search.ts` → `ripgrep-search/index.ts`
+11. **Update tests**: import from modules instead of inline copies
+12. **Final verification**: run tests + extension loads in real session
 
 ### Backward Compatibility
 
