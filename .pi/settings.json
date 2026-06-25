@@ -15,7 +15,7 @@
 		"showTps": true
 	},
 	"docker": {
-		"memory": "6G",
+		"memory": "5G",
 		"cpus": "4.0"
 	},
 	"skills": [".pi/skills"],

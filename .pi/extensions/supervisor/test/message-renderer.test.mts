@@ -8,7 +8,7 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { Container, Text, Markdown, type Component } from "@earendil-works/pi-tui";
+import { Box, Container, Text, Markdown, type Component } from "@earendil-works/pi-tui";
 import { initTheme, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
@@ -82,10 +82,16 @@ function renderMessage(
 ): Container | Text | Markdown | Component | undefined {
 	const pi = {} as any;
 	const renderer = createMessageRenderer(pi);
-	const details = subagentResult !== undefined ? { _subagentResult: subagentResult } : undefined;
 	const message: Record<string, unknown> = {};
 	if (messageContent !== undefined) message.content = messageContent;
-	if (details !== undefined) message.details = details;
+	if (subagentResult !== undefined) {
+		message.details = {
+			eventType: "subagent-result",
+			agentName: subagentResult.details?.agentName ?? "test-agent",
+			content: subagentResult.content,
+			details: subagentResult.details,
+		};
+	}
 	const result = renderer(message, options ?? { expanded }, mockTheme);
 	return result;
 }
@@ -374,7 +380,14 @@ describe("edge cases and error handling", () => {
 		const result = makeSubagentResult(details, { outputText: "output" });
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
-		const message = { details: { _subagentResult: result } };
+		const message = {
+			details: {
+				eventType: "subagent-result",
+				agentName: details.agentName ?? "test",
+				content: result.content,
+				details: result.details,
+			},
+		};
 		const c = renderer(message, undefined, mockTheme) as Container;
 		const lines = renderAndStrip(c);
 		assert.ok(
@@ -533,10 +546,10 @@ describe("summary renderer (createSummaryRenderer) — no regressions", () => {
 // Phase 5: Tool call result — thinking + separator (unchanged)
 // ═══════════════════════════════════════════════════════════════════
 
-/** Create a message with toolCallResult details */
+/** Create a message with tool-complete event details */
 function makeToolCallMessage(tc: Record<string, unknown>) {
 	return {
-		details: { toolCallResult: tc },
+		details: { eventType: "tool-complete", agentName: "dev", ...tc },
 	};
 }
 
@@ -549,7 +562,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			resultText: "file1.txt\nfile2.txt",
 			thinking: "I ran ls to list files",
@@ -574,7 +587,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			resultText: "file1.txt",
 			isError: false,
@@ -595,7 +608,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			thinking: "just thinking",
 			isError: false,
@@ -616,7 +629,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			isError: false,
 		});
@@ -634,7 +647,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "invalid",
 			resultText: "error output",
 			thinking: "I tried to run invalid command",
@@ -665,7 +678,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			thinking: "**bold** and *italic* thinking",
 			isError: false,
@@ -689,7 +702,7 @@ describe("tool call result — thinking and separator", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "grep",
+			toolName: "grep",
 			args: "-r pattern",
 			resultText: "3 matches\n1. src/file.ts:42:hello\n2. src/other.ts:10:world",
 			isError: false,
@@ -848,7 +861,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			runningTokenCount: 5969,
 			agentTokenBudget: 300000,
@@ -867,7 +880,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			runningTokenCount: 500,
 			agentTokenBudget: 100000,
@@ -884,7 +897,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			runningTokenCount: 1500,
 			agentTokenBudget: 1500,
@@ -901,7 +914,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			agentTokenBudget: 100000,
 			isError: false,
@@ -916,7 +929,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			runningTokenCount: 500,
 			agentTokenBudget: 0,
@@ -933,7 +946,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			runningTokenCount: 1000,
 			isError: false,
@@ -949,7 +962,7 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 		const pi = {} as any;
 		const renderer = createMessageRenderer(pi);
 		const message = makeToolCallMessage({
-			name: "bash",
+			toolName: "bash",
 			args: "ls",
 			toolIndex: "#1",
 			toolDurationMs: 1234,
@@ -1158,7 +1171,7 @@ describe('eventType: "subagent-result" path (new discriminator)', () => {
 			compacted: false,
 		});
 		const c = renderer(message, {}, mockTheme);
-		assert.ok(c instanceof Container, "tool-complete should return Container");
+		assert.ok(c instanceof Container || c instanceof Box, "tool-complete should return Container or Box");
 		const lines = renderAndStrip(c);
 		assert.ok(
 			lines.some((l) => l.includes("bash")),
@@ -1185,6 +1198,58 @@ describe('eventType: "subagent-result" path (new discriminator)', () => {
 		assert.ok(
 			c instanceof Markdown,
 			"unknown eventType should fall through to Markdown via content",
+		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: eventType: "thinking" — live thinking phase streaming
+// ═══════════════════════════════════════════════════════════════════
+
+describe('eventType: "thinking" path (live thinking phase)', () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("thinking event renders a Markdown thinking block", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = {
+			content: "💭 dev",
+			details: { eventType: "thinking", agentName: "dev", content: "Considering the approach" },
+		};
+		const c = renderer(message, {}, mockTheme) as Container;
+		const children = (c as any).children || [];
+		const mdChild = children.find((child: any) => child instanceof Markdown);
+		assert.ok(mdChild, "should render a Markdown child for thinking");
+		assert.equal(
+			(mdChild as any).defaultTextStyle?.italic,
+			true,
+			"thinking Markdown should be italic",
+		);
+	});
+
+	it("thinking event with empty content renders empty (no crash)", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = {
+			content: "💭 dev",
+			details: { eventType: "thinking", agentName: "dev", content: "" },
+		};
+		const c = renderer(message, {}, mockTheme);
+		assert.ok(c instanceof Container, "should return a Container");
+	});
+
+	it("no-eventType + no content renders placeholder (old toolCallResult/_subagentResult gone)", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = { details: { toolCallResult: { name: "bash", args: "ls" } } };
+		const c = renderer(message, {}, mockTheme);
+		assert.ok(c instanceof Text, "should NOT render old toolCallResult — returns fallback Text");
+		const lines = renderAndStrip(c as Text);
+		assert.ok(
+			lines.some((l) => l.includes("unhandled supervisor message")),
+			`old toolCallResult should fall through, got: ${JSON.stringify(lines)}`,
 		);
 	});
 });

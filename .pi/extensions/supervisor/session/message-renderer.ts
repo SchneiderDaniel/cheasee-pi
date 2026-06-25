@@ -6,6 +6,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
+	Box,
 	Container,
 	Markdown,
 	Spacer,
@@ -242,8 +243,9 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 				const bgFn = (l: string) =>
 					rawDetails.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
 
-				const c = new Container();
-				c.addChild(new Text(headerText, 1, 0, bgFn));
+				// ponytail: native tool-execution style — one Box with status bg wraps content.
+				const c = new Box(1, 1, bgFn);
+				c.addChild(new Text(headerText, 0, 0));
 
 				// Stats line
 				const statsParts: string[] = [];
@@ -280,17 +282,29 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 					statsParts.push("⚠ compacted");
 				}
 				if (statsParts.length > 0) {
-					c.addChild(new Text(theme.fg("dim", statsParts.join(" · ")), 1, 0));
+					c.addChild(new Text(theme.fg("muted", statsParts.join(" · ")), 0, 0));
 				}
 
-				// Tool result output
+				// Tool result output — Markdown with keyword highlighting
 				if (rawDetails.resultText) {
 					const lines = rawDetails.resultText.split("\n");
 					const formatted = lines
 						.map((l: string) => {
+							// Keyword highlighting for major status words
+							if (/^(error|fail|failed|denied|enoent|not found|blocked)/i.test(l.trim())) {
+								return theme.fg("error", l);
+							}
+							if (/^(success|ok|done|completed|approved)/i.test(l.trim())) {
+								return theme.fg("success", l);
+							}
+							if (/^(warning|warn|caution)/i.test(l.trim())) {
+								return theme.fg("warning", l);
+							}
+							// Match count lines
 							if (/\d+ matches/i.test(l) || /Matches returned: \d+/i.test(l)) {
 								return theme.fg("success", l);
 							}
+							// File:line entries from search results
 							if (/^\d+\.\s+\S+:\d+:/.test(l)) {
 								const sep = l.indexOf(":");
 								if (sep > 0) {
@@ -299,10 +313,24 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 									return theme.fg("dim", prefix) + theme.fg("accent", fileLine);
 								}
 							}
+							// Omitted long line entries
+							if (/\[omitted long line/i.test(l) || /\[truncated/i.test(l)) {
+								return theme.fg("muted", l);
+							}
+							// Paths with known patterns (.ts, .js, .json, etc.)
+							if (/^\/[\w/.-]+\.[a-z]+:/.test(l)) {
+								const colonIdx = l.indexOf(":");
+								if (colonIdx > 0) {
+									return (
+										theme.fg("accent", l.slice(0, colonIdx)) + theme.fg("dim", l.slice(colonIdx))
+									);
+								}
+							}
 							return l;
 						})
 						.join("\n");
-					c.addChild(new Text(formatted, 1, 1));
+					const mdTheme = getMarkdownTheme();
+					c.addChild(new Markdown(formatted, 0, 0, mdTheme));
 				}
 
 				// Thinking block
@@ -310,17 +338,36 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 					const normalized = rawDetails.thinking.replace(/^ {4,}(```+)/gm, "$1");
 					if (rawDetails.resultText) {
 						c.addChild(new Spacer(1));
-						c.addChild(new Text(theme.fg("dim", "── Thinking ──"), 1, 0));
+						c.addChild(new Text(theme.fg("muted", "── Thinking ──"), 0, 0));
 					}
 					renderThinkingBlock(c, normalized, theme);
 				}
 
 				// Error reason
 				if (rawDetails.isError && rawDetails.errorReason) {
-					c.addChild(new Text(theme.fg("error", `✗ ${rawDetails.errorReason}`), 1, 1));
+					c.addChild(new Text(theme.fg("error", `✗ ${rawDetails.errorReason}`), 0, 0));
+				}
+
+				// Duration footer (like native pi's "Took Xs" at end)
+				if (rawDetails.toolDurationMs !== undefined) {
+					c.addChild(new Spacer(1));
+					const secs = (rawDetails.toolDurationMs / 1000).toFixed(1);
+					const tookText = rawDetails.isError ? `Took ${secs}s` : `Took ${secs}s`;
+					c.addChild(new Text(theme.fg("muted", tookText), 0, 0));
 				}
 
 				return c;
+			}
+
+			// ── Tool start: accent-colored one-liner ──────────────
+			case "tool-start": {
+				const agentName = rawDetails.agentName as string;
+				const toolName = rawDetails.toolName as string;
+				const args = rawDetails.args as string;
+				const text = args
+					? `⏳ ${agentName} — ${toolName} ${args}`
+					: `⏳ ${agentName} — ${toolName}`;
+				return new Text(theme.fg("accent", text), 1, 0);
 			}
 
 			// ── Subagent result: rich stats view (inlined) ────────
@@ -365,70 +412,8 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 
 			// ── Unknown / no eventType ────────────────────────────
 			default: {
-				// Backward compat: if the message has no eventType but
-				// has toolCallResult or _subagentResult from old format,
-				// render via the appropriate handler.
-				if (rawDetails.toolCallResult) {
-					// Old-format tool call result — render inline
-					const tc = rawDetails.toolCallResult;
-					const icon = tc.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-					const paramsPart = tc.params ? ` ${theme.fg("warning", tc.params)}` : "";
-					const headerText = `${icon} ${theme.fg("toolTitle", tc.name)}: \`${tc.args}\`${paramsPart}`;
-					const bgFn = (l: string) =>
-						tc.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
-
-					const c = new Container();
-					c.addChild(new Text(headerText, 1, 0, bgFn));
-
-					const statsParts: string[] = [];
-					if (tc.toolIndex) statsParts.push(tc.toolIndex);
-					if (tc.toolDurationMs !== undefined) {
-						const secs = (tc.toolDurationMs / 1000).toFixed(1);
-						statsParts.push(`(${secs}s)`);
-					}
-					if (tc.runningToolCount !== undefined) {
-						const maxT = tc.maxToolCalls;
-						if (maxT && maxT > 0) {
-							statsParts.push(`${tc.runningToolCount}/${maxT} tools`);
-						} else {
-							statsParts.push(`${tc.runningToolCount} tools`);
-						}
-					}
-					if (tc.runningTokenCount !== undefined) {
-						const maxTok = tc.agentTokenBudget;
-						if (maxTok && maxTok > 0) {
-							statsParts.push(
-								`${formatTokensInt(tc.runningTokenCount)}/${formatTokensInt(maxTok)} tok`,
-							);
-						} else {
-							statsParts.push(`${tc.runningTokenCount} tok`);
-						}
-					}
-					const err = tc.errorCount ?? 0;
-					if (err > 0) statsParts.push(`${err} err`);
-					if (tc.compacted) statsParts.push("⚠ compacted");
-					if (statsParts.length > 0) {
-						c.addChild(new Text(theme.fg("dim", statsParts.join(" · ")), 1, 0));
-					}
-					if (tc.resultText) {
-						c.addChild(new Text(tc.resultText, 1, 1));
-					}
-					if (tc.thinking) {
-						if (tc.resultText) {
-							c.addChild(new Spacer(1));
-							c.addChild(new Text(theme.fg("dim", "── Thinking ──"), 1, 0));
-						}
-						renderThinkingBlock(c, tc.thinking, theme);
-					}
-					if (tc.isError && tc.errorReason) {
-						c.addChild(new Text(theme.fg("error", `✗ ${tc.errorReason}`), 1, 1));
-					}
-					return c;
-				}
-				if (rawDetails._subagentResult) {
-					// Old-format subagent result — delegate to inline renderer
-					return renderSubagentResultInline(rawDetails._subagentResult, expanded, theme);
-				}
+				// ponytail: eventType discriminator is the single source of truth.
+				// Old toolCallResult / _subagentResult branches removed (#1071).
 				if (typeof message.content === "string") {
 					const mdTheme = getMarkdownTheme();
 					return new Markdown(message.content, 1, 1, mdTheme);
