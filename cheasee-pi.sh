@@ -481,15 +481,11 @@ else
     # Remove old container before rebuild to avoid orphan conflicts
     docker rm -f cheasee-pi 2>/dev/null || true
 
-    # Prune Docker build cache to prevent "no space left on device" failures.
-    # The cheasee-pi image is large (Python venvs, Chromium, npm packages, LSPs)
-    # and the build cache can accumulate several GB across rebuilds.
-    echo "Pruning Docker build cache..."
-    docker builder prune -af 2>/dev/null || true
-
     docker compose -f docker/docker-compose.yml up -d --build
 
-    # Prune dangling images and stale build cache
+    # Prune dangling images only — keep the fresh build cache intact
+    # so subsequent starts (e.g., after reboot) are fast incremental builds.
+    # Stale build cache older than 24h is cleaned to prevent accumulation.
     docker image prune -f || true
     docker builder prune -f --filter until=24h 2>/dev/null || true
 fi
