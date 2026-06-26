@@ -26,6 +26,8 @@ export async function executeAgent(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 	issueTitle?: string,
+	// ponytail: test hook for injecting mock runner; external callers omit this
+	runner?: typeof runAgentSubprocess,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
 	const agentName = agent.config.name;
 
@@ -43,7 +45,7 @@ export async function executeAgent(
 	const sessionPath = join(sessionDir, `${agentName}-${Date.now()}.jsonl`);
 
 	// ── 3. Run subprocess (handles widget lifecycle internally) ──
-	const result = await runAgentSubprocess(
+	const result = await (runner ?? runAgentSubprocess)(
 		agent,
 		task,
 		ctx,

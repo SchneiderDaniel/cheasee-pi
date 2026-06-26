@@ -26,6 +26,8 @@ export async function handlePostPipelineMerge(
 	ctx: ExtensionCommandContext,
 	worktreePath?: string,
 	collector?: ErrorCollector,
+	// ponytail: test hook for injecting mock runner; external callers omit this
+	_runner?: typeof runAgentSubprocess,
 ): Promise<void> {
 	const log = getDebugLogger();
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
@@ -157,7 +159,7 @@ export async function handlePostPipelineMerge(
 							? config.agentTimeoutsMin.developer * 60 * 1000
 							: DEFAULT_AGENT_TIMEOUT_MS;
 
-						const devResult = await runAgentSubprocess(
+						const devResult = await (_runner ?? runAgentSubprocess)(
 							developerAgent,
 							devTask,
 							ctx,

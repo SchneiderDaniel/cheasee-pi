@@ -196,6 +196,7 @@ function handleThinkingEnd(
 	_ev: NormalizedEvent & { kind: "thinking_end" },
 ): HandlerResult {
 	if (state.liveThinking.trim()) {
+		state.thinkingOutputLines.push(state.liveThinking.trim());
 		for (const t of state.liveThinking.split("\n")) {
 			const trimmed = t.trim();
 			if (trimmed) pushLog(state, `💭 ${trimmed.slice(0, 500)}`);

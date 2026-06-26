@@ -11,10 +11,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-// Dynamic import for knip dead-code detection — the default export from index.ts
-// is the extension entry point used by Pi at runtime, but knip flags it as unused
-// since no project-internal file imports it. Dynamic import avoids the
-// extensionless-import issue in index.ts's dependency chain.
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -61,10 +57,6 @@ export async function replaySessionFile(
 	agentName?: string,
 	maxLines: number = 200,
 ): Promise<boolean> {
-	// Dynamic import for knip dead-code detection — ensures default export from
-	// index.ts is referenced from a project-internal file.
-	void import("../index.ts").then((m) => m.default);
-
 	if (!sessionPath || !existsSync(sessionPath)) return false;
 
 	const content = readFileSync(sessionPath, "utf-8");

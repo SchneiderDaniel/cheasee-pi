@@ -1,14 +1,49 @@
 // ─── Tests: pipeline/merge.ts — handlePostPipelineMerge path resolution ───
 // Tests that worktreePath parameter is used correctly (no string concat bug).
 // Mocks pi.exec and ctx.ui to simulate conflict detection → auto-merge flow.
+//
+// For the subprocess dispatch path, handlePostPipelineMerge accepts
+// an optional _runner parameter (last arg) for injecting a mock
+// runAgentSubprocess, avoiding real process spawn.
+//
+// Temp worktrees are created when tests need merge.ts to find the
+// developer agent file (parseAgentFile requires a real file on disk).
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig } from "../../config/types.ts";
-import { handlePostPipelineMerge } from "../../pipeline/merge.ts";
+import type { SupervisorConfig, AgentRunResult } from "../../config/types.ts";
 
-// ─── Call tracking ────────────────────────────────────────────────
+// ─── Temp worktree helper ─────────────────────────────────────────
+// merge.ts checks if .pi/extensions/supervisor/agents/developer.md
+// exists and parses it via parseAgentFile (uses readFileSync). We must
+// create a real file so the code path reaches our mock runner.
+
+const AGENT_FILE_CONTENT = `---
+name: developer
+description: Test developer agent
+tools: read,bash,write,edit
+model: test-model
+extensions: ""
+skills: ""
+thinking: medium
+---
+
+You are a test developer agent.
+`;
+
+function createTempWorktree(): string {
+	const dir = mkdtempSync(join(tmpdir(), "merge-wt-"));
+	const agentDir = resolve(dir, ".pi/extensions/supervisor/agents");
+	mkdirSync(agentDir, { recursive: true });
+	writeFileSync(resolve(agentDir, "developer.md"), AGENT_FILE_CONTENT, "utf-8");
+	return dir;
+}
+
+// ─── State ────────────────────────────────────────────────────────
 
 interface ExecCall {
 	cmd: string;
@@ -16,14 +51,23 @@ interface ExecCall {
 	opts: Record<string, unknown>;
 }
 
-// ─── Shared widget tracking ────────────────────────────────────────
-
 let widgetCalls: Array<{ id: string; lines?: string[] }> = [];
-let executeToolCalls: Array<{ name: string; params: any }> = [];
+const tempDirs: string[] = [];
 
 beforeEach(() => {
 	widgetCalls = [];
-	executeToolCalls = [];
+});
+
+afterEach(() => {
+	mock.restoreAll();
+	for (const d of tempDirs) {
+		try {
+			rmSync(d, { recursive: true, force: true });
+		} catch {
+			/* best-effort */
+		}
+	}
+	tempDirs.length = 0;
 });
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
@@ -31,7 +75,7 @@ beforeEach(() => {
 function createMockPi(
 	results: Array<{ code: number; stdout: string; stderr: string }>,
 	calls?: ExecCall[],
-): ExtensionAPI & { executeToolCalls: Array<{ name: string; params: any }> } {
+): ExtensionAPI {
 	const callLog = calls || [];
 	let idx = 0;
 	return {
@@ -41,31 +85,7 @@ function createMockPi(
 		}) as ExtensionAPI["exec"],
 		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
 		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
-		executeTool: ((name: string, params: any) => {
-			executeToolCalls.push({ name, params });
-			// Return success result for developer subagent
-			return Promise.resolve({
-				content: [{ type: "text", text: "Conflicts resolved" }],
-				details: {
-					agentName: "developer",
-					success: true,
-					statusLabel: "SUCCESS",
-					summaryLine: "Successfully resolved merge conflicts",
-					model: "",
-					inputTokens: 0,
-					outputTokens: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					cost: 0,
-					turnCount: 0,
-					durationMs: 10000,
-					toolCalls: [],
-					toolResults: [],
-					taskPrompt: "",
-				},
-			});
-		}) as any,
-	} as unknown as ExtensionAPI & { executeToolCalls: Array<{ name: string; params: any }> };
+	} as ExtensionAPI;
 }
 
 function createMockCtx(
@@ -128,13 +148,11 @@ function prListResult(hasConflict: boolean): string {
 	]);
 }
 
-// Helper: generateBranchName slug for "Foo issue" → "foo-issue",
-// so the full branch is "worktree-git-issue-42-foo-issue"
 const BRANCH = "worktree-git-issue-42-foo-issue";
 
 // ─── Tests ─────────────────────────────────────────────────────────
 
-describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () => {
+describe("handlePostPipelineMerge() — worktree path resolution", () => {
 	it("uses worktreePath when provided (7th param)", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
@@ -149,6 +167,7 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 		const config = makeConfig();
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath);
 
 		const fetchCall = calls.find(
@@ -175,23 +194,13 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 		const ctx = createMockCtx(true);
 		const config = makeConfig();
 
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			config,
-			pi,
-			ctx,
-			undefined, // no worktreePath — fallback
-		);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
 		);
 		assert.ok(fetchCall, "should have a git fetch call");
-
-		// resolvePath(ctx.cwd, "../worktrees/", BRANCH)
-		// ctx.cwd = /repo, so normalized to /worktrees/<BRANCH>
 		const expectedPath = `/worktrees/${BRANCH}`;
 		assert.equal(
 			fetchCall!.opts.cwd,
@@ -211,38 +220,19 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 			calls,
 		);
 		const ctx = createMockCtx(true);
-		// worktreeBase WITHOUT trailing slash — the case that was broken
 		const config = makeConfig({ worktreeBase: "../worktrees" });
 
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			config,
-			pi,
-			ctx,
-			undefined, // no worktreePath — fallback
-		);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
 		);
 		assert.ok(fetchCall, "should have a git fetch call");
-
-		// resolvePath(ctx.cwd, "../worktrees", BRANCH) = /worktrees/<BRANCH>
 		const expectedPath = `/worktrees/${BRANCH}`;
-		// Old concat: "../worktrees" + BRANCH = "../worktrees<BRANCH>" → wrong!
 		const brokenPath = `/worktrees${BRANCH}`;
-		assert.notEqual(
-			fetchCall!.opts.cwd,
-			brokenPath,
-			"should NOT use broken string concat without separator",
-		);
-		assert.equal(
-			fetchCall!.opts.cwd,
-			expectedPath,
-			"should use resolvePath-normalized path without trailing-slash base",
-		);
+		assert.notEqual(fetchCall!.opts.cwd, brokenPath, "should NOT use broken string concat");
+		assert.equal(fetchCall!.opts.cwd, expectedPath, "should use resolvePath-normalized path");
 	});
 
 	it("handles absolute worktreeBase correctly", async () => {
@@ -258,31 +248,18 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 		const ctx = createMockCtx(true);
 		const config = makeConfig({ worktreeBase: "/tmp/worktrees" });
 
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			config,
-			pi,
-			ctx,
-			undefined, // no worktreePath — fallback
-		);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
 		);
 		assert.ok(fetchCall, "should have a git fetch call");
-
-		// resolvePath(ctx.cwd, "/tmp/worktrees", BRANCH) = /tmp/worktrees/<BRANCH>
 		const expectedPath = `/tmp/worktrees/${BRANCH}`;
-		assert.equal(
-			fetchCall!.opts.cwd,
-			expectedPath,
-			"should handle absolute worktreeBase correctly",
-		);
+		assert.equal(fetchCall!.opts.cwd, expectedPath, "should handle absolute worktreeBase");
 	});
 
-	it("uses worktreePath with trailing-slash base correctly (matches resolvePath)", async () => {
+	it("uses worktreePath with trailing-slash base correctly", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
@@ -296,30 +273,25 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 		const config = makeConfig({ worktreeBase: "../worktrees/" });
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
 		);
 		assert.ok(fetchCall, "should have a git fetch call");
-		assert.equal(
-			fetchCall!.opts.cwd,
-			explicitWorktreePath,
-			"worktreePath should take precedence over worktreeBase config",
-		);
+		assert.equal(fetchCall!.opts.cwd, explicitWorktreePath, "worktreePath takes precedence");
 	});
 
 	it("signature accepts 6 or 7 parameters without breaking existing callers", async () => {
-		// Verify the function accepts 6 params (old signature) — backward compat
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([{ code: 0, stdout: prListResult(false), stderr: "" }], calls);
 		const ctx = createMockCtx(true);
 		const config = makeConfig();
 
-		// Call with 6 params (old signature)
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx);
 
-		// gh client may use "gh" or "bash" cmd depending on GH_TOKEN presence
 		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
 		assert.ok(ghCalls.length > 0, "should have checked for conflicts");
 	});
@@ -327,8 +299,9 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 	it("does not call tryAutoMerge when user declines", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([{ code: 0, stdout: prListResult(true), stderr: "" }], calls);
-		const ctx = createMockCtx(false); // user declines
+		const ctx = createMockCtx(false);
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(42, "Foo issue", "Done", makeConfig(), pi, ctx, undefined);
 
 		const gitCalls = calls.filter((c) => c.cmd === "git");
@@ -337,12 +310,12 @@ describe("handlePostPipelineMerge() — worktree path resolution (Phase 1)", () 
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// ExecuteSubagent path tests (Phase 4 — Audit Finding 3)
+// Subprocess dispatch path tests (replaces former executeTool assertions)
 // ═══════════════════════════════════════════════════════════════════
 
-describe("handlePostPipelineMerge() — executeSubagent dispatch (Phase 4)", () => {
+describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 	/**
-	 * Helper: creates mock pi with auto-merge failure sequence:
+	 * Creates mock pi with auto-merge failure sequence:
 	 * 1. PR check — conflict detected
 	 * 2. git fetch — success
 	 * 3. git merge — FAILS (code 1)
@@ -362,11 +335,34 @@ describe("handlePostPipelineMerge() — executeSubagent dispatch (Phase 4)", () 
 		);
 	}
 
-	it("calls pi.executeTool with 'subagent' when auto-merge fails", async () => {
+	function createMockRunner(result?: Partial<AgentRunResult>) {
+		return mock.fn(
+			async (..._args: any[]) =>
+				({
+					output: "Conflicts resolved",
+					success: true,
+					agentName: "developer",
+					toolCount: 5,
+					tokenCount: 1000,
+					durationMs: 30000,
+					textOutput: "Successfully resolved merge conflicts\nCONFLICTS_RESOLVED",
+					textOnly: "Successfully resolved merge conflicts\nCONFLICTS_RESOLVED",
+					summaryLine: "Successfully resolved merge conflicts",
+					errorOutput: "",
+					...(result || {}),
+				}) as AgentRunResult,
+		);
+	}
+
+	it("calls runAgentSubprocess when auto-merge fails", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);
 		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
@@ -374,19 +370,26 @@ describe("handlePostPipelineMerge() — executeSubagent dispatch (Phase 4)", () 
 			makeConfig(),
 			pi,
 			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
+			wt,
+			undefined,
+			runner,
 		);
 
-		// pi.executeTool should have been called with "subagent"
-		const subagentCalls = executeToolCalls.filter((c) => c.name === "subagent");
-		assert.ok(subagentCalls.length > 0, "executeTool should be called with 'subagent'");
+		assert.ok(
+			runner.mock.callCount() > 0,
+			"runAgentSubprocess should be called when auto-merge fails",
+		);
 	});
 
-	it("calls pi.executeTool with agent='developer' for conflict resolution", async () => {
+	it("dispatches developer agent for conflict resolution", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);
 		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
@@ -394,155 +397,44 @@ describe("handlePostPipelineMerge() — executeSubagent dispatch (Phase 4)", () 
 			makeConfig(),
 			pi,
 			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
+			wt,
+			undefined,
+			runner,
 		);
 
-		const subagentCalls = executeToolCalls.filter(
-			(c) => c.name === "subagent" && c.params?.agent === "developer",
-		);
-		assert.ok(subagentCalls.length > 0, "executeTool should be called with agent='developer'");
+		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
+		assert.ok(devCalls.length > 0, "runAgentSubprocess should be called with developer agent");
 	});
 
-	it("passes correct params to executeTool (cwd, maxToolCalls, agentTokenBudget)", async () => {
+	it("passes correct params (cwd, maxToolCalls, agentTokenBudget)", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);
 		const ctx = createMockCtx(true);
 		const config = makeConfig({ maxToolCalls: 100, agentTokenBudget: 50000 });
-		const wt = "/repo/worktrees/worktree-git-issue-42-foo-issue";
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+		const runner = createMockRunner();
 
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, wt);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, wt, undefined, runner);
 
-		const subagentCalls = executeToolCalls.filter((c) => c.name === "subagent");
-		assert.ok(subagentCalls.length > 0, "should have executeTool calls");
-		const params = subagentCalls[0].params;
-		assert.equal(params.agent, "developer", "agent should be developer");
-		assert.equal(params.cwd, wt, "cwd should be worktree path");
-		assert.equal(params.maxToolCalls, 100, "maxToolCalls should be passed through");
-		assert.equal(params.agentTokenBudget, 50000, "agentTokenBudget should be passed through");
-	});
-
-	it("passes onUpdate callback in executeTool options", async () => {
-		const execCalls: ExecCall[] = [];
-		const capturedOpts: Array<{ name: string; params: any; opts: any }> = [];
-
-		// Custom pi that captures onUpdate
-		const pi = {
-			...createPiWithFailedMerge(execCalls),
-			executeTool: ((name: string, params: any, opts?: any) => {
-				capturedOpts.push({ name, params, opts });
-				// Call onUpdate to verify it's a function
-				if (opts?.onUpdate && typeof opts.onUpdate === "function") {
-					opts.onUpdate({
-						content: [{ type: "text", text: "Running" }],
-						details: {
-							agentName: "developer",
-							phase: "thinking",
-							liveThinking: "Resolving conflicts...",
-						},
-					});
-				}
-				return Promise.resolve({
-					content: [{ type: "text", text: "Resolved" }],
-					details: {
-						agentName: "developer",
-						success: true,
-						statusLabel: "SUCCESS",
-						summaryLine: "Resolved merge conflicts",
-						model: "",
-						inputTokens: 0,
-						outputTokens: 0,
-						cacheRead: 0,
-						cacheWrite: 0,
-						cost: 0,
-						turnCount: 0,
-						durationMs: 10000,
-						toolCalls: [],
-						toolResults: [],
-						taskPrompt: "",
-					},
-				});
-			}) as any,
-		};
-		const ctx = createMockCtx(true);
-
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			makeConfig(),
-			pi,
-			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
-		);
-
-		// onUpdate should be a function
-		const subagentOpt = capturedOpts.find((o) => o.name === "subagent");
-		assert.ok(subagentOpt, "should have captured subagent executeTool call");
-		assert.ok(
-			typeof subagentOpt!.opts?.onUpdate === "function",
-			"executeTool should receive onUpdate callback",
-		);
-	});
-
-	it("finally block clears agent-developer widget", async () => {
-		const execCalls: ExecCall[] = [];
-		const ctx = createMockCtx(true);
-		const pi = createPiWithFailedMerge(execCalls);
-
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			makeConfig(),
-			pi,
-			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
-		);
-
-		// In the finally block, setWidget is called with 'agent-developer' and undefined
-		const clearCalls = (ctx as any).setWidgetCalls.filter(
-			(w: { id: string; lines?: string[] }) => w.id === "agent-developer" && w.lines === undefined,
-		);
-		assert.ok(clearCalls.length > 0, "agent-developer widget should be cleared in finally block");
-	});
-
-	it("widget is cleared even when pi.executeTool throws", async () => {
-		const execCalls: ExecCall[] = [];
-		const ctx = createMockCtx(true);
-
-		// Create pi that throws on executeTool
-		const pi = {
-			...createPiWithFailedMerge(execCalls),
-			executeTool: (() => {
-				return Promise.reject(new Error("Subagent execution failed"));
-			}) as any,
-		};
-
-		await handlePostPipelineMerge(
-			42,
-			"Foo issue",
-			"Done",
-			makeConfig(),
-			pi,
-			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
-		);
-
-		// Widget should still be cleared even after executeTool throws
-		const clearCalls = (ctx as any).setWidgetCalls.filter(
-			(w: { id: string; lines?: string[] }) => w.id === "agent-developer" && w.lines === undefined,
-		);
-		assert.ok(
-			clearCalls.length > 0,
-			"agent-developer widget should be cleared even when executeTool throws",
-		);
+		assert.ok(runner.mock.callCount() > 0, "should have runAgentSubprocess calls");
+		const args = runner.mock.calls[0]?.arguments;
+		assert.ok(args, "should have arguments");
+		assert.equal(args[4], wt, "cwd should be worktree path");
+		assert.equal(args[5], 100, "maxToolCalls should be passed through");
+		assert.equal(args[6], 50000, "agentTokenBudget should be passed through");
 	});
 
 	it("task includes merge conflict resolution instructions", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);
 		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
 
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
@@ -550,19 +442,75 @@ describe("handlePostPipelineMerge() — executeSubagent dispatch (Phase 4)", () 
 			makeConfig(),
 			pi,
 			ctx,
-			"/repo/worktrees/worktree-git-issue-42-foo-issue",
+			wt,
+			undefined,
+			runner,
 		);
 
-		const subagentCalls = executeToolCalls.filter((c) => c.name === "subagent");
-		assert.ok(subagentCalls.length > 0, "should have executeTool calls");
-		const task = subagentCalls[0].params?.task;
+		assert.ok(runner.mock.callCount() > 0, "should have runAgentSubprocess calls");
+		const task = runner.mock.calls[0]?.arguments[1];
 		assert.ok(typeof task === "string", "task should be a string");
 		assert.ok(task.includes("Resolve Merge Conflicts"), "task should mention merge conflicts");
 		assert.ok(task.includes("file1.ts"), "task should mention conflicted files");
 		assert.ok(task.includes("CONFLICTS_RESOLVED"), "task should include completion marker");
 	});
-});
 
-// ═══════════════════════════════════════════════════════════════════
-// Note: Phase 5 (user-journey) test additions are in chat-progress.test.mts
-// ═══════════════════════════════════════════════════════════════════
+	it("finally block clears agent-developer widget", async () => {
+		const execCalls: ExecCall[] = [];
+		const ctx = createMockCtx(true);
+		const pi = createPiWithFailedMerge(execCalls);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+		);
+
+		const clearCalls = (ctx as any).setWidgetCalls.filter(
+			(w: { id: string; lines?: string[] }) => w.id === "agent-developer" && w.lines === undefined,
+		);
+		assert.ok(clearCalls.length > 0, "agent-developer widget should be cleared in finally block");
+	});
+
+	it("widget is cleared even when runAgentSubprocess throws", async () => {
+		const execCalls: ExecCall[] = [];
+		const ctx = createMockCtx(true);
+		const runner = mock.fn(async () => {
+			throw new Error("Subprocess execution failed");
+		});
+		const pi = createPiWithFailedMerge(execCalls);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+		);
+
+		const clearCalls = (ctx as any).setWidgetCalls.filter(
+			(w: { id: string; lines?: string[] }) => w.id === "agent-developer" && w.lines === undefined,
+		);
+		assert.ok(
+			clearCalls.length > 0,
+			"agent-developer widget should be cleared even when runAgentSubprocess throws",
+		);
+	});
+});

@@ -34,8 +34,3 @@ export default function supervisor(pi: ExtensionAPI) {
 		}
 	});
 }
-// Named export for project-internal dynamic import — satisfies knip dead-code detection
-// The default export is the extension entry point used by Pi at runtime.
-// The named supervisor alias enables import("../index.ts") from pipeline/replay-session.ts
-// to reference the module without triggering circular dependency issues.
-export { supervisor };
