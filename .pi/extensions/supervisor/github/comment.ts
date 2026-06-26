@@ -15,7 +15,7 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	normalizeEscapes,
 } from "../agent/output.ts";
-import { isToolCallLine } from "../event/session-events.ts";
+import { isToolCallLine } from "../lib/formatting.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────

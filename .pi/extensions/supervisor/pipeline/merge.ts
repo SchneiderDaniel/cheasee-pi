@@ -8,8 +8,8 @@ import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
 import { tryAutoMerge } from "../config/merge.ts";
 import { checkPrConflicts } from "../github/pr.ts";
-import { renderWidgetFromDetails } from "../session/widget.ts";
-import type { AgentToolResult, SubagentDetails } from "../subagent/types.ts";
+import { runAgentSubprocess, DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
+import { parseAgentFile } from "../agent/loader.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
@@ -143,45 +143,48 @@ export async function handlePostPipelineMerge(
 						`When done, output CONFLICTS_RESOLVED on its own line.`,
 					].join("\n");
 
-					// Dispatch developer via subagent tool for consistent widget rendering
-					// (replaces old runAgent() path which used different widget code)
-					const widgetId = `agent-developer`;
-
+					// Dispatch developer via subprocess for consistent widget rendering
 					log.info("pipeline-merge", "Dispatching developer for conflict resolution");
 					try {
-						const devResult = await pi.executeTool(
-							"subagent",
-							{
-								agent: "developer",
-								task: devTask,
-								cwd: wt,
-								maxToolCalls: config.maxToolCalls,
-								agentTokenBudget: config.agentTokenBudget,
-							},
-							{
-								signal: ctx.signal,
-								onUpdate: (partial: AgentToolResult<Partial<SubagentDetails>>) => {
-									const d = partial.details;
-									if (!d || !ctx.hasUI) return;
-									renderWidgetFromDetails(d, "developer", undefined, ctx, widgetId);
-								},
-							},
+						const agentPath = resolvePath(wt, ".pi/extensions/supervisor/agents/developer.md");
+						const { existsSync } = await import("node:fs");
+						if (!existsSync(agentPath)) {
+							throw new Error(`Agent file not found: ${agentPath}`);
+						}
+						const developerAgent = parseAgentFile(agentPath);
+
+						const devTimeoutMs = config.agentTimeoutsMin?.developer
+							? config.agentTimeoutsMin.developer * 60 * 1000
+							: DEFAULT_AGENT_TIMEOUT_MS;
+
+						const devResult = await runAgentSubprocess(
+							developerAgent,
+							devTask,
+							ctx,
+							devTimeoutMs,
+							wt,
+							config.maxToolCalls,
+							config.agentTokenBudget,
 						);
 
-						const dd = devResult.details || (devResult as any);
-						const devSuccess = dd?.success === true;
+						const devSuccess = devResult.success;
 
 						log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`);
 
 						pi.sendMessage({
 							customType: "supervisor",
-							content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${dd?.summaryLine || ""}`,
+							content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${devResult.summaryLine || ""}`,
 							display: true,
 							details: {
 								eventType: "subagent-result",
 								agentName: "developer",
-								content: (devResult as any).content,
-								details: (devResult as any).details,
+								content: [{ type: "text", text: devResult.textOutput || "" }],
+								details: {
+									agentName: "developer",
+									success: devSuccess,
+									statusLabel: devSuccess ? "SUCCESS" : "FAILED",
+									summaryLine: devResult.summaryLine || "",
+								},
 							},
 						});
 
@@ -199,9 +202,6 @@ export async function handlePostPipelineMerge(
 						const msg = devErr instanceof Error ? devErr.message : String(devErr);
 						log.error("pipeline-merge", `Failed to dispatch developer: ${msg}`);
 						ctx.ui.notify(`Failed to dispatch developer: ${msg}`, "error");
-					} finally {
-						// Clear developer widget on completion
-						ctx.ui.setWidget(widgetId, undefined);
 					}
 				}
 			}

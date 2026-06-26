@@ -19,176 +19,22 @@ import {
 } from "../event/adapter.ts";
 import { pushLog } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
-import { runAgentInProcess } from "./session-runner.ts";
-import { buildErrorNotificationContext } from "../config/diagnostics.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 
 // Re-export DEFAULT_AGENT_TIMEOUT_MS for backward compatibility
 export { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 
-// ─── createAgentRunState: shared state initialization ──────────────
-// Used by both runAgentSubprocess (agent-runner.ts) and
-// runAgentInProcess (agent-session-runner.ts) for consistent state creation.
-// Budget params default to 0 (unlimited) for backward compatibility.
+// ─── buildSubprocessArgs: assemble CLI args for pi --mode json ──────
+// Extracted from runAgentSubprocess for reuse in executeAgent.
+// Used by both runAgentSubprocess and the slimmed subagent/index.ts.
 
-export function createAgentRunState(
-	startedAt: number,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): AgentRunState {
-	return {
-		toolCount: 0,
-		failedToolCount: 0,
-		tokenCount: 0,
-		fullLog: [],
-		liveThinking: "",
-		liveText: "",
-		textOutputLines: [],
-		thinkingOutputLines: [],
-		phase: "idle",
-		startedAt,
-		contextInfoReceived: false,
-		thinkingPushedThisTurn: false,
-		textPushedThisTurn: false,
-		budgetExceeded: false,
-		budgetExceededReason: undefined,
-		maxToolCalls: maxToolCalls ?? 0,
-		agentTokenBudget: agentTokenBudget ?? 0,
-	};
-}
-
-// ─── runAgent (Primary: in-process, Fallback: subprocess) ──────────
-
-export async function runAgent(
+function buildSubprocessArgs(
 	agent: ParsedAgent,
 	task: string,
-	ctx: ExtensionCommandContext,
-	pi: ExtensionAPI,
-	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): Promise<AgentRunResult> {
-	const log = getDebugLogger();
-	log.info("agent-runner", `runAgent: ${agent.config.name}`, {
-		model: agent.config.model,
-		timeoutMs,
-		cwd,
-		maxToolCalls,
-		agentTokenBudget,
-		taskLen: task.length,
-	});
-
-	// Primary: in-process via SDK
-	// Two failure modes:
-	//   1. Thrown error (unexpected exception) — caught by catch block
-	//   2. Non-success result (watchdog stall, agent error) — checked via result.success
-	// Both trigger subprocess fallback for resilience (Phase 3: graceful degradation).
-	try {
-		const result = await runAgentInProcess(
-			agent,
-			task,
-			ctx,
-			pi,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-		);
-
-		// Check for non-thrown failures (e.g., watchdog stall, agent error result)
-		if (!result.success) {
-			const reason = result.summaryLine || result.errorOutput || "unknown error";
-			log.warn(
-				"agent-runner",
-				`[supervisor] In-process runner failed (result.success=false), falling back to subprocess: ${reason}`,
-			);
-			try {
-				const ctx2 = buildErrorNotificationContext("in-process-runner", reason);
-				ctx.ui.notify(`In-process runner failed — falling back to subprocess: ${ctx2}`, "warning");
-			} catch {
-				// notification fallback
-			}
-			// Chat progress streaming degradation notification
-			// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
-			try {
-				ctx.ui.notify(
-					"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
-					"warning",
-				);
-			} catch {
-				// notification fallback
-			}
-			return await runAgentSubprocess(
-				agent,
-				task,
-				ctx,
-				timeoutMs,
-				cwd,
-				maxToolCalls,
-				agentTokenBudget,
-			);
-		}
-
-		log.info("agent-runner", `In-process succeeded for ${agent.config.name}`, {
-			success: result.success,
-			durationMs: result.durationMs,
-			toolCount: result.toolCount,
-			tokenCount: result.tokenCount,
-			summary: result.summaryLine?.slice(0, 200),
-		});
-
-		return result;
-	} catch (err: unknown) {
-		const errMsg = err instanceof Error ? err.message : String(err);
-		log.warn("agent-runner", `In-process runner threw, falling back to subprocess: ${errMsg}`);
-		// Show notification with diagnostic context
-		try {
-			const ctx2 = buildErrorNotificationContext("in-process-runner", errMsg);
-			ctx.ui.notify(`In-process runner threw — falling back to subprocess: ${ctx2}`, "warning");
-		} catch {
-			// notification fallback
-		}
-		// Chat progress streaming degradation notification
-		// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
-		try {
-			ctx.ui.notify(
-				"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
-				"warning",
-			);
-		} catch {
-			// notification fallback
-		}
-		// Fallback: subprocess
-		return await runAgentSubprocess(
-			agent,
-			task,
-			ctx,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-		);
-	}
-}
-
-// ─── runAgentSubprocess (Fallback) ─────────────────────────────────
-
-export async function runAgentSubprocess(
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): Promise<AgentRunResult> {
-	const log = getDebugLogger();
-	const effectiveCwd = cwd || ctx.cwd || process.cwd();
-	// Pass worktree path to worktree-sandbox extension for path confinement
-	const sandboxEnv = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
-
+	effectiveCwd: string,
+	sessionPath?: string,
+): string[] {
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
 	const model = agent.config.model || "";
@@ -215,6 +61,66 @@ export async function runAgentSubprocess(
 	if (agent.config.thinking && agent.config.thinking.trim()) {
 		args.push("--thinking", agent.config.thinking.trim());
 	}
+	if (sessionPath) {
+		args.push("--session", sessionPath);
+	}
+	return args;
+}
+
+// ─── createAgentRunState: internal state initialization ───────────
+// Called by runAgentSubprocess for consistent state creation.
+// Budget params default to 0 (unlimited) for backward compatibility.
+
+function createAgentRunState(
+	startedAt: number,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+): AgentRunState {
+	return {
+		toolCount: 0,
+		failedToolCount: 0,
+		tokenCount: 0,
+		fullLog: [],
+		liveThinking: "",
+		liveText: "",
+		textOutputLines: [],
+		thinkingOutputLines: [],
+		phase: "idle",
+		startedAt,
+		contextInfoReceived: false,
+		thinkingPushedThisTurn: false,
+		textPushedThisTurn: false,
+		budgetExceeded: false,
+		budgetExceededReason: undefined,
+		maxToolCalls: maxToolCalls ?? 0,
+		agentTokenBudget: agentTokenBudget ?? 0,
+	};
+}
+
+// ─── runAgentSubprocess (Fallback) ─────────────────────────────────
+
+export async function runAgentSubprocess(
+	agent: ParsedAgent,
+	task: string,
+	ctx: ExtensionCommandContext,
+	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
+	cwd?: string,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+	sessionPath?: string,
+): Promise<AgentRunResult> {
+	const log = getDebugLogger();
+	const effectiveCwd = cwd || ctx.cwd || process.cwd();
+	// Pass worktree path to worktree-sandbox extension for path confinement
+	const sandboxEnv = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
+
+	const args = buildSubprocessArgs(agent, task, effectiveCwd, sessionPath);
+	const model = agent.config.model || "";
+
+	// Recompute for logging (also computed inside buildSubprocessArgs)
+	const rawTools = agent.config.tools || "read,bash,write,edit";
+	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
+	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	// Warn if task is large enough to risk ARG_MAX (Linux default: 2MB)
 	const ARG_MAX_WARN_THRESHOLD = 1_000_000; // 1MB

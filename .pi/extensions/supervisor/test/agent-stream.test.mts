@@ -260,7 +260,7 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 		assert.equal(state.fullLog.filter((l) => l === "World").length, 1, "'World' still once");
 	});
 
-	it('thinking_delta("Step 1\\nStep 2\\n") → thinking_end → message_end re-pushes (no thinking dedup guard)', () => {
+	it('thinking_delta("Step 1\\nStep 2\\n") → thinking_end → message_end dedup guard (handleMessageEnd respects thinkingPushedThisTurn)', () => {
 		const state = createState();
 
 		// Step 1: thinking_delta with complete lines
@@ -293,7 +293,7 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 		);
 		assert.equal(state.thinkingPushedThisTurn, true, "flag was set during delta");
 
-		// Step 3: message_end — thinking content always re-pushes (no dedup guard in handleMessageEnd)
+		// Step 3: message_end — thinking content skipped because flag is set (dedup guard)
 		const fullLogLenBefore = state.fullLog.length;
 		processViaNormalized(
 			JSON.stringify({
@@ -306,15 +306,15 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 			state,
 		);
 
-		// message_end always pushes thinking content regardless of dedup flag
+		// message_end respects thinkingPushedThisTurn flag — no re-push
 		assert.equal(
 			state.fullLog.length,
-			fullLogLenBefore + 2,
-			"fullLog grew by 2 (re-push from message_end)",
+			fullLogLenBefore,
+			"fullLog unchanged (dedup guard prevents re-push)",
 		);
 	});
 
-	it("mixed text + thinking via JSON — thinking re-pushes (no dedup guard), text blocked by flag", () => {
+	it("mixed text + thinking via JSON — both blocked by dedup flags", () => {
 		const state = createState();
 
 		// Thinking phase: start → delta → end
@@ -365,7 +365,7 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 		);
 		assert.equal(state.textPushedThisTurn, true);
 
-		// message_end — text flag blocks text re-push, thinking always re-pushes (no guard)
+		// message_end — both flags are set, so neither thinking nor text is re-pushed
 		const fullLogLenBefore = state.fullLog.length;
 		processViaNormalized(
 			JSON.stringify({
@@ -381,24 +381,32 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 			state,
 		);
 
-		// Thinking content re-pushed (no guard), text blocked by textPushedThisTurn=true
-		assert.equal(state.fullLog.length, fullLogLenBefore + 2, "thinking re-pushes 2 lines");
+		// No re-pushes because both flags are set (dedup guards in handleMessageEnd)
+		assert.equal(
+			state.fullLog.length,
+			fullLogLenBefore,
+			"fullLog unchanged (both flags block re-push)",
+		);
 		assert.equal(
 			state.fullLog.filter((l) => l.includes("💭 t1")).length,
-			2,
-			"thinking content re-pushed by message_end",
+			1,
+			"thinking content NOT re-pushed by message_end",
 		);
 		assert.equal(
 			state.fullLog.filter((l) => l.includes("💭 t2")).length,
-			2,
-			"thinking content re-pushed by message_end",
+			1,
+			"thinking content NOT re-pushed by message_end",
 		);
 		// Text not re-pushed because textPushedThisTurn is true
 		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
 		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
 		assert.equal(state.textOutputLines.length, 0, "no text output (buffer was empty at text_end)");
-		// message_end pushes thinking to thinkingOutputLines (no dedup guard)
-		assert.equal(state.thinkingOutputLines.length, 1, "thinking output populated by message_end");
+		// thinkingOutputLines NOT populated because thinkingPushedThisTurn is true
+		assert.equal(
+			state.thinkingOutputLines.length,
+			0,
+			"thinking output not populated (dedup guard)",
+		);
 	});
 });
 
