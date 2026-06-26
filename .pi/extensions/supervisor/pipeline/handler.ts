@@ -1117,6 +1117,3 @@ export async function handlePostPipeline(
 		}
 	}
 }
-
-// Re-export executeAgent for backward compatibility with test files
-export { executeAgent } from "./execute-agent.ts";
