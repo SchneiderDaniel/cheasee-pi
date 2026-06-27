@@ -47,7 +47,7 @@ const ON_UPDATE_DEBOUNCE_MS = 300;
  *  Large enough for thinking:high model outputs (architect) while
  *  retaining the JSON at the end for parseAgentOutput extraction.
  *  The TUI renderer has its own display cap (8KB expanded view). */
-const MAX_CONTENT_CHARS = 1_000_000;
+const MAX_CONTENT_CHARS = 50_000;
 
 // ─── executeSubagent — Library Function ─────────────────────────────
 // Called programmatically by the pipeline handler. NOT via LLM tool dispatch.
@@ -873,12 +873,12 @@ function buildSubagentResult(
 		).length;
 	}
 
-	// Build content text (capped at MAX_CONTENT_CHARS)
+	// Build content text (capped at MAX_CONTENT_CHARS, kept from END)
+	// Keeping the end preserves the JSON artifact for parseAgentOutput().
 	let contentText = textOutput || summaryLine;
 	if (contentText.length > MAX_CONTENT_CHARS) {
-		contentText =
-			contentText.slice(0, MAX_CONTENT_CHARS) +
-			`\n…[truncated: output exceeds ${MAX_CONTENT_CHARS} chars]`;
+		const truncMsg = `[truncated: kept last ${MAX_CONTENT_CHARS} chars of ${contentText.length}]\n`;
+		contentText = truncMsg + contentText.slice(-(MAX_CONTENT_CHARS - truncMsg.length));
 	}
 
 	const statusLabel = success ? (state.budgetExceeded ? "BUDGET_EXCEEDED" : "SUCCESS") : "FAILED";

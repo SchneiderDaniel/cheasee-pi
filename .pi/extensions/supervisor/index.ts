@@ -13,6 +13,44 @@ import { createIssueAutocompleteProvider, resetIssueCache } from "./event/autoco
 import { loadConfig } from "./config/config.ts";
 import { registerSubagentTool } from "./subagent/index.ts";
 
+// ── Session memory cleanup on compaction ────────────────────────
+// After compaction, entries before firstKeptEntryId are persisted to disk
+// and genuinely skipped by buildSessionContext() (they're in the parentId
+// chain walk but excluded from messages). Null their payloads to free heap.
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+{
+	const origAppendCompaction = SessionManager.prototype.appendCompaction;
+	SessionManager.prototype.appendCompaction = function (
+		summary: any,
+		firstKeptEntryId: string,
+		tokensBefore: any,
+		details: any,
+		fromHook: any,
+	) {
+		const result = origAppendCompaction.call(
+			this,
+			summary,
+			firstKeptEntryId,
+			tokensBefore,
+			details,
+			fromHook,
+		);
+		// Null content for entries before firstKeptEntryId — skipped by
+		// buildSessionContext(). Keep shell (id, parentId) for chain walk.
+		if (firstKeptEntryId) {
+			for (const e of (this as any).fileEntries) {
+				if (e.id === firstKeptEntryId) break;
+				if (e.type === "message" && e.message) {
+					e.message.content = undefined;
+					e.message.toolCalls = undefined;
+					e.message.toolResults = undefined;
+				}
+			}
+		}
+		return result;
+	};
+}
+
 // ── pi.executeTool augmentation (no pi-core changes) ──────────────
 // Type augmentation so TypeScript recognizes pi.executeTool() on ExtensionAPI.
 declare module "@earendil-works/pi-coding-agent" {
