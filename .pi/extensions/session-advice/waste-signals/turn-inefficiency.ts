@@ -14,6 +14,7 @@
 import { isBashSearchOrRead } from "../../lib/bash-query.ts";
 import type { SessionData, WasteSignal, SessionEntry } from "../types.ts";
 import { getEntryPath, sumTokenCost, sumDollarCost } from "../token-utils.ts";
+import { isToolUse } from "./_guards.ts";
 
 /** Tools that perform codebase/external discovery (not waste). */
 const DISCOVERY_TOOLS = new Set([
@@ -79,7 +80,7 @@ export function detectTurnInefficiency(data: SessionData): WasteSignal[] {
 		}
 
 		// Count tool_use entries as tool calls (Bug 3: count calls, not all entries)
-		const toolCalls = entries.filter((e) => e.type === "tool_use" && e.toolName);
+		const toolCalls = entries.filter(isToolUse);
 		if (toolCalls.length < 15) {
 			// Accumulate reads even if below threshold
 			const readsThisTurn = readFilesPerTurn.get(turnIndex);

@@ -7,6 +7,7 @@
 
 import type { SessionData, WasteSignal } from "../types.ts";
 import { sumTokenCost, sumDollarCost } from "../token-utils.ts";
+import { isToolUseWithArgs } from "./_guards.ts";
 
 /**
  * Detect identical tool calls with matching args within a sliding window.
@@ -14,7 +15,7 @@ import { sumTokenCost, sumDollarCost } from "../token-utils.ts";
 export function detectIdenticalArgs(data: SessionData): WasteSignal[] {
 	const results: WasteSignal[] = [];
 	const calls = data.entries
-		.filter((e) => e.toolName && e.args)
+		.filter(isToolUseWithArgs)
 		.map((e) => ({
 			key: `${e.toolName}|${JSON.stringify(e.args)}`,
 			toolName: e.toolName!,

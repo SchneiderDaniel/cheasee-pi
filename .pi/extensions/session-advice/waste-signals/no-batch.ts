@@ -7,6 +7,7 @@
 
 import type { SessionData, WasteSignal } from "../types.ts";
 import { sumTokenCost } from "../token-utils.ts";
+import { isToolUse } from "./_guards.ts";
 
 /**
  * Detect consecutive same-tool calls spread across multiple turns.
@@ -14,7 +15,7 @@ import { sumTokenCost } from "../token-utils.ts";
  */
 export function detectNoBatch(data: SessionData): WasteSignal[] {
 	const results: WasteSignal[] = [];
-	const tools = data.entries.filter((e) => e.toolName);
+	const tools = data.entries.filter(isToolUse);
 
 	let runStart = 0;
 	for (let i = 1; i <= tools.length; i++) {

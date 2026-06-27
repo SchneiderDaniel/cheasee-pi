@@ -9,7 +9,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { detectNoBatch } from "../waste-signals/no-batch.ts";
-import { makeSession, readEntry } from "./session-test-helpers.ts";
+import { makeSession, readEntry, toolCallPair } from "./session-test-helpers.ts";
 
 describe("detectNoBatch", () => {
 	it("3 consecutive read calls across turns 0,1,2 → 1 no-batch signal", () => {
@@ -79,6 +79,21 @@ describe("detectNoBatch", () => {
 		]);
 		assert.strictEqual(detectNoBatch(data).length, 1);
 		assert.strictEqual(detectNoBatch(data)[0].context.toolName, "read");
+	});
+
+	it("3 consecutive reads with interleaved tool_result entries → count is 3 not 6 (#1096)", () => {
+		const data = makeSession([
+			...toolCallPair("read", 0, { path: "/a.ts" }),
+			...toolCallPair("read", 1, { path: "/b.ts" }),
+			...toolCallPair("read", 2, { path: "/c.ts" }),
+		]);
+		const signals = detectNoBatch(data);
+		assert.strictEqual(signals.length, 1, "should flag 3 consecutive calls");
+		assert.match(
+			signals[0].details[0],
+			/`read` called 3x consecutively/,
+			"detail should say 3x, not 6x",
+		);
 	});
 
 	it("empty session → 0 signals", () => {

@@ -13,6 +13,7 @@ import {
 	makeSession,
 	identicalBashEntry,
 	identicalStructuralSearchEntry,
+	toolCallPair,
 } from "./session-test-helpers.ts";
 
 describe("detectIdenticalArgs", () => {
@@ -123,6 +124,19 @@ describe("detectIdenticalArgs", () => {
 			{ type: "tool_use", toolName: undefined, args: undefined, text: "", turnIndex: 0 } as any,
 		]);
 		assert.ok(Array.isArray(detectIdenticalArgs(data)), "should return array without crashing");
+	});
+
+	it("3 identical calls with interleaved tool_result entries → count not inflated (#1096)", () => {
+		// toolCallPair sets args: {} on tool_result — latent inflation vector
+		const data = makeSession([
+			...toolCallPair("read", 0, { path: "/a.ts" }),
+			...toolCallPair("read", 1, { path: "/a.ts" }),
+			...toolCallPair("read", 2, { path: "/a.ts" }),
+		]);
+		const signals = detectIdenticalArgs(data);
+		// Should detect 3 tool_use entries with identical args (path: "/a.ts")
+		assert.strictEqual(signals.length, 1, "should produce one identical-args signal");
+		assert.ok(signals[0].occurrences >= 2, "occurrences should be >= 2");
 	});
 
 	it("empty session → 0 signals", () => {
