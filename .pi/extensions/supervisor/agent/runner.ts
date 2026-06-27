@@ -10,7 +10,12 @@ import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
-import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
+import {
+	formatDuration,
+	formatToolCall,
+	extractSummaryLine,
+	extractTextFromContent,
+} from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
 	jsonLineToNormalizedEvent,
@@ -19,176 +24,22 @@ import {
 } from "../event/adapter.ts";
 import { pushLog } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
-import { runAgentInProcess } from "./session-runner.ts";
-import { buildErrorNotificationContext } from "../config/diagnostics.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 
 // Re-export DEFAULT_AGENT_TIMEOUT_MS for backward compatibility
 export { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 
-// ─── createAgentRunState: shared state initialization ──────────────
-// Used by both runAgentSubprocess (agent-runner.ts) and
-// runAgentInProcess (agent-session-runner.ts) for consistent state creation.
-// Budget params default to 0 (unlimited) for backward compatibility.
+// ─── buildSubprocessArgs: assemble CLI args for pi --mode json ──────
+// Extracted from runAgentSubprocess for reuse in executeAgent.
+// Used by both runAgentSubprocess and the slimmed subagent/index.ts.
 
-export function createAgentRunState(
-	startedAt: number,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): AgentRunState {
-	return {
-		toolCount: 0,
-		failedToolCount: 0,
-		tokenCount: 0,
-		fullLog: [],
-		liveThinking: "",
-		liveText: "",
-		textOutputLines: [],
-		thinkingOutputLines: [],
-		phase: "idle",
-		startedAt,
-		contextInfoReceived: false,
-		thinkingPushedThisTurn: false,
-		textPushedThisTurn: false,
-		budgetExceeded: false,
-		budgetExceededReason: undefined,
-		maxToolCalls: maxToolCalls ?? 0,
-		agentTokenBudget: agentTokenBudget ?? 0,
-	};
-}
-
-// ─── runAgent (Primary: in-process, Fallback: subprocess) ──────────
-
-export async function runAgent(
+function buildSubprocessArgs(
 	agent: ParsedAgent,
 	task: string,
-	ctx: ExtensionCommandContext,
-	pi: ExtensionAPI,
-	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): Promise<AgentRunResult> {
-	const log = getDebugLogger();
-	log.info("agent-runner", `runAgent: ${agent.config.name}`, {
-		model: agent.config.model,
-		timeoutMs,
-		cwd,
-		maxToolCalls,
-		agentTokenBudget,
-		taskLen: task.length,
-	});
-
-	// Primary: in-process via SDK
-	// Two failure modes:
-	//   1. Thrown error (unexpected exception) — caught by catch block
-	//   2. Non-success result (watchdog stall, agent error) — checked via result.success
-	// Both trigger subprocess fallback for resilience (Phase 3: graceful degradation).
-	try {
-		const result = await runAgentInProcess(
-			agent,
-			task,
-			ctx,
-			pi,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-		);
-
-		// Check for non-thrown failures (e.g., watchdog stall, agent error result)
-		if (!result.success) {
-			const reason = result.summaryLine || result.errorOutput || "unknown error";
-			log.warn(
-				"agent-runner",
-				`[supervisor] In-process runner failed (result.success=false), falling back to subprocess: ${reason}`,
-			);
-			try {
-				const ctx2 = buildErrorNotificationContext("in-process-runner", reason);
-				ctx.ui.notify(`In-process runner failed — falling back to subprocess: ${ctx2}`, "warning");
-			} catch {
-				// notification fallback
-			}
-			// Chat progress streaming degradation notification
-			// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
-			try {
-				ctx.ui.notify(
-					"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
-					"warning",
-				);
-			} catch {
-				// notification fallback
-			}
-			return await runAgentSubprocess(
-				agent,
-				task,
-				ctx,
-				timeoutMs,
-				cwd,
-				maxToolCalls,
-				agentTokenBudget,
-			);
-		}
-
-		log.info("agent-runner", `In-process succeeded for ${agent.config.name}`, {
-			success: result.success,
-			durationMs: result.durationMs,
-			toolCount: result.toolCount,
-			tokenCount: result.tokenCount,
-			summary: result.summaryLine?.slice(0, 200),
-		});
-
-		return result;
-	} catch (err: unknown) {
-		const errMsg = err instanceof Error ? err.message : String(err);
-		log.warn("agent-runner", `In-process runner threw, falling back to subprocess: ${errMsg}`);
-		// Show notification with diagnostic context
-		try {
-			const ctx2 = buildErrorNotificationContext("in-process-runner", errMsg);
-			ctx.ui.notify(`In-process runner threw — falling back to subprocess: ${ctx2}`, "warning");
-		} catch {
-			// notification fallback
-		}
-		// Chat progress streaming degradation notification
-		// Subprocess mode cannot send progress chat messages (no pi.sendMessage access)
-		try {
-			ctx.ui.notify(
-				"Chat progress streaming unavailable in subprocess mode — widget will continue to show live status",
-				"warning",
-			);
-		} catch {
-			// notification fallback
-		}
-		// Fallback: subprocess
-		return await runAgentSubprocess(
-			agent,
-			task,
-			ctx,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-		);
-	}
-}
-
-// ─── runAgentSubprocess (Fallback) ─────────────────────────────────
-
-export async function runAgentSubprocess(
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-): Promise<AgentRunResult> {
-	const log = getDebugLogger();
-	const effectiveCwd = cwd || ctx.cwd || process.cwd();
-	// Pass worktree path to worktree-sandbox extension for path confinement
-	const sandboxEnv = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
-
+	effectiveCwd: string,
+	sessionPath?: string,
+): string[] {
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
 	const model = agent.config.model || "";
@@ -215,6 +66,67 @@ export async function runAgentSubprocess(
 	if (agent.config.thinking && agent.config.thinking.trim()) {
 		args.push("--thinking", agent.config.thinking.trim());
 	}
+	if (sessionPath) {
+		args.push("--session", sessionPath);
+	}
+	return args;
+}
+
+// ─── createAgentRunState: internal state initialization ───────────
+// Called by runAgentSubprocess for consistent state creation.
+// Budget params default to 0 (unlimited) for backward compatibility.
+
+function createAgentRunState(
+	startedAt: number,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+): AgentRunState {
+	return {
+		toolCount: 0,
+		failedToolCount: 0,
+		tokenCount: 0,
+		fullLog: [],
+		liveThinking: "",
+		liveText: "",
+		textOutputLines: [],
+		thinkingOutputLines: [],
+		phase: "idle",
+		startedAt,
+		contextInfoReceived: false,
+		thinkingPushedThisTurn: false,
+		textPushedThisTurn: false,
+		budgetExceeded: false,
+		budgetExceededReason: undefined,
+		maxToolCalls: maxToolCalls ?? 0,
+		agentTokenBudget: agentTokenBudget ?? 0,
+	};
+}
+
+// ─── runAgentSubprocess (Fallback) ─────────────────────────────────
+
+export async function runAgentSubprocess(
+	agent: ParsedAgent,
+	task: string,
+	ctx: ExtensionCommandContext,
+	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
+	cwd?: string,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+	sessionPath?: string,
+	pi?: Pick<ExtensionAPI, "sendMessage">,
+): Promise<AgentRunResult> {
+	const log = getDebugLogger();
+	const effectiveCwd = cwd || ctx.cwd || process.cwd();
+	// Pass worktree path to worktree-sandbox extension for path confinement
+	const sandboxEnv = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
+
+	const args = buildSubprocessArgs(agent, task, effectiveCwd, sessionPath);
+	const model = agent.config.model || "";
+
+	// Recompute for logging (also computed inside buildSubprocessArgs)
+	const rawTools = agent.config.tools || "read,bash,write,edit";
+	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
+	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	// Warn if task is large enough to risk ARG_MAX (Linux default: 2MB)
 	const ARG_MAX_WARN_THRESHOLD = 1_000_000; // 1MB
@@ -307,6 +219,14 @@ export async function runAgentSubprocess(
 			}
 		}, 2000);
 
+		// ponytail: forward events from subprocess to supervisor chat messages
+		// so the user sees live per-tool rendering (tool-start, tool-complete, thinking).
+		// Without this, only the stats widget updates — no visible progress in chat.
+		let toolSeqNum = 0;
+		let pendingToolName = "";
+		let pendingToolStartTime = 0;
+		let pendingToolIsError = false;
+
 		// Event-driven flush at 300ms debounce + 2s heartbeat.
 		// Try-catch prevents uncaught exceptions from breaking the JSON stream processing.
 		// Inlines the former processJsonLine() logic from deleted agent/stream.ts:
@@ -318,11 +238,93 @@ export async function runAgentSubprocess(
 				if (!line.trim()) return;
 				const normalized = jsonLineToNormalizedEvent(line);
 				if (!normalized) return;
+				// ponytail: capture pre-processing state for events that mutate it.
+				// processNormalizedEvent clears state.liveThinking on thinking_end,
+				// so we save it before forwarding below.
+				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
 				const result = processNormalizedEvent(normalized, state);
 				if (result.workingChange) {
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
 					ctx.ui.setWorkingMessage(wm ?? undefined);
+				}
+				// Forward key events as supervisor chat messages
+				if (pi && normalized) {
+					switch (normalized.kind) {
+						case "tool_execution_start": {
+							toolSeqNum++;
+							pendingToolName = normalized.toolName;
+							pendingToolStartTime = Date.now();
+							pendingToolIsError = false;
+							const formatted = formatToolCall(
+								normalized.toolName,
+								normalized.args as Record<string, unknown> | null | undefined,
+							);
+							pi.sendMessage({
+								customType: "supervisor",
+								content: `⏳ ${agentName} — ${formatted}`,
+								display: true,
+								details: {
+									eventType: "tool-start",
+									agentName,
+									toolName: normalized.toolName,
+									argsStr: formatted,
+								},
+							});
+							break;
+						}
+						case "tool_execution_end": {
+							pendingToolIsError = !!normalized.isError;
+							break;
+						}
+						case "message_end": {
+							const msg = normalized.message;
+							if (msg?.role === "toolResult") {
+								const toolName = pendingToolName || msg.toolName || "tool";
+								const resultText = extractTextFromContent(msg.content);
+								const durationMs = pendingToolStartTime > 0 ? Date.now() - pendingToolStartTime : 0;
+								pi.sendMessage({
+									customType: "supervisor",
+									content: `${toolName}`,
+									display: true,
+									details: {
+										eventType: "tool-complete",
+										toolName,
+										argsStr: "",
+										isError: pendingToolIsError,
+										resultText: resultText.slice(0, 2000),
+										toolIndex: `#${toolSeqNum}`,
+										toolDurationMs: durationMs,
+										runningTokenCount: state.tokenCount,
+										runningToolCount: state.toolCount,
+										errorCount: state.failedToolCount ?? 0,
+										maxToolCalls: state.maxToolCalls,
+										agentTokenBudget: state.agentTokenBudget,
+									},
+								});
+								pendingToolName = "";
+								pendingToolStartTime = 0;
+								pendingToolIsError = false;
+							}
+							break;
+						}
+						case "thinking_end": {
+							// preThinkingText captured before processNormalizedEvent cleared it
+							if (preThinkingText) {
+								pi.sendMessage({
+									customType: "supervisor",
+									content: `💭 ${agentName}`,
+									display: true,
+									details: {
+										eventType: "thinking",
+										content: preThinkingText,
+										agentName,
+									},
+								});
+							}
+							break;
+						}
+					}
 				}
 				// Budget exceeded — kill subprocess to prevent further turns
 				if (state.budgetExceeded && !childExited) {

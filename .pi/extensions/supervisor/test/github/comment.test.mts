@@ -11,7 +11,7 @@ import {
 	extractAgentCommentBody,
 	filterIssueData,
 } from "../../github/comment.ts";
-import { isToolCallLine } from "../../event/session-events.ts";
+import { isToolCallLine } from "../../lib/formatting.ts";
 
 // ─── Direct Export Coverage (TDD gate test-covers-symbols) ───────
 // These assertions call exported functions directly inside assert()

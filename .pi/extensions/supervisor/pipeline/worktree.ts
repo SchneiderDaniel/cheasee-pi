@@ -75,13 +75,37 @@ export async function createWorktree(
 	);
 }
 
+// ponytail: copy git-ignored `.pi/git/` dir into worktree so extensions that
+// depend on git-managed packages (ponytail hooks, etc.) can load.
+// `.pi/git/` is in .gitignore — git worktree add doesn't copy it.
+async function copyGitDir(
+	pi: ExtensionAPI,
+	cwd: string,
+	worktreePath: string,
+	notify: NotifyFn,
+): Promise<void> {
+	const log = getDebugLogger();
+	const src = resolvePath(cwd, ".pi/git");
+	const dst = resolvePath(worktreePath, ".pi/git");
+	try {
+		await pi.exec("cp", ["-r", "--preserve=links", src, dst], { timeout: 30_000 });
+		log.info("worktree", `Copied .pi/git from ${src} to ${dst}`);
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log.warn("worktree", `Failed to copy .pi/git: ${msg} — continuing without`);
+	}
+}
+
 // ─── Install Worktree Dependencies ───────────────────────────────
 
 export async function installWorktreeDeps(
 	pi: ExtensionAPI,
+	cwd: string,
 	worktreePath: string,
 	notify: NotifyFn,
 ): Promise<Result<void>> {
+	await copyGitDir(pi, cwd, worktreePath, notify);
+
 	return withNotify(
 		async () => {
 			const log = getDebugLogger();

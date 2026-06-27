@@ -412,13 +412,6 @@ describe("createMockPi", () => {
 	it("unregisterProvider does not throw", () => {
 		pi.unregisterProvider("test");
 	});
-
-	it("executeTool returns default AgentRunResult fixture", async () => {
-		const result = await (pi as any).executeTool("subagent", { agent: "test" });
-		assert.ok(result);
-		assert.equal(result.details.agentName, "mock-agent");
-		assert.equal(result.details.success, true);
-	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════

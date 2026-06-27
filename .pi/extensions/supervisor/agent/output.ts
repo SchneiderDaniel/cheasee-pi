@@ -5,7 +5,7 @@
 
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
-import { isToolCallLine } from "../event/session-events.ts";
+import { isToolCallLine } from "../lib/formatting.ts";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────
 

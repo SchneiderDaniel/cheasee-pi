@@ -17,7 +17,7 @@ import {
 import { formatTokensInt, formatDuration, formatTokens, getTermWidth } from "../lib/formatting.ts";
 import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
-import { formatToolCall } from "../event/session-events.ts";
+import { formatToolCall } from "../lib/formatting.ts";
 
 // ─── Constants (shared with deleted renderSubagentResult) ──────────
 const MAX_TASK_PREVIEW_CHARS = 80;

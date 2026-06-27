@@ -355,7 +355,7 @@ ${filteredData.body}`,
 				.join("\n");
 			return `${systemPromptPrefix}${researcherBlock}\n\n## Task\nFollow your system prompt instructions.
 
-${JSON_OUTPUT_INSTRUCTION}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.`;
+${JSON_OUTPUT_INSTRUCTION}\n\n**IMPORTANT:** You MUST always include a \`commentBody\` field in your JSON output.\nEven if you find no relevant results, set \`commentBody\` to \`## Research Findings — No relevant results found for this topic.\`\nand \`summary\` to a brief note about why nothing was found.\nDo NOT omit \`commentBody\` — a missing \`commentBody\` causes the pipeline to emit a warning\nand post a generic fallback comment instead of your actual findings.\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.`;
 		}
 
 		default:

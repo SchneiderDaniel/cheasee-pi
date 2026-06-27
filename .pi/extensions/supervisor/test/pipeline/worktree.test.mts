@@ -155,11 +155,22 @@ describe("createWorktree()", () => {
 describe("installWorktreeDeps()", () => {
 	it("runs npm ci in worktree path — returns { ok: true }", async () => {
 		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
 		const { notify } = createMockNotify();
-		const result = await installWorktreeDeps(pi, "/worktree", notify);
+		const result = await installWorktreeDeps(pi, "/main-repo", "/worktree", notify);
 		assert.equal(result.ok, true);
-		assert.deepEqual(calls[0], {
+		// First call is cp .pi/git, second is npm ci
+		assert.equal(calls.length, 2);
+		assert.equal(calls[0].cmd, "cp");
+		assert.ok(calls[0].args.includes("/main-repo/.pi/git"));
+		assert.ok(calls[0].args.includes("/worktree/.pi/git"));
+		assert.deepEqual(calls[1], {
 			cmd: "npm",
 			args: ["ci"],
 			opts: { cwd: "/worktree", timeout: 120_000 },
@@ -167,13 +178,14 @@ describe("installWorktreeDeps()", () => {
 	});
 
 	it("returns { ok: false } on npm ci failure — notify.error called", async () => {
-		// Both attempts must fail — provide 2 failing results
+		// cp succeeds, both npm attempts fail — provide 3 results
 		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 1, stdout: "", stderr: "still failing" },
 		]);
 		const { notify, calls } = createMockNotify();
-		const result = await installWorktreeDeps(pi, "/worktree", notify);
+		const result = await installWorktreeDeps(pi, "/main-repo", "/worktree", notify);
 		assert.equal(result.ok, false);
 		assert.ok(
 			calls.some((c) => c.level === "error"),
@@ -187,11 +199,12 @@ describe("installWorktreeDeps()", () => {
 
 	it("returns { ok: true } on retry success", async () => {
 		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 0, stdout: "", stderr: "" },
 		]);
 		const { notify, calls } = createMockNotify();
-		const result = await installWorktreeDeps(pi, "/worktree", notify);
+		const result = await installWorktreeDeps(pi, "/main-repo", "/worktree", notify);
 		assert.equal(result.ok, true);
 		// Only retry success — no error notification
 		assert.equal(calls.filter((c) => c.level === "error").length, 0);

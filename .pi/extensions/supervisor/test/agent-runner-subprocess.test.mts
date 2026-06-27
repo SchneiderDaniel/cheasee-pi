@@ -528,6 +528,176 @@ if (hasMockModule) {
 		});
 	});
 
+	describe("runAgentSubprocess — rendering contract", () => {
+		it("forwards tool_execution_start as eventType: tool-start", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "read",
+						args: { path: "/tmp/x.ts" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "read",
+							content: [{ type: "text", text: "file content" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolStartMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-start",
+			);
+			assert.ok(
+				toolStartMsgs.length >= 1,
+				`expected >=1 tool-start messages, got ${toolStartMsgs.length}`,
+			);
+			if (toolStartMsgs[0]) {
+				assert.equal(toolStartMsgs[0].details.toolName, "read");
+			}
+		});
+
+		it("forwards toolResult message_end as eventType: tool-complete", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "read",
+						args: { path: "/tmp/x.ts" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "read",
+							content: [{ type: "text", text: "file content" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolCompleteMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-complete",
+			);
+			assert.ok(
+				toolCompleteMsgs.length >= 1,
+				`expected >=1 tool-complete messages, got ${toolCompleteMsgs.length}`,
+			);
+			if (toolCompleteMsgs[0]) {
+				assert.equal(toolCompleteMsgs[0].details.toolName, "read");
+				assert.ok(
+					toolCompleteMsgs[0].details.resultText?.includes("file content"),
+					"tool-complete should include result text",
+				);
+			}
+		});
+
+		it("forwards thinking_end as eventType: thinking with content", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "message_update", delta: { type: "thinking_start" } }),
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "thinking_delta", thinking_delta: "Let me analyze the code." },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "thinking_end" } }),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "result" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const thinkingMsgs = sendMessageCalls.filter((m: any) => m.details?.eventType === "thinking");
+			assert.ok(
+				thinkingMsgs.length >= 1,
+				`expected >=1 thinking messages, got ${thinkingMsgs.length}`,
+			);
+			if (thinkingMsgs[0]) {
+				assert.ok(
+					thinkingMsgs[0].details.content?.includes("Let me analyze"),
+					"thinking message should contain the thinking text",
+				);
+			}
+		});
+	});
+
 	describe("runAgentSubprocess — result assembly", () => {
 		it("doResolve returns AgentRunResult with all expected fields", async () => {
 			resetMock();

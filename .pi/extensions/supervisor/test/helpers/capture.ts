@@ -471,31 +471,6 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		registerProvider(_name: string, _config: any) {},
 		unregisterProvider(_name: string) {},
 
-		// ══ executeTool (augmented via declare module in supervisor/index.ts) ══
-		executeTool(
-			_toolName: string,
-			_params: Record<string, unknown>,
-			_options?: { signal?: AbortSignal; onUpdate?: (result: any) => void },
-		): Promise<any> {
-			return Promise.resolve({
-				content: [{ type: "text" as const, text: "mock executeTool result" }],
-				details: {
-					agentName: "mock-agent",
-					success: true,
-					statusLabel: "SUCCESS",
-					summaryLine: "Mock agent completed successfully",
-					model: "mock-model",
-					inputTokens: 0,
-					outputTokens: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					cost: 0,
-					turnCount: 1,
-					durationMs: 0,
-				},
-			});
-		},
-
 		// ══ Command execution ══
 		async exec(command: string, args: string[], _options?: ExecOptions): Promise<ExecResult> {
 			captured.execCalls.push({ cmd: command, args });

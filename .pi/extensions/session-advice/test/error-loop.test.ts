@@ -12,7 +12,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { detectErrorLoop } from "../waste-signals/error-loop.ts";
-import { makeSession, readEntry, readToolError } from "./session-test-helpers.ts";
+import { makeSession, readEntry, readToolError, toolCallPair } from "./session-test-helpers.ts";
 
 describe("detectErrorLoop", () => {
 	it("error + 2 retries of same path → 1 error-loop signal", () => {
@@ -95,6 +95,21 @@ describe("detectErrorLoop", () => {
 			readEntry("/repo/src/file.ts", 1),
 		]);
 		assert.strictEqual(detectErrorLoop(data).length, 0);
+	});
+
+	it("error + tool_use+tool_result pairs with different paths → 0 signals (no tool_result false positive)", () => {
+		const data = makeSession([
+			readToolError(0),
+			...toolCallPair("read", 1, { path: "/a.ts" }),
+			...toolCallPair("read", 2, { path: "/b.ts" }),
+		]);
+		// ERROR: two tool_results (args: {}) would group under "{}" making group size >= 2
+		// FIX: type === "tool_use" filter excludes tool_results, only tool_use entries remain
+		assert.strictEqual(
+			detectErrorLoop(data).length,
+			0,
+			"tool_results must not inflate retry count — different-path retries are strategy change, not loop",
+		);
 	});
 });
 
