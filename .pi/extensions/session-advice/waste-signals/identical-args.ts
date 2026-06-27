@@ -14,7 +14,7 @@ import { sumTokenCost, sumDollarCost } from "../token-utils.ts";
 export function detectIdenticalArgs(data: SessionData): WasteSignal[] {
 	const results: WasteSignal[] = [];
 	const calls = data.entries
-		.filter((e) => e.toolName && e.args)
+		.filter((e) => e.type === "tool_use" && e.toolName && e.args)
 		.map((e) => ({
 			key: `${e.toolName}|${JSON.stringify(e.args)}`,
 			toolName: e.toolName!,
