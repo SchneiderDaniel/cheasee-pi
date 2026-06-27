@@ -189,15 +189,20 @@ export class ChangelogPipeline {
 		latestVersion: string;
 		affectedApiPatterns: Set<string>;
 	} {
-		const entries = parseChangelog(changelogContent);
-		if (entries.length === 0) {
+		const allEntries = parseChangelog(changelogContent);
+		if (allEntries.length === 0) {
 			this.notify("No API changes found in changelog.", "info");
 			this.report.lines.push("No API-visible changes detected in pi changelog.");
 			this.report.lines.push("");
 			this.report.lines.push("Scanned extensions for current API usage anyway (no reference).");
 		}
 
-		const latestVersion = entries.length > 0 ? entries[0]!.version : "latest";
+		const latestVersion = allEntries.length > 0 ? allEntries[0]!.version : "latest";
+
+		// ponytail: only scan last major.minor stream — older breaking changes
+		// are irrelevant to current extensions. Add --since flag if depth needed.
+		const latestBase = latestVersion.split(".").slice(0, 2).join(".");
+		const entries = allEntries.filter((e) => e.version.startsWith(latestBase + "."));
 
 		// Collect unique API names from changelog entries
 		const affectedApiPatterns = new Set<string>();
