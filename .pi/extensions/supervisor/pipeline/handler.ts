@@ -1324,7 +1324,9 @@ export async function executeAgent(
 			details: {
 				eventType: "subagent-result",
 				agentName: agent.config.name,
-				content: partial.content,
+				// ponytail: omit partial.content to avoid duplicating subagent output
+				// in outer session. Renderer uses details fields (summaryLine, toolCalls)
+				// instead of the raw content text.
 				details: partial.details,
 			},
 		});

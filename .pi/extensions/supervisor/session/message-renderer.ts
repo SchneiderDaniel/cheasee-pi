@@ -22,7 +22,6 @@ import { formatToolCall } from "../event/session-events.ts";
 // ─── Constants (shared with deleted renderSubagentResult) ──────────
 const MAX_TASK_PREVIEW_CHARS = 80;
 const MAX_EXPANDED_TOOL_CALLS = 30;
-const MAX_EXPANDED_OUTPUT_CHARS = 8_000;
 
 /**
  * Inline rich stats view for eventType: "subagent-result".
@@ -128,40 +127,18 @@ function renderSubagentResultInline(
 		container.addChild(new Spacer(1));
 	}
 
-	// Output & Thinking sections
+	// Output preview (last 500 chars of subagent output, typically the JSON artifact)
 	const content0 = subagentResult.content?.[0];
 	const outputText = content0 && content0.type === "text" ? content0.text : "";
-	const thinkingText = details.thinkingOutput;
-
-	if (thinkingText === undefined) {
-		if (outputText.trim()) {
-			container.addChild(new Text(fit(theme.fg("dim", "── 💭 Thinking & Output ──")), 1, 0));
-			const displayOutput =
-				outputText.length > MAX_EXPANDED_OUTPUT_CHARS
-					? outputText.slice(0, MAX_EXPANDED_OUTPUT_CHARS) +
-						`\n\n… [truncated: ${outputText.length - MAX_EXPANDED_OUTPUT_CHARS} more chars]`
-					: outputText;
-			const mdTheme = getMarkdownTheme();
-			container.addChild(new Markdown(displayOutput, 1, 0, mdTheme));
-			container.addChild(new Spacer(1));
-		}
-	} else {
-		if (outputText.trim()) {
-			container.addChild(new Text(fit(theme.fg("dim", "── Output ──")), 1, 0));
-			const displayOutput =
-				outputText.length > MAX_EXPANDED_OUTPUT_CHARS
-					? outputText.slice(0, MAX_EXPANDED_OUTPUT_CHARS) +
-						`\n\n… [truncated: ${outputText.length - MAX_EXPANDED_OUTPUT_CHARS} more chars]`
-					: outputText;
-			const mdTheme = getMarkdownTheme();
-			container.addChild(new Markdown(displayOutput, 1, 0, mdTheme));
-			container.addChild(new Spacer(1));
-		}
-		if (thinkingText.trim()) {
-			container.addChild(new Text(fit(theme.fg("dim", "── Thinking ──")), 1, 0));
-			renderThinkingBlock(container, thinkingText, theme);
-			container.addChild(new Spacer(1));
-		}
+	if (outputText.trim()) {
+		const preview =
+			outputText.length > 500
+				? `…[last 500 of ${outputText.length} chars]\n` + outputText.slice(-500)
+				: outputText;
+		container.addChild(new Text(fit(theme.fg("dim", "── Output Preview ──")), 1, 0));
+		const mdTheme = getMarkdownTheme();
+		container.addChild(new Markdown(preview, 1, 0, mdTheme));
+		container.addChild(new Spacer(1));
 	}
 
 	// Footer stats line
