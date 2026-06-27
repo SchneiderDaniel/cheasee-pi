@@ -55,7 +55,7 @@ export function detectErrorLoop(data: SessionData): WasteSignal[] {
 		if (errIdx < 0) continue;
 
 		const window = data.entries.slice(errIdx + 1, errIdx + 9);
-		const sameToolRetries = window.filter((e) => e.toolName === err.toolName);
+		const sameToolRetries = window.filter((e) => e.type === "tool_use" && e.toolName === err.toolName);
 
 		if (sameToolRetries.length < 2) continue;
 
