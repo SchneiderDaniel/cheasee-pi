@@ -16,15 +16,6 @@ import { scanExtensionsAST, type ASTFinding, type ExecFn as AstExecFn } from "./
 import { resolveRelevance } from "./change-resolver.ts";
 import { computeImpactScore, type ImpactScore } from "./impact-scorer.ts";
 import { generateMigrationSnippet, type MigrationSnippet } from "./migration-generator.ts";
-import {
-	buildIssueTitle,
-	buildIssueBodyWithSnippets,
-	buildIssueBody,
-	checkGhAuth,
-	ensureLabel,
-	checkExistingIssues,
-	createIssue,
-} from "./issue-builder.ts";
 import { resolveAstGrepPath } from "./resolve-astgrep.ts";
 
 /** Context object passed to pipeline (subset of pi extension context) */
@@ -140,12 +131,7 @@ export class ChangelogPipeline {
 		);
 
 		this.pi.sendUserMessage(this.report.lines.join("\n"));
-
-		if (this.report.createdIssues.length > 0) {
-			this.notify(`Created ${this.report.createdIssues.length} tracking issue(s).`, "info");
-		} else {
-			this.notify("No new issues needed.", "info");
-		}
+		this.notify("Evaluation request sent to agent — LLM will decide on issues.", "info");
 
 		return this.report;
 	}
@@ -352,124 +338,63 @@ export class ChangelogPipeline {
 		};
 	}
 
-	// ── Phase 3: Create issues ───────────────────────────────────────
+	// ── Phase 3: Present findings to agent for LLM evaluation ────────
 
 	/**
-	 * Check gh auth, resolve repo, ensure label, and create issues.
+	 * Send findings to the current session agent (the LLM) for evaluation.
+	 * The extension collects + scores findings, then asks the agent to
+	 * decide what's worth creating issues for.
 	 */
 	async issuePhase(
 		relevantFindingsByExtension: Map<string, ASTFinding[]>,
-		snippetsByExtension: Map<string, MigrationSnippet[]>,
+		_snippetsByExtension: Map<string, MigrationSnippet[]>,
 		scoresByExtension: Map<string, ImpactScore>,
 		latestVersion: string,
 	): Promise<void> {
-		// Check gh auth
-		this.notify("Checking GitHub CLI authentication...", "info");
-		const authed = await checkGhAuth(this.pi.exec.bind(this.pi));
-		if (!authed) {
-			const msg = "gh not authenticated — run `gh auth status`";
-			this.notify(msg, "error");
-			this.report.lines.push(`❌ ${msg}`);
-			return;
-		}
+		if (relevantFindingsByExtension.size === 0) return;
 
-		// Resolve repo from settings
-		const repo = this.resolveRepo();
-		if (!repo) return;
+		// Build structured evaluation request
+		const lines: string[] = [];
+		lines.push(`## Extension Audit: Findings vs pi ${latestVersion}`);
+		lines.push("");
+		lines.push(
+			"The check-extensions scanner found these findings. Evaluate each and create GitHub issues for the ones worth tracking.",
+		);
+		lines.push("");
+		lines.push("### Criteria for creating an issue");
+		lines.push("- **YES** if findings include breaking changes (Removed/Deprecated APIs)");
+		lines.push("- **YES** if non-breaking but still worth tracking (important migration needed)");
+		lines.push("- **SKIP** if findings are only import references with no behavioral impact");
+		lines.push(
+			"- **SKIP** if findings are low-severity non-breaking changes that don't need tracking",
+		);
+		lines.push("- **SKIP** if extension already handles/mitigates the change");
+		lines.push("");
 
-		// Ensure label exists
-		this.notify("Creating GitHub issues...", "info");
-		try {
-			await ensureLabel(this.pi.exec.bind(this.pi), repo);
-		} catch (err) {
-			const msg = `Failed to ensure label: ${(err as Error).message}`;
-			this.notify(msg, "warning");
-		}
-
-		// Create issues per extension
 		for (const [extName, extFindings] of relevantFindingsByExtension) {
-			const title = buildIssueTitle(extName, extFindings.length, latestVersion);
-			const snippets = snippetsByExtension.get(extName) ?? [];
 			const score = scoresByExtension.get(extName);
+			const sev = score
+				? `${score.severity} (${score.breakingCount} breaking, ${score.uniqueApis} APIs)`
+				: "unknown";
 
-			// Dedup check
-			try {
-				const exists = await checkExistingIssues(this.pi.exec.bind(this.pi), repo, title);
-				if (exists) {
-					this.report.skippedExtensions.push(extName);
-					continue;
-				}
-			} catch {
-				// If dedup check fails, proceed anyway
+			lines.push(`#### ${extName} — severity: ${sev}`);
+			lines.push("");
+			for (const f of extFindings) {
+				const breaking = f.isBreaking ? " ⚠️ breaking" : "";
+				lines.push(`- \`${f.apiName}\` in \`${f.file}:${f.line}\` — ${f.category}${breaking}`);
 			}
-
-			// Build body with snippets and impact score (or fallback to basic body)
-			let body: string;
-			if (score) {
-				body = buildIssueBodyWithSnippets(extName, extFindings, latestVersion, snippets, score);
-			} else {
-				body = buildIssueBody(extName, extFindings, latestVersion);
-			}
-
-			try {
-				const url = await createIssue(this.pi.exec.bind(this.pi), repo, title, body);
-				this.report.createdIssues.push({ extName, url });
-			} catch (err) {
-				this.report.lines.push(
-					`❌ Failed to create issue for ${extName}: ${(err as Error).message}`,
-				);
-			}
+			lines.push("");
 		}
 
-		// Report results
-		if (this.report.createdIssues.length > 0) {
-			this.report.lines.push(`✅ Created ${this.report.createdIssues.length} issue(s):`);
-			for (const { extName, url } of this.report.createdIssues) {
-				this.report.lines.push(`- [${extName}](${url})`);
-			}
-		}
+		lines.push("---");
+		lines.push(
+			'_Use \`gh issue create --repo REPO --title "..." --body "..." --label extension-audit\` to create issues for approved extensions._',
+		);
 
-		if (this.report.skippedExtensions.length > 0) {
-			this.report.lines.push(
-				`⏭️ Skipped ${this.report.skippedExtensions.length} extension(s) (duplicate issues exist):`,
-			);
-			for (const name of this.report.skippedExtensions) {
-				this.report.lines.push(`- ${name}`);
-			}
-		}
+		const msg = lines.join("\n");
 
-		if (
-			this.report.createdIssues.length === 0 &&
-			this.report.skippedExtensions.length === relevantFindingsByExtension.size
-		) {
-			this.report.lines.push(
-				"✅ All extensions already have tracking issues. No new issues created.",
-			);
-		}
-	}
-
-	// ── Helpers ──────────────────────────────────────────────────────
-
-	/**
-	 * Resolve repo from .pi/settings.json.
-	 */
-	private resolveRepo(): string {
-		const settingsPath = join(this.ctx.cwd, ".pi", "settings.json");
-		try {
-			const settingsRaw = readFileSync(settingsPath, "utf-8");
-			const settings = JSON.parse(settingsRaw);
-			const repo = settings?.supervisor?.repo ?? "";
-			if (repo) return repo;
-		} catch {
-			// Fallback below
-		}
-
-		const msg =
-			"No repo found in .pi/settings.json (supervisor.repo). " +
-			"Pass --repo explicitly or set supervisor.repo.";
-		this.notify(msg, "error");
-		this.report.lines.push(`❌ ${msg}`);
-		return "";
+		// Send to agent — the LLM (current session) evaluates and creates issues
+		this.pi.sendUserMessage(msg);
 	}
 }
 

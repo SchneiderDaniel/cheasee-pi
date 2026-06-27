@@ -62,3 +62,4 @@
 {"datetime":"2026-06-26T19:08:44.269Z","question":"How should the UI talk to pi processes inside the cheasee-pi container? Pick the transport now — it changes Dockerfile + code.","answer":"what is the best practice here for pi? is it the headless mode? I need to be able to control from the ui, as if i am in the terminal"}
 {"datetime":"2026-06-27T20:37:57.077Z","question":"What do you want to do with session-advice?","answer":"remove"}
 {"datetime":"2026-06-27T20:59:09.010Z","question":"Log out the dead \"default\" account to fix gh auth?","answer":"i am not sure why there are suddnetly two. check please the @docs how the corret way it to set it up"}
+{"datetime":"2026-06-27T21:00:08.708Z","question":"Fix: remove stale `users` from hosts.yml so gh auth status passes cleanly?","answer":"fix_hosts"}
