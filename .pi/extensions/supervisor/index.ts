@@ -11,6 +11,7 @@ import { createMessageRenderer, createSummaryRenderer } from "./session/message-
 import { registerSupervisorCommand } from "./pipeline/index.ts";
 import { createIssueAutocompleteProvider, resetIssueCache } from "./event/autocomplete.ts";
 import { loadConfig } from "./config/config.ts";
+
 export default function supervisor(pi: ExtensionAPI) {
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
 	pi.registerMessageRenderer("supervisor-summary", createSummaryRenderer(pi));
