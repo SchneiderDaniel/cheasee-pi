@@ -111,7 +111,7 @@ describe("buildPipelineSummary — Closes #N line", () => {
 		it("skipped PR (ahead_by=0) renders as 'PR creation failed' not 'created'", () => {
 			const prResult: PrCreationResult = {
 				success: false,
-				error: "No commits ahead of base — PR skipped",
+				error: "Already implemented on base branch — no new changes to PR",
 			};
 			const output = buildPipelineSummary(
 				emptyResults,
@@ -130,13 +130,16 @@ describe("buildPipelineSummary — Closes #N line", () => {
 				output.includes("PR creation failed"),
 				"should indicate PR creation failed/skipped",
 			);
-			assert.ok(output.includes("No commits ahead of base"), "should show why PR was skipped");
+			assert.ok(
+				output.includes("Already implemented on base branch"),
+				"should show why PR was skipped",
+			);
 		});
 
 		it("skipped PR does not alter Closes #N line", () => {
 			const prResult: PrCreationResult = {
 				success: false,
-				error: "No commits ahead of base — PR skipped",
+				error: "Already implemented on base branch — no new changes to PR",
 			};
 			const output = buildPipelineSummary(
 				emptyResults,

@@ -149,13 +149,13 @@ export async function createPrOnApproval(
 					"pr-creation",
 					`No commits between ${config.defaultBranch} and ${headBranch} — skipping PR`,
 				);
-				ctx.ui.notify("No changes to merge — PR creation skipped", "info");
+				ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
 				// Bug #643: Return failure with descriptive error instead of
 				// { success: true, prNumber: undefined } which renders as
 				// "PR: created — [#undefined]((unknown))" in the pipeline summary.
 				return {
 					success: false,
-					error: "No commits ahead of base — PR skipped",
+					error: "Already implemented on base branch — no new changes to PR",
 					source: "pr-creation",
 				};
 			}
