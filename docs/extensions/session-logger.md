@@ -22,12 +22,44 @@ nav_order: 9
 | JSONL | `.pi/sessions/<datetime>_<uuid>.jsonl` | Event stream per session |
 | Markdown | `.pi/sessions/<sessionId>.md` | Human-readable session summary |
 | Metadata | `.pi/sessions/<sessionId>.metadata.json` | Structured session metadata |
-| Advice | `.pi/sessions/<sessionId>.advice.md` | Improvement recommendations |
 | Latest symlinks | `.pi/sessions/latest.*` | Convenience symlinks |
 
 Reports include sub-agent output from supervisor pipeline agents (developer, auditor, researcher, test-designer) with agent header, status, tool count, token count, duration, and audit score.
 
 **Location:** `.pi/extensions/session-logger/`
+
+## Comparison with built-in session logging
+
+Pi saves every session as raw JSONL to `~/.pi/agent/sessions/` with tree branching, `/tree`/`/fork`/`/clone`, compaction, and the `/resume` picker. That's the **storage layer** — machine-readable, structured, complete.
+
+Session Logger is a **rendering layer** on top. It reads pi's JSONL, aggregates the noise into structured summaries. Not competing, complementary.
+
+| Feature | Built-in pi | session-logger |
+|---------|-------------|----------------|
+| Raw JSONL storage | ✅ | — (consumes pi's) |
+| Tree branching / `/tree` | ✅ | ❌ |
+| Compaction summaries | ✅ | ❌ |
+| Session picker (`/resume`) | ✅ | ❌ |
+| Human-readable Markdown report | ❌ | ✅ Per-turn breakdown, totals |
+| Per-turn token breakdown | ❌ (raw usage in JSONL) | ✅ Table per turn |
+| Tool call stats (count, duration, errors) | ❌ | ✅ Aggregated |
+| File modification log | ❌ | ✅ Every write/edit tracked |
+| Error summary | ❌ | ✅ Table with counts |
+| Sub-agent output (supervisor) | ❌ | ✅ Status, tokens, duration, score |
+| Latest symlinks | ❌ | ✅ `latest.md` / `latest.jsonl` |
+| Toggle per session | ❌ | ✅ `/session-logger on|off` |
+
+### Token efficiency for agent self-analysis
+
+When an agent wants to analyze its own past session, format choice matters:
+
+| Format | ~Tokens to read | Problem |
+|--------|----------------|---------|
+| Raw JSONL | 15-20K | Structural keys repeated every line (`"type"`, `"toolName"`, `"args"`, `"turnIndex"`) — huge overhead |
+| Markdown report | 2-3K | Collapses 50 tool calls into table rows, no per-event noise |
+| `bash` script on JSONL | ~700 | Run `node -e ...` against JSONL, get exact answer only |
+
+**Pattern:** Agent wants stats → run `bash` against JSONL (~700 tokens). Agent wants human overview → read `.md` (~2-3K). Agent reading raw JSONL directly → worst option (~15-20K).
 
 ## Details
 
