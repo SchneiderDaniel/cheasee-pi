@@ -12,9 +12,9 @@ Requires: `gh` CLI authenticated.
 
 | Source | Path | What to Extract |
 |--------|------|-----------------|
-| **CHANGELOG** | `/home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md` | Last two major (x.0) release sections — New Features, Added, Changed items |
+| **CHANGELOG** | `/usr/lib/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md` | Last two major (x.0) release sections — New Features, Added, Changed items |
 | **Releases page** | `https://github.com/earendil-works/pi/releases` | Supplemental details, linked docs |
-| **Extensions guide** | `/home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md` | API reference for cross-referencing new features |
+| **Extensions guide** | `/usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md` | API reference for cross-referencing new features |
 | **Settings docs** | `.pi/settings.json` | `supervisor.repo` for GitHub issue target |
 
 ## Workflow
@@ -56,7 +56,7 @@ Extract from each release:
 Read the CHANGELOG:
 
 ```bash
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md
+read /usr/lib/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md
 ```
 
 If needed, also check the GitHub releases page for any release notes not captured in CHANGELOG:

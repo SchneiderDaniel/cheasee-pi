@@ -5,19 +5,13 @@
  * All constants used by the pipeline phases live here.
  */
 
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 /** Resolve path to pi CHANGELOG.md */
-export const PI_CHANGELOG_PATH = join(
-	homedir(),
-	".npm-global",
-	"lib",
-	"node_modules",
-	"@earendil-works",
-	"pi-coding-agent",
-	"CHANGELOG.md",
-);
+const _piEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+const _piRoot = dirname(dirname(fileURLToPath(new URL(_piEntry))));
+export const PI_CHANGELOG_PATH = join(_piRoot, "CHANGELOG.md");
 
 /** The set of API names we look for in changelog entries */
 export const API_PATTERNS = [

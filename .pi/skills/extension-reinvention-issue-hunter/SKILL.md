@@ -17,13 +17,13 @@ Systematic detector for pi built-in API reinvention in extensions. **Find every 
 
 Pi docs location (installed with pi):
 ```
-/home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/README.md
-/home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/*.md
+/usr/lib/node_modules/@earendil-works/pi-coding-agent/README.md
+/usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/*.md
 ```
 
 Also check for examples:
 ```
-/home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/examples/extensions/*.ts
+/usr/lib/node_modules/@earendil-works/pi-coding-agent/examples/extensions/*.ts
 ```
 
 ## How It Works
@@ -92,8 +92,8 @@ ls /home/miria/git/main/.pi/extensions/<name>/ | wc -l
 #### Step 1: Locate Pi Docs
 
 ```bash
-ls /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/*.md
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/README.md
+ls /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/*.md
+read /usr/lib/node_modules/@earendil-works/pi-coding-agent/README.md
 ```
 
 #### Step 2: Read Core API Documentation
@@ -114,24 +114,24 @@ Do NOT read the full doc file line-by-line. Use `ripgrep_search` to locate relev
 ```bash
 # 1. Locate built-in API sections via grep
 ripgrep_search "truncateHead|truncateLine|formatSize|DEFAULT_MAX" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
 ripgrep_search "ctx\.ui\.select|ctx\.ui\.confirm|ctx\.ui\.custom|addAutocompleteProvider" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
 ripgrep_search "withFileMutationQueue|registerProvider|prepareArguments|highlightCode|keyHint" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
 ripgrep_search "sendMessage|sendUserMessage|appendEntry|setStatus|setWidget|setFooter|setEditor|pasteTo" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md
 ripgrep_search "matchesKey|Key\.up|Key\.enter|CustomEditor|setEditorComponent|onHandle|overlay" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/tui.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/tui.md
 ripgrep_search "session_before_compact|serializeConversation|session_before_tree" \
-  /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/compaction.md
+  /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/compaction.md
 
 # 2. Each match shows file:line. Read only the sections you need.
 # Example: "truncateLine" at extensions.md:1850
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md --offset 1840 --limit 50
+read /usr/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md --offset 1840 --limit 50
 
 # 3. Also check type definitions for exact API signatures
-read /home/miria/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/truncate.d.ts
+read /usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/truncate.d.ts
 ```
 
 #### Step 3: Build a Dynamic API Catalog

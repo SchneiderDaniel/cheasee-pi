@@ -2667,16 +2667,11 @@ describe("constants", () => {
 		assert.ok(PI_CHANGELOG_PATH.includes("CHANGELOG.md"));
 	});
 
-	it("PI_CHANGELOG_PATH uses os.homedir() (not hardcoded)", () => {
-		// Verify the source imports homedir from node:os
+	it("PI_CHANGELOG_PATH uses import.meta.resolve (not hardcoded)", () => {
 		const source = readFileSync(join(EXT_DIR, "constants.ts"), "utf-8");
 		assert.ok(
-			source.includes('import { homedir } from "node:os"'),
-			"constants.ts must import homedir from node:os",
-		);
-		assert.ok(
-			source.includes("join(") && source.includes("homedir()"),
-			"PI_CHANGELOG_PATH must use join with homedir()",
+			source.includes("import.meta.resolve"),
+			"constants.ts must use import.meta.resolve for dynamic resolution",
 		);
 	});
 

@@ -161,9 +161,6 @@ export class ChangelogPipeline {
 			const msg = `Pi changelog not found at ${PI_CHANGELOG_PATH}`;
 			this.notify(msg, "error");
 			this.report.lines.push(`❌ ${msg}`);
-			this.report.lines.push(
-				"Expected at: ~/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md",
-			);
 			return null;
 		}
 
