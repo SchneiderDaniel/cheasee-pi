@@ -95,6 +95,18 @@ export function readToolError(turnIndex: number): SessionEntry {
 	};
 }
 
+/** Non-error tool_result for read (args empty, text arbitrary). */
+export function readToolResult(turnIndex: number, text: string): SessionEntry {
+	return {
+		type: "tool_result",
+		toolName: "read",
+		isError: false,
+		args: {},
+		text,
+		turnIndex,
+	};
+}
+
 export function toolCallPair(
 	toolName: string,
 	turnIndex: number,

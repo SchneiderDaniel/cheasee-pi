@@ -26,7 +26,7 @@ export function detectRedundantReads(data: SessionData): WasteSignal[] {
 	}> = [];
 
 	for (const e of data.entries) {
-		if (e.toolName !== "read") continue;
+		if (e.type !== "tool_use" || e.toolName !== "read") continue;
 		const p = getEntryPath(e);
 		if (!p) continue;
 
