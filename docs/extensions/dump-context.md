@@ -13,13 +13,13 @@ nav_order: 20
 
 **Why.** Captures the exact system prompt text sent to the LLM each turn and writes it to `ignore/` on demand. Console shows stats: bytes, estimated vs actual token count, tools, skills, context files, and active injections (caveman, ponytail, lessons).
 
-**How it works.** Hooks `before_agent_start` and stores `event.systemPrompt` (the fully assembled string after all extensions have patched it). The `zzz-` prefix ensures alphabetical load order places this last, so the capture includes modifications from caveman, ponytail, and session-advice. On `/dump-context` command, writes the stored prompt and JSON-structured options to `ignore/`, then prints summary stats to terminal.
+**How it works.** Hooks `before_agent_start` and stores `event.systemPrompt` (the fully assembled string after all extensions have patched it). The `zzz-` prefix ensures alphabetical load order places this last, so the capture includes modifications from caveman and ponytail. On `/dump-context` command, writes the stored prompt and JSON-structured options to `ignore/`, then prints summary stats to terminal.
 
 **Location:** `.pi/extensions/zzz-dump-context/`
 
 ## Why use it
 
-The system prompt is assembled from many sources — pi's default prompt, AGENTS.md, skills XML, plus injections from caveman, ponytail, and session-advice. There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
+The system prompt is assembled from many sources — pi's default prompt, AGENTS.md, skills XML, plus injections from caveman and ponytail. There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
 
 ## Commands
 
@@ -74,7 +74,7 @@ before_agent_start (fires every turn)
 Extensions modify the system prompt in a chain — each `before_agent_start` handler receives the prompt as modified by all previous handlers:
 
 ```
-caveman → ponytail → session-advice → zzz-dump-context (captures final)
+caveman → ponytail → zzz-dump-context (captures final)
                                        ^
                                   runs last alphabetically
 ```

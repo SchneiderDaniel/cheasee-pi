@@ -72,7 +72,6 @@ nav_order: 10
 | `supervisor` | Pipeline | Kanban multi-agent orchestration |
 | `context-info` | UX | Rich TUI status bar |
 | `session-logger` | UX | Session logging to JSONL |
-| `session-advice` | UX | Post-session pattern analysis + feedback |
 | `agent-harness` | Safety | Runtime tool call validation |
 | `caveman` | Communication | Token-efficient protocol |
 | `ask-user` | Interaction | Interactive MC/freetext questions + JSONL logging |

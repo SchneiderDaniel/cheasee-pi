@@ -90,8 +90,8 @@ The `.pi/extensions/lib/` directory contains shared TypeScript modules used acro
 
 | Module | Used by | Purpose |
 |--------|---------|---------|
-| `extension-state.ts` | session-logger, session-advice, caveman | File-backed state persistence with sequential write queue |
-| `bash-query.ts` | agent-harness, session-advice | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns |
+| `extension-state.ts` | session-logger, caveman | File-backed state persistence with sequential write queue |
+| `bash-query.ts` | agent-harness | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns |
 | `ensureVenv.ts` | scrapling, web-search | Python venv auto-creation and dependency installation |
 | `proper-lockfile-ambient.ts` | session-logger | Ambient type declarations for proper-lockfile |
 | `tsc-types.ts` | tsc-checkpoint | Reusable TypeScript compiler API types |

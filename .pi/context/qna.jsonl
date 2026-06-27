@@ -60,3 +60,4 @@
 {"datetime":"2026-06-23T13:50:04.273Z","question":"From your host (not inside docker), check which terminal emulator you're using. Look at the window title bar, Help > About, or run:\n\n```\nps -p $PPID -o comm=\n```\n\nWhat terminal are you using? (GNOME Terminal, Konsole, XTerm, Alacritty, Kitty, Terminator, Tilix, something else?)","answer":"$ ps -p $PPID -o comm=zed-editor"}
 {"datetime":"2026-06-23T18:16:12.355Z","question":"What target for architecture review?","answer":"root"}
 {"datetime":"2026-06-26T19:08:44.269Z","question":"How should the UI talk to pi processes inside the cheasee-pi container? Pick the transport now — it changes Dockerfile + code.","answer":"what is the best practice here for pi? is it the headless mode? I need to be able to control from the ui, as if i am in the terminal"}
+{"datetime":"2026-06-27T20:37:57.077Z","question":"What do you want to do with session-advice?","answer":"remove"}

@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists all 19 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
+This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
 
 ## File manifest
 
@@ -24,7 +24,6 @@ This page lists all 19 extensions in the Cheasee-Pi monorepo. Each has its own p
 | `.pi/extensions/supervisor/` | [Supervisor](extensions/supervisor) |
 | `.pi/extensions/context-info/` | [Context Info](extensions/context-info) |
 | `.pi/extensions/session-logger/` | [Session Logger](extensions/session-logger) |
-| `.pi/extensions/session-advice/` | [Session Advice](extensions/session-advice) |
 | `.pi/extensions/agent-harness/` | [Agent Harness](extensions/agent-harness) |
 | `.pi/extensions/ask-user/` | [Ask User](extensions/ask-user) |
 | `.pi/extensions/caveman/` | [Caveman Protocol](extensions/caveman) |

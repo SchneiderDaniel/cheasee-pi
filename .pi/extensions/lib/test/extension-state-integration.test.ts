@@ -1,11 +1,11 @@
 /**
- * Phase 3: ExtensionState integration with session-logger and session-advice
+ * Phase 3: ExtensionState integration with session-logger
  *
- * Verifies that both extensions use the shared ExtensionState store
+ * Verifies that the shared ExtensionState store is used
  * instead of duplicated writeExtState functions.
  *
- * Also verifies that runtime exports from session-logger/index.ts and
- * session-advice/index.ts remain importable and functional.
+ * Also verifies that runtime exports from session-logger/index.ts
+ * remain importable and functional.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/lib/test/extension-state-integration.test.ts
@@ -22,8 +22,6 @@ import { createExtensionStateStore } from "../extension-state.ts";
 // Phase 3: Both extensions now use ExtensionState instead of duplicated writeExtState
 import { beginSession } from "../../session-logger/pipeline.ts";
 import { createSessionLoggerGate, toggleSessionLoggerGate } from "../../session-logger/index.ts";
-
-import { getSessionAdviceState, splitArgs } from "../../session-advice/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,7 +48,7 @@ async function cleanDir(dir: string): Promise<void> {
 }
 
 // ===========================================================================
-// Phase 3: Replacement verification — session-logger
+// Phase 3: Replacement verification
 // ===========================================================================
 
 describe("ExtensionState integration — session-logger", () => {
@@ -120,52 +118,10 @@ describe("ExtensionState integration — session-logger", () => {
 });
 
 // ===========================================================================
-// Phase 3: Replacement verification — session-advice
+// Phase 3: Shared ExtensionState store
 // ===========================================================================
 
-describe("ExtensionState integration — session-advice", () => {
-	it("getSessionAdviceState returns boolean (true|false)", () => {
-		const state = getSessionAdviceState();
-		// Module-level default is true (enabled)
-		assert.ok(typeof state === "boolean");
-	});
-
-	it("getSessionAdviceState default when no state file exists returns true (?? true fallback)", () => {
-		// The module-level extState is not loaded from disk, so getKey("advice") returns
-		// undefined, which ?? true resolves to true
-		const state = getSessionAdviceState();
-		assert.equal(state, true);
-	});
-
-	it("splitArgs handles quoted strings", () => {
-		const args = splitArgs('report "multi word arg"');
-		assert.deepEqual(args, ["report", "multi word arg"]);
-	});
-
-	it("splitArgs handles single quotes", () => {
-		const args = splitArgs("report 'single quoted'");
-		assert.deepEqual(args, ["report", "single quoted"]);
-	});
-
-	it("splitArgs handles empty input", () => {
-		assert.deepEqual(splitArgs(""), []);
-	});
-
-	it("splitArgs handles whitespace", () => {
-		assert.deepEqual(splitArgs("  a   b  "), ["a", "b"]);
-	});
-
-	it("splitArgs handles mixed quoting", () => {
-		const args = splitArgs(`report "double" 'single' normal`);
-		assert.deepEqual(args, ["report", "double", "single", "normal"]);
-	});
-});
-
-// ===========================================================================
-// Phase 3: Shared ExtensionState store for both extensions
-// ===========================================================================
-
-describe("ExtensionState store — shared state file (both extensions)", () => {
+describe("ExtensionState store — shared state file", () => {
 	let dir: string;
 	let statePath: string;
 
@@ -179,16 +135,14 @@ describe("ExtensionState store — shared state file (both extensions)", () => {
 		await cleanDir(dir);
 	});
 
-	it("ExtensionState can hold both 'logger' and 'advice' keys in same file", async () => {
+	it("ExtensionState can hold 'logger' key", async () => {
 		const store = createExtensionStateStore(statePath);
 		store.setKey("logger", false);
-		store.setKey("advice", true);
 		await store.saveState();
 
 		const raw = await readFile(statePath, "utf8");
 		const data = JSON.parse(raw);
 		assert.equal(data.logger, false);
-		assert.equal(data.advice, true);
 	});
 
 	it("ExtensionState round-trip: logger setKey + saveState + reload = getKey same", async () => {
@@ -202,42 +156,10 @@ describe("ExtensionState store — shared state file (both extensions)", () => {
 		assert.equal(store2.getKey("logger"), true);
 	});
 
-	it("ExtensionState round-trip: advice setKey + saveState + reload = getKey same", async () => {
-		const store = createExtensionStateStore(statePath);
-		store.setKey("advice", true);
-		await store.saveState();
-
-		const store2 = createExtensionStateStore(statePath);
-		await store2.ensureStateLoaded();
-		assert.equal(store2.getKey("advice"), true);
-	});
-
-	it("ExtensionState fallback: getKey('advice') ?? true returns true when unset", () => {
-		const store = createExtensionStateStore(statePath);
-		const value = store.getKey("advice") ?? true;
-		assert.equal(value, true);
-	});
-
 	it("ExtensionState fallback: getKey('logger') ?? true returns true when unset", () => {
 		const store = createExtensionStateStore(statePath);
 		const value = store.getKey("logger") ?? true;
 		assert.equal(value, true);
-	});
-
-	it("both keys can be set independently without clobbering", async () => {
-		const store = createExtensionStateStore(statePath);
-		store.setKey("logger", false);
-		await store.saveState();
-
-		// Set advice on same store (simulating session-advice init)
-		store.setKey("advice", true);
-		await store.saveState();
-
-		// Verify both persisted
-		const raw = await readFile(statePath, "utf8");
-		const data = JSON.parse(raw);
-		assert.equal(data.logger, false);
-		assert.equal(data.advice, true);
 	});
 });
 
