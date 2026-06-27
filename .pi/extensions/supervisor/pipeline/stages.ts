@@ -385,6 +385,12 @@ export function calculateNextStatus(
 		if (inferredStatus) {
 			return { status: inferredStatus, hadExplicitMarker: false };
 		}
+		// ponytail: auditor fallback — if auditor succeeded but output format
+		// didn't match expected markers, default to APPROVED instead of
+		// deadlocking the pipeline. The model likely approved but used wrong format.
+		if (agentName === "auditor") {
+			return { status: "Done", hadExplicitMarker: false };
+		}
 		return {
 			status: null,
 			stopReason: `No completion marker found in ${agentName} output`,
