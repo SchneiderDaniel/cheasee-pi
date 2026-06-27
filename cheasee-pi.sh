@@ -307,7 +307,10 @@ if [ "$ATTACH" = true ]; then
 
     check_container_resources
 
-    exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c 'cd /workspaces/main && clear && pi --approve "$@"' --
+    exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+      echo $$ > /tmp/pi-active-$$
+      cd /workspaces/main && clear && exec pi --approve "$@"
+    ' --
 fi
 
 # --- Step 1: Assert docker is on PATH ---------------------------------
@@ -607,12 +610,35 @@ docker exec --user agentuser cheasee-pi \
 # Writes PID marker before exec so cleanup can distinguish active sessions
 # from stale orphans (crashed/disconnected docker exec sessions).
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+  # Pre-launch cleanup: kill orphaned pi/node processes from previous
+  # sessions that survived after terminal disconnect.
+  # The marker-based cleanup below runs on host AFTER docker exec returns,
+  # but when the terminal closes the host shell dies before reaching it.
+  # Running cleanup here ensures orphans get killed before each new session.
+  active=""
+  for m in /tmp/pi-active-*; do
+    [ -f "$m" ] && active="$active $(cat "$m" 2>/dev/null)"
+  done
+  for f in /proc/[0-9]*/comm; do
+    c=$(< "$f")
+    case "$c" in
+      pi|node)
+        pid="${f%/comm}"; pid="${pid##*/}"
+        case " $active " in *" $pid "*) ;; *) kill -TERM "$pid" 2>/dev/null || true ;; esac
+        ;;
+    esac
+  done
+  for m in /tmp/pi-active-*; do
+    [ -f "$m" ] && pid=$(cat "$m" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$m" 2>/dev/null || true
+  done
+
   echo $$ > /tmp/pi-active-$$
   cd /workspaces/main && clear && exec pi --approve "$@"
 ' --
 
-# Cleanup: kill pi/node processes without an active PID marker file
-# (exec replaced bash with pi, preserving the PID — so the marker is valid).
+# Post-session cleanup: kill remaining orphaned pi/node processes.
+# This runs on the host after docker exec returns (normal exit only).
+# Does NOT cover terminal-close disconnects — the pre-launch cleanup above does.
 docker exec cheasee-pi bash -c '
   active=""
   for f in /tmp/pi-active-*; do
@@ -627,7 +653,6 @@ docker exec cheasee-pi bash -c '
         ;;
     esac
   done
-  # Remove stale marker files (process no longer exists)
   for f in /tmp/pi-active-*; do
     [ -f "$f" ] && pid=$(cat "$f" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$f" 2>/dev/null || true
   done
