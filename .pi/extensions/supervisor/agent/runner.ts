@@ -10,7 +10,12 @@ import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
-import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
+import {
+	formatDuration,
+	formatToolCall,
+	extractSummaryLine,
+	extractTextFromContent,
+} from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
 	jsonLineToNormalizedEvent,
@@ -108,6 +113,7 @@ export async function runAgentSubprocess(
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 	sessionPath?: string,
+	pi?: Pick<ExtensionAPI, "sendMessage">,
 ): Promise<AgentRunResult> {
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
@@ -213,6 +219,14 @@ export async function runAgentSubprocess(
 			}
 		}, 2000);
 
+		// ponytail: forward events from subprocess to supervisor chat messages
+		// so the user sees live per-tool rendering (tool-start, tool-complete, thinking).
+		// Without this, only the stats widget updates — no visible progress in chat.
+		let toolSeqNum = 0;
+		let pendingToolName = "";
+		let pendingToolStartTime = 0;
+		let pendingToolIsError = false;
+
 		// Event-driven flush at 300ms debounce + 2s heartbeat.
 		// Try-catch prevents uncaught exceptions from breaking the JSON stream processing.
 		// Inlines the former processJsonLine() logic from deleted agent/stream.ts:
@@ -229,6 +243,83 @@ export async function runAgentSubprocess(
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
 					ctx.ui.setWorkingMessage(wm ?? undefined);
+				}
+				// Forward key events as supervisor chat messages
+				if (pi && normalized) {
+					switch (normalized.kind) {
+						case "tool_execution_start": {
+							toolSeqNum++;
+							pendingToolName = normalized.toolName;
+							pendingToolStartTime = Date.now();
+							pendingToolIsError = false;
+							const formatted = formatToolCall(
+								normalized.toolName,
+								normalized.args as Record<string, unknown> | null | undefined,
+							);
+							pi.sendMessage({
+								customType: "supervisor",
+								content: `⏳ ${agentName} — ${formatted}`,
+								display: true,
+								details: {
+									eventType: "tool-start",
+									agentName,
+									toolName: normalized.toolName,
+									argsStr: formatted,
+								},
+							});
+							break;
+						}
+						case "tool_execution_end": {
+							pendingToolIsError = !!normalized.isError;
+							break;
+						}
+						case "message_end": {
+							const msg = normalized.message;
+							if (msg?.role === "toolResult") {
+								const toolName = pendingToolName || msg.toolName || "tool";
+								const resultText = extractTextFromContent(msg.content);
+								const durationMs = pendingToolStartTime > 0 ? Date.now() - pendingToolStartTime : 0;
+								pi.sendMessage({
+									customType: "supervisor",
+									content: `${toolName}`,
+									display: true,
+									details: {
+										eventType: "tool-complete",
+										toolName,
+										argsStr: "",
+										isError: pendingToolIsError,
+										resultText: resultText.slice(0, 2000),
+										toolIndex: `#${toolSeqNum}`,
+										toolDurationMs: durationMs,
+										runningTokenCount: state.tokenCount,
+										runningToolCount: state.toolCount,
+										errorCount: state.failedToolCount ?? 0,
+										maxToolCalls: state.maxToolCalls,
+										agentTokenBudget: state.agentTokenBudget,
+									},
+								});
+								pendingToolName = "";
+								pendingToolStartTime = 0;
+								pendingToolIsError = false;
+							}
+							break;
+						}
+						case "thinking_end": {
+							if (state.liveThinking.trim()) {
+								pi.sendMessage({
+									customType: "supervisor",
+									content: `💭 ${agentName}`,
+									display: true,
+									details: {
+										eventType: "thinking",
+										content: state.liveThinking.trim(),
+										agentName,
+									},
+								});
+							}
+							break;
+						}
+					}
 				}
 				// Budget exceeded — kill subprocess to prevent further turns
 				if (state.budgetExceeded && !childExited) {

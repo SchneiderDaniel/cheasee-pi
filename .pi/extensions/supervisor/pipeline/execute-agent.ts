@@ -54,6 +54,7 @@ export async function executeAgent(
 		maxToolCalls,
 		agentTokenBudget,
 		sessionPath,
+		pi,
 	);
 
 	// ── 4. Replay session file for persistent chat message ───────
