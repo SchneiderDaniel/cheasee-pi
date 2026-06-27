@@ -153,10 +153,11 @@ describe("createWorktree()", () => {
 // ─── Tests: installWorktreeDeps() ─────────────────────────────────
 
 describe("installWorktreeDeps()", () => {
-	it("runs npm ci in worktree path — returns { ok: true }", async () => {
+	it("runs git submodule update then npm ci in worktree — returns { ok: true }", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 			],
@@ -165,12 +166,17 @@ describe("installWorktreeDeps()", () => {
 		const { notify } = createMockNotify();
 		const result = await installWorktreeDeps(pi, "/main-repo", "/worktree", notify);
 		assert.equal(result.ok, true);
-		// First call is cp .pi/git, second is npm ci
-		assert.equal(calls.length, 2);
+		// First call is cp .pi/git, second is git submodule update, third is npm ci
+		assert.equal(calls.length, 3);
 		assert.equal(calls[0].cmd, "cp");
 		assert.ok(calls[0].args.includes("/main-repo/.pi/git"));
 		assert.ok(calls[0].args.includes("/worktree/.pi/git"));
 		assert.deepEqual(calls[1], {
+			cmd: "git",
+			args: ["submodule", "update", "--init", "--recursive"],
+			opts: { cwd: "/worktree", timeout: 120_000 },
+		});
+		assert.deepEqual(calls[2], {
 			cmd: "npm",
 			args: ["ci"],
 			opts: { cwd: "/worktree", timeout: 120_000 },
@@ -178,8 +184,9 @@ describe("installWorktreeDeps()", () => {
 	});
 
 	it("returns { ok: false } on npm ci failure — notify.error called", async () => {
-		// cp succeeds, both npm attempts fail — provide 3 results
+		// cp succeeds, submodule succeeds, both npm attempts fail
 		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 1, stdout: "", stderr: "still failing" },
@@ -199,6 +206,7 @@ describe("installWorktreeDeps()", () => {
 
 	it("returns { ok: true } on retry success", async () => {
 		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 0, stdout: "", stderr: "" },

@@ -111,6 +111,20 @@ export async function installWorktreeDeps(
 			const log = getDebugLogger();
 			log.info("worktree", `Installing deps at ${worktreePath}`);
 
+			// Initialize git submodules so agents can edit submodule code too
+			// If no submodules exist, command exits 0 silently.
+			// If remote is unreachable, warn and continue — agents may still work.
+			try {
+				await pi.exec("git", ["submodule", "update", "--init", "--recursive"], {
+					cwd: worktreePath,
+					timeout: 120_000,
+				});
+				log.info("worktree", "Submodules initialized in worktree");
+			} catch (submodErr: unknown) {
+				const submodMsg = submodErr instanceof Error ? submodErr.message : String(submodErr);
+				log.warn("worktree", `Submodule init failed — continuing: ${submodMsg}`);
+			}
+
 			// Attempt 1
 			try {
 				await pi.exec("npm", ["ci"], { cwd: worktreePath, timeout: 120_000 });

@@ -18,7 +18,7 @@ import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { runDeadCodeCheck, buildDeadCodeContext } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import { runPackageSafetyAudit } from "../checks/package-safety.ts";
-import { postIssueComment } from "../github/index.ts";
+
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
 import { writeCheckpointFile } from "./state-checkpoint.ts";
 
@@ -157,22 +157,7 @@ export async function runTscAndLspAudit(
 				totalLines,
 			});
 
-			// Post issue comment with dead code details for developer feedback
 			const deadContext = buildDeadCodeContext(deadResult);
-			try {
-				const commentLines = [
-					"## 🔴 Dead Code Gate — Implementation Rejected",
-					"",
-					"The automated dead code check found potential dead code in changed files.",
-					"Remove all confirmed dead code before requesting audit.",
-					"",
-					deadContext || "(see pre-audit gate output for details)",
-				];
-				await postIssueComment(execFn, issueNum, config.repo, commentLines.join("\n"));
-			} catch {
-				// Comment posting is best-effort
-			}
-
 			gateFailures.push(`--- Dead Code Gate ---\n${deadContext || msg}`);
 		} else if (deadResult.status === "no_knip") {
 			getDebugLogger().info("pipeline-audit", "knip not available, skipping dead code check");

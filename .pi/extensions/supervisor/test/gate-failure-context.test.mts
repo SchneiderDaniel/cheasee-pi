@@ -166,18 +166,16 @@ describe("pipeline handler — gate failure context capture (Phase 4, Issue #787
 
 	it("all gate failure context blocks exist in pre-transition hook section", () => {
 		const src = readHandlerSource();
-		const idx = src.indexOf("effectiveNextStatus = auditResult.nextStatus");
-		const hookSection = src.substring(idx, idx + 800);
 		assert.ok(
-			hookSection.includes("applyGateFailureContext"),
+			src.includes("applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note"),
 			"applyGateFailureContext call in pre-transition hook section",
 		);
 		assert.ok(
-			hookSection.includes("auditResult.deadCodeResult"),
+			src.includes("auditResult.deadCodeResult"),
 			"deadCodeResult block in pre-transition hook section",
 		);
 		assert.ok(
-			hookSection.includes("auditResult.duplicateCodeResult"),
+			src.includes("auditResult.duplicateCodeResult"),
 			"duplicateCodeResult block in pre-transition hook section",
 		);
 	});
@@ -205,15 +203,19 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 		);
 	});
 
-	it("Dead code gate still posts comment and returns note on failure", () => {
+	it("Dead code gate appends failure to gateFailures (no issue comment)", () => {
 		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
 		assert.ok(
-			src.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
-			"Dead code gate comment format unchanged",
+			src.includes("gateFailures.push(`--- Dead Code Gate ---"),
+			"Dead code gate pushes to gateFailures",
+		);
+		assert.ok(
+			!src.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
+			"Dead code gate no longer posts a separate issue comment",
 		);
 		assert.ok(
 			src.includes('nextStatus: "Implementation"') && src.includes("note: `"),
-			"Dead code gate returns Implementation with note",
+			"Dead code gate still returns Implementation with note for developer context",
 		);
 	});
 

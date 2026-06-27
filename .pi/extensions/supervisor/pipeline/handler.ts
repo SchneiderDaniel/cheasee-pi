@@ -899,6 +899,21 @@ export async function handleSupervisorCommand(
 					// When a pre-transition hook returns Implementation, the failure note
 					// is stored so the next developer iteration receives targeted context.
 					applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, i + 1);
+
+					// Surface gate failure to user so they know developer will re-dispatch
+					// with the failure context injected into the next task prompt.
+					if (effectiveNextStatus === "Implementation" && auditResult.note) {
+						pi.sendMessage({
+							customType: "supervisor",
+							content: `## 🔴 Pre-Transition Gates Blocked — Returning to Developer\n\n${auditResult.note}\n\nFix issues above and the pipeline will retry automatically.`,
+							display: true,
+						});
+						ctx.ui.notify(
+							`Pre-transition gates blocked: ${auditResult.note.slice(0, 120)}… Re-dispatching developer.`,
+							"warning",
+						);
+					}
+
 					// Store dead code result in stage state for auditor context injection
 					if (auditResult.deadCodeResult) {
 						stageState.deadCodeResult = auditResult.deadCodeResult;
