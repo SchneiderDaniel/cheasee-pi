@@ -9,7 +9,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { detectRedundantReads } from "../waste-signals/redundant-reads.ts";
-import { makeSession, readEntry } from "./session-test-helpers.ts";
+import { makeSession, readEntry, readToolResult, toolCallPair } from "./session-test-helpers.ts";
 
 describe("detectRedundantReads", () => {
 	it("same file read at turns 0 and 1 → 1 redundant-read signal", () => {
@@ -167,5 +167,35 @@ describe("detectRedundantReads", () => {
 			1,
 			"should flag across 1 turn despite bash in between",
 		);
+	});
+
+	// ── Regression: tool_result entries falsely flagged as reads ──
+
+	it("tool_result entries (failure mode 1) → not flagged as reads", () => {
+		// Turn 0: read /app.ts (tool_use) + tool_result with generic text
+		// Turn 1: read /app.ts again (tool_use) + tool_result
+		// Before fix: each tool_result's text becomes a false "path" via getEntryPath fallback → 2 signals
+		// After fix: only tool_use entries are considered → 1 signal
+		const data = makeSession([
+			...toolCallPair("read", 0, { path: "/repo/src/app.ts" }),
+			...toolCallPair("read", 1, { path: "/repo/src/app.ts" }),
+		]);
+		// Replace tool_result text with realistic file content to match issue reproduction
+		data.entries[1] = readToolResult(0, "file content here...");
+		data.entries[3] = readToolResult(1, "file content here...");
+		assert.strictEqual(detectRedundantReads(data).length, 1, "only tool_use entries should produce signals");
+	});
+
+	it("tool_result text matching later path (failure mode 2) → not flagged", () => {
+		// Turn 0: tool_use read /repo/a.ts + tool_result with text accidentally set to /repo/b.ts
+		// Turn 1: tool_use read /repo/b.ts (different file)
+		// Before fix: /repo/b.ts from turn 0's tool_result text matches turn 1's path → 1 false signal
+		// After fix: tool_result entries are ignored → 0 signals
+		const data = makeSession([
+			readEntry("/repo/a.ts", 0),
+			readToolResult(0, "/repo/b.ts"),
+			readEntry("/repo/b.ts", 1),
+		]);
+		assert.strictEqual(detectRedundantReads(data).length, 0, "different files should not produce signals");
 	});
 });
