@@ -238,6 +238,10 @@ export async function runAgentSubprocess(
 				if (!line.trim()) return;
 				const normalized = jsonLineToNormalizedEvent(line);
 				if (!normalized) return;
+				// ponytail: capture pre-processing state for events that mutate it.
+				// processNormalizedEvent clears state.liveThinking on thinking_end,
+				// so we save it before forwarding below.
+				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
 				const result = processNormalizedEvent(normalized, state);
 				if (result.workingChange) {
 					scheduleFlush();
@@ -305,14 +309,15 @@ export async function runAgentSubprocess(
 							break;
 						}
 						case "thinking_end": {
-							if (state.liveThinking.trim()) {
+							// preThinkingText captured before processNormalizedEvent cleared it
+							if (preThinkingText) {
 								pi.sendMessage({
 									customType: "supervisor",
 									content: `💭 ${agentName}`,
 									display: true,
 									details: {
 										eventType: "thinking",
-										content: state.liveThinking.trim(),
+										content: preThinkingText,
 										agentName,
 									},
 								});
