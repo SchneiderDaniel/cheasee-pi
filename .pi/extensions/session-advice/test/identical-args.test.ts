@@ -143,6 +143,29 @@ describe("detectIdenticalArgs", () => {
 		assert.strictEqual(detectIdenticalArgs(makeSession([])).length, 0);
 	});
 
+	it("regression: tool_result pairs with empty args → 0 signals", () => {
+		const pairs = [
+			...toolCallPair("read", 0, { path: "/a.ts" }),
+			...toolCallPair("read", 1, { path: "/b.ts" }),
+			...toolCallPair("read", 2, { path: "/c.ts" }),
+		];
+		const data = makeSession(pairs);
+		assert.strictEqual(detectIdenticalArgs(data).length, 0);
+	});
+
+	it("regression: mixed tool_use + tool_result — real identical calls still detected", () => {
+		const entries = [
+			identicalBashEntry("ls", 0),
+			...toolCallPair("bash", 1),
+			identicalBashEntry("ls", 0),
+			...toolCallPair("bash", 1),
+			identicalBashEntry("ls", 0),
+			...toolCallPair("bash", 1),
+		];
+		const data = makeSession(entries);
+		assert.strictEqual(detectIdenticalArgs(data).length, 1);
+	});
+
 	it("6 identical calls → 2 separate signals (no dedup within individual detector)", () => {
 		const data = makeSession([
 			identicalBashEntry("ls", 0),
