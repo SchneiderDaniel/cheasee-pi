@@ -377,7 +377,7 @@ export async function handleSupervisorCommand(
 		worktreePath = createResult.value;
 
 		ctx.ui.setStatus("supervisor", "Installing worktree dependencies...");
-		const depsResult = await installWorktreeDeps(pi, worktreePath, notify);
+		const depsResult = await installWorktreeDeps(pi, ctx.cwd, worktreePath, notify);
 		if (!depsResult.ok) {
 			collector?.push("worktree", "warn", `npm ci failed: ${depsResult.error}`);
 		}
