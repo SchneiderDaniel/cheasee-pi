@@ -246,6 +246,7 @@ export async function runAgentSubprocess(
 		// Without this, only the stats widget updates — no visible progress in chat.
 		let toolSeqNum = 0;
 		let pendingToolName = "";
+		let pendingToolFormattedArgs = "";
 		let pendingToolStartTime = 0;
 		let pendingToolIsError = false;
 
@@ -282,6 +283,7 @@ export async function runAgentSubprocess(
 								normalized.toolName,
 								normalized.args as Record<string, unknown> | null | undefined,
 							);
+							pendingToolFormattedArgs = formatted;
 							pi.sendMessage({
 								customType: "supervisor",
 								content: `⏳ ${agentName} — ${formatted}`,
@@ -312,7 +314,7 @@ export async function runAgentSubprocess(
 									details: {
 										eventType: "tool-complete",
 										toolName,
-										args: "",
+										args: pendingToolFormattedArgs,
 										isError: pendingToolIsError,
 										resultText: resultText.slice(0, 2000),
 										toolIndex: `#${toolSeqNum}`,
@@ -325,6 +327,7 @@ export async function runAgentSubprocess(
 									},
 								});
 								pendingToolName = "";
+								pendingToolFormattedArgs = "";
 								pendingToolStartTime = 0;
 								pendingToolIsError = false;
 							}
