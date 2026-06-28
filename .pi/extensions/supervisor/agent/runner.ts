@@ -290,7 +290,7 @@ export async function runAgentSubprocess(
 									eventType: "tool-start",
 									agentName,
 									toolName: normalized.toolName,
-									argsStr: formatted,
+									args: formatted,
 								},
 							});
 							break;
@@ -312,7 +312,7 @@ export async function runAgentSubprocess(
 									details: {
 										eventType: "tool-complete",
 										toolName,
-										argsStr: "",
+										args: "",
 										isError: pendingToolIsError,
 										resultText: resultText.slice(0, 2000),
 										toolIndex: `#${toolSeqNum}`,
