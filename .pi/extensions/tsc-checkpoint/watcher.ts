@@ -12,6 +12,10 @@ import type { TscDiagnostic, TscWatchOptions, DiagnosticTrend } from "./types.ts
 import type { TscWatchAdapter } from "./adapter.ts";
 import { createDefaultAdapter } from "./adapter.ts";
 
+// ponytail: 50 entries keeps recent trend context without unbounded memory growth.
+// Increase if per-session trend analysis needs deeper history.
+const MAX_TREND_HISTORY = 50;
+
 export class DiagnosticsWatcher {
 	private adapter: TscWatchAdapter;
 	private cachedDiagnostics: TscDiagnostic[] = [];
@@ -31,6 +35,11 @@ export class DiagnosticsWatcher {
 			this.cachedDiagnostics = diags;
 			const errorCount = diags.filter((d) => d.severity === "Error").length;
 			this.trendHistory.push(errorCount);
+			// ponytail: bounded array prevents unbounded memory leak.
+			// MAX_TREND_HISTORY = 50 supports trend analysis without excessive retention.
+			if (this.trendHistory.length > MAX_TREND_HISTORY) {
+				this.trendHistory.shift();
+			}
 			for (const listener of this.diagnosticListeners) {
 				listener(diags);
 			}

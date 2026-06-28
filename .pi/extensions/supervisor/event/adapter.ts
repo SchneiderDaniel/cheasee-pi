@@ -471,6 +471,11 @@ const kindTable: Record<string, KindEntry> = {
 
 	thinking_delta: {
 		json: (ev) => {
+			const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+			if (assistantEvent) {
+				return { kind: "thinking_delta", delta: (assistantEvent.delta as string) || "" };
+			}
+			// Legacy: top-level delta wrapper
 			const delta = ev.delta as Record<string, unknown> | undefined;
 			return { kind: "thinking_delta", delta: (delta?.thinking_delta as string) || "" };
 		},
@@ -486,13 +491,27 @@ const kindTable: Record<string, KindEntry> = {
 
 	text_delta: {
 		json: (ev) => {
+			const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+			if (assistantEvent) {
+				return { kind: "text_delta", delta: (assistantEvent.delta as string) || "" };
+			}
+			// Legacy: top-level delta wrapper
 			const delta = ev.delta as Record<string, unknown> | undefined;
 			return { kind: "text_delta", delta: (delta?.text_delta as string) || "" };
 		},
 	},
 
 	text_end: {
-		json: (ev) => ({ kind: "text_end", usage: ev.usage as any }),
+		json: (ev) => {
+			const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+			if (assistantEvent) {
+				// Pi 0.80.2: usage inside assistantMessageEvent.partial.usage
+				const partial = assistantEvent.partial as Record<string, unknown> | undefined;
+				return { kind: "text_end", usage: (partial?.usage as any) || undefined };
+			}
+			// Legacy: top-level event
+			return { kind: "text_end", usage: ev.usage as any };
+		},
 	},
 
 	message_end: {
@@ -527,9 +546,13 @@ function resolveJsonKind(ev: JsonEvent): string | null {
 	const type = ev.type as string;
 	if (!type) return null;
 	if (type === "message_update") {
+		// Pi 0.80.2: assistantMessageEvent nested field
+		const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+		if (assistantEvent) return assistantEvent.type as string;
+		// Legacy: delta nested field (pre-0.80.2)
 		const delta = ev.delta as Record<string, unknown> | undefined;
-		if (!delta) return null;
-		return delta.type as string;
+		if (delta) return delta.type as string;
+		return null;
 	}
 	return type;
 }
