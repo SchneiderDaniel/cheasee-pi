@@ -618,24 +618,39 @@ export async function handlePostAgentSuccess(
 ): Promise<boolean> {
 	// Agent comments: architect, test-designer, researcher
 	if (agentName === "architect" || agentName === "test-designer" || agentName === "researcher") {
-		// Try both sources independently. Streaming models (researcher, test-designer)
-		// have JSON in textOutput from deltas. Non-streaming models (architect with
-		// thinking:high) have only tool logs in textOutput; the JSON lives in output
-		// (built from session messages).
+		// Try multiple sources. textOnly is clean LLM text (no tool/thinking noise).
+		// textOutput / output fallbacks handle cases where JSON lived in streaming
+		// deltas not captured by textOutputLines (rare).
 		let commentBody: string | null = null;
 		let extractionSource = "";
 
-		// Primary: textOutput — contains JSON from streaming deltas
-		// This is the expected path for streaming models (researcher, test-designer).
-		// No warning — it's normal behavior, not a fallback.
-		if (result.textOutput) {
-			commentBody = extractAgentCommentBody(result.textOutput);
+		// Primary: textOnly — clean text output from the LLM (no tool/thinking noise).
+		// This is the expected path for all models. The agent's JSON structured output
+		// is at the end of the text response. textOnly avoids capturing tool call
+		// results, thinking blocks, system prompt echoes, and context info that would
+		// bleed into the section heading extraction fallback.
+		if (result.textOnly) {
+			commentBody = extractAgentCommentBody(result.textOnly);
 			if (commentBody) {
-				extractionSource = "result.textOutput";
+				extractionSource = "result.textOnly";
 			}
 		}
 
-		// Fallback 1: output (session messages) — non-streaming models have JSON here
+		// Fallback 1: textOutput (full instrumented log) — contains JSON from deltas
+		// when textOnly is empty (edge case: non-streaming or subprocess-only agents).
+		if (!commentBody && result.textOutput) {
+			commentBody = extractAgentCommentBody(result.textOutput);
+			if (commentBody) {
+				extractionSource = "result.textOutput";
+				collector?.push(
+					"stages",
+					"warn",
+					`${agentName} commentBody extracted from result.textOutput (fallback after textOnly)`,
+				);
+			}
+		}
+
+		// Fallback 2: output (session messages) — non-streaming models have JSON here
 		if (!commentBody && result.output) {
 			commentBody = extractAgentCommentBody(result.output);
 			if (commentBody) {
@@ -861,7 +876,7 @@ export async function handlePostAgentSuccess(
 
 	// Audit output processing
 	if (agentName === "auditor") {
-		const auditorOutput = result.textOutput || result.output || "";
+		const auditorOutput = result.textOnly || result.textOutput || result.output || "";
 		await handleAuditorOutput(
 			pi,
 			ctx,

@@ -6,6 +6,9 @@
 // Subprocess lifecycle lives in this file (event processing via
 // jsonLineToNormalizedEvent + processNormalizedEvent from adapter).
 
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -33,6 +36,14 @@ export { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 // ─── buildSubprocessArgs: assemble CLI args for pi --mode json ──────
 // Extracted from runAgentSubprocess for reuse in executeAgent.
 // Used by both runAgentSubprocess and the slimmed subagent/index.ts.
+//
+// SAFE_TASK_CHARS: max chars before we spill task to a temp file and
+// pass @file instead of raw CLI arg. Linux ARG_MAX is typically 2MB.
+// We keep well below that by spilling at 1.2M chars (remaining ~800KB
+// for other args, env, execve overhead).
+// ponytail: temp file cleanup deferred to OS (/tmp cleanup on reboot).
+
+const SAFE_TASK_CHARS = 1_200_000;
 
 function buildSubprocessArgs(
 	agent: ParsedAgent,
@@ -47,11 +58,22 @@ function buildSubprocessArgs(
 	const extFlags = bareExtPaths.flatMap((p) => ["--extension", p]);
 	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
+	// If task is large, write to temp file and use @file to bypass ARG_MAX
+	const taskArg =
+		task.length > SAFE_TASK_CHARS
+			? (() => {
+					const tmpDir = mkdtempSync(join(tmpdir(), "pi-task-"));
+					const taskFile = join(tmpDir, "task.txt");
+					writeFileSync(taskFile, task, "utf-8");
+					return `@${taskFile}`;
+				})()
+			: task;
+
 	const args: string[] = [
 		"-p",
 		"--mode",
 		"json",
-		task,
+		taskArg,
 		"--system-prompt",
 		agent.systemPrompt,
 		"--tools",
