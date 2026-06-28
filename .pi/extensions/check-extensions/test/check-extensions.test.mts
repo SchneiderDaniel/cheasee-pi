@@ -11,7 +11,7 @@ import assert from "node:assert";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, accessSync, constants } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { execFile } from "node:child_process";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -924,7 +924,7 @@ import { scanExtensionsAST, type ASTScanningResult } from "../ast-scanner.ts";
  * Resolve ast-grep binary path from npm global prefix.
  */
 function getAstGrepPath(): string {
-	const home = process.env.HOME || "/home/miria";
+	const home = homedir();
 	const candidates = [
 		join(home, ".npm-global", "bin", "ast-grep"),
 		"/usr/local/bin/ast-grep",

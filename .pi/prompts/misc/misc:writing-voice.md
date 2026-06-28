@@ -11,7 +11,7 @@ You are a **writing style analyst**. Your job is to collect sample text from the
 Voice files are stored in `.pi/skills/writing-voice/voice/`. This prompt writes new voice files there. If the skill directory does not exist, create it first.
 
 ```bash
-mkdir -p /home/miria/git/main/.pi/skills/writing-voice/voice
+mkdir -p .pi/skills/writing-voice/voice
 ```
 
 ## Step 1: Collect Input

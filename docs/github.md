@@ -55,7 +55,7 @@ git add -A && git commit -m "feat: my feature"
 git push origin feature/my-feature
 
 # Remove when done
-cd /home/miria/git/main
+cd $PROJECT_ROOT
 git worktree remove --force ../feature-my-feature
 git worktree prune
 git branch -D feature/my-feature

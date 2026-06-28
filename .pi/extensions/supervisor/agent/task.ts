@@ -110,25 +110,7 @@ function buildAuditChecklist(dimensionCount: number): string {
 	return checklist.join("\n");
 }
 
-/**
- * Build path mapping block for agents running inside a worktree sandbox.
- * When the issue body contains absolute main-repo paths (/home/miria/git/main/)
- * and the agent is running inside a worktree, inject a note telling the agent
- * how to convert absolute paths to repo-relative paths.
- * Returns empty string when no mapping is needed.
- */
-const MAIN_REPO_PREFIX = "/home/miria/git/main";
-function buildPathMappingBlock(worktreePath: string | undefined, issueBody: string): string {
-	if (!worktreePath) return "";
-	if (!issueBody.includes(MAIN_REPO_PREFIX)) return "";
-	return `
-### Path note
-File paths in this issue reference the main repo at \`${MAIN_REPO_PREFIX}\`.
-You are running in a worktree at \`${worktreePath}\`.
-To access these files, use repo-relative paths:
-  ${MAIN_REPO_PREFIX}/.pi/extensions/X/file.ts → .pi/extensions/X/file.ts
-`;
-}
+// No path mapping block needed — all paths are repo-relative per architecture.
 
 /**
  * System prompt options injected from ctx.getSystemPromptOptions().
@@ -194,6 +176,7 @@ export function buildAgentTask(
 	remote: string,
 	worktreeBase: string,
 	branchPrefix: string,
+	mainRepoPrefix: string,
 	worktreePath?: string,
 	branchName?: string,
 	summarizedRejections?: string,
@@ -217,10 +200,6 @@ export function buildAgentTask(
 		commentsBlock = "(no trusted comments)";
 	}
 
-	// Build the path mapping block for agents running in worktree sandbox
-	// Detects absolute main-repo paths in issue body and injects mapping note
-	const pathMappingBlock = buildPathMappingBlock(worktreePath, filteredData.body);
-
 	// Build the pre-filtered issue data block that agents must use
 	const issueBlock = [
 		`## Issue Data (pre-filtered — use this, do NOT fetch from GitHub)`,
@@ -232,7 +211,6 @@ export function buildAgentTask(
 		``,
 		`### Trusted Comments`,
 		commentsBlock,
-		pathMappingBlock,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -349,7 +327,6 @@ ${filteredData.body}`,
 				``,
 				`### Body`,
 				filteredData.body,
-				pathMappingBlock,
 			]
 				.filter(Boolean)
 				.join("\n");

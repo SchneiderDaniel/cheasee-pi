@@ -576,6 +576,7 @@ export async function handleSupervisorCommand(
 				config.remote!,
 				config.worktreeBase!,
 				config.branchPrefix!,
+				ctx.cwd, // mainRepoPrefix
 				worktreePath,
 				worktreeBranch,
 				summarizeComments(loopFilteredData.comments),

@@ -30,6 +30,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("gh issue comment"),
@@ -50,6 +51,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("gh pr create"), "Auditor prompt should not contain gh pr create");
 	});
@@ -67,6 +69,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("cat >"), "Auditor prompt should not contain shell heredoc");
 	});
@@ -84,6 +87,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("SUMMARY_FILE"), "Auditor prompt should not contain SUMMARY_FILE");
 	});
@@ -101,6 +105,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes('"action": "APPROVED"'),
@@ -125,6 +130,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes('"prTitle"'), "Auditor prompt should contain prTitle");
 		assert.ok(task.includes('"prBody"'), "Auditor prompt should contain prBody");
@@ -145,6 +151,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("gh pr create"),
@@ -165,6 +172,7 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("Review Findings"),
@@ -192,6 +200,7 @@ describe("buildAgentTask — auditor with submodules (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("Submodules"), "Should mention submodules exist");
 		assert.ok(!task.includes("cd sub/a"), "Should not contain shell cd to submodule");
@@ -214,6 +223,7 @@ describe("buildAgentTask — auditor with submodules (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("owner/sub-a") && task.includes("owner/sub-b"),

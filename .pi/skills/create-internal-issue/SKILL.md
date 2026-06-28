@@ -48,7 +48,7 @@ This skill works on the repo defined in `.pi/settings.json` → `supervisor.repo
 Read settings to get repo + project config:
 
 ```bash
-read /home/miria/git/main/.pi/settings.json
+read .pi/settings.json
 ```
 
 Extract these values (parse manually from the file):
@@ -96,7 +96,7 @@ If unclear, ask user: "Is this a bug report, feature request, or other?"
 For bug or feature:
 
 ```bash
-read /home/miria/git/main/.github/ISSUE_TEMPLATE/<template-name>.md
+read .github/ISSUE_TEMPLATE/<template-name>.md
 ```
 
 Parse the template:

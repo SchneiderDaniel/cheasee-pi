@@ -31,7 +31,6 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 		if (binaryPromise) return binaryPromise;
 
 		const COMMON_PATHS = [
-			"/home/miria/.npm-global/bin/ast-grep",
 			process.env.HOME ? `${process.env.HOME}/.npm-global/bin/ast-grep` : "",
 			process.env.HOME ? `${process.env.HOME}/.local/bin/ast-grep` : "",
 		];

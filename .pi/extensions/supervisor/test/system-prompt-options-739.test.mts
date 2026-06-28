@@ -30,6 +30,7 @@ const BASE_ARGS = {
 	remote: "origin",
 	worktreeBase: "../",
 	branchPrefix: "worktree-git-issue-",
+	mainRepoPrefix: "/test/main/repo",
 };
 
 // ─── SystemPromptOptions interface ────────────────────────────────
@@ -99,6 +100,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes("Issue Data"), "backward compatible output");
 	});
@@ -115,6 +117,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 			undefined, // worktreePath
 			undefined, // branchName
 			undefined, // summarizedRejections
@@ -143,6 +146,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 			undefined,
 			undefined,
 			undefined,
@@ -169,6 +173,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 			undefined,
 			undefined,
 			undefined,
@@ -195,6 +200,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(
 			!task.includes("## Available Tools"),
@@ -214,6 +220,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 			undefined,
 			undefined,
 			undefined,
@@ -244,6 +251,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 				BASE_ARGS.remote,
 				BASE_ARGS.worktreeBase,
 				BASE_ARGS.branchPrefix,
+				BASE_ARGS.mainRepoPrefix,
 				undefined,
 				undefined,
 				undefined,
@@ -270,6 +278,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 			undefined,
 			undefined,
 			undefined,
