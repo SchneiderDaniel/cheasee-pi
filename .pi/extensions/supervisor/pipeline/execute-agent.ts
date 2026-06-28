@@ -12,6 +12,7 @@ import { runAgentSubprocess } from "../agent/runner.ts";
 import { convertAgentRunToToolResult } from "../session/result.ts";
 import { validateAgentResult } from "./output.ts";
 import { replaySessionFile } from "./replay-session.ts";
+import { detectThinkingLevelMismatch } from "./thinking-mismatch.ts";
 
 // ─── executeAgent — primary subprocess execution ───────────────────
 // Signature unchanged for backward compatibility with handler.ts callers.
@@ -60,6 +61,24 @@ export async function executeAgent(
 	// ── 4. Replay session file for persistent chat message ───────
 	if (result.success) {
 		await replaySessionFile(sessionPath, pi, agentName);
+
+		// ── 4a. Detect thinking level mismatch ──────────────────
+		const mismatch = detectThinkingLevelMismatch(sessionPath, agent.config.thinking);
+		if (mismatch) {
+			const msg = `Agent '${agentName}' configured thinking=${mismatch.configured} but model clamps to ${mismatch.effective}. Running at thinking=${mismatch.effective}.`;
+			console.warn(`[${agentName}] Warning: ${msg}`);
+			pi.sendMessage({
+				customType: "supervisor",
+				content: `⚠️ ${msg}`,
+				display: true,
+				details: {
+					eventType: "thinking-mismatch",
+					agentName,
+					configured: mismatch.configured,
+					effective: mismatch.effective,
+				},
+			});
+		}
 	}
 
 	// ── 5. Send final result message ────────────────────────────
