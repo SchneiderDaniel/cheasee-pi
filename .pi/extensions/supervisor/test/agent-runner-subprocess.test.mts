@@ -529,6 +529,77 @@ if (hasMockModule) {
 	});
 
 	describe("runAgentSubprocess — rendering contract", () => {
+		it("forwards bash tool-complete with command args", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "bash",
+						args: { command: "ls -la /tmp" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "bash", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "bash",
+							content: [{ type: "text", text: "drwxr-xr-x ..." }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolCompleteMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-complete",
+			);
+			const toolStartMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-start",
+			);
+
+			// tool-start has args
+			if (toolStartMsgs[0]) {
+				assert.equal(
+					toolStartMsgs[0].details.args,
+					"$ ls -la /tmp",
+					"tool-start args should be formatted bash command",
+				);
+			}
+			// tool-complete carries same formatted args (the bug fix)
+			if (toolCompleteMsgs[0]) {
+				assert.equal(toolCompleteMsgs[0].details.toolName, "bash");
+				assert.equal(
+					toolCompleteMsgs[0].details.args,
+					"$ ls -la /tmp",
+					"tool-complete bash args should match tool-start — was empty before fix",
+				);
+			}
+		});
+
 		it("forwards tool_execution_start as eventType: tool-start", async () => {
 			resetMock();
 			const sendMessageCalls: any[] = [];
@@ -586,7 +657,7 @@ if (hasMockModule) {
 			}
 		});
 
-		it("forwards toolResult message_end as eventType: tool-complete", async () => {
+		it("forwards toolResult message_end as eventType: tool-complete with formatted args", async () => {
 			resetMock();
 			const sendMessageCalls: any[] = [];
 			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
@@ -640,6 +711,11 @@ if (hasMockModule) {
 			);
 			if (toolCompleteMsgs[0]) {
 				assert.equal(toolCompleteMsgs[0].details.toolName, "read");
+				assert.equal(
+					toolCompleteMsgs[0].details.args,
+					"read /tmp/x.ts",
+					"tool-complete should carry formatted args from tool_execution_start",
+				);
 				assert.ok(
 					toolCompleteMsgs[0].details.resultText?.includes("file content"),
 					"tool-complete should include result text",
