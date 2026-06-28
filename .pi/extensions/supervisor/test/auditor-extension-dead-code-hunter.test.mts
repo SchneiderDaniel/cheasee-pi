@@ -181,6 +181,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -211,6 +212,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("⚠️ Dead Code Detected"),
@@ -230,6 +232,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -256,6 +259,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -282,6 +286,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("Dead code: ← verify findings from pre-audit gate or run ripgrep_search"),
@@ -301,6 +306,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		// Find example JSON for approved flow with auditScore
 		const approvedSection = task.substring(
@@ -325,6 +331,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -382,6 +389,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 					"origin",
 					"../",
 					"worktree-git-issue-",
+					"/test/main/repo",
 				).includes("### Structured Output Format"),
 			);
 		});
@@ -399,6 +407,7 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 					"origin",
 					"../",
 					"worktree-git-issue-",
+					"/test/main/repo",
 				).includes("### ⚠️ Dead Code"),
 			);
 		});

@@ -34,8 +34,8 @@ Pick one extension from `.pi/extensions/` using `bash ls`. Prefer subdirectory e
 Selection method:
 
 ```bash
-ls -d /home/miria/git/main/.pi/extensions/*/   # subdirectory extensions
-ls /home/miria/git/main/.pi/extensions/*.ts     # single-file extensions
+ls -d .pi/extensions/*/   # subdirectory extensions
+ls .pi/extensions/*.ts     # single-file extensions
 ```
 
 Pick randomly. Document which extension selected and why (e.g. "largest file count" or "most recently modified").
@@ -47,15 +47,15 @@ Read the full extension before hunting. Use `read` to load all files.
 For subdirectory extensions:
 
 ```bash
-ls -la /home/miria/git/main/.pi/extensions/<name>/
-read /home/miria/git/main/.pi/extensions/<name>/index.ts
-read /home/miria/git/main/.pi/extensions/<name>/<other-files>.ts
+ls -la .pi/extensions/<name>/
+read .pi/extensions/<name>/index.ts
+read .pi/extensions/<name>/<other-files>.ts
 ```
 
 For single-file extensions:
 
 ```bash
-read /home/miria/git/main/.pi/extensions/<name>.ts
+read .pi/extensions/<name>.ts
 ```
 
 Understand:
@@ -232,7 +232,7 @@ cat > ignore/bug-report-<ext-name>.md << 'EOF'
 EOF
 
 gh issue create \
-  --repo "$(cat /home/miria/git/main/.pi/settings.json | grep -o '"repo"[^,]*' | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
+  --repo "$(cat .pi/settings.json | grep -o '"repo"[^,]*' | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Bug: <ext-name> - <short description>" \
   --label "bug" \
   --body-file ignore/bug-report-<ext-name>.md
@@ -244,7 +244,7 @@ rm ignore/bug-report-<ext-name>.md
 Read repo from `.pi/settings.json`:
 
 ```bash
-grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
+grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/'
 ```
 
 #### Labels

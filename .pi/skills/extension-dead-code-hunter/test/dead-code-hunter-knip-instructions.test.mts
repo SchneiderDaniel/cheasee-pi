@@ -147,7 +147,7 @@ describe("Phase 2: Phase 1.5 content validity", () => {
 			"Command must include --tsConfig flag (capital C)",
 		);
 		assert.ok(
-			phase15Content.includes("/home/miria/git/main/tsconfig.json"),
+			phase15Content.includes("tsconfig.json"),
 			"Command must reference root tsconfig path",
 		);
 		assert.ok(
@@ -229,9 +229,9 @@ describe("Phase 2: Phase 1.5 content validity", () => {
 		);
 	});
 
-	it("states root tsconfig usage (/home/miria/git/main/tsconfig.json)", () => {
+	it("states root tsconfig usage (tsconfig.json)", () => {
 		assert.ok(
-			phase15Content.includes("/home/miria/git/main/tsconfig.json"),
+			phase15Content.includes("tsconfig.json"),
 			"Phase 1.5 must reference the root tsconfig path",
 		);
 	});

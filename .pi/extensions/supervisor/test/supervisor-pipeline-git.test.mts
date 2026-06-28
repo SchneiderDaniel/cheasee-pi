@@ -29,6 +29,7 @@ describe("buildAgentTask — no gh issue comment in prompts (Phase 2)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("gh issue comment"), "Architect should not contain gh issue comment");
 	});
@@ -46,6 +47,7 @@ describe("buildAgentTask — no gh issue comment in prompts (Phase 2)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("gh issue comment"),
@@ -66,6 +68,7 @@ describe("buildAgentTask — no gh issue comment in prompts (Phase 2)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("gh issue comment"), "Researcher should not contain gh issue comment");
 	});
@@ -83,6 +86,7 @@ describe("buildAgentTask — no gh issue comment in prompts (Phase 2)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("git add -A"), "Developer should not contain git add -A");
 		assert.ok(!task.includes("git commit"), "Developer should not contain git commit");

@@ -58,8 +58,8 @@ Pick one extension from `.pi/extensions/` using `bash ls`. Prefer subdirectory e
 Selection method:
 
 ```bash
-ls -d /home/miria/git/main/.pi/extensions/*/   # subdirectory extensions
-ls /home/miria/git/main/.pi/extensions/*.ts     # single-file extensions
+ls -d .pi/extensions/*/   # subdirectory extensions
+ls .pi/extensions/*.ts     # single-file extensions
 ```
 
 Pick randomly. Document which extension selected and why.
@@ -72,10 +72,10 @@ Run quick signal scan, then skip if score too low for cost-effective hunt.
 ```bash
 # Count reinvention signals: tool registrations, event handlers, fs ops, ui calls, module state
 rg -c "registerTool|pi\.on\(|readFile|writeFile|execSync|exec\(|child_process|ctx\.ui\.|^let |^const .*= new |^const .*= \\[\\]" \
-  /home/miria/git/main/.pi/extensions/<name>/index.ts
+  .pi/extensions/<name>/index.ts
 
 # Count file count (more files = more surface)
-ls /home/miria/git/main/.pi/extensions/<name>/ | wc -l
+ls .pi/extensions/<name>/ | wc -l
 ```
 
 **Scoring:**
@@ -255,17 +255,17 @@ Read the full extension before hunting. Use `read` to load all files.
 For subdirectory extensions:
 
 ```bash
-ls -la /home/miria/git/main/.pi/extensions/<name>/
-read /home/miria/git/main/.pi/extensions/<name>/index.ts
-read /home/miria/git/main/.pi/extensions/<name>/<other-files>.ts
+ls -la .pi/extensions/<name>/
+read .pi/extensions/<name>/index.ts
+read .pi/extensions/<name>/<other-files>.ts
 # Also check package.json for dependencies
-read /home/miria/git/main/.pi/extensions/<name>/package.json 2>/dev/null || true
+read .pi/extensions/<name>/package.json 2>/dev/null || true
 ```
 
 For single-file extensions:
 
 ```bash
-read /home/miria/git/main/.pi/extensions/<name>.ts
+read .pi/extensions/<name>.ts
 ```
 
 Understand:
@@ -328,9 +328,9 @@ Detection: Extension implements its own interactive dialogs, selectors, confirma
 **Detection patterns:**
 
 ```bash
-ripgrep_search "ctx\.ui\.custom" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "handleInput" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "SelectList|SettingsList" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "ctx\.ui\.custom" .pi/extensions/<name>/
+ripgrep_search "handleInput" .pi/extensions/<name>/
+ripgrep_search "SelectList|SettingsList" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -353,8 +353,8 @@ Detection: Extension reads, modifies, and writes files using `fs.readFile`/`fs.w
 **Detection patterns:**
 
 ```bash
-ripgrep_search "readFile|writeFile|appendFile|unlink|rm" /home/miria/git/main/.pi/extensions/<name>/index.ts
-ripgrep_search "withFileMutationQueue" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "readFile|writeFile|appendFile|unlink|rm" .pi/extensions/<name>/index.ts
+ripgrep_search "withFileMutationQueue" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -376,9 +376,9 @@ Detection: Manual line counting, byte truncation, or output size limiting instea
 **Detection patterns:**
 
 ```bash
-ripgrep_search "\.slice\(0|\.substring\(|\.length.*>|maxBytes|maxLines" /home/miria/git/main/.pi/extensions/<name>/index.ts
-ripgrep_search "Buffer\.byteLength|new TextEncoder" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "truncateHead|truncateTail|truncateLine|formatSize" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "\.slice\(0|\.substring\(|\.length.*>|maxBytes|maxLines" .pi/extensions/<name>/index.ts
+ripgrep_search "Buffer\.byteLength|new TextEncoder" .pi/extensions/<name>/
+ripgrep_search "truncateHead|truncateTail|truncateLine|formatSize" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -394,9 +394,9 @@ Detection: Module-level mutable state, files on disk, or environment variables i
 **Detection patterns:**
 
 ```bash
-ripgrep_search "^let |^const .*= \[\]|^const .*= new Map|^const .*= new Set" /home/miria/git/main/.pi/extensions/<name>/index.ts
-ripgrep_search "writeFile.*JSON|readFile.*JSON|mkdir.*state|\.json" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "appendEntry" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "^let |^const .*= \[\]|^const .*= new Map|^const .*= new Set" .pi/extensions/<name>/index.ts
+ripgrep_search "writeFile.*JSON|readFile.*JSON|mkdir.*state|\.json" .pi/extensions/<name>/
+ripgrep_search "appendEntry" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -412,9 +412,9 @@ Detection: Tool implements `renderCall`/`renderResult` with direct ANSI escape c
 **Detection patterns:**
 
 ```bash
-ripgrep_search "\\x1b\[|\\033\[|\u001b\[" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "highlightCode|getLanguageFromPath" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "new Box|paddingX|paddingY|bgFn" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "\\x1b\[|\\033\[|\u001b\[" .pi/extensions/<name>/
+ripgrep_search "highlightCode|getLanguageFromPath" .pi/extensions/<name>/
+ripgrep_search "new Box|paddingX|paddingY|bgFn" .pi/extensions/<name>/
 ```
 
 **Confidence:** 100% for direct ANSI codes. 90% for custom syntax highlighting.
@@ -430,8 +430,8 @@ Detection: Extension uses `execSync`, `spawn`, `exec` directly instead of `pi.ex
 **Detection patterns:**
 
 ```bash
-ripgrep_search "child_process|execSync|execFileSync|spawn|spawnSync|exec\(" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "pi\.exec\(" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "child_process|execSync|execFileSync|spawn|spawnSync|exec\(" .pi/extensions/<name>/
+ripgrep_search "pi\.exec\(" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -447,8 +447,8 @@ Detection: Full tool reimplementation when only a small operations wrapper is ne
 **Detection patterns:**
 
 ```bash
-ripgrep_search "createReadTool|createBashTool|createWriteTool|createEditTool|createLocalBashOperations" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "registerTool.*read|registerTool.*bash|registerTool.*write|registerTool.*edit" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "createReadTool|createBashTool|createWriteTool|createEditTool|createLocalBashOperations" .pi/extensions/<name>/
+ripgrep_search "registerTool.*read|registerTool.*bash|registerTool.*write|registerTool.*edit" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -464,9 +464,9 @@ Detection: Raw terminal escape sequences for key detection instead of `matchesKe
 **Detection patterns:**
 
 ```bash
-ripgrep_search "\\x1b\[A|\\x1b\[B|\\x1b\[C|\\x1b\[D|\\u001b\[|\\033\[" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "charCodeAt|\.codePointAt|keyCode|which" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "matchesKey" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "\\x1b\[A|\\x1b\[B|\\x1b\[C|\\x1b\[D|\\u001b\[|\\033\[" .pi/extensions/<name>/
+ripgrep_search "charCodeAt|\.codePointAt|keyCode|which" .pi/extensions/<name>/
+ripgrep_search "matchesKey" .pi/extensions/<name>/
 ```
 
 **Confidence:** 100%.
@@ -482,9 +482,9 @@ Detection: Custom tokenizer, ANSI color mapping for code instead of `highlightCo
 **Detection patterns:**
 
 ```bash
-ripgrep_search "tokenize|syntax.*highlight|codeHighlight|colorize" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "\.endsWith\(|\.match\(\/.*\\..*ext|extname" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "highlightCode|getLanguageFromPath" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "tokenize|syntax.*highlight|codeHighlight|colorize" .pi/extensions/<name>/
+ripgrep_search "\.endsWith\(|\.match\(\/.*\\..*ext|extname" .pi/extensions/<name>/
+ripgrep_search "highlightCode|getLanguageFromPath" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -500,9 +500,9 @@ Detection: Manual session walking, token counting, cut point logic instead of `s
 **Detection patterns:**
 
 ```bash
-ripgrep_search "getBranch|getEntries|getLeafId|sessionManager" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "summarize|compact|compress" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "session_before_compact" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "getBranch|getEntries|getLeafId|sessionManager" .pi/extensions/<name>/
+ripgrep_search "summarize|compact|compress" .pi/extensions/<name>/
+ripgrep_search "session_before_compact" .pi/extensions/<name>/
 ```
 
 **Confidence:** 70%.
@@ -518,8 +518,8 @@ Detection: Manual session file manipulation, JSONL construction instead of `ctx.
 **Detection patterns:**
 
 ```bash
-ripgrep_search "\.jsonl|writeFile.*session|readFile.*session|SessionManager\." /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "newSession|fork\(|switchSession|navigateTree" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "\.jsonl|writeFile.*session|readFile.*session|SessionManager\." .pi/extensions/<name>/
+ripgrep_search "newSession|fork\(|switchSession|navigateTree" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -535,8 +535,8 @@ Detection: Manual model fetch, response parsing, and provider config constructio
 **Detection patterns:**
 
 ```bash
-ripgrep_search "export default async function.*pi" /home/miria/git/main/.pi/extensions/<name>/index.ts
-ripgrep_search "registerProvider" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "export default async function.*pi" .pi/extensions/<name>/index.ts
+ripgrep_search "registerProvider" .pi/extensions/<name>/
 ```
 
 **Confidence:** 70%.
@@ -552,8 +552,8 @@ Detection: Full editor from scratch instead of extending `CustomEditor`.
 **Detection patterns:**
 
 ```bash
-ripgrep_search "setEditorComponent|CustomEditor" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "class.*Editor" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "setEditorComponent|CustomEditor" .pi/extensions/<name>/
+ripgrep_search "class.*Editor" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -569,8 +569,8 @@ Detection: Direct session manager manipulation instead of `pi.sendMessage()` / `
 **Detection patterns:**
 
 ```bash
-ripgrep_search "appendMessage|sessionManager.*append" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "sendMessage|sendUserMessage" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "appendMessage|sessionManager.*append" .pi/extensions/<name>/
+ripgrep_search "sendMessage|sendUserMessage" .pi/extensions/<name>/
 ```
 
 **Confidence:** 100%.
@@ -586,8 +586,8 @@ Detection: Full autocomplete system instead of `addAutocompleteProvider`.
 **Detection patterns:**
 
 ```bash
-ripgrep_search "autocomplete|autoComplete|getSuggestions|applyCompletion|triggerCharacters" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "addAutocompleteProvider" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "autocomplete|autoComplete|getSuggestions|applyCompletion|triggerCharacters" .pi/extensions/<name>/
+ripgrep_search "addAutocompleteProvider" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -603,7 +603,7 @@ Detection: Manual theme management, footer rendering, widget rendering instead o
 **Detection patterns:**
 
 ```bash
-ripgrep_search "theme.*json|\.pi/themes|setTheme|getTheme|getAllThemes" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "theme.*json|\.pi/themes|setTheme|getTheme|getAllThemes" .pi/extensions/<name>/
 ```
 
 **Confidence:** 90%.
@@ -619,7 +619,7 @@ Detection: Argument migration logic inside `execute()` or deprecated fields in p
 **Detection patterns:**
 
 ```bash
-ripgrep_search "prepareArguments" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "prepareArguments" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -639,8 +639,8 @@ Detection: Tool `execute()` builds full result in memory and returns at once ins
 **Detection patterns:**
 
 ```bash
-ripgrep_search "onUpdate" /home/miria/git/main/.pi/extensions/<name>/index.ts
-ripgrep_search "accumulat|buffer|join|push.*result" /home/miria/git/main/.pi/extensions/<name>/index.ts
+ripgrep_search "onUpdate" .pi/extensions/<name>/index.ts
+ripgrep_search "accumulat|buffer|join|push.*result" .pi/extensions/<name>/index.ts
 ```
 
 **What to look for:**
@@ -663,8 +663,8 @@ Detection: Tool `renderCall`/`renderResult` hardcodes key labels ("⌘K", "Ctrl+
 **Detection patterns:**
 
 ```bash
-ripgrep_search "\\u2318|\\u2303|\\u21e7|\\u2325|Ctrl[+-]|Alt[+-]|Shift[+-]|Cmd[+-]|Meta[+-]|⌘|⌃|⇧|⌥" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "keyHint" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "\\u2318|\\u2303|\\u21e7|\\u2325|Ctrl[+-]|Alt[+-]|Shift[+-]|Cmd[+-]|Meta[+-]|⌘|⌃|⇧|⌥" .pi/extensions/<name>/
+ripgrep_search "keyHint" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -686,8 +686,8 @@ Detection: Extension reimplements cursor management, paste handling, or editor t
 **Detection patterns:**
 
 ```bash
-ripgrep_search "setEditorText|getEditorText|pasteToEditor" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "selectionStart|selectionEnd|cursorPos|insertText|replaceSelection|clipboard|paste" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "setEditorText|getEditorText|pasteToEditor" .pi/extensions/<name>/
+ripgrep_search "selectionStart|selectionEnd|cursorPos|insertText|replaceSelection|clipboard|paste" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -709,8 +709,8 @@ Detection: Extension implements floating/modal UI on top of content using raw te
 **Detection patterns:**
 
 ```bash
-ripgrep_search "ctx\.ui\.custom" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "overlay|modal|float|popup|dialog" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "ctx\.ui\.custom" .pi/extensions/<name>/
+ripgrep_search "overlay|modal|float|popup|dialog" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -730,8 +730,8 @@ Detection: Tool that needs full control over its visual shell uses the default `
 **Detection patterns:**
 
 ```bash
-ripgrep_search "renderShell" /home/miria/git/main/.pi/extensions/<name>/
-ripgrep_search "new Box|paddingX|paddingY|bgFn" /home/miria/git/main/.pi/extensions/<name>/
+ripgrep_search "renderShell" .pi/extensions/<name>/
+ripgrep_search "new Box|paddingX|paddingY|bgFn" .pi/extensions/<name>/
 ```
 
 **What to look for:**
@@ -871,7 +871,7 @@ cat > ignore/reinvention-report-<ext-name>-<seq>.md << 'ISSUEOF'
 ISSUEOF
 
 gh issue create \
-  --repo "$(grep -o '"repo"[^,]*' /home/miria/git/main/.pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
+  --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
   --title "Reinvention: <ext-name> - <short description>" \
   --label "reinvention" \
   --body-file ignore/reinvention-report-<ext-name>-<seq>.md

@@ -41,6 +41,7 @@ describe("task.ts runtime exports — direct call in assertions", () => {
 				"o",
 				"../",
 				"p",
+				"/test/main/repo",
 			).includes("Follow your system prompt instructions"),
 		);
 	});
@@ -82,6 +83,7 @@ const BASE_ARGS = {
 	remote: "origin",
 	worktreeBase: "../",
 	branchPrefix: "worktree-git-issue-",
+	mainRepoPrefix: "/test/main/repo",
 };
 
 // ---------------------------------------------------------------------------
@@ -181,6 +183,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes('"action": "APPROVED"'), "Should contain APPROVED action");
 		assert.ok(task.includes('"action": "REJECTED"'), "Should contain REJECTED action");
@@ -198,6 +201,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes('"prBody"'), "Should contain prBody key");
 		assert.ok(task.includes('"commentBody"'), "Should contain commentBody key");
@@ -215,6 +219,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes('"prTitle"'), "Should contain prTitle key");
 	});
@@ -231,6 +236,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(
 			task.includes("Follow your system prompt instructions"),
@@ -250,6 +256,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		const rejectSection = task.substring(task.lastIndexOf('"action": "REJECTED"'));
 		assert.ok(rejectSection.includes('"commentBody"'), "REJECT flow contains commentBody key");
@@ -267,6 +274,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes("### Structured Output Format"), "Structured output heading present");
 	});
@@ -283,6 +291,7 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
 			BASE_ARGS.branchPrefix,
+			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes("(none)") || !task.includes("submodule"), "No submodules listed");
 	});
@@ -305,6 +314,7 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes('"commentBody"'), "JSON commentBody key");
 		assert.ok(task.includes('"action": "COMPLETE"'), "COMPLETE action");
@@ -324,6 +334,7 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		// Pipeline handles commit/push — agent task doesn't include git add/commit
 		assert.ok(!task.includes("git worktree add"), "No git worktree add in developer task");
@@ -351,6 +362,7 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("Follow your system prompt instructions"), "Minimal delegation");
 		assert.ok(task.includes('"action": "COMPLETE"'), "JSON output format present");
@@ -368,6 +380,7 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("Follow your system prompt instructions"), "Minimal delegation");
 		assert.ok(task.includes('"commentBody"'), "JSON commentBody key");
@@ -386,6 +399,7 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("Complete the task for issue #42"));
 		assert.ok(!task.includes("undefined"));
@@ -409,6 +423,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/worktree-git-issue-42-fix-bug",
 		);
 		assert.ok(
@@ -433,6 +448,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 			"fix-bug",
 		);
@@ -460,6 +476,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 		);
 		assert.ok(task.includes("cd /home/wt"), "Should contain cd to worktree path instruction");
@@ -481,6 +498,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("Your current working directory IS the worktree"),
@@ -500,6 +518,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 			"fix-bug",
 		);
@@ -522,6 +541,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 		);
 		assert.ok(
@@ -546,6 +566,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 		);
 		assert.ok(
@@ -570,6 +591,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/wt",
 		);
 		assert.ok(
@@ -594,6 +616,7 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("Follow your system prompt instructions"), "Minimal delegation");
 		assert.ok(task.includes('"action"'), "JSON action key present");
@@ -617,6 +640,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(!task.includes("<previous_gate_failure>"), "No XML tag when no context");
 	});
@@ -633,6 +657,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined, // worktreePath
 			undefined, // branchName
 			undefined, // summarizedRejections
@@ -658,6 +683,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -682,6 +708,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -707,6 +734,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -731,6 +759,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -759,6 +788,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -783,6 +813,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -807,6 +838,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -831,6 +863,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -855,6 +888,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -880,6 +914,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined,
 			undefined,
 			undefined,
@@ -895,401 +930,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// when issue body contains absolute main-repo paths and agent runs in worktree.
-
-describe("buildPathMappingBlock — pure function (Issue #933 Fix 3)", () => {
-	// We test indirectly via buildAgentTask since buildPathMappingBlock is internal.
-	// Use makeFilteredData with bodyOverride to inject absolute paths into the issue body.
-
-	it("worktreePath undefined → no path mapping block", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Found issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			undefined, // worktreePath — undefined
-		);
-		assert.ok(
-			!task.includes("### Path note"),
-			"Should NOT contain path mapping block when worktreePath is undefined",
-		);
-	});
-
-	it("worktreePath set but issueBody lacks /home/miria/git/main/ → no path mapping", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Issue with no absolute paths" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(
-			!task.includes("### Path note"),
-			"Should NOT contain path mapping block when issue body has no absolute paths",
-		);
-	});
-
-	it("Both worktreePath and /home/miria/git/main/ present → contains ### Path note", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Found issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Should contain ### Path note heading");
-	});
-
-	it("Both present → mapping contains 'repo-relative paths' with correct substitution", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Found issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(
-			task.includes("/home/miria/git/main/.pi/extensions/X/file.ts → .pi/extensions/X/file.ts"),
-			"Should contain path substitution example",
-		);
-	});
-
-	it("worktreePath with trailing slash → still produces valid block, no double-slash", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Found issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree/", // trailing slash
-		);
-		assert.ok(
-			task.includes("### Path note"),
-			"Should still contain path mapping block with trailing slash",
-		);
-	});
-
-	it("issueBody with multiple /home/miria/git/main/ occurrences → mapping block injected once", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({
-				body: "/home/miria/git/main/.pi/extensions/a/file.ts\n/home/miria/git/main/.pi/extensions/b/file.ts",
-			}),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		// Count occurrences of ### Path note
-		const matches = task.match(/### Path note/g);
-		assert.strictEqual(
-			matches ? matches.length : 0,
-			1,
-			"Should have exactly one ### Path note block",
-		);
-	});
-
-	it("Empty issueBody with worktreePath → no path mapping block", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(
-			!task.includes("### Path note"),
-			"Should NOT contain path mapping block when issue body is empty",
-		);
-	});
-
-	it("Output contains literal MAIN_REPO_PREFIX value so agent sees correct mapping", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Found issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(
-			task.includes("/home/miria/git/main"),
-			"Should contain literal main repo path so agent sees correct mapping",
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Phase 8: buildAgentTask path mapping integration (Issue #933 — Fix 3)
-// ---------------------------------------------------------------------------
-// All agents receive path mapping when worktreePath is set and body contains
-// absolute main-repo paths.
-
-describe("buildAgentTask — path mapping block integration (Issue #933 Fix 3)", () => {
-	it("auditor with worktreePath + body with /home/miria/git/main/ → contains path mapping", () => {
-		const task = buildAgentTask(
-			"auditor",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Auditor should receive path mapping block");
-	});
-
-	it("developer with worktreePath + body with /home/miria/git/main/ → contains path mapping", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Developer should receive path mapping block");
-	});
-
-	it("architect with worktreePath + body with /home/miria/git/main/ → contains path mapping", () => {
-		const task = buildAgentTask(
-			"architect",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Architect should receive path mapping block");
-	});
-
-	it("researcher with worktreePath + body with /home/miria/git/main/ → contains path mapping", () => {
-		const task = buildAgentTask(
-			"researcher",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Researcher should receive path mapping block");
-	});
-
-	it("test-designer with worktreePath + body with /home/miria/git/main/ → contains path mapping", () => {
-		const task = buildAgentTask(
-			"test-designer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("### Path note"), "Test-designer should receive path mapping block");
-	});
-
-	it("worktreePath undefined + absolute paths in body → no path mapping block", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			undefined, // worktreePath
-		);
-		assert.ok(
-			!task.includes("### Path note"),
-			"No path mapping when worktreePath is undefined (backward compat)",
-		);
-	});
-
-	it("worktreePath set + body without absolute paths → no path mapping block", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "Ordinary issue body" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(!task.includes("### Path note"), "No path mapping when body lacks absolute paths");
-	});
-
-	it("gateFailureContext + path mapping conditions → both blocks present", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-			undefined, // branchName
-			undefined, // summarizedRejections
-			undefined, // duplicateCodeContext
-			undefined, // researchFindings
-			undefined, // auditFeedback
-			undefined, // deadCodeContext
-			"CI_FAILED: check build", // gateFailureContext
-		);
-		assert.ok(task.includes("### Path note"), "Path mapping block present");
-		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
-	});
-
-	it("auditFeedback + path mapping conditions → both blocks present", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-			undefined, // branchName
-			undefined, // summarizedRejections
-			undefined, // duplicateCodeContext
-			undefined, // researchFindings
-			"## Audit Rejected\nCritical issue found", // auditFeedback
-		);
-		assert.ok(task.includes("### Path note"), "Path mapping block present");
-		assert.ok(
-			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
-			"Audit feedback block present",
-		);
-	});
-
-	it("existing developer resume instructions unchanged (no regression)", () => {
-		const task = buildAgentTask(
-			"developer",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(task.includes("git status"), "git status instruction present");
-		assert.ok(task.includes("git stash list"), "git stash list instruction present");
-		assert.ok(task.includes("SECURITY RULE"), "SECURITY RULE section present");
-		assert.ok(task.includes("Branch name:"), "Branch name section present");
-		assert.ok(
-			task.includes("Follow your system prompt instructions"),
-			"System prompt delegation present",
-		);
-	});
-
-	it("existing auditor worktree block remains (no regression)", () => {
-		const task = buildAgentTask(
-			"auditor",
-			42,
-			"owner/repo",
-			"Fix bug",
-			makeFilteredData({ body: "issue in /home/miria/git/main/.pi/extensions/test/file.ts" }),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/home/worktree",
-		);
-		assert.ok(
-			task.includes("Your current working directory IS the worktree"),
-			"Auditor worktree announcement still present",
-		);
-		assert.ok(task.includes("cd /home/worktree"), "Auditor cd instruction still present");
-	});
-});
-
 // ---------------------------------------------------------------------------
 // Phase 9: Dead-code hint injection (Issue #934 Fix 3)
 // ---------------------------------------------------------------------------
@@ -1307,6 +947,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("## Dead Code Removal Task"),
@@ -1326,6 +967,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("## Dead Code Removal Task"),
@@ -1345,6 +987,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("## Dead Code Removal Task"), "Should match via 'dead export'");
 	});
@@ -1361,6 +1004,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("## Dead Code Removal Task"),
@@ -1380,6 +1024,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("## Dead Code Removal Task"),
@@ -1399,6 +1044,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1418,6 +1064,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1437,6 +1084,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1456,6 +1104,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("MUST NOT statically import"),
@@ -1475,6 +1124,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(task.includes("dynamic `import()`"), "Should contain 'dynamic import()' instruction");
 	});
@@ -1491,6 +1141,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1510,6 +1161,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1529,6 +1181,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1548,6 +1201,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
@@ -1567,6 +1221,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined, // worktreePath
 			undefined, // branchName
 			undefined, // summarizedRejections
@@ -1592,6 +1247,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			undefined, // worktreePath
 			undefined, // branchName
 			undefined, // summarizedRejections
@@ -1615,17 +1271,17 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove foo",
 			makeFilteredData({
-				body: "Remove dead export from /home/miria/git/main/.pi/extensions/test/file.ts",
+				body: "Remove dead export from extension test/file.ts",
 			}),
 			[],
 			"main",
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 			"/home/worktree", // worktreePath
 		);
 		assert.ok(task.includes("## Dead Code Removal Task"), "Dead Code Removal Task block present");
-		assert.ok(task.includes("### Path note"), "Path mapping block present");
 	});
 
 	it("existing developer content unchanged regardless of dead-code match (no regression)", () => {
@@ -1640,6 +1296,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		// Existing resume instructions
 		assert.ok(task.includes("git status"), "git status instruction present");
@@ -1666,6 +1323,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"origin",
 			"../",
 			"worktree-git-issue-",
+			"/test/main/repo",
 		);
 		assert.ok(
 			task.includes("Follow your system prompt instructions"),
