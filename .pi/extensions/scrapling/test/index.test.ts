@@ -9,7 +9,7 @@ import { describe, it, mock, before } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import webCrawlExtension from "../index.ts";
+import webCrawlExtension, { validateUrl } from "../index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const extDir = resolve(__dirname, "..");
@@ -162,6 +162,86 @@ describe("URL validation", () => {
 	it("(entity) accepts valid URL with protocol", () => {
 		const url = new URL("https://example.com");
 		assert.equal(url.href, "https://example.com/", "valid URL should parse correctly");
+	});
+});
+
+describe("validateUrl helper — protocol allowlist", () => {
+	it("(entity) validateUrl('http://example.com') returns URL with http: protocol", () => {
+		const url = validateUrl("http://example.com");
+		assert.equal(url.protocol, "http:");
+	});
+
+	it("(entity) validateUrl('https://example.com') returns URL with https: protocol", () => {
+		const url = validateUrl("https://example.com");
+		assert.equal(url.protocol, "https:");
+	});
+
+	it("(entity) validateUrl('HTTP://EXAMPLE.COM') accepts mixed-case http", () => {
+		const url = validateUrl("HTTP://EXAMPLE.COM");
+		assert.equal(url.protocol, "http:");
+	});
+
+	it("(entity) validateUrl rejects file:// scheme", () => {
+		assert.throws(
+			() => validateUrl("file:///etc/passwd"),
+			/file:/,
+		);
+	});
+
+	it("(entity) validateUrl rejects data:// scheme", () => {
+		assert.throws(
+			() => validateUrl("data://text/html,Hello"),
+			/data:/,
+		);
+	});
+
+	it("(entity) validateUrl rejects ftp:// scheme", () => {
+		assert.throws(
+			() => validateUrl("ftp://ftp.example.com"),
+			/ftp:/,
+		);
+	});
+
+	it("(entity) validateUrl rejects javascript: scheme", () => {
+		assert.throws(
+			() => validateUrl("javascript:alert(1)"),
+			/javascript:/,
+		);
+	});
+
+	it("(entity) validateUrl('') throws Invalid URL (parse failure, not scheme reject)", () => {
+		assert.throws(
+			() => validateUrl(""),
+			/Invalid URL$/,
+		);
+	});
+
+	it("(entity) validateUrl('not-a-url') throws Invalid URL (parse failure, not scheme reject)", () => {
+		assert.throws(
+			() => validateUrl("not-a-url"),
+			/Invalid URL$/,
+		);
+	});
+
+	it("(entity) error message for scheme reject includes 'only http and https protocols are allowed'", () => {
+		assert.throws(
+			() => validateUrl("ftp://ftp.example.com"),
+			/only http and https protocols are allowed/,
+		);
+	});
+});
+
+describe("tool parameters schema — TypeBox pattern", () => {
+	it("(entity) url parameter has pattern: '^https?://'", () => {
+		const registered: Array<any> = [];
+		const mockPi = {
+			registerTool: (t: any) => registered.push(t),
+			exec: async () => ({ code: 0, stdout: "{}", stderr: "" }),
+		};
+		webCrawlExtension(mockPi as any);
+		const tool = registered[0];
+		const urlSchema = tool.parameters.properties.url;
+		assert.equal(urlSchema.pattern, "^https?://");
 	});
 });
 
