@@ -1,12 +1,16 @@
 /**
  * ensureVenv — shared Python virtual environment setup utility.
  *
- * Two-phase locking:
+ * Two-phase locking + two-phase critical section:
  *   1. Cross-process (file lock): proper-lockfile-based lock prevents parallel agent
  *      processes from corrupting the same venv. Stale lock detection via mtime with
- *      active refresh during hold to prevent false staleness during long pip install.
+ *      `onCompromised` warning handler instead of throw (defense-in-depth, see #1322).
  *   2. In-session (in-memory cache): retry cache prevents redundant re-creation
  *      within the same agent lifetime.
+ *
+ * Lock scope: held only around the short mutation window (double-check → rm → create)
+ * and the final verify gate; released during long I/O (pip install, postInstall).
+ * See #1138 for rationale.
  *
  * Uses proper-lockfile for cross-process locking (atomic mkdir + periodic mtime update).
  */
@@ -25,7 +29,7 @@ export interface ExecFn {
 	): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
-export interface OnUpdateCallback {
+interface OnUpdateCallback {
 	(u: { content: Array<{ type: "text"; text: string }>; details: unknown }): void;
 }
 
@@ -43,7 +47,8 @@ export interface EnsureVenvConfig {
 	/**
 	 * Optional post-install hook called after pip install, before final return.
 	 * Receives the resolved pythonPath.
-	 * Runs under the cross-process lock, so keep it fast or increase lockStaleMs.
+	 * Runs outside the cross-process lock (released before pip install, re-acquired for verify).
+	 * See #1138 for rationale.
 	 */
 	postInstall?: (pythonPath: string) => Promise<void>;
 	/** Max time to wait for cross-process lock in ms (default 5000). */
@@ -166,6 +171,12 @@ async function acquireLock(
 			stale: staleMs,
 			retries: retryOpts,
 			realpath: false,
+			onCompromised: (err: Error) => {
+				onUpdate?.({
+					content: [{ type: "text", text: `Lock compromised: ${err.message}` }],
+					details: { warning: true },
+				});
+			},
 		});
 
 		const waitMs = Date.now() - startTime;
@@ -202,17 +213,44 @@ async function releaseLock(
 	}
 }
 
+/**
+ * Execute a function under the venv cross-process lock.
+ * Acquires the lock, runs `fn`, releases the lock in `finally`.
+ * The lock is guaranteed released even if `fn` throws.
+ * The `onCompromised` handler warns via onUpdate instead of throwing
+ * (defense-in-depth against fs.utimes failures in proper-lockfile's update timer).
+ */
+async function withLock<T>(
+	onUpdate: OnUpdateCallback | undefined,
+	lockFilePath: string,
+	timeoutMs: number,
+	staleMs: number,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const release = await acquireLock(lockFilePath, timeoutMs, staleMs, onUpdate);
+	try {
+		return await fn();
+	} finally {
+		await releaseLock(release, onUpdate);
+	}
+}
+
 // ── ensureVenv ──
 
 /**
  * Ensure a Python virtual environment exists with the specified packages.
  *
  * Flow:
- *   in-memory cache → quick verify → acquire file lock → double-check →
- *   create venv → pip install → postInstall → verify → cache success
+ *   in-memory cache → quick verify →
+ *   [withLock: acquire → double-check → rm → create → release] →
+ *   pip install → postInstall →
+ *   [withLock: acquire → verify → release] → cache success
  *
- * Two-phase locking prevents both cross-process races (file lock) and
- * in-session redundant work (retry cache).
+ * Two-phase critical section: the lock is held only around the short mutation
+ * window (double-check → rm → create) and the final verify gate. Long I/O
+ * (pip install, postInstall) runs without the lock so the staleness timer
+ * doesn't fire and other agents aren't blocked (see #1138).
+ * In-session retry cache prevents redundant re-creation within the same agent lifetime.
  *
  * @returns `{ pythonPath, created }` — `created` is true when a fresh venv was set up.
  * @throws {EnsureVenvError} on failure, with a `step` discriminator.
@@ -257,19 +295,20 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 		}
 	}
 
-	// ── 3. Cross-process lock ──
+	// ── 3-6. Critical section: acquire lock, double-check, remove, create ──
 	const lockFilePath = lockFilePathFor(cwd, venvName);
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	let release = await acquireLock(lockFilePath, lockTimeoutMs, lockStaleMs, onUpdate);
 
-	let lockReleased = false;
-	try {
+	// Lock is held only for the short mutation window and the final verify gate.
+	// Long I/O (pip install, postInstall) runs without the lock so the
+	// staleness timer doesn't fire and other agents aren't blocked (see #1138).
+	const created = await withLock(onUpdate, lockFilePath, lockTimeoutMs, lockStaleMs, async () => {
 		// ── 4. Double-check after lock (another process may have set it up) ──
 		{
 			const recheck = await exec(pythonPath, ["-c", verifyCommand]);
 			if (recheck.code === 0 && recheck.stdout.includes("ok")) {
 				cacheMarkSuccess(ck);
-				return { pythonPath, created: false };
+				return false; // Signal: already set up — skip creation
 			}
 		}
 
@@ -292,48 +331,53 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 			);
 		}
 
-		// ── 7. Install packages (lock released during long install, see #1138) ──
-		if (pipArgs.length > 0) {
-			// Release lock before long pip install so concurrent agents aren't blocked
-			// and the staleness timer doesn't fire during install.
-			await releaseLock(release, onUpdate);
-			lockReleased = true;
+		return true; // Signal: venv was freshly created
+	});
 
-			onUpdate?.({
-				content: [{ type: "text", text: "Installing packages…" }],
-				details: {},
-			});
+	// If double-check passed (another process set up the venv while we waited
+	// for the lock), return early — no pip install needed.
+	if (!created) {
+		return { pythonPath, created: false };
+	}
 
-			const installResult = await exec(pythonPath, ["-m", "pip", "install", ...pipArgs], {
-				timeout: 180_000,
-			});
-			if (installResult.code !== 0) {
-				cacheMarkFailure(ck);
-				throw new EnsureVenvError(
-					`Failed to install packages: ${installResult.stderr.slice(0, 500)}`,
-					"install",
-					{ code: installResult.code, stderr: installResult.stderr },
-				);
-			}
+	// ── 7. Install packages (lock released — see #1138) ──
+	if (pipArgs.length > 0) {
+		onUpdate?.({
+			content: [{ type: "text", text: "Installing packages…" }],
+			details: {},
+		});
+
+		const installResult = await exec(pythonPath, ["-m", "pip", "install", ...pipArgs], {
+			timeout: 180_000,
+		});
+		if (installResult.code !== 0) {
+			cacheMarkFailure(ck);
+			throw new EnsureVenvError(
+				`Failed to install packages: ${installResult.stderr.slice(0, 500)}`,
+				"install",
+				{ code: installResult.code, stderr: installResult.stderr },
+			);
 		}
+	}
 
-		// ── 8. Post-install hook ──
-		if (postInstall) {
-			onUpdate?.({
-				content: [{ type: "text", text: "Running post-install steps…" }],
-				details: {},
-			});
-			try {
-				await postInstall(pythonPath);
-			} catch (err) {
-				cacheMarkFailure(ck);
-				throw err instanceof EnsureVenvError
-					? err
-					: new EnsureVenvError(`Post-install step failed: ${(err as Error).message}`, "install");
-			}
+	// ── 8. Post-install hook (no lock) ──
+	if (postInstall) {
+		onUpdate?.({
+			content: [{ type: "text", text: "Running post-install steps…" }],
+			details: {},
+		});
+		try {
+			await postInstall(pythonPath);
+		} catch (err) {
+			cacheMarkFailure(ck);
+			throw err instanceof EnsureVenvError
+				? err
+				: new EnsureVenvError(`Post-install step failed: ${(err as Error).message}`, "install");
 		}
+	}
 
-		// ── 9. Verify ──
+	// ── 9. Verify under lock (re-acquired) ──
+	await withLock(onUpdate, lockFilePath, lockTimeoutMs, lockStaleMs, async () => {
 		const verifyResult = await exec(pythonPath, ["-c", verifyCommand]);
 		if (verifyResult.code !== 0 || !verifyResult.stdout.includes("ok")) {
 			cacheMarkFailure(ck);
@@ -343,12 +387,8 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 				{ code: verifyResult.code, stderr: verifyResult.stderr },
 			);
 		}
+	});
 
-		cacheMarkSuccess(ck);
-		return { pythonPath, created: true };
-	} finally {
-		if (!lockReleased) {
-			await releaseLock(release, onUpdate);
-		}
-	}
+	cacheMarkSuccess(ck);
+	return { pythonPath, created: true };
 }
