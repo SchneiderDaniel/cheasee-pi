@@ -328,6 +328,11 @@ export function extractAgentCommentBody(output: string): string | null {
 	const METADATA_LINE_RE = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}\u{1F4AD}]/u;
 	const REASONING_LINE_RE =
 		/^(Now (let me|I|we)|Let me|I need to|I'll|First,? let me|I should|I think|I'm going|Let's|Here's my|My approach|I will)/i;
+	// NDJSON event lines (raw stdout from pi --mode json) and session entry lines
+	// leak system prompts, tool results, model metadata, token usage.
+	// Detect: {"type":..., {"role":..., or lines containing "messages":[...
+	const NDJSON_LINE_RE = /^\{\s*"(?:type|role)"\s*:/;
+	const MESSAGES_LINE_RE = /^\{\s*"messages"\s*:\s*\[/;
 	const stripNoise = (text: string): string => {
 		return text
 			.split("\n")
@@ -339,11 +344,31 @@ export function extractAgentCommentBody(output: string): string | null {
 				if (isToolCallLine(trimmed)) return false;
 				// Skip reasoning/self-talk lines that indicate LLM internal monologue
 				if (REASONING_LINE_RE.test(trimmed)) return false;
+				// Skip NDJSON event lines ({"type":"...}) and session entries ({"role":"...})
+				// that leak into section heading extraction from raw stdout.
+				if (NDJSON_LINE_RE.test(trimmed)) return false;
+				if (MESSAGES_LINE_RE.test(trimmed)) return false;
 				return true;
 			})
 			.join("\n")
 			.trim();
 	};
+
+	// Detect residual NDJSON contamination after noise stripping.
+	// If the text still contains unprocessed NDJSON artifacts from pi
+	// subprocess stdout ({"type":..., {"role":..., {"messages":[...),
+	// reject the entire extraction to prevent data leaks.
+	// Use substring checks (not line-based) since artifacts can span
+	// across line boundaries after noise stripping.
+	function isContaminated(text: string): boolean {
+		const ndjsonPattern = /\{\s*"(?:type|role|messages)"\s*[:\[]/g;
+		const matches = text.match(ndjsonPattern);
+		if (!matches) return false;
+		// A single match might be a false positive from content text
+		// (e.g. issue body mentioning {"type":"..."}). Multiple matches
+		// indicate actual JSON event/session contamination.
+		return matches.length >= 2;
+	}
 
 	// Normalize escaped newlines in fallback extractions.
 	// When JSON parsing fails and we extract from raw text, literal \\n
@@ -354,6 +379,13 @@ export function extractAgentCommentBody(output: string): string | null {
 		const stripped = stripNoise(lastBody);
 		if (stripped.length >= 50) {
 			lastBody = stripped;
+		}
+		// Security: reject extraction if residual NDJSON/session contamination
+		// survives noise stripping. Prevents system prompt and full conversation
+		// history from leaking into GitHub comments when fallback 2 (section heading
+		// extraction) operates on raw subprocess stdout containing agent_end events.
+		if (lastBody && isContaminated(lastBody)) {
+			return null;
 		}
 	}
 
@@ -402,16 +434,28 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
  * metadata is too close to the heading (likely part of the content, not
  * trailing output).
  */
-export function stripTrailingMetadata(slice: string, minHeadingLen: number): string {
+export function stripTraditionalJsonEnd(
+	slice: string,
+	minHeadingLen: number,
+	truncatePos: number,
+): number {
 	const jsonEndRe = /\n\s*"(?:auditScore|findings|action)"\s*:/;
-	const thinkEndRe = /\n💭/;
-	const instrEndRe = /\n📊/;
-	let truncatePos = slice.length;
-
 	const jsonMatch = slice.match(jsonEndRe);
 	if (jsonMatch?.index && jsonMatch.index > minHeadingLen + 20) {
 		truncatePos = Math.min(truncatePos, jsonMatch.index);
 	}
+	return truncatePos;
+}
+
+export function stripTrailingMetadata(slice: string, minHeadingLen: number): string {
+	let truncatePos = slice.length;
+
+	// Strip known agent JSON keys that mark end of substantive content
+	truncatePos = stripTraditionalJsonEnd(slice, minHeadingLen, truncatePos);
+
+	// Strip 💭 thinking and 📊 context info lines
+	const thinkEndRe = /\n💭/;
+	const instrEndRe = /\n📊/;
 	const thinkMatch = slice.match(thinkEndRe);
 	if (thinkMatch?.index && thinkMatch.index > minHeadingLen + 20) {
 		truncatePos = Math.min(truncatePos, thinkMatch.index);
@@ -419,6 +463,34 @@ export function stripTrailingMetadata(slice: string, minHeadingLen: number): str
 	const instrMatch = slice.match(instrEndRe);
 	if (instrMatch?.index && instrMatch.index > minHeadingLen + 20) {
 		truncatePos = Math.min(truncatePos, instrMatch.index);
+	}
+
+	// Strip NDJSON event lines (raw stdout from pi --mode json contains
+	// events like {"type":"agent_end","messages":[...]}, {"type":"text_end"},
+	// {"type":"message_end"}, and session entries like {"role":"system",...}.
+	// These leak system prompts, tool results, model metadata, and token usage.
+	// The section heading extraction finds ## Research Findings inside an NDJSON
+	// event's string value, slices to end-of-stdout, and would include all
+	// subsequent JSON events (agent_end with full conversation).
+	// Strip any line that starts with {"type":, {"role":, or contains "messages":[
+	const ndjsonLineRe = /\n\{\s*"(?:type|role)"\s*:/;
+	const ndjsonMatch = slice.match(ndjsonLineRe);
+	if (ndjsonMatch?.index && ndjsonMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, ndjsonMatch.index);
+	}
+
+	// Also strip trailing agent_end or willRetry markers
+	const agentEndRe = /\n\s*"willRetry"\s*:/;
+	const agentEndMatch = slice.match(agentEndRe);
+	if (agentEndMatch?.index && agentEndMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, agentEndMatch.index);
+	}
+
+	// Strip lines starting with "messages": (session dump in agent_end)
+	const messagesRe = /\n\s*"messages"\s*:\s*\[/;
+	const messagesMatch = slice.match(messagesRe);
+	if (messagesMatch?.index && messagesMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, messagesMatch.index);
 	}
 
 	if (truncatePos < slice.length) {

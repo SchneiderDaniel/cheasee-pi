@@ -650,21 +650,17 @@ export async function handlePostAgentSuccess(
 			}
 		}
 
-		// Fallback 2: output (session messages) — non-streaming models have JSON here
-		if (!commentBody && result.output) {
-			commentBody = extractAgentCommentBody(result.output);
-			if (commentBody) {
-				extractionSource = "result.output";
-				collector?.push(
-					"stages",
-					"warn",
-					`${agentName} commentBody extracted from result.output (fallback)`,
-				);
-			}
-		}
-
 		// Fallback 2: thinkingOutput — models with thinking:high may emit
-		// JSON in thinking blocks which land in thinkingOutputLines
+		// JSON in thinking blocks which land in thinkingOutputLines.
+		//
+		// NOTE: result.output (raw subprocess stdout) is intentionally omitted
+		// from this fallback chain. Raw stdout contains pi internal protocol
+		// (NDJSON events, agent_end with full conversation dump, model metadata)
+		// and using it as a comment source leaks system prompts, tool results,
+		// and token usage to GitHub issues. textOnly → textOutput → thinkingOutput
+		// covers all agent output formats without touching raw subprocess output.
+		// The pipeline ran ~1000 issues without result.output before the
+		// session-dump event existed.
 		if (!commentBody && result.thinkingOutput) {
 			commentBody = extractAgentCommentBody(result.thinkingOutput);
 			if (commentBody) {
