@@ -145,21 +145,22 @@ describe("SCRAPLING_SCRIPT — link resolution", () => {
 });
 
 describe("SCRAPLING_SCRIPT — browser cleanup", () => {
-	it("(entity) has finally block that closes StealthyFetcher._browser", () => {
-		const hasFinally = SCRAPLING_SCRIPT.includes("finally:");
-		const hasClose =
-			SCRAPLING_SCRIPT.includes("_browser.close()") ||
-			SCRAPLING_SCRIPT.includes("_browser.close()");
-		assert.ok(hasFinally, "script should have a finally block");
-		assert.ok(hasClose, "script should call _browser.close() for cleanup");
+	it("(entity) no _browser.close() — StealthySession context manager owns lifecycle", () => {
+		assert.ok(
+			!SCRAPLING_SCRIPT.includes("_browser.close()"),
+			"script should NOT contain _browser.close() — StealthySession context manager handles cleanup",
+		);
 	});
 
-	it("(entity) finally block appears after StealthyFetcher.fetch", () => {
+	it("(entity) no finally block after StealthyFetcher.fetch", () => {
 		const stealthIdx = SCRAPLING_SCRIPT.indexOf("StealthyFetcher.fetch(");
-		const finallyIdx = SCRAPLING_SCRIPT.indexOf("finally:");
 		assert.ok(stealthIdx >= 0, "StealthyFetcher.fetch must exist");
-		assert.ok(finallyIdx >= 0, "finally must exist");
-		assert.ok(stealthIdx < finallyIdx, "StealthyFetcher.fetch must appear before finally block");
+		// Check that no "finally:" appears after StealthyFetcher.fetch
+		const afterStealth = SCRAPLING_SCRIPT.slice(stealthIdx);
+		assert.ok(
+			!afterStealth.includes("finally:"),
+			"no finally block should appear after StealthyFetcher.fetch",
+		);
 	});
 });
 
@@ -227,20 +228,6 @@ describe("SCRAPLING_SCRIPT — SIGTERM handler", () => {
 		assert.ok(
 			SCRAPLING_SCRIPT.includes("signal.signal(signal.SIGTERM,"),
 			"script should register SIGTERM handler",
-		);
-	});
-
-	it("(entity) SIGTERM handler calls browser cleanup in try/except", () => {
-		const script = SCRAPLING_SCRIPT;
-		// Find the SIGTERM handler function
-		const sigtermIdx = script.indexOf("SIGTERM");
-		assert.ok(sigtermIdx >= 0, "SIGTERM reference must exist");
-
-		// After SIGTERM handler registration, there should be browser cleanup
-		const afterSigterm = script.slice(sigtermIdx);
-		assert.ok(
-			afterSigterm.includes("_browser.close()") || afterSigterm.includes("_browser.close"),
-			"SIGTERM handler should close browser",
 		);
 	});
 
