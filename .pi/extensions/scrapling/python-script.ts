@@ -18,16 +18,7 @@ import markdownify
 
 
 def _signal_handler(signum, frame):
-    """Clean up browser on SIGTERM and exit."""
-    try:
-        from scrapling.fetchers import StealthyFetcher
-        if hasattr(StealthyFetcher, '_browser') and StealthyFetcher._browser:
-            try:
-                StealthyFetcher._browser.close()
-            except:
-                pass
-    except:
-        pass
+    """Handle SIGTERM — exit cleanly. Browser lifecycle owned by StealthySession context manager."""
     sys.exit(1)
 
 
@@ -59,13 +50,7 @@ def fetch_page(url):
         return {"html": str(page.html_content), "method": "stealth"}
     except Exception as e:
         raise Exception(f"Stealth bypass failed: {str(e)}")
-    finally:
-        # Crucial: Ensure Playwright processes don't zombie
-        if hasattr(StealthyFetcher, '_browser') and StealthyFetcher._browser:
-            try:
-                StealthyFetcher._browser.close()
-            except:
-                pass
+
 
 def main():
     config = json.loads(sys.argv[1])
