@@ -27,10 +27,10 @@ interface MockHandlers {
 }
 
 const DEFAULT: Required<MockHandlers> = {
-	verify: { code: 1, stdout: "", stderr: "not found" },
-	create: { code: 0, stdout: "", stderr: "" },
-	install: { code: 0, stdout: "", stderr: "" },
-	scraplingCli: { code: 0, stdout: "", stderr: "" },
+	verify: { code: 1, stdout: "", stderr: "not found", killed: false },
+	create: { code: 0, stdout: "", stderr: "", killed: false },
+	install: { code: 0, stdout: "", stderr: "", killed: false },
+	scraplingCli: { code: 0, stdout: "", stderr: "", killed: false },
 };
 
 function makeMockExec(handlers: MockHandlers = {}): ExecFn {
@@ -43,7 +43,7 @@ function makeMockExec(handlers: MockHandlers = {}): ExecFn {
 		if (cmd.includes("bin/python3") && args[0] === "-c") {
 			// After venv is set up, return success unless test provided custom verify
 			if (setupDone && !hasCustomVerify) {
-				return { code: 0, stdout: "ok", stderr: "" };
+				return { code: 0, stdout: "ok", stderr: "", killed: false };
 			}
 			return merged.verify;
 		}
@@ -70,8 +70,8 @@ function makeMockExec(handlers: MockHandlers = {}): ExecFn {
 		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "scrapling.cli")
 			return merged.scraplingCli;
 		// rm -rf cleanup
-		if (cmd === "rm") return { code: 0, stdout: "", stderr: "" };
-		return { code: 1, stdout: "", stderr: "mock: unhandled" };
+		if (cmd === "rm") return { code: 0, stdout: "", stderr: "", killed: false };
+		return { code: 1, stdout: "", stderr: "mock: unhandled", killed: false };
 	};
 }
 
@@ -151,7 +151,7 @@ describe("ensureScraplingVenv — adapter", () => {
 
 	it("(entity) propagates EnsureVenvError without swallowing", async () => {
 		const { cwd, exec } = setupTest({
-			install: { code: 1, stdout: "", stderr: "pip install failed" },
+			install: { code: 1, stdout: "", stderr: "pip install failed", killed: false },
 		});
 
 		await assert.rejects(

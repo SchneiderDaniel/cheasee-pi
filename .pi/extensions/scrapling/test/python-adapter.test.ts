@@ -28,6 +28,13 @@ interface SetupTestResult {
 	exec: ReturnType<typeof mock.fn<ExecFn>>;
 }
 
+interface SetupTestOptions {
+	crawlStdout?: string;
+	crawlCode?: number;
+	killed?: boolean;
+	signal?: string;
+}
+
 /**
  * Create temp dir + wrapped mock exec + PythonAdapter with mock ensureVenv.
  *
@@ -38,9 +45,12 @@ interface SetupTestResult {
 function setupTest(
 	crawlStdout?: string,
 	crawlCode = 0,
+	options?: SetupTestOptions,
 ): SetupTestResult & { adapter: PythonAdapter } {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "python-adapter-test-"));
 	const execFn: ExecFn = async (_cmd: string, _args: string[], _opts?: Record<string, unknown>) => {
+		const killed = options?.killed ?? false;
+		const signal = options?.signal;
 		return {
 			code: crawlCode,
 			stdout:
@@ -57,6 +67,8 @@ function setupTest(
 					],
 				}),
 			stderr: crawlCode !== 0 ? "Crawl process failed" : "",
+			killed,
+			...(signal ? { signal } : {}),
 		};
 	};
 	const exec = mock.fn(execFn) as ReturnType<typeof mock.fn<ExecFn>>;
@@ -279,6 +291,80 @@ describe("PythonAdapter — error handling", () => {
 		}
 	});
 
+	it("(entity) killed: true, code: 0 (upstream bug scenario) returns error CrawlResult with killed context", async () => {
+		const { adapter } = setupTest("", 0, { killed: true });
+		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+		assert.equal(result.success, false, "should return error for killed subprocess");
+		if (!result.success) {
+			assert.ok(
+				result.error.includes("killed"),
+				"error should mention killed"
+			);
+		}
+	});
+
+	it("(entity) killed: true, signal: \"SIGTERM\" surfaces signal name in error message", async () => {
+		const { adapter } = setupTest("", 0, { killed: true, signal: "SIGTERM" });
+		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+		assert.equal(result.success, false, "should return error for SIGTERM-ed subprocess");
+		if (!result.success) {
+			assert.ok(
+				result.error.includes("SIGTERM"),
+				"error should mention SIGTERM"
+			);
+		}
+	});
+
+	it("(entity) killed: true, signal: \"SIGKILL\" distinguishes kill signal types", async () => {
+		const { adapter } = setupTest("", 0, { killed: true, signal: "SIGKILL" });
+		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+		assert.equal(result.success, false);
+		if (!result.success) {
+			assert.ok(
+				result.error.includes("SIGKILL"),
+				"error should mention SIGKILL"
+			);
+		}
+	});
+
+	it("(entity) killed: true, code: 0, stderr: \"Timeout\" includes stderr in error message", async () => {
+		const execFn: ExecFn = async () => ({
+			code: 0,
+			stdout: "",
+			stderr: "Timeout: operation took too long",
+			killed: true,
+		});
+		const exec = mock.fn(execFn);
+		const adapter = new PythonAdapter(exec, "/tmp", undefined, mockEnsureVenv);
+		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+		assert.equal(result.success, false);
+		if (!result.success) {
+			assert.ok(
+				result.error.includes("Timeout"),
+				"error should include stderr content"
+			);
+		}
+	});
+
+	it("(entity) killed: true, code: 0, stdout: \"partial output\" uses stdout fallback when stderr empty", async () => {
+		const execFn: ExecFn = async () => ({
+			code: 0,
+			stdout: "partial output",
+			stderr: "",
+			killed: true,
+		});
+		const exec = mock.fn(execFn);
+		const adapter = new PythonAdapter(exec, "/tmp", undefined, mockEnsureVenv);
+		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+		assert.equal(result.success, false);
+		if (!result.success) {
+			assert.ok(
+				result.error.includes("partial output"),
+				"error should include stdout fallback"
+			);
+		}
+	});
+
 	it("(entity) timeout/abort error returns error CrawlResult", async () => {
 		const { adapter } = setupTest();
 		// Simulate exec throwing on abort
@@ -372,6 +458,7 @@ describe("PythonAdapter — separation of concerns", () => {
 			code: 0,
 			stdout: JSON.stringify({ ok: true, results: [] }),
 			stderr: "",
+			killed: false,
 		});
 		const exec = mock.fn(execFn);
 		const adapter = new PythonAdapter(exec, "/tmp", undefined, customEnsure);

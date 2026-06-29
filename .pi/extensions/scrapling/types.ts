@@ -6,6 +6,25 @@ export interface ExecResult {
 	code: number;
 	stdout: string;
 	stderr: string;
+	killed: boolean;
+	signal?: string;
+}
+
+/**
+ * Check if an ExecResult represents a subprocess failure.
+ *
+ * Catches both non-zero exit codes AND signal-killed subprocesses
+ * (where upstream `execCommand` may report code: 0 despite the process
+ * being killed by a signal like SIGTERM from timeout/abort).
+ *
+ * This is the single source of truth for failure detection — all callers
+ * should use this instead of checking `result.code !== 0` directly.
+ *
+ * Workaround for upstream bug: once @earendil-works/pi-agent-core
+ * fixes `code ?? 0` → `code ?? -1`, this still works correctly.
+ */
+export function isExecFailure(result: ExecResult): boolean {
+	return result.code !== 0 || result.killed;
 }
 
 export interface ExecFn {

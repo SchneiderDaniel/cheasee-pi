@@ -16,6 +16,7 @@
 import { ensureScraplingVenv as defaultEnsureVenv } from "./venv-setup.ts";
 import { SCRAPLING_SCRIPT } from "./python-script.ts";
 import type { CrawlParams, CrawlResult, CrawledPage, ExecFn, OnUpdateCallback } from "./types.ts";
+import { isExecFailure } from "./types.ts";
 
 // ── Truncation suffix template ──
 
@@ -89,9 +90,18 @@ export class PythonAdapter {
 				maxBuffer: CRAWL_MAX_BUFFER,
 			});
 
-			// 4. Handle non-zero exit — return typed error, don't throw
-			if (result.code !== 0) {
-				const errorMsg = result.stderr || result.stdout || "Unknown error";
+			// 4. Handle subprocess failure — return typed error, don't throw
+			//    Uses isExecFailure to catch both non-zero exit AND signal-killed
+			//    (where upstream may report code: 0 despite SIGTERM/SIGKILL).
+			if (isExecFailure(result)) {
+				const detail = result.stderr || result.stdout || "Unknown error";
+				const context =
+					result.killed && result.signal
+						? `Subprocess killed by ${result.signal}`
+						: result.killed
+							? "Subprocess killed (killed flag set)"
+							: "";
+				const errorMsg = context ? `${context}: ${detail}` : detail;
 				return { success: false, error: errorMsg };
 			}
 
