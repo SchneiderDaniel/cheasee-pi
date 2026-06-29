@@ -673,6 +673,38 @@ export async function handlePostAgentSuccess(
 			}
 		}
 
+		// Tertiary fallback: bare text detection for architect, test-designer, researcher.
+		// When agent omits JSON and section headings, detect role-relevant content
+		// and wrap in default heading so review is not silently lost.
+		if (!commentBody) {
+			const rawOutput = result.textOutput || result.output || "";
+			let wrapped: string | null = null;
+
+			if (agentName === "architect") {
+				if (/^Architecture[^a-zA-Z]/.test(rawOutput) || /\bArchitecture\b/i.test(rawOutput)) {
+					wrapped = `## Architecture\n\n${rawOutput.trim().slice(0, 2000)}`;
+				}
+			} else if (agentName === "test-designer") {
+				if (/^Test\s*Plan[^a-zA-Z]/.test(rawOutput) || /\bTest\s*Plan\b/i.test(rawOutput)) {
+					wrapped = `## Test Plan\n\n${rawOutput.trim().slice(0, 2000)}`;
+				}
+			} else if (agentName === "researcher") {
+				if (/^Research[^a-zA-Z]/.test(rawOutput) || /\bResearch\b/i.test(rawOutput)) {
+					wrapped = `## Research Findings\n\n${rawOutput.trim().slice(0, 2000)}`;
+				}
+			}
+
+			if (wrapped) {
+				commentBody = wrapped;
+				extractionSource = "bare-text-fallback";
+				collector?.push(
+					"stages",
+					"warn",
+					`${agentName} commentBody extracted from bare text fallback (no JSON or heading found)`,
+				);
+			}
+		}
+
 		// Validate researcher output: if commentBody is just empty headers with no
 		// actual findings (e.g. "### Best Practices\n- —"), replace with fallback.
 		if (commentBody && agentName === "researcher") {

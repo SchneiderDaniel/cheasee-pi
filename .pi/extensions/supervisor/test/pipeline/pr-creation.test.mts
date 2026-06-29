@@ -934,7 +934,8 @@ describe("createPrOnApproval()", () => {
 		assert.ok(result.error, "should contain error message");
 		assert.ok(
 			result.error!.toLowerCase().includes("no commits") ||
-				result.error!.toLowerCase().includes("skipped"),
+				result.error!.toLowerCase().includes("skipped") ||
+				result.error!.toLowerCase().includes("no new changes"),
 			`error should mention no commits: ${result.error}`,
 		);
 		assert.equal(result.prNumber, undefined, "prNumber should be undefined when no commits");

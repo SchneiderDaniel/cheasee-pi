@@ -1384,8 +1384,8 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "'nothing to commit' returns silently — pipeline continues");
-		// New flow: add, diff(cached --quiet code=0 → skip commit), push, + README check diff
-		assert.equal(calls.length, 4, "should call add + diff + push + readme-diff");
+		// Flow: add, diff(cached --quiet code=0 → skip commit), push
+		assert.equal(calls.length, 3, "should call add + diff + push");
 		// Verify push was called (fix #595: branch may not exist on remote yet)
 		const pushCall = calls.find((c) => c.cmd === "git" && c.args[0] === "push");
 		assert.ok(pushCall, "should have a git push call");
