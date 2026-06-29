@@ -944,7 +944,42 @@ async function handleAuditorOutput(
 	// Fallback to old text-marker-based extraction
 	if (!actionFromOutput) {
 		const auditOutput = extractStructuredAuditOutput(agentOutput);
-		if (!auditOutput) return;
+
+		// Tertiary fallback: bare approval/rejection text (agent skipped structured format)
+		// Detect lines like "Approved: ..." or "Rejected: ..." or just "Approved"/"Rejected"
+		// and wrap into a default comment so the review is not silently lost.
+		if (!auditOutput) {
+			const trimmed = agentOutput.trim();
+			const approvedMatch = /^Approved[^a-zA-Z]/.test(trimmed) || /\bApproved\b/i.test(trimmed);
+			const rejectedMatch = /^Rejected[^a-zA-Z]/.test(trimmed) || /\bRejected\b/i.test(trimmed);
+
+			if (approvedMatch && !rejectedMatch) {
+				try {
+					const body = `## Audit Approved\n\n${trimmed.slice(0, 2000)}`;
+					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
+					ctx.ui.notify("Audit approval comment posted (bare text fallback)", "info");
+				} catch (acErr: unknown) {
+					collector?.push(
+						"stages",
+						"warn",
+						`Failed to post audit comment (bare text fallback): ${acErr instanceof Error ? acErr.message : String(acErr)}`,
+					);
+				}
+			} else if (rejectedMatch) {
+				try {
+					const body = `## Audit Rejected\n\n${trimmed.slice(0, 2000)}`;
+					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
+					ctx.ui.notify("Audit rejection comment posted (bare text fallback)", "info");
+				} catch (rcErr: unknown) {
+					collector?.push(
+						"stages",
+						"warn",
+						`Failed to post rejection comment (bare text fallback): ${rcErr instanceof Error ? rcErr.message : String(rcErr)}`,
+					);
+				}
+			}
+			return;
+		}
 
 		if (auditOutput.decision === "APPROVED") {
 			const bodyToPost = auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput);
