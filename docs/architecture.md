@@ -93,7 +93,7 @@ The `.pi/extensions/lib/` directory contains shared TypeScript modules used acro
 | `extension-state.ts` | session-logger, caveman | File-backed state persistence with sequential write queue |
 | `bash-query.ts` | agent-harness | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns |
 | `ensureVenv.ts` | scrapling, web-search | Python venv auto-creation and dependency installation |
-| `proper-lockfile-ambient.ts` | session-logger | Ambient type declarations for proper-lockfile |
+| `proper-lockfile-ambient.ts` | session-logger | Ambient type declarations for proper-lockfile. **Mandatory:** any consumer of `lockfile.lock()` MUST pass a custom `onCompromised` handler that logs a warning via `onUpdate` instead of throwing (otherwise the upstream default `throw` crashes the process from inside a `setTimeout` callback — see #1136). The canonical handler is in `ensureVenv.ts:acquireLock`. |
 | `tsc-types.ts` | tsc-checkpoint | Reusable TypeScript compiler API types |
 
 These are not extensions themselves — they are imported by extension code via relative imports.
