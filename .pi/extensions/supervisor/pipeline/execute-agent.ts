@@ -30,6 +30,7 @@ export async function executeAgent(
 	issueTitle?: string,
 	// ponytail: test hook for injecting mock runner; external callers omit this
 	runner?: typeof runAgentSubprocess,
+	consecutiveFailureThreshold?: number,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
 	const agentName = agent.config.name;
 
@@ -57,6 +58,7 @@ export async function executeAgent(
 		agentTokenBudget,
 		sessionPath,
 		pi,
+		consecutiveFailureThreshold,
 	);
 
 	// ── 4. Replay session file for persistent chat message ───────

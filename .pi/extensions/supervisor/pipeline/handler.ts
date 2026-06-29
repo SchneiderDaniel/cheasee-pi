@@ -606,6 +606,8 @@ export async function handleSupervisorCommand(
 				config.maxToolCalls,
 				config.agentTokenBudget,
 				issueTitle,
+				undefined, // runner — test hook, omitted in production
+				config.consecutiveFailureThreshold,
 			);
 
 			getDebugLogger().info("handler", `Agent ${agentName} completed`, {
