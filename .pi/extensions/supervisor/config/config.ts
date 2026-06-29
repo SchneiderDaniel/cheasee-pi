@@ -147,7 +147,7 @@ export function loadConfig(): SupervisorConfig {
 		agentTokenBudget: agentTokenBudget,
 		maxToolCalls: maxToolCalls,
 		enableExperimentalFeatures: enableExperimentalFeatures ?? false,
-		consecutiveFailureThreshold: consecutiveFailureThreshold ?? 3,
+		consecutiveFailureThreshold: circuitBreakerEnabled === false ? 0 : (consecutiveFailureThreshold ?? 3),
 		circuitBreakerEnabled: circuitBreakerEnabled ?? true,
 		auditScoreThreshold: auditScoreThreshold ?? 0.75,
 	};
