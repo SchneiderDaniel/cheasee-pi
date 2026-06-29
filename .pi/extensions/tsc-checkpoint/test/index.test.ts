@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert";
+import fs from "node:fs";
 import { describe, it } from "node:test";
 import { resolve } from "node:path";
 
@@ -111,8 +112,9 @@ function createCheckHandler(
 			return { messages, diagnostics: [] };
 		}
 
-		// Create watcher lazily
-		if (!watcherInstance) {
+		// Create watcher lazily, or recreate when worktree changes
+		if (!watcherInstance || watcherInstance.tsconfigPathValue !== tsconfigPath) {
+			watcherInstance?.stop(); // stop old watcher before creating a new one
 			const directAdapter = adapter ?? new MockAdapter();
 			watcherInstance = new DiagnosticsWatcher(tsconfigPath, undefined, directAdapter);
 		}
@@ -271,6 +273,114 @@ describe("Extension entry point (/check command)", () => {
 
 	it("formatDiagnostics with empty array returns empty string", () => {
 		assert.strictEqual(formatDiagnostics([]), "");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Worktree switch — watcher invalidation when worktree changes
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("worktree switch — watcher invalidation", () => {
+	it("checking same worktree twice does NOT call stop", async () => {
+		const adapter = new MockAdapter();
+		const { handleCheck } = createCheckHandler(adapter);
+
+		await handleCheck(process.cwd());
+		assert.strictEqual(adapter.startCalls, 1);
+		assert.strictEqual(adapter.stopCalls, 0);
+
+		await handleCheck(process.cwd());
+		// Still only 1 start, 0 stop — same worktree reuses watcher
+		assert.strictEqual(adapter.startCalls, 1);
+		assert.strictEqual(adapter.stopCalls, 0);
+	});
+
+	it("switching to different worktree stops old watcher and creates new one", async () => {
+		const adapter = new MockAdapter();
+		const { handleCheck } = createCheckHandler(adapter);
+
+		// First call in worktree A
+		await handleCheck(process.cwd());
+		const firstPath = adapter.lastStartPath;
+		assert.strictEqual(adapter.startCalls, 1);
+		assert.strictEqual(adapter.stopCalls, 0);
+
+		// Second call in different worktree B
+		const tmpDir = fs.mkdtempSync("tsc-test-");
+		try {
+			fs.writeFileSync(resolve(tmpDir, "tsconfig.json"), JSON.stringify({ compilerOptions: { noEmit: true } }));
+			const tsconfigPathB = resolve(tmpDir, "tsconfig.json");
+
+			await handleCheck(tmpDir);
+
+			// Old watcher was stopped, new watcher created for worktree B
+			assert.strictEqual(adapter.stopCalls, 1, "should stop old watcher");
+			assert.strictEqual(adapter.startCalls, 2, "should create new watcher");
+			assert.notStrictEqual(adapter.lastStartPath, firstPath, "should use new path");
+			assert.strictEqual(adapter.lastStartPath, tsconfigPathB, "new path matches worktree B");
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("worktree switch with no tsconfig returns skip, old watcher unchanged", async () => {
+		const adapter = new MockAdapter();
+		const { handleCheck } = createCheckHandler(adapter);
+
+		// First call in worktree A creates watcher
+		await handleCheck(process.cwd());
+		assert.strictEqual(adapter.startCalls, 1);
+
+		// Second call in worktree with no tsconfig
+		const { handleCheck: handleCheckNoConfig } = createCheckHandler(adapter);
+		const tmpDir = fs.mkdtempSync("tsc-test-noconfig-");
+		try {
+			const result = await handleCheckNoConfig(tmpDir);
+			// Skip message returned
+			assert.ok(result.messages.some((m) => m.content.includes("No `tsconfig.json` found")));
+			// Old watcher unchanged — no stop/start
+			assert.strictEqual(adapter.stopCalls, 0, "should not stop");
+			assert.strictEqual(adapter.startCalls, 1, "should not start new watcher");
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("worktree switch with start failure sends error, no crash", async () => {
+		const adapter = new MockAdapter();
+		const { handleCheck } = createCheckHandler(adapter);
+
+		// First call creates watcher
+		await handleCheck(process.cwd());
+		assert.strictEqual(adapter.startCalls, 1);
+		assert.strictEqual(adapter.stopCalls, 0);
+
+		// Second call in worktree B — make start fail
+		adapter.setShouldFailStart(true);
+		const tmpDir = fs.mkdtempSync("tsc-test-startfail-");
+		try {
+			fs.writeFileSync(resolve(tmpDir, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }));
+			const result = await handleCheck(tmpDir);
+
+			// Old watcher was stopped
+			assert.strictEqual(adapter.stopCalls, 1, "should stop old watcher");
+			// Second start attempted but failed
+			assert.strictEqual(adapter.startCalls, 2, "should attempt start");
+			// Error message sent
+			assert.ok(result.messages.some((m) => m.content.includes("Failed to start watcher")));
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("watcher identity key is tsconfigPathValue", () => {
+		const adapter = new MockAdapter();
+		const pathA = resolve(process.cwd(), "tsconfig.json");
+		const pathB = resolve("/other/project", "tsconfig.json");
+
+		const w = new DiagnosticsWatcher(pathA, undefined, adapter);
+		assert.strictEqual(w.tsconfigPathValue, pathA);
+		assert.notStrictEqual(w.tsconfigPathValue, pathB);
 	});
 });
 

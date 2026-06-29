@@ -19,13 +19,10 @@ import { parseArgs } from "@earendil-works/pi-coding-agent";
 
 import type {
 	TscDiagnostic,
-	TscWatchOptions,
 	DiagnosticTrend,
-	TscCheckpointResult,
 } from "./types.ts";
 import type { TscWatchAdapter } from "./adapter.ts";
 import {
-	createDefaultAdapter,
 	diagnosticToTscDiagnostic,
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
@@ -45,15 +42,12 @@ void parseArgs;
 // Type re-exports
 export type {
 	TscDiagnostic,
-	TscWatchOptions,
 	DiagnosticTrend,
-	TscCheckpointResult,
 } from "./types.ts";
 export type { TscWatchAdapter } from "./adapter.ts";
 
 // Value re-exports
 export {
-	createDefaultAdapter,
 	diagnosticToTscDiagnostic,
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
@@ -111,8 +105,9 @@ export default function tscCheckpoint(pi: ExtensionAPI): void {
 				return;
 			}
 
-			// Create watcher lazily on first /check
-			if (!watcher) {
+			// Create watcher lazily on first /check, or recreate when worktree changes
+			if (!watcher || watcher.tsconfigPathValue !== tsconfigPath) {
+				watcher?.stop(); // stop old watcher before creating a new one for a different worktree
 				watcher = new DiagnosticsWatcher(tsconfigPath);
 			}
 
