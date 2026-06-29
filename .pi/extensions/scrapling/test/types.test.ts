@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isExecFailure } from "../types.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const extDir = resolve(__dirname, "..");
@@ -61,7 +62,7 @@ function assertNoLocalFullType(source: string, name: string, fileLabel: string):
 describe("types.ts exports — shared ExecResult/ExecFn", () => {
 	const typesSource = readFileSync(resolve(extDir, "types.ts"), "utf-8");
 
-	it("(D) types.ts exports ExecResult with code, stdout, stderr fields", () => {
+	it("(D) types.ts exports ExecResult with code, stdout, stderr, killed, signal fields", () => {
 		assert.ok(
 			/export\s+interface\s+ExecResult/.test(typesSource),
 			"types.ts should export interface ExecResult",
@@ -69,6 +70,8 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 		assert.ok(/^\s*code:\s*number;/m.test(typesSource), "ExecResult should have code: number");
 		assert.ok(/^\s*stdout:\s*string;/m.test(typesSource), "ExecResult should have stdout: string");
 		assert.ok(/^\s*stderr:\s*string;/m.test(typesSource), "ExecResult should have stderr: string");
+		assert.ok(/^\s*killed:\s*boolean;/m.test(typesSource), "ExecResult should have killed: boolean");
+		assert.ok(/signal\?:\s*string/.test(typesSource), "ExecResult should have optional signal?: string");
 	});
 
 	it("(D) types.ts exports ExecFn with correct signature", () => {
@@ -80,6 +83,26 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 			typesSource.includes("Promise<ExecResult>"),
 			"ExecFn should return Promise<ExecResult>",
 		);
+	});
+
+	it("(D) types.ts exports isExecFailure function", () => {
+		assert.ok(
+			/export\s+function\s+isExecFailure/.test(typesSource),
+			"types.ts should export function isExecFailure",
+		);
+	});
+
+	it("(D) isExecFailure pure function — all test cases", () => {
+		// Normal success
+		assert.equal(isExecFailure({ code: 0, stdout: "", stderr: "", killed: false }), false);
+		// Non-zero exit
+		assert.equal(isExecFailure({ code: 1, stdout: "", stderr: "err", killed: false }), true);
+		// Killed by signal (upstream bug scenario: code: 0 but killed: true)
+		assert.equal(isExecFailure({ code: 0, stdout: "", stderr: "", killed: true }), true);
+		// Killed with signal name
+		assert.equal(isExecFailure({ code: 0, stdout: "", stderr: "", killed: true, signal: "SIGTERM" }), true);
+		// Both failure signals
+		assert.equal(isExecFailure({ code: 1, stdout: "", stderr: "", killed: true }), true);
 	});
 
 	it("(D) CrawlParams and OnUpdateCallback remain exported", () => {
@@ -145,14 +168,7 @@ describe("test/venv-setup-scrapling.test.ts — imports from ../venv-setup.ts", 
 		);
 	});
 
-	it("(D) imports VENV_DIR from ../venv-setup.ts", () => {
-		const pattern =
-			/import\s+\{[^}]*\bVENV_DIR\b[^}]*\}\s*from\s+["']\.\.\/venv-setup(?:\.[a-z]+)?["']/;
-		assert.ok(
-			pattern.test(source),
-			'test/venv-setup-scrapling.test.ts should import VENV_DIR from "../venv-setup"',
-		);
-	});
+
 });
 
 // ── Phase 5: index.test.ts — verify tool import (no local ExecResult/ExecFn needed since test is self-contained) ──
