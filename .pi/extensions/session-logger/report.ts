@@ -61,6 +61,7 @@ export function buildMetadata(
 		thinkingChanges: parsed.thinkingChanges,
 		perTurnTokens: parsed.perTurnTokens,
 		toolStats,
+		subagentToolStats: parsed.subagentToolStats,
 		fileModifications: parsed.fileModifications,
 	};
 }

@@ -34,6 +34,10 @@ export interface ParsedSessionStats {
 	thinkingChanges: Array<{ time: string; level: string }>;
 	compactions: number;
 	toolStats: Record<string, { calls: number; errors: number; totalDurationMs: number }>;
+	subagentToolStats?: Record<
+		string,
+		Record<string, { calls: number; errors: number; totalDurationMs: number }>
+	>;
 	fileModifications: Array<{ action: string; path: string; timestamp: string; size?: number }>;
 	perTurnTokens: Array<{
 		turnIndex: number;
@@ -200,6 +204,10 @@ export function parseSessionStats(filepath: string): ParsedSessionStats | null {
 	let totalCost = 0;
 	let compactions = 0;
 	const toolCounts: Record<string, { calls: number; errors: number; totalDurationMs: number }> = {};
+	const subagentToolStats: Record<
+		string,
+		Record<string, { calls: number; errors: number; totalDurationMs: number }>
+	> = {};
 	const fileMods: Array<{ action: string; path: string; timestamp: string; size?: number }> = [];
 
 	// Per-turn tracking — uses shared PerTurnState from per-turn.ts
@@ -269,9 +277,48 @@ export function parseSessionStats(filepath: string): ParsedSessionStats | null {
 			} else if (role === "assistant" && turnState.currentTurnIndex < 0) {
 				turnState.currentTurnIndex = 0;
 			}
+		} else if (entry.type === "custom") {
+			// Extract subagent tool calls from supervisor custom messages
+			const details = entry.details as Record<string, unknown> | undefined;
+			if (
+				entry.customType === "supervisor" &&
+				details?.eventType === "tool-complete" &&
+				details?.toolName &&
+				typeof details.toolName === "string"
+			) {
+				const toolName = details.toolName;
+				const isError = !!details.isError;
+				const durationMs =
+					typeof details.toolDurationMs === "number" ? details.toolDurationMs : 0;
+				const agentName =
+					details?.agentName && typeof details.agentName === "string"
+						? details.agentName
+						: "?";
+
+				// Merge into flat toolStats
+				if (!toolCounts[toolName])
+					toolCounts[toolName] = { calls: 0, errors: 0, totalDurationMs: 0 };
+				toolCounts[toolName].calls++;
+				if (isError) toolCounts[toolName].errors++;
+				toolCounts[toolName].totalDurationMs += durationMs;
+
+				// Build per-agent breakdown
+				if (!subagentToolStats[agentName]) subagentToolStats[agentName] = {};
+				if (!subagentToolStats[agentName][toolName])
+					subagentToolStats[agentName][toolName] = {
+						calls: 0,
+						errors: 0,
+						totalDurationMs: 0,
+					};
+				subagentToolStats[agentName][toolName].calls++;
+				if (isError) subagentToolStats[agentName][toolName].errors++;
+				subagentToolStats[agentName][toolName].totalDurationMs += durationMs;
+			}
 		}
 	}
 	flushTurn(turnState);
+
+	const hasSubagentTools = Object.keys(subagentToolStats).length > 0;
 
 	return {
 		sessionId: header.id ?? "?",
@@ -292,6 +339,7 @@ export function parseSessionStats(filepath: string): ParsedSessionStats | null {
 		thinkingChanges,
 		compactions,
 		toolStats: toolCounts,
+		subagentToolStats: hasSubagentTools ? subagentToolStats : undefined,
 		fileModifications: fileMods,
 		perTurnTokens: turnState.perTurnTokens,
 	};
@@ -385,6 +433,18 @@ export function renderSessionToMarkdown(
 			if (!toolCounts[tn]) toolCounts[tn] = { calls: 0, errors: 0 };
 			toolCounts[tn].calls++;
 			if (l.message.isError) toolCounts[tn].errors++;
+		}
+		// Include subagent tool-complete entries
+		if (
+			l.type === "custom" &&
+			l.customType === "supervisor" &&
+			l.details?.eventType === "tool-complete" &&
+			l.details?.toolName
+		) {
+			const tn = l.details.toolName;
+			if (!toolCounts[tn]) toolCounts[tn] = { calls: 0, errors: 0 };
+			toolCounts[tn].calls++;
+			if (l.details.isError) toolCounts[tn].errors++;
 		}
 	}
 

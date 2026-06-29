@@ -36,6 +36,18 @@ export interface Metadata {
 			totalDurationMs: number;
 		}
 	>;
+	/** Per-agent breakdown of subagent tool calls from supervisor pipeline runs */
+	subagentToolStats?: Record<
+		string,
+		Record<
+			string,
+			{
+				calls: number;
+				errors: number;
+				totalDurationMs: number;
+			}
+		>
+	>;
 	/** File modifications tracked during session */
 	fileModifications?: Array<{
 		action: string;

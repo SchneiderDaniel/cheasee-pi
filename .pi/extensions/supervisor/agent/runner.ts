@@ -313,6 +313,7 @@ export async function runAgentSubprocess(
 									display: true,
 									details: {
 										eventType: "tool-complete",
+										agentName,
 										toolName,
 										args: pendingToolFormattedArgs,
 										isError: pendingToolIsError,
