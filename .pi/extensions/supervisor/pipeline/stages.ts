@@ -970,6 +970,20 @@ async function handleAuditorOutput(
 		if (output.action === "APPROVED" || output.action === "REJECTED") {
 			actionFromOutput = output.action;
 			commentBodyFromOutput = output.commentBody;
+		} else if (output.action === "COMPLETE") {
+			// Map COMPLETE to APPROVED/REJECTED based on findings.
+			// Minimax-m3 often uses the generic template instead of the
+			// auditor-specific APPROVED/REJECTED, causing silent-drops.
+			// Mirrors resolveNextStatusFromAgentOutput logic in workflow.ts.
+			if (output.findings && output.findings.length > 0) {
+				const hasBlockers = output.findings.some(
+					(f) => f.severity === "critical" || f.severity === "warning",
+				);
+				actionFromOutput = hasBlockers ? "REJECTED" : "APPROVED";
+			} else {
+				actionFromOutput = "APPROVED";
+			}
+			commentBodyFromOutput = output.commentBody;
 		}
 	}
 
