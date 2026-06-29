@@ -31,6 +31,34 @@ function releaseCrawlLock(): void {
 	activeCrawls = Math.max(0, activeCrawls - 1);
 }
 
+// URL validation — only http/https allowed for subprocess safety
+const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
+
+/**
+ * Validate a URL string for web crawling.
+ * Accepts only http: and https: protocols. Rejects non-HTTP schemes
+ * (file:, data:, ftp:, javascript:, etc.) before reaching the fetcher subprocess.
+ *
+ * @param raw - URL string to validate
+ * @returns parsed URL object (valid http/https)
+ * @throws Error("Invalid URL") for parse failures
+ * @throws Error with scheme name for disallowed protocols
+ */
+export function validateUrl(raw: string): URL {
+	let parsed: URL;
+	try {
+		parsed = new URL(raw);
+	} catch {
+		throw new Error("Invalid URL");
+	}
+	if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
+		throw new Error(
+			`Invalid URL: only http and https protocols are allowed (got ${parsed.protocol})`,
+		);
+	}
+	return parsed;
+}
+
 // ── Factory injection seam (replaces CrawlerEngine port + MockAdapter) ──
 
 let injectedCrawl: CrawlFn | undefined;
@@ -71,7 +99,10 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 			"Use web_crawl for public web pages, especially behind Cloudflare or bot protection; prefer read for local files and bash curl for simple API calls without anti-bot measures.",
 		],
 		parameters: Type.Object({
-			url: Type.String({ description: "URL to crawl (e.g. https://example.com)" }),
+			url: Type.String({
+				description: "URL to crawl (e.g. https://example.com)",
+				pattern: "^https?://",
+			}),
 			maxPages: Type.Optional(
 				Type.Number({
 					default: 1,
@@ -91,12 +122,8 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 			try {
 				const maxPages = Math.min(Math.max(1, params.maxPages ?? 1), 10);
 
-				// URL validation — reject invalid URLs early
-				try {
-					new URL(params.url);
-				} catch {
-					throw new Error("Invalid URL");
-				}
+				// URL validation — reject invalid URLs and non-HTTP schemes early
+				validateUrl(params.url);
 
 				onUpdate?.({
 					content: [{ type: "text", text: `Crawling ${params.url} …` }],

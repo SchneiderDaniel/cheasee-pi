@@ -293,6 +293,103 @@ describe("handler — real execute() path with injected crawl factory", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
+//  Phase 3: Handler protocol rejection / acceptance tests
+// ══════════════════════════════════════════════════════════════════════
+
+describe("handler — protocol allowlist (defense-in-depth)", () => {
+	afterEach(() => {
+		resetCrawlFactory();
+		crawlCalls = [];
+		cannedResult = { success: true, results: [], totalTokens: 0 };
+	});
+
+	it("(entity) handler throws for file:// — factory NOT called", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await assert.rejects(
+			tool.execute("call-id", { url: "file:///etc/passwd" }, undefined, undefined, {
+				cwd: "/tmp",
+			}),
+			/file:/,
+			"file:// should be rejected",
+		);
+		assert.equal(crawlCalls.length, 0, "factory should NOT be called");
+	});
+
+	it("(entity) handler throws for data:// — factory NOT called", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await assert.rejects(
+			tool.execute("call-id", { url: "data://text/html,Hello" }, undefined, undefined, {
+				cwd: "/tmp",
+			}),
+			/data:/,
+			"data:// should be rejected",
+		);
+		assert.equal(crawlCalls.length, 0, "factory should NOT be called");
+	});
+
+	it("(entity) handler throws for ftp:// — factory NOT called", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await assert.rejects(
+			tool.execute("call-id", { url: "ftp://ftp.example.com" }, undefined, undefined, {
+				cwd: "/tmp",
+			}),
+			/ftp:/,
+			"ftp:// should be rejected",
+		);
+		assert.equal(crawlCalls.length, 0, "factory should NOT be called");
+	});
+
+	it("(entity) handler throws for javascript: — factory NOT called", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await assert.rejects(
+			tool.execute("call-id", { url: "javascript:alert(1)" }, undefined, undefined, {
+				cwd: "/tmp",
+			}),
+			/javascript:/,
+			"javascript: should be rejected",
+		);
+		assert.equal(crawlCalls.length, 0, "factory should NOT be called");
+	});
+
+	it("(entity) handler continues normally for http:// — factory called once", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await tool.execute("call-id", { url: "http://example.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+
+		assert.equal(crawlCalls.length, 1, "factory should be called");
+		assert.equal(crawlCalls[0].url, "http://example.com");
+	});
+
+	it("(entity) handler continues normally for https:// — factory called once", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+
+		assert.equal(crawlCalls.length, 1, "factory should be called");
+		assert.equal(crawlCalls[0].url, "https://example.com");
+	});
+
+	it("(entity) handler continues normally for HTTP://EXAMPLE.COM (mixed case) — factory called once", async () => {
+		injectFactory({ success: true, results: [], totalTokens: 0 });
+
+		await tool.execute("call-id", { url: "HTTP://EXAMPLE.COM" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+
+		assert.equal(crawlCalls.length, 1, "factory should be called");
+		assert.equal(crawlCalls[0].url, "HTTP://EXAMPLE.COM");
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
 //  User-journey tests (preserved from original)
 // ══════════════════════════════════════════════════════════════════════
 
