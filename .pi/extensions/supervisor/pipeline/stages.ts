@@ -904,7 +904,11 @@ export async function handlePostAgentSuccess(
 
 	// Audit output processing
 	if (agentName === "auditor") {
-		const auditorOutput = result.textOnly || result.textOutput || result.output || "";
+		// Use textOutput over textOnly — textOnly can be very short (3 chars) for
+		// models like minimax-m3 that emit structured JSON with minimal text lines,
+		// causing the || chain to shadow the full output. Mirror the other agents'
+		// fallback pattern: textOutput always contains the full agent log + JSON.
+		const auditorOutput = result.textOutput || result.output || "";
 		await handleAuditorOutput(
 			pi,
 			ctx,
