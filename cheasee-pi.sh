@@ -622,16 +622,30 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
   # The marker-based cleanup below runs on host AFTER docker exec returns,
   # but when the terminal closes the host shell dies before reaching it.
   # Running cleanup here ensures orphans get killed before each new session.
+  # Only kills processes whose entire parent chain has no active marker —
+  # preserves sub-agent pi processes spawned by running supervisor sessions.
   active=""
   for m in /tmp/pi-active-*; do
     [ -f "$m" ] && active="$active $(cat "$m" 2>/dev/null)"
   done
+  # Walk parent chain up to 10 levels; return 0 (orphan) if no ancestor
+  # has a marker file, 1 (active descendant) if one does.
+  is_orphan() {
+    local pid="$1" ppid max_depth=10
+    while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
+      case " $active " in *" $pid "*) return 1 ;; esac
+      ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+      [ -z "$ppid" ] && return 0
+      pid="$ppid"; max_depth=$((max_depth - 1))
+    done
+    return 0
+  }
   for f in /proc/[0-9]*/comm; do
     c=$(< "$f")
     case "$c" in
       pi|node)
         pid="${f%/comm}"; pid="${pid##*/}"
-        case " $active " in *" $pid "*) ;; *) kill -TERM "$pid" 2>/dev/null || true ;; esac
+        is_orphan "$pid" && kill -TERM "$pid" 2>/dev/null || true
         ;;
     esac
   done
@@ -646,17 +660,29 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
 # Post-session cleanup: kill remaining orphaned pi/node processes.
 # This runs on the host after docker exec returns (normal exit only).
 # Does NOT cover terminal-close disconnects — the pre-launch cleanup above does.
+# Only kills processes whose entire parent chain has no active marker —
+# preserves sub-agent pi processes spawned by running supervisor sessions.
 docker exec cheasee-pi bash -c '
   active=""
   for f in /tmp/pi-active-*; do
     [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
   done
+  is_orphan() {
+    local pid="$1" ppid max_depth=10
+    while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
+      case " $active " in *" $pid "*) return 1 ;; esac
+      ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+      [ -z "$ppid" ] && return 0
+      pid="$ppid"; max_depth=$((max_depth - 1))
+    done
+    return 0
+  }
   for f in /proc/[0-9]*/comm; do
     c=$(< "$f")
     case "$c" in
       pi|node)
         pid="${f%/comm}"; pid="${pid##*/}"
-        case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+        is_orphan "$pid" && kill -9 "$pid" 2>/dev/null || true
         ;;
     esac
   done
