@@ -93,6 +93,29 @@ export function loadConfig(): SupervisorConfig {
 		);
 	}
 
+	// Validate consecutiveFailureThreshold (optional, positive integer, default 3)
+	const consecutiveFailureThreshold = cfg.consecutiveFailureThreshold;
+	if (consecutiveFailureThreshold !== undefined) {
+		if (
+			typeof consecutiveFailureThreshold !== "number" ||
+			!Number.isInteger(consecutiveFailureThreshold) ||
+			consecutiveFailureThreshold <= 0
+		) {
+			throw new Error(
+				"supervisor.consecutiveFailureThreshold must be a positive integer, got " +
+					JSON.stringify(consecutiveFailureThreshold),
+			);
+		}
+	}
+
+	// Validate circuitBreakerEnabled (optional boolean, default true)
+	const circuitBreakerEnabled = cfg.circuitBreakerEnabled;
+	if (circuitBreakerEnabled !== undefined && typeof circuitBreakerEnabled !== "boolean") {
+		throw new Error(
+			"supervisor.circuitBreakerEnabled must be a boolean (true/false) if provided",
+		);
+	}
+
 	// Validate auditScoreThreshold (optional, 0.0–1.0 range)
 	const auditScoreThreshold = cfg.auditScoreThreshold;
 	if (auditScoreThreshold !== undefined) {
@@ -124,6 +147,8 @@ export function loadConfig(): SupervisorConfig {
 		agentTokenBudget: agentTokenBudget,
 		maxToolCalls: maxToolCalls,
 		enableExperimentalFeatures: enableExperimentalFeatures ?? false,
+		consecutiveFailureThreshold: consecutiveFailureThreshold ?? 3,
+		circuitBreakerEnabled: circuitBreakerEnabled ?? true,
 		auditScoreThreshold: auditScoreThreshold ?? 0.75,
 	};
 }

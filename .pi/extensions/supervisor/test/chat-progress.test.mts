@@ -146,6 +146,10 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,
 		agentTokenBudget: 0,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: 3,
 		...overrides,
 	};
 }

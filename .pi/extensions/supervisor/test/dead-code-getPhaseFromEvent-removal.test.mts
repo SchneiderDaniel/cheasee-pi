@@ -137,5 +137,9 @@ function createMinimalRunState() {
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,
 		agentTokenBudget: 0,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: 3,
 	};
 }

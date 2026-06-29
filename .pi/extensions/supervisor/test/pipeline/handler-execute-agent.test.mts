@@ -463,4 +463,77 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.ok(typeof result.errorOutput === "string");
 		assert.ok(typeof result.textOnly === "string");
 	});
+
+	describe("executeAgent — circuit breaker notification", () => {
+		it("emits pi.sendMessage with eventType circuit-broken when circuit trips", async () => {
+			const pi = createMockPi();
+			const ctx = createMockCtx();
+			const notifyCalls: { msg: string; level: string }[] = [];
+			ctx.ui.notify = ((msg: string, level: string) => {
+				notifyCalls.push({ msg, level });
+			}) as any;
+			const runner = mockRunner({
+				success: false,
+				circuitBroken: true,
+				circuitBrokenTool: "web_crawl",
+			});
+
+			const { executeAgent } = await import("../../pipeline/execute-agent.ts");
+
+			await executeAgent(
+				mockAgent as any,
+				"test task",
+				ctx,
+				pi,
+				30000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				runner,
+			);
+
+			// Should have a circuit-broken message
+			const circuitMsg = pi.sendMessageCalls.find(
+				(m: any) => m.details?.eventType === "circuit-broken",
+			);
+			assert.ok(circuitMsg, "should send a circuit-broken message");
+			assert.equal(circuitMsg.details.toolName, "web_crawl");
+			assert.equal(circuitMsg.details.agentName, "developer");
+
+			// Should have called notify
+			const notifyCall = notifyCalls.find((n) => n.msg.includes("Circuit breaker"));
+			assert.ok(notifyCall, "should call notify with circuit breaker message");
+		});
+
+		it("does NOT emit circuit-broken notification when circuit does not trip", async () => {
+			const pi = createMockPi();
+			const ctx = createMockCtx();
+			const notifyCalls: { msg: string; level: string }[] = [];
+			ctx.ui.notify = ((msg: string, level: string) => {
+				notifyCalls.push({ msg, level });
+			}) as any;
+			const runner = mockRunner({ success: true });
+
+			const { executeAgent } = await import("../../pipeline/execute-agent.ts");
+
+			await executeAgent(
+				mockAgent as any,
+				"test task",
+				ctx,
+				pi,
+				30000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				runner,
+			);
+
+			const circuitMsg = pi.sendMessageCalls.find(
+				(m: any) => m.details?.eventType === "circuit-broken",
+			);
+			assert.equal(circuitMsg, undefined, "should NOT send circuit-broken message on success");
+		});
+	});
 });

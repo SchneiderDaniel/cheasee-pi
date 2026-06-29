@@ -39,6 +39,10 @@ export interface SubagentDetails {
 	compacted?: boolean;
 	/** Thinking output from the subagent, separate from result text */
 	thinkingOutput?: string;
+	/** Whether circuit breaker tripped due to repeated tool failures */
+	circuitBroken?: boolean;
+	/** Name of the tool that caused the circuit breaker to trip */
+	circuitBrokenTool?: string;
 
 	// ─── Widget rendering fields (populated during execution) ──
 	/** Current phase: "idle" | "thinking" | "tool" | "text" */

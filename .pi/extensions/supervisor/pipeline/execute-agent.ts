@@ -13,6 +13,7 @@ import { convertAgentRunToToolResult } from "../session/result.ts";
 import { validateAgentResult } from "./output.ts";
 import { replaySessionFile } from "./replay-session.ts";
 import { detectThinkingLevelMismatch } from "./thinking-mismatch.ts";
+import { formatCircuitBrokenMessage } from "../lib/formatting.ts";
 
 // ─── executeAgent — primary subprocess execution ───────────────────
 // Signature unchanged for backward compatibility with handler.ts callers.
@@ -81,13 +82,37 @@ export async function executeAgent(
 		}
 	}
 
+	// ── 4b. Emit circuit-broken notification if tripped ──────────
+	if (result.circuitBroken && result.circuitBrokenTool) {
+		const msg = formatCircuitBrokenMessage(result.circuitBrokenTool, 0);
+		ctx.ui.notify(msg, "warning");
+		pi.sendMessage({
+			customType: "supervisor",
+			content: `🔌 ${agentName} — ${msg}`,
+			display: true,
+			details: {
+				eventType: "circuit-broken",
+				agentName,
+				toolName: result.circuitBrokenTool,
+			},
+		});
+	}
+
 	// ── 5. Send final result message ────────────────────────────
-	const finalStatus = result.success ? "✅" : result.budgetExceeded ? "⚠" : "❌";
+	const finalStatus = result.success
+		? "✅"
+		: result.circuitBroken
+			? "🔌"
+			: result.budgetExceeded
+				? "⚠"
+				: "❌";
 	const statusLabel = result.success
 		? "SUCCESS"
-		: result.budgetExceeded
-			? "BUDGET_EXCEEDED"
-			: "FAILED";
+		: result.circuitBroken
+			? "CIRCUIT_BROKEN"
+			: result.budgetExceeded
+				? "BUDGET_EXCEEDED"
+				: "FAILED";
 	const toolResult = convertAgentRunToToolResult(result, task);
 	pi.sendMessage({
 		customType: "supervisor",
@@ -105,7 +130,9 @@ export async function executeAgent(
 	validateAgentResult(result);
 
 	// Budget exceeded notification
-	if (result.budgetExceeded) {
+	if (result.circuitBroken) {
+		// Already notified above
+	} else if (result.budgetExceeded) {
 		ctx.ui.notify(`Agent ${agentName} exceeded budget — not retrying`, "warning");
 	} else if (!result.success) {
 		ctx.ui.notify(`Agent ${agentName} failed`, "warning");

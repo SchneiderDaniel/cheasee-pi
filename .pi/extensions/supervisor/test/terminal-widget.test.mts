@@ -32,6 +32,10 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		failedToolCount: 0,
 		cacheRead: undefined,
 		cacheWrite: undefined,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: 3,
 		...overrides,
 	};
 }

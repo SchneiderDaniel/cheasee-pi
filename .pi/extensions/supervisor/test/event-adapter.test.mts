@@ -36,6 +36,10 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,
 		agentTokenBudget: 0,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: 3,
 		...overrides,
 	};
 }
@@ -649,5 +653,92 @@ describe("filterStderr — stderr noise filter", () => {
 	it("leading/trailing whitespace: .trim() applied to result", () => {
 		const result = filterStderr("  \nline 1\n  \n");
 		assert.equal(result, "line 1");
+	});
+});
+
+// ─── Phase 5: Circuit breaker integration ──────────────────────────
+
+describe("handleToolExecutionEnd — circuit breaker integration", () => {
+	it("error increments toolCount, failedToolCount and calls recordToolResult", () => {
+		const state = createState();
+		const result = processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true },
+			state,
+		);
+		assert.equal(state.toolCount, 1);
+		assert.equal(state.failedToolCount, 1);
+		assert.equal(state.consecutiveToolFailures.get("bash"), 1);
+		assert.equal(state.circuitBroken, false);
+		assert.equal(result.flush, true);
+	});
+
+	it("3 consecutive errors on same tool set circuitBroken = true", () => {
+		const state = createState();
+
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "web_crawl", isError: true },
+			state,
+		);
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "web_crawl", isError: true },
+			state,
+		);
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "web_crawl", isError: true },
+			state,
+		);
+
+		assert.equal(state.circuitBroken, true);
+		assert.equal(state.circuitBrokenTool, "web_crawl");
+		assert.equal(state.consecutiveToolFailures.get("web_crawl"), 3);
+	});
+
+	it("success resets counter, does not modify circuitBroken", () => {
+		const state = createState();
+
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true },
+			state,
+		);
+		assert.equal(state.consecutiveToolFailures.get("bash"), 1);
+
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: false },
+			state,
+		);
+		assert.equal(state.consecutiveToolFailures.get("bash"), 0);
+		assert.equal(state.circuitBroken, false);
+	});
+
+	it("processNormalizedEvent dispatches tool_execution_end through circuit breaker", () => {
+		const state = createState();
+		const ev = { kind: "tool_execution_end" as const, toolName: "web_search", isError: true };
+		const result = processNormalizedEvent(ev, state);
+		assert.equal(result.flush, true);
+		assert.equal(state.toolCount, 1);
+	});
+
+	it("circuitBreaker with threshold 0 skips counter (disabled)", () => {
+		const state = createState({ consecutiveFailureThreshold: 0 });
+
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true },
+			state,
+		);
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true },
+			state,
+		);
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true },
+			state,
+		);
+
+		// Counter stays 0 because threshold=0 disables the circuit breaker
+		// The recordToolResult call is skipped when consecutiveFailureThreshold > 0 check fails
+		assert.equal(state.consecutiveToolFailures.get("bash"), undefined,
+			"circuit breaker disabled: counter not updated");
+		assert.equal(state.circuitBroken, false,
+			"circuit breaker disabled: should not trip");
 	});
 });

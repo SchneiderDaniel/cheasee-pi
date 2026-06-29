@@ -8,7 +8,7 @@
 // in-process path, these are the only event-processing functions retained.
 
 import type { AgentRunState, AgentPhase } from "../config/types.ts";
-import { pushLog } from "../agent/state-helpers.ts";
+import { pushLog, recordToolResult } from "../agent/state-helpers.ts";
 import { formatToolCall, extractTextFromContent } from "../lib/formatting.ts";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -143,6 +143,24 @@ function handleToolExecutionEnd(
 	state.toolCount++;
 	if (ev.isError) {
 		state.failedToolCount = (state.failedToolCount ?? 0) + 1;
+		// Check circuit breaker — only when circuit breaker is enabled
+		// (consecutiveFailureThreshold > 0 enables it)
+		if (state.consecutiveFailureThreshold > 0) {
+			const result = recordToolResult(state, ev.toolName, true);
+			if (result.tripped) {
+				state.circuitBroken = true;
+				state.circuitBrokenTool = ev.toolName;
+				pushLog(
+					state,
+					`🔌 Circuit breaker tripped: tool '${ev.toolName}' failed ${result.count} consecutive times`,
+				);
+			}
+		}
+	} else {
+		// Success — reset circuit breaker counter for this tool
+		if (state.consecutiveFailureThreshold > 0) {
+			recordToolResult(state, ev.toolName, false);
+		}
 	}
 	state.currentTool = undefined;
 	state.currentToolArgs = undefined;

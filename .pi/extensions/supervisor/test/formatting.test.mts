@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatTokensInt } from "../lib/formatting.ts";
+import { formatTokensInt, formatCircuitBrokenMessage } from "../lib/formatting.ts";
 
 describe("formatTokensInt", () => {
 	// ── Sub-1000: raw number ────────────────────────────────────
@@ -55,5 +55,31 @@ describe("formatTokensInt", () => {
 
 	it("2_500_000 returns '3m' (banker's rounding: 2.5 → toFixed(0) → '3')", () => {
 		assert.equal(formatTokensInt(2_500_000), "3m");
+	});
+});
+
+describe("formatCircuitBrokenMessage", () => {
+	it("returns string containing tool name and count", () => {
+		const result = formatCircuitBrokenMessage("web_search", 3);
+		assert.equal(
+			result,
+			"🔌 Circuit breaker tripped: tool 'web_search' failed 3 consecutive times",
+		);
+	});
+
+	it("handles different tool name", () => {
+		const result = formatCircuitBrokenMessage("bash", 5);
+		assert.equal(
+			result,
+			"🔌 Circuit breaker tripped: tool 'bash' failed 5 consecutive times",
+		);
+	});
+
+	it("handles count of 1", () => {
+		const result = formatCircuitBrokenMessage("read", 1);
+		assert.equal(
+			result,
+			"🔌 Circuit breaker tripped: tool 'read' failed 1 consecutive times",
+		);
 	});
 });

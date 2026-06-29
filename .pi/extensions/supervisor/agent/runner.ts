@@ -102,6 +102,7 @@ function createAgentRunState(
 	startedAt: number,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
+	consecutiveFailureThreshold?: number,
 ): AgentRunState {
 	return {
 		toolCount: 0,
@@ -121,6 +122,10 @@ function createAgentRunState(
 		budgetExceededReason: undefined,
 		maxToolCalls: maxToolCalls ?? 0,
 		agentTokenBudget: agentTokenBudget ?? 0,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: consecutiveFailureThreshold ?? 0,
 	};
 }
 
@@ -136,6 +141,7 @@ export async function runAgentSubprocess(
 	agentTokenBudget?: number,
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
+	consecutiveFailureThreshold?: number,
 ): Promise<AgentRunResult> {
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
@@ -182,7 +188,7 @@ export async function runAgentSubprocess(
 
 	const startedAt = Date.now();
 
-	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget);
+	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, consecutiveFailureThreshold);
 
 	log.info("agent-runner", `Subprocess spawn: ${agentName}`, {
 		pid: process.pid,
@@ -351,8 +357,8 @@ export async function runAgentSubprocess(
 						}
 					}
 				}
-				// Budget exceeded — kill subprocess to prevent further turns
-				if (state.budgetExceeded && !childExited) {
+				// Budget exceeded or circuit broken — kill subprocess to prevent further turns
+				if ((state.budgetExceeded || state.circuitBroken) && !childExited) {
 					child.kill("SIGTERM");
 				}
 			} catch (parseErr: unknown) {
@@ -428,6 +434,15 @@ export async function runAgentSubprocess(
 			const summaryLine = extractSummaryLine(textOutput, success, agentName);
 			const filteredStderr = filterStderr(stderr);
 
+			// If circuit broken but no budget exceeded, log it
+			if (state.circuitBroken && !state.budgetExceeded) {
+				pushLog(state, `[Circuit broken: tool '${state.circuitBrokenTool}' exceeded threshold]`);
+				ctx.ui.notify(
+					`Agent ${agentName}: circuit breaker tripped for tool '${state.circuitBrokenTool}' — halting`,
+					"warning",
+				);
+			}
+
 			ctx.ui.setWidget(widgetId, undefined);
 			ctx.ui.setWorkingMessage(undefined);
 			ctx.ui.setStatus("supervisor", undefined);
@@ -446,6 +461,8 @@ export async function runAgentSubprocess(
 				errorOutput: filteredStderr,
 				thinkingOutput,
 				budgetExceeded: state.budgetExceeded || undefined,
+				circuitBroken: state.circuitBroken || undefined,
+				circuitBrokenTool: state.circuitBrokenTool || undefined,
 			});
 		};
 

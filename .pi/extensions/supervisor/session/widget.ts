@@ -91,6 +91,10 @@ export function renderWidgetFromDetails(
 		maxToolCalls: details.maxToolCalls ?? 0,
 		failedToolCount: details.errorCount ?? 0,
 		agentTokenBudget: details.agentTokenBudget ?? 0,
+		consecutiveToolFailures: new Map(),
+		circuitBroken: false,
+		circuitBrokenTool: undefined,
+		consecutiveFailureThreshold: 0,
 	};
 
 	const lines = buildWidgetLines(state, agentName, model);

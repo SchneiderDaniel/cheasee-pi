@@ -177,4 +177,35 @@ describe("convertAgentRunToToolResult — edge cases", () => {
 		const toolResult = convertAgentRunToToolResult(result);
 		assert.equal(toolResult.details.summaryLine, "");
 	});
+
+	describe("convertAgentRunToToolResult — circuit breaker propagation", () => {
+		it("maps result.circuitBroken to details.circuitBroken", () => {
+			const result = makeRunResult({ circuitBroken: true });
+			const toolResult = convertAgentRunToToolResult(result);
+			assert.equal(toolResult.details.circuitBroken, true);
+		});
+
+		it("maps result.circuitBrokenTool to details.circuitBrokenTool", () => {
+			const result = makeRunResult({ circuitBroken: true, circuitBrokenTool: "web_crawl" });
+			const toolResult = convertAgentRunToToolResult(result);
+			assert.equal(toolResult.details.circuitBrokenTool, "web_crawl");
+		});
+
+		it("both fields absent (undefined) when not tripped — backward compatible", () => {
+			const result = makeRunResult({});
+			const toolResult = convertAgentRunToToolResult(result);
+			assert.equal(toolResult.details.circuitBroken, undefined);
+			assert.equal(toolResult.details.circuitBrokenTool, undefined);
+		});
+
+		it("circuitBroken and circuitBrokenTool present after trip", () => {
+			const result = makeRunResult({
+				circuitBroken: true,
+				circuitBrokenTool: "bash",
+			});
+			const toolResult = convertAgentRunToToolResult(result);
+			assert.equal(toolResult.details.circuitBroken, true);
+			assert.equal(toolResult.details.circuitBrokenTool, "bash");
+		});
+	});
 });

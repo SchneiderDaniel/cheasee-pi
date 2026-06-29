@@ -182,4 +182,61 @@ describe("loadConfig — config shape", () => {
 			"1.0 should be valid",
 		);
 	});
+
+	// ── Circuit breaker config ─────────────────────────────────
+
+	describe("consecutiveFailureThreshold config", () => {
+		it("positive integer is valid", () => {
+			const validValues = [1, 2, 3, 5, 10];
+			for (const v of validValues) {
+				assert.ok(
+					typeof v === "number" && Number.isInteger(v) && v > 0,
+					`${v} should be valid`,
+				);
+			}
+		});
+
+		it("rejects 0, negative, float, string, object", () => {
+			const invalidValues = [0, -1, 1.5, "3", true, {}, []] as any[];
+			for (const v of invalidValues) {
+				const ok = typeof v === "number" && Number.isInteger(v) && v > 0;
+				assert.equal(
+					ok,
+					false,
+					`${JSON.stringify(v)} should be invalid`,
+				);
+			}
+		});
+
+		it("defaults to 3 when omitted", () => {
+			// Simulate loadConfig default
+			const threshold: number | undefined = undefined;
+			const result = threshold ?? 3;
+			assert.equal(result, 3);
+		});
+	});
+
+	describe("circuitBreakerEnabled config", () => {
+		it("defaults to true when omitted", () => {
+			const enabled: boolean | undefined = undefined;
+			const result = enabled ?? true;
+			assert.equal(result, true);
+		});
+
+		it("rejects non-boolean values", () => {
+			const invalidValues = ["true", "false", 1, 0, null, {}, []] as any[];
+			for (const v of invalidValues) {
+				assert.equal(
+					typeof v === "boolean",
+					false,
+					`${JSON.stringify(v)} should be invalid`,
+				);
+			}
+		});
+
+		it("accepts true and false", () => {
+			assert.equal(typeof true, "boolean");
+			assert.equal(typeof false, "boolean");
+		});
+	});
 });

@@ -24,6 +24,18 @@ export interface SupervisorConfig {
 	/** Hard cap on tool invocations per agent session. 0 = unlimited. */
 	maxToolCalls?: number;
 	/**
+	 * Consecutive failures of the same tool type that trigger the circuit breaker.
+	 * Default: 3. Must be a positive integer when provided.
+	 */
+	consecutiveFailureThreshold?: number;
+	/**
+	 * Enable per-tool circuit breaker for repeated tool failures.
+	 * When true, N consecutive failures of the same tool type within a single
+	 * agent session will halt execution and notify.
+	 * Default: true
+	 */
+	circuitBreakerEnabled?: boolean;
+	/**
 	 * Minimum passing ratio (0.0–1.0) for audit score gate.
 	 * When the auditor approves but score < ceil(total * threshold), the gate
 	 * rejects the audit and returns to Implementation.
@@ -102,6 +114,10 @@ export interface AgentRunResult {
 	thinkingOutput?: string;
 	/** Whether budget (token/tool limit) was exceeded */
 	budgetExceeded?: boolean;
+	/** Whether circuit breaker tripped due to repeated tool failures */
+	circuitBroken?: boolean;
+	/** Name of the tool that caused the circuit breaker to trip */
+	circuitBrokenTool?: string;
 
 	// ─── Per-agent usage breakdown ────────────────────────
 	/** Model identifier used for this agent run */
@@ -158,6 +174,14 @@ export interface AgentRunState {
 	cacheRead?: number;
 	/** LLM prompt cache write tokens (from message usage) */
 	cacheWrite?: number;
+	/** Per-tool consecutive failure counter (tool name → count) */
+	consecutiveToolFailures: Map<string, number>;
+	/** Circuit breaker tripped — execution halted */
+	circuitBroken: boolean;
+	/** Name of the tool that caused the circuit breaker to trip */
+	circuitBrokenTool?: string;
+	/** Consecutive failure threshold for this state (defaults to 3) */
+	consecutiveFailureThreshold: number;
 }
 
 // ─── Message renderer details type ───────────────────────────────────
@@ -207,7 +231,7 @@ export interface SupervisorMessageDetails {
 
 // ─── Dependency gate types ─────────────────────────────────────────
 
-export interface BlockerInfo {
+interface BlockerInfo {
 	number: number;
 	title: string;
 	type: "issue" | "pullrequest";
@@ -219,14 +243,14 @@ export interface DepsResult {
 	blockers: BlockerInfo[];
 }
 
-export interface GhBlockingIssue {
+interface GhBlockingIssue {
 	id: string;
 	number: number;
 	title: string;
 	state: string;
 }
 
-export interface GhTimelineNode {
+interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
 }
@@ -299,13 +323,13 @@ export interface MergeResult {
 // All agents output the same structure; pipeline parses it deterministically.
 
 /** Supported action types — single vocabulary for all agents */
-export type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
+type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
 
 /** Severity levels for audit findings */
 export type FindingSeverity = "critical" | "warning" | "suggestion";
 
 /** Known audit dimensions */
-export type AuditDimension =
+type AuditDimension =
 	| "architecture-compliance"
 	| "ticket-fulfillment"
 	| "tests-passed"
@@ -363,7 +387,7 @@ export type ParseResult = AgentOutput | FailedParse;
 
 // ─── LSP Pre-Audit ──────────────────────────────────────────────────
 
-export interface LspPreAuditDecision {
+interface LspPreAuditDecision {
 	/** New status to transition to — "Audit" if proceeding, "Implementation" if blocking */
 	nextStatus: string;
 	/** Note to include in notification */

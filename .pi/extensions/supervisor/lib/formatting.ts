@@ -212,6 +212,13 @@ export function formatToolCall(toolName: string, args?: Record<string, unknown> 
 }
 
 /**
+ * Format a circuit breaker tripped message for display.
+ */
+export function formatCircuitBrokenMessage(tool: string, count: number): string {
+	return `🔌 Circuit breaker tripped: tool '${tool}' failed ${count} consecutive times`;
+}
+
+/**
  * Detect whether a line is a formatted tool call line.
  */
 export function isToolCallLine(line: string): boolean {

@@ -46,6 +46,8 @@ export function convertAgentRunToToolResult(
 			toolResults: [],
 			taskPrompt: devTask || "",
 			budgetExceeded: result.budgetExceeded,
+			circuitBroken: result.circuitBroken,
+			circuitBrokenTool: result.circuitBrokenTool,
 			errorCount: result.failedToolCount ?? undefined,
 			thinkingOutput: result.thinkingOutput,
 		},

@@ -838,4 +838,87 @@ if (hasMockModule) {
 			assert.ok(result.output.includes("message_update"), "raw output should contain JSON lines");
 		});
 	});
+
+	describe("runAgentSubprocess — circuit breaker kill", () => {
+		it('calls child.kill("SIGTERM") when 3 consecutive tool errors on same tool', async () => {
+			resetMock();
+			// 3 consecutive failures of "web_crawl" trigger circuit breaker
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "tool_execution_end", toolName: "web_crawl", isError: true }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "web_crawl", isError: true }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "web_crawl", isError: true }),
+				],
+				exitCode: 0,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			// Pass consecutiveFailureThreshold=3 to enable circuit breaker
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				3,
+			);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.circuitBroken, true, "circuitBroken should be true");
+			assert.equal(result.circuitBrokenTool, "web_crawl", "circuitBrokenTool should be web_crawl");
+			assert.equal(result.success, false, "should be failed when circuit broken");
+			// budgetExceeded should NOT be set (circuit broke, not budget)
+			assert.equal(result.budgetExceeded, undefined, "budgetExceeded should NOT be set");
+
+			// Verify child.kill("SIGTERM") was called
+			const child = currentMockChild;
+			assert.ok(child, "mock child should exist");
+			assert.equal(child!.kill.mock.calls.length, 1, "kill should have been called once");
+			assert.equal(
+				child!.kill.mock.calls[0]?.arguments?.[0],
+				"SIGTERM",
+				"kill should be called with SIGTERM",
+			);
+		});
+
+		it("circuitBroken kill does NOT set budgetExceeded", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "tool_execution_end", toolName: "bash", isError: true }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "bash", isError: true }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "bash", isError: true }),
+				],
+				exitCode: 0,
+				exitSignal: "SIGTERM",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				3,
+			);
+
+			emitMockEvents();
+
+			const result = await resultPromise;
+			assert.equal(result.circuitBroken, true);
+			assert.equal(result.budgetExceeded, undefined, "budgetExceeded must NOT be set");
+		});
+	});
 }
