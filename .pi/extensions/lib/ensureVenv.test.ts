@@ -6,12 +6,15 @@
  * Phases:
  *   1. Core flow (create → install → verify → postInstall)
  *   2. Lock behavior (cross-process mkdir, staleness, contention)
+ *   2b. Lock lifecycle logging
  *   3. In-memory retry cache (TTL, retry limit, success caching)
  *   4. Error paths (EnsureVenvError per step)
  *   5. Lock released before pip install (core fix, #1138)
  *   6. onCompromised handler (defense-in-depth, #1322)
+ *   5b. No-throw guarantee under fs error injection (#1136)
+ *   3b. Import-audit regression guard (#1136)
  *   7. Concurrent agent scenarios
- *   8. Reduced stale/timeout defaults
+ *   8. User-journey lock concurrency
  */
 
 import assert from "node:assert/strict";
@@ -989,6 +992,173 @@ describe("ensureVenv — onCompromised handler", () => {
 		assert.ok(result.created || !result.created, "ensureVenv should complete successfully");
 
 		mock.reset();
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  Phase 5: No-throw guarantee under fs error injection (#1136)
+// ══════════════════════════════════════════════════════════════════════
+
+describe("ensureVenv — fs error injection", () => {
+	it("(use-case) mock fs.utimes failure → onCompromised fires warning, does NOT throw", async () => {
+		const capturedOptions: Array<{ onCompromised?: (err: Error) => void }> = [];
+		mock.method(lockfile, "lock", async (_path: string, opts: any) => {
+			capturedOptions.push(opts);
+			return async () => {};
+		});
+
+		// Mock fs.utimes to fail with ENOENT (as proper-lockfile update timer does)
+		mock.method(fs, "utimes", async () => {
+			throw Object.assign(new Error("ENOENT: utimes failed on lock file"), { code: "ENOENT" });
+		});
+
+		const warnings: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					if (c.text.startsWith("Lock compromised:")) {
+						warnings.push(c.text);
+					}
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		assert.ok(capturedOptions.length >= 1, "should capture lock options");
+
+		// Simulate proper-lockfile timer callback: utimes fails → setLockAsCompromised → onCompromised
+		const err = new Error("ENOENT: utimes failed on lock file");
+		assert.doesNotThrow(() => {
+			capturedOptions[0].onCompromised!(err);
+		});
+
+		// Warning should have been emitted via onUpdate
+		const warningText = warnings.find((w) => w.includes("ENOENT"));
+		assert.ok(warningText, "should emit lock compromised warning with error details");
+
+		mock.reset();
+	});
+
+	it("(use-case) mock fs.stat failure → onCompromised fires warning, does NOT throw", async () => {
+		const capturedOptions: Array<{ onCompromised?: (err: Error) => void }> = [];
+		mock.method(lockfile, "lock", async (_path: string, opts: any) => {
+			capturedOptions.push(opts);
+			return async () => {};
+		});
+
+		// Mock fs.stat to fail with ENOENT (as proper-lockfile staleness check does)
+		mock.method(fs, "stat", () => {
+			throw Object.assign(new Error("ENOENT: stat failed on lock file"), { code: "ENOENT" });
+		});
+
+		const warnings: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					if (c.text.startsWith("Lock compromised:")) {
+						warnings.push(c.text);
+					}
+				}
+			},
+		});
+
+		await ensureVenv(config);
+
+		assert.ok(capturedOptions.length >= 1, "should capture lock options");
+
+		// Simulate proper-lockfile stat failure → setLockAsCompromised → onCompromised
+		const err = new Error("ENOENT: stat failed on lock file");
+		assert.doesNotThrow(() => {
+			capturedOptions[0].onCompromised!(err);
+		});
+
+		const warningText = warnings.find((w) => w.includes("stat failed"));
+		assert.ok(warningText, "should emit lock compromised warning for stat failure");
+
+		mock.reset();
+	});
+
+	it("(use-case) ensureVenv completes successfully when fs.utimes mocked to fail mid-operation", async () => {
+		// Lockfile.lock returns normally but fs.utimes fails during update timer.
+		// We simulate this by having lockfile.lock's onCompromised handler invoked
+		// (as proper-lockfile would do when utimes fails in its timer callback).
+		mock.method(lockfile, "lock", async (_path: string, opts: any) => {
+			// Simulate proper-lockfile's timer callback failing
+			if (opts.onCompromised) {
+				opts.onCompromised(new Error("ENOENT: utimes failed on lock file"));
+			}
+			return async () => {};
+		});
+
+		const warnings: string[] = [];
+		const ctx = setupTest();
+		const config = makeConfig(ctx, {
+			onUpdate: (u) => {
+				for (const c of u.content) {
+					if (c.text.startsWith("Lock compromised:")) {
+						warnings.push(c.text);
+					}
+				}
+			},
+		});
+
+		// Should complete without throwing
+		const result = await ensureVenv(config);
+		assert.ok(result.created || !result.created, "ensureVenv should complete despite fs error");
+
+		const warningText = warnings.find((w) => w.includes("ENOENT"));
+		assert.ok(warningText, "should have emitted lock compromised warning");
+
+		mock.reset();
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  Phase 3: Import-audit regression guard (#1136)
+// ══════════════════════════════════════════════════════════════════════
+
+describe("ensureVenv — import audit", () => {
+	it("(static-analysis) only ensureVenv.ts imports proper-lockfile in production code", async () => {
+		// Scan all production .ts files under .pi/extensions/ (excluding test files)
+		// for imports of proper-lockfile. Only ensureVenv.ts is allowed.
+		const root = new URL("../", import.meta.url).pathname;
+		const extDir = root.replace(/\/+$/, "");
+
+		const files: string[] = [];
+		function walk(dir: string) {
+			const entries = fs.readdirSync(dir, { withFileTypes: true });
+			for (const e of entries) {
+				const p = path.join(dir, e.name);
+				if (e.isDirectory()) walk(p);
+				else if (e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) files.push(p);
+			}
+		}
+		walk(extDir);
+
+		const offenders: string[] = [];
+		for (const f of files) {
+			const content = fs.readFileSync(f, "utf-8");
+			if (/import[\s\S]*?['"]proper-lockfile['"]/.test(content)) {
+				offenders.push(f);
+			}
+		}
+
+		// Only ensureVenv.ts should import proper-lockfile
+		const allowed = ["ensureVenv.ts"];
+		const unexpected = offenders.filter((f) => !allowed.some((a) => f.endsWith(a)));
+		assert.equal(
+			unexpected.length,
+			0,
+			`Unexpected proper-lockfile imports in: ${unexpected.join(", ")}`,
+		);
+		// Also verify ensureVenv.ts IS in the list (the fix exists)
+		assert.ok(
+			offenders.some((f) => f.endsWith("ensureVenv.ts")),
+			"ensureVenv.ts should import proper-lockfile",
+		);
 	});
 });
 

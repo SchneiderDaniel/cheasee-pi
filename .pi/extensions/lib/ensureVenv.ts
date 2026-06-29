@@ -29,6 +29,14 @@ export interface ExecFn {
 	): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
+/**
+ * Callback for structured progress updates.
+ *
+ * Callers must tolerate `text` starting with `'Lock compromised: …'` and
+ * `details.warning === true` — these are non-fatal warnings emitted by the
+ * `onCompromised` handler when proper-lockfile's lock update timer detects
+ * staleness or filesystem error. See #1136 for rationale.
+ */
 interface OnUpdateCallback {
 	(u: { content: Array<{ type: "text"; text: string }>; details: unknown }): void;
 }
@@ -140,6 +148,14 @@ function lockFilePathFor(cwd: string, venvName: string): string {
  * @param onUpdate — Optional callback for structured logging
  * @returns Release function (call to release the lock)
  * @throws EnsureVenvError with step='lock' if lock cannot be acquired
+ *
+ * @remarks
+ * Any consumer of proper-lockfile MUST pass a custom `onCompromised` handler to
+ * `lockfile.lock()`. The upstream default throws from inside a `setTimeout`
+ * callback, which crashes the Node.js process with an uncaught exception
+ * (#1136). This function provides a handler that logs a warning via `onUpdate`
+ * instead of throwing. Future consumers that call `lockfile.lock()` directly
+ * (bypassing this function) must replicate the same pattern.
  */
 async function acquireLock(
 	lockFilePath: string,
