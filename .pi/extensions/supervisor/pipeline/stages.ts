@@ -937,6 +937,13 @@ async function handleAuditorOutput(
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
 ): Promise<void> {
+	// Debug: log what we received
+	collector?.push(
+		"stages",
+		"warn",
+		`auditor handleAuditorOutput: textOnly=${String(result.textOnly).length} textOutput=${String(result.textOutput).length} output=${String(result.output).length} agentOutput=${String(agentOutput).length} gateRejected=${String(!!gateRejected)}`,
+	);
+
 	// If gate rejected, post gate-specific rejection comment and skip normal processing
 	if (gateRejected) {
 		const gateBody = buildGateRejectionComment(gateRejected);
@@ -967,6 +974,11 @@ async function handleAuditorOutput(
 
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
+		collector?.push(
+			"stages",
+			"warn",
+			`auditor parseAgentOutput SUCCESS: action=${output.action} hasCommentBody=${String(!!output.commentBody)} findings=${String(output.findings?.length)}`,
+		);
 		if (output.action === "APPROVED" || output.action === "REJECTED") {
 			actionFromOutput = output.action;
 			commentBodyFromOutput = output.commentBody;
@@ -1065,6 +1077,11 @@ async function handleAuditorOutput(
 
 	// Structured path: build comment from AgentOutput
 	if (actionFromOutput === "APPROVED") {
+		collector?.push(
+			"stages",
+			"warn",
+			`auditor APPROVED path: commentBodyFromOutput.length=${String(commentBodyFromOutput?.length)}`,
+		);
 		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput);
 		if (bodyToPost) {
 			try {
