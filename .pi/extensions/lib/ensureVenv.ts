@@ -260,7 +260,7 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 	// ── 3. Cross-process lock ──
 	const lockFilePath = lockFilePathFor(cwd, venvName);
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	const release = await acquireLock(lockFilePath, lockTimeoutMs, lockStaleMs, onUpdate);
+	let release = await acquireLock(lockFilePath, lockTimeoutMs, lockStaleMs, onUpdate);
 
 	let lockReleased = false;
 	try {
@@ -292,8 +292,13 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 			);
 		}
 
-		// ── 7. Install packages ──
+		// ── 7. Install packages (lock released during long install, see #1138) ──
 		if (pipArgs.length > 0) {
+			// Release lock before long pip install so concurrent agents aren't blocked
+			// and the staleness timer doesn't fire during install.
+			await releaseLock(release, onUpdate);
+			lockReleased = true;
+
 			onUpdate?.({
 				content: [{ type: "text", text: "Installing packages…" }],
 				details: {},
@@ -311,10 +316,6 @@ export async function ensureVenv(config: EnsureVenvConfig): Promise<EnsureVenvRe
 				);
 			}
 		}
-
-		// Release lock before postInstall so slow downloads don't block other agents
-		await releaseLock(release, onUpdate);
-		lockReleased = true;
 
 		// ── 8. Post-install hook ──
 		if (postInstall) {
