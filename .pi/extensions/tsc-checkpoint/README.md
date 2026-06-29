@@ -99,8 +99,11 @@ flowchart TD
     D -- no --> E[Notify: skip]
     D -- yes --> F{Watcher exists?}
     F -- no --> G[new DiagnosticsWatcher]
+    F -- yes --> S{tsconfigPath matches watcher?}
+    S -- no --> T[watcher.stop]
+    T --> G
+    S -- yes --> I{Watcher running?}
     G --> H[watcher.start: ts.createWatchProgram]
-    F -- yes --> I{Watcher running?}
     I -- no --> H
     I -- yes --> J[watcher.getDiagnostics]
     H --> J
@@ -118,6 +121,7 @@ flowchart TD
 - **Incremental watch mode** — `ts.createWatchProgram()` runs in background. File changes trigger incremental re-check. Subsequent `/check` calls return cached diagnostics instantly.
 - **Error trending** — `getTrend()` compares current vs previous error count: `regressed` (more), `improved` (fewer), `stable` (same).
 - **Watcher lifecycle** — `watcher.stop()` on `session_shutdown` prevents file watcher leaks.
+- **Per-worktree watcher** — The watcher is keyed to the worktree's `tsconfig.json` path. Switching projects (different worktree path) invalidates the old watcher, stopping it and creating a fresh one for the new path. This prevents cross-project diagnostic contamination and leaked file watchers.
 - **Mode-adapted output** — TUI: markdown with clickable `file://` paths. JSON/RPC/Print: structured JSON.
 - **Trust gate** — Untrusted projects skip watcher creation. Prevents running `tsc` against unsafe project-local `tsconfig.json`.
 - **Backward-compatible exports** — All sub-module functions re-exported for supervisor pipeline.
