@@ -166,6 +166,27 @@ if [ "$CLEAN" = true ]; then
     exit 0
 fi
 
+# --- Host-side cleanup: kill stale pi processes (disconnected docker exec sessions) ---------
+# Uses `docker top` whose TTY column shows pts/X for connected sessions and ? for stale ones.
+# This is the most reliable way to distinguish active from orphaned sessions because
+# Docker keeps the PTY master alive only while the exec client is connected.
+# Runs on the host (not inside container) — kills by host PID which translates across
+# PID namespaces automatically.
+kill_stale_pi_host() {
+    local container="$1"
+    docker top "$container" 2>/dev/null | tail -n +2 | while read -r uid pid ppid c stime tty time cmd; do
+        if [ "$cmd" = "pi" ] && [ "$tty" = "?" ]; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+    # Clean up stale marker files inside the container
+    docker exec "$container" bash -c '
+      for m in /tmp/pi-active-*; do
+        [ -f "$m" ] && pid=$(cat "$m" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$m" 2>/dev/null || true
+      done
+    ' 2>/dev/null || true
+}
+
 # --- Detect shell profile ---------------------------------------------
 detect_profile() {
     if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
@@ -327,6 +348,9 @@ if [ "$ATTACH" = true ]; then
     done
 
     check_container_resources
+
+    # Host-side cleanup: kill stale pi sessions before starting new one
+    kill_stale_pi_host cheasee-pi
 
     exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
       echo $$ > /tmp/pi-active-$$
@@ -642,6 +666,11 @@ fi
 # --- Step 10: Launch interactive pi session ---------------------------
 # Writes PID marker before exec so cleanup can distinguish active sessions
 # from stale orphans (crashed/disconnected docker exec sessions).
+
+# Host-side cleanup: kill stale pi processes before new session starts.
+# The docker top TTY column shows pts/X for connected sessions, ? for stale ones.
+kill_stale_pi_host cheasee-pi
+
 docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
   # Pre-launch cleanup: kill orphaned pi/node processes from previous
   # sessions that survived after terminal disconnect.
@@ -654,8 +683,10 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
   for m in /tmp/pi-active-*; do
     [ -f "$m" ] && active="$active $(cat "$m" 2>/dev/null)"
   done
-  # Conservative: root (PPID=0) always preserved for parallel sessions.
-  # Sub-agents: skip self in marker check.
+  # Root (PPID=0) always preserved for parallel sessions.
+  # The host-side kill_stale_pi_host (docker top TTY check) handles stale
+  # disconnected sessions — this internal cleanup only handles sub-agent
+  # processes whose parent chain has no marker.
   is_orphan() {
     local pid="$1" ppid max_depth=10
     ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
@@ -695,8 +726,10 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
 # Only kills processes whose entire parent chain has no active marker —
 # preserves sub-agent pi processes spawned by running supervisor sessions.
 docker exec cheasee-pi bash -c '
-  # Conservative: root (PPID=0) always preserved for parallel sessions.
-  # Sub-agents: skip self in marker check.
+  # Root (PPID=0) always preserved for parallel sessions.
+  # The host-side kill_stale_pi_host (docker top TTY check) handles stale
+  # disconnected sessions — this internal cleanup only handles sub-agent
+  # processes whose parent chain has no marker.
   active=""
   for f in /tmp/pi-active-*; do
     [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
