@@ -10,6 +10,29 @@ import type { FilteredIssueData } from "../config/types.ts";
 
 // No constants needed — agents always see the full picture.
 
+// ─── Dockerfile Awareness ──────────────────────────────────────────
+// Trigger words that suggest the issue involves adding/modifying external
+// dependencies requiring Dockerfile updates.
+const DOCKERFILE_TRIGGER_REGEX =
+	/\b(add|install|dependency|tool|npm|apt|pip|binary|cli|gitleaks|osv-scanner|Dockerfile|docker)\b/i;
+
+/**
+ * Check whether an issue title or body references adding external
+ * software dependencies that would require Dockerfile updates.
+ * Uses word-boundary regex to avoid false positives (e.g. "installation"
+ * does NOT match trigger word "install").
+ */
+export function hasDockerfileRelevance(title: string, body: string): boolean {
+	const text = `${title}\n${body}`;
+	return DOCKERFILE_TRIGGER_REGEX.test(text);
+}
+
+/**
+ * Dockerfile awareness instruction block injected into developer agent
+ * tasks when the issue references adding/modifying external dependencies.
+ */
+const DOCKERFILE_AWARENESS_BLOCK = `\n\n### Dockerfile Awareness\n\nWhen the change involves adding, removing, or modifying external software dependencies (system packages, npm global tools, Go binaries, Python packages, or any CLI tool installed via RUN commands), update the corresponding Dockerfile(s):\n\n1. **Identify** which Dockerfile(s) need updating based on where the dependency is used.\n2. **Update** the Dockerfile to install the dependency in the correct layer.\n3. **Follow conventions** — pinned versions, layer separation, apt cleanup (\`rm -rf /var/lib/apt/lists/*\`).\n\n**Determining the correct Dockerfile:**\n- Pi agent dependencies (tools, CLIs, runtimes) → \`docker/Dockerfile\`\n- Submodule service dependencies (flask\_blogs apps) → the submodule\'s Dockerfile:\n  - \`flask_blogs/flask_sudoku/Dockerfile\`\n  - \`flask_blogs/flask_hippocooking/Dockerfile\`\n  - \`flask_blogs/flask_planhead/Dockerfile\`\n  - \`flask_blogs/nginx/Dockerfile\`\n  - \`flask_blogs/Dockerfile.test\`\n- Development-only dependencies → consider whether Dockerfile is appropriate\n\n**Existing Dockerfile conventions to follow:**\n- **Pinned versions** — use specific version tags for packages (apt, pip, npm)\n- **Layer separation** — group related installs in the same RUN layer (minimize layers)\n- **apt cleanup** — chain \`rm -rf /var/lib/apt/lists/*\` in same RUN as apt-get install\n- **npm cache cleanup** — chain \`npm cache clean --force && rm -rf /tmp/*\`\n- **pip --no-cache-dir** — use \`--no-cache-dir\` flag with pip install\n- **Alpine (submodules)** — use \`apk add --no-cache\` for Alpine-based Dockerfiles`;
+
 export function generateBranchName(
 	issueNum: number,
 	title: string,
@@ -285,9 +308,14 @@ ${filteredData.body}`,
 				? `\n\n## Dead Code Removal Task\nThe issue removes an export from the module.\nTest files MUST NOT statically import (type or value) the removed symbol.\nUse only dynamic \`import()\` for verification.\n`
 				: "";
 
+			// Dockerfile awareness block — injected when issue references
+			// adding/modifying external software dependencies
+			const isDockerfileRelevant = hasDockerfileRelevance(title, filteredData.body);
+			const dockerfileAwarenessBlock = isDockerfileRelevant ? DOCKERFILE_AWARENESS_BLOCK : "";
+
 			// Prompt template defaults: thinking effort defaults to "medium" if not specified.
 			// Uses pi's prompt template syntax \${N:-default} where available.
-			return `${systemPromptPrefix}${issueBlock}\n\n## Task\nFollow your system prompt instructions.\n\n### Setup\nWork from current directory — worktree already set up by supervisor. Branch already created.\n\n⚠️ **This may be a resume after previous failure.** The worktree and branch may already contain\n   partial work from a prior attempt. Always check existing state before starting fresh:\n\n1. Run \`git status\` — if files modified/staged, a previous attempt left work behind\n2. Run \`git log --oneline ${remote}/${defaultBranch}..HEAD\` — if commits exist but unpushed,\n   previous work is sitting on the branch\n3. Run \`git stash list\` — there may be stashed changes from a prior attempt\n\n**If existing work found:** resume from it. Read existing files, check what\'s done, complete what\nremains. Do NOT start over — that wastes time and may discard partial progress.\n\n**If no existing work (clean state):** proceed with fresh implementation.\n\n${gateFailureBlock}${auditFeedbackBlock}${deadCodeRemovalBlock}\n\n**Branch name:** ${branch}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.\n\n${JSON_OUTPUT_INSTRUCTION}\n\n**Thinking effort (default: medium):** Set your thinking depth to \${1:-medium} — low for simple changes, high for complex refactors.\n\nExample output:\n\n\`\`\`json\n${developerExample}\n\`\`\``;
+			return `${systemPromptPrefix}${issueBlock}\n\n## Task\nFollow your system prompt instructions.\n\n### Setup\nWork from current directory — worktree already set up by supervisor. Branch already created.\n\n⚠️ **This may be a resume after previous failure.** The worktree and branch may already contain\n   partial work from a prior attempt. Always check existing state before starting fresh:\n\n1. Run \`git status\` — if files modified/staged, a previous attempt left work behind\n2. Run \`git log --oneline ${remote}/${defaultBranch}..HEAD\` — if commits exist but unpushed,\n   previous work is sitting on the branch\n3. Run \`git stash list\` — there may be stashed changes from a prior attempt\n\n**If existing work found:** resume from it. Read existing files, check what\'s done, complete what\nremains. Do NOT start over — that wastes time and may discard partial progress.\n\n**If no existing work (clean state):** proceed with fresh implementation.\n\n${gateFailureBlock}${auditFeedbackBlock}${deadCodeRemovalBlock}${dockerfileAwarenessBlock}\n\n**Branch name:** ${branch}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.\n\n${JSON_OUTPUT_INSTRUCTION}\n\n**Thinking effort (default: medium):** Set your thinking depth to \${1:-medium} — low for simple changes, high for complex refactors.\n\nExample output:\n\n\`\`\`json\n${developerExample}\n\`\`\``;
 		}
 
 		case "auditor": {

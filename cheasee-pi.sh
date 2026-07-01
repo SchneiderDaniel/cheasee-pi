@@ -487,6 +487,11 @@ else
     # Remove old container before rebuild to avoid orphan conflicts
     docker rm -f cheasee-pi 2>/dev/null || true
 
+    # Raise timeouts so the docker daemon doesn't drop the connection
+    # during long builds (~8 min with Chromium download).
+    export DOCKER_CLIENT_TIMEOUT=900
+    export COMPOSE_HTTP_TIMEOUT=900
+
     docker compose -f docker/docker-compose.yml up -d --build
 
     # Prune dangling images only — keep the fresh build cache intact

@@ -9,7 +9,12 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { generateBranchName, buildAgentTask, summarizeComments } from "../agent/task.ts";
+import {
+	generateBranchName,
+	buildAgentTask,
+	summarizeComments,
+	hasDockerfileRelevance,
+} from "../agent/task.ts";
 import type { FilteredIssueData } from "../config/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +49,10 @@ describe("task.ts runtime exports — direct call in assertions", () => {
 				"/test/main/repo",
 			).includes("Follow your system prompt instructions"),
 		);
+	});
+
+	it("hasDockerfileRelevance directly callable in assert", () => {
+		assert.ok(hasDockerfileRelevance("install something", ""));
 	});
 });
 
@@ -1332,6 +1341,568 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 		assert.ok(
 			!task.includes("## Dead Code Removal Task"),
 			"No dead-code hint for non-dead-code title",
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 10: Dockerfile awareness — trigger detection (hasDockerfileRelevance)
+// ---------------------------------------------------------------------------
+
+describe("hasDockerfileRelevance — trigger detection", () => {
+	it("title 'Add gitleaks scanner' → true", () => {
+		assert.ok(hasDockerfileRelevance("Add gitleaks scanner", ""));
+	});
+
+	it("title 'install python package' → true", () => {
+		assert.ok(hasDockerfileRelevance("install python package", ""));
+	});
+
+	it("title 'dependency update required' → true", () => {
+		assert.ok(hasDockerfileRelevance("dependency update required", ""));
+	});
+
+	it("title 'new CLI tool' → true", () => {
+		assert.ok(hasDockerfileRelevance("new CLI tool", ""));
+	});
+
+	it("title 'npm audit fix' → true", () => {
+		assert.ok(hasDockerfileRelevance("npm audit fix", ""));
+	});
+
+	it("title 'apt package needed' → true", () => {
+		assert.ok(hasDockerfileRelevance("apt package needed", ""));
+	});
+
+	it("title 'pip install' → true", () => {
+		assert.ok(hasDockerfileRelevance("pip install", ""));
+	});
+
+	it("title 'binary download' → true", () => {
+		assert.ok(hasDockerfileRelevance("binary download", ""));
+	});
+
+	it("title 'Dockerfile update' → true", () => {
+		assert.ok(hasDockerfileRelevance("Dockerfile update", ""));
+	});
+
+	it("title 'docker compose' → true", () => {
+		assert.ok(hasDockerfileRelevance("docker compose", ""));
+	});
+
+	it("title 'Fix typo in README' → false", () => {
+		assert.ok(!hasDockerfileRelevance("Fix typo in README", ""));
+	});
+
+	it("title 'refactor config parser' → false", () => {
+		assert.ok(!hasDockerfileRelevance("refactor config parser", ""));
+	});
+
+	it("title 'rename variable' → false", () => {
+		assert.ok(!hasDockerfileRelevance("rename variable", ""));
+	});
+
+	it("empty title + empty body → false", () => {
+		assert.ok(!hasDockerfileRelevance("", ""));
+	});
+
+	it("body contains trigger word but title does not → true", () => {
+		assert.ok(hasDockerfileRelevance("Fix bug", "Install the new tool"));
+	});
+
+	it("title contains trigger word but body is empty → true", () => {
+		assert.ok(hasDockerfileRelevance("install", ""));
+	});
+
+	it("body contains 'gitleaks' → true", () => {
+		assert.ok(hasDockerfileRelevance("Fix scanner", "Add gitleaks binary"));
+	});
+
+	it("body contains 'osv-scanner' → true", () => {
+		assert.ok(hasDockerfileRelevance("Add scanner", "Install osv-scanner"));
+	});
+
+	it("single-word title 'install' → true", () => {
+		assert.ok(hasDockerfileRelevance("install", ""));
+	});
+
+	it("boundary: 'installation-guide' → false (word boundary avoids false positive)", () => {
+		assert.ok(!hasDockerfileRelevance("installation-guide", ""));
+	});
+
+	it("boundary: 'uninstall script' → false (word boundary avoids 'install' false positive)", () => {
+		// "uninstall" = u-n-i-n-s-t-a-l-l. "install" starts at position 2.
+		// Before "install" is 'n' (word char), so \b does NOT match.
+		assert.ok(!hasDockerfileRelevance("uninstall script", ""));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 11: Dockerfile awareness — instruction injection for developer agent
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — Dockerfile awareness injection (developer)", () => {
+	it("title 'Add gitleaks scanner' → task contains '### Dockerfile Awareness' heading", () => {
+		const task = buildAgentTask(
+			"developer",
+			1123,
+			"owner/repo",
+			"Add gitleaks scanner",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			task.includes("### Dockerfile Awareness"),
+			"Should contain Dockerfile Awareness heading",
+		);
+	});
+
+	it("body mentioning 'npm install' → task contains docker/Dockerfile reference", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Add new dependency",
+			makeFilteredData({ body: "npm install some-package" }),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("docker/Dockerfile"), "Should reference main Dockerfile");
+		assert.ok(task.includes("### Dockerfile Awareness"), "Should contain heading");
+	});
+
+	it("title 'Add osv-scanner' → task mentions all 6 Dockerfiles by path", () => {
+		const task = buildAgentTask(
+			"developer",
+			1122,
+			"owner/repo",
+			"Add osv-scanner",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("docker/Dockerfile"), "Mentions docker/Dockerfile");
+		assert.ok(task.includes("flask_blogs/flask_sudoku/Dockerfile"), "Mentions sudoku Dockerfile");
+		assert.ok(
+			task.includes("flask_blogs/flask_hippocooking/Dockerfile"),
+			"Mentions hippocooking Dockerfile",
+		);
+		assert.ok(
+			task.includes("flask_blogs/flask_planhead/Dockerfile"),
+			"Mentions planhead Dockerfile",
+		);
+		assert.ok(task.includes("flask_blogs/nginx/Dockerfile"), "Mentions nginx Dockerfile");
+		assert.ok(task.includes("flask_blogs/Dockerfile.test"), "Mentions test Dockerfile");
+	});
+
+	it("title 'Fix typo in README' → does NOT contain '### Dockerfile Awareness'", () => {
+		const task = buildAgentTask(
+			"developer",
+			999,
+			"owner/repo",
+			"Fix typo in README",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"Should NOT contain Dockerfile Awareness heading",
+		);
+	});
+
+	it("instruction correctly maps pi-agent deps → docker/Dockerfile", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install new CLI tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		// The instruction should say Pi agent deps go in docker/Dockerfile
+		assert.ok(task.includes("Pi agent dependencies"), "Should mention pi agent deps mapping");
+		assert.ok(task.includes("docker/Dockerfile"), "Should mention docker/Dockerfile");
+	});
+
+	it("instruction correctly maps submodule deps → submodule Dockerfiles", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Add python package",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			task.includes("Submodule service dependencies"),
+			"Should mention submodule deps mapping",
+		);
+	});
+
+	it("instruction mentions existing Dockerfile conventions", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Add npm package",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("pinned versions"), "Should mention pinned versions");
+		assert.ok(task.includes("layer separation"), "Should mention layer separation");
+		assert.ok(task.includes("apt cleanup"), "Should mention apt cleanup");
+	});
+
+	it("instruction appears BEFORE the structured output format section", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		const dockerfileIndex = task.indexOf("### Dockerfile Awareness");
+		const jsonIndex = task.indexOf("### Structured Output Format");
+		assert.ok(dockerfileIndex >= 0, "Dockerfile Awareness heading present");
+		assert.ok(jsonIndex >= 0, "Structured Output Format heading present");
+		assert.ok(
+			dockerfileIndex < jsonIndex,
+			"Dockerfile Awareness appears BEFORE Structured Output Format",
+		);
+	});
+
+	it("instruction does NOT duplicate (only one block injected)", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		const matches = task.match(/### Dockerfile Awareness/g);
+		assert.strictEqual(matches ? matches.length : 0, 1, "Only one Dockerfile Awareness heading");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 12: Dockerfile awareness — no injection for other agents
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — Dockerfile awareness NOT injected for other agents", () => {
+	it("architect with 'Install python package' → no Dockerfile Awareness heading", () => {
+		const task = buildAgentTask(
+			"architect",
+			42,
+			"owner/repo",
+			"Install python package",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"Architect should NOT have Dockerfile Awareness",
+		);
+	});
+
+	it("auditor with 'Add new dependency' → no Dockerfile Awareness heading", () => {
+		const task = buildAgentTask(
+			"auditor",
+			42,
+			"owner/repo",
+			"Add new dependency",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"Auditor should NOT have Dockerfile Awareness",
+		);
+	});
+
+	it("researcher with 'Add apt package' → no Dockerfile Awareness heading", () => {
+		const task = buildAgentTask(
+			"researcher",
+			42,
+			"owner/repo",
+			"Add apt package",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"Researcher should NOT have Dockerfile Awareness",
+		);
+	});
+
+	it("test-designer with 'Install tool' → no Dockerfile Awareness heading", () => {
+		const task = buildAgentTask(
+			"test-designer",
+			42,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"Test-designer should NOT have Dockerfile Awareness",
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 13: Dockerfile awareness — regression (existing content preserved)
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — Dockerfile awareness regression (existing content preserved)", () => {
+	it("developer with Dockerfile trigger still has JSON_OUTPUT_INSTRUCTION", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes('"action": "COMPLETE"'), "JSON output instruction present");
+		assert.ok(task.includes("SECURITY RULE"), "SECURITY RULE present");
+	});
+
+	it("developer with Dockerfile trigger still has resume-from-it instructions", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Add tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("git status"), "git status instruction present");
+		assert.ok(task.includes("git stash list"), "git stash list instruction present");
+		assert.ok(task.includes("resume from it"), "Resume instruction present");
+	});
+
+	it("developer with Dockerfile trigger still has thinking-effort instruction", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"pip install package",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("Thinking effort"), "Thinking effort instruction present");
+	});
+
+	it("developer with Dockerfile trigger still has example output", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"npm install pkg",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes('"action": "COMPLETE"'), "Example output present");
+		assert.ok(task.includes("Implemented the feature"), "Example output present");
+	});
+
+	it("developer with Dockerfile trigger still has generateBranchName in branch section", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("**Branch name:**"), "Branch name section present");
+	});
+
+	it("developer with Dockerfile trigger AND dead-code match — both blocks present", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Dead code: remove unused export",
+			makeFilteredData({ body: "Install pip package" }),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(task.includes("## Dead Code Removal Task"), "Dead Code Removal Task block present");
+		assert.ok(task.includes("### Dockerfile Awareness"), "Dockerfile Awareness block present");
+	});
+
+	it("developer with Dockerfile trigger AND gateFailureContext — both blocks present", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Install tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+			undefined, // worktreePath
+			undefined, // branchName
+			undefined, // summarizedRejections
+			undefined, // duplicateCodeContext
+			undefined, // researchFindings
+			undefined, // auditFeedback
+			undefined, // deadCodeContext
+			"CI_FAILED: check build", // gateFailureContext
+		);
+		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
+		assert.ok(task.includes("### Dockerfile Awareness"), "Dockerfile Awareness block present");
+	});
+
+	it("developer with Dockerfile trigger AND auditFeedback — both blocks present", () => {
+		const task = buildAgentTask(
+			"developer",
+			1124,
+			"owner/repo",
+			"Add CLI tool",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+			undefined, // worktreePath
+			undefined, // branchName
+			undefined, // summarizedRejections
+			undefined, // duplicateCodeContext
+			undefined, // researchFindings
+			"## Audit Rejected\nMissing Dockerfile update", // auditFeedback
+			undefined, // deadCodeContext
+			undefined, // gateFailureContext
+		);
+		assert.ok(
+			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
+			"Audit feedback block present",
+		);
+		assert.ok(task.includes("### Dockerfile Awareness"), "Dockerfile Awareness block present");
+	});
+
+	it("existing developer task 'Fix bug' unchanged — no Dockerfile Awareness block", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		assert.ok(
+			!task.includes("### Dockerfile Awareness"),
+			"No Dockerfile Awareness for non-trigger title",
+		);
+		assert.ok(
+			task.includes("Follow your system prompt instructions"),
+			"Existing content preserved",
 		);
 	});
 });
