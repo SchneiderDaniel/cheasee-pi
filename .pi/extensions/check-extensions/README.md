@@ -33,7 +33,6 @@ Manual auditing across 17+ extensions after every pi update is impractical. This
 |--------|----------------|
 | `changelog-parser.ts` | Parse pi CHANGELOG.md into structured entries |
 | `ast-scanner.ts` | AST analysis of extension source files |
-| `manifest-reader.ts` | Read extension package.json/pi manifest |
 | `impact-scorer.ts` | Score compatibility issues by severity |
 | `migration-generator.ts` | Generate old→new migration code snippets |
 | `issue-builder.ts` | Build GitHub issue body from findings |
@@ -60,7 +59,6 @@ Modular pipeline for CHANGELOG-based API breakage detection:
 ├── pipeline.ts            # runPipeline: orchestrator for all phases
 ├── changelog-parser.ts    # Parse pi CHANGELOG.md for breaking change entries
 ├── ast-scanner.ts         # ast-grep scan of .pi/extensions/ for API usage
-├── manifest-reader.ts     # Read extension package.json and README
 ├── change-resolver.ts     # Cross-reference API usage vs changelog entries
 ├── impact-scorer.ts       # Score compatibility issues by severity
 ├── migration-generator.ts # Generate old to new code migration snippets
@@ -80,8 +78,7 @@ flowchart TD
     B -- yes --> D[Phase 1: Parse CHANGELOG.md]
     D --> E[Extract breaking changes: removed, renamed, deprecated]
     E --> F[Phase 2: Walk .pi/extensions/]
-    F --> G[manifest-reader: read package.json + README]
-    G --> H[ast-scanner: ast-grep scan for API usage]
+    F --> H[ast-scanner: ast-grep scan for API usage]
     H --> I[Phase 3: Cross-reference]
     I --> J[change-resolver: match usage to changelog]
     J --> K[Phase 4: Score by severity]
