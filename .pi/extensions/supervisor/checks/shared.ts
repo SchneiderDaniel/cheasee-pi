@@ -6,9 +6,10 @@
 // indirection added no clarity. Only functions with non-trivial domain logic
 // (git parsing, ENOENT detection) remain.
 
-// ─── Exec function type (local — not exported; each consumer declares its own)
+// ─── Exec function type
 
-type ExecFn = (
+/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
+export type ExecFn = (
 	cmd: string,
 	args: string[],
 	opts?: Record<string, unknown>,

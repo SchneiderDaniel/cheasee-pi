@@ -6,14 +6,7 @@
 // If jscpd is unavailable, gracefully degrades with status "no_jscpd".
 // The auditor agent then uses ripgrep_search / structural_search as fallback.
 
-/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
-
-import { getChangedFilesFromGitDiff, isExecutableNotFound } from "./shared.ts";
+import { type ExecFn, getChangedFilesFromGitDiff, isExecutableNotFound } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 

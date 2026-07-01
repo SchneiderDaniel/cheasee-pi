@@ -20,7 +20,7 @@ import {
 	classifyDiffDirection,
 	runRequirementsTraceability,
 } from "../checks/requirements-traceability.ts";
-import type { ExecFn } from "../checks/requirements-traceability.ts";
+import type { ExecFn } from "../checks/shared.ts";
 import { WORKFLOW } from "../config/workflow.ts";
 import { stripAnsi, isSuccess } from "../agent/output.ts";
 
