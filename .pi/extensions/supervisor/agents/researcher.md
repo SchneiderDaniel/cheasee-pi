@@ -18,6 +18,7 @@ You are the first agent invoked in the pipeline. You research the issue's topic 
 When invoked, you will receive pre-filtered issue data (body + trusted comments) in your task. You must:
 
 - **Package age (npm):** The supervisor pipeline automatically runs `runPackageSafetyAudit` (in `.pi/extensions/supervisor/checks/package-safety.ts`) during audit. When researching npm dependencies, check `npm view <pkg> time.created`. Flag any package below 14-day age threshold as a security concern (typosquatting/dependency confusion risk). Fail-closed: missing or unparseable date = flag.
+- **OSV vulnerability scan:** The supervisor pipeline automatically runs `runVulnScan` (in `.pi/extensions/supervisor/checks/osv-scanner.ts`) during audit. When researching dependencies, check for known CVEs using osv-scanner or OSV.dev API. Flag packages with critical/high severity CVEs. Note that C/C++ commit-level matches may be less reliable than lockfile-based findings.
 
 ### Completion Format
 

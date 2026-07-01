@@ -37,6 +37,22 @@ export interface SupervisorConfig {
 	 * Default: false
 	 */
 	enableExperimentalFeatures?: boolean;
+
+	/**
+	 * When true, osv-scanner vulnerabilities found during pre-audit gate cause
+	 * the transition to fail (return to Implementation). Only critical+high vulns
+	 * trigger blocking when this is enabled.
+	 * Default: false (informational only, surfaced to auditor)
+	 */
+	vulnGateBlocking?: boolean;
+
+	/**
+	 * Timeout in seconds for the osv-scanner vulnerability scan.
+	 * osv-scanner makes outbound API calls to OSV.dev — set high enough for
+	 * network latency but tight enough to not stall the pipeline.
+	 * Default: 60
+	 */
+	vulnGateTimeoutSec?: number;
 }
 
 export interface AgentFrontmatter {
@@ -207,7 +223,7 @@ export interface SupervisorMessageDetails {
 
 // ─── Dependency gate types ─────────────────────────────────────────
 
-export interface BlockerInfo {
+interface BlockerInfo {
 	number: number;
 	title: string;
 	type: "issue" | "pullrequest";
@@ -219,14 +235,14 @@ export interface DepsResult {
 	blockers: BlockerInfo[];
 }
 
-export interface GhBlockingIssue {
+interface GhBlockingIssue {
 	id: string;
 	number: number;
 	title: string;
 	state: string;
 }
 
-export interface GhTimelineNode {
+interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
 }
@@ -299,13 +315,13 @@ export interface MergeResult {
 // All agents output the same structure; pipeline parses it deterministically.
 
 /** Supported action types — single vocabulary for all agents */
-export type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
+type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
 
 /** Severity levels for audit findings */
 export type FindingSeverity = "critical" | "warning" | "suggestion";
 
 /** Known audit dimensions */
-export type AuditDimension =
+type AuditDimension =
 	| "architecture-compliance"
 	| "ticket-fulfillment"
 	| "tests-passed"
@@ -363,7 +379,7 @@ export type ParseResult = AgentOutput | FailedParse;
 
 // ─── LSP Pre-Audit ──────────────────────────────────────────────────
 
-export interface LspPreAuditDecision {
+interface LspPreAuditDecision {
 	/** New status to transition to — "Audit" if proceeding, "Implementation" if blocking */
 	nextStatus: string;
 	/** Note to include in notification */

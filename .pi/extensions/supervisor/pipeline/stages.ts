@@ -38,7 +38,8 @@ import type { AgentOutput } from "../config/types.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
-import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
+import type { OsvScanResult } from "../checks/osv-scanner.ts";
+
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -57,8 +58,9 @@ export interface StageState {
 	researcherSkipped: boolean;
 	/** Dead code check result, set during Implementation→Audit hooks */
 	deadCodeResult: DeadCodeResult | null;
-	/** Package safety audit result, set during Implementation→Audit hooks */
-	packageSafetyResult: PackageSafetyAuditResult | null;
+	/** OSV vulnerability scan result, set during Implementation→Audit hooks */
+	vulnResult: OsvScanResult | null;
+
 	/**
 	 * Gate failure note from the last pre-transition hook that returned
 	 * effectiveNextStatus === "Implementation". Set by handler.ts after
@@ -86,7 +88,8 @@ export function createStageState(initialStatus: string): StageState {
 		duplicateCodeResult: null,
 		researcherSkipped: false,
 		deadCodeResult: null,
-		packageSafetyResult: null,
+		vulnResult: null,
+
 		gateFailureContext: undefined,
 		gateFailureHistory: [],
 	};
@@ -202,28 +205,19 @@ export function buildDeadCodeContext(result: DeadCodeResult | null): string | nu
 	return buildDeadCodeContextInner(result);
 }
 
+// ─── Vuln Context ─────────────────────────────────────────────────────
+
 /**
- * Build a formatted string from PackageSafetyAuditResult for injection into auditor task context.
- * Returns null if no blocked packages or result is null.
+ * Build a formatted string from OsvScanResult for injection into auditor task context.
+ * Wraps the inner implementation from checks/osv-scanner.ts.
  */
-export function buildPackageSafetyContext(result: PackageSafetyAuditResult | null): string | null {
-	if (!result || result.status === "safe" || result.results.length === 0) return null;
-
-	const blocked = result.results.filter((r) => r.blocked);
-	if (blocked.length === 0) return null;
-
-	const lines: string[] = [];
-	lines.push(
-		`**${blocked.length} blocked package(s) found — ${result.status === "error" ? "errors encountered" : "packages below safety threshold"}**`,
-	);
-	lines.push("");
-
-	for (const item of blocked) {
-		lines.push(`- \`${item.packageName}\`: ${item.message}`);
-	}
-
-	return lines.join("\n");
+export function buildVulnContext(result: OsvScanResult | null): string | null {
+	if (!result) return null;
+	return buildVulnContextInner(result);
 }
+
+import { buildVulnContext as buildVulnContextInner } from "../checks/osv-scanner.ts";
+
 
 // ─── Gate Failure Context ────────────────────────────────────────────
 

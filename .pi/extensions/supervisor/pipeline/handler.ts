@@ -67,7 +67,8 @@ import {
 	applyGateFailureContext,
 	type GateRejected,
 	buildDeadCodeContext,
-	buildPackageSafetyContext,
+	buildVulnContext,
+
 } from "./stages.ts";
 import {
 	fetchIssue,
@@ -566,10 +567,11 @@ export async function handleSupervisorCommand(
 				agentName === "auditor"
 					? (buildDeadCodeContext(stageState.deadCodeResult) ?? undefined)
 					: undefined;
-			// Build package safety context for auditor
-			const packageSafetyContext: string | undefined =
+			// Build vuln context for auditor
+			const vulnContext: string | undefined =
 				agentName === "auditor"
-					? (buildPackageSafetyContext(stageState.packageSafetyResult) ?? undefined)
+					? (buildVulnContext(stageState.vulnResult) ?? undefined)
+
 					: undefined;
 			const task = buildAgentTask(
 				agentName,
@@ -590,7 +592,8 @@ export async function handleSupervisorCommand(
 				researchFindings,
 				auditFeedback,
 				deadContext,
-				packageSafetyContext,
+				vulnContext,
+
 				stageState.gateFailureContext,
 				systemPromptOptions,
 			);
@@ -795,7 +798,7 @@ export async function handleSupervisorCommand(
 					worktreeBranch,
 					collector,
 					stageState.gateFailureHistory,
-					stageState.packageSafetyResult,
+					undefined,
 				);
 				if (prCreationResult && !prCreationResult.success) {
 					getDebugLogger().warn("handler", "PR creation failed", {
@@ -931,9 +934,10 @@ export async function handleSupervisorCommand(
 					if (auditResult.duplicateCodeResult) {
 						stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
 					}
-					// Store package safety result in stage state for auditor context injection
-					if (auditResult.packageSafetyResult) {
-						stageState.packageSafetyResult = auditResult.packageSafetyResult;
+					// Store vuln scan result in stage state for auditor context injection
+					if (auditResult.vulnResult) {
+						stageState.vulnResult = auditResult.vulnResult;
+
 					}
 					getDebugLogger().info("handler", "Pre-transition hook result", {
 						effectiveNextStatus,
@@ -1019,7 +1023,7 @@ export async function handleSupervisorCommand(
 				prCreationResult,
 				collector,
 				stageState.gateFailureHistory,
-				stageState.packageSafetyResult,
+				undefined,
 			);
 			getDebugLogger().info("handler", "Pipeline finished", {
 				overallStatus,

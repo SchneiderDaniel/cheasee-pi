@@ -125,7 +125,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined, // researchFindings
 			undefined, // auditFeedback
 			undefined, // deadCodeContext
-			undefined, // packageSafetyContext
+			undefined, // vulnContext
+
 			undefined, // gateFailureContext
 			{ selectedTools: ["read", "bash", "edit"] }, // systemPromptOptions
 		);
@@ -155,7 +156,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
-			undefined, // packageSafetyContext
+			undefined, // vulnContext
+
 			undefined, // gateFailureContext
 			{ contextFiles: [".pi/agents.md", ".pi/skills/writing-voice/SKILL.md"] },
 		);
@@ -183,7 +185,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
-			undefined, // packageSafetyContext
+			undefined, // vulnContext
+
 			undefined, // gateFailureContext
 			{ skills: ["writing-voice", "extension-spec"] },
 		);
@@ -231,7 +234,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
-			undefined, // packageSafetyContext
+			undefined, // vulnContext
+
 			undefined, // gateFailureContext
 			{ selectedTools: [], contextFiles: [], skills: [] },
 		);
@@ -263,7 +267,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 				undefined,
 				undefined,
 				undefined, // deadCodeContext
-				undefined, // packageSafetyContext
+				undefined, // vulnContext
+
 				undefined, // gateFailureContext
 				{ selectedTools: ["read", "bash"], contextFiles: ["config.json"] },
 			);
@@ -291,7 +296,8 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
-			undefined, // packageSafetyContext
+			undefined, // vulnContext
+
 			undefined, // gateFailureContext
 			{ selectedTools: undefined, contextFiles: undefined, skills: undefined },
 		);
