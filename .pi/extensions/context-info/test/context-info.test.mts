@@ -1234,3 +1234,111 @@ describe("formatCacheStats", () => {
 		assert.strictEqual(formatCacheStats(undefined, 0), "\u{1F4E6} --/--");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Session shutdown behavior — dispose vs stopTimer
+// ---------------------------------------------------------------------------
+
+/** Create a minimal ExtensionContext for session_shutdown tests */
+function createShutdownMockCtx() {
+	return {
+		mode: "rpc",
+		ui: {
+			setFooter: () => {},
+			setStatus: () => {},
+			setWidget: () => {},
+			setWorkingIndicator: () => {},
+			notify: () => {},
+			theme: { fg: (_c: string, t: string) => t },
+		},
+		isProjectTrusted: () => true,
+		getContextUsage: () => undefined,
+		sessionManager: { getSessionFile: () => "/tmp/test_uuid.jsonl" },
+		model: { id: "test-model", contextWindow: 128000 },
+		cwd: "/tmp",
+	};
+}
+
+describe("context-info extension — session_shutdown disposes state", () => {
+	it("session_shutdown calls dispose — events after shutdown are safe (no throw)", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		const ctx = createShutdownMockCtx(); // mode="rpc"
+
+		// Start session — creates FooterState
+		await handlers.get("session_start")!({}, ctx);
+
+		// Shutdown session — dispose() sets disposed=true, stops timer
+		await handlers.get("session_shutdown")!();
+
+		// All events should be safe no-ops — guard on state.disposed
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("thinking_level_select")!({ level: "high" }, ctx);
+			})(),
+			"thinking_level_select after shutdown should not reject",
+		);
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("model_select")!({ model: { contextWindow: 256000 } }, ctx);
+			})(),
+			"model_select after shutdown should not reject",
+		);
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("turn_end")!({}, ctx);
+			})(),
+			"turn_end after shutdown should not reject",
+		);
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("message_end")!({ message: { role: "assistant", usage: {} } }, ctx);
+			})(),
+			"message_end after shutdown should not reject",
+		);
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("message_update")!({ assistantMessageEvent: {} }, ctx);
+			})(),
+			"message_update after shutdown should not reject",
+		);
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("tool_execution_end")!();
+			})(),
+			"tool_execution_end after shutdown should not reject",
+		);
+
+		assert.ok(true, "All events after session_shutdown completed without error");
+	});
+
+	it("session_shutdown does not throw when called without prior session_start", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		// No session_start before shutdown
+		await assert.doesNotReject(
+			(async () => {
+				await handlers.get("session_shutdown")!();
+			})(),
+			"session_shutdown without prior session should not reject",
+		);
+	});
+});

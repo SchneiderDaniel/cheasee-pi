@@ -129,6 +129,7 @@ export class FooterState {
 	// ── Tool call tracking ────────────────────────────────────────
 
 	addToolCall(): void {
+		if (this.disposed) return;
 		this.footerConfig.toolCallCount.value++;
 		this.callInstallFooter();
 	}
