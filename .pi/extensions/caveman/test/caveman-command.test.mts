@@ -138,6 +138,26 @@ describe("command.ts — handler with empty args toggles", () => {
 	});
 });
 
+describe("command.ts — handler with args=undefined toggles", () => {
+	it("current off -> toggles to full", async () => {
+		const { def, configStore, ctx, notifications } = setupTest("off");
+		await def.handler(undefined as unknown as string, ctx);
+		assert.strictEqual(configStore.getLevel(), "full");
+	});
+
+	it("current full -> toggles to off", async () => {
+		const { def, configStore, ctx } = setupTest("full");
+		await def.handler(undefined as unknown as string, ctx);
+		assert.strictEqual(configStore.getLevel(), "off");
+	});
+
+	it("null does not throw", async () => {
+		const { def, configStore, ctx } = setupTest("off");
+		await def.handler(null as unknown as string, ctx);
+		assert.strictEqual(configStore.getLevel(), "full");
+	});
+});
+
 describe("command.ts — handler with invalid args", () => {
 	it("notifies error with 'Unknown'", async () => {
 		const { def, ctx, notifications } = setupTest("off");
