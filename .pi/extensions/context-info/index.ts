@@ -234,7 +234,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 				ctx.ui.setFooter(undefined);
 				ctx.ui.setStatus("contextUsage", undefined);
 			}
-			state.stopTimer();
+			state.dispose();
 			return;
 		}
 
@@ -315,7 +315,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	pi.on("thinking_level_select", async (event, ctx: ExtensionContext) => {
-		if (!state) return;
+		if (!state || state.disposed) return;
 		state.footerConfig.thinkingLevel = event.level;
 		if (state.config) {
 			state.callInstallFooter();
@@ -323,7 +323,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	pi.on("model_select", async (event, ctx: ExtensionContext) => {
-		if (!state) return;
+		if (!state || state.disposed) return;
 		const cw = event.model?.contextWindow;
 		if (typeof cw === "number" && cw > 0) {
 			state.footerConfig.lastContextWindow.value = cw;
@@ -339,14 +339,14 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
-		if (!state || !state.config) return;
+		if (!state || state.disposed || !state.config) return;
 		// Re-read session name (in case setSessionName was called mid-session)
 		state.footerConfig.sessionName = pi.getSessionName();
 		state.callInstallFooter();
 	});
 
 	pi.on("message_end", async (event, ctx: ExtensionContext) => {
-		if (!state) return;
+		if (!state || state.disposed) return;
 		const msg = event.message;
 		if (!msg || msg.role !== "assistant") return;
 		// Capture cache stats from raw event usage
@@ -374,7 +374,7 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	pi.on("message_update", async (event: any, _ctx: ExtensionContext) => {
-		if (!state) return;
+		if (!state || state.disposed) return;
 		// Sample streaming output tokens for TPS estimation
 		const output = event.assistantMessageEvent?.partial?.usage?.output;
 		if (typeof output === "number") {
@@ -383,14 +383,14 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_execution_end", async () => {
-		if (state) {
+		if (state && !state.disposed) {
 			state.addToolCall();
 		}
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (state) {
-			state.stopTimer();
+			state.dispose();
 		}
 		stateRef = undefined;
 	});

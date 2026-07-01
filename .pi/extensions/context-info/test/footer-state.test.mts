@@ -302,6 +302,59 @@ describe("FooterState — reset", () => {
 });
 
 // ---------------------------------------------------------------------------
+// FooterState — dispose
+// ---------------------------------------------------------------------------
+
+describe("FooterState — dispose", () => {
+	it("dispose sets disposed = true", () => {
+		const state = new FooterState(createMockCtx());
+		assert.strictEqual(state.disposed, false);
+		state.dispose();
+		assert.strictEqual(state.disposed, true);
+	});
+
+	it("dispose stops the timer", () => {
+		const state = new FooterState(createMockCtx());
+		state.startTimer();
+		assert.ok(state.timerInterval !== null, "timer should be running");
+		state.dispose();
+		assert.strictEqual(state.timerInterval, null, "timer should be stopped");
+	});
+
+	it("callInstallFooter is no-op when disposed = true", () => {
+		const fn = mock.fn();
+		const state = new FooterState(createMockCtx(), fn);
+		state.dispose();
+		state.callInstallFooter();
+		assert.strictEqual(fn.mock.calls.length, 0, "should not call installFooterCb when disposed");
+	});
+
+	it("callInstallFooter calls installFooterCb when not disposed", () => {
+		const fn = mock.fn();
+		const state = new FooterState(createMockCtx(), fn);
+		state.callInstallFooter();
+		assert.strictEqual(fn.mock.calls.length, 1, "should call installFooterCb when not disposed");
+	});
+
+	it("addToolCall is no-op when disposed = true", () => {
+		const fn = mock.fn();
+		const state = new FooterState(createMockCtx(), fn);
+		state.dispose();
+		state.addToolCall();
+		assert.strictEqual(state.footerConfig.toolCallCount.value, 0, "should not increment tool count when disposed");
+		// callInstallFooter should also not fire
+		assert.strictEqual(fn.mock.calls.length, 0, "should not call installFooterCb when disposed");
+	});
+
+	it("dispose is idempotent — calling twice does not error", () => {
+		const state = new FooterState(createMockCtx());
+		state.dispose();
+		assert.doesNotThrow(() => state.dispose());
+		assert.strictEqual(state.disposed, true);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // FooterState — installFooter callback integration
 // ---------------------------------------------------------------------------
 
