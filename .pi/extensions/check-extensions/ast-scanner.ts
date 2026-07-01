@@ -155,16 +155,6 @@ function extractFirstArg(match: Record<string, unknown>): string[] {
 }
 
 /**
- * Extract a simple argument value from the first arg string.
- * Strips surrounding quotes for clean comparison.
- */
-// No longer used — callArgs now stores raw (quoted) args
-// to let downstream code distinguish string literals from variable references
-// function cleanArg(arg: string): string {
-// 	return arg.replace(/^["'`]|["'`]$/g, "");
-// }
-
-/**
  * Build an ASTFinding from an ast-grep match and contextual metadata.
  *
  * Shared helper used by both pi.* and ctx.* processing blocks to eliminate
@@ -191,7 +181,7 @@ export function processAstGrepMatch(
 		column: colNum,
 		lineContent: firstLine.trim(),
 		matchContext: "runtime-call",
-		callArgs: args.map((a) => a.trim()),
+		callArgs: args.map((a) => a.trim()), // Keep raw (quoted) args so downstream code can distinguish string literals from variable references
 		changelogVersion: "",
 		isBreaking: false,
 		category: "",
