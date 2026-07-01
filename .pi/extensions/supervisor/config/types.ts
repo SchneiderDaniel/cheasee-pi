@@ -207,7 +207,7 @@ export interface SupervisorMessageDetails {
 
 // ─── Dependency gate types ─────────────────────────────────────────
 
-export interface BlockerInfo {
+interface BlockerInfo {
 	number: number;
 	title: string;
 	type: "issue" | "pullrequest";
@@ -219,14 +219,14 @@ export interface DepsResult {
 	blockers: BlockerInfo[];
 }
 
-export interface GhBlockingIssue {
+interface GhBlockingIssue {
 	id: string;
 	number: number;
 	title: string;
 	state: string;
 }
 
-export interface GhTimelineNode {
+interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
 }
@@ -299,13 +299,13 @@ export interface MergeResult {
 // All agents output the same structure; pipeline parses it deterministically.
 
 /** Supported action types — single vocabulary for all agents */
-export type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
+type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
 
 /** Severity levels for audit findings */
 export type FindingSeverity = "critical" | "warning" | "suggestion";
 
 /** Known audit dimensions */
-export type AuditDimension =
+type AuditDimension =
 	| "architecture-compliance"
 	| "ticket-fulfillment"
 	| "tests-passed"
@@ -363,7 +363,7 @@ export type ParseResult = AgentOutput | FailedParse;
 
 // ─── LSP Pre-Audit ──────────────────────────────────────────────────
 
-export interface LspPreAuditDecision {
+interface LspPreAuditDecision {
 	/** New status to transition to — "Audit" if proceeding, "Implementation" if blocking */
 	nextStatus: string;
 	/** Note to include in notification */

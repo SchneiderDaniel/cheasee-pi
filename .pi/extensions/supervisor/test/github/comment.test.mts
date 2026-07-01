@@ -4,6 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, rmSync, mkdirSync } from "node:fs";
 import type { ExecFn } from "../../pipeline/helpers.ts";
 import {
 	postIssueComment,
@@ -69,6 +70,74 @@ describe("postIssueComment()", () => {
 			`temp file should be in ignore/ folder: ${tempFilePath}`,
 		);
 		assert.ok(tempFilePath.endsWith(".md"), "temp file should end with .md");
+	});
+
+	it("creates ignore/ directory when it does not exist", async () => {
+		const ignorePath = "ignore";
+		// Save and remove ignore/ if it exists
+		const existed = existsSync(ignorePath);
+		const renamed = ignorePath + "_bak_" + Date.now();
+		if (existed) {
+			// Move aside so we can test creation
+			const { renameSync } = await import("node:fs");
+			renameSync(ignorePath, renamed);
+		}
+		try {
+			const calls: Array<{ cmd: string; args: string[] }> = [];
+			const exec: ExecFn = async (cmd: string, args: string[]) => {
+				calls.push({ cmd, args });
+				return { code: 0, stdout: "", stderr: "", killed: false };
+			};
+			await postIssueComment(exec, 456, "owner/repo", "Testing mkdir");
+			// ignore/ should now exist
+			assert.ok(existsSync(ignorePath), "ignore/ should be created");
+			// Temp file should exist and contain body
+			const tempFilePath = calls[0].args[calls[0].args.indexOf("--body-file") + 1];
+			assert.ok(tempFilePath, "temp file path should exist");
+			assert.ok(tempFilePath.startsWith("ignore/comment-body-456-"), "temp file in ignore/");
+		} finally {
+			// Restore original ignore/ if it existed
+			if (existed) {
+				const { renameSync } = await import("node:fs");
+				if (existsSync(ignorePath)) {
+					rmSync(ignorePath, { recursive: true });
+				}
+				renameSync(renamed, ignorePath);
+			} else {
+				// We created it — clean up
+				rmSync(ignorePath, { recursive: true });
+			}
+		}
+	});
+
+	it("works when ignore/ directory already exists", async () => {
+		// Ensure ignore/ exists
+		if (!existsSync("ignore")) {
+			mkdirSync("ignore", { recursive: true });
+		}
+		const calls: Array<{ cmd: string; args: string[] }> = [];
+		const exec: ExecFn = async (cmd: string, args: string[]) => {
+			calls.push({ cmd, args });
+			return { code: 0, stdout: "", stderr: "", killed: false };
+		};
+		await postIssueComment(exec, 789, "owner/repo", "Existing dir test");
+		assert.equal(calls.length, 1, "gh call should succeed");
+	});
+
+	it("cleanup runs in finally after successful write and gh call", async () => {
+		if (!existsSync("ignore")) {
+			mkdirSync("ignore", { recursive: true });
+		}
+		const calls: Array<{ cmd: string; args: string[] }> = [];
+		const exec: ExecFn = async (cmd: string, args: string[]) => {
+			calls.push({ cmd, args });
+			return { code: 0, stdout: "", stderr: "", killed: false };
+		};
+		await postIssueComment(exec, 101, "owner/repo", "Cleanup test");
+		const tempFilePath = calls[0].args[calls[0].args.indexOf("--body-file") + 1];
+		assert.ok(tempFilePath, "temp file path should exist");
+		// Temp file should have been deleted by finally block
+		assert.ok(!existsSync(tempFilePath), "temp file should be deleted in finally");
 	});
 });
 

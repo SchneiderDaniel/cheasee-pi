@@ -296,16 +296,24 @@ function handleMessageEnd(
 				state.thinkingPushedThisTurn = true;
 			}
 		}
-		if (!state.textPushedThisTurn) {
-			const text = extractTextFromContent(msg.content);
+		const text = extractTextFromContent(msg.content);
 			if (text && text.trim()) {
-				state.textOutputLines.push(text.trim());
-				state.textPushedThisTurn = true;
-				for (const t of text.split("\n")) {
-					if (t.trim()) pushLog(state, t);
+				if (!state.textPushedThisTurn) {
+					// No streaming text was pushed — push full content
+					state.textOutputLines.push(text.trim());
+					state.textPushedThisTurn = true;
+					for (const t of text.split("\n")) {
+						if (t.trim()) pushLog(state, t);
+					}
+				} else {
+					// Text was pushed via streaming. Only add to textOutputLines
+					// if message_end provides additional content not yet captured.
+					const existingText = state.textOutputLines.join("\n").trim();
+					if (!existingText.endsWith(text.trim())) {
+						state.textOutputLines.push(text.trim());
+					}
 				}
 			}
-		}
 		if (msg.usage) {
 			state.tokenCount =
 				msg.usage.totalTokens ||
