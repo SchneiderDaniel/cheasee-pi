@@ -1072,6 +1072,253 @@ describe("ast-scanner", () => {
 		assert.deepStrictEqual(apiNames, ["pi", "pi.on"]);
 	});
 
+	// ═══════════════════════════════════════════════════════════════
+	// Dedup: merged handler correctness (emitImportFinding + isPiDefaultImport)
+	// ═══════════════════════════════════════════════════════════════
+
+	it("Dedup: value import { on } + mixed pi, { exec } in same file produces 3 findings", async () => {
+		const extDir = join(tmpDir, "dedup-1");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			[
+				`import { on } from "@earendil-works/pi-coding-agent";`,
+				`import pi, { exec } from "@earendil-works/pi-coding-agent";`,
+			].join("\n"),
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on", "pi.exec"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			3,
+			`Expected 3 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi", "pi.exec", "pi.on"]);
+	});
+
+	it("Dedup: value import { on } + mixed foo, { exec } in same file produces 2 findings", async () => {
+		const extDir = join(tmpDir, "dedup-2");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			[
+				`import { on } from "@earendil-works/pi-coding-agent";`,
+				`import foo, { exec } from "@earendil-works/pi-coding-agent";`,
+			].join("\n"),
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on", "pi.exec"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			2,
+			`Expected 2 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi.exec", "pi.on"]);
+	});
+
+	it("Dedup: mixed import pipeline, { on } produces 2 findings ('pipeline' contains 'pi')", async () => {
+		const extDir = join(tmpDir, "dedup-3");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			`import pipeline, { on } from "@earendil-works/pi-coding-agent";\n`,
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			2,
+			`Expected 2 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi", "pi.on"]);
+	});
+
+	it("Dedup: mixed import spirit, { on } produces 2 findings ('spirit' contains 'pi')", async () => {
+		const extDir = join(tmpDir, "dedup-4");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			`import spirit, { on } from "@earendil-works/pi-coding-agent";\n`,
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			2,
+			`Expected 2 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi", "pi.on"]);
+	});
+
+	it("Dedup: mixed import foo, { bar } produces 0 findings (no 'pi' substring, no PI_APIS match)", async () => {
+		const extDir = join(tmpDir, "dedup-5");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			`import foo, { bar } from "@earendil-works/pi-coding-agent";\n`,
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on", "pi.exec"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			0,
+			`Expected 0 import-value findings, got ${valueImports.length}`,
+		);
+	});
+
+	it("Dedup: uppercase default name PI, { on } produces 2 findings (PI.toLowerCase().includes('pi'))", async () => {
+		const extDir = join(tmpDir, "dedup-6");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			`import PI, { on } from "@earendil-works/pi-coding-agent";\n`,
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			2,
+			`Expected 2 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi", "pi.on"]);
+	});
+
+	it("Dedup: all 4 import patterns in one file produce correct finding counts", async () => {
+		const extDir = join(tmpDir, "dedup-7");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			[
+				`import type { ExtensionContext } from "@earendil-works/pi-coding-agent";`,
+				`import { on } from "@earendil-works/pi-coding-agent";`,
+				`import pi, { exec } from "@earendil-works/pi-coding-agent";`,
+				`import pipeline from "@earendil-works/pi-coding-agent";`,
+			].join("\n"),
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on", "pi.exec"], execFn, astGrepPath);
+		const typeImports = result.findings.filter((f) => f.matchContext === "import-type");
+		assert.strictEqual(typeImports.length, 1, "Expected 1 import-type finding");
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		// Pattern 2: { on } → pi.on
+		// Pattern 4: pi, { exec } → pi + pi.exec
+		// Pattern 3: pipeline → pi ("pipeline".includes("pi"))
+		// Total: 4 import-value findings
+		assert.strictEqual(
+			valueImports.length,
+			4,
+			`Expected 4 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		assert.deepStrictEqual(apiNames, ["pi", "pi", "pi.exec", "pi.on"]);
+	});
+
+	it("Dedup: two pi-ish default imports in same file produce 2 import-value findings", async () => {
+		const extDir = join(tmpDir, "dedup-8");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(
+			join(extDir, "index.ts"),
+			[
+				`import pi from "pi";`,
+				`import pipeline from "@earendil-works/pi-coding-agent";`,
+			].join("\n"),
+		);
+
+		const execFn = async (): Promise<{
+			stdout: string;
+			stderr: string;
+			code: number;
+			killed: boolean;
+		}> => {
+			return { stdout: "", stderr: "", code: 0, killed: false };
+		};
+
+		const result = await scanExtensionsAST(extDir, ["pi.on", "pi.exec"], execFn, astGrepPath);
+		const valueImports = result.findings.filter((f) => f.matchContext === "import-value");
+		assert.strictEqual(
+			valueImports.length,
+			2,
+			`Expected 2 import-value findings, got ${valueImports.length}`,
+		);
+		const apiNames = valueImports.map((f) => f.apiName).sort();
+		// Both are default-import findings with apiName "pi"
+		assert.deepStrictEqual(apiNames, ["pi", "pi"]);
+	});
+
 	// Phase 3: regression guards
 
 	it("Regression: Pattern 2 still works for named-only imports", async () => {
