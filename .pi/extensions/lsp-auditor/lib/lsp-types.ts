@@ -30,23 +30,6 @@ export interface LspPublishDiagnosticsParams {
 	diagnostics: LspDiagnosticData[];
 }
 
-export interface LspTextDocumentItem {
-	uri: string;
-	languageId: string;
-	version: number;
-	text: string;
-}
-
-export interface LspInitializeParams {
-	processId: number;
-	rootUri: string;
-	capabilities: Record<string, unknown>;
-}
-
-export interface LspInitializeResult {
-	capabilities: Record<string, unknown>;
-}
-
 // ─── Type guards ─────────────────────────────────────────────────────
 
 /** Check if value is a non-null object (not array) */
