@@ -255,3 +255,55 @@ export function isToolCallLine(line: string): boolean {
 
 	return false;
 }
+
+// ─── Thinking level helpers ─────────────────────────────────────────
+// Inline minimal version (no cross-extension import from context-info).
+// Matches the same mapping as context-info/formatting.ts for consistency.
+
+/** Map thinking level string to its unicode icon character */
+function thinkingIcon(level: string | undefined): string {
+	switch (level) {
+		case "off":
+			return "○";
+		case "minimal":
+			return "◐";
+		case "low":
+			return "◑";
+		case "medium":
+			return "◒";
+		case "high":
+			return "◓";
+		case "xhigh":
+			return "●";
+		default:
+			return "";
+	}
+}
+
+/** Map thinking level string to a TUI theme color name */
+export function thinkingColor(level: string | undefined): string {
+	switch (level) {
+		case "off":
+		case "minimal":
+			return "dim";
+		case "low":
+		case "medium":
+			return "muted";
+		case "high":
+		case "xhigh":
+			return "accent";
+		default:
+			return "dim";
+	}
+}
+
+/**
+ * Format thinking level as "◒ medium" or empty string if not set.
+ * Returns empty string for falsy/empty/unknown levels.
+ */
+export function thinkingLabel(level: string | undefined): string {
+	if (!level || !level.trim()) return "";
+	const icon = thinkingIcon(level);
+	if (!icon) return "";
+	return `${icon} ${level}`;
+}

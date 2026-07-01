@@ -44,6 +44,7 @@ export function convertAgentRunToToolResult(
 			durationMs: result.durationMs,
 			toolCalls: [],
 			toolResults: [],
+			thinkingLevel: result.thinkingLevel,
 			taskPrompt: devTask || "",
 			budgetExceeded: result.budgetExceeded,
 			errorCount: result.failedToolCount ?? undefined,

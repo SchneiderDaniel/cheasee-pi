@@ -276,6 +276,72 @@ describe("expanded view (expanded=true) — _subagentResult path", () => {
 		const rawHeader = lines.find((l) => l.includes("Raw Output"));
 		assert.equal(rawHeader, undefined, "should NOT have Raw Output header");
 	});
+
+	it("collapsed view includes thinking level icon and name", () => {
+		const details = makeSubagentDetails({ thinkingLevel: "medium" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		assert.ok(text.includes("◒"), "should show medium thinking icon");
+		assert.ok(text.includes("medium"), "should show thinking level name");
+	});
+
+	it("collapsed view omits thinking level when not set", () => {
+		const details = makeSubagentDetails({ thinkingLevel: undefined });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, false) as Text;
+		const text = renderAndStrip(c).join(" ");
+		assert.ok(!text.includes("◒"), "should not show thinking icon when undefined");
+	});
+
+	it("expanded view footer includes thinking level icon and name", () => {
+		const details = makeSubagentDetails({ thinkingLevel: "high" });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		const footerLine = lines.find((l) => l.includes("◓"));
+		assert.ok(footerLine, "expanded footer should show high thinking icon");
+		assert.ok(footerLine!.includes("high"), "expanded footer should show thinking name");
+	});
+
+	it("expanded view footer omits thinking level when not set", () => {
+		const details = makeSubagentDetails({ thinkingLevel: undefined });
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		const hasThinkingLevelIcon = lines.some((l) => l.includes("◒") || l.includes("◓") || l.includes("○") || l.includes("◐") || l.includes("◑") || l.includes("●"));
+		assert.equal(hasThinkingLevelIcon, false, "should not show thinking icons when not set");
+	});
+
+	it("all thinking levels render expected icon in collapsed view", () => {
+		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		for (const [level, icon] of Object.entries(iconMap)) {
+			const details = makeSubagentDetails({ thinkingLevel: level });
+			const result = makeSubagentResult(details, { outputText: "output" });
+			const c = renderMessage(result, undefined, false) as Text;
+			const text = renderAndStrip(c).join(" ");
+			assert.ok(text.includes(icon), `level '${level}' should show icon '${icon}'`);
+			assert.ok(text.includes(level), `level '${level}' should show name`);
+		}
+	});
+
+	it("thinking level appears in expanded view footer alongside other stats", () => {
+		const details = makeSubagentDetails({
+			thinkingLevel: "low",
+			turnCount: 5,
+			inputTokens: 100,
+			outputTokens: 200,
+			model: "test-model",
+			durationMs: 30000,
+		});
+		const result = makeSubagentResult(details, { outputText: "output" });
+		const c = renderMessage(result, undefined, true) as Container;
+		const lines = renderStripped(c);
+		const footerLine = lines.find((l) => l.includes("◑"));
+		assert.ok(footerLine, "footer should contain low thinking icon");
+		assert.ok(footerLine!.includes("5 turns"), "footer should still show turns");
+		assert.ok(footerLine!.includes("test-model"), "footer should still show model");
+	});
 });
 
 // ═══════════════════════════════════════════════════════════════════

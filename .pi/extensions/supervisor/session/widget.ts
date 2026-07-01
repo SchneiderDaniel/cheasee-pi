@@ -4,7 +4,7 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
-import { formatTokens, formatDuration } from "../lib/formatting.ts";
+import { formatTokens, formatDuration, thinkingLabel } from "../lib/formatting.ts";
 
 /**
  * Build widget lines from state. Pure function — no side effects.
@@ -24,6 +24,8 @@ export function buildWidgetLines(
 	const shortModel = model ? model.split("/").pop() || model : undefined;
 	const statsParts: string[] = [`subagent:${agentName}`];
 	if (shortModel) statsParts.push(`🧠 ${shortModel}`);
+	const tl = thinkingLabel(state.thinkingLevel);
+	if (tl) statsParts.push(tl);
 	if (state.tokenCount > 0) statsParts.push(`📊 ${formatTokens(state.tokenCount)} tokens`);
 	const cacheRead = state.cacheRead;
 	const cacheWrite = state.cacheWrite;
@@ -78,6 +80,7 @@ export function renderWidgetFromDetails(
 		contextInfoReceived: details.contextTokens !== undefined && details.contextWindow !== undefined,
 		currentTool: details.currentTool,
 		currentToolArgs: details.currentToolArgs,
+		thinkingLevel: details.thinkingLevel,
 		// Fields required by interface:
 		textOutputLines: [],
 		thinkingOutputLines: [],

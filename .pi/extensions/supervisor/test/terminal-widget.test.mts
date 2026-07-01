@@ -182,4 +182,44 @@ describe("Simplified widget — footer only", () => {
 		const lines = buildWidgetLines(state, "dev", undefined, undefined, 10000);
 		assert.ok(!lines[0].includes("undefined"), "no 'undefined' in output");
 	});
+
+	it("includes thinking level icon and name when state has thinkingLevel", () => {
+		const state = createState({ thinkingLevel: "medium" });
+		const lines = buildWidgetLines(state, "dev", undefined, undefined, 10000);
+		assert.ok(lines[0].includes("◒ medium"), "should show '◒ medium' for medium thinking");
+	});
+
+	it("omits thinking level when state.thinkingLevel is undefined", () => {
+		const state = createState();
+		const lines = buildWidgetLines(state, "dev", undefined, undefined, 10000);
+		assert.ok(!lines[0].includes("◒"), "should not show thinking icon when undefined");
+		assert.ok(!lines[0].includes("medium"), "should not show thinking name when undefined");
+	});
+
+	it("omits thinking level for unknown level string", () => {
+		const state = createState({ thinkingLevel: "bogus" });
+		const lines = buildWidgetLines(state, "dev", undefined, undefined, 10000);
+		assert.ok(!lines[0].includes("bogus"), "should not show unknown thinking level");
+	});
+
+	it("thinking level appears after model in stats line", () => {
+		const state = createState({ thinkingLevel: "high", tokenCount: 1000, toolCount: 3, cacheRead: 0, cacheWrite: 0, startedAt: 0 });
+		const lines = buildWidgetLines(state, "dev", "some-model", undefined, 10000);
+		const line = lines[0];
+		const modelIdx = line.indexOf("some-model");
+		const thinkingIdx = line.indexOf("◓");
+		assert.ok(modelIdx >= 0, "should have model");
+		assert.ok(thinkingIdx >= 0, "should have thinking icon");
+		assert.ok(thinkingIdx > modelIdx, "thinking level should appear after model");
+	});
+
+	it("all levels render correct icon", () => {
+		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		for (const [level, icon] of Object.entries(iconMap)) {
+			const state = createState({ thinkingLevel: level });
+			const lines = buildWidgetLines(state, "dev", undefined, undefined, 10000);
+			assert.ok(lines[0].includes(icon), `level '${level}' should show icon '${icon}'`);
+			assert.ok(lines[0].includes(level), `level '${level}' should show name`);
+		}
+	});
 });

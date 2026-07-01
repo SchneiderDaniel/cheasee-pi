@@ -59,6 +59,8 @@ export interface SubagentDetails {
 	contextWindow?: number;
 	/** Session start timestamp (Date.now()) */
 	startedAt?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 /** Text content block for AgentToolResult */

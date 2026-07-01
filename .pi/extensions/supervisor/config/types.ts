@@ -118,6 +118,8 @@ export interface AgentRunResult {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── AgentRunState: mutable state during agent execution ────────────
@@ -158,6 +160,8 @@ export interface AgentRunState {
 	cacheRead?: number;
 	/** LLM prompt cache write tokens (from message usage) */
 	cacheWrite?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Message renderer details type ───────────────────────────────────
@@ -203,11 +207,13 @@ export interface SupervisorMessageDetails {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────
 
-export interface BlockerInfo {
+interface BlockerInfo {
 	number: number;
 	title: string;
 	type: "issue" | "pullrequest";
@@ -219,14 +225,14 @@ export interface DepsResult {
 	blockers: BlockerInfo[];
 }
 
-export interface GhBlockingIssue {
+interface GhBlockingIssue {
 	id: string;
 	number: number;
 	title: string;
 	state: string;
 }
 
-export interface GhTimelineNode {
+interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
 }
@@ -299,13 +305,13 @@ export interface MergeResult {
 // All agents output the same structure; pipeline parses it deterministically.
 
 /** Supported action types — single vocabulary for all agents */
-export type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
+type AgentAction = "COMPLETE" | "APPROVED" | "REJECTED";
 
 /** Severity levels for audit findings */
 export type FindingSeverity = "critical" | "warning" | "suggestion";
 
 /** Known audit dimensions */
-export type AuditDimension =
+type AuditDimension =
 	| "architecture-compliance"
 	| "ticket-fulfillment"
 	| "tests-passed"
@@ -363,7 +369,7 @@ export type ParseResult = AgentOutput | FailedParse;
 
 // ─── LSP Pre-Audit ──────────────────────────────────────────────────
 
-export interface LspPreAuditDecision {
+interface LspPreAuditDecision {
 	/** New status to transition to — "Audit" if proceeding, "Implementation" if blocking */
 	nextStatus: string;
 	/** Note to include in notification */
