@@ -10,6 +10,8 @@
 interface AgentDisciplineOverrides {
 	/** Additional discipline rules specific to this agent. */
 	extra: string[];
+	/** Whether to inject investigation efficiency guidance. */
+	investigation?: boolean;
 }
 
 /** Registry of per-agent discipline overrides. */
@@ -18,6 +20,7 @@ const AGENT_OVERRIDES: Record<string, AgentDisciplineOverrides> = {
 		extra: [
 			"- **structural_search for code:** When touching ≥3 code files, use `structural_search` first to find relevant structures — more precise than text grep.",
 		],
+		investigation: true,
 	},
 	auditor: {
 		extra: ["- **View diff:** Use `git diff` via bash — this is correct"],
@@ -34,6 +37,7 @@ const AGENT_OVERRIDES: Record<string, AgentDisciplineOverrides> = {
 		extra: [
 			"- **Explore code structure:** Use `structural_search` to find test patterns (describe/it blocks, test functions) — NOT `bash | grep`. AST queries find test suites across files precisely.",
 		],
+		investigation: true,
 	},
 };
 
@@ -65,6 +69,16 @@ export const ERROR_HANDLING_PRINCIPLES = `## Error Handling Principles — Apply
 4. **Clean up in finally/defer** — Clean temp state in finally/defer.
 5. **Fail closed** — Precondition fail = stop. Surface/halt.
 6. **Never return partial success** — Partial result as success hides problems.`;
+
+/**
+ * Investigation efficiency guidance injected into developer and test-designer
+ * system prompts after the error handling principles block.
+ */
+export const INVESTIGATION_EFFICIENCY = `## Investigation Efficiency — When debugging test failures
+
+1. **Isolate first** — Run \`node --experimental-strip-types --test <file> --test-name-pattern="<subtest-name>"\` before reading any source code. Use the subtest name from failure output, not the parent describe-block. After filtering, verify at least 1 test ran — 0 means regex matched nothing.
+2. **Read the test first** — Understand what the test expects before reading implementation.
+3. **Trace only the relevant path** — Once you know which assertion fails, trace only the code path producing actual vs expected.`;
 
 /**
  * Instruction for researcher deduplication scan.
@@ -158,8 +172,14 @@ export function buildAgentSystemPrompt(basePrompt: string, agentName: string): s
 	parts.push("");
 	parts.push(ERROR_HANDLING_PRINCIPLES);
 
-	// Add per-agent overrides
+	// Add investigation efficiency guidance (for agents that execute tests)
 	const overrides = AGENT_OVERRIDES[agentName];
+	if (overrides?.investigation) {
+		parts.push("");
+		parts.push(INVESTIGATION_EFFICIENCY);
+	}
+
+	// Add per-agent overrides
 	if (overrides && overrides.extra.length > 0) {
 		parts.push("");
 		parts.push(overrides.extra.join("\n"));
