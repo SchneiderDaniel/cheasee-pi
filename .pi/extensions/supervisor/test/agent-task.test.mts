@@ -665,6 +665,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined, // researchFindings
 			undefined, // auditFeedback
 			undefined, // deadCodeContext
+			undefined, // vulnContext
 			"CI_FAILED: check build", // gateFailureContext
 		);
 		assert.ok(task.includes("<previous_gate_failure>"), "Should contain XML opening tag");
@@ -691,6 +692,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined,
 			undefined,
 			undefined,
+			undefined,
 			"CI_FAILED: check build",
 		);
 		assert.ok(task.includes("CI_FAILED: check build"), "Contains the exact note text");
@@ -709,6 +711,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"../",
 			"worktree-git-issue-",
 			"/test/main/repo",
+			undefined,
 			undefined,
 			undefined,
 			undefined,
@@ -742,6 +745,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined,
 			undefined,
 			undefined,
+			undefined,
 			"TDD gate failed",
 		);
 		assert.ok(task.includes("git log --oneline"), "Contains git log --oneline instruction");
@@ -767,6 +771,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined,
 			"## Audit Rejected\nCritical issue found", // auditFeedback
 			undefined,
+			undefined, // vulnContext
 			"TDD gate failed", // gateFailureContext
 		);
 		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
@@ -789,6 +794,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"../",
 			"worktree-git-issue-",
 			"/test/main/repo",
+			undefined,
 			undefined,
 			undefined,
 			undefined,
@@ -821,6 +827,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined,
 			undefined,
 			undefined,
+			undefined,
 			"CI_FAILED",
 		);
 		assert.ok(!task.includes("<previous_gate_failure>"), "Auditor should not have XML block");
@@ -839,6 +846,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"../",
 			"worktree-git-issue-",
 			"/test/main/repo",
+			undefined,
 			undefined,
 			undefined,
 			undefined,
@@ -871,6 +879,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			undefined,
 			undefined,
 			undefined,
+			undefined,
 			"CI_FAILED",
 		);
 		assert.ok(!task.includes("<previous_gate_failure>"), "Test-designer should not have XML block");
@@ -889,6 +898,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"../",
 			"worktree-git-issue-",
 			"/test/main/repo",
+			undefined,
 			undefined,
 			undefined,
 			undefined,
@@ -915,6 +925,7 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"../",
 			"worktree-git-issue-",
 			"/test/main/repo",
+			undefined,
 			undefined,
 			undefined,
 			undefined,
@@ -1229,6 +1240,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			undefined, // researchFindings
 			undefined, // auditFeedback
 			undefined, // deadCodeContext
+			undefined, // vulnContext
 			"CI_FAILED: check build", // gateFailureContext
 		);
 		assert.ok(task.includes("## Dead Code Removal Task"), "Dead Code Removal Task block present");
@@ -1255,6 +1267,7 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			undefined, // researchFindings
 			"## Audit Rejected\nCritical issue found", // auditFeedback
 			undefined, // deadCodeContext
+			undefined, // vulnContext
 			undefined, // gateFailureContext
 		);
 		assert.ok(task.includes("## Dead Code Removal Task"), "Dead Code Removal Task block present");
