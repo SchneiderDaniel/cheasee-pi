@@ -39,6 +39,25 @@ const VALID_SEVERITIES = new Set<FindingSeverity>(["critical", "warning", "sugge
 // ─── Smart Quote Detection ──────────────────────────────────────
 
 /**
+ * Skip whitespace characters (space, tab, newline, carriage return)
+ * starting from index `i`. When `reverse` is true, scans backward.
+ * Returns the index of the first non-whitespace character, or
+ * `text.length` (forward) / `-1` (reverse) if all whitespace.
+ */
+function skipWhitespace(text: string, i: number, reverse?: boolean): number {
+	if (reverse) {
+		while (i >= 0 && (text[i] === " " || text[i] === "\t" || text[i] === "\n" || text[i] === "\r")) {
+			i--;
+		}
+		return i;
+	}
+	while (i < text.length && (text[i] === " " || text[i] === "\t" || text[i] === "\n" || text[i] === "\r")) {
+		i++;
+	}
+	return i;
+}
+
+/**
  * Check if a double-quote at position `i` in `text` is a structural close
  * (end of JSON string value) or an unescaped content quote (e.g. markdown
  * "text" inside commentBody).
@@ -55,21 +74,12 @@ const VALID_SEVERITIES = new Set<FindingSeverity>(["critical", "warning", "sugge
  */
 function isStructuralClose(text: string, i: number): boolean {
 	// Stage 1: Lookahead — must be followed by structural delimiter
-	let j = i + 1;
-	while (
-		j < text.length &&
-		(text[j] === " " || text[j] === "\t" || text[j] === "\n" || text[j] === "\r")
-	) {
-		j++;
-	}
+	const j = skipWhitespace(text, i + 1);
 	const next = j < text.length ? text[j] : "";
 	if (next !== "," && next !== "}" && next !== "]" && next !== ":") return false;
 
 	// Stage 2: Lookbehind — if preceded by structural opener, this is an opening quote
-	let k = i - 1;
-	while (k >= 0 && (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")) {
-		k--;
-	}
+	const k = skipWhitespace(text, i - 1, true);
 	const prev = k >= 0 ? text[k] : "";
 	// Start-of-text, `:`, `,`, `{`, `[` mean this is an opening quote, not a close
 	if (prev === "" || prev === ":" || prev === "," || prev === "{" || prev === "[") return false;
@@ -80,19 +90,23 @@ function isStructuralClose(text: string, i: number): boolean {
 // ─── JSON Sanitization ────────────────────────────────────────────
 
 /**
- * Escape literal newlines (\\n, \\r) inside JSON string values.
- * Agents often produce JSON where commentBody contains actual newlines
- * instead of \\n escape sequences. This makes JSON.parse fail.
- *
- * This function walks the JSON text character by character, tracking
- * string boundaries, and replaces literal newlines with the \\n escape.
- *
- * Edge cases handled:
- * - Escaped quotes (\\") inside strings
- * - Backslash-escaped characters (\\\\, \\n, etc.)
- * - Nested JSON objects (tracked via brace depth outside strings)
+ * Callback invoked for each `"` character during JSON string walking.
+ * Receives the current state and returns the updated state after handling.
  */
-function sanitizeJsonStrings(jsonText: string): string {
+type QuoteHandler = (
+	jsonText: string,
+	i: number,
+	inString: boolean,
+	result: string,
+) => { inString: boolean; result: string };
+
+/**
+ * Walk JSON text character by character, tracking escape state and
+ * string boundaries. Delegates `"` handling to the provided callback.
+ * The shared escape preamble (backslash tracking, literal newline
+ * replacement) lives here — both sanitizer variants call this.
+ */
+function walkJsonChars(jsonText: string, onQuote: QuoteHandler): string {
 	let result = "";
 	let inString = false;
 	let escaped = false;
@@ -100,37 +114,25 @@ function sanitizeJsonStrings(jsonText: string): string {
 	for (let i = 0; i < jsonText.length; i++) {
 		const ch = jsonText[i];
 		if (escaped) {
-			// Previous char was backslash — pass current char through literally
 			result += ch;
 			escaped = false;
 			continue;
 		}
 
 		if (inString && ch === "\\") {
-			// Start escape sequence inside string
 			result += ch;
 			escaped = true;
 			continue;
 		}
 
 		if (ch === '"') {
-			if (inString && isStructuralClose(jsonText, i)) {
-				// Structural close — end of string value
-				result += ch;
-				inString = false;
-			} else if (inString) {
-				// Unescaped content quote (e.g. markdown "text" in commentBody)
-				result += '\\"';
-			} else {
-				// Opening quote — start of string value or key
-				result += ch;
-				inString = true;
-			}
+			const next = onQuote(jsonText, i, inString, result);
+			result = next.result;
+			inString = next.inString;
 			continue;
 		}
 
 		if (inString && (ch === "\n" || ch === "\r")) {
-			// Literal newline inside string — replace with JSON escape
 			result += ch === "\n" ? "\\n" : "\\r";
 			continue;
 		}
@@ -141,6 +143,34 @@ function sanitizeJsonStrings(jsonText: string): string {
 	return result;
 }
 
+/**
+ * Escape literal newlines (\\n, \\r) inside JSON string values.
+ * Agents often produce JSON where commentBody contains actual newlines
+ * instead of \\n escape sequences. This makes JSON.parse fail.
+ *
+ * Edge cases handled:
+ * - Escaped quotes (\\") inside strings
+ * - Backslash-escaped characters (\\\\, \\n, etc.)
+ * - Nested JSON objects (tracked via brace depth outside strings)
+ */
+function sanitizeJsonStrings(jsonText: string): string {
+	return walkJsonChars(jsonText, (jsonText, i, inString, result) => {
+		if (inString && isStructuralClose(jsonText, i)) {
+			// Structural close — end of string value
+			result += '"';
+			inString = false;
+		} else if (inString) {
+			// Unescaped content quote (e.g. markdown "text" in commentBody)
+			result += '\\"';
+		} else {
+			// Opening quote — start of string value or key
+			result += '"';
+			inString = true;
+		}
+		return { inString, result };
+	});
+}
+
 // ─── Conservative Fallback ────────────────────────────────────────
 
 /**
@@ -148,14 +178,7 @@ function sanitizeJsonStrings(jsonText: string): string {
  * Returns empty string if at end of text.
  */
 function nextNonWhitespace(text: string, i: number): string {
-	let j = i + 1;
-	while (
-		j < text.length &&
-		(text[j] === " " || text[j] === "\t" || text[j] === "\n" || text[j] === "\r")
-	) {
-		j++;
-	}
-	return j < text.length ? text[j] : "";
+	return text[skipWhitespace(text, i + 1)] ?? "";
 }
 
 /**
@@ -177,87 +200,45 @@ function nextNonWhitespace(text: string, i: number): string {
  * context (after `:` outside string).
  */
 function sanitizeJsonStringsConservative(jsonText: string): string {
-	let result = "";
-	let inString = false;
-	let escaped = false;
-
-	for (let i = 0; i < jsonText.length; i++) {
-		const ch = jsonText[i];
-		if (escaped) {
-			result += ch;
-			escaped = false;
-			continue;
-		}
-
-		if (inString && ch === "\\") {
-			result += ch;
-			escaped = true;
-			continue;
-		}
-
-		if (ch === '"') {
-			if (!inString) {
-				// Opening quote — start of string value or key
-				result += ch;
-				inString = true;
-			} else if (isStructuralClose(jsonText, i)) {
-				// `isStructuralClose` says this is a structural close.
-				// But we double-check: if the delimiter after whitespace is
-				// `,` or `:`, verify that the next token looks like JSON structure
-				// (not a content word).
-				const next = nextNonWhitespace(jsonText, i);
-				if (next === "," || next === ":") {
-					// For `,` and `:` delimiters: check if followed by JSON value
-					// (quote, brace, bracket) or natural language (letter/digit).
-					// Skip past the delimiter itself and any whitespace.
-					let after = next === "," ? i + 1 : i + 1;
-					// Skip delimiter
-					after++;
-					// Skip whitespace
-					while (
-						after < jsonText.length &&
-						(jsonText[after] === " " ||
-							jsonText[after] === "\t" ||
-							jsonText[after] === "\n" ||
-							jsonText[after] === "\r")
-					) {
-						after++;
-					}
-					const afterNext = after < jsonText.length ? jsonText[after] : "";
-					// If followed by `"`, `{`, `[`, or end-of-text: this is a genuine
-					// structural close (the next JSON value starts).
-					// If followed by a letter/digit: the delimiter is content text,
-					// so the `"` is a content quote — escape it.
-					if (afterNext === '"' || afterNext === "{" || afterNext === "[" || afterNext === "") {
-						// Genuine structural close — next token is JSON value
-						result += ch;
-						inString = false;
-					} else {
-						// Suspicious — the `,` or `:` might be content text.
-						// Escape the quote as content, stay in string.
-						result += '\\"';
-					}
-				} else {
-					// For `}` or `]` delimiters: always structural close
-					result += ch;
+	return walkJsonChars(jsonText, (jsonText, i, inString, result) => {
+		if (!inString) {
+			// Opening quote — start of string value or key
+			result += '"';
+			inString = true;
+		} else if (isStructuralClose(jsonText, i)) {
+			// `isStructuralClose` says this is a structural close.
+			// But we double-check: if the delimiter after whitespace is
+			// `,` or `:`, verify that the next token looks like JSON structure
+			// (not a content word).
+			const next = nextNonWhitespace(jsonText, i);
+			if (next === "," || next === ":") {
+				// Skip past the delimiter and any whitespace to check the next token
+				const afterPos = skipWhitespace(jsonText, i + 2);
+				const afterNext = afterPos < jsonText.length ? jsonText[afterPos] : "";
+				// If followed by `"`, `{`, `[`, or end-of-text: this is a genuine
+				// structural close (the next JSON value starts).
+				// If followed by a letter/digit: the delimiter is content text,
+				// so the `"` is a content quote — escape it.
+				if (afterNext === '"' || afterNext === "{" || afterNext === "[" || afterNext === "") {
+					// Genuine structural close — next token is JSON value
+					result += '"';
 					inString = false;
+				} else {
+					// Suspicious — the `,` or `:` might be content text.
+					// Escape the quote as content, stay in string.
+					result += '\\"';
 				}
 			} else {
-				// Non-structural — content quote
-				result += '\\"';
+				// For `}` or `]` delimiters: always structural close
+				result += '"';
+				inString = false;
 			}
-			continue;
+		} else {
+			// Non-structural — content quote
+			result += '\\"';
 		}
-
-		if (inString && (ch === "\n" || ch === "\r")) {
-			result += ch === "\n" ? "\\n" : "\\r";
-			continue;
-		}
-
-		result += ch;
-	}
-
-	return result;
+		return { inString, result };
+	});
 }
 
 // ─── JSON Extraction ──────────────────────────────────────────────
