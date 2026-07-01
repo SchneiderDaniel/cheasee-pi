@@ -224,7 +224,6 @@ The overall score for an extension is the sum of all severity weights across its
 | `change-resolver.ts` | Cross-references AST findings against changelog entries; eliminates false positives via structured change signature matching |
 | `impact-scorer.ts` | Scores compatibility issues by severity weight (removed > renamed > deprecated > changed) |
 | `migration-generator.ts` | Generates old-to-new migration code snippets from structured change patterns |
-| `issue-builder.ts` | Builds GitHub issue title and body; checks authentication, ensures labels, deduplicates, and creates issues |
 | `resolve-astgrep.ts` | Resolves the ast-grep binary path from environment and PATH |
 | `constants.ts` | API pattern mappings, changelog path resolution |
 | `test/` | Pipeline and parser test suite |
@@ -239,7 +238,7 @@ Tests cover:
 - Change resolution: exact match, fuzzy match, no-match edge cases
 - Impact scoring: severity weights, threshold gating, cumulative scoring
 - Migration generation: simple rename, signature change, complex migration
-- Issue building: markdown formatting, file references, code snippets
+- Pipeline issue phase: LLM-driven evaluation via pi.sendUserMessage
 - Pipeline integration: full end-to-end with mock changelog + mock extension
 
 ## Requirements

@@ -10,7 +10,7 @@ Pi releases can introduce breaking changes. An extension using `ctx.ui.setFooter
 - Scans every extension in `.pi/extensions/` with ast-grep AST analysis
 - Detects removed API calls, renamed hooks, signature changes
 - Generates per-extension migration snippets
-- Creates structured GitHub issues for affected extensions
+- Sends structured findings to LLM for evaluation and issue creation
 
 Manual auditing across 17+ extensions after every pi update is impractical. This extension makes it a one-command operation.
 
@@ -21,11 +21,7 @@ Manual auditing across 17+ extensions after every pi update is impractical. This
 3. **Extension scan** — Walks `.pi/extensions/`, reads each extension's source files, builds an AST (via ast-grep) of all pi API imports and usage
 4. **Cross-reference** — Matches each extension's API usage against the changelog's breaking changes
 5. **Impact scoring** — Each compatibility issue gets a score based on severity (removed API > renamed > deprecated)
-6. **Issue generation** — Creates a structured GitHub issue per affected extension with:
-   - The breaking change and version
-   - The affected file(s) and line(s)
-   - Generated migration snippet showing old → new API usage
-   - Estimated fix complexity
+6. **Issue evaluation** — Sends structured findings to the LLM agent via `pi.sendUserMessage()` for evaluation and issue creation
 
 ### Pipeline modules
 
@@ -36,7 +32,7 @@ Manual auditing across 17+ extensions after every pi update is impractical. This
 | `manifest-reader.ts` | Read extension package.json/pi manifest |
 | `impact-scorer.ts` | Score compatibility issues by severity |
 | `migration-generator.ts` | Generate old→new migration code snippets |
-| `issue-builder.ts` | Build GitHub issue body from findings |
+
 
 ## Install
 
@@ -47,7 +43,7 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 - Pi Coding Agent ≥ 0.78.0
 - ast-grep installed (`npm i -g @ast-grep/cli`)
 - Project must be trusted (`/trust`)
-- GitHub CLI (`gh`) for issue creation
+
 
 ## Details
 
@@ -64,7 +60,6 @@ Modular pipeline for CHANGELOG-based API breakage detection:
 ├── change-resolver.ts     # Cross-reference API usage vs changelog entries
 ├── impact-scorer.ts       # Score compatibility issues by severity
 ├── migration-generator.ts # Generate old to new code migration snippets
-├── issue-builder.ts       # Build structured GitHub issue body
 ├── resolve-astgrep.ts     # Resolve ast-grep binary path
 ├── constants.ts           # Severity enum, threshold values
 ├── types.ts               # All interfaces
@@ -87,8 +82,8 @@ flowchart TD
     J --> K[Phase 4: Score by severity]
     K --> L[impact-scorer: removed > renamed > deprecated]
     L --> M[Phase 5: Generate migration snippets]
-    M --> N[Phase 6: Build GitHub issue]
-    N --> O[Create issue via gh CLI]
+    M --> N[Phase 6: Evaluate findings with LLM]
+    N --> O[LLM creates issue via pi.sendUserMessage]
 ```
 
 ### Severity Scoring
