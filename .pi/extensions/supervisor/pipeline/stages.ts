@@ -38,6 +38,7 @@ import type { AgentOutput } from "../config/types.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
+import type { OsvScanResult } from "../checks/osv-scanner.ts";
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -56,6 +57,8 @@ export interface StageState {
 	researcherSkipped: boolean;
 	/** Dead code check result, set during Implementation→Audit hooks */
 	deadCodeResult: DeadCodeResult | null;
+	/** OSV vulnerability scan result, set during Implementation→Audit hooks */
+	vulnResult: OsvScanResult | null;
 	/**
 	 * Gate failure note from the last pre-transition hook that returned
 	 * effectiveNextStatus === "Implementation". Set by handler.ts after
@@ -83,6 +86,7 @@ export function createStageState(initialStatus: string): StageState {
 		duplicateCodeResult: null,
 		researcherSkipped: false,
 		deadCodeResult: null,
+		vulnResult: null,
 		gateFailureContext: undefined,
 		gateFailureHistory: [],
 	};
@@ -197,6 +201,19 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
 export function buildDeadCodeContext(result: DeadCodeResult | null): string | null {
 	return buildDeadCodeContextInner(result);
 }
+
+// ─── Vuln Context ─────────────────────────────────────────────────────
+
+/**
+ * Build a formatted string from OsvScanResult for injection into auditor task context.
+ * Wraps the inner implementation from checks/osv-scanner.ts.
+ */
+export function buildVulnContext(result: OsvScanResult | null): string | null {
+	if (!result) return null;
+	return buildVulnContextInner(result);
+}
+
+import { buildVulnContext as buildVulnContextInner } from "../checks/osv-scanner.ts";
 
 // ─── Gate Failure Context ────────────────────────────────────────────
 

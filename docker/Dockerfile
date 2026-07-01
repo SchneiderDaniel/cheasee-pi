@@ -160,6 +160,25 @@ RUN chmod -R a+rX /opt/venvs && \
     rm -rf /root/.cache/* /tmp/*
 
 # ---------------------------------------------------------------
+# Layer 5f: osv-scanner binary (prebuilt release — no Go toolchain)
+# Vulnerability scanner for 19+ lockfile types across 11+ ecosystems.
+# Pinned to v2.4.0 per research (Jun 18, 2026).
+# ---------------------------------------------------------------
+ARG OSV_SCANNER_VERSION=2.4.0
+RUN case "$(dpkg --print-architecture)" in \
+        amd64) \
+            osv_asset="osv-scanner_${OSV_SCANNER_VERSION}_linux_amd64.tar.gz" ;; \
+        arm64) \
+            osv_asset="osv-scanner_${OSV_SCANNER_VERSION}_linux_arm64.tar.gz" ;; \
+        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/tmp/${osv_asset}" && \
+    tar xzf "/tmp/${osv_asset}" -C /usr/local/bin osv-scanner && \
+    chmod +x /usr/local/bin/osv-scanner && \
+    rm -f "/tmp/${osv_asset}" && \
+    osv-scanner --version
+
+# ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \

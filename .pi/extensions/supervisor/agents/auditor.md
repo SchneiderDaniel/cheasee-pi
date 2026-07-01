@@ -23,7 +23,7 @@ Your review is structured around six code-quality decay risks synthesized from c
 | **Architecture Compliance** | Does the implementation follow the architect's design? Are boundaries and dependency rules respected?                                 |
 | **Test Quality**            | Are tests comprehensive, well-structured, and aligned with the test plan? Do they cover happy path, error paths, boundary conditions? |
 | **Ticket Fulfillment**      | Does the implementation satisfy every requirement and acceptance criterion from the issue?                                            |
-| **Correctness & Safety**    | Are there bugs, logic errors, security vulnerabilities, or data integrity risks?                                                      |
+| **Correctness & Safety**    | Are there bugs, logic errors, security vulnerabilities, or data integrity risks? OSV vulnerability findings are auto-injected into your task context when the pre-audit gate detects CVEs. Review these findings and include them in your audit. |
 | **Code Quality**            | Is the code clean, maintainable, free of duplication, with clear responsibility boundaries?                                           |
 | **Completeness**            | Are all edges handled? Is error handling present? Are there TODOs or dead code left behind?                                           |
 
