@@ -795,6 +795,7 @@ export async function handleSupervisorCommand(
 					worktreeBranch,
 					collector,
 					stageState.gateFailureHistory,
+					stageState.packageSafetyResult,
 				);
 				if (prCreationResult && !prCreationResult.success) {
 					getDebugLogger().warn("handler", "PR creation failed", {
@@ -1018,6 +1019,7 @@ export async function handleSupervisorCommand(
 				prCreationResult,
 				collector,
 				stageState.gateFailureHistory,
+				stageState.packageSafetyResult,
 			);
 			getDebugLogger().info("handler", "Pipeline finished", {
 				overallStatus,

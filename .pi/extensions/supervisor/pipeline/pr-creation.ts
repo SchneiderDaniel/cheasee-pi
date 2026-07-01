@@ -18,6 +18,7 @@ import { gh } from "../github/gh-client.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
+import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 /**
  * Maximum number of retry attempts for gh pr create.
@@ -51,6 +52,7 @@ export async function createPrOnApproval(
 	worktreeBranch: string | undefined,
 	collector?: ErrorCollector,
 	gateFailureHistory?: string[],
+	packageSafetyResult?: PackageSafetyAuditResult | null,
 ): Promise<PrCreationResult> {
 	const log = getDebugLogger();
 	const headBranch =
@@ -65,6 +67,7 @@ export async function createPrOnApproval(
 		undefined,
 		undefined,
 		gateFailureHistory,
+		packageSafetyResult,
 	);
 	const tempFile = joinPath(tmpdir(), `pr-body-${issueNum}.md`);
 	log.info("pr-creation", `Writing PR body to ${tempFile}`);

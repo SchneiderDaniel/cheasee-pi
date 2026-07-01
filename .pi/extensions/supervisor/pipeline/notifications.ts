@@ -11,6 +11,7 @@ import type {
 import { formatDuration } from "../lib/formatting.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import type { ErrorCollector } from "./error-collector.ts";
+import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 // ─── Agent Progress Streaming (removed) ──────────────────────────
 // Previously: sendAgentProgressMessage/clearAgentProgressMessage sent invisible
@@ -37,6 +38,7 @@ export function sendPipelineSummary(
 	prCreationResult?: PrCreationResult,
 	collector?: ErrorCollector,
 	gateFailureHistory?: string[],
+	packageSafetyResult?: PackageSafetyAuditResult | null,
 ): void {
 	// Prepend warnings block from collector if non-empty
 	const warningsBlock = collector?.toNotificationBlock();
@@ -49,6 +51,7 @@ export function sendPipelineSummary(
 		overallStatus === "stopped" ? stopReason : undefined,
 		prCreationResult,
 		gateFailureHistory,
+		packageSafetyResult,
 	);
 
 	// Combine warnings and summary
@@ -127,6 +130,7 @@ export function sendPipelineError(
 	config: SupervisorConfig,
 	msg: string,
 	gateFailureHistory?: string[],
+	packageSafetyResult?: PackageSafetyAuditResult | null,
 ): void {
 	ctx.ui.notify(`Supervisor error: ${msg}`, "error");
 
@@ -141,6 +145,7 @@ export function sendPipelineError(
 			undefined,
 			undefined,
 			gateFailureHistory,
+			packageSafetyResult,
 		);
 
 		pi.sendMessage({
