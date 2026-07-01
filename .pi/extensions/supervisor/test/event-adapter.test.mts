@@ -466,6 +466,31 @@ describe("processNormalizedEvent", () => {
 		);
 		assert.equal(result.flush, true);
 		assert.equal(state.textPushedThisTurn, true);
+		assert.ok(
+			state.textOutputLines.join("\n").includes("result"),
+			"textOutputLines should contain done content",
+		);
+	});
+
+	it("done after streaming: text content captured via endsWith fallback", () => {
+		const state = createState();
+		// Simulate streaming that only captured partial text
+		processNormalizedEvent({ kind: "text_start" }, state);
+		processNormalizedEvent({ kind: "text_delta", delta: "partial\n" }, state);
+		processNormalizedEvent({ kind: "text_end" }, state);
+
+		// done with full content — should be captured via endsWith fallback
+		processNormalizedEvent(
+			{
+				kind: "done",
+				message: { content: [{ type: "text", text: "partial\nfull content with JSON" }] },
+			},
+			state,
+		);
+		assert.ok(
+			state.textOutputLines.join("\n").includes("full content with JSON"),
+			"done content should be appended to textOutputLines",
+		);
 	});
 
 	it("handles context_info", () => {
@@ -626,6 +651,40 @@ describe("processNormalizedEvent", () => {
 		);
 		assert.ok(textOnly.includes("First test"), "textOnly should contain full message_end content");
 		assert.ok(textOnly.includes("Edge cases"), "textOnly should contain full message_end content");
+	});
+
+	it("multi-line text_delta streaming: completed lines captured in textOutputLines", () => {
+		const state = createState();
+
+		// Realistic scenario: multi-line text streamed as deltas with newlines.
+		// Each completed line ends with \\n and is pushed to fullLog by handleTextDelta.
+		// Regression: textOutputLines must capture completed lines too, not just the
+		// last partial line at text_end. Without this, extractAgentCommentBody(textOnly)
+		// fails to find the JSON comment body and falls through to textOutput fallback.
+		processNormalizedEvent({ kind: "text_start" }, state);
+		processNormalizedEvent({ kind: "text_delta", delta: "## Research Findings\n\n" }, state);
+		processNormalizedEvent(
+			{ kind: "text_delta", delta: '{"action":"COMPLETE","commentBody":"## Research\\nDone"}\n' },
+			state,
+		);
+		processNormalizedEvent({ kind: "text_delta", delta: "```" }, state);
+		processNormalizedEvent({ kind: "text_end" }, state);
+
+		// textOutputLines must have all completed lines, not just trailing partial
+		const textOnly = state.textOutputLines.join("\n").trim();
+		assert.ok(
+			textOnly.includes('"action":"COMPLETE"'),
+			"JSON action field should be in textOutputLines",
+		);
+		assert.ok(
+			textOnly.includes('"commentBody":"## Research\\nDone"'),
+			"JSON commentBody should be in textOutputLines",
+		);
+		assert.ok(
+			textOnly.includes("## Research Findings"),
+			"markdown heading should be in textOutputLines",
+		);
+		assert.ok(textOnly.endsWith("```"), "trailing code fence should be in textOutputLines");
 	});
 
 	it("no prior streaming: message_end with content → pushed to textOutputLines", () => {
