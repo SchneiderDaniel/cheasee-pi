@@ -40,6 +40,7 @@ import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dea
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import type { OsvScanResult } from "../checks/osv-scanner.ts";
 
+
 // ─── Constants ────────────────────────────────────────────────────
 
 export const MAX_PIPELINE_LOOPS = 20;
@@ -59,6 +60,7 @@ export interface StageState {
 	deadCodeResult: DeadCodeResult | null;
 	/** OSV vulnerability scan result, set during Implementation→Audit hooks */
 	vulnResult: OsvScanResult | null;
+
 	/**
 	 * Gate failure note from the last pre-transition hook that returned
 	 * effectiveNextStatus === "Implementation". Set by handler.ts after
@@ -87,6 +89,7 @@ export function createStageState(initialStatus: string): StageState {
 		researcherSkipped: false,
 		deadCodeResult: null,
 		vulnResult: null,
+
 		gateFailureContext: undefined,
 		gateFailureHistory: [],
 	};
@@ -214,6 +217,7 @@ export function buildVulnContext(result: OsvScanResult | null): string | null {
 }
 
 import { buildVulnContext as buildVulnContextInner } from "../checks/osv-scanner.ts";
+
 
 // ─── Gate Failure Context ────────────────────────────────────────────
 

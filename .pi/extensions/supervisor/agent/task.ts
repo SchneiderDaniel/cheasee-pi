@@ -128,6 +128,7 @@ function buildAuditChecklist(dimensionCount: number): string {
 		"Completeness: ✓",
 		"Duplicate code: ← run jscpd or ripgrep_search to verify",
 		"Dead code: ← verify findings from pre-audit gate or run ripgrep_search",
+		"Package safety: ← verify findings from pre-audit gate or run npm view",
 		"Research incorporation: ← verify researcher findings reflected in implementation, or deviation justified",
 	];
 	return checklist.join("\n");
@@ -208,6 +209,7 @@ export function buildAgentTask(
 	auditFeedback?: string | null,
 	deadCodeContext?: string | null,
 	vulnContext?: string | null,
+
 	gateFailureContext?: string,
 	systemPromptOptions?: SystemPromptOptions,
 ): string {
@@ -344,11 +346,13 @@ ${filteredData.body}`,
 			// Pre-audit OSV vulnerability context — injected when pipeline found CVEs
 			const vulnBlock = vulnContext
 				? `\n### ⚠️ Vulnerabilities Detected (Pre-Audit Gate)\nThe automated OSV vulnerability scan found known CVEs in project dependencies.\nPlease verify these findings and include them in your audit if confirmed.\n\n${vulnContext}\n`
+
 				: "";
 
 			const checklist = buildAuditChecklist(8);
 
 			return `${systemPromptPrefix}${issueBlock}\n\n## Task\nFollow your system prompt instructions.\n${wtBlock}${dupBlock}${deadBlock}${vulnBlock}\n\n\n${JSON_OUTPUT_INSTRUCTION}\n\n**IF APPROVE:**\n\n\`\`\`json\n{\n  \"action\": \"APPROVED\",\n  \"agentName\": \"auditor\",\n  \"summary\": \"Approved implementation\",\n  \"commentBody\": \"## Audit Approved\\n\\n### Summary\\n[1-2 sentences: what changed, why]\\n\\n### Review Findings\\n[Non-blocking notes]\\n\\n### Checklist\\n${checklist.replace(/\n/g, "\\n")}\\n\\n### Audit Score\\nAUDIT_SCORE: <passing>/10\",\n  \"prTitle\": \"feat(#${issueNum}): ${title}\",\n  \"prBody\": \"## PR Description\\n\\n[details]\",\n  \"auditScore\": { \"passing\": 10, \"total\": 10 },\n  \"findings\": []\n}\n\`\`\`\n\n**IF REJECT:**\n\n\`\`\`json\n{\n  \"action\": \"REJECTED\",\n  \"agentName\": \"auditor\",\n  \"summary\": \"Rejected - issues found\",\n  \"commentBody\": \"## Audit Rejected\\n\\n[list specific issues with Symptom → Consequence → Remedy → Location]\",\n  \"findings\": [\n    {\n      \"severity\": \"critical\",\n      \"dimension\": \"code-quality\",\n      \"symptom\": \"<what is the issue>\",\n      \"consequence\": \"<why it matters>\",\n      \"remedy\": \"<how to fix>\",\n      \"location\": \"<file path>\"\n    }\n  ]\n}\n\`\`\`\n\nThe pipeline will:\n1. Create a PR in ${repo} with the prBody as description\n2. Post a GitHub issue comment with the commentBody\n\n⚠️ **STRICT FORMAT REQUIREMENT:** Your response MUST include the JSON block shown above, or at minimum start with "AUDIT_DECISION: APPROVED/REJECTED" followed by "COMMENT_BODY:". If you output plain text without either JSON or AUDIT_DECISION: text markers, the pipeline silently skips posting your review — no comment appears on the PR. Your review is invisible without structured output. Always include commentBody in your JSON or provide COMMENT_BODY: after AUDIT_DECISION:.
+
 
 **NOTE:** This strict format requirement also applies to architect, test-designer, and researcher agents. Every agent must include structured JSON with commentBody or a proper section heading.
 
