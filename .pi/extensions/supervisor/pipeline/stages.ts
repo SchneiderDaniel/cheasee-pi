@@ -38,6 +38,7 @@ import type { AgentOutput } from "../config/types.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
+import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -56,6 +57,8 @@ export interface StageState {
 	researcherSkipped: boolean;
 	/** Dead code check result, set during Implementation→Audit hooks */
 	deadCodeResult: DeadCodeResult | null;
+	/** Package safety audit result, set during Implementation→Audit hooks */
+	packageSafetyResult: PackageSafetyAuditResult | null;
 	/**
 	 * Gate failure note from the last pre-transition hook that returned
 	 * effectiveNextStatus === "Implementation". Set by handler.ts after
@@ -83,6 +86,7 @@ export function createStageState(initialStatus: string): StageState {
 		duplicateCodeResult: null,
 		researcherSkipped: false,
 		deadCodeResult: null,
+		packageSafetyResult: null,
 		gateFailureContext: undefined,
 		gateFailureHistory: [],
 	};
@@ -196,6 +200,29 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
  */
 export function buildDeadCodeContext(result: DeadCodeResult | null): string | null {
 	return buildDeadCodeContextInner(result);
+}
+
+/**
+ * Build a formatted string from PackageSafetyAuditResult for injection into auditor task context.
+ * Returns null if no blocked packages or result is null.
+ */
+export function buildPackageSafetyContext(result: PackageSafetyAuditResult | null): string | null {
+	if (!result || result.status === "safe" || result.results.length === 0) return null;
+
+	const blocked = result.results.filter((r) => r.blocked);
+	if (blocked.length === 0) return null;
+
+	const lines: string[] = [];
+	lines.push(
+		`**${blocked.length} blocked package(s) found — ${result.status === "error" ? "errors encountered" : "packages below safety threshold"}**`,
+	);
+	lines.push("");
+
+	for (const item of blocked) {
+		lines.push(`- \`${item.packageName}\`: ${item.message}`);
+	}
+
+	return lines.join("\n");
 }
 
 // ─── Gate Failure Context ────────────────────────────────────────────

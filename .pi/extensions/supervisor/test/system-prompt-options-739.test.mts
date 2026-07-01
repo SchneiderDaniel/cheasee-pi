@@ -66,7 +66,7 @@ describe("getSystemPromptOptions — contract", () => {
 // ─── buildAgentTask with systemPromptOptions ─────────────────────
 // The new optional parameter systemPromptOptions is added to
 // buildAgentTask. When provided, it injects tool names into the task.
-// NOTE: systemPromptOptions is the 18th parameter (after deadCodeContext).
+// NOTE: systemPromptOptions is the 21st parameter (after gateFailureContext).
 
 describe("buildAgentTask — systemPromptOptions parameter", () => {
 	it("buildAgentTask is a function exported from agent/task.ts", () => {
@@ -125,6 +125,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined, // researchFindings
 			undefined, // auditFeedback
 			undefined, // deadCodeContext
+			undefined, // packageSafetyContext
 			undefined, // gateFailureContext
 			{ selectedTools: ["read", "bash", "edit"] }, // systemPromptOptions
 		);
@@ -154,6 +155,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
+			undefined, // packageSafetyContext
 			undefined, // gateFailureContext
 			{ contextFiles: [".pi/agents.md", ".pi/skills/writing-voice/SKILL.md"] },
 		);
@@ -181,6 +183,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
+			undefined, // packageSafetyContext
 			undefined, // gateFailureContext
 			{ skills: ["writing-voice", "extension-spec"] },
 		);
@@ -228,6 +231,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
+			undefined, // packageSafetyContext
 			undefined, // gateFailureContext
 			{ selectedTools: [], contextFiles: [], skills: [] },
 		);
@@ -259,6 +263,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 				undefined,
 				undefined,
 				undefined, // deadCodeContext
+				undefined, // packageSafetyContext
 				undefined, // gateFailureContext
 				{ selectedTools: ["read", "bash"], contextFiles: ["config.json"] },
 			);
@@ -286,6 +291,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined,
 			undefined,
 			undefined, // deadCodeContext
+			undefined, // packageSafetyContext
 			undefined, // gateFailureContext
 			{ selectedTools: undefined, contextFiles: undefined, skills: undefined },
 		);

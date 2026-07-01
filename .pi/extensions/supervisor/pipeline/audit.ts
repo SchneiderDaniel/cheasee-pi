@@ -17,7 +17,7 @@ import { runDuplicateCheck } from "../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { runDeadCodeCheck, buildDeadCodeContext } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
-import { runPackageSafetyAudit } from "../checks/package-safety.ts";
+import { runPackageSafetyAudit, type PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
 import { writeCheckpointFile } from "./state-checkpoint.ts";
@@ -48,6 +48,7 @@ export async function runTscAndLspAudit(
 	note: string;
 	duplicateCodeResult?: DuplicateCodeResult;
 	deadCodeResult?: DeadCodeResult;
+	packageSafetyResult?: PackageSafetyAuditResult;
 }> {
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
@@ -172,8 +173,9 @@ export async function runTscAndLspAudit(
 		// in the worktree's package.json for package age safety.
 		ctx.ui.setStatus("supervisor", "Checking package safety...");
 		getDebugLogger().info("pipeline-audit", "Running package safety audit", { worktreePath });
+		let safetyResult: PackageSafetyAuditResult | undefined;
 		try {
-			const safetyResult = await runPackageSafetyAudit(execFn, worktreePath);
+			safetyResult = await runPackageSafetyAudit(execFn, worktreePath);
 			if (safetyResult.status === "blocked") {
 				const blockedPkgs = safetyResult.results
 					.filter((r) => r.blocked)
@@ -335,6 +337,7 @@ export async function runTscAndLspAudit(
 				note: `The following gates blocked the transition from Implementation to Audit:\n\n${combinedNote}`,
 				duplicateCodeResult: dupResult,
 				deadCodeResult: deadResult,
+				packageSafetyResult: safetyResult,
 			};
 		}
 
@@ -344,6 +347,7 @@ export async function runTscAndLspAudit(
 			note: lspResult.note || "",
 			duplicateCodeResult: dupResult,
 			deadCodeResult: deadResult,
+			packageSafetyResult: safetyResult,
 		};
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);

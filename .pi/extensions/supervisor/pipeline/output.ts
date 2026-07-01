@@ -8,6 +8,7 @@ import type {
 	SupervisorConfig,
 	PrCreationResult,
 } from "../config/types.ts";
+import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 import { formatDuration, formatTokens } from "../lib/formatting.ts";
 
 // ─── validateAgentResult ────────────────────────────────────────────
@@ -41,6 +42,7 @@ export function buildPipelineSummary(
 	stopReason?: string,
 	prCreationResult?: PrCreationResult,
 	gateFailureHistory?: string[],
+	packageSafetyResult?: PackageSafetyAuditResult | null,
 ): string {
 	const lines: string[] = [];
 
@@ -137,6 +139,19 @@ export function buildPipelineSummary(
 		lines.push("**Gate failures:**");
 		for (const entry of gateFailureHistory) {
 			lines.push(`- ${entry}`);
+		}
+	}
+
+	// Package safety summary — non-blocking informational section
+	if (packageSafetyResult && packageSafetyResult.results.length > 0) {
+		const blocked = packageSafetyResult.results.filter((r) => r.blocked);
+		lines.push("");
+		if (blocked.length > 0) {
+			lines.push(`**Package safety:** ${packageSafetyResult.results.length} checked, ${blocked.length} blocked — see auditor review`);
+		} else if (packageSafetyResult.status === "error") {
+			lines.push(`**Package safety:** error — ${packageSafetyResult.message || "check failed"}`);
+		} else {
+			lines.push(`**Package safety:** ${packageSafetyResult.results.length} checked, all safe`);
 		}
 	}
 

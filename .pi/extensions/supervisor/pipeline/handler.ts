@@ -67,6 +67,7 @@ import {
 	applyGateFailureContext,
 	type GateRejected,
 	buildDeadCodeContext,
+	buildPackageSafetyContext,
 } from "./stages.ts";
 import {
 	fetchIssue,
@@ -565,6 +566,11 @@ export async function handleSupervisorCommand(
 				agentName === "auditor"
 					? (buildDeadCodeContext(stageState.deadCodeResult) ?? undefined)
 					: undefined;
+			// Build package safety context for auditor
+			const packageSafetyContext: string | undefined =
+				agentName === "auditor"
+					? (buildPackageSafetyContext(stageState.packageSafetyResult) ?? undefined)
+					: undefined;
 			const task = buildAgentTask(
 				agentName,
 				issueNum,
@@ -584,6 +590,7 @@ export async function handleSupervisorCommand(
 				researchFindings,
 				auditFeedback,
 				deadContext,
+				packageSafetyContext,
 				stageState.gateFailureContext,
 				systemPromptOptions,
 			);
@@ -922,6 +929,10 @@ export async function handleSupervisorCommand(
 					// Store duplicate code result in stage state for auditor context injection
 					if (auditResult.duplicateCodeResult) {
 						stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
+					}
+					// Store package safety result in stage state for auditor context injection
+					if (auditResult.packageSafetyResult) {
+						stageState.packageSafetyResult = auditResult.packageSafetyResult;
 					}
 					getDebugLogger().info("handler", "Pre-transition hook result", {
 						effectiveNextStatus,
