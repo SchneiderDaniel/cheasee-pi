@@ -594,6 +594,96 @@ describe("processNormalizedEvent", () => {
 		assert.equal(state.fullLog.filter((l) => l === "C").length, 1, "'C' once");
 		assert.equal(state.fullLog.filter((l) => l === "D").length, 1, "'D' once");
 	});
+
+	// ── Bug B regression tests: handleMessageEnd text extraction ──
+
+	it("thinking:high model: partial streaming + full message_end content → textOutputLines has full content", () => {
+		const state = createState();
+
+		// Simulate thinking:high model: minimal text_delta, then text_end
+		processNormalizedEvent({ kind: "text_start" }, state);
+		processNormalizedEvent({ kind: "text_delta", delta: "abc" }, state);
+		processNormalizedEvent({ kind: "text_end" }, state);
+		// After text_end: tiny text pushed, textPushedThisTurn=true
+		assert.equal(state.textPushedThisTurn, true);
+		assert.equal(state.textOutputLines.join("\n"), "abc");
+
+		// message_end with full content (much larger)
+		const fullContent = "## Test Plan\n\n1. First test\n2. Second test\n3. Edge cases";
+		processNormalizedEvent(
+			{
+				kind: "message_end",
+				message: { role: "assistant", content: [{ type: "text", text: fullContent }] },
+			},
+			state,
+		);
+
+		// textOutputLines should now contain the full content, not just "abc"
+		const textOnly = state.textOutputLines.join("\n").trim();
+		assert.ok(textOnly.includes("## Test Plan"), "textOnly should contain full message_end content");
+		assert.ok(textOnly.includes("First test"), "textOnly should contain full message_end content");
+		assert.ok(textOnly.includes("Edge cases"), "textOnly should contain full message_end content");
+	});
+
+	it("no prior streaming: message_end with content → pushed to textOutputLines", () => {
+		const state = createState();
+		// No text_start/text_end — message_end arrives without streaming
+		processNormalizedEvent(
+			{
+				kind: "message_end",
+				message: { role: "assistant", content: [{ type: "text", text: "Final answer" }] },
+			},
+			state,
+		);
+		assert.ok(state.textPushedThisTurn, "textPushedThisTurn should be true");
+		assert.ok(
+			state.textOutputLines.join("\n").includes("Final answer"),
+			"textOutputLines should contain message_end content",
+		);
+	});
+
+	it("empty message_end content → no push, no crash", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{
+				kind: "message_end",
+				message: { role: "assistant", content: [] },
+			},
+			state,
+		);
+		assert.equal(state.textOutputLines.length, 0, "no text output pushed");
+	});
+
+	it("null message → no crash", () => {
+		const state = createState();
+		const result = processNormalizedEvent(
+			{ kind: "message_end", message: null as any },
+			state,
+		);
+		assert.equal(result.flush, false);
+		assert.equal(result.workingChange, false);
+	});
+
+	it("dual-block content (thinking at index 0, text at index 1) → only text extracted", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{
+				kind: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "deep reasoning" },
+						{ type: "text", text: "## Architecture\nClean design" },
+					],
+				},
+			},
+			state,
+		);
+		// Text should be extracted from the text block, not the thinking block
+		const textOnly = state.textOutputLines.join("\n").trim();
+		assert.ok(textOnly.includes("## Architecture"), "text block content should be captured");
+		assert.ok(!textOnly.includes("deep reasoning"), "thinking block content should NOT be in textOutputLines");
+	});
 });
 
 // ─── filterStderr — stderr noise filter (Phase 1) ──────────────────

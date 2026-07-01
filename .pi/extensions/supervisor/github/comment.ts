@@ -5,8 +5,8 @@
 // The old regex-based builders (buildAuditCommentFallback, etc.) have been
 // removed. All audit comment construction now goes through parseAgentOutput.
 
-import { writeFile, unlink } from "node:fs/promises";
-import { join as joinPath } from "node:path";
+import { writeFile, unlink, mkdir } from "node:fs/promises";
+import { dirname, join as joinPath } from "node:path";
 import type { ExecFn } from "../pipeline/helpers.ts";
 import type { FilteredIssueData, AgentOutput } from "../config/types.ts";
 import { gh } from "./gh-client.ts";
@@ -64,6 +64,7 @@ export async function postIssueComment(
 	// Per AGENTS.md: save to ignore/ folder, delete after use.
 	const tempFile = joinPath("ignore", `comment-body-${issueNum}-${Date.now()}.md`);
 	try {
+		await mkdir(dirname(tempFile), { recursive: true });
 		await writeFile(tempFile, truncated, "utf-8");
 	} catch (writeErr: unknown) {
 		const writeMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
@@ -434,7 +435,7 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
  * metadata is too close to the heading (likely part of the content, not
  * trailing output).
  */
-export function stripTraditionalJsonEnd(
+function stripTraditionalJsonEnd(
 	slice: string,
 	minHeadingLen: number,
 	truncatePos: number,
