@@ -223,9 +223,9 @@ export async function runPreAudit(
 
 /**
  * Merge multiple audit results (one per LSP server) into a single result.
- * Local helper (not exported) to avoid circular import with formatting.ts.
+ * Local helper to avoid circular import with formatting.ts.
  */
-function mergeAuditResults(results: AuditResult[]): AuditResult {
+export function mergeAuditResults(results: AuditResult[]): AuditResult {
 	const allDiags: LspDiagnostic[] = [];
 	const allErrors: string[] = [];
 
