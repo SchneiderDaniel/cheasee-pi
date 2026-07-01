@@ -240,6 +240,7 @@ function handleTextDelta(
 			state.liveText = state.liveText.slice(nlIdx + 1);
 			if (line.trim()) {
 				pushLog(state, line);
+				state.textOutputLines.push(line);
 				state.textPushedThisTurn = true;
 			}
 		}
@@ -381,6 +382,13 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 			for (const t of content.split("\n")) {
 				if (t.trim()) pushLog(state, t);
 			}
+		} else {
+			// Text was pushed via streaming. Only add if done provides
+			// additional content not yet captured. Same pattern as handleMessageEnd.
+			const existingText = state.textOutputLines.join("\n").trim();
+			if (!existingText.endsWith(content.trim())) {
+				state.textOutputLines.push(content.trim());
+			}
 		}
 	} else if (Array.isArray(content)) {
 		const textParts: string[] = [];
@@ -395,13 +403,22 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 				thinkingParts.push(t);
 			}
 		}
-		if (!state.textPushedThisTurn && textParts.length > 0) {
+		if (textParts.length > 0) {
 			const allText = textParts.join("\n").trim();
 			if (allText) {
-				state.textOutputLines.push(allText);
-				state.textPushedThisTurn = true;
-				for (const t of allText.split("\n")) {
-					if (t.trim()) pushLog(state, t);
+				if (!state.textPushedThisTurn) {
+					state.textOutputLines.push(allText);
+					state.textPushedThisTurn = true;
+					for (const t of allText.split("\n")) {
+						if (t.trim()) pushLog(state, t);
+					}
+				} else {
+					// Text was pushed via streaming. Only add if done provides
+					// additional content not yet captured. Same pattern as handleMessageEnd.
+					const existingText = state.textOutputLines.join("\n").trim();
+					if (!existingText.endsWith(allText)) {
+						state.textOutputLines.push(allText);
+					}
 				}
 			}
 		}
