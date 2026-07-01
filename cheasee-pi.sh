@@ -126,13 +126,34 @@ if [ "$CLEAN" = true ]; then
       for f in /tmp/pi-active-*; do
         [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
       done
-      # Kill pi/node processes not in active list
+      # Walk parent chain skipping self; root (PPID=0) with no children = orphan
+      is_orphan() {
+        local pid="$1" ppid
+        ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+        [ -z "$ppid" ] && return 0
+        # Root (from docker exec or reparented). Active root has children.
+        if [ "$ppid" -eq 0 ] 2>/dev/null; then
+          grep -qs "^PPid:[[:space:]]*$pid$" /proc/[0-9]*/status 2>/dev/null && return 1
+          return 0
+        fi
+        # Non-root: walk ancestors looking for markers
+        local max_depth=10
+        pid="$ppid"
+        while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
+          case " $active " in *" $pid "*) return 1 ;; esac
+          ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+          [ -z "$ppid" ] && return 0
+          pid="$ppid"; max_depth=$((max_depth - 1))
+        done
+        return 0
+      }
+      # Kill orphaned pi/node processes
       for f in /proc/[0-9]*/comm; do
         c=$(< "$f")
         case "$c" in
           pi|node)
             pid="${f%/comm}"; pid="${pid##*/}"
-            case " $active " in *" $pid "*) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+            is_orphan "$pid" && kill -9 "$pid" 2>/dev/null || true
             ;;
         esac
       done
@@ -633,10 +654,16 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
   for m in /tmp/pi-active-*; do
     [ -f "$m" ] && active="$active $(cat "$m" 2>/dev/null)"
   done
-  # Walk parent chain up to 10 levels; return 0 (orphan) if no ancestor
-  # has a marker file, 1 (active descendant) if one does.
+  # Conservative: root (PPID=0) always preserved for parallel sessions.
+  # Sub-agents: skip self in marker check.
   is_orphan() {
     local pid="$1" ppid max_depth=10
+    ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+    [ -z "$ppid" ] && return 0
+    # Root (docker exec launched) always preserved
+    [ "$ppid" -eq 0 ] 2>/dev/null && return 1
+    # Non-root: walk ancestors looking for markers
+    pid="$ppid"
     while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
       case " $active " in *" $pid "*) return 1 ;; esac
       ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
@@ -668,12 +695,20 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
 # Only kills processes whose entire parent chain has no active marker —
 # preserves sub-agent pi processes spawned by running supervisor sessions.
 docker exec cheasee-pi bash -c '
+  # Conservative: root (PPID=0) always preserved for parallel sessions.
+  # Sub-agents: skip self in marker check.
   active=""
   for f in /tmp/pi-active-*; do
     [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
   done
   is_orphan() {
     local pid="$1" ppid max_depth=10
+    ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+    [ -z "$ppid" ] && return 0
+    # Root (docker exec launched) always preserved
+    [ "$ppid" -eq 0 ] 2>/dev/null && return 1
+    # Non-root: walk ancestors looking for markers
+    pid="$ppid"
     while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
       case " $active " in *" $pid "*) return 1 ;; esac
       ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
