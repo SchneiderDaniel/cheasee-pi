@@ -36,6 +36,10 @@
 		"ignoreIssues": {
 			".pi/extensions/supervisor/index.ts": [
 				"exports"
+			],
+			".pi/extensions/check-extensions/ast-scanner.ts": [
+				"exports",
+				"types"
 			]
 		},
 		"ignoreDependencies": [
