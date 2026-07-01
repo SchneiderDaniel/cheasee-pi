@@ -134,6 +134,8 @@ export interface AgentRunResult {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── AgentRunState: mutable state during agent execution ────────────
@@ -174,6 +176,8 @@ export interface AgentRunState {
 	cacheRead?: number;
 	/** LLM prompt cache write tokens (from message usage) */
 	cacheWrite?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Message renderer details type ───────────────────────────────────
@@ -219,6 +223,8 @@ export interface SupervisorMessageDetails {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────
