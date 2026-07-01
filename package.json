@@ -37,6 +37,10 @@
 			".pi/extensions/supervisor/index.ts": [
 				"exports"
 			],
+			".pi/extensions/lsp-auditor/index.ts": [
+				"exports",
+				"types"
+			],
 			".pi/extensions/check-extensions/ast-scanner.ts": [
 				"exports",
 				"types"
