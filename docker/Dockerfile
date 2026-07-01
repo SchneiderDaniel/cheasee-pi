@@ -145,8 +145,14 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
     && rm -rf /root/.cache/pip /tmp/*
 
 # Pre-download Chromium browser for scrapling Playwright fetcher
+# Retry loop handles the ~175 MB download which can glitch on slow/unstable connections.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN /opt/venvs/scrapling-venv/bin/python -m playwright install chromium && \
+RUN for i in 1 2 3; do \
+      /opt/venvs/scrapling-venv/bin/python -m playwright install chromium \
+        && break; \
+      echo "[attempt $i] playwright install chromium failed, retrying in 5s…"; \
+      sleep 5; \
+    done && \
     chmod -R a+rX /opt/playwright-browsers
 
 # World-readable so agentuser (created next layer) can access
