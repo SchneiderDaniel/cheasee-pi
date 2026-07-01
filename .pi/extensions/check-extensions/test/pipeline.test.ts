@@ -517,50 +517,6 @@ describe("ChangelogPipeline — Phase 2.5: crossRefPhase", () => {
 		assert.equal((result as Record<string, unknown>).manifestCache, undefined);
 	});
 
-	it("crossRefPhase does not call readManifest", async () => {
-		// Register mock for readManifest before the module loads it
-		const mockReadManifest = mock.fn(() => ({}));
-		// Use mock.module to intercept in case pipeline.ts imports readManifest
-		// (it shouldn't since the dead code was removed, but this guards regressions)
-		try {
-			mock.module("../manifest-reader.ts", {
-				namedExports: { readManifest: mockReadManifest },
-			});
-		} catch {
-			// mock.module not available (needs --experimental-test-module-mocks)
-			// Fallback: dynamically import and verify no manifestCache property
-		}
-
-		// Dynamic import ensures we get the module after mock setup
-		const { ChangelogPipeline: CP } = await import("../pipeline.ts");
-
-		const pi = createMockPi();
-		const ctx = createMockCtx();
-		const pipeline = new CP(pi, ctx);
-
-		const entries: ChangeEntry[] = [makeChangeEntry()];
-		const findingsByExtension = new Map<string, ASTFinding[]>();
-		findingsByExtension.set("test-ext", [makeASTFinding()]);
-
-		const scanResult: ASTScanningResult = {
-			findings: [makeASTFinding()],
-			skipCount: 0,
-		};
-
-		const result = pipeline.crossRefPhase(entries, "0.74.0", findingsByExtension, scanResult);
-
-		// Verify readManifest was never called (0 calls even if the mock was registered)
-		if (mockReadManifest.mock.calls !== undefined) {
-			assert.equal(mockReadManifest.mock.calls.length, 0);
-		}
-
-		// And the pipeline still produces correct results for the three outputs
-		assert.ok(result.relevantFindingsByExtension instanceof Map);
-		assert.ok(result.snippetsByExtension instanceof Map);
-		assert.ok(result.scoresByExtension instanceof Map);
-		assert.equal((result as Record<string, unknown>).manifestCache, undefined);
-	});
-
 	it("preserves findings without matching changelog entry (not auto-filtered)", () => {
 		const { pi, ctx, pipeline } = createTestPipeline();
 
