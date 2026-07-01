@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
 	TOOL_DISCIPLINE_SNIPPET,
 	ERROR_HANDLING_PRINCIPLES,
+	INVESTIGATION_EFFICIENCY,
 	buildAgentSystemPrompt,
 } from "../lib/shared-prompts.ts";
 
@@ -181,5 +182,133 @@ describe("buildAgentSystemPrompt", () => {
 		const result = buildAgentSystemPrompt("", "developer");
 		assert.ok(result.startsWith("🛠 Tool Discipline"));
 		assert.ok(result.includes("## Error Handling Principles"));
+	});
+});
+
+// ─── Tests: INVESTIGATION_EFFICIENCY ────────────────────────────
+
+describe("INVESTIGATION_EFFICIENCY", () => {
+	it("is a non-empty string", () => {
+		assert.ok(typeof INVESTIGATION_EFFICIENCY === "string");
+		assert.ok(INVESTIGATION_EFFICIENCY.length > 0);
+	});
+
+	it("starts with the Investigation Efficiency header", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.startsWith("## Investigation Efficiency"));
+	});
+
+	it("contains rule 1: Isolate first", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("Isolate first"));
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("--test-name-pattern"));
+	});
+
+	it("contains rule 2: Read the test first", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("Read the test first"));
+	});
+
+	it("contains rule 3: Trace only the relevant path", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("Trace only the relevant path"));
+	});
+
+	it("contains guidance to use subtest name from failure output, not parent suite name", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("subtest name"));
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("not the parent"));
+	});
+
+	it("contains guidance to verify at least 1 test ran after filtering", () => {
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("at least 1 test ran"));
+		assert.ok(INVESTIGATION_EFFICIENCY.includes("0"));
+	});
+
+	it("is under 600 bytes (token budget compliance)", () => {
+		assert.ok(Buffer.byteLength(INVESTIGATION_EFFICIENCY, "utf8") < 600);
+	});
+});
+
+// ─── Tests: AGENT_OVERRIDES investigation flags ────────────────
+
+describe("AGENT_OVERRIDES investigation flags", () => {
+	it("developer has investigation: true", () => {
+		// Import the module to access the non-exported constant
+		// We test via buildAgentSystemPrompt output instead
+		const devResult = buildAgentSystemPrompt("test", "developer");
+		assert.ok(devResult.includes("Investigation Efficiency"));
+	});
+
+	it("test-designer has investigation: true", () => {
+		const tdResult = buildAgentSystemPrompt("test", "test-designer");
+		assert.ok(tdResult.includes("Investigation Efficiency"));
+	});
+
+	it("auditor does NOT have investigation", () => {
+		const auditorResult = buildAgentSystemPrompt("test", "auditor");
+		assert.ok(!auditorResult.includes("Investigation Efficiency"));
+	});
+
+	it("researcher does NOT have investigation", () => {
+		const researcherResult = buildAgentSystemPrompt("test", "researcher");
+		assert.ok(!researcherResult.includes("Investigation Efficiency"));
+	});
+
+	it("architect does NOT have investigation", () => {
+		const archResult = buildAgentSystemPrompt("test", "architect");
+		assert.ok(!archResult.includes("Investigation Efficiency"));
+	});
+});
+
+// ─── Tests: buildAgentSystemPrompt investigation injection ─────
+
+describe("buildAgentSystemPrompt investigation injection", () => {
+	it("injects INVESTIGATION_EFFICIENCY for developer agent", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "developer");
+		assert.ok(result.includes("## Investigation Efficiency"));
+	});
+
+	it("injects INVESTIGATION_EFFICIENCY for test-designer agent", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "test-designer");
+		assert.ok(result.includes("## Investigation Efficiency"));
+	});
+
+	it("does NOT inject INVESTIGATION_EFFICIENCY for auditor", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "auditor");
+		assert.ok(!result.includes("Investigation Efficiency"));
+	});
+
+	it("does NOT inject INVESTIGATION_EFFICIENCY for researcher", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "researcher");
+		assert.ok(!result.includes("Investigation Efficiency"));
+	});
+
+	it("does NOT inject INVESTIGATION_EFFICIENCY for architect", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "architect");
+		assert.ok(!result.includes("Investigation Efficiency"));
+	});
+
+	it("build order for developer: discipline < error handling < investigation < overrides < base", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "developer");
+		const discIndex = result.indexOf("🛠 Tool Discipline");
+		const principlesIndex = result.indexOf("## Error Handling Principles");
+		const investigationIndex = result.indexOf("## Investigation Efficiency");
+		const overridesIndex = result.indexOf("structural_search for code");
+		const baseIndex = result.indexOf("Some prompt");
+		assert.ok(discIndex >= 0, "Tool discipline section missing");
+		assert.ok(principlesIndex >= 0, "Error handling principles section missing");
+		assert.ok(investigationIndex >= 0, "Investigation efficiency section missing");
+		assert.ok(overridesIndex >= 0, "Per-agent overrides section missing");
+		assert.ok(baseIndex >= 0, "Base prompt section missing");
+		assert.ok(
+			discIndex < principlesIndex &&
+				principlesIndex < investigationIndex &&
+				investigationIndex < overridesIndex &&
+				overridesIndex < baseIndex,
+			`Expected order: discipline (${discIndex}) < principles (${principlesIndex}) < investigation (${investigationIndex}) < overrides (${overridesIndex}) < base (${baseIndex})`,
+		);
+	});
+
+	it("handles unknown agent name without error; no investigation block", () => {
+		const result = buildAgentSystemPrompt("Some prompt", "unknown-agent");
+		assert.ok(result.startsWith("🛠 Tool Discipline"));
+		assert.ok(result.includes("Some prompt"));
+		assert.ok(!result.includes("Investigation Efficiency"));
 	});
 });

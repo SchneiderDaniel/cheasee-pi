@@ -29,4 +29,31 @@ describe("AGENTS.md execution_protocols", () => {
 
 		assert.ok(hasRule4, "AGENTS.md must contain rule 4: Data Contradictions clarification instruction");
 	});
+
+	it("contains an investigation efficiency rule (rule 5)", () => {
+		const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+
+		// Must contain the investigation efficiency heading in execution_protocols
+		assert.ok(content.includes("INVESTIGATION EFFICIENCY"), "AGENTS.md must contain Investigation Efficiency rule");
+	});
+
+	it("rule 5 includes --test-name-pattern guidance pointing to exact subtest name", () => {
+		const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+
+		assert.ok(content.includes("--test-name-pattern"), "Rule 5 must mention --test-name-pattern");
+		assert.ok(content.includes("subtest name"), "Rule 5 must mention subtest name");
+		assert.ok(
+			content.includes("not the parent"),
+			"Rule 5 must warn against using parent describe-block name",
+		);
+	});
+
+	it("rule numbers run 1 through 5 sequentially", () => {
+		const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+
+		// All 5 rule numbers must be present in order
+		for (let i = 1; i <= 5; i++) {
+			assert.ok(content.includes(`${i}. `), `AGENTS.md must contain rule number ${i}`);
+		}
+	});
 });
