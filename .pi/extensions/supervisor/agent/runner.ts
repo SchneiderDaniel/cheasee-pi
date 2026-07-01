@@ -102,6 +102,7 @@ function createAgentRunState(
 	startedAt: number,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
+	thinkingLevel?: string,
 ): AgentRunState {
 	return {
 		toolCount: 0,
@@ -121,6 +122,7 @@ function createAgentRunState(
 		budgetExceededReason: undefined,
 		maxToolCalls: maxToolCalls ?? 0,
 		agentTokenBudget: agentTokenBudget ?? 0,
+		thinkingLevel: thinkingLevel?.trim() || undefined,
 	};
 }
 
@@ -182,7 +184,8 @@ export async function runAgentSubprocess(
 
 	const startedAt = Date.now();
 
-	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget);
+	const thinkingLevel = agent.config.thinking?.trim() || undefined;
+	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
 
 	log.info("agent-runner", `Subprocess spawn: ${agentName}`, {
 		pid: process.pid,
@@ -313,6 +316,7 @@ export async function runAgentSubprocess(
 									display: true,
 									details: {
 										eventType: "tool-complete",
+										agentName,
 										toolName,
 										args: pendingToolFormattedArgs,
 										isError: pendingToolIsError,
@@ -437,6 +441,7 @@ export async function runAgentSubprocess(
 				success,
 				agentName,
 				toolCount: state.toolCount,
+				thinkingLevel: state.thinkingLevel,
 				failedToolCount: state.failedToolCount ?? undefined,
 				tokenCount: state.tokenCount,
 				durationMs,

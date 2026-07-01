@@ -142,9 +142,10 @@ flowchart LR
     D --> E[LSP Pre-Audit: real LSP diagnostics]
     E --> F[Dead code gate: knip on changed files]
     F --> G[Duplicate code gate: jscpd on changed files]
-    G --> H[Requirements traceability: checklist vs diff]
-    H -- all pass --> I[Proceed to Audit]
-    H -- any fail --> C
+    G --> H[Package safety gate: npm package age check]
+    H --> I[Requirements traceability: checklist vs diff]
+    I -- all pass --> J[Proceed to Audit]
+    I -- any fail --> C
 ```
 
 ### Key Design Decisions

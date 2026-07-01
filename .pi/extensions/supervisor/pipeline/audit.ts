@@ -17,7 +17,10 @@ import { runDuplicateCheck } from "../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import { runDeadCodeCheck, buildDeadCodeContext } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
-import { runPackageSafetyAudit } from "../checks/package-safety.ts";
+import { runPackageSafetyAudit, type PackageSafetyAuditResult } from "../checks/package-safety.ts";
+import { runVulnScan, buildVulnContext } from "../checks/osv-scanner.ts";
+import type { OsvScanResult } from "../checks/osv-scanner.ts";
+
 
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
 import { writeCheckpointFile } from "./state-checkpoint.ts";
@@ -48,6 +51,8 @@ export async function runTscAndLspAudit(
 	note: string;
 	duplicateCodeResult?: DuplicateCodeResult;
 	deadCodeResult?: DeadCodeResult;
+	vulnResult?: OsvScanResult;
+
 }> {
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
@@ -172,8 +177,9 @@ export async function runTscAndLspAudit(
 		// in the worktree's package.json for package age safety.
 		ctx.ui.setStatus("supervisor", "Checking package safety...");
 		getDebugLogger().info("pipeline-audit", "Running package safety audit", { worktreePath });
+		let safetyResult: PackageSafetyAuditResult | undefined;
 		try {
-			const safetyResult = await runPackageSafetyAudit(execFn, worktreePath);
+			safetyResult = await runPackageSafetyAudit(execFn, worktreePath);
 			if (safetyResult.status === "blocked") {
 				const blockedPkgs = safetyResult.results
 					.filter((r) => r.blocked)
@@ -199,6 +205,59 @@ export async function runTscAndLspAudit(
 		} catch (safetyErr: unknown) {
 			getDebugLogger().warn("pipeline-audit", "Package safety check threw", {
 				error: safetyErr instanceof Error ? safetyErr.message : String(safetyErr),
+			});
+		}
+
+		// Step 2b: OSV vulnerability scan gate (non-blocking — informational)
+		// Runs after package-safety, before requirements traceability.
+		// Scans all lockfiles in the worktree for known CVEs.
+		// Non-blocking initially — configurable to blocking via vulnGateBlocking.
+		ctx.ui.setStatus("supervisor", "Running OSV vulnerability scan...");
+		getDebugLogger().info("pipeline-audit", "Running OSV vulnerability scan", { worktreePath });
+		let vulnResult: OsvScanResult | undefined;
+		try {
+			vulnResult = await runVulnScan(execFn, worktreePath, {
+				timeoutSec: config.vulnGateTimeoutSec ?? 60,
+			});
+
+			if (vulnResult.status === "vulns_found") {
+				const c = vulnResult.counts;
+				const parts: string[] = [];
+				if (c.critical > 0) parts.push(`${c.critical} critical`);
+				if (c.high > 0) parts.push(`${c.high} high`);
+				if (c.medium > 0) parts.push(`${c.medium} medium`);
+				if (c.low > 0) parts.push(`${c.low} low`);
+				if (c.unknown > 0) parts.push(`${c.unknown} unknown`);
+				const severitySummary = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+				ctx.ui.notify(
+					`Vulnerabilities found: ${vulnResult.findings.length} issue(s)${severitySummary}. Auditor will review.`,
+					"warning",
+				);
+				getDebugLogger().info("pipeline-audit", "Vulnerabilities found", {
+					count: vulnResult.findings.length,
+					counts: vulnResult.counts,
+				});
+
+				// Blocking check: if vulnGateBlocking is enabled AND critical vulns exist
+				if (config.vulnGateBlocking && vulnResult.counts.critical > 0) {
+					const vulnContext = buildVulnContext(vulnResult);
+					gateFailures.push(`--- OSV Vulnerability Gate ---\n${vulnContext}`);
+				}
+			} else if (vulnResult.status === "error") {
+				ctx.ui.notify(`Vulnerability scan error: ${vulnResult.message || "Unknown error"}`, "warning");
+				getDebugLogger().warn("pipeline-audit", "Vulnerability scan error", {
+					message: vulnResult.message,
+				});
+			} else if (vulnResult.status === "no_osv_scanner") {
+				getDebugLogger().info("pipeline-audit", "osv-scanner not installed, skipping vuln check");
+			} else if (vulnResult.status === "no_lockfiles") {
+				getDebugLogger().info("pipeline-audit", "No lockfiles found, skipping vuln check");
+			} else {
+				getDebugLogger().info("pipeline-audit", "Vulnerability scan clean");
+			}
+		} catch (vulnErr: unknown) {
+			getDebugLogger().warn("pipeline-audit", "Vulnerability scan threw", {
+				error: vulnErr instanceof Error ? vulnErr.message : String(vulnErr),
 			});
 		}
 
@@ -335,6 +394,8 @@ export async function runTscAndLspAudit(
 				note: `The following gates blocked the transition from Implementation to Audit:\n\n${combinedNote}`,
 				duplicateCodeResult: dupResult,
 				deadCodeResult: deadResult,
+				vulnResult,
+
 			};
 		}
 
@@ -344,6 +405,8 @@ export async function runTscAndLspAudit(
 			note: lspResult.note || "",
 			duplicateCodeResult: dupResult,
 			deadCodeResult: deadResult,
+			vulnResult,
+
 		};
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);

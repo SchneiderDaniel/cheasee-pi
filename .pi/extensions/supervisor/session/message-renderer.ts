@@ -14,7 +14,7 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { formatTokensInt, formatDuration, formatTokens, getTermWidth } from "../lib/formatting.ts";
+import { formatTokensInt, formatDuration, formatTokens, getTermWidth, thinkingLabel, thinkingColor } from "../lib/formatting.ts";
 import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import { formatToolCall } from "../lib/formatting.ts";
@@ -50,6 +50,8 @@ function renderSubagentResultInline(
 
 	// ── Stats Parts (shared) ────────────────────────────────────
 	const statsParts: string[] = [];
+	const tl = thinkingLabel(details.thinkingLevel);
+	if (tl) statsParts.push(tl);
 	if (details.inputTokens > 0 || details.outputTokens > 0) {
 		const inStr = details.inputTokens > 0 ? formatTokens(details.inputTokens) : "0";
 		const outStr = details.outputTokens > 0 ? formatTokens(details.outputTokens) : "0";
@@ -154,6 +156,10 @@ function renderSubagentResultInline(
 	if (details.cacheRead > 0) footerParts.push(`R${formatTokens(details.cacheRead)}`);
 	if (details.cacheWrite > 0) footerParts.push(`W${formatTokens(details.cacheWrite)}`);
 	if (details.cost > 0) footerParts.push(`$${details.cost.toFixed(4)}`);
+	const thinkingLevelStr = thinkingLabel(details.thinkingLevel);
+	if (thinkingLevelStr) {
+		footerParts.push(theme.fg(thinkingColor(details.thinkingLevel), thinkingLevelStr));
+	}
 	if (details.model) {
 		const shortModel = details.model.split("/").pop() || details.model;
 		footerParts.push(shortModel);

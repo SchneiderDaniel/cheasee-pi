@@ -178,4 +178,42 @@ describe("renderWidgetFromDetails — simplified widget (footer only)", () => {
 		assert.ok(line.includes("📦"));
 		assert.ok(line.includes("1m") || line.includes("63") || line.includes("s"));
 	});
+
+	it("includes thinking level when set", () => {
+		const ctx = createMockCtx();
+		const details = makeDetails({ thinkingLevel: "medium" });
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-dev");
+		const line = widgetCalls[0].lines?.[0] ?? "";
+		assert.ok(line.includes("◒"), "should show thinking icon for medium");
+		assert.ok(line.includes("medium"), "should show thinking level name");
+	});
+
+	it("omits thinking level when undefined", () => {
+		const ctx = createMockCtx();
+		const details = makeDetails({ thinkingLevel: undefined });
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-dev");
+		const line = widgetCalls[0].lines?.[0] ?? "";
+		assert.ok(!line.includes("◒"), "should not show thinking icon when undefined");
+		assert.ok(!line.includes("medium"), "should not show thinking level when undefined");
+	});
+
+	it("omits thinking level when empty string", () => {
+		const ctx = createMockCtx();
+		const details = makeDetails({ thinkingLevel: "" });
+		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-dev");
+		const line = widgetCalls[0].lines?.[0] ?? "";
+		assert.ok(!line.includes("◒"), "should not show thinking icon for empty");
+	});
+
+	it("shows correct icon per level", () => {
+		const ctx = createMockCtx();
+		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		for (const [level, icon] of Object.entries(iconMap)) {
+			widgetCalls = [];
+			const d = makeDetails({ thinkingLevel: level });
+			renderWidgetFromDetails(d, "dev", undefined, ctx, "agent-dev");
+			const line = widgetCalls[0].lines?.[0] ?? "";
+			assert.ok(line.includes(icon), `level '${level}' should show icon '${icon}'`);
+		}
+	});
 });

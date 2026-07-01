@@ -838,4 +838,247 @@ if (hasMockModule) {
 			assert.ok(result.output.includes("message_update"), "raw output should contain JSON lines");
 		});
 	});
+
+	describe("runAgentSubprocess — agentName on tool-complete", () => {
+		it("tool-complete details include agentName matching the agent name", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "read",
+						args: { path: "/tmp/x.ts" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "read",
+							content: [{ type: "text", text: "file content" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolCompleteMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-complete",
+			);
+			assert.ok(toolCompleteMsgs.length >= 1, "should have tool-complete messages");
+			for (const msg of toolCompleteMsgs) {
+				assert.equal(
+					msg.details.agentName,
+					"test-agent",
+					"tool-complete details should include agentName",
+				);
+			}
+		});
+
+		it("tool-complete details contain agentName even when no prior tool-start was emitted", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					// No tool_execution_start — tool-complete from toolResult only
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "bash",
+							content: [{ type: "text", text: "result" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolCompleteMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-complete",
+			);
+			assert.ok(toolCompleteMsgs.length >= 1, "should have tool-complete messages");
+			for (const msg of toolCompleteMsgs) {
+				assert.equal(
+					msg.details.agentName,
+					"test-agent",
+					"tool-complete details should include agentName even without prior tool-start",
+				);
+			}
+		});
+
+		it("agentName value matches the agent name from config — consistent with tool-start", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "bash",
+						args: { command: "ls" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "bash", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "bash",
+							content: [{ type: "text", text: "result" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolStartMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-start",
+			);
+			const toolCompleteMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-complete",
+			);
+
+			assert.ok(toolStartMsgs.length >= 1, "should have tool-start messages");
+			assert.ok(toolCompleteMsgs.length >= 1, "should have tool-complete messages");
+
+			// Both events should reference the same agent name
+			for (const msg of toolStartMsgs) {
+				assert.equal(
+					msg.details.agentName,
+					"test-agent",
+					"tool-start agentName should match config name",
+				);
+			}
+			for (const msg of toolCompleteMsgs) {
+				assert.equal(
+					msg.details.agentName,
+					"test-agent",
+					"tool-complete agentName should match config name",
+				);
+			}
+		});
+
+		it("existing tool-start event details still include agentName (no regression)", async () => {
+			resetMock();
+			const sendMessageCalls: any[] = [];
+			const mockPi = { sendMessage: (msg: any) => sendMessageCalls.push(msg) };
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "tool_execution_start",
+						toolName: "edit",
+						args: { path: "/tmp/a.ts" },
+					}),
+					JSON.stringify({ type: "tool_execution_end", toolName: "edit", isError: false }),
+					JSON.stringify({
+						type: "message_end",
+						message: {
+							role: "toolResult",
+							toolName: "edit",
+							content: [{ type: "text", text: "applied" }],
+						},
+					}),
+					JSON.stringify({
+						type: "message_end",
+						message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+					}),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				mockPi as any,
+			);
+			emitMockEvents();
+			await resultPromise;
+
+			const toolStartMsgs = sendMessageCalls.filter(
+				(m: any) => m.details?.eventType === "tool-start",
+			);
+			assert.ok(toolStartMsgs.length >= 1, "should have tool-start messages");
+			// tool-start already has agentName before this change — verify it's still there
+			for (const msg of toolStartMsgs) {
+				assert.ok(
+					msg.details.agentName !== undefined,
+					"tool-start should still have agentName",
+				);
+			}
+		});
+	});
 }

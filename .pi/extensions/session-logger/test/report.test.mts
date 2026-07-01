@@ -341,4 +341,70 @@ describe("buildMetadata() — pure function unit tests", () => {
 	it("buildMetadata is a function (exported from report.ts)", () => {
 		assert.strictEqual(typeof buildMetadata, "function", "buildMetadata should be a function");
 	});
+
+	it("buildMetadata returns metadata with subagentToolStats set from parsed stats when present", () => {
+		const subagentStats = {
+			researcher: {
+				read: { calls: 3, errors: 1, totalDurationMs: 500 },
+				web_search: { calls: 2, errors: 0, totalDurationMs: 300 },
+			},
+			developer: {
+				bash: { calls: 5, errors: 0, totalDurationMs: 1000 },
+			},
+		};
+		const parsed = makeParsed({ subagentToolStats: subagentStats });
+		const meta = buildMetadata(parsed);
+
+		assert.ok(meta.subagentToolStats, "subagentToolStats should be present");
+		assert.deepStrictEqual(meta.subagentToolStats, subagentStats, "should match parsed stats");
+	});
+
+	it("buildMetadata returns metadata without subagentToolStats when parsed has none (non-supervisor session)", () => {
+		const parsed = makeParsed(); // no subagentToolStats
+		const meta = buildMetadata(parsed);
+
+		assert.strictEqual(meta.subagentToolStats, undefined, "subagentToolStats should be undefined");
+	});
+
+	it("snapshot timing merge does NOT affect subagentToolStats — unmodified passthrough", () => {
+		const subagentStats = {
+			researcher: {
+				read: { calls: 3, errors: 1, totalDurationMs: 500 },
+			},
+		};
+		const parsed = makeParsed({
+			subagentToolStats: subagentStats,
+			toolStats: { read: { calls: 1, errors: 0, totalDurationMs: 0 } },
+		});
+		const execs = [makeToolExecution("read", { durationMs: 150 })];
+		const snapshot = makeSnapshot(execs);
+		const meta = buildMetadata(parsed, snapshot);
+
+		// subagentToolStats unchanged
+		assert.deepStrictEqual(
+			meta.subagentToolStats,
+			subagentStats,
+			"subagentToolStats unchanged after snapshot merge",
+		);
+		// toolStats still merged as before
+		assert.strictEqual(meta.toolStats!.read.totalDurationMs, 150, "toolStats duration from snapshot");
+	});
+
+	it("overrides (sessionName, mode) do not affect subagentToolStats", () => {
+		const subagentStats = {
+			researcher: {
+				read: { calls: 1, errors: 0, totalDurationMs: 100 },
+			},
+		};
+		const parsed = makeParsed({ subagentToolStats: subagentStats });
+		const meta = buildMetadata(parsed, undefined, { sessionName: "test", mode: "tui" });
+
+		assert.strictEqual(meta.name, "test");
+		assert.strictEqual(meta.mode, "tui");
+		assert.deepStrictEqual(
+			meta.subagentToolStats,
+			subagentStats,
+			"subagentToolStats unchanged by overrides",
+		);
+	});
 });

@@ -177,4 +177,24 @@ describe("convertAgentRunToToolResult — edge cases", () => {
 		const toolResult = convertAgentRunToToolResult(result);
 		assert.equal(toolResult.details.summaryLine, "");
 	});
+
+	it("thinkingLevel mapped from AgentRunResult to SubagentDetails", () => {
+		const result = makeRunResult({ thinkingLevel: "medium" });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.thinkingLevel, "medium");
+	});
+
+	it("thinkingLevel undefined → details.thinkingLevel undefined", () => {
+		const result = makeRunResult({});
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.thinkingLevel, undefined);
+	});
+
+	it("thinkingLevel empty string → passed through as empty string", () => {
+		const result = makeRunResult({ thinkingLevel: "" });
+		const toolResult = convertAgentRunToToolResult(result);
+		// empty string is preserved (the result adapter passes it through)
+		// the display layer (thinkingLabel) will handle filtering
+		assert.equal(toolResult.details.thinkingLevel, "");
+	});
 });

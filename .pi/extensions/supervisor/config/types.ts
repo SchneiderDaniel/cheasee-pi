@@ -37,6 +37,22 @@ export interface SupervisorConfig {
 	 * Default: false
 	 */
 	enableExperimentalFeatures?: boolean;
+
+	/**
+	 * When true, osv-scanner vulnerabilities found during pre-audit gate cause
+	 * the transition to fail (return to Implementation). Only critical+high vulns
+	 * trigger blocking when this is enabled.
+	 * Default: false (informational only, surfaced to auditor)
+	 */
+	vulnGateBlocking?: boolean;
+
+	/**
+	 * Timeout in seconds for the osv-scanner vulnerability scan.
+	 * osv-scanner makes outbound API calls to OSV.dev — set high enough for
+	 * network latency but tight enough to not stall the pipeline.
+	 * Default: 60
+	 */
+	vulnGateTimeoutSec?: number;
 }
 
 export interface AgentFrontmatter {
@@ -118,6 +134,8 @@ export interface AgentRunResult {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── AgentRunState: mutable state during agent execution ────────────
@@ -158,6 +176,8 @@ export interface AgentRunState {
 	cacheRead?: number;
 	/** LLM prompt cache write tokens (from message usage) */
 	cacheWrite?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Message renderer details type ───────────────────────────────────
@@ -203,6 +223,8 @@ export interface SupervisorMessageDetails {
 	cost?: number;
 	/** Number of LLM turns (assistant messages with usage) */
 	turnCount?: number;
+	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
+	thinkingLevel?: string;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────
@@ -361,3 +383,13 @@ export interface FailedParse {
 
 export type ParseResult = AgentOutput | FailedParse;
 
+// ─── LSP Pre-Audit ──────────────────────────────────────────────────
+
+interface LspPreAuditDecision {
+	/** New status to transition to — "Audit" if proceeding, "Implementation" if blocking */
+	nextStatus: string;
+	/** Note to include in notification */
+	note: string;
+	/** Whether LSP audit was actually triggered */
+	auditTriggered: boolean;
+}

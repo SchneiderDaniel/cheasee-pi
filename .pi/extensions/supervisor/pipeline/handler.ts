@@ -67,6 +67,8 @@ import {
 	applyGateFailureContext,
 	type GateRejected,
 	buildDeadCodeContext,
+	buildVulnContext,
+
 } from "./stages.ts";
 import {
 	fetchIssue,
@@ -565,6 +567,12 @@ export async function handleSupervisorCommand(
 				agentName === "auditor"
 					? (buildDeadCodeContext(stageState.deadCodeResult) ?? undefined)
 					: undefined;
+			// Build vuln context for auditor
+			const vulnContext: string | undefined =
+				agentName === "auditor"
+					? (buildVulnContext(stageState.vulnResult) ?? undefined)
+
+					: undefined;
 			const task = buildAgentTask(
 				agentName,
 				issueNum,
@@ -584,6 +592,8 @@ export async function handleSupervisorCommand(
 				researchFindings,
 				auditFeedback,
 				deadContext,
+				vulnContext,
+
 				stageState.gateFailureContext,
 				systemPromptOptions,
 			);
@@ -788,6 +798,7 @@ export async function handleSupervisorCommand(
 					worktreeBranch,
 					collector,
 					stageState.gateFailureHistory,
+					undefined,
 				);
 				if (prCreationResult && !prCreationResult.success) {
 					getDebugLogger().warn("handler", "PR creation failed", {
@@ -923,6 +934,11 @@ export async function handleSupervisorCommand(
 					if (auditResult.duplicateCodeResult) {
 						stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
 					}
+					// Store vuln scan result in stage state for auditor context injection
+					if (auditResult.vulnResult) {
+						stageState.vulnResult = auditResult.vulnResult;
+
+					}
 					getDebugLogger().info("handler", "Pre-transition hook result", {
 						effectiveNextStatus,
 						note: auditResult.note,
@@ -1007,6 +1023,7 @@ export async function handleSupervisorCommand(
 				prCreationResult,
 				collector,
 				stageState.gateFailureHistory,
+				undefined,
 			);
 			getDebugLogger().info("handler", "Pipeline finished", {
 				overallStatus,
