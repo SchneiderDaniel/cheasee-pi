@@ -620,7 +620,10 @@ describe("processNormalizedEvent", () => {
 
 		// textOutputLines should now contain the full content, not just "abc"
 		const textOnly = state.textOutputLines.join("\n").trim();
-		assert.ok(textOnly.includes("## Test Plan"), "textOnly should contain full message_end content");
+		assert.ok(
+			textOnly.includes("## Test Plan"),
+			"textOnly should contain full message_end content",
+		);
 		assert.ok(textOnly.includes("First test"), "textOnly should contain full message_end content");
 		assert.ok(textOnly.includes("Edge cases"), "textOnly should contain full message_end content");
 	});
@@ -656,10 +659,7 @@ describe("processNormalizedEvent", () => {
 
 	it("null message → no crash", () => {
 		const state = createState();
-		const result = processNormalizedEvent(
-			{ kind: "message_end", message: null as any },
-			state,
-		);
+		const result = processNormalizedEvent({ kind: "message_end", message: null as any }, state);
 		assert.equal(result.flush, false);
 		assert.equal(result.workingChange, false);
 	});
@@ -679,10 +679,14 @@ describe("processNormalizedEvent", () => {
 			},
 			state,
 		);
-		// Text should be extracted from the text block, not the thinking block
+		// Both text and thinking blocks should be captured in textOutputLines
+		// so that textOnly has structured JSON from thinking blocks (thinking:high models)
 		const textOnly = state.textOutputLines.join("\n").trim();
 		assert.ok(textOnly.includes("## Architecture"), "text block content should be captured");
-		assert.ok(!textOnly.includes("deep reasoning"), "thinking block content should NOT be in textOutputLines");
+		assert.ok(
+			textOnly.includes("deep reasoning"),
+			"thinking block content should be in textOutputLines",
+		);
 	});
 });
 
