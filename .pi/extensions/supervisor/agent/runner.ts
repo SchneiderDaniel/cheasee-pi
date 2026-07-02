@@ -15,17 +15,17 @@ import { spawn } from "node:child_process";
 import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
 import {
 	formatDuration,
-	formatToolCall,
 	extractSummaryLine,
-	extractTextFromContent,
 } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
 	jsonLineToNormalizedEvent,
 	processNormalizedEvent,
 	filterStderr,
+	forwardNormalizedEventToChat,
+	createForwardChatState,
 } from "../event/adapter.ts";
-import { pushLog } from "./state-helpers.ts";
+import { pushLog, createAgentRunState } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
@@ -161,38 +161,6 @@ function buildSubprocessArgs(
 	return args;
 }
 
-// ─── createAgentRunState: internal state initialization ───────────
-// Called by runAgentSubprocess for consistent state creation.
-// Budget params default to 0 (unlimited) for backward compatibility.
-
-function createAgentRunState(
-	startedAt: number,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	thinkingLevel?: string,
-): AgentRunState {
-	return {
-		toolCount: 0,
-		failedToolCount: 0,
-		tokenCount: 0,
-		fullLog: [],
-		liveThinking: "",
-		liveText: "",
-		textOutputLines: [],
-		thinkingOutputLines: [],
-		phase: "idle",
-		startedAt,
-		contextInfoReceived: false,
-		thinkingPushedThisTurn: false,
-		textPushedThisTurn: false,
-		budgetExceeded: false,
-		budgetExceededReason: undefined,
-		maxToolCalls: maxToolCalls ?? 0,
-		agentTokenBudget: agentTokenBudget ?? 0,
-		thinkingLevel: thinkingLevel?.trim() || undefined,
-	};
-}
-
 // ─── runAgentSubprocess (Fallback) ─────────────────────────────────
 
 export async function runAgentSubprocess(
@@ -311,21 +279,9 @@ export async function runAgentSubprocess(
 			}
 		}, 2000);
 
-		// ponytail: forward events from subprocess to supervisor chat messages
-		// so the user sees live per-tool rendering (tool-start, tool-complete, thinking).
-		// Without this, only the stats widget updates — no visible progress in chat.
-		let toolSeqNum = 0;
-		let pendingToolName = "";
-		let pendingToolFormattedArgs = "";
-		let pendingToolStartTime = 0;
-		let pendingToolIsError = false;
-
 		// Event-driven flush at 300ms debounce + 2s heartbeat.
 		// Try-catch prevents uncaught exceptions from breaking the JSON stream processing.
-		// Inlines the former processJsonLine() logic from deleted agent/stream.ts:
-		//   - jsonLineToNormalizedEvent has inner try-catch, returns null on parse fail
-		//   - outer catch preserves error reporting (getDebugLogger.warn +
-		//     getErrorCollector.push) that was formerly inside processJsonLine
+		const pending = createForwardChatState();
 		const handleLine = (line: string) => {
 			try {
 				if (!line.trim()) return;
@@ -342,85 +298,8 @@ export async function runAgentSubprocess(
 					ctx.ui.setWorkingMessage(wm ?? undefined);
 				}
 				// Forward key events as supervisor chat messages
-				if (pi && normalized) {
-					switch (normalized.kind) {
-						case "tool_execution_start": {
-							toolSeqNum++;
-							pendingToolName = normalized.toolName;
-							pendingToolStartTime = Date.now();
-							pendingToolIsError = false;
-							const formatted = formatToolCall(
-								normalized.toolName,
-								normalized.args as Record<string, unknown> | null | undefined,
-							);
-							pendingToolFormattedArgs = formatted;
-							pi.sendMessage({
-								customType: "supervisor",
-								content: `⏳ ${agentName} — ${formatted}`,
-								display: true,
-								details: {
-									eventType: "tool-start",
-									agentName,
-									toolName: normalized.toolName,
-									args: formatted,
-								},
-							});
-							break;
-						}
-						case "tool_execution_end": {
-							pendingToolIsError = !!normalized.isError;
-							break;
-						}
-						case "message_end": {
-							const msg = normalized.message;
-							if (msg?.role === "toolResult") {
-								const toolName = pendingToolName || msg.toolName || "tool";
-								const resultText = extractTextFromContent(msg.content);
-								const durationMs = pendingToolStartTime > 0 ? Date.now() - pendingToolStartTime : 0;
-								pi.sendMessage({
-									customType: "supervisor",
-									content: `${toolName}`,
-									display: true,
-									details: {
-										eventType: "tool-complete",
-										agentName,
-										toolName,
-										args: pendingToolFormattedArgs,
-										isError: pendingToolIsError,
-										resultText: resultText.slice(0, 2000),
-										toolIndex: `#${toolSeqNum}`,
-										toolDurationMs: durationMs,
-										runningTokenCount: state.tokenCount,
-										runningToolCount: state.toolCount,
-										errorCount: state.failedToolCount ?? 0,
-										maxToolCalls: state.maxToolCalls,
-										agentTokenBudget: state.agentTokenBudget,
-									},
-								});
-								pendingToolName = "";
-								pendingToolFormattedArgs = "";
-								pendingToolStartTime = 0;
-								pendingToolIsError = false;
-							}
-							break;
-						}
-						case "thinking_end": {
-							// preThinkingText captured before processNormalizedEvent cleared it
-							if (preThinkingText) {
-								pi.sendMessage({
-									customType: "supervisor",
-									content: `💭 ${agentName}`,
-									display: true,
-									details: {
-										eventType: "thinking",
-										content: preThinkingText,
-										agentName,
-									},
-								});
-							}
-							break;
-						}
-					}
+				if (pi) {
+					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText);
 				}
 				// Budget exceeded — kill subprocess to prevent further turns
 				if (state.budgetExceeded && !childExited) {

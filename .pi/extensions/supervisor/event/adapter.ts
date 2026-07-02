@@ -8,6 +8,7 @@
 // in-process path, these are the only event-processing functions retained.
 
 import type { AgentRunState, AgentPhase } from "../config/types.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { pushLog } from "../agent/state-helpers.ts";
 import { formatToolCall, extractTextFromContent } from "../lib/formatting.ts";
 
@@ -712,6 +713,126 @@ export function filterStderr(raw: string): string {
 		})
 		.join("\n")
 		.trim();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Chat message forwarding (shared by in-process and subprocess runners)
+// ═══════════════════════════════════════════════════════════════════
+
+/** Mutable accumulator state for chat forwarding */
+export interface ForwardChatState {
+	toolSeqNum: number;
+	pendingToolName: string;
+	pendingToolFormattedArgs: string;
+	pendingToolStartTime: number;
+	pendingToolIsError: boolean;
+}
+
+/** Create initial ForwardChatState */
+export function createForwardChatState(): ForwardChatState {
+	return {
+		toolSeqNum: 0,
+		pendingToolName: "",
+		pendingToolFormattedArgs: "",
+		pendingToolStartTime: 0,
+		pendingToolIsError: false,
+	};
+}
+
+/**
+ * Forward a normalized event to the supervisor chat as a user-visible message.
+ * Called during event processing in both in-process and subprocess runners.
+ * Keeps chat rendering in sync with agent progress.
+ *
+ * This is the shared implementation — both runners call it instead of
+ * duplicating the switch logic. Subprocess adds child.kill("SIGTERM")
+ * for budget exceed outside this function.
+ */
+export function forwardNormalizedEventToChat(
+	normalized: NormalizedEvent,
+	state: AgentRunState,
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	agentName: string,
+	pending: ForwardChatState,
+	preThinkingText?: string,
+): void {
+	switch (normalized.kind) {
+		case "tool_execution_start": {
+			pending.toolSeqNum++;
+			pending.pendingToolName = normalized.toolName;
+			pending.pendingToolStartTime = Date.now();
+			pending.pendingToolIsError = false;
+			const formatted = formatToolCall(
+				normalized.toolName,
+				normalized.args as Record<string, unknown> | null | undefined,
+			);
+			pending.pendingToolFormattedArgs = formatted;
+			pi.sendMessage({
+				customType: "supervisor",
+				content: `⏳ ${agentName} — ${formatted}`,
+				display: true,
+				details: {
+					eventType: "tool-start",
+					agentName,
+					toolName: normalized.toolName,
+					args: formatted,
+				},
+			});
+			break;
+		}
+		case "tool_execution_end": {
+			pending.pendingToolIsError = !!normalized.isError;
+			break;
+		}
+		case "message_end": {
+			const msg = normalized.message;
+			if (msg?.role === "toolResult") {
+				const toolName = pending.pendingToolName || msg.toolName || "tool";
+				const resultText = extractTextFromContent(msg.content);
+				const durationMs = pending.pendingToolStartTime > 0 ? Date.now() - pending.pendingToolStartTime : 0;
+				pi.sendMessage({
+					customType: "supervisor",
+					content: `${toolName}`,
+					display: true,
+					details: {
+						eventType: "tool-complete",
+						agentName,
+						toolName,
+						args: pending.pendingToolFormattedArgs,
+						isError: pending.pendingToolIsError,
+						resultText: resultText.slice(0, 2000),
+						toolIndex: `#${pending.toolSeqNum}`,
+						toolDurationMs: durationMs,
+						runningTokenCount: state.tokenCount,
+						runningToolCount: state.toolCount,
+						errorCount: state.failedToolCount ?? 0,
+						maxToolCalls: state.maxToolCalls,
+						agentTokenBudget: state.agentTokenBudget,
+					},
+				});
+				pending.pendingToolName = "";
+				pending.pendingToolFormattedArgs = "";
+				pending.pendingToolStartTime = 0;
+				pending.pendingToolIsError = false;
+			}
+			break;
+		}
+		case "thinking_end": {
+			if (preThinkingText) {
+				pi.sendMessage({
+					customType: "supervisor",
+					content: `💭 ${agentName}`,
+					display: true,
+					details: {
+						eventType: "thinking",
+						content: preThinkingText,
+						agentName,
+					},
+				});
+			}
+			break;
+		}
+	}
 }
 
 export function processNormalizedEvent(ev: NormalizedEvent, state: AgentRunState): HandlerResult {

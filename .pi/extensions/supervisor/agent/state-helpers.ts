@@ -28,3 +28,36 @@ export function pushLog(state: AgentRunState, entry: string): void {
 	state.fullLog.push(entry);
 	if (state.fullLog.length > MAX_FULL_LOG) state.fullLog.shift();
 }
+
+/**
+ * Create an AgentRunState with default values.
+ * Called by runAgentInProcess and runAgentSubprocess for consistent state creation.
+ * Budget params default to 0 (unlimited) for backward compatibility.
+ */
+export function createAgentRunState(
+	startedAt: number,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+	thinkingLevel?: string,
+): AgentRunState {
+	return {
+		toolCount: 0,
+		failedToolCount: 0,
+		tokenCount: 0,
+		fullLog: [],
+		liveThinking: "",
+		liveText: "",
+		textOutputLines: [],
+		thinkingOutputLines: [],
+		phase: "idle",
+		startedAt,
+		contextInfoReceived: false,
+		thinkingPushedThisTurn: false,
+		textPushedThisTurn: false,
+		budgetExceeded: false,
+		budgetExceededReason: undefined,
+		maxToolCalls: maxToolCalls ?? 0,
+		agentTokenBudget: agentTokenBudget ?? 0,
+		thinkingLevel: thinkingLevel?.trim() || undefined,
+	};
+}

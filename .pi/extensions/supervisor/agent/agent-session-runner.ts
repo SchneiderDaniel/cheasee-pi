@@ -8,13 +8,14 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import { getModel } from "@earendil-works/pi-ai";
-import { agentSessionEventToNormalizedEvent, processNormalizedEvent } from "../event/adapter.ts";
-import { pushLog } from "./state-helpers.ts";
+import { agentSessionEventToNormalizedEvent, processNormalizedEvent, forwardNormalizedEventToChat, createForwardChatState } from "../event/adapter.ts";
+import { pushLog, createAgentRunState } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { formatToolCall, extractTextFromContent, extractSummaryLine } from "../lib/formatting.ts";
+import { formatToolCall, extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
+import { resolveTools } from "../lib/extensions.ts";
 
 // DEFAULT_AGENT_TIMEOUT_MS is imported above from config.ts
 
@@ -55,11 +56,7 @@ function resolveModel(modelStr: string | undefined): { id: string; provider: str
 	const provider = parts[0]!;
 	const modelId = parts.slice(1).join("/");
 	try {
-		const model = getModel(provider as any, modelId);
-		if (!model) {
-			throw new Error(`Model "${modelStr}" could not be resolved`);
-		}
-		return model;
+		return getModel(provider as any, modelId);
 	} catch (err: unknown) {
 		throw new Error(
 			`Model "${modelStr}" could not be resolved: ${err instanceof Error ? err.message : String(err)}`,
@@ -68,72 +65,19 @@ function resolveModel(modelStr: string | undefined): { id: string; provider: str
 }
 
 // ─── buildToolList: merge agent tools + extension tools ───────────
-// Returns comma-separated tool string for createAgentSession.
+// Uses resolveTools from lib/extensions.ts (same as subprocess path).
+// Returns string array for createAgentSession.
 
-function buildToolList(agent: ParsedAgent, _cwd?: string): string[] {
+function buildToolList(agent: ParsedAgent, cwd?: string): string[] {
 	const rawTools = agent.config.tools || "read,bash,write,edit";
-	// Split and build tool set
-	const toolSet = new Set(rawTools.split(",").map((s) => s.trim()).filter(Boolean));
-
-	// Add tools from extensions (excluding supervisor)
-	if (agent.config.extensions && agent.config.extensions.trim()) {
-		const extNames = agent.config.extensions
-			.split(",")
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0 && s.toLowerCase() !== "supervisor");
-		for (const _extName of extNames) {
-			// ponytail: extension tool discovery is a filesystem scan;
-			// subprocess path already does this via resolveTools. For in-process,
-			// we rely on the SDK's built-in resource loader for extension loading.
-			// Agent-declared tools from config are sufficient.
-		}
-	}
-
-	return [...toolSet];
+	const toolsStr = resolveTools(rawTools, agent.config.extensions, cwd);
+	return toolsStr.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 // ─── buildResourceLoader: create resource loader filtering supervisor ──
 // Prevents recursive extension hook registration (the sub-agent session
 // must not re-load the supervisor extension).
-
-function buildResourceLoader(_cwd?: string): any {
-	// ponytail: DefaultResourceLoader with empty skills and no extensions.
-	// The SDK handles extensions via the tools list; we pass noExtensions
-	// to prevent re-discovering the supervisor extension.
-	return undefined; // Use SDK default — it won't re-load the running extension
-}
-
-// ─── createAgentRunState: internal state initialization ───────────
-// Called by runAgentInProcess for consistent state creation.
-// Budget params default to 0 (unlimited) for backward compatibility.
-
-function createAgentRunState(
-	startedAt: number,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	thinkingLevel?: string,
-): AgentRunState {
-	return {
-		toolCount: 0,
-		failedToolCount: 0,
-		tokenCount: 0,
-		fullLog: [],
-		liveThinking: "",
-		liveText: "",
-		textOutputLines: [],
-		thinkingOutputLines: [],
-		phase: "idle",
-		startedAt,
-		contextInfoReceived: false,
-		thinkingPushedThisTurn: false,
-		textPushedThisTurn: false,
-		budgetExceeded: false,
-		budgetExceededReason: undefined,
-		maxToolCalls: maxToolCalls ?? 0,
-		agentTokenBudget: agentTokenBudget ?? 0,
-		thinkingLevel: thinkingLevel?.trim() || undefined,
-	};
-}
+// Returns undefined to use SDK default which handles extensions via tools list.
 
 // ─── runAgentInProcess (Primary) ──────────────────────────────────
 
@@ -211,9 +155,12 @@ export async function runAgentInProcess(
 		// Load SDK dynamically
 		await ensureSDK();
 
-		// Build session manager (file-backed for replay compatibility)
-		const sessionManager = sessionPath && _SessionManager
-			? _SessionManager.create(sessionPath)
+		// Build session manager (file-backed for session persistence)
+		// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
+		// not a file path. The SDK writes the session file to a default location.
+		// execute-agent.ts uses result.output for replay instead of replaySessionFile.
+		const sessionManager = _SessionManager
+			? _SessionManager.create(effectiveCwd)
 			: undefined;
 
 		// Create in-process agent session
@@ -234,17 +181,8 @@ export async function runAgentInProcess(
 			cwd: effectiveCwd,
 		});
 
-		// ponytail: forward events from in-process session to supervisor chat messages
-		// so the user sees live per-tool rendering (tool-start, tool-complete, thinking).
-		// Uses agentSessionEventToNormalizedEvent to map SDK events → NormalizedEvent,
-		// then feeds processNormalizedEvent for state tracking + widget flushes.
-		let toolSeqNum = 0;
-		let pendingToolName = "";
-		let pendingToolFormattedArgs = "";
-		let pendingToolStartTime = 0;
-		let pendingToolIsError = false;
-
 		// Set up subscription BEFORE calling session.prompt()
+		const pending = createForwardChatState();
 		unsubscribe = session.subscribe((event: Record<string, unknown>) => {
 			try {
 				const normalized = agentSessionEventToNormalizedEvent(event);
@@ -260,87 +198,9 @@ export async function runAgentInProcess(
 				}
 
 				// Forward key events as supervisor chat messages
-				if (pi && normalized) {
-					switch (normalized.kind) {
-						case "tool_execution_start": {
-							toolSeqNum++;
-							pendingToolName = normalized.toolName;
-							pendingToolStartTime = Date.now();
-							pendingToolIsError = false;
-							const formatted = formatToolCall(
-								normalized.toolName,
-								normalized.args as Record<string, unknown> | null | undefined,
-							);
-							pendingToolFormattedArgs = formatted;
-							pi.sendMessage({
-								customType: "supervisor",
-								content: `⏳ ${agentName} — ${formatted}`,
-								display: true,
-								details: {
-									eventType: "tool-start",
-									agentName,
-									toolName: normalized.toolName,
-									args: formatted,
-								},
-							});
-							break;
-						}
-						case "tool_execution_end": {
-							pendingToolIsError = !!normalized.isError;
-							break;
-						}
-						case "message_end": {
-							const msg = normalized.message;
-							if (msg?.role === "toolResult") {
-								const toolName = pendingToolName || msg.toolName || "tool";
-								const resultText = extractTextFromContent(msg.content);
-								const durationMs = pendingToolStartTime > 0 ? Date.now() - pendingToolStartTime : 0;
-								pi.sendMessage({
-									customType: "supervisor",
-									content: `${toolName}`,
-									display: true,
-									details: {
-										eventType: "tool-complete",
-										agentName,
-										toolName,
-										args: pendingToolFormattedArgs,
-										isError: pendingToolIsError,
-										resultText: resultText.slice(0, 2000),
-										toolIndex: `#${toolSeqNum}`,
-										toolDurationMs: durationMs,
-										runningTokenCount: state.tokenCount,
-										runningToolCount: state.toolCount,
-										errorCount: state.failedToolCount ?? 0,
-										maxToolCalls: state.maxToolCalls,
-										agentTokenBudget: state.agentTokenBudget,
-									},
-								});
-								pendingToolName = "";
-								pendingToolFormattedArgs = "";
-								pendingToolStartTime = 0;
-								pendingToolIsError = false;
-							}
-							break;
-						}
-						case "thinking_end": {
-							if (preThinkingText) {
-								pi.sendMessage({
-									customType: "supervisor",
-									content: `💭 ${agentName}`,
-									display: true,
-									details: {
-										eventType: "thinking",
-										content: preThinkingText,
-										agentName,
-									},
-								});
-							}
-							break;
-						}
-					}
+				if (pi) {
+					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText);
 				}
-
-				// Budget exceeded — handled by state tracking above
 			} catch (parseErr: unknown) {
 				const errMsg = String(parseErr).slice(0, 200);
 				log.warn("agent-stream", `Event processing error: ${errMsg}`);
@@ -365,7 +225,19 @@ export async function runAgentInProcess(
 	} catch (err: unknown) {
 		exitError = err instanceof Error ? err : new Error(String(err));
 	} finally {
-		// Cleanup
+		// Cleanup: unsubscribe, dispose session, clear timers
+		if (unsubscribe) {
+			unsubscribe();
+			unsubscribe = null;
+		}
+		if (session && typeof session.dispose === "function") {
+			try {
+				session.dispose();
+			} catch (disposeErr: unknown) {
+				const msg = disposeErr instanceof Error ? disposeErr.message : String(disposeErr);
+				log.warn("agent-runner", `Session dispose error for ${agentName}: ${msg}`);
+			}
+		}
 		if (flushTimer) {
 			clearTimeout(flushTimer);
 			flushTimer = null;
@@ -447,12 +319,4 @@ export async function runAgentInProcess(
 	};
 }
 
-// ─── formatDuration: helper for timeout messages ───────────────────
-function formatDuration(ms: number): string {
-	const seconds = Math.floor(ms / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-	if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-	if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-	return `${seconds}s`;
-}
+
