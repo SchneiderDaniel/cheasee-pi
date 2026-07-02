@@ -8,6 +8,7 @@
 // in-process path, these are the only event-processing functions retained.
 
 import type { AgentRunState, AgentPhase } from "../config/types.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { pushLog } from "../agent/state-helpers.ts";
 import { formatToolCall, extractTextFromContent } from "../lib/formatting.ts";
 
@@ -611,6 +612,84 @@ export function normalizeEvent(
 	return entry.json(ev);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// AgentSessionEvent → NormalizedEvent adapter (in-process path)
+// ═══════════════════════════════════════════════════════════════════
+// Maps SDK AgentSessionEvent union to NormalizedEvent for use with
+// processNormalizedEvent. Returns null for unmappable events.
+
+export function agentSessionEventToNormalizedEvent(
+	ev: Record<string, unknown> | null | undefined,
+): NormalizedEvent | null {
+	if (!ev || typeof ev !== "object") return null;
+
+	const type = ev.type as string | undefined;
+	if (!type) return null;
+
+	// message_update has nested assistantMessageEvent for deltas
+	if (type === "message_update") {
+		const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+		if (!assistantEvent) return null;
+		const subType = assistantEvent.type as string;
+		const delta = assistantEvent.delta as string | undefined;
+		const partial = assistantEvent.partial as Record<string, unknown> | undefined;
+
+		switch (subType) {
+			case "text_delta":
+				return { kind: "text_delta", delta: delta || "" };
+			case "thinking_delta":
+				return { kind: "thinking_delta", delta: delta || "" };
+			case "text_start":
+				return { kind: "text_start" };
+			case "thinking_start":
+				return { kind: "thinking_start" };
+			case "text_end":
+				return { kind: "text_end", usage: (partial?.usage as any) || undefined };
+			case "thinking_end":
+				return { kind: "thinking_end" };
+			default:
+				return null;
+		}
+	}
+
+	switch (type) {
+		case "tool_execution_start":
+			return {
+				kind: "tool_execution_start",
+				toolName: (ev.toolName as string) || "tool",
+				args: ev.args,
+			};
+		case "tool_execution_end":
+			return {
+				kind: "tool_execution_end",
+				toolName: (ev.toolName as string) || "tool",
+				isError: !!ev.isError,
+			};
+		case "message_end":
+			return { kind: "message_end", message: ev.message as any };
+		case "thinking_start":
+			return { kind: "thinking_start" };
+		case "thinking_end":
+			return { kind: "thinking_end" };
+		case "thinking_delta":
+			return { kind: "thinking_delta", delta: (ev.delta as string) || "" };
+		case "turn_start":
+			return { kind: "turn_start" };
+		case "turn_end":
+			return { kind: "turn_end" };
+		case "agent_start":
+			return { kind: "agent_start" };
+		case "agent_end":
+			return { kind: "agent_end" };
+		case "queue_update":
+		case "compaction_start":
+		case "compaction_end":
+			return null;
+		default:
+			return null;
+	}
+}
+
 export function jsonLineToNormalizedEvent(line: string): NormalizedEvent | null {
 	if (!line.trim()) return null;
 	try {
@@ -634,6 +713,126 @@ export function filterStderr(raw: string): string {
 		})
 		.join("\n")
 		.trim();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Chat message forwarding (shared by in-process and subprocess runners)
+// ═══════════════════════════════════════════════════════════════════
+
+/** Mutable accumulator state for chat forwarding */
+export interface ForwardChatState {
+	toolSeqNum: number;
+	pendingToolName: string;
+	pendingToolFormattedArgs: string;
+	pendingToolStartTime: number;
+	pendingToolIsError: boolean;
+}
+
+/** Create initial ForwardChatState */
+export function createForwardChatState(): ForwardChatState {
+	return {
+		toolSeqNum: 0,
+		pendingToolName: "",
+		pendingToolFormattedArgs: "",
+		pendingToolStartTime: 0,
+		pendingToolIsError: false,
+	};
+}
+
+/**
+ * Forward a normalized event to the supervisor chat as a user-visible message.
+ * Called during event processing in both in-process and subprocess runners.
+ * Keeps chat rendering in sync with agent progress.
+ *
+ * This is the shared implementation — both runners call it instead of
+ * duplicating the switch logic. Subprocess adds child.kill("SIGTERM")
+ * for budget exceed outside this function.
+ */
+export function forwardNormalizedEventToChat(
+	normalized: NormalizedEvent,
+	state: AgentRunState,
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	agentName: string,
+	pending: ForwardChatState,
+	preThinkingText?: string,
+): void {
+	switch (normalized.kind) {
+		case "tool_execution_start": {
+			pending.toolSeqNum++;
+			pending.pendingToolName = normalized.toolName;
+			pending.pendingToolStartTime = Date.now();
+			pending.pendingToolIsError = false;
+			const formatted = formatToolCall(
+				normalized.toolName,
+				normalized.args as Record<string, unknown> | null | undefined,
+			);
+			pending.pendingToolFormattedArgs = formatted;
+			pi.sendMessage({
+				customType: "supervisor",
+				content: `⏳ ${agentName} — ${formatted}`,
+				display: true,
+				details: {
+					eventType: "tool-start",
+					agentName,
+					toolName: normalized.toolName,
+					args: formatted,
+				},
+			});
+			break;
+		}
+		case "tool_execution_end": {
+			pending.pendingToolIsError = !!normalized.isError;
+			break;
+		}
+		case "message_end": {
+			const msg = normalized.message;
+			if (msg?.role === "toolResult") {
+				const toolName = pending.pendingToolName || msg.toolName || "tool";
+				const resultText = extractTextFromContent(msg.content);
+				const durationMs = pending.pendingToolStartTime > 0 ? Date.now() - pending.pendingToolStartTime : 0;
+				pi.sendMessage({
+					customType: "supervisor",
+					content: `${toolName}`,
+					display: true,
+					details: {
+						eventType: "tool-complete",
+						agentName,
+						toolName,
+						args: pending.pendingToolFormattedArgs,
+						isError: pending.pendingToolIsError,
+						resultText: resultText.slice(0, 2000),
+						toolIndex: `#${pending.toolSeqNum}`,
+						toolDurationMs: durationMs,
+						runningTokenCount: state.tokenCount,
+						runningToolCount: state.toolCount,
+						errorCount: state.failedToolCount ?? 0,
+						maxToolCalls: state.maxToolCalls,
+						agentTokenBudget: state.agentTokenBudget,
+					},
+				});
+				pending.pendingToolName = "";
+				pending.pendingToolFormattedArgs = "";
+				pending.pendingToolStartTime = 0;
+				pending.pendingToolIsError = false;
+			}
+			break;
+		}
+		case "thinking_end": {
+			if (preThinkingText) {
+				pi.sendMessage({
+					customType: "supervisor",
+					content: `💭 ${agentName}`,
+					display: true,
+					details: {
+						eventType: "thinking",
+						content: preThinkingText,
+						agentName,
+					},
+				});
+			}
+			break;
+		}
+	}
 }
 
 export function processNormalizedEvent(ev: NormalizedEvent, state: AgentRunState): HandlerResult {

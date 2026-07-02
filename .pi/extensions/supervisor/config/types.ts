@@ -1,6 +1,8 @@
 // ─── Supervisor Types ─────────────────────────────────────────────
 // All interfaces, types, enums. Zero logic, no functions.
 
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+
 export interface SupervisorConfig {
 	repo: string;
 	projectNumber: number;
@@ -95,6 +97,19 @@ export interface FilteredIssueData {
 
 /** DebugLogger type — re-exported from debug.ts (canonical definition) */
 export type { DebugLogger } from "../lib/debug.ts";
+
+/** Common signature for agent runners (in-process and subprocess) */
+export type AgentRunner = (
+	agent: ParsedAgent,
+	task: string,
+	ctx: ExtensionCommandContext,
+	timeoutMs: number,
+	cwd?: string,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+	sessionPath?: string,
+	pi?: Pick<ExtensionAPI, "sendMessage">,
+) => Promise<AgentRunResult>;
 
 /** Structured result returned by runAgent for rendering */
 export interface AgentRunResult {

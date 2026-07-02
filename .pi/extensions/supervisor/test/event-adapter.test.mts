@@ -9,6 +9,7 @@ import {
 	jsonLineToNormalizedEvent,
 	processNormalizedEvent,
 	filterStderr,
+	agentSessionEventToNormalizedEvent,
 } from "../event/adapter.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -802,5 +803,202 @@ describe("filterStderr — stderr noise filter", () => {
 	it("leading/trailing whitespace: .trim() applied to result", () => {
 		const result = filterStderr("  \nline 1\n  \n");
 		assert.equal(result, "line 1");
+	});
+});
+
+// ─── Phase 3: agentSessionEventToNormalizedEvent (in-process adapter) ──
+// Tests for the SDK AgentSessionEvent → NormalizedEvent mapper.
+// Phase 3 from test plan: 15 entity tests for all event variants.
+
+describe("agentSessionEventToNormalizedEvent — in-process event mapper", () => {
+	it("maps tool_execution_start with toolName and args", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "tool_execution_start",
+			toolName: "read",
+			args: { path: "/tmp/x.ts" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "tool_execution_start");
+		if (result!.kind === "tool_execution_start") {
+			assert.equal(result!.toolName, "read");
+			assert.deepEqual(result!.args, { path: "/tmp/x.ts" });
+		}
+	});
+
+	it("maps tool_execution_end with toolName and isError", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "tool_execution_end",
+			toolName: "edit",
+			isError: true,
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "tool_execution_end");
+		if (result!.kind === "tool_execution_end") {
+			assert.equal(result!.toolName, "edit");
+			assert.equal(result!.isError, true);
+		}
+	});
+
+	it("maps message_update with assistantMessageEvent.type=text_delta", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta", delta: "hello world" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "text_delta");
+		if (result!.kind === "text_delta") {
+			assert.equal(result!.delta, "hello world");
+		}
+	});
+
+	it("maps message_update with assistantMessageEvent.type=thinking_delta", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "thinking_delta", delta: "step by step" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "thinking_delta");
+		if (result!.kind === "thinking_delta") {
+			assert.equal(result!.delta, "step by step");
+		}
+	});
+
+	it("maps message_update with assistantMessageEvent.type=text_start", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "text_start" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "text_start");
+	});
+
+	it("maps message_update with assistantMessageEvent.type=thinking_start", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "thinking_start" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "thinking_start");
+	});
+
+	it("maps message_update with assistantMessageEvent.type=text_end + usage", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "text_end",
+				partial: { usage: { totalTokens: 100, input: 40, output: 60 } },
+			},
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "text_end");
+		if (result!.kind === "text_end") {
+			assert.equal(result!.usage?.totalTokens, 100);
+			assert.equal(result!.usage?.input, 40);
+			assert.equal(result!.usage?.output, 60);
+		}
+	});
+
+	it("maps message_update with assistantMessageEvent.type=thinking_end", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "thinking_end" },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "thinking_end");
+	});
+
+	it("maps message_end with message object", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+		});
+		assert.ok(result);
+		assert.equal(result!.kind, "message_end");
+		if (result!.kind === "message_end") {
+			assert.equal(result!.message.role, "assistant");
+		}
+	});
+
+	it("maps turn_start", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "turn_start" });
+		assert.ok(result);
+		assert.equal(result!.kind, "turn_start");
+	});
+
+	it("maps turn_end", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "turn_end" });
+		assert.ok(result);
+		assert.equal(result!.kind, "turn_end");
+	});
+
+	it("maps agent_start", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "agent_start" });
+		assert.ok(result);
+		assert.equal(result!.kind, "agent_start");
+	});
+
+	it("maps agent_end", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "agent_end" });
+		assert.ok(result);
+		assert.equal(result!.kind, "agent_end");
+	});
+
+	it("returns null for queue_update", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "queue_update" });
+		assert.equal(result, null);
+	});
+
+	it("returns null for compaction_start", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "compaction_start" });
+		assert.equal(result, null);
+	});
+
+	it("returns null for compaction_end", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "compaction_end" });
+		assert.equal(result, null);
+	});
+
+	it("returns null for null/undefined input", () => {
+		assert.equal(agentSessionEventToNormalizedEvent(null), null);
+		assert.equal(agentSessionEventToNormalizedEvent(undefined), null);
+	});
+
+	it("returns null for empty object (no type field)", () => {
+		const result = agentSessionEventToNormalizedEvent({});
+		assert.equal(result, null);
+	});
+
+	it("returns null for unknown event type", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "unknown_event_xyz" });
+		assert.equal(result, null);
+	});
+
+	it("returns null for message_update without assistantMessageEvent", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "message_update" });
+		assert.equal(result, null);
+	});
+
+	it("returns null for message_update with unknown sub-type", () => {
+		const result = agentSessionEventToNormalizedEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "unknown_sub_type" },
+		});
+		assert.equal(result, null);
+	});
+
+	it("tool_execution_start with no toolName defaults to 'tool'", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "tool_execution_start" });
+		assert.ok(result);
+		if (result!.kind === "tool_execution_start") {
+			assert.equal(result!.toolName, "tool");
+		}
+	});
+
+	it("tool_execution_end with no isError defaults to false", () => {
+		const result = agentSessionEventToNormalizedEvent({ type: "tool_execution_end" });
+		assert.ok(result);
+		if (result!.kind === "tool_execution_end") {
+			assert.equal(result!.isError, false);
+		}
 	});
 });
