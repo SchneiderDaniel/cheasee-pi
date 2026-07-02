@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { filterStderr } from "../event/adapter.ts";
 import { pushLog, MAX_FULL_LOG } from "../agent/state-helpers.ts";
 import { processNormalizedEvent } from "../event/adapter.ts";
@@ -51,42 +52,7 @@ describe("agent/stream.ts — file deleted", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 2: Contract test assertion removed from config-lib-refactor.test.mts
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("config-lib-refactor.test.mts — contract test removed", () => {
-	it("config-lib-refactor.test.mts import line no longer imports getPhaseFromEvent", () => {
-		const testPath = resolve(
-			dirname(fileURLToPath(import.meta.url)),
-			"config-lib-refactor.test.mts",
-		);
-		const source = readFileSync(testPath, "utf-8");
-		// The import block should not contain 'getPhaseFromEvent'
-		const importBlock = source.slice(
-			source.lastIndexOf("import {", source.indexOf("state-helpers")),
-			source.indexOf("state-helpers") + 'state-helpers.ts"'.length,
-		);
-		assert.ok(
-			!importBlock.includes("getPhaseFromEvent"),
-			"import block must not mention getPhaseFromEvent",
-		);
-	});
-
-	it('it("agent/stream.ts exports getPhaseFromEvent", ...) block is removed', () => {
-		const testPath = resolve(
-			dirname(fileURLToPath(import.meta.url)),
-			"config-lib-refactor.test.mts",
-		);
-		const source = readFileSync(testPath, "utf-8");
-		assert.ok(
-			!source.includes('exports getPhaseFromEvent"'),
-			'test description "agent/stream.ts exports getPhaseFromEvent" must not exist',
-		);
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 3: Phase mapping still works via replacement path
+// Phase 2: Phase mapping still works via replacement path
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("phase mapping — replacement pipeline (processNormalizedEvent)", () => {

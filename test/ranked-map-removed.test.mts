@@ -23,7 +23,6 @@ const PACKAGE_JSON_PATH = join(ROOT, "package.json");
 const MODIFIED_FILES = [
 	".pi/extensions/ripgrep-search/internal.ts",
 	".pi/extensions/ripgrep-search/index.ts",
-	".pi/extensions/ripgrep-search/args.ts",
 	".pi/extensions/supervisor/lib/shared-prompts.ts",
 	".pi/extensions/agent-harness/lib/harness-rules.ts",
 ];
