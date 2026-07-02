@@ -1,19 +1,22 @@
 /**
  * Phase 2: Adapter — auditFileGroup notification error handling
  *
- * Tests auditFileGroup via mocked vscode-jsonrpc, child_process, and fs modules.
- * Each test controls sendNotification behavior to verify try/catch + await patterns,
- * openedUris.add move, and .catch() on exit.
+ * Tests auditFileGroup via injected LspRuntime (setLspRuntime/resetLspRuntime).
+ * Each test controls sendNotification behavior via mockConnection to verify
+ * try/catch + await patterns, openedUris.add move, and .catch() on exit.
  *
  * Run with:
- *   node --experimental-strip-types --test --experimental-test-module-mocks \
+ *   node --experimental-strip-types --test \
  *     .pi/extensions/lsp-auditor/test/lsp-client.test.mts
+ *
+ * No --experimental-test-module-mocks flag needed.
  */
 
 import assert from "node:assert";
-import { beforeEach, describe, it, mock } from "node:test";
+import { beforeEach, afterEach, describe, it, mock } from "node:test";
 import { PassThrough } from "node:stream";
-import type { ServerMapping } from "../types.ts";
+import type { ServerMapping, LspRuntime, JsonRpcModule } from "../types.ts";
+import { auditFileGroup, setLspRuntime, resetLspRuntime } from "../lsp-client.ts";
 
 // ─── Fixtures ────────────────────────────────────────────────────────
 
@@ -29,6 +32,7 @@ const EMPTY_FILES: string[] = [];
 
 // ─── Mock factories ──────────────────────────────────────────────────
 
+/** Shared mutable connection mock — reset per test */
 let mockConnection: any = null;
 
 function createPassThrough() {
@@ -44,7 +48,7 @@ function createFakeChildProcess() {
 		pid: 12345,
 		on: mock.fn(),
 		removeAllListeners: mock.fn(),
-		kill: mock.fn(),
+		kill: mock.fn(() => true),
 	};
 }
 
@@ -63,58 +67,53 @@ function createDefaultMockConnection() {
 	};
 }
 
-// ─── Module mocks (module evaluation level) ──────────────────────────
-
-mock.module("vscode-jsonrpc", {
-	namedExports: {
-		StreamMessageReader: class {
-			constructor(_stream: any) {
-				/* noop */
-			}
-		},
-		StreamMessageWriter: class {
-			constructor(_stream: any) {
-				/* noop */
-			}
-		},
-		createMessageConnection: mock.fn(() => mockConnection),
-	},
-});
-
-mock.module("node:child_process", {
-	namedExports: {
+/**
+ * Create a mock LspRuntime for testing.
+ * Each call returns a fresh runtime with mock.fn()-backed stubs.
+ * The runtime's loadJsonRpc returns a JsonRpcModule wired to the
+ * module-level mockConnection, giving per-test control.
+ */
+function createMockRuntime(): LspRuntime {
+	return {
 		spawn: mock.fn(() => createFakeChildProcess()),
 		execFile: mock.fn((...args: any[]) => {
 			// execFile(file, args, options, callback); find the callback
-			const cb = [...args].reverse().find((a) => typeof a === "function");
+			const cb = [...args].reverse().find((a: any) => typeof a === "function");
 			if (cb) cb(null, "", "");
 		}),
-	},
-});
-
-mock.module("node:fs", {
-	namedExports: {
 		existsSync: mock.fn(() => true),
-		readFileSync: mock.fn(() => ""),
-	},
-});
-
-mock.module("node:fs/promises", {
-	namedExports: {
 		readFile: mock.fn(async () => "const x = 1;\n"),
-	},
-});
+		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => {
+			return {
+				StreamMessageReader: class {
+					constructor(_stream: unknown) {
+						/* noop */
+					}
+				} as unknown as new (stream: unknown) => unknown,
+				StreamMessageWriter: class {
+					constructor(_stream: unknown) {
+						/* noop */
+					}
+				} as unknown as new (stream: unknown) => unknown,
+				createMessageConnection: mock.fn(() => mockConnection),
+			};
+		}),
+	};
+}
 
 // ─── Tests ───────────────────────────────────────────────────────────
 
 describe("auditFileGroup notification error handling", () => {
 	beforeEach(() => {
 		mockConnection = createDefaultMockConnection();
+		setLspRuntime(createMockRuntime());
+	});
+
+	afterEach(() => {
+		resetLspRuntime();
 	});
 
 	it("initialized notification succeeds → continues, opens files, collects diagnostics", async () => {
-		const { auditFileGroup } = await import("../lsp-client.ts");
-
 		// Simulate diagnostics being published after file open.
 		// The code uses the star-notification-handler overload:
 		//   connection.onNotification((method: string, params: unknown) => { ... })
@@ -145,7 +144,6 @@ describe("auditFileGroup notification error handling", () => {
 			return undefined;
 		});
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
 
 		assert.ok(
@@ -161,7 +159,6 @@ describe("auditFileGroup notification error handling", () => {
 			return Promise.resolve();
 		});
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
 
 		assert.ok(
@@ -210,7 +207,6 @@ describe("auditFileGroup notification error handling", () => {
 			});
 		});
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
 		const result = await auditFileGroup(TS_MAPPING, files, "/worktree");
 
 		// Should have an error for the failed didOpen on second file
@@ -249,7 +245,6 @@ describe("auditFileGroup notification error handling", () => {
 			});
 		});
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
 		const result = await auditFileGroup(TS_MAPPING, files, "/worktree");
 
 		assert.ok(
@@ -264,8 +259,6 @@ describe("auditFileGroup notification error handling", () => {
 			if (method === "exit") throw new Error("connection already disposed");
 			return undefined;
 		});
-
-		const { auditFileGroup } = await import("../lsp-client.ts");
 
 		// Simulate diagnostics
 		mockConnection.onNotification = mock.fn((handler: Function) => {
@@ -290,7 +283,6 @@ describe("auditFileGroup notification error handling", () => {
 		const sendNotificationMock = mock.fn(async () => {});
 		mockConnection.sendNotification = sendNotificationMock;
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
 		const result = await auditFileGroup(TS_MAPPING, EMPTY_FILES, "/worktree");
 
 		// DidOpen should never be called (check on the mock)
@@ -321,8 +313,6 @@ describe("auditFileGroup notification error handling", () => {
 			return null;
 		});
 
-		const { auditFileGroup } = await import("../lsp-client.ts");
-
 		// Simulate diagnostics
 		mockConnection.onNotification = mock.fn((handler: Function) => {
 			setImmediate(() => {
@@ -339,5 +329,21 @@ describe("auditFileGroup notification error handling", () => {
 			result.errors.some((e: string) => e.includes("stream write failed")),
 			"should capture error from onError handler with tuple destructuring",
 		);
+	});
+
+	it("setLspRuntime with undefined throws TypeError", () => {
+		assert.throws(
+			() => (setLspRuntime as any)(undefined),
+			/TypeError/,
+			"setLspRuntime should throw TypeError when called with undefined",
+		);
+	});
+
+	it("resetLspRuntime is idempotent — no error when no runtime set", () => {
+		// Reset first to ensure clean state
+		resetLspRuntime();
+		// Then reset again — should not throw
+		resetLspRuntime();
+		// Should default back to real Node modules (no crash when calling)
 	});
 });

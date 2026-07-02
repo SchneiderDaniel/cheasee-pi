@@ -5,19 +5,27 @@
  * publishDiagnostics collection, shutdown. This is the only module with
  * Node I/O + external dependency (vscode-jsonrpc).
  *
+ * Injection seam: setLspRuntime/resetLspRuntime for tests.
+ * Tests inject a mock LspRuntime to replace Node I/O and vscode-jsonrpc,
+ * eliminating the need for --experimental-test-module-mocks and mock.module().
+ *
  * Fixes:
  * - C4 P1: jsonRpcModule cached inside loadJsonRpc() function scope (not module-level)
  * - P4 P2: catch (err) has instanceof Error check
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import {
+	spawn as realSpawn,
+	execFile as realExecFile,
+	type ChildProcess,
+} from "node:child_process";
+import { existsSync as realExistsSync } from "node:fs";
+import { readFile as realReadFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { LspPublishDiagnosticsParams, LspDiagnosticData } from "./lib/lsp-types.ts";
 import { isLspPublishDiagnosticsParams, isLspDiagnosticData } from "./lib/lsp-types.ts";
-import type { LspDiagnostic, ServerMapping, AuditResult } from "./types.ts";
+import type { LspDiagnostic, ServerMapping, AuditResult, LspRuntime, JsonRpcModule } from "./types.ts";
 import { filterBySeverity } from "./formatting.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -27,26 +35,70 @@ const FILE_TIMEOUT_MS = 30_000;
 /** Maximum wait for publishDiagnostics notifications (30s) */
 const DIAG_WAIT_TIMEOUT_MS = 30_000;
 
-// ─── Dynamic Import Cache (function-scoped, not module-level) ────────
+// ─── Runtime Injection Seam ──────────────────────────────────────────
 
-/** vscode-jsonrpc module shape */
-interface JsonRpcModule {
-	StreamMessageReader: new (stream: NodeJS.ReadableStream) => unknown;
-	StreamMessageWriter: new (stream: NodeJS.WritableStream) => unknown;
-	createMessageConnection: (reader: unknown, writer: unknown) => MessageConnection;
+/** Current injected runtime, or undefined for default (production) behavior */
+let currentRuntime: LspRuntime | undefined;
+
+/**
+ * Override the default runtime with a custom LspRuntime.
+ * Used by tests to inject canned implementations without module mocking.
+ *
+ * @param runtime - LspRuntime to use
+ * @throws TypeError if runtime is undefined
+ */
+export function setLspRuntime(runtime: LspRuntime): void {
+	if (runtime === undefined) {
+		throw new TypeError("setLspRuntime requires an LspRuntime argument");
+	}
+	currentRuntime = runtime;
 }
 
-/** Cached jsonRpcModule inside function scope — eliminates C4 P1 */
-let jsonRpcModule: JsonRpcModule | null = null;
+/**
+ * Reset the injected runtime to use the default production implementation.
+ * Must be called in afterEach to prevent cross-test bleed.
+ */
+export function resetLspRuntime(): void {
+	currentRuntime = undefined;
+}
 
-async function loadJsonRpc(): Promise<boolean> {
-	if (jsonRpcModule) return true;
-	try {
-		jsonRpcModule = (await import("vscode-jsonrpc")) as unknown as JsonRpcModule;
-		return true;
-	} catch {
-		return false;
-	}
+/**
+ * Get the current runtime — injected or default.
+ */
+function getRuntime(): LspRuntime {
+	return currentRuntime ?? createDefaultRuntime();
+}
+
+/**
+ * Create the default production LspRuntime backed by real Node modules.
+ * Closure-based: each call creates an independent instance with its own
+ * jsonRpcModule cache.
+ */
+function createDefaultRuntime(): LspRuntime {
+	let jsonRpcModule: JsonRpcModule | null = null;
+
+	return {
+		spawn: (command, args, options) => realSpawn(command, args, options) as any,
+		execFile: (
+			file: string,
+			args: string[],
+			options: Record<string, unknown>,
+			callback: (err: Error | null, stdout: string, stderr: string) => void,
+		) => {
+			realExecFile(file, args, options as Record<string, unknown>, callback);
+		},
+		existsSync: (path) => realExistsSync(path),
+		readFile: (path, encoding) => (realReadFile as any)(path, encoding),
+		loadJsonRpc: async () => {
+			if (jsonRpcModule) return jsonRpcModule;
+			try {
+				jsonRpcModule = (await import("vscode-jsonrpc")) as unknown as JsonRpcModule;
+				return jsonRpcModule;
+			} catch {
+				return null;
+			}
+		},
+	};
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -90,7 +142,7 @@ function lspSeverityToLabel(severity: number): "Error" | "Warning" | "Informatio
 }
 
 /** Promise with timeout — guarded against unhandled rejections from losing promise */
-export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 	// Use a settled flag so the losing settlement is silently absorbed.
 	// This prevents unhandled rejections when connection.dispose() rejects
 	// a timed-out sendRequest promise (issue #247), while still propagating
@@ -139,7 +191,10 @@ export async function auditFileGroup(
 	const errors: string[] = [];
 	const allDiagnostics: LspDiagnostic[] = [];
 
-	if (!(await loadJsonRpc())) {
+	const rt = getRuntime();
+
+	const jsonRpc = await rt.loadJsonRpc();
+	if (!jsonRpc) {
 		return {
 			diagnostics: [],
 			errors: [`vscode-jsonrpc not installed — cannot audit ${mapping.command}`],
@@ -155,9 +210,8 @@ export async function auditFileGroup(
 		// This avoids vscode-jsonrpc internals emitting ERR_STREAM_DESTROYED
 		// when spawn fails with ENOENT.
 		try {
-			const { execFile } = await import("node:child_process");
 			await new Promise<void>((resolve, reject) => {
-				execFile("which", [mapping.command], { timeout: 5_000 }, (err) => {
+				rt.execFile("which", [mapping.command], { timeout: 5_000 }, (err) => {
 					if (err) reject(err);
 					else resolve();
 				});
@@ -168,11 +222,11 @@ export async function auditFileGroup(
 		}
 
 		// Spawn LSP server
-		child = spawn(mapping.command, mapping.args, {
+		child = rt.spawn(mapping.command, mapping.args, {
 			cwd: worktreePath,
 			stdio: ["pipe", "pipe", "pipe"],
 			env: { ...process.env },
-		});
+		}) as unknown as ChildProcess;
 
 		child.on("error", (err: Error) => {
 			errors.push(
@@ -192,9 +246,9 @@ export async function auditFileGroup(
 			return { diagnostics: [], errors, note: "" };
 		}
 
-		const reader = new jsonRpcModule!.StreamMessageReader(child.stdout!);
-		const writer = new jsonRpcModule!.StreamMessageWriter(child.stdin!);
-		connection = jsonRpcModule!.createMessageConnection(reader, writer);
+		const reader = new jsonRpc.StreamMessageReader(child.stdout!);
+		const writer = new jsonRpc.StreamMessageWriter(child.stdin!);
+		connection = jsonRpc.createMessageConnection(reader, writer) as MessageConnection;
 
 		// Capture connection-level errors (e.g. write to destroyed stream)
 		// onError emits [Error, Message | undefined, number | undefined] tuple
@@ -260,12 +314,12 @@ export async function auditFileGroup(
 		// Open each file with didOpen
 		for (const file of files) {
 			const fullPath = resolvePath(worktreePath, file);
-			if (!existsSync(fullPath)) {
+			if (!rt.existsSync(fullPath)) {
 				errors.push(`File not found in worktree: ${file}`);
 				continue;
 			}
 
-			const content = await readFile(fullPath, "utf-8");
+			const content = await rt.readFile(fullPath, "utf-8");
 			const langId = languageIdForExtension(file.slice(file.lastIndexOf(".")).toLowerCase());
 			const uri = `file://${fullPath}`;
 
