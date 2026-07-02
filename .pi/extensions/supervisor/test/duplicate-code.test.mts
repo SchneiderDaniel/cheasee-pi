@@ -20,7 +20,7 @@ import {
 	buildResult,
 	runDuplicateCheck,
 } from "../checks/duplicate-code.ts";
-import type { ExecFn } from "../checks/duplicate-code.ts";
+import type { ExecFn } from "../checks/shared.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helper: build a JscpdClone for use in tests

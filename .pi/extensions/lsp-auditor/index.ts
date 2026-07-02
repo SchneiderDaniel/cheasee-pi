@@ -107,4 +107,19 @@ function extractLastDiagnostics(result: {
 	return [];
 }
 
-
+// Re-export for direct integration/supervisor usage
+export { runPreAudit, mergeAuditResults } from "./run-pre-audit.ts";
+export { auditFileGroup } from "./lsp-client.ts";
+export { formatDiagnostics, filterBySeverity } from "./formatting.ts";
+export { buildServerMappings } from "./server-mappings.ts";
+export { extractModifiedFiles, groupFilesByServer } from "./file-discovery.ts";
+export { countRetryAttempts, shouldRetry, MAX_RETRIES } from "./retry.ts";
+export { formatForMode } from "./output-adapter.ts";
+export type {
+	LspDiagnostic,
+	ServerMapping,
+	AuditResult,
+	PreAuditOptions,
+	PreAuditResult,
+	StructuredDiagnostics,
+} from "./types.ts";

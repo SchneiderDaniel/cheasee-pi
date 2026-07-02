@@ -99,7 +99,7 @@ export function registerCavemanCommand(
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
-			const arg = args?.trim().toLowerCase();
+			const arg = (args ?? "").trim().toLowerCase();
 
 			// Open config dialog
 			if (arg === "config") {

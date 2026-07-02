@@ -12,12 +12,12 @@ import assert from "node:assert/strict";
 import {
 	type OsvFinding,
 	type OsvScanResult,
-	type ExecFn,
 	parseOsvJson,
 	bucketBySeverity,
 	buildVulnContext,
 	runVulnScan,
 } from "../../checks/osv-scanner.ts";
+import type { ExecFn } from "../../checks/shared.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers

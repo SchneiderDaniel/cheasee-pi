@@ -88,24 +88,3 @@ export function filterBySeverity(diagnostics: LspDiagnostic[], threshold: string
 	return diagnostics.filter((d) => severityValue(d.severity) <= maxVal);
 }
 
-// ─── Merging ─────────────────────────────────────────────────────────
-
-/**
- * Merge multiple audit results (one per LSP server) into a single result.
- */
-export function mergeResults(results: AuditResult[]): AuditResult {
-	const allDiags: LspDiagnostic[] = [];
-	const allErrors: string[] = [];
-
-	for (const r of results) {
-		if (r.diagnostics) allDiags.push(...r.diagnostics);
-		if (r.errors) allErrors.push(...r.errors);
-	}
-
-	let note = "";
-	if (allErrors.length > 0) {
-		note = `Warnings: ${allErrors.join("; ")}`;
-	}
-
-	return { diagnostics: allDiags, errors: allErrors, note };
-}

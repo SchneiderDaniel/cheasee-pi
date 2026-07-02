@@ -167,15 +167,13 @@ RUN chmod -R a+rX /opt/venvs && \
 ARG OSV_SCANNER_VERSION=2.4.0
 RUN case "$(dpkg --print-architecture)" in \
         amd64) \
-            osv_asset="osv-scanner_${OSV_SCANNER_VERSION}_linux_amd64.tar.gz" ;; \
+            osv_asset="osv-scanner_linux_amd64" ;; \
         arm64) \
-            osv_asset="osv-scanner_${OSV_SCANNER_VERSION}_linux_arm64.tar.gz" ;; \
+            osv_asset="osv-scanner_linux_arm64" ;; \
         *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/tmp/${osv_asset}" && \
-    tar xzf "/tmp/${osv_asset}" -C /usr/local/bin osv-scanner && \
+    curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/usr/local/bin/osv-scanner" && \
     chmod +x /usr/local/bin/osv-scanner && \
-    rm -f "/tmp/${osv_asset}" && \
     osv-scanner --version
 
 # ---------------------------------------------------------------

@@ -16,12 +16,11 @@ import {
 	thresholdValue,
 	formatDiagnostics,
 	filterBySeverity,
-	mergeResults,
 } from "../formatting.ts";
 import { buildServerMappings } from "../server-mappings.ts";
 import { extractModifiedFiles, groupFilesByServer } from "../file-discovery.ts";
 import { countRetryAttempts, shouldRetry, MAX_RETRIES } from "../retry.ts";
-import { mapSessionEntriesToRetryEntries, checkProjectTrust } from "../run-pre-audit.ts";
+import { mergeAuditResults, mapSessionEntriesToRetryEntries, checkProjectTrust } from "../run-pre-audit.ts";
 import { formatForMode } from "../output-adapter.ts";
 // Extension entry point — imported here to satisfy knip (loaded dynamically by pi)
 import lspAuditor from "../index.ts";
@@ -205,9 +204,9 @@ describe("filterBySeverity", () => {
 	});
 });
 
-describe("mergeResults", () => {
+describe("mergeAuditResults", () => {
 	it("merges diagnostics and errors", () => {
-		const result = mergeResults([
+		const result = mergeAuditResults([
 			{
 				diagnostics: [{ file: "a.ts", line: 1, column: 1, severity: "Error", message: "e1" }],
 				errors: ["srv1 failed"],
@@ -225,12 +224,12 @@ describe("mergeResults", () => {
 	});
 
 	it("both empty → empty result", () => {
-		const result = mergeResults([]);
+		const result = mergeAuditResults([]);
 		assert.deepStrictEqual(result, { diagnostics: [], errors: [], note: "" });
 	});
 
 	it("handles missing arrays", () => {
-		const result = mergeResults([
+		const result = mergeAuditResults([
 			{ diagnostics: undefined as unknown as LspDiagnostic[], errors: ["e"], note: "" },
 			{
 				diagnostics: [{ file: "a.ts", line: 1, column: 1, severity: "Error", message: "x" }],
