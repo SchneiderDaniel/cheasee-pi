@@ -30,8 +30,6 @@ export interface LspPublishDiagnosticsParams {
 	diagnostics: LspDiagnosticData[];
 }
 
-
-
 // ─── Type guards ─────────────────────────────────────────────────────
 
 /** Check if value is a non-null object (not array) */

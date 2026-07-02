@@ -108,9 +108,9 @@ function extractLastDiagnostics(result: {
 }
 
 // Re-export for direct integration/supervisor usage
-export { runPreAudit } from "./run-pre-audit.ts";
+export { runPreAudit, mergeAuditResults } from "./run-pre-audit.ts";
 export { auditFileGroup } from "./lsp-client.ts";
-export { formatDiagnostics, filterBySeverity, mergeResults } from "./formatting.ts";
+export { formatDiagnostics, filterBySeverity } from "./formatting.ts";
 export { buildServerMappings } from "./server-mappings.ts";
 export { extractModifiedFiles, groupFilesByServer } from "./file-discovery.ts";
 export { countRetryAttempts, shouldRetry, MAX_RETRIES } from "./retry.ts";

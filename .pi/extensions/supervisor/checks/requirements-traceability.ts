@@ -7,12 +7,7 @@
 import { existsSync } from "node:fs";
 import { join, extname, basename, dirname } from "node:path";
 
-/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+import { type ExecFn } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 

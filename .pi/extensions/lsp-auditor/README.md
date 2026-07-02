@@ -150,7 +150,7 @@ Multi-server LSP orchestrator with file discovery and retry logic:
 ├── lsp-client.ts         # LSP client: spawn server, didOpen, collect publishDiagnostics
 ├── server-mappings.ts    # Extension to server mapping (.ts to typescript-language-server, .py to pylsp, etc.)
 ├── file-discovery.ts     # git diff file discovery + extension grouping
-├── formatting.ts         # Diagnostic formatting, severity filtering, result merging
+├── formatting.ts         # Diagnostic formatting, severity filtering
 ├── settings.ts           # Read .pi/settings.json for defaultBranch
 ├── retry.ts              # Retry logic: countRetryAttempts, shouldRetry, MAX_RETRIES=3
 ├── output-adapter.ts     # Mode-adaptive output formatting (TUI/RPC/JSON/print)
@@ -169,7 +169,7 @@ flowchart TD
     E --> F[didOpen each file]
     F --> G[collect publishDiagnostics]
     G --> H[Filter by severityThreshold]
-    H --> I[mergeResults across servers]
+    H --> I[merge results across servers]
     I --> J{shouldRetry?}
     J -- yes, < 3 retries --> D
     J -- no --> K[format output]

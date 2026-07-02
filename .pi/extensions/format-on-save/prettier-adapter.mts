@@ -34,19 +34,6 @@ const SUPPORTED_EXTENSIONS = [
 	".json5",
 ] as const;
 
-// ─── Default Prettier Plugins ─────────────────────────────────────────
-
-/**
- * Default prettier plugins loaded eagerly at construction time.
- * Covers all supported extensions:
- *   - TypeScript: .ts, .tsx, .mts, .cts
- *   - Babel/JS:   .js, .jsx, .mjs, .cjs (also provides JSON parsers)
- *   - Estree:     required by babel plugin
- */
-const DEFAULT_PLUGINS: unknown[] = [
-	// Dynamic imports to avoid top-level load failures
-];
-
 async function loadDefaultPlugins(): Promise<unknown[]> {
 	const [tsPlugin, babelPlugin, estreePlugin] = await Promise.all([
 		import("prettier/plugins/typescript"),

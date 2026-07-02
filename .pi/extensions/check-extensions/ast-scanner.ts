@@ -189,6 +189,41 @@ export function processAstGrepMatch(
 }
 
 /**
+ * Build an import-related ASTFinding with boilerplate fields filled in.
+ * Eliminates ~10 lines × 4 occurrences of duplicate object literals.
+ */
+function emitImportFinding(
+	extName: string,
+	filePath: string,
+	line: number,
+	lineContent: string,
+	matchContext: MatchContext,
+	apiName: string,
+): ASTFinding {
+	return {
+		extensionName: extName,
+		file: filePath,
+		apiName,
+		line,
+		column: 1,
+		lineContent,
+		matchContext,
+		callArgs: [],
+		changelogVersion: "",
+		isBreaking: false,
+		category: "",
+	};
+}
+
+/**
+ * Check if a default import name qualifies as a pi module reference.
+ * Wraps the substring-match logic so it lives in one place instead of two.
+ */
+function isPiDefaultImport(name: string): boolean {
+	return name === "pi" || name.toLowerCase().includes("pi");
+}
+
+/**
  * Run ast-grep for a pattern and parse JSON results.
  */
 async function runAstGrep(
@@ -253,19 +288,7 @@ function findImportFindings(filePath: string, content: string, extName: string):
 			// for names like ExtensionContext, ExtensionOptions, etc. that
 			// don't contain "pi" or "extensionapi" as substrings.
 			if (importedNames.length > 0) {
-				findings.push({
-					extensionName: extName,
-					file: filePath,
-					apiName: "pi.import-type",
-					line: i + 1,
-					column: 1,
-					lineContent: trimmed,
-					matchContext: "import-type",
-					callArgs: [],
-					changelogVersion: "",
-					isBreaking: false,
-					category: "",
-				});
+				findings.push(emitImportFinding(extName, filePath, i + 1, trimmed, "import-type", "pi.import-type"));
 			}
 			continue;
 		}
@@ -274,24 +297,10 @@ function findImportFindings(filePath: string, content: string, extName: string):
 		const valueImportMatch = trimmed.match(/^import\s+\{\s*([^}]+)\s*\}\s+from\s+["']([^"']+)["']/);
 		if (valueImportMatch && piModulePattern.test(valueImportMatch[2]!)) {
 			const importedNames = valueImportMatch[1]!;
-			// Parse individual import names for exact matching (fix substring false positives)
 			const trimmedNames = importedNames.split(",").map((name: string) => name.trim());
-			// Check for pi API function imports using exact match
 			for (const name of trimmedNames) {
 				if (PI_APIS.has(name)) {
-					findings.push({
-						extensionName: extName,
-						file: filePath,
-						apiName: `pi.${name}`,
-						line: i + 1,
-						column: 1,
-						lineContent: trimmed,
-						matchContext: "import-value",
-						callArgs: [],
-						changelogVersion: "",
-						isBreaking: false,
-						category: "",
-					});
+					findings.push(emitImportFinding(extName, filePath, i + 1, trimmed, "import-value", `pi.${name}`));
 				}
 			}
 			continue;
@@ -306,39 +315,13 @@ function findImportFindings(filePath: string, content: string, extName: string):
 		if (mixedImportMatch && piModulePattern.test(mixedImportMatch[3]!)) {
 			const defaultName = mixedImportMatch[1]!;
 			const namedList = mixedImportMatch[2]!.trim();
-			// Emit default import finding (like Pattern 3)
-			if (defaultName === "pi" || defaultName.toLowerCase().includes("pi")) {
-				findings.push({
-					extensionName: extName,
-					file: filePath,
-					apiName: "pi",
-					line: i + 1,
-					column: 1,
-					lineContent: trimmed,
-					matchContext: "import-value",
-					callArgs: [],
-					changelogVersion: "",
-					isBreaking: false,
-					category: "",
-				});
+			if (isPiDefaultImport(defaultName)) {
+				findings.push(emitImportFinding(extName, filePath, i + 1, trimmed, "import-value", "pi"));
 			}
-			// Emit named import findings (like Pattern 2)
 			const trimmedNames = namedList.split(",").map((name) => name.trim());
 			for (const name of trimmedNames) {
 				if (PI_APIS.has(name)) {
-					findings.push({
-						extensionName: extName,
-						file: filePath,
-						apiName: `pi.${name}`,
-						line: i + 1,
-						column: 1,
-						lineContent: trimmed,
-						matchContext: "import-value",
-						callArgs: [],
-						changelogVersion: "",
-						isBreaking: false,
-						category: "",
-					});
+					findings.push(emitImportFinding(extName, filePath, i + 1, trimmed, "import-value", `pi.${name}`));
 				}
 			}
 			continue;
@@ -350,20 +333,8 @@ function findImportFindings(filePath: string, content: string, extName: string):
 		);
 		if (defaultImportMatch && piModulePattern.test(defaultImportMatch[2]!)) {
 			const importName = defaultImportMatch[1]!;
-			if (importName === "pi" || importName.toLowerCase().includes("pi")) {
-				findings.push({
-					extensionName: extName,
-					file: filePath,
-					apiName: "pi",
-					line: i + 1,
-					column: 1,
-					lineContent: trimmed,
-					matchContext: "import-value",
-					callArgs: [],
-					changelogVersion: "",
-					isBreaking: false,
-					category: "",
-				});
+			if (isPiDefaultImport(importName)) {
+				findings.push(emitImportFinding(extName, filePath, i + 1, trimmed, "import-value", "pi"));
 			}
 		}
 	}

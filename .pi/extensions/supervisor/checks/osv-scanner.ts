@@ -10,14 +10,7 @@
 // osv-scanner exit codes: 0=clean, 1=vulns_found, 127=error, 128=no_pkgs
 // Stderr is suppressed (2>/dev/null) — JSON output is on stdout only.
 
-/** Exec function type for subprocess calls (3-field return — code, stdout, stderr) */
-export type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
-
-import { isExecutableNotFound } from "./shared.ts";
+import { type ExecFn, isExecutableNotFound } from "./shared.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
