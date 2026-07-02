@@ -7,12 +7,12 @@
 
 // ─── LSP Basic Types ─────────────────────────────────────────────────
 
-export interface LspPosition {
+interface LspPosition {
 	line: number;
 	character: number;
 }
 
-export interface LspRange {
+interface LspRange {
 	start: LspPosition;
 	end: LspPosition;
 }
@@ -30,22 +30,7 @@ export interface LspPublishDiagnosticsParams {
 	diagnostics: LspDiagnosticData[];
 }
 
-export interface LspTextDocumentItem {
-	uri: string;
-	languageId: string;
-	version: number;
-	text: string;
-}
 
-export interface LspInitializeParams {
-	processId: number;
-	rootUri: string;
-	capabilities: Record<string, unknown>;
-}
-
-export interface LspInitializeResult {
-	capabilities: Record<string, unknown>;
-}
 
 // ─── Type guards ─────────────────────────────────────────────────────
 

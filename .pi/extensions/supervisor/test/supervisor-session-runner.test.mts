@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 // Use readFileSync — no module imports needed.
 
 describe("agent-session-runner.ts — fix verification", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 
 	// ── Type check (Phase A) ──
 

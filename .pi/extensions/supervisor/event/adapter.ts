@@ -611,6 +611,84 @@ export function normalizeEvent(
 	return entry.json(ev);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// AgentSessionEvent → NormalizedEvent adapter (in-process path)
+// ═══════════════════════════════════════════════════════════════════
+// Maps SDK AgentSessionEvent union to NormalizedEvent for use with
+// processNormalizedEvent. Returns null for unmappable events.
+
+export function agentSessionEventToNormalizedEvent(
+	ev: Record<string, unknown> | null | undefined,
+): NormalizedEvent | null {
+	if (!ev || typeof ev !== "object") return null;
+
+	const type = ev.type as string | undefined;
+	if (!type) return null;
+
+	// message_update has nested assistantMessageEvent for deltas
+	if (type === "message_update") {
+		const assistantEvent = ev.assistantMessageEvent as Record<string, unknown> | undefined;
+		if (!assistantEvent) return null;
+		const subType = assistantEvent.type as string;
+		const delta = assistantEvent.delta as string | undefined;
+		const partial = assistantEvent.partial as Record<string, unknown> | undefined;
+
+		switch (subType) {
+			case "text_delta":
+				return { kind: "text_delta", delta: delta || "" };
+			case "thinking_delta":
+				return { kind: "thinking_delta", delta: delta || "" };
+			case "text_start":
+				return { kind: "text_start" };
+			case "thinking_start":
+				return { kind: "thinking_start" };
+			case "text_end":
+				return { kind: "text_end", usage: (partial?.usage as any) || undefined };
+			case "thinking_end":
+				return { kind: "thinking_end" };
+			default:
+				return null;
+		}
+	}
+
+	switch (type) {
+		case "tool_execution_start":
+			return {
+				kind: "tool_execution_start",
+				toolName: (ev.toolName as string) || "tool",
+				args: ev.args,
+			};
+		case "tool_execution_end":
+			return {
+				kind: "tool_execution_end",
+				toolName: (ev.toolName as string) || "tool",
+				isError: !!ev.isError,
+			};
+		case "message_end":
+			return { kind: "message_end", message: ev.message as any };
+		case "thinking_start":
+			return { kind: "thinking_start" };
+		case "thinking_end":
+			return { kind: "thinking_end" };
+		case "thinking_delta":
+			return { kind: "thinking_delta", delta: (ev.delta as string) || "" };
+		case "turn_start":
+			return { kind: "turn_start" };
+		case "turn_end":
+			return { kind: "turn_end" };
+		case "agent_start":
+			return { kind: "agent_start" };
+		case "agent_end":
+			return { kind: "agent_end" };
+		case "queue_update":
+		case "compaction_start":
+		case "compaction_end":
+			return null;
+		default:
+			return null;
+	}
+}
+
 export function jsonLineToNormalizedEvent(line: string): NormalizedEvent | null {
 	if (!line.trim()) return null;
 	try {

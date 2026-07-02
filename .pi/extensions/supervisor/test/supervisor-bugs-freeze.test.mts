@@ -124,7 +124,7 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 	const lines = source.split("\n");
 
 	it("2.1: outer flushTimer declaration exists in hoisted scope (before try block)", () => {
@@ -198,7 +198,7 @@ describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
 // This phase validates the timeout infrastructure around session.prompt().
 
 describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 
 	it("3.1: promptPromise wrapped in Promise.race with timeoutPromise", () => {
 		const promptSection = source.split("Promise.race([")[1]?.split("])")[0] || "";
@@ -256,7 +256,7 @@ describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", ()
 // render exceptions from stalling the heartbeat interval.
 
 describe("Phase 4: Bug 4 -- Render stall (flushWidget try-catch)", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 
 	it("4.1: flushWidget exists and calls ctx.ui.setWidget with widgetId + buildWidgetLines", () => {
 		const flushWidgetBody =

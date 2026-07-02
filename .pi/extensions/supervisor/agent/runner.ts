@@ -29,9 +29,76 @@ import { pushLog } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
+import { runAgentInProcess } from "./agent-session-runner.ts";
 
 // Re-export DEFAULT_AGENT_TIMEOUT_MS for backward compatibility
 export { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
+
+// ─── runAgent — in-process first, subprocess fallback ────────────
+// Dispatcher that tries the in-process SDK runner first.
+// Falls back to subprocess on exception or unsuccessful result.
+
+export async function runAgent(
+	agent: ParsedAgent,
+	task: string,
+	ctx: ExtensionCommandContext,
+	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
+	cwd?: string,
+	maxToolCalls?: number,
+	agentTokenBudget?: number,
+	sessionPath?: string,
+	pi?: Pick<ExtensionAPI, "sendMessage">,
+): Promise<AgentRunResult> {
+	try {
+		const result = await runAgentInProcess(
+			agent,
+			task,
+			ctx,
+			timeoutMs,
+			cwd,
+			maxToolCalls,
+			agentTokenBudget,
+			sessionPath,
+			pi,
+		);
+		// Fall back on unsuccessful result too
+		if (!result.success) {
+			console.warn(
+				"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
+			);
+			return await runAgentSubprocess(
+				agent,
+				task,
+				ctx,
+				timeoutMs,
+				cwd,
+				maxToolCalls,
+				agentTokenBudget,
+				sessionPath,
+				pi,
+			);
+		}
+		return result;
+	} catch (err: unknown) {
+		console.warn(
+			"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
+		);
+		// Use `return await` to catch synchronous throws from subprocess runner
+		return await runAgentSubprocess(
+			agent,
+			task,
+			ctx,
+			timeoutMs,
+			cwd,
+			maxToolCalls,
+			agentTokenBudget,
+			sessionPath,
+			pi,
+		);
+	}
+}
+
+
 
 // ─── buildSubprocessArgs: assemble CLI args for pi --mode json ──────
 // Extracted from runAgentSubprocess for reuse in executeAgent.

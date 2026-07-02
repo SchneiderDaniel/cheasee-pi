@@ -307,13 +307,13 @@ export function classifyDiffDirection(
  * Status letters: A (added), D (deleted), M (modified), R (renamed),
  * C (copied), etc.
  */
-export interface DiffEntry {
+interface DiffEntry {
 	status: string;
 	path: string;
 	oldPath?: string;
 }
 
-export function parseDiffNameStatus(output: string): DiffEntry[] {
+function parseDiffNameStatus(output: string): DiffEntry[] {
 	if (!output || output.trim() === "") return [];
 
 	const entries: DiffEntry[] = [];

@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AgentRunResult, ParsedAgent } from "../config/types.ts";
-import { runAgentSubprocess } from "../agent/runner.ts";
+import type { AgentRunResult, AgentRunner, ParsedAgent } from "../config/types.ts";
+import { runAgent } from "../agent/runner.ts";
 import { convertAgentRunToToolResult } from "../session/result.ts";
 import { validateAgentResult } from "./output.ts";
 import { replaySessionFile } from "./replay-session.ts";
@@ -28,7 +28,7 @@ export async function executeAgent(
 	agentTokenBudget?: number,
 	issueTitle?: string,
 	// ponytail: test hook for injecting mock runner; external callers omit this
-	runner?: typeof runAgentSubprocess,
+	runner?: AgentRunner,
 ): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
 	const agentName = agent.config.name;
 
@@ -46,7 +46,7 @@ export async function executeAgent(
 	const sessionPath = join(sessionDir, `${agentName}-${Date.now()}.jsonl`);
 
 	// ── 3. Run subprocess (handles widget lifecycle internally) ──
-	const result = await (runner ?? runAgentSubprocess)(
+	const result = await (runner ?? runAgent)(
 		agent,
 		task,
 		ctx,

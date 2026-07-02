@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
-	const source = readFileSync(".pi/extensions/supervisor/agent/session-runner.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 	const lines = source.split("\n");
 
 	// ── 1.1: Catch block is non-empty (no silent empty catch) ──
