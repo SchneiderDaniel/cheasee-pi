@@ -52,6 +52,12 @@ interface FooterConfig {
 	issueNumber: { value: number | undefined };
 	issueRepo: { value: string | undefined };
 	issueTitle: { value: string | undefined };
+
+	// ── Container resource monitoring ────────────────────────
+	prevCpuUsage: number;
+	prevCpuTime: number;
+	allocatedCpus: number;
+	containerDisplay: { value: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +104,10 @@ function defaultFooterConfig(): FooterConfig {
 		issueNumber: { value: undefined },
 		issueRepo: { value: undefined },
 		issueTitle: { value: undefined },
+		prevCpuUsage: 0,
+		prevCpuTime: 0,
+		allocatedCpus: 4,
+		containerDisplay: { value: "" },
 	};
 }
 

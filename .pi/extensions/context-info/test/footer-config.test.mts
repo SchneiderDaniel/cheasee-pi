@@ -51,6 +51,12 @@ interface FooterConfig {
 	sessionName: string | undefined;
 	trustStatus: "trusted" | "untrusted" | undefined;
 	sessionId: string;
+
+	// ── Container resource monitoring ────────────────────────
+	prevCpuUsage: number;
+	prevCpuTime: number;
+	allocatedCpus: number;
+	containerDisplay: { value: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +78,10 @@ describe("FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		assert.strictEqual(config.worktreeName, null);
@@ -101,6 +111,10 @@ describe("FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		// Simulate passing footerConfig by reference and mutating
@@ -143,6 +157,10 @@ describe("FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		const ref = config;
@@ -167,6 +185,10 @@ describe("FooterConfig", () => {
 			sessionName: "my-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		assert.strictEqual(config.worktreeName, "main");
@@ -249,6 +271,10 @@ describe("installFooter — mode guard", () => {
 				sessionName: undefined,
 				trustStatus: undefined,
 				sessionId: "",
+				prevCpuUsage: 0,
+				prevCpuTime: 0,
+				allocatedCpus: 4,
+				containerDisplay: { value: "" },
 			};
 
 			let setFooterArg: unknown = undefined;
@@ -296,6 +322,10 @@ describe("installFooter — mode guard", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let setFooterArg: unknown = undefined;
@@ -341,6 +371,10 @@ describe("installFooter — mode guard", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let setFooterArg: unknown = undefined;
@@ -392,6 +426,10 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let setFooterArg: unknown = undefined;
@@ -434,6 +472,10 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let setFooterArg: unknown = undefined;
@@ -467,6 +509,10 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let setFooterArg: unknown = undefined;
@@ -516,6 +562,10 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: "test-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -578,6 +628,10 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -650,6 +704,10 @@ describe("footer — CH display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -706,6 +764,10 @@ describe("footer — CH display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -762,6 +824,10 @@ describe("footer — CH display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -827,6 +893,10 @@ describe("footer — session name display", () => {
 			sessionName: "my-session",
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -888,6 +958,10 @@ describe("footer — session name display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -948,6 +1022,10 @@ describe("footer — session name display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -1012,6 +1090,10 @@ describe("footer — trust status display", () => {
 			sessionName: undefined,
 			trustStatus: "trusted",
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -1068,6 +1150,10 @@ describe("footer — trust status display", () => {
 			sessionName: undefined,
 			trustStatus: "untrusted",
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -1124,6 +1210,10 @@ describe("footer — trust status display", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;

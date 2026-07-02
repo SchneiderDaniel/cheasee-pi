@@ -7,12 +7,12 @@
 
 // ─── LSP Basic Types ─────────────────────────────────────────────────
 
-export interface LspPosition {
+interface LspPosition {
 	line: number;
 	character: number;
 }
 
-export interface LspRange {
+interface LspRange {
 	start: LspPosition;
 	end: LspPosition;
 }
