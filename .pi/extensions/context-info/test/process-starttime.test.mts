@@ -53,6 +53,10 @@ describe("processStartTime (module-scoped constant)", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
@@ -117,6 +121,10 @@ describe("processStartTime (module-scoped constant)", () => {
 			sessionName: undefined,
 			trustStatus: undefined,
 			sessionId: "",
+			prevCpuUsage: 0,
+			prevCpuTime: 0,
+			allocatedCpus: 4,
+			containerDisplay: { value: "" },
 		};
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;

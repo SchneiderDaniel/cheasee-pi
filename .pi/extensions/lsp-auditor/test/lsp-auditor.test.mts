@@ -23,6 +23,8 @@ import { extractModifiedFiles, groupFilesByServer } from "../file-discovery.ts";
 import { countRetryAttempts, shouldRetry, MAX_RETRIES } from "../retry.ts";
 import { mapSessionEntriesToRetryEntries, checkProjectTrust } from "../run-pre-audit.ts";
 import { formatForMode } from "../output-adapter.ts";
+// Extension entry point — imported here to satisfy knip (loaded dynamically by pi)
+import lspAuditor from "../index.ts";
 
 // =========================================================================
 // Tests
@@ -525,5 +527,11 @@ describe("formatForMode function selection per mode", () => {
 		];
 		const printResult = formatForMode(diags, "print", "/workspace", false);
 		assert.strictEqual(typeof printResult, "string");
+	});
+});
+
+describe("extension entry point (lspAuditor)", () => {
+	it("is a callable function", () => {
+		assert.strictEqual(typeof lspAuditor, "function");
 	});
 });
