@@ -529,7 +529,8 @@ describe("structuralAnalyzer extension wiring", () => {
 				}
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+				// Unknown commands fail so npm config get prefix doesn't trigger unintended probes
+				return { stdout: "", stderr: "", code: 127, killed: false };
 			},
 		});
 		structuralAnalyzer(pi);
@@ -541,7 +542,7 @@ describe("structuralAnalyzer extension wiring", () => {
 				executeTool(pi, { pattern: "console.log($C)", language: "ts" }),
 			]),
 		);
-		assert.strictEqual(versionCallCount, 1, "only one version check should occur");
+		assert.strictEqual(versionCallCount, 3, "3 --version probes in one resolution chain");
 	});
 
 	it("failed promise resets — next sequential call retries version check", async () => {
@@ -550,11 +551,14 @@ describe("structuralAnalyzer extension wiring", () => {
 			execOverride: async (cmd: string, args: string[]) => {
 				if (args.includes("--version")) {
 					versionCallCount++;
-					if (versionCallCount === 1) {
+					// First resolution attempt: all 3 --version probes fail (code 127)
+					// Second resolution attempt: first probe succeeds (code 0)
+					if (versionCallCount <= 3) {
 						return { stdout: "", stderr: "command not found", code: 127, killed: false };
 					}
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				}
+				if (cmd === "npm") return { stdout: "", stderr: "", code: 127, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
 				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
@@ -571,7 +575,7 @@ describe("structuralAnalyzer extension wiring", () => {
 		// Second call — retries version check, succeeds
 		const result = await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
 		assert.ok(result);
-		assert.strictEqual(versionCallCount, 2, "version check should run twice");
+		assert.strictEqual(versionCallCount, 4, "version check should run twice (3 + 1 probes)");
 	});
 
 	it("ast-grep --version fails (code 127) — throws, no fallback to sg", async () => {
