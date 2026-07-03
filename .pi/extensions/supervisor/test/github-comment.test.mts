@@ -335,7 +335,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		);
 	});
 
-	it("Architect missing ## Architecture heading → no comment, collector warnings", async () => {
+	it("Architect missing ## Architecture heading → heading injected, comment posted with warning", async () => {
+		registerGhResponse();
 		const pi = createBodyCapturePi(captured, capturedBodies);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
@@ -365,27 +366,37 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Zero gh calls
+		// Exactly one gh call (heading is injected, comment IS posted)
 		const ghCalls = captured.execCalls.filter(
 			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
 		);
-		assert.equal(ghCalls.length, 0, "no gh issue comment call when heading missing");
+		assert.equal(ghCalls.length, 1, "one gh issue comment call (heading injected)");
 
-		// Zero notifications (no notify for missing heading case)
-		assert.equal(captured.notifications.length, 0, "no notifications fired");
+		// Body contains injected ## Architecture heading
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Architecture"), "body contains injected ## Architecture heading");
+		assert.ok(body.includes("Design Notes"), "body preserves original content");
 
-		// Collector has warnings
+		// Collector has warn about missing heading
 		const warns = collector.flush("stages");
-		assert.ok(warns.length > 0, "collector receives warn push(es)");
 		assert.ok(
 			warns.some((w) => w.message.includes('"## Architecture"')),
 			"warn message mentions missing ## Architecture heading",
+		);
+
+		// Info notification for posted comment
+		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
+		assert.ok(
+			infoNotifications.some((n) => n.msg.includes("Posted architect comment")),
+			"info notification for posted comment",
 		);
 	});
 
 	// ── Phase 3: Test-designer comment posting — heading validation ──
 
-	it("Test-designer missing ## Test Plan heading → no comment, collector warnings", async () => {
+	it("Test-designer missing ## Test Plan heading → heading injected, comment posted with warning", async () => {
+		registerGhResponse();
 		const pi = createBodyCapturePi(captured, capturedBodies);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
@@ -415,18 +426,30 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Zero gh calls
+		// Exactly one gh call (heading is injected, comment IS posted)
 		const ghCalls = captured.execCalls.filter(
 			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
 		);
-		assert.equal(ghCalls.length, 0, "no gh issue comment call when heading missing");
+		assert.equal(ghCalls.length, 1, "one gh issue comment call (heading injected)");
 
-		// Collector has warnings
+		// Body contains injected ## Test Plan heading
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Test Plan"), "body contains injected ## Test Plan heading");
+		assert.ok(body.includes("Test Strategy"), "body preserves original content");
+
+		// Collector has warn about missing heading
 		const warns = collector.flush("stages");
-		assert.ok(warns.length > 0, "collector receives warn push(es)");
 		assert.ok(
 			warns.some((w) => w.message.includes('"## Test Plan"')),
 			"warn message mentions missing ## Test Plan heading",
+		);
+
+		// Info notification for posted comment
+		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
+		assert.ok(
+			infoNotifications.some((n) => n.msg.includes("Posted test-designer comment")),
+			"info notification for posted comment",
 		);
 	});
 
@@ -605,18 +628,18 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 	// ── Phase 6: Extraction fallback chain reliability ─────────────
 
-	it("Extraction fallback chain: textOutput empty, output has JSON → falls through to result.output", async () => {
+	it("Extraction fallback: textOnly empty, textOutput has JSON → extracted from textOutput with warn", async () => {
 		registerGhResponse();
 		const pi = createBodyCapturePi(captured, capturedBodies);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
 			agentName: "researcher",
-			textOutput: "",
-			output: JSON.stringify({
+			textOnly: "",
+			textOutput: JSON.stringify({
 				action: "COMPLETE",
 				agentName: "researcher",
-				commentBody: "## Research Findings\n- Extracted from output fallback",
+				commentBody: "## Research Findings\n- Extracted from textOutput fallback",
 				summary: "Research complete",
 			}),
 		});
@@ -637,7 +660,6 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Comment posted
 		const ghCalls = captured.execCalls.filter(
 			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
 		);
@@ -645,15 +667,110 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(capturedBodies.length, 1, "one comment body captured");
 		assert.ok(
-			capturedBodies[0].includes("Extracted from output fallback"),
-			"body content comes from result.output",
+			capturedBodies[0].includes("Extracted from textOutput fallback"),
+			"body content comes from textOutput",
 		);
 
-		// Collector has warn about fallback
 		const warns = collector.flush("stages");
 		assert.ok(
-			warns.some((w) => w.severity === "warn" && w.message.includes("result.output (fallback)")),
-			"collector receives warn about extraction from result.output fallback",
+			warns.some((w) => w.message.includes("result.textOutput (fallback after textOnly)")),
+			"collector receives warn about extraction from textOutput fallback",
+		);
+	});
+
+	it("Extraction fallback: textOnly empty, textOutput empty, thinkingOutput has JSON → extracted from thinkingOutput with warn", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "researcher",
+			textOnly: "",
+			textOutput: "",
+			thinkingOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "researcher",
+				commentBody: "## Research Findings\n- Extracted from thinkingOutput fallback",
+				summary: "Research complete",
+			}),
+		});
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call via fallback");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		assert.ok(
+			capturedBodies[0].includes("Extracted from thinkingOutput fallback"),
+			"body content comes from thinkingOutput",
+		);
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("result.thinkingOutput (fallback)")),
+			"collector receives warn about extraction from thinkingOutput fallback",
+		);
+	});
+
+	it("Extraction bare-text fallback: no JSON or structured heading → wraps in default heading", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "architect",
+			textOnly: "",
+			textOutput: "Architecture overview\n- Component A\n- Component B",
+			thinkingOutput: undefined,
+		});
+
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"architect",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call via bare-text fallback");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Architecture"), "body has injected ## Architecture heading");
+		assert.ok(body.includes("Architecture overview"), "body preserves original content");
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("bare text fallback")),
+			"collector receives warn about bare text fallback",
 		);
 	});
 });
