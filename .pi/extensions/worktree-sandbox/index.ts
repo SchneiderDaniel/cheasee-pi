@@ -72,7 +72,7 @@ export function tokenizeCommand(cmd: string): ParseEntry[] {
  * Detects: $, `, ~, {, *, ?, [ which bash would expand before resolving paths.
  */
 export function hasShellExpansion(token: string): boolean {
-	return /[\$`~{*?\[]/.test(token);
+	return /[\$`~{*?\['";|&]/.test(token);
 }
 
 /**
@@ -89,9 +89,19 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
 	if (!command || !command.trim()) return null;
 
 	const tokens = tokenizeCommand(command);
+	let prevWasFlag = false;
 
 	for (let i = 0; i < tokens.length; i++) {
 		const token = tokens[i]!;
+
+		// Handle glob operators (shell-quote produces { op: "glob", pattern } for wildcard patterns)
+		if (typeof token === "object" && "op" in token && token.op === "glob") {
+			const pattern = token.pattern ?? "";
+			if (pattern && !isPathSafe(pattern, sandboxRoot)) {
+				return `outside sandbox: ${pattern}`;
+			}
+			continue;
+		}
 
 		// Skip non-string tokens (operators, comments)
 		if (typeof token !== "string") {
@@ -101,11 +111,13 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
 		// Skip command names (first token of each command)
 		// A string is a command name if it's at position 0 or preceded by a separator
 		if (isCommandStart(tokens, i)) {
+			prevWasFlag = false;
 			continue;
 		}
 
-		// Skip flags (starting with -)
+		// Track and skip flags (starting with -)
 		if (token.startsWith("-")) {
+			prevWasFlag = true;
 			continue;
 		}
 
@@ -114,16 +126,58 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
 			return command;
 		}
 
-		// Check for shell expansion syntax
-		if (hasShellExpansion(token)) {
+		// Check if path resolves outside sandbox (before shell expansion,
+		// so wildcards that resolve outside get "outside" in the reason)
+		if (!isPathSafe(token, sandboxRoot)) {
+			return `outside sandbox: ${token}`;
+		}
+
+		// Check for shell expansion syntax — skip for flag values
+		// (e.g. -name "*.ts" where *.ts is a pattern, not a path)
+		if (!prevWasFlag && hasShellExpansion(token)) {
 			return token;
 		}
 
-		// Check if path resolves outside sandbox
-		if (!isPathSafe(token, sandboxRoot)) {
-			return token;
-		}
+		prevWasFlag = false;
 	}
+	return null;
+}
+
+/**
+ * Scan the raw command string for cd with a variable/expansion target.
+ *
+ * shell-quote's parse() resolves variables ($HOME, etc.) before we can
+ * inspect them, so we must detect expansion patterns in the raw text
+ * before tokenization. Returns the raw target if it contains expansion
+ * syntax, or null if the raw target looks safe (falls through to
+ * tokenization-based checks).
+ */
+function findRawCdExpansion(command: string): string | null {
+	// Match cd followed by a non-whitespace argument
+	const match = command.match(/\bcd\s+(\S+)/);
+	if (!match) return null;
+	const rawTarget = match[1]!;
+
+	// Variable patterns: $VAR, ${VAR}, $VAR/subdir, quoted "$VAR"
+	if (/^\$/.test(rawTarget) || /^["']\$/.test(rawTarget)) {
+		return rawTarget;
+	}
+
+	// Command substitution: $(...) or `...`
+	if (rawTarget.includes("$(") || rawTarget.includes("`")) {
+		return rawTarget;
+	}
+
+	// Tilde and quoted tilde: ~, ~/subdir, "~", '~', ~otheruser
+	if (rawTarget === "~" || rawTarget.startsWith("~/") || rawTarget === '"~"' || rawTarget === "'~'" || rawTarget.startsWith("~")) {
+		return rawTarget;
+	}
+
+	// Escaped constructs: \$HOME, \~, etc.
+	if (rawTarget.startsWith("\\")) {
+		return rawTarget;
+	}
+
 	return null;
 }
 
@@ -143,6 +197,12 @@ export function findSuspiciousArg(command: string, sandboxRoot: string): string 
  * 5. Bare cd (cd, cd ; echo)
  */
 export function findUnsafeCd(command: string, sandboxRoot: string): string | null {
+	// RAW STRING SCAN: Detect variable/expansion patterns in cd target
+	// before shell-quote resolves them away.
+	const rawExpansion = findRawCdExpansion(command);
+	if (rawExpansion !== null) {
+		return rawExpansion;
+	}
 	const tokens = tokenizeCommand(command);
 
 	for (let i = 0; i < tokens.length; i++) {
@@ -224,6 +284,60 @@ export function findUnsafeCd(command: string, sandboxRoot: string): string | nul
  * then applies hasShellExpansion and isPathSafe on all identified
  * destination paths.
  */
+/**
+ * Shared check for a destination-like token — used by cp/mv/touch/tee/install
+ * to find the last non-flag string argument and check it.
+ */
+function checkWriteDest(tokens: ParseEntry[], startIndex: number, command: string, sandboxRoot: string): string | null {
+	let lastTarget: string | null = null;
+
+	for (let j = startIndex; j < tokens.length; j++) {
+		const t = tokens[j]!;
+
+		if (typeof t === "object" && "op" in t) {
+			if (SEPARATORS.has(t.op)) break;
+			continue; // Skip non-separator operators
+		}
+
+		if (typeof t === "object" && "comment" in t) break;
+
+		if (typeof t === "string") {
+			if (t.startsWith("-")) continue; // Skip flags
+			lastTarget = t;
+		}
+	}
+
+	if (lastTarget !== null) {
+		if (lastTarget === "") {
+			return command; // Unresolved variable
+		}
+		if (hasShellExpansion(lastTarget)) {
+			return lastTarget;
+		}
+		if (!isPathSafe(lastTarget, sandboxRoot)) {
+			return `outside sandbox: ${lastTarget}`;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Check a path token for write safety (redirect target, dd of=, etc.).
+ */
+function checkWriteToken(token: string, command: string, sandboxRoot: string): string | null {
+	if (token === "") {
+		return command; // Unresolved variable
+	}
+	if (hasShellExpansion(token)) {
+		return token;
+	}
+	if (!isPathSafe(token, sandboxRoot)) {
+		return `outside sandbox: ${token}`;
+	}
+	return null;
+}
+
 export function findUnsafeWriteInBash(command: string, sandboxRoot: string): string | null {
 	const tokens = tokenizeCommand(command);
 
@@ -243,59 +357,87 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 				case "glob":
 					return tokenResult.pattern || command;
 				case "token": {
-					const nextToken = tokenResult.value;
-					// String token — this is the redirect target
-					if (nextToken === "") {
-						return command; // Unresolved variable
-					}
-
-					if (hasShellExpansion(nextToken)) {
-						return nextToken;
-					}
-
-					if (!isPathSafe(nextToken, sandboxRoot)) {
-						return nextToken;
-					}
-
+					const result = checkWriteToken(tokenResult.value, command, sandboxRoot);
+					if (result !== null) return result;
 					break;
 				}
 			}
 		}
 
 		// ── cp/mv/touch command detection ─────────────────────────
-		if (typeof token === "string" && (token === "cp" || token === "mv" || token === "touch")) {
+		if (typeof token === "string" && (token === "cp" || token === "mv" || token === "touch" || token === "tee" || token === "install")) {
 			if (!isCommandStart(tokens, i)) continue;
 
-			// Find the last non-flag, non-operator, non-comment token
-			// For cp/mv: the last such token is the destination
-			// For touch: the last such token is the file to create
-			let lastTarget: string | null = null;
+			const result = checkWriteDest(tokens, i + 1, command, sandboxRoot);
+			if (result !== null) return result;
+		}
+
+		// ── ln command detection ──────────────────────────────────
+		// For ln -s (symlink), the first non-flag argument after -s is the
+		// symlink target, which could point outside the sandbox.
+		if (typeof token === "string" && token === "ln") {
+			if (!isCommandStart(tokens, i)) continue;
+
+			let isSymlink = false;
+			let firstNonFlag: string | null = null;
 
 			for (let j = i + 1; j < tokens.length; j++) {
 				const t = tokens[j]!;
 
 				if (typeof t === "object" && "op" in t) {
 					if (SEPARATORS.has(t.op)) break;
-					continue; // Skip non-separator operators
+					continue;
 				}
-
 				if (typeof t === "object" && "comment" in t) break;
 
 				if (typeof t === "string") {
-					if (t.startsWith("-")) continue; // Skip flags
-					lastTarget = t;
+					if (t === "-s") {
+						isSymlink = true;
+						continue;
+					}
+					if (t.startsWith("-")) continue; // Other flags
+					if (firstNonFlag === null) {
+						firstNonFlag = t;
+					} else if (isSymlink) {
+						// Second non-flag arg (the link name) — stop scanning
+						break;
+					}
 				}
 			}
 
-			if (lastTarget !== null) {
-				if (lastTarget === "") {
-					return command; // Unresolved variable
+			if (isSymlink && firstNonFlag !== null) {
+				const result = checkWriteToken(firstNonFlag, command, sandboxRoot);
+				if (result !== null) return result;
+			}
+
+			// For hard link (ln without -s), check the destination (last non-flag)
+			if (!isSymlink) {
+				const result = checkWriteDest(tokens, i + 1, command, sandboxRoot);
+				if (result !== null) return result;
+			}
+		}
+
+		// ── dd command detection ──────────────────────────────────
+		// dd uses of=<path> to specify the output file.
+		if (typeof token === "string" && token === "dd") {
+			if (!isCommandStart(tokens, i)) continue;
+
+			for (let j = i + 1; j < tokens.length; j++) {
+				const t = tokens[j]!;
+
+				if (typeof t === "object" && "op" in t) {
+					if (SEPARATORS.has(t.op)) break;
+					continue;
 				}
-				if (hasShellExpansion(lastTarget)) {
-					return lastTarget;
-				}
-				if (!isPathSafe(lastTarget, sandboxRoot)) {
-					return lastTarget;
+				if (typeof t === "object" && "comment" in t) break;
+
+				if (typeof t === "string") {
+					// Extract the path from of=<path>
+					const ofMatch = t.match(/^of=(.+)/);
+					if (ofMatch) {
+						const result = checkWriteToken(ofMatch[1]!, command, sandboxRoot);
+						if (result !== null) return result;
+					}
 				}
 			}
 		}
@@ -359,9 +501,11 @@ export function rewritePath(
 	if (originalPath.startsWith("/")) {
 		if (!isPathWithinSandbox(originalPath, sandboxRoot)) {
 			if (ctx.hasUI) {
+				const mode = (ctx as Record<string, unknown>).mode;
+				const level = mode && mode !== "tui" ? "error" : "warning";
 				ctx.ui.notify(
 					`[sandbox] Blocked ${toolName} to outside worktree: ${originalPath}`,
-					"warning",
+					level,
 				);
 			}
 			return {
