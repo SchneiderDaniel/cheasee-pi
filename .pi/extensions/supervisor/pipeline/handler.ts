@@ -605,8 +605,9 @@ export async function handleSupervisorCommand(
 				cwdOverride: worktreePath,
 			});
 
-			// Execute agent
-			const { result, usedRetry } = await executeAgent(
+			// Execute agent (initial attempt)
+			let usedRetry = false;
+			const { result: initialResult } = await executeAgent(
 				agent,
 				task,
 				ctx,
@@ -617,6 +618,35 @@ export async function handleSupervisorCommand(
 				config.agentTokenBudget,
 				issueTitle,
 			);
+			let result = initialResult;
+			validateAgentResult(result);
+
+			// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
+			if (result.budgetExceeded) {
+				getDebugLogger().info("handler",
+					`Agent ${agentName} exceeded budget — retry skipped`,
+					{ budgetExceeded: true },
+				);
+			} else if (!result.success) {
+				getDebugLogger().info("handler",
+					`Agent ${agentName} failed — retrying once`,
+					{ success: false },
+				);
+				const { result: retryResult } = await executeAgent(
+					agent,
+					task,
+					ctx,
+					pi,
+					timeoutMs,
+					worktreePath,
+					config.maxToolCalls,
+					config.agentTokenBudget,
+					issueTitle,
+				);
+				result = retryResult;
+				validateAgentResult(result);
+				usedRetry = true;
+			}
 
 			getDebugLogger().info("handler", `Agent ${agentName} completed`, {
 				success: result.success,
