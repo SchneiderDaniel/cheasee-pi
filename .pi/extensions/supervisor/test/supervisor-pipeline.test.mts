@@ -177,9 +177,10 @@ describe("pipeline handler — post-agent-success processing", () => {
 describe("pipeline handler — researcher budget-exceeded guard (no duplicate comments)", () => {
 	it("budget-exceeded researcher block has !result.success guard to skip when handlePostAgentSuccess posted combined message", () => {
 		const src = readHandlerSource();
-		// The FIRST "if (result.budgetExceeded)" is the one in the main pipeline loop
-		// (the second is in executeAgent for retry logic — occurs later in file)
-		const mainIdx = src.indexOf("if (result.budgetExceeded)");
+		// The SECOND "if (result.budgetExceeded)" is the pipeline degradation block
+		// (the first is in the retry gate block)
+		const firstIdx = src.indexOf("if (result.budgetExceeded)");
+		const mainIdx = src.indexOf("if (result.budgetExceeded)", firstIdx + 1);
 		assert.ok(mainIdx >= 0, "budget-exceeded check exists in main loop");
 
 		const afterBudget = src.slice(mainIdx, mainIdx + 400);
@@ -200,8 +201,9 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 
 	it("status transition still fires for researcher budget-exceeded regardless of success", () => {
 		const src = readHandlerSource();
-		// Main loop budget-exceeded block (first occurrence)
-		const mainIdx = src.indexOf("if (result.budgetExceeded)");
+		// Pipeline degradation budget-exceeded block (second occurrence)
+		const firstIdx = src.indexOf("if (result.budgetExceeded)");
+		const mainIdx = src.indexOf("if (result.budgetExceeded)", firstIdx + 1);
 		const section = src.slice(mainIdx, src.indexOf("stopReason", mainIdx));
 		// The researcher block should always call inferForwardStatus
 		assert.ok(
@@ -212,8 +214,9 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 
 	it("non-researcher budget-exceeded agent stops pipeline with stopReason (existing behavior preserved)", () => {
 		const src = readHandlerSource();
-		// Main loop budget-exceeded block (first occurrence)
-		const mainIdx = src.indexOf("if (result.budgetExceeded)");
+		// Pipeline degradation budget-exceeded block (second occurrence)
+		const firstIdx = src.indexOf("if (result.budgetExceeded)");
+		const mainIdx = src.indexOf("if (result.budgetExceeded)", firstIdx + 1);
 		// Find the stopReason after the researcher if-block closes.
 		// After the closing brace of the researcher block, the next stopReason
 		// is for non-researcher agents.
@@ -230,6 +233,6 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 	it("budgetExceeded=false does not enter the budget-exceeded block (existing behavior preserved)", () => {
 		const src = readHandlerSource();
 		const count = (src.match(/if \(result\.budgetExceeded\)/g) || []).length;
-		assert.equal(count, 2, "budgetExceeded check appears twice (executeAgent + handler loop)");
+		assert.equal(count, 2, "budgetExceeded check appears twice (retry gate + pipeline control)");
 	});
 });

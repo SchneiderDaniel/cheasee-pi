@@ -78,14 +78,14 @@ afterEach(() => {
 // ─── Tests ─────────────────────────────────────────────────────────
 
 describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
-	it("success path: returns result with usedRetry=false", async () => {
+	it("success path: returns result", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
 		const runner = mockRunner();
 
 		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
 
-		const { result, usedRetry } = await executeAgent(
+		const { result } = await executeAgent(
 			mockAgent as any,
 			"test task",
 			ctx,
@@ -99,7 +99,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		);
 
 		assert.equal(result.success, true);
-		assert.equal(usedRetry, false);
 		assert.equal(result.agentName, "developer");
 	});
 
@@ -255,7 +254,7 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 
 		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
 
-		const { result, usedRetry } = await executeAgent(
+		const { result } = await executeAgent(
 			mockAgent as any,
 			"test task",
 			ctx,
@@ -270,7 +269,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 
 		assert.equal(result.budgetExceeded, true);
 		assert.equal(result.success, false, "budget exceeded should have success=false");
-		assert.equal(usedRetry, false, "should not retry on budget exceeded");
 	});
 
 	it("budget exceeded path: sends warning notification", async () => {

@@ -10,7 +10,6 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { AgentRunResult, AgentRunner, ParsedAgent } from "../config/types.ts";
 import { runAgent } from "../agent/runner.ts";
 import { convertAgentRunToToolResult } from "../session/result.ts";
-import { validateAgentResult } from "./output.ts";
 import { replaySessionFile } from "./replay-session.ts";
 import { detectThinkingLevelMismatch } from "./thinking-mismatch.ts";
 
@@ -29,7 +28,7 @@ export async function executeAgent(
 	issueTitle?: string,
 	// ponytail: test hook for injecting mock runner; external callers omit this
 	runner?: AgentRunner,
-): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
+): Promise<{ result: AgentRunResult }> {
 	const agentName = agent.config.name;
 
 	// ── 1. Send start message ──────────────────────────────────
@@ -101,15 +100,6 @@ export async function executeAgent(
 		},
 	});
 
-	// ── 6. Validate and return ──────────────────────────────────
-	validateAgentResult(result);
-
-	// Budget exceeded notification
-	if (result.budgetExceeded) {
-		ctx.ui.notify(`Agent ${agentName} exceeded budget — not retrying`, "warning");
-	} else if (!result.success) {
-		ctx.ui.notify(`Agent ${agentName} failed`, "warning");
-	}
-
-	return { result, usedRetry: false };
+	// ── 6. Return result ────────────────────────────────────────
+	return { result };
 }
