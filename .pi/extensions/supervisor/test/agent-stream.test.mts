@@ -400,7 +400,7 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 		// Text not re-pushed because textPushedThisTurn is true
 		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
 		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
-		assert.equal(state.textOutputLines.length, 0, "no text output (buffer was empty at text_end)");
+		assert.equal(state.textOutputLines.length, 2, "text output has 2 streamed lines (r1, r2), no duplicates from message_end");
 		// thinkingOutputLines NOT populated because thinkingPushedThisTurn is true
 		assert.equal(
 			state.thinkingOutputLines.length,
@@ -541,5 +541,277 @@ describe("processNormalizedEvent — multi-turn dedup (Phase 3)", () => {
 				`turn ${turn} B once`,
 			);
 		}
+	});
+});
+
+// ─── Phase 2 (cont.): Done event dedup via handleDone ───────────────
+
+describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
+	it("thinking + text delta streaming → done with both flags set — no re-push", () => {
+		const state = createState();
+
+		// Thinking phase: start → delta → end
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_start" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_end" },
+			}),
+			state,
+		);
+		assert.equal(state.thinkingPushedThisTurn, true);
+
+		// Text phase: start → delta → end
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "text_start" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "text_delta", text_delta: "r1\nr2\n" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "text_end" },
+			}),
+			state,
+		);
+		assert.equal(state.textPushedThisTurn, true);
+
+		// Done event — both flags are set, so neither thinking nor text is re-pushed
+		const fullLogLenBefore = state.fullLog.length;
+		processViaNormalized(
+			JSON.stringify({
+				type: "done",
+				message: {
+					content: [
+						{ type: "thinking", thinking: "t1\nt2" },
+						{ type: "text", text: "r1\nr2" },
+					],
+				},
+			}),
+			state,
+		);
+
+		assert.equal(
+			state.fullLog.length,
+			fullLogLenBefore,
+			"fullLog unchanged (both flags block re-push)",
+		);
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			1,
+			"thinking content NOT re-pushed by done",
+		);
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t2")).length,
+			1,
+			"thinking content NOT re-pushed by done",
+		);
+		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
+		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
+		assert.equal(
+			state.textOutputLines.length,
+			2,
+			"text output has 2 streamed lines (r1, r2)",
+		);
+		assert.equal(
+			state.thinkingOutputLines.length,
+			0,
+			"thinking output not populated (dedup guard)",
+		);
+	});
+
+	it("thinking delta streaming + no text streaming → done skips thinking, pushes text", () => {
+		const state = createState();
+
+		// Thinking streaming only — no text streaming
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_start" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
+			}),
+			state,
+		);
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_update",
+				delta: { type: "thinking_end" },
+			}),
+			state,
+		);
+		assert.equal(state.thinkingPushedThisTurn, true);
+		assert.equal(state.textPushedThisTurn, false);
+
+		// Done event — thinking skipped (flag true), text pushed (flag false)
+		const fullLogLenBefore = state.fullLog.length;
+		processViaNormalized(
+			JSON.stringify({
+				type: "done",
+				message: {
+					content: [
+						{ type: "thinking", thinking: "t1\nt2" },
+						{ type: "text", text: "Hello World" },
+					],
+				},
+			}),
+			state,
+		);
+
+		// Thinking NOT re-pushed
+		assert.equal(
+			state.thinkingOutputLines.length,
+			0,
+			"thinking output not re-pushed (dedup guard)",
+		);
+		assert.equal(
+			state.fullLog.length,
+			fullLogLenBefore + 1,
+			"fullLog grows by 1 (text only)",
+		);
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			1,
+			"thinking NOT re-pushed (already in log from delta)",
+		);
+		// Text IS pushed (no prior text streaming)
+		assert.equal(state.textOutputLines.length, 1, "text output has Hello World");
+		assert.equal(state.textOutputLines[0], "Hello World", "text is Hello World");
+		assert.equal(
+			state.fullLog.filter((l) => l === "Hello World").length,
+			1,
+			"Hello World appears once in fullLog",
+		);
+	});
+
+	it("no prior streaming → done with thinking content populates fallback", () => {
+		const state = createState();
+
+		// No prior streaming — done with thinking content
+		processViaNormalized(
+			JSON.stringify({
+				type: "done",
+				message: {
+					content: [{ type: "thinking", thinking: "t1\nt2" }],
+				},
+			}),
+			state,
+		);
+
+		// Fallback: thinking pushed to both textOutputLines and thinkingOutputLines
+		assert.equal(
+			state.thinkingOutputLines.length,
+			1,
+			"thinking output populated (fallback preserved)",
+		);
+		assert.equal(
+			state.textOutputLines.length,
+			1,
+			"text output has thinking content (fallback for textOnly)",
+		);
+		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			1,
+			"thinking in fullLog",
+		);
+	});
+});
+
+// ─── Phase 3: Non-streamed fallback preserved ─────────────────────
+
+describe("processNormalizedEvent — non-streamed fallback preserved (Phase 3)", () => {
+	it("message_end with thinking content, no prior thinking deltas — fallback works", () => {
+		const state = createState();
+
+		// No prior thinking deltas — message_end with thinking content
+		processViaNormalized(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "thinking", thinking: "t1\nt2" }],
+				},
+			}),
+			state,
+		);
+
+		// Fallback preserved: thinking pushed to textOutputLines and thinkingOutputLines
+		assert.equal(
+			state.thinkingOutputLines.length,
+			1,
+			"thinking output populated (fallback preserved)",
+		);
+		assert.equal(
+			state.textOutputLines.length,
+			1,
+			"text output has thinking content (fallback for textOnly)",
+		);
+		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			1,
+			"thinking in fullLog",
+		);
+	});
+
+	it("done event with thinking content, no prior thinking deltas — fallback works", () => {
+		const state = createState();
+
+		// No prior thinking deltas — done with thinking content
+		processViaNormalized(
+			JSON.stringify({
+				type: "done",
+				message: {
+					content: [{ type: "thinking", thinking: "t1\nt2" }],
+				},
+			}),
+			state,
+		);
+
+		// Fallback preserved: thinking pushed to textOutputLines and thinkingOutputLines
+		assert.equal(
+			state.thinkingOutputLines.length,
+			1,
+			"thinking output populated (fallback preserved)",
+		);
+		assert.equal(
+			state.textOutputLines.length,
+			1,
+			"text output has thinking content (fallback for textOnly)",
+		);
+		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
+		assert.equal(
+			state.fullLog.filter((l) => l.includes("💭 t1")).length,
+			1,
+			"thinking in fullLog",
+		);
 	});
 });
