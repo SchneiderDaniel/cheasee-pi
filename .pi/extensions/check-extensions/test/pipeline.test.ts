@@ -12,7 +12,7 @@
 
 import { describe, it, mock, after } from "node:test";
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
+import fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
@@ -1091,20 +1091,18 @@ describeWithCleanup("resolveAstGrepPath", () => {
 	});
 
 	it("falls back to 'ast-grep' when no known path exists", () => {
-		// Temporarily override HOME to a non-existent path
-		const origHome = process.env.HOME;
-		const fakeHome = "/nonexistent-path-12345";
-		process.env.HOME = fakeHome;
+		// Mock fs.accessSync to throw ENOENT for all hardcoded candidates.
+		// Uses default import (import fs from "node:fs") — the default-import
+		// object has configurable properties, unlike the frozen ESM namespace.
+		mock.method(fs, "accessSync", () => {
+			throw new Error("ENOENT");
+		});
 
 		try {
 			const result = resolveAstGrepPath();
 			assert.equal(result, "ast-grep", "should fallback to ast-grep");
 		} finally {
-			if (origHome !== undefined) {
-				process.env.HOME = origHome;
-			} else {
-				delete process.env.HOME;
-			}
+			mock.reset();
 		}
 	});
 });

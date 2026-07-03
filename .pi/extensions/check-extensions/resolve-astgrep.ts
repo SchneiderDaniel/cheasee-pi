@@ -5,7 +5,7 @@
  * Uses fs.access with F_OK (not X_OK) for portability.
  */
 
-import { accessSync, constants } from "node:fs";
+import fs from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -24,7 +24,7 @@ export function resolveAstGrepPath(): string {
 	];
 	for (const c of candidates) {
 		try {
-			accessSync(c, constants.F_OK);
+			fs.accessSync(c, fs.constants.F_OK);
 			return c;
 		} catch {
 			/* try next */
