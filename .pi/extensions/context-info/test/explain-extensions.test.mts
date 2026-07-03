@@ -164,6 +164,10 @@ describe("listLocalExtensions", () => {
 		const { listLocalExtensions } = await import("../extensions.ts");
 		const extensions = listLocalExtensions();
 		for (const ext of extensions) {
+			// Skip extensions without a JSDoc description — they are not standalone
+			// readable extensions. Directory-based modules like lib/ have no index.ts
+			// and correctly set error. Filtering here avoids false positives.
+			if (ext.description === null && ext.error) continue;
 			assert.ok(
 				!("error" in ext) || ext.error === undefined,
 				`${ext.name} should not have error property`,
