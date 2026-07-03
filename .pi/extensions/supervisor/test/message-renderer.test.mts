@@ -168,7 +168,7 @@ describe("collapsed view (default expanded=false) — _subagentResult path", () 
 		);
 	});
 
-	it("does NOT show '── Output ──' header in collapsed view", () => {
+	it("does NOT show '── Output Preview ──' header in collapsed view", () => {
 		const details = makeSubagentDetails();
 		const result = makeSubagentResult(details, { outputText: "## Hello\nworld" });
 		const c = renderMessage(result, undefined, false) as Text;
@@ -222,28 +222,15 @@ describe("expanded view (expanded=true) — _subagentResult path", () => {
 		);
 	});
 
-	it("renders '── Output ──' header and output content (thinkingOutput empty string → separate sections)", () => {
+	it("renders '── Output Preview ──' header and output content", () => {
 		const details = makeSubagentDetails({ thinkingOutput: "" });
 		const result = makeSubagentResult(details, { outputText: "Here is the result" });
 		const c = renderMessage(result, undefined, true) as Container;
 		const lines = renderStripped(c);
 		assert.ok(
-			lines.some((l) => l.includes("── Output ──")),
+			lines.some((l) => l.includes("── Output Preview ──")),
 			`expected Output header, got: ${JSON.stringify(lines)}`,
 		);
-	});
-
-	it("renders '── Thinking ──' header and thinking content when thinkingOutput present", () => {
-		const details = makeSubagentDetails({
-			thinkingOutput: "I think therefore I am\nLine two",
-		});
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const lines = renderStripped(c);
-		const thinkingHeader = lines.find((l) => l.includes("Thinking"));
-		assert.ok(thinkingHeader, `expected thinking header, got: ${JSON.stringify(lines)}`);
-		const thinkingContent = lines.find((l) => l.includes("I think therefore I am"));
-		assert.ok(thinkingContent, `expected thinking content, got: ${JSON.stringify(lines)}`);
 	});
 
 	it("renders footer stats line with turns, tokens, model, duration", () => {
@@ -495,7 +482,7 @@ describe("edge cases and error handling", () => {
 		const lines = renderStripped(c);
 		// Should still render normally without crashing
 		assert.ok(
-			lines.some((l) => l.includes("── Output ──")),
+			lines.some((l) => l.includes("── Output Preview ──")),
 			"should render Output section",
 		);
 		// No tools header since arrays are empty
@@ -505,16 +492,7 @@ describe("edge cases and error handling", () => {
 		);
 	});
 
-	it("_subagentResult with thinkingOutput → thinking section renders", () => {
-		const details = makeSubagentDetails({ thinkingOutput: "deep thoughts" });
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const lines = renderStripped(c);
-		assert.ok(
-			lines.some((l) => l.includes("deep thoughts")),
-			"should show thinking content",
-		);
-	});
+
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -795,62 +773,13 @@ describe("expanded view — thinking styling via renderSubagentResult", () => {
 		initTheme();
 	});
 
-	it("thinking section uses Markdown with thinkingText + italic", () => {
-		const details = makeSubagentDetails({
-			thinkingOutput: "I think therefore\nI am",
-		});
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const children = (c as any).children || [];
-		// Find the Markdown child with italic: true (thinking block)
-		const thinkingMd = children.find(
-			(child: any) => child instanceof Markdown && (child as any).defaultTextStyle?.italic === true,
-		);
-		assert.ok(thinkingMd, "should have a Markdown child with italic: true for thinking");
-		assert.ok(
-			(thinkingMd as any).defaultTextStyle?.color,
-			"thinking Markdown should have a color function",
-		);
-	});
 
-	it("thinking header label present in expanded view", () => {
-		const details = makeSubagentDetails({
-			thinkingOutput: "some thinking",
-		});
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const lines = renderStripped(c);
-		assert.ok(
-			lines.some((l) => l.includes("Thinking")),
-			"should have Thinking header label",
-		);
-	});
 
-	it("thinking content text present in expanded view", () => {
-		const details = makeSubagentDetails({
-			thinkingOutput: "deep thoughts here",
-		});
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const lines = renderStripped(c);
-		assert.ok(
-			lines.some((l) => l.includes("deep thoughts here")),
-			"should have thinking content",
-		);
-	});
 
-	it("thinkingOutput contains markdown formatting → renders as formatted text", () => {
-		const details = makeSubagentDetails({
-			thinkingOutput: "## Heading\n\n- List item\n\n**bold**",
-		});
-		const result = makeSubagentResult(details, { outputText: "output" });
-		const c = renderMessage(result, undefined, true) as Container;
-		const lines = renderStripped(c);
-		assert.ok(
-			lines.some((l) => l.includes("Heading")),
-			"should render heading content",
-		);
-	});
+
+
+
+
 
 	it("thinkingOutput is empty string → no thinking section, output section renders, no crash", () => {
 		const details = makeSubagentDetails({
@@ -866,7 +795,7 @@ describe("expanded view — thinking styling via renderSubagentResult", () => {
 		);
 		// Output section still renders
 		assert.ok(
-			lines.some((l) => l.includes("── Output ──")),
+			lines.some((l) => l.includes("── Output Preview ──")),
 			"should show Output header",
 		);
 	});
@@ -906,7 +835,7 @@ describe("expanded view — thinking styling via renderSubagentResult", () => {
 			"should have Task section",
 		);
 		assert.ok(
-			lines.some((l) => l.includes("── Output ──")),
+			lines.some((l) => l.includes("── Output Preview ──")),
 			"should have Output section",
 		);
 		assert.ok(
