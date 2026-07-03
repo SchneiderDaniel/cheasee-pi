@@ -2,7 +2,7 @@
 // Tests the extracted post-loop function to verify merge runs before cleanup.
 // Mocks pi.exec and ctx.ui.confirm to simulate all code paths.
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { PipelineAgentResult, PrCreationResult } from "../../config/types.ts";
@@ -48,6 +48,7 @@ function createMockCtx(confirmResult: boolean = true): ExtensionCommandContext {
 		ui: {
 			notify: () => {},
 			setStatus: () => {},
+			setWidget: mock.fn(),
 			confirm: async () => confirmResult,
 		},
 	} as unknown as ExtensionCommandContext;
