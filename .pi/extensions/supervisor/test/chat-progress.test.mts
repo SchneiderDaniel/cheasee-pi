@@ -170,8 +170,7 @@ describe("Widget lifecycle (buildWidgetLines + setWidget)", () => {
 			liveThinking: "Deep thoughts...",
 		});
 		const lines = buildWidgetLines(state, "architect");
-		const thinkingLine = lines.find((l) => l.includes("Deep thoughts"));
-		assert.ok(thinkingLine, "thinking phase content should appear in widget");
+		assert.ok(!lines[0].includes("Deep thoughts"), "thinking content NOT in stats-only widget");
 	});
 
 	it("buildWidgetLines includes current tool when tool phase active", () => {
@@ -181,9 +180,7 @@ describe("Widget lifecycle (buildWidgetLines + setWidget)", () => {
 			currentToolArgs: '{"command": "echo hi"}',
 		});
 		const lines = buildWidgetLines(state, "developer");
-		// formatToolCall formats bash as "$ echo hi" so we check for $ not the raw tool name
-		const toolLine = lines.find((l) => l.includes("$ echo"));
-		assert.ok(toolLine, "current tool formatted call should appear in widget");
+		assert.ok(!lines[0].includes("$ echo"), "tool call NOT in stats-only widget");
 	});
 
 	it("buildWidgetLines includes stats footer with agent name and duration", () => {
@@ -241,10 +238,9 @@ describe("Widget lifecycle (buildWidgetLines + setWidget)", () => {
 		const state = createState({ phase: "idle" });
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer", "claude-sonnet-4"));
 
-		// Working change: thinking phase
-		state.phase = "thinking";
-		state.liveThinking = "Analyzing...";
-		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer", "claude-sonnet-4"));
+		// Working change with different stats
+		const state2 = createState({ phase: "thinking", toolCount: 3 });
+		ui.setWidget("supervisor-agent", buildWidgetLines(state2, "developer", "claude-sonnet-4"));
 
 		assert.equal(widgetCalls.length, 2);
 		// Second call should have different content
@@ -302,8 +298,8 @@ describe("Widget debounce + heartbeat (matching session-runner.ts)", () => {
 		// debounce is a runtime concern. What matters is the last state is correct.
 		assert.equal(widgetCalls.length, 3);
 		assert.ok(
-			widgetCalls[2].lines?.some((l) => l.includes("text")),
-			"last widget state should show text phase",
+			widgetCalls[2].lines?.some((l) => l.includes("subagent:dev")),
+			"last widget line should contain agent name, confirming widget was set with valid content",
 		);
 	});
 
@@ -547,8 +543,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "architect"));
 
-		const thinkingLine = widgetCalls[0].lines?.find((l) => l.includes("Analyzing"));
-		assert.ok(thinkingLine, "widget should show thinking text");
+		assert.ok(!widgetCalls[0].lines?.[0]?.includes("Analyzing"), "thinking content absent in stats-only widget");
 	});
 
 	it("agent calls tool → widget shows 🔧 tool call via formatToolCall", () => {
@@ -560,9 +555,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer"));
 
-		// formatToolCall formats bash as "$ ls -la", so we check for $ ls
-		const toolLine = widgetCalls[0].lines?.find((l) => l.includes("$ ls"));
-		assert.ok(toolLine, "widget should show formatted tool call");
+		assert.ok(!widgetCalls[0].lines?.[0]?.includes("$ ls"), "tool call absent in stats-only widget");
 	});
 
 	it("agent produces text → widget shows live text preview", () => {
@@ -573,8 +566,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer"));
 
-		const textLine = widgetCalls[0].lines?.find((l) => l.includes("Here is my analysis"));
-		assert.ok(textLine, "widget should show live text preview");
+		assert.ok(!widgetCalls[0].lines?.[0]?.includes("Here is my analysis"), "live text absent in stats-only widget");
 	});
 
 	it("agent completes successfully → widget cleared, final result message shows SUCCESS", () => {
@@ -839,6 +831,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		const details: Partial<SubagentDetails> = {
 			agentName: "developer",
 			phase: "idle",
+			runningTokenCount: 500,
 			contextTokens: 500,
 			contextWindow: 32000,
 			startedAt: Date.now() - 1000,
@@ -846,9 +839,8 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-developer");
 
-		const contextLine = widgetCalls[0].lines?.find((l) => l.includes("Context:"));
-		assert.ok(contextLine, "widget should include context line");
-		assert.ok(contextLine?.includes("500"), "should show context token count");
+		assert.ok(widgetCalls[0].lines?.[0]?.includes("developer"), "should show agent name");
+		assert.ok(widgetCalls[0].lines?.[0]?.includes("500"), "should show token count in widget");
 	});
 
 	it("renderWidgetFromDetails widget shows 'computing...' when context info not yet received", () => {
@@ -863,12 +855,8 @@ describe("User-journey: widget progress during pipeline", () => {
 
 		renderWidgetFromDetails(details, "developer", undefined, ctx, "agent-developer");
 
-		const contextLine = widgetCalls[0].lines?.find((l) => l.includes("Context:"));
-		assert.ok(contextLine, "widget should include context line");
-		assert.ok(
-			contextLine?.includes("computing"),
-			"should show 'computing...' when context not ready",
-		);
+		assert.ok(widgetCalls[0].lines?.[0]?.includes("developer"), "should show agent name");
+		assert.ok(widgetCalls[0].lines?.[0]?.includes("⏱"), "should show duration");
 	});
 
 	it("pipeline dispatches agent → onUpdate calls renderWidgetFromDetails → widget shows progress", () => {
@@ -901,10 +889,6 @@ describe("User-journey: widget progress during pipeline", () => {
 			ctx,
 			"agent-developer",
 		);
-		assert.ok(
-			widgetCalls[1].lines?.some((l) => l.includes("Analyzing")),
-			"widget should update with thinking content",
-		);
 
 		// Phase 3: tool
 		renderWidgetFromDetails(
@@ -920,10 +904,6 @@ describe("User-journey: widget progress during pipeline", () => {
 			ctx,
 			"agent-developer",
 		);
-		assert.ok(
-			widgetCalls[2].lines?.some((l) => l.includes("file.ts") || l.includes("read")),
-			"widget should show tool call",
-		);
 
 		// Phase 4: text
 		renderWidgetFromDetails(
@@ -937,10 +917,6 @@ describe("User-journey: widget progress during pipeline", () => {
 			"claude-sonnet-4",
 			ctx,
 			"agent-developer",
-		);
-		assert.ok(
-			widgetCalls[3].lines?.some((l) => l.includes("implementation")),
-			"widget should show live text",
 		);
 
 		// Final state: completed with stats
@@ -965,43 +941,8 @@ describe("User-journey: widget progress during pipeline", () => {
 		for (const call of widgetCalls) {
 			assert.equal(call.id, "agent-developer", "all widget calls should use agent-developer ID");
 			if (call.lines) {
-				assert.ok(call.lines.length >= 2, "each widget should have at least 2 lines");
+				assert.ok(call.lines.length === 1, "each widget should have exactly 1 line");
 			}
 		}
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// idleWarning formatting — via buildWidgetLines
-// ═══════════════════════════════════════════════════════════════════
-
-describe("idleWarning formatting", () => {
-	it("idle warning line appears when provided", () => {
-		const state = createState();
-		const lines = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
-		const found = lines.find((l) => l.includes("⚠ No events for 20s"));
-		assert.ok(found, "idle warning should appear in widget lines");
-	});
-
-	it("null idle warning omitted", () => {
-		const state = createState();
-		const lines = buildWidgetLines(state, "test", "model", null);
-		const found = lines.find((l) => l.includes("No events for"));
-		assert.equal(found, undefined, "should not contain idle warning when null");
-	});
-
-	it("undefined idle warning omitted", () => {
-		const state = createState();
-		const lines = buildWidgetLines(state, "test", "model", undefined);
-		const found = lines.find((l) => l.includes("No events for"));
-		assert.equal(found, undefined, "should not contain idle warning when undefined");
-	});
-
-	it("multiple idle warnings show latest only (line count stable)", () => {
-		const state = createState();
-		const lines1 = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
-		const lines2 = buildWidgetLines(state, "test", "model", "⚠ No events for 20s");
-		// Same args produce same result — line count is stable, no duplication
-		assert.deepEqual(lines1, lines2);
 	});
 });

@@ -15,7 +15,6 @@ export function buildWidgetLines(
 	state: AgentRunState,
 	agentName: string,
 	model?: string,
-	idleWarning?: string | null,
 	now?: number,
 ): string[] {
 	const nowTs = now ?? Date.now();
@@ -64,26 +63,23 @@ export function renderWidgetFromDetails(
 			: "idle";
 
 	// Construct minimal AgentRunState from details
-	// buildWidgetLines() only accesses: contextInfoReceived, contextTokens, contextWindow,
-	// phase, liveThinking, currentTool, currentToolArgs, liveText, fullLog,
-	// toolCount, tokenCount, cacheRead, cacheWrite, startedAt
+	// buildWidgetLines() only reads: toolCount, tokenCount, cacheRead, cacheWrite, startedAt, thinkingLevel
+	// phase and currentTool are kept for getWorkingMessage.
+	// Other interface-required fields get empty defaults.
 	const state: AgentRunState = {
 		phase,
 		startedAt: details.startedAt ?? Date.now(),
 		tokenCount: details.runningTokenCount ?? 0,
 		toolCount: details.runningToolCount ?? details.toolCalls?.length ?? 0,
-		fullLog: details.recentLogEntries ?? [],
-		liveThinking: details.liveThinking ?? "",
-		liveText: details.liveText ?? "",
-		contextTokens: details.contextTokens,
-		contextWindow: details.contextWindow,
-		contextInfoReceived: details.contextTokens !== undefined && details.contextWindow !== undefined,
 		currentTool: details.currentTool,
-		currentToolArgs: details.currentToolArgs,
 		thinkingLevel: details.thinkingLevel,
-		// Fields required by interface:
+		// Fields required by interface (empty defaults — not read by buildWidgetLines):
+		fullLog: [],
+		liveThinking: "",
+		liveText: "",
 		textOutputLines: [],
 		thinkingOutputLines: [],
+		contextInfoReceived: false,
 		cacheRead: details.cacheRead,
 		cacheWrite: details.cacheWrite,
 		lastToolName: undefined,
