@@ -40,7 +40,6 @@ import { buildDeadCodeContext as buildDeadCodeContextInner } from "../checks/dea
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import type { OsvScanResult } from "../checks/osv-scanner.ts";
 
-
 // ─── Constants ────────────────────────────────────────────────────
 
 export const MAX_PIPELINE_LOOPS = 20;
@@ -217,7 +216,6 @@ export function buildVulnContext(result: OsvScanResult | null): string | null {
 }
 
 import { buildVulnContext as buildVulnContextInner } from "../checks/osv-scanner.ts";
-
 
 // ─── Gate Failure Context ────────────────────────────────────────────
 
@@ -962,13 +960,6 @@ async function handleAuditorOutput(
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
 ): Promise<void> {
-	// Debug: log what we received
-	collector?.push(
-		"stages",
-		"warn",
-		`auditor handleAuditorOutput: textOnly=${String(result.textOnly).length} textOutput=${String(result.textOutput).length} output=${String(result.output).length} agentOutput=${String(agentOutput).length} gateRejected=${String(!!gateRejected)}`,
-	);
-
 	// If gate rejected, post gate-specific rejection comment and skip normal processing
 	if (gateRejected) {
 		const gateBody = buildGateRejectionComment(gateRejected);
@@ -979,15 +970,7 @@ async function handleAuditorOutput(
 					`Audit score gate rejected: ${gateRejected.score.passing}/${gateRejected.total} < ${gateRejected.required}/${gateRejected.total}`,
 					"warning",
 				);
-			} catch (grErr: unknown) {
-				collector?.push(
-					"stages",
-					"warn",
-					`Failed to post gate rejection comment: ${
-						grErr instanceof Error ? grErr.message : String(grErr)
-					}`,
-				);
-			}
+			} catch (grErr: unknown) {}
 		}
 		return;
 	}
@@ -999,11 +982,6 @@ async function handleAuditorOutput(
 
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
-		collector?.push(
-			"stages",
-			"warn",
-			`auditor parseAgentOutput SUCCESS: action=${output.action} hasCommentBody=${String(!!output.commentBody)} findings=${String(output.findings?.length)}`,
-		);
 		if (output.action === "APPROVED" || output.action === "REJECTED") {
 			actionFromOutput = output.action;
 			commentBodyFromOutput = output.commentBody;
@@ -1041,25 +1019,13 @@ async function handleAuditorOutput(
 					const body = `## Audit Approved\n\n${trimmed.slice(0, 2000)}`;
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
 					ctx.ui.notify("Audit approval comment posted (bare text fallback)", "info");
-				} catch (acErr: unknown) {
-					collector?.push(
-						"stages",
-						"warn",
-						`Failed to post audit comment (bare text fallback): ${acErr instanceof Error ? acErr.message : String(acErr)}`,
-					);
-				}
+				} catch (acErr: unknown) {}
 			} else if (rejectedMatch) {
 				try {
 					const body = `## Audit Rejected\n\n${trimmed.slice(0, 2000)}`;
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
 					ctx.ui.notify("Audit rejection comment posted (bare text fallback)", "info");
-				} catch (rcErr: unknown) {
-					collector?.push(
-						"stages",
-						"warn",
-						`Failed to post rejection comment (bare text fallback): ${rcErr instanceof Error ? rcErr.message : String(rcErr)}`,
-					);
-				}
+				} catch (rcErr: unknown) {}
 			}
 			return;
 		}
@@ -1070,15 +1036,7 @@ async function handleAuditorOutput(
 				try {
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit comment posted (text marker fallback)", "info");
-				} catch (acErr: unknown) {
-					collector?.push(
-						"stages",
-						"warn",
-						`Failed to post audit comment: ${
-							acErr instanceof Error ? acErr.message : String(acErr)
-						}`,
-					);
-				}
+				} catch (acErr: unknown) {}
 			}
 		} else if (auditOutput.decision === "REJECTED") {
 			const bodyToPost = auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput);
@@ -1086,15 +1044,7 @@ async function handleAuditorOutput(
 				try {
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit rejection comment posted (text marker fallback)", "info");
-				} catch (rcErr: unknown) {
-					collector?.push(
-						"stages",
-						"warn",
-						`Failed to post rejection comment: ${
-							rcErr instanceof Error ? rcErr.message : String(rcErr)
-						}`,
-					);
-				}
+				} catch (rcErr: unknown) {}
 			}
 		}
 		return;
@@ -1102,11 +1052,6 @@ async function handleAuditorOutput(
 
 	// Structured path: build comment from AgentOutput
 	if (actionFromOutput === "APPROVED") {
-		collector?.push(
-			"stages",
-			"warn",
-			`auditor APPROVED path: commentBodyFromOutput.length=${String(commentBodyFromOutput?.length)}`,
-		);
 		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput);
 		if (bodyToPost) {
 			try {
@@ -1135,12 +1080,6 @@ async function handleAuditorOutput(
 					}`,
 				);
 			}
-		} else {
-			collector?.push(
-				"stages",
-				"warn",
-				`Auditor rejected issue #${issueNum} but no comment body or structured output available.`,
-			);
 		}
 	}
 }
