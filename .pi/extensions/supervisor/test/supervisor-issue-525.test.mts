@@ -244,7 +244,7 @@ describe("Bug 1 — Pipeline handler passes result data through agentResults", (
 		const hasBuildAgentEntry = source.includes("buildAgentResultEntry(result");
 		const hasExecuteAgent = source.includes("await executeAgent(");
 		const hasResultDestructure = source.includes(
-			"const { result, usedRetry } = await executeAgent(",
+			"const { result: initialResult } = await executeAgent(",
 		);
 
 		assert.ok(hasExecuteAgent, "handler should call executeAgent");
