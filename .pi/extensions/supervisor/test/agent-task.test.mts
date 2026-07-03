@@ -1860,6 +1860,7 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			undefined, // researchFindings
 			undefined, // auditFeedback
 			undefined, // deadCodeContext
+			undefined, // vulnContext
 			"CI_FAILED: check build", // gateFailureContext
 		);
 		assert.ok(task.includes("<previous_gate_failure>"), "Gate failure block present");
