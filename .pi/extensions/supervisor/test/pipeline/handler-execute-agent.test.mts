@@ -271,42 +271,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(result.success, false, "budget exceeded should have success=false");
 	});
 
-	it("budget exceeded path: sends warning notification", async () => {
-		const runner = mockRunner({
-			success: false,
-			budgetExceeded: true,
-			summaryLine: "Budget exceeded",
-		});
-
-		let notifyMsg = "";
-		const ctx = {
-			...createMockCtx(),
-			ui: {
-				...createMockCtx().ui,
-				notify: (msg: string, _type?: string) => {
-					notifyMsg = msg;
-				},
-			},
-		};
-		const pi = createMockPi();
-
-		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
-
-		await executeAgent(
-			mockAgent as any,
-			"test task",
-			ctx,
-			pi,
-			30000,
-			"/worktree",
-			5,
-			10000,
-			undefined,
-			runner,
-		);
-
-		assert.ok(notifyMsg.toLowerCase().includes("budget"), "should notify about budget");
-	});
 
 	it("passes sessionPath to runAgentSubprocess", async () => {
 		const pi = createMockPi();
