@@ -297,12 +297,12 @@ function handleMessageEnd(
 				}
 			}
 			if (thinkingParts.length > 0) {
-				// Always push to textOutputLines so textOnly captures thinking content.
-				// Models with thinking:high emit structured JSON in thinking blocks,
-				// not text blocks. Without this, textOnly misses the JSON and falls
-				// through to textOutput (full instrumented log) extraction.
-				state.textOutputLines.push(thinkingParts.join("\n").trim());
 				if (!state.thinkingPushedThisTurn) {
+					// Push to textOutputLines so textOnly captures thinking content.
+					// Models with thinking:high emit structured JSON in thinking blocks,
+					// not text blocks. Without this, textOnly misses the JSON and falls
+					// through to textOutput (full instrumented log) extraction.
+					state.textOutputLines.push(thinkingParts.join("\n").trim());
 					state.thinkingOutputLines.push(thinkingParts.join("\n").trim());
 					state.thinkingPushedThisTurn = true;
 				}
@@ -426,11 +426,11 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 		if (thinkingParts.length > 0) {
 			const allThinking = thinkingParts.join("\n").trim();
 			if (allThinking) {
-				// Always push to textOutputLines so textOnly captures thinking content.
-				// Same rationale as handleMessageEnd: thinking:high models emit JSON
-				// in thinking blocks, not text blocks.
-				state.textOutputLines.push(allThinking);
 				if (!state.thinkingPushedThisTurn) {
+					// Push to textOutputLines so textOnly captures thinking content.
+					// Same rationale as handleMessageEnd: thinking:high models emit JSON
+					// in thinking blocks, not text blocks.
+					state.textOutputLines.push(allThinking);
 					state.thinkingOutputLines.push(allThinking);
 					state.thinkingPushedThisTurn = true;
 					for (const t of allThinking.split("\n")) {
