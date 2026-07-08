@@ -1,7 +1,7 @@
 /**
  * Tests for git/GitHub deterministic helpers (Phase 1).
  *
- * Phase 1: pushBranch, commitChanges, commitAndPush, createPullRequest
+ * Phase 1: pushBranch, commitChanges, commitAndPush
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/supervisor-github-helpers.test.mts
@@ -10,7 +10,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { pushBranch, commitChanges, commitAndPush } from "../github/git.ts";
-import { createPullRequest } from "../github/pr.ts";
 import type { ExecFn, NotifyFn } from "../pipeline/helpers.ts";
 import type { ExecOptions } from "@earendil-works/pi-coding-agent";
 
@@ -152,93 +151,3 @@ describe("commitAndPush", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — createPullRequest
-// ---------------------------------------------------------------------------
-
-describe("createPullRequest", () => {
-	it("calls gh pr create with correct args without --json flag", async () => {
-		const { exec, calls } = makeMockExec([
-			{ code: 0, stdout: "https://github.com/owner/repo/pull/123" },
-		]);
-		const result = await createPullRequest(
-			exec,
-			"owner/repo",
-			"main",
-			"branch",
-			"feat(#42): title",
-		);
-		assert.strictEqual(calls.length, 1);
-		// gh() wrapper may call bash with GH_TOKEN injection or gh directly
-		const cmd = calls[0].cmd;
-		const args = calls[0].args;
-		assert.ok(cmd === "gh" || cmd === "bash", "cmd should be gh or bash wrapper");
-		// Extract gh subcommand args: if bash wrapper, they start at index 3 (after -c, shellCmd, _)
-		const ghArgs = cmd === "bash" ? args.slice(3) : args;
-		assert.deepStrictEqual(ghArgs, [
-			"pr",
-			"create",
-			"--repo",
-			"owner/repo",
-			"--base",
-			"main",
-			"--head",
-			"branch",
-			"--title",
-			"feat(#42): title",
-		]);
-		assert.equal(args.includes("--json"), false, "should NOT include --json flag");
-		assert.deepStrictEqual(result, { number: 123 });
-	});
-
-	it("includes --body-file flag when bodyFile provided", async () => {
-		const { exec, calls } = makeMockExec([
-			{ code: 0, stdout: "https://github.com/owner/repo/pull/456" },
-		]);
-		await createPullRequest(exec, "owner/repo", "main", "branch", "title", "/tmp/body.md");
-		assert.strictEqual(calls.length, 1);
-		const cmd = calls[0].cmd;
-		const args = calls[0].args;
-		// Extract gh subcommand args: if bash wrapper, they start at index 3
-		const ghArgs = cmd === "bash" ? args.slice(3) : args;
-		assert.ok(ghArgs.includes("--body-file"), "Expected --body-file in args");
-		assert.equal(ghArgs.includes("--json"), false, "should NOT include --json flag");
-		const bfIdx = ghArgs.indexOf("--body-file");
-		assert.strictEqual(ghArgs[bfIdx + 1], "/tmp/body.md");
-	});
-
-	it("throws on text-with-number like 'PR #42' (tightened regex guard)", async () => {
-		const { exec } = makeMockExec([{ code: 0, stdout: "PR #42" }]);
-		await assert.rejects(
-			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
-			/failed to parse PR number/i,
-		);
-	});
-
-	it("parses PR number when gh outputs plain URL (backward compat)", async () => {
-		const { exec } = makeMockExec([{ code: 0, stdout: "https://github.com/owner/repo/pull/321" }]);
-		const result = await createPullRequest(exec, "owner/repo", "main", "branch", "title");
-		assert.deepStrictEqual(result, { number: 321 });
-	});
-
-	it("parses PR number when gh outputs plain number (backward compat)", async () => {
-		const { exec } = makeMockExec([{ code: 0, stdout: "555" }]);
-		const result = await createPullRequest(exec, "owner/repo", "main", "branch", "title");
-		assert.deepStrictEqual(result, { number: 555 });
-	});
-
-	it("throws when gh returns non-zero", async () => {
-		const { exec } = makeMockExec([{ code: 1, stderr: "gh: Not authenticated" }]);
-		await assert.rejects(
-			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
-			/gh pr failed/i,
-		);
-	});
-
-	it("throws when gh output does not contain a number", async () => {
-		const { exec } = makeMockExec([{ code: 0, stdout: "" }]);
-		await assert.rejects(
-			() => createPullRequest(exec, "owner/repo", "main", "branch", "title"),
-			/failed to parse PR number/i,
-		);
-	});
-});
