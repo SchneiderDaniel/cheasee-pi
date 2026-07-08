@@ -3,7 +3,6 @@
 
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
 import type { AgentOutput } from "../config/types.ts";
-import { isToolCallLine } from "./render-helpers.ts";
 
 export function formatTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -40,6 +39,22 @@ export function extractTextFromContent(content: any): string {
 		.filter((b: any) => b.type === "text" && b.text)
 		.map((b: any) => b.text)
 		.join("\n");
+}
+
+// Minimal inline check: returns false for rendered tool-call lines (e.g. "$ npm test",
+// "read /path", "bash echo hi", "extension_name: {...}").
+// Placed here (not in render-helpers.ts) to keep this module free of TUI deps.
+function isPlainTextLine(line: string): boolean {
+	if (!line) return false;
+	// Bash: "$ cmd" or bare "$"
+	if (line.startsWith("$ ") || line === "$") return false;
+	// Known built-in tool names as first word
+	const firstSpace = line.indexOf(" ");
+	const firstWord = firstSpace > 0 ? line.slice(0, firstSpace) : line;
+	if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return false;
+	// Extension/unknown tools: "name: {...}" format
+	if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(line)) return false;
+	return true;
 }
 
 /** Pull a one-line summary from the agent's text output */
@@ -93,7 +108,7 @@ export function extractSummaryLine(
 				!l.startsWith("🔧") &&
 				!l.startsWith("📋") &&
 				!l.startsWith("💭") &&
-				!isToolCallLine(l.trim()),
+				isPlainTextLine(l.trim()),
 		);
 	if (firstLine) {
 		return firstLine.trim().slice(0, 120);

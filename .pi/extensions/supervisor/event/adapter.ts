@@ -757,6 +757,7 @@ export function forwardNormalizedEventToChat(
 	agentName: string,
 	pending: ForwardChatState,
 	preThinkingText?: string,
+	cwd?: string,
 ): void {
 	switch (normalized.kind) {
 		case "tool_execution_start": {
@@ -767,7 +768,7 @@ export function forwardNormalizedEventToChat(
 			const formatted = renderToolCallText(
 				normalized.toolName,
 				normalized.args,
-				process.cwd(),
+				cwd ?? process.cwd(),
 			);
 			pending.pendingToolFormattedArgs = formatted;
 			pi.sendMessage({

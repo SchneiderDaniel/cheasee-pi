@@ -200,23 +200,4 @@ function formatJsonPreview(name: string, args: unknown): string {
 	return `${prefix}${preview}`;
 }
 
-/**
- * Check if a line looks like a rendered tool-call line.
- *
- * Minimal predicate matching the output format of `renderToolCallText`.
- * Used only for filtering tool-call lines from agent text output when
- * session state is not available (parseAgentOutput, stripNoise).
- */
-export function isToolCallLine(line: string): boolean {
-	if (!line) return false;
-	const trimmed = line.trimStart();
-	// Bash: "$ cmd" or bare "$"
-	if (trimmed.startsWith("$ ") || trimmed === "$") return true;
-	// Known built-in tool name as first word
-	const firstSpace = trimmed.indexOf(" ");
-	const firstWord = firstSpace > 0 ? trimmed.slice(0, firstSpace) : trimmed;
-	if (firstWord === "bash" || firstWord === "rg" || (BUILTIN_TOOL_NAMES as readonly string[]).includes(firstWord)) return true;
-	// Extension/unknown tools: "name: {...}" format
-	if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(trimmed)) return true;
-	return false;
-}
+

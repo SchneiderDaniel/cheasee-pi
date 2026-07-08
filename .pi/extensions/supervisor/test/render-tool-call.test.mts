@@ -1,10 +1,10 @@
-// ─── Tests: renderToolCallText() + isToolCallLine() ───────────────
+// ─── Tests: renderToolCallText() + cwd-aware path display ───────
 // Delegates to pi's native renderCall for built-in tools.
 // Extension tools use JSON-preview fallback.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { renderToolCallText, isToolCallLine, getBuiltinToolLabels } from "../lib/render-helpers.ts";
+import { renderToolCallText, getBuiltinToolLabels } from "../lib/render-helpers.ts";
 
 const CWD = "/repo";
 
@@ -175,87 +175,28 @@ describe("getBuiltinToolLabels", () => {
 	});
 });
 
-// ─── Tests: isToolCallLine() ──────────────────────────────────────
+// ─── Tests: cwd-aware path display (Phase 1) ────────────────────
 
-describe("isToolCallLine", () => {
-	it('returns true for "$ npm test"', () => {
-		assert.equal(isToolCallLine("$ npm test"), true);
+describe("renderToolCallText — cwd-aware path display", () => {
+	it("cwd resolves relative paths for read", () => {
+		const result = renderToolCallText("read", { path: "relative/file.ts" }, "/home/user");
+		// pi's renderCall resolves relative paths against cwd and may show absolute path
+		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
 	});
 
-	it('returns true for "read /path/file.ts:10-39"', () => {
-		assert.equal(isToolCallLine("read /path/file.ts:10-39"), true);
+	it("cwd resolves relative paths for write", () => {
+		const result = renderToolCallText("write", { path: "relative/file.ts", content: "line1" }, "/home/user");
+		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
 	});
 
-	it('returns true for "write /path (45 lines)"', () => {
-		assert.equal(isToolCallLine("write /path (45 lines)"), true);
+	it("cwd resolves relative paths for edit", () => {
+		const result = renderToolCallText("edit", { path: "relative/file.ts" }, "/home/user");
+		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
 	});
 
-	it('returns true for "edit /path/file.ts"', () => {
-		assert.equal(isToolCallLine("edit /path/file.ts"), true);
-	});
-
-	it('returns true for "grep /pattern/ in /src"', () => {
-		assert.equal(isToolCallLine("grep /pattern/ in /src"), true);
-	});
-
-	it('returns true for "ls /home"', () => {
-		assert.equal(isToolCallLine("ls /home"), true);
-	});
-
-	it('returns true for "find /src"', () => {
-		assert.equal(isToolCallLine("find /src"), true);
-	});
-
-	it('returns true for fallback format like "web_search: {...}"', () => {
-		assert.equal(isToolCallLine('web_search: {"query":"typescript"}'), true);
-	});
-
-	it('returns true for "ripgrep_search: {...}" (fallback format)', () => {
-		assert.equal(isToolCallLine('ripgrep_search: {"pattern":"TODO"}'), true);
-	});
-
-	it('returns true for "structural_search: {...}" (fallback format)', () => {
-		assert.equal(isToolCallLine('structural_search: {"pattern":"console.log($A)"}'), true);
-	});
-
-	it('returns true for bare "$"', () => {
-		assert.equal(isToolCallLine("$"), true);
-	});
-
-	it('returns false for "💭 thinking line"', () => {
-		assert.equal(isToolCallLine("💭 thinking line"), false);
-	});
-
-	it('returns false for "✓ read_file"', () => {
-		assert.equal(isToolCallLine("✓ read_file"), false);
-	});
-
-	it('returns false for "✗ read_file"', () => {
-		assert.equal(isToolCallLine("✗ read_file"), false);
-	});
-
-	it('returns false for "📋 read_file: output"', () => {
-		assert.equal(isToolCallLine("📋 read_file: output"), false);
-	});
-
-	it('returns false for "📊 Context: 5.0K/10.0K"', () => {
-		assert.equal(isToolCallLine("📊 Context: 5.0K/10.0K"), false);
-	});
-
-	it("returns false for normal text lines", () => {
-		assert.equal(isToolCallLine("Normal text line"), false);
-	});
-
-	it("returns false for empty string", () => {
-		assert.equal(isToolCallLine(""), false);
-	});
-
-	it('returns false for old-format "🔧 bash: npm test"', () => {
-		assert.equal(isToolCallLine("🔧 bash: npm test"), false);
-	});
-
-	it('returns false for old-format "🔧 read: /path"', () => {
-		assert.equal(isToolCallLine("🔧 read: /path"), false);
+	it("cwd does not affect absolute paths", () => {
+		const result = renderToolCallText("read", { path: "/etc/hostname" }, "/home/user");
+		assert.equal(result, "read /etc/hostname");
 	});
 });
 

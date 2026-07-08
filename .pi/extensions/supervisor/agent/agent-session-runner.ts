@@ -190,7 +190,7 @@ export async function runAgentInProcess(
 
 				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
 
-				const result = processNormalizedEvent(normalized, state);
+				const result = processNormalizedEvent(normalized, state, effectiveCwd);
 				if (result.workingChange) {
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
@@ -199,7 +199,7 @@ export async function runAgentInProcess(
 
 				// Forward key events as supervisor chat messages
 				if (pi) {
-					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText);
+					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText, effectiveCwd);
 				}
 			} catch (parseErr: unknown) {
 				const errMsg = String(parseErr).slice(0, 200);

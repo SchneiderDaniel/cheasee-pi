@@ -15,7 +15,6 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	normalizeEscapes,
 } from "../agent/output.ts";
-import { isToolCallLine } from "../lib/render-helpers.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────
@@ -326,6 +325,17 @@ export function extractAgentCommentBody(output: string): string | null {
 	// metadata lines, making the comment look like "the whole log".
 	// Strip them to produce clean commentBody text.
 	// Also strip reasoning/self-talk lines that LLMs sometimes leak into output.
+	// Inline check for rendered tool-call lines — matches the format produced by
+	// renderToolCallText (bash: "$ cmd", built-in: "toolname args", extension: "name: {...}")
+	function isToolCallLine(l: string): boolean {
+		if (!l) return false;
+		if (l.startsWith("$ ") || l === "$") return true;
+		const firstSpace = l.indexOf(" ");
+		const firstWord = firstSpace > 0 ? l.slice(0, firstSpace) : l;
+		if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return true;
+		if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(l)) return true;
+		return false;
+	}
 	const METADATA_LINE_RE = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}\u{1F4AD}]/u;
 	const REASONING_LINE_RE =
 		/^(Now (let me|I|we)|Let me|I need to|I'll|First,? let me|I should|I think|I'm going|Let's|Here's my|My approach|I will)/i;

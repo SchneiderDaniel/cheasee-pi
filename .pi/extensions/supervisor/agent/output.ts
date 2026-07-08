@@ -5,7 +5,6 @@
 
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
-import { isToolCallLine } from "../lib/render-helpers.ts";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────
 
@@ -352,6 +351,17 @@ function extractLastJson(raw: string): string {
 	// blocks is valid. Use SIMPLE brace counting (no string tracking) so
 	// double-quotes in thinking content do NOT corrupt brace matching.
 	const metadataLineRe = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}]/u;
+	// Inline check for rendered tool-call lines — matches the format produced by
+	// renderToolCallText (bash: "$ cmd", built-in: "toolname args", extension: "name: {...}")
+	function isToolCallLine(l: string): boolean {
+		if (!l) return false;
+		if (l.startsWith("$ ") || l === "$") return true;
+		const firstSpace = l.indexOf(" ");
+		const firstWord = firstSpace > 0 ? l.slice(0, firstSpace) : l;
+		if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return true;
+		if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(l)) return true;
+		return false;
+	}
 	let braceCandidateRaw = fenceSearchText;
 	// Check if any filtering is needed (either old-format metadata lines or new-format tool call lines)
 	const needsMetadataFilter = metadataLineRe.test(fenceSearchText);
