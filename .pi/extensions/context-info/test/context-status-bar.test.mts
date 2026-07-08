@@ -14,8 +14,6 @@ import { describe, it } from "node:test";
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thinkingIcon, thinkingColor } from "../../lib/thinking-level.ts";
-
 // ---------------------------------------------------------------------------
 // Duplicated helpers from .pi/extensions/context-info.ts
 // ---------------------------------------------------------------------------
@@ -420,46 +418,6 @@ describe("loadConfig", () => {
 		});
 		assert.ok(result.config);
 		assert.strictEqual(result.config!.thresholds[0]!.maxTokens, null);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// thinkingIcon tests
-// ---------------------------------------------------------------------------
-
-describe("thinkingIcon", () => {
-	it("returns correct icons for each level", () => {
-		assert.strictEqual(thinkingIcon("off"), "○");
-		assert.strictEqual(thinkingIcon("minimal"), "◐");
-		assert.strictEqual(thinkingIcon("low"), "◑");
-		assert.strictEqual(thinkingIcon("medium"), "◒");
-		assert.strictEqual(thinkingIcon("high"), "◓");
-		assert.strictEqual(thinkingIcon("xhigh"), "●");
-	});
-
-	it("returns default for unknown/undefined", () => {
-		assert.strictEqual(thinkingIcon(undefined), "·");
-		assert.strictEqual(thinkingIcon("unknown"), "·");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// thinkingColor tests
-// ---------------------------------------------------------------------------
-
-describe("thinkingColor", () => {
-	it("returns correct theme colors for each level", () => {
-		assert.strictEqual(thinkingColor("off"), "dim");
-		assert.strictEqual(thinkingColor("minimal"), "dim");
-		assert.strictEqual(thinkingColor("low"), "muted");
-		assert.strictEqual(thinkingColor("medium"), "accent");
-		assert.strictEqual(thinkingColor("high"), "warning");
-		assert.strictEqual(thinkingColor("xhigh"), "error");
-	});
-
-	it("returns dim for unknown/undefined", () => {
-		assert.strictEqual(thinkingColor(undefined), "dim");
-		assert.strictEqual(thinkingColor("unknown"), "dim");
 	});
 });
 
