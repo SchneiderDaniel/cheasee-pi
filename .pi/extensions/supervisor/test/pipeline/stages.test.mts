@@ -93,6 +93,12 @@ const mockConfig: SupervisorConfig = {
 	remote: "origin",
 	worktreeBase: "../worktrees",
 	branchPrefix: "worktree-git-issue-",
+	ciGatingTimeoutSec: 300,
+	bellOnComplete: false,
+	enableExperimentalFeatures: false,
+	auditScoreThreshold: 0.75,
+	vulnGateBlocking: false,
+	vulnGateTimeoutSec: 60,
 };
 
 function makeProjectFields(statusFieldId: string): ProjectField[] {

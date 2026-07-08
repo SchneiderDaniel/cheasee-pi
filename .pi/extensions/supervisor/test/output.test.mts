@@ -17,8 +17,20 @@ const defaultConfig: SupervisorConfig = {
 	repo: "owner/repo",
 	projectNumber: 1,
 	statusField: "Status",
-	statusMapping: {},
+	statusMapping: { todo: "developer" },
 	codeowners: ["@owner"],
+	maxRejections: 3,
+	defaultBranch: "main",
+	remote: "origin",
+	worktreeBase: "../",
+	branchPrefix: "worktree-git-issue-",
+	ciGatingTimeoutSec: 300,
+	bellOnComplete: false,
+	enableExperimentalFeatures: false,
+	auditScoreThreshold: 0.75,
+	vulnGateBlocking: false,
+	vulnGateTimeoutSec: 60,
+	agentTimeoutsMin: {},
 };
 
 const emptyResults: PipelineAgentResult[] = [];

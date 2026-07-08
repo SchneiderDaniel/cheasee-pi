@@ -1,12 +1,50 @@
 // ─── Config: loading, validation, timeout resolution ──────────────
 
-import type { SupervisorConfig } from "./types.ts";
+import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
 /** Default agent timeout in milliseconds (30 minutes). */
 export const DEFAULT_AGENT_TIMEOUT_MS = 1_800_000;
+
+// ─── Schema ─────────────────────────────────────────────────────────
+
+/** Schema for supervisor settings from .pi/settings.json */
+export const SupervisorConfigSchema = z.object({
+	repo: z.string().min(1, { message: "supervisor.repo is required" }),
+	projectNumber: z
+		.number()
+		.int({ message: "supervisor.projectNumber must be an integer" })
+		.positive({ message: "supervisor.projectNumber must be a positive integer" }),
+	statusField: z.string().default("Status"),
+	statusMapping: z
+		.record(z.string(), z.string())
+		.refine((val) => Object.keys(val).length > 0, {
+			message: "supervisor.statusMapping is required",
+		}),
+	maxRejections: z.number().int().nonnegative().default(3),
+	codeowners: z
+		.array(z.string())
+		.nonempty({ message: "supervisor.codeowners must be a non-empty list" }),
+	submodules: z.array(z.object({ path: z.string(), repo: z.string() })).optional(),
+	defaultBranch: z.string().default("main"),
+	remote: z.string().default("origin"),
+	worktreeBase: z.string().default("../"),
+	branchPrefix: z.string().default("worktree-git-issue-"),
+	agentTimeoutsMin: z.record(z.string(), z.number()).optional(),
+	ciGatingTimeoutSec: z.number().int().nonnegative().default(300),
+	bellOnComplete: z.boolean().default(false),
+	agentTokenBudget: z.number().int().nonnegative().optional(),
+	maxToolCalls: z.number().int().nonnegative().optional(),
+	enableExperimentalFeatures: z.boolean().default(false),
+	auditScoreThreshold: z.number().min(0).max(1).default(0.75),
+	vulnGateBlocking: z.boolean().default(false),
+	vulnGateTimeoutSec: z.number().int().nonnegative().default(60),
+});
+
+/** Inferred config type from schema — fields with .default() are non-optional. */
+export type SupervisorConfig = z.infer<typeof SupervisorConfigSchema>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -47,84 +85,24 @@ export function loadConfig(): SupervisorConfig {
 	const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 	const cfg = settings.supervisor;
 	if (!cfg) throw new Error("No 'supervisor' key in .pi/settings.json.");
-	if (!cfg.repo) throw new Error("supervisor.repo is required.");
-	if (!cfg.projectNumber) throw new Error("supervisor.projectNumber is required.");
-	if (!cfg.statusMapping || Object.keys(cfg.statusMapping).length === 0) {
-		throw new Error("supervisor.statusMapping is required.");
-	}
-	const codeowners: string[] = Array.isArray(cfg.codeowners) ? cfg.codeowners : [];
-	if (codeowners.length === 0) {
-		throw new Error("supervisor.codeowners must be a non-empty list of trusted GitHub usernames.");
-	}
-	let submodules: Array<{ path: string; repo: string }>;
-	if (Array.isArray(cfg.submodules) && cfg.submodules.length > 0) {
-		submodules = cfg.submodules;
-	} else {
-		submodules = parseGitmodules();
-	}
-	const knownAgents = Object.values(cfg.statusMapping) as string[];
-	const agentTimeoutsMin = validateAgentTimeouts(cfg.agentTimeoutsMin, knownAgents);
 
-	// Validate agentTokenBudget (optional, non-negative integer)
-	const agentTokenBudget = cfg.agentTokenBudget;
-	if (agentTokenBudget !== undefined) {
-		if (
-			typeof agentTokenBudget !== "number" ||
-			!Number.isInteger(agentTokenBudget) ||
-			agentTokenBudget < 0
-		) {
-			throw new Error("supervisor.agentTokenBudget must be a non-negative integer");
-		}
-	}
+	// Schema-driven validation — replaces ~50 lines of manual if/throw checks
+	const parsed = SupervisorConfigSchema.parse(cfg);
 
-	// Validate maxToolCalls (optional, non-negative integer)
-	const maxToolCalls = cfg.maxToolCalls;
-	if (maxToolCalls !== undefined) {
-		if (typeof maxToolCalls !== "number" || !Number.isInteger(maxToolCalls) || maxToolCalls < 0) {
-			throw new Error("supervisor.maxToolCalls must be a non-negative integer");
-		}
-	}
+	// Post-parse: submodules fallback to .gitmodules
+	const submodules =
+		parsed.submodules && parsed.submodules.length > 0
+			? parsed.submodules
+			: parseGitmodules();
 
-	// Validate enableExperimentalFeatures (optional boolean)
-	const enableExperimentalFeatures = cfg.enableExperimentalFeatures;
-	if (enableExperimentalFeatures !== undefined && typeof enableExperimentalFeatures !== "boolean") {
-		throw new Error(
-			"supervisor.enableExperimentalFeatures must be a boolean (true/false) if provided",
-		);
-	}
-
-	// Validate auditScoreThreshold (optional, 0.0–1.0 range)
-	const auditScoreThreshold = cfg.auditScoreThreshold;
-	if (auditScoreThreshold !== undefined) {
-		if (
-			typeof auditScoreThreshold !== "number" ||
-			isNaN(auditScoreThreshold) ||
-			auditScoreThreshold < 0 ||
-			auditScoreThreshold > 1
-		) {
-			throw new Error("supervisor.auditScoreThreshold must be a number between 0.0 and 1.0");
-		}
-	}
+	// Post-parse: cross-field policy for agentTimeoutsMin
+	const knownAgents = Object.values(parsed.statusMapping) as string[];
+	const agentTimeoutsMin = validateAgentTimeouts(parsed.agentTimeoutsMin, knownAgents);
 
 	return {
-		repo: cfg.repo,
-		projectNumber: cfg.projectNumber,
-		statusField: cfg.statusField || "Status",
-		statusMapping: cfg.statusMapping,
-		maxRejections: cfg.maxRejections ?? 3,
-		codeowners,
+		...parsed,
 		submodules,
-		defaultBranch: cfg.defaultBranch || "main",
-		remote: cfg.remote || "origin",
-		worktreeBase: cfg.worktreeBase || "../",
-		branchPrefix: cfg.branchPrefix || "worktree-git-issue-",
 		agentTimeoutsMin,
-		ciGatingTimeoutSec: cfg.ciGatingTimeoutSec ?? 300,
-		bellOnComplete: cfg.bellOnComplete ?? false,
-		agentTokenBudget: agentTokenBudget,
-		maxToolCalls: maxToolCalls,
-		enableExperimentalFeatures: enableExperimentalFeatures ?? false,
-		auditScoreThreshold: auditScoreThreshold ?? 0.75,
 	};
 }
 

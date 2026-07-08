@@ -34,6 +34,7 @@ nav_order: 10
 | `@octokit/graphql` | ^9.0.3 | MIT | GitHub GraphQL API client (ProjectV2, deps timeline) |
 | `typebox` | ^1.2.8 | MIT | Runtime type validation |
 | `vscode-jsonrpc` | ^8.2.1 | MIT | LSP communication |
+| `zod` | ^4.4.3 | MIT | Schema-driven config validation |
 
 ## System dependencies
 

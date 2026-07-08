@@ -79,3 +79,4 @@
 {"datetime":"2026-07-03T17:54:43.846Z","question":"Where to put Go code in repo?","answer":"cmd-dir"}
 {"datetime":"2026-07-03T17:54:58.109Z","question":"Binary name? What should users type to run it?","answer":"cheasee-pi"}
 {"datetime":"2026-07-03T17:55:10.767Z","question":"Embed docker-compose.yml and Dockerfile into binary via `//go:embed`? That way `cheasee-pi init` writes them to disk. Binary becomes fully self-contained — no repo checkout needed.","answer":"embed"}
+{"datetime":"2026-07-08T18:15:41.919Z","question":"Which candidates should I file as GitHub issues on SchneiderDaniel/cheasee-pi?","answer":"all5"}

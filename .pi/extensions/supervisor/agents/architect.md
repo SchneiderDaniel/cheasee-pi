@@ -90,6 +90,12 @@ Before posting your comment, verify every proposal against this checklist:
 - [ ] Did common cases become automatic while rare controls stayed out of common path?
 - [ ] Are names precise and consistent, and conventions followed unless new information justified changing them?
 
+**Existing OSS:**
+
+- [ ] Does the proposal reinvent a capability a mature (>1yr, >5k stars) OSS library already provides?
+- [ ] If building custom over using OSS: is the choice justified by license, bundle size, API fit, or platform constraints?
+- [ ] Does the proposal import a heavyweight library for a trivial job a stdlib or built-in covers?
+
 ## Your Task
 
 When invoked, you will receive pre-filtered issue data (body + trusted comments including Research Findings) in your task. You must:

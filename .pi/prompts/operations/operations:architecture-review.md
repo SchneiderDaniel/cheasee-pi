@@ -48,6 +48,7 @@ Note friction points:
 - Where pure functions extracted just for testability but real bugs hide in call patterns (no **locality**)
 - Where tightly-coupled modules leak across **seams**
 - Untested or hard-to-test interfaces
+- **Reinvented wheel:** modules that reimplement what a mature (>1yr, >5k stars) OSS lib already provides. For each: flag the custom code, name the OSS alternative, estimate lines saved.
 
 Apply **deletion test**: would deleting the module concentrate complexity or just move it? "Yes, concentrates" = signal.
 
