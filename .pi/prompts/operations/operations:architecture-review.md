@@ -34,12 +34,17 @@ Read `.gitmodules` from project root. Parse submodules. If target matches submod
 
 ### 2 — Explore codebase
 
-Use Pi tools to walk target:
+Walk target with Pi tools **in this order**. Skipping `structural_search` and going straight to `read` produces a one-module audit, not an architecture review.
 
-- `structural_search` — symbol tree, function/class definitions, call chains, tightly-coupled patterns
-- `ripgrep_search` — hardcoded strings, leaky dependencies, magic numbers
-- `read` — inspect module interfaces directly
-- `read` — inspect module interfaces directly
+1. **`structural_search` — MANDATORY first pass.** Run these AST patterns before `read`ing any file:
+   - Single-implementation interfaces — `interface $NAME { $$$MEMBERS }`, then `ripgrep_search` each name for implementors. One implementor + one real caller = speculative seam.
+   - Factory-of-one — `function create$NAME` / `function make$NAME`. One product, no polymorphism = speculative abstraction.
+   - Re-export barrels — `export { $$$NAMES } from "$SRC"`. Then check whether callers import from the barrel or reach past it to `$SRC`.
+   - Classes with one call site — `class $NAME { $$$MEMBERS }`; `ripgrep_search` the class name to count constructors/users. One user = inline candidate.
+   - Pass-through wrappers — `function $NAME($ARG) { return $INNER($ARG) }` (or the async variant) where the body only delegates.
+2. **`ripgrep_search` — import graphs and dead-island detection.** For every suspicious symbol surfaced above, grep the bare name across the whole target. Count importers by file. The decisive test for a shallow module is its importer set: **symbol referenced only by its own file + test files = dead island.** This is hard evidence, not opinion.
+3. **`read` — inspect interfaces last.** Only after steps 1-2 have named concrete suspects. Read the interface, not the whole file.
+4. **`bash` — verify scale.** `wc -l`, `ls`, and `node -e "console.log(require('./package.json').dependencies)"` to confirm a "reinvented wheel" dep is actually declared (undeclared transitive deps are a finding, not a pass).
 
 Note friction points:
 
@@ -52,9 +57,25 @@ Note friction points:
 
 Apply **deletion test**: would deleting the module concentrate complexity or just move it? "Yes, concentrates" = signal.
 
+### 2.5 — Evidence rule
+
+Every claim in an issue body must cite tool output, not assertion. "`GitHubPort` has zero prod importers" is a claim; back it with the `ripgrep_search` result ("0 importers under `supervisor/pipeline/`; 2 importers, both under `test/`"). "`@octokit/*` is an undeclared dep" is a claim; back it with `node -e` on `package.json` + `package-lock.json`. A candidate filed without evidence is a guess — mark it `[Worth exploring]` at most, or drop it.
+
+### 2.6 — Stop rule
+
+Stop exploring once you hold 2-5 candidates with tool evidence. Over-exploring past that turns the review into a deep-dive of one codebase; the umbrella is a triage surface, not an exhaust. Suspects that fail the evidence rule do not count toward the 2-5.
+
 ### 3 — Create umbrella issue
 
-Create one GitHub issue listing all candidates.
+Create one GitHub issue listing 2-5 candidates.
+
+**Strength rule (evidence-gated):**
+
+- **[Strong]** — deletion test passes AND evidence rule satisfied (importer counts, dep declarations, dup-LOC counts from tools). File a sub-issue.
+- **[Worth exploring]** — real signal but not yet proven (deletion test ambiguous, or evidence partial). File a sub-issue only if ≤2 [Strong]
+- Drop silently — no evidence and no deletion-test signal. Do not file.
+
+File at most 5 candidates total across both strengths; 1-2 strong is a healthy review.
 
 **Title:** `Architecture Review: <target-name> — <YYYY-MM-DD>`
 

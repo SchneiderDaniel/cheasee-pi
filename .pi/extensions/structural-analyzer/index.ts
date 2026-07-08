@@ -150,7 +150,18 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 
 			// Get binary (lazy init, cached for subsequent calls)
 			const binary = await getSgBinary();
-			const args = ["run", "--pattern", pattern, "--json=stream", "--lang", language];
+			// --no-ignore=hidden: scan hidden dirs like `.pi/` too. Without this,
+			// ast-grep skips dot-directories by default and `.pi/extensions`
+			// (the bulk of this repo) is invisible to structural_search.
+			const args = [
+				"run",
+				"--pattern",
+				pattern,
+				"--json=stream",
+				"--lang",
+				language,
+				"--no-ignore=hidden",
+			];
 
 			const result = await pi.exec(binary, args, {
 				cwd: ctx.cwd,
