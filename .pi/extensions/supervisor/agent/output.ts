@@ -6,6 +6,7 @@
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { isToolCallLine } from "../lib/formatting.ts";
+import { jsonrepair } from "jsonrepair";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────
 
@@ -30,216 +31,7 @@ export function stripAnsi(text: string): string {
  */
 const THINKING_PREFIX_RE = /^💭\s*/gm;
 
-function stripThinkingPrefix(text: string): string {
-	return text.replace(THINKING_PREFIX_RE, "");
-}
-
 const VALID_SEVERITIES = new Set<FindingSeverity>(["critical", "warning", "suggestion"]);
-
-// ─── Smart Quote Detection ──────────────────────────────────────
-
-/**
- * Skip whitespace characters (space, tab, newline, carriage return)
- * starting from index `i`. When `reverse` is true, scans backward.
- * Returns the index of the first non-whitespace character, or
- * `text.length` (forward) / `-1` (reverse) if all whitespace.
- */
-function skipWhitespace(text: string, i: number, reverse?: boolean): number {
-	if (reverse) {
-		while (i >= 0 && (text[i] === " " || text[i] === "\t" || text[i] === "\n" || text[i] === "\r")) {
-			i--;
-		}
-		return i;
-	}
-	while (i < text.length && (text[i] === " " || text[i] === "\t" || text[i] === "\n" || text[i] === "\r")) {
-		i++;
-	}
-	return i;
-}
-
-/**
- * Check if a double-quote at position `i` in `text` is a structural close
- * (end of JSON string value) or an unescaped content quote (e.g. markdown
- * "text" inside commentBody).
- *
- * Uses bidirectional heuristic:
- * 1. Lookahead: must be followed by `,`, `}`, `]`, or `:` after whitespace.
- * 2. Lookbehind: if preceded by a structural opener (`:`, `,`, `{`, `[`,
- *    or start-of-text), this `"` is an opening quote, not a close.
- *
- * This prevents false-positives when unescaped content quotes inside a
- * JSON string value happen to be followed by `,`, `}`, `]`, or `:`.
- * Example: `{"commentBody": "value: "key", is important"}` — the `"` before
- * `key` is preceded by ` ` (after `:`) → lookbehind sees `:` → opening quote.
- */
-function isStructuralClose(text: string, i: number): boolean {
-	// Stage 1: Lookahead — must be followed by structural delimiter
-	const j = skipWhitespace(text, i + 1);
-	const next = j < text.length ? text[j] : "";
-	if (next !== "," && next !== "}" && next !== "]" && next !== ":") return false;
-
-	// Stage 2: Lookbehind — if preceded by structural opener, this is an opening quote
-	const k = skipWhitespace(text, i - 1, true);
-	const prev = k >= 0 ? text[k] : "";
-	// Start-of-text, `:`, `,`, `{`, `[` mean this is an opening quote, not a close
-	if (prev === "" || prev === ":" || prev === "," || prev === "{" || prev === "[") return false;
-
-	return true;
-}
-
-// ─── JSON Sanitization ────────────────────────────────────────────
-
-/**
- * Callback invoked for each `"` character during JSON string walking.
- * Receives the current state and returns the updated state after handling.
- */
-type QuoteHandler = (
-	jsonText: string,
-	i: number,
-	inString: boolean,
-	result: string,
-) => { inString: boolean; result: string };
-
-/**
- * Walk JSON text character by character, tracking escape state and
- * string boundaries. Delegates `"` handling to the provided callback.
- * The shared escape preamble (backslash tracking, literal newline
- * replacement) lives here — both sanitizer variants call this.
- */
-function walkJsonChars(jsonText: string, onQuote: QuoteHandler): string {
-	let result = "";
-	let inString = false;
-	let escaped = false;
-
-	for (let i = 0; i < jsonText.length; i++) {
-		const ch = jsonText[i];
-		if (escaped) {
-			result += ch;
-			escaped = false;
-			continue;
-		}
-
-		if (inString && ch === "\\") {
-			result += ch;
-			escaped = true;
-			continue;
-		}
-
-		if (ch === '"') {
-			const next = onQuote(jsonText, i, inString, result);
-			result = next.result;
-			inString = next.inString;
-			continue;
-		}
-
-		if (inString && (ch === "\n" || ch === "\r")) {
-			result += ch === "\n" ? "\\n" : "\\r";
-			continue;
-		}
-
-		result += ch;
-	}
-
-	return result;
-}
-
-/**
- * Escape literal newlines (\\n, \\r) inside JSON string values.
- * Agents often produce JSON where commentBody contains actual newlines
- * instead of \\n escape sequences. This makes JSON.parse fail.
- *
- * Edge cases handled:
- * - Escaped quotes (\\") inside strings
- * - Backslash-escaped characters (\\\\, \\n, etc.)
- * - Nested JSON objects (tracked via brace depth outside strings)
- */
-function sanitizeJsonStrings(jsonText: string): string {
-	return walkJsonChars(jsonText, (jsonText, i, inString, result) => {
-		if (inString && isStructuralClose(jsonText, i)) {
-			// Structural close — end of string value
-			result += '"';
-			inString = false;
-		} else if (inString) {
-			// Unescaped content quote (e.g. markdown "text" in commentBody)
-			result += '\\"';
-		} else {
-			// Opening quote — start of string value or key
-			result += '"';
-			inString = true;
-		}
-		return { inString, result };
-	});
-}
-
-// ─── Conservative Fallback ────────────────────────────────────────
-
-/**
- * Get the next non-whitespace character after position `i` in `text`.
- * Returns empty string if at end of text.
- */
-function nextNonWhitespace(text: string, i: number): string {
-	return text[skipWhitespace(text, i + 1)] ?? "";
-}
-
-/**
- * Conservative variant of `sanitizeJsonStrings` for the retry fallback.
- *
- * Uses the same `isStructuralClose` function as the standard pass but
- * with an additional check for `"` followed by `,` in VALUE context:
- * only closes when the character after `,` starts a new JSON structure
- * (another `"`, `{`, `[`). If the `,` is followed by a letter or digit,
- * the `"` is treated as a content quote.
- *
- * This catches the false-positive pattern where unescaped content quotes
- * inside a JSON string value happen to be followed by `,` or `:`
- * (e.g. `"key",` inside commentBody where `,` is followed by natural
- * language text).
- *
- * Key tracking is done by a separate tokenizer that counts brace depth
- * and distinguishes key context (after `{`/`,` outside string) from value
- * context (after `:` outside string).
- */
-function sanitizeJsonStringsConservative(jsonText: string): string {
-	return walkJsonChars(jsonText, (jsonText, i, inString, result) => {
-		if (!inString) {
-			// Opening quote — start of string value or key
-			result += '"';
-			inString = true;
-		} else if (isStructuralClose(jsonText, i)) {
-			// `isStructuralClose` says this is a structural close.
-			// But we double-check: if the delimiter after whitespace is
-			// `,` or `:`, verify that the next token looks like JSON structure
-			// (not a content word).
-			const next = nextNonWhitespace(jsonText, i);
-			if (next === "," || next === ":") {
-				// Skip past the delimiter and any whitespace to check the next token
-				const afterPos = skipWhitespace(jsonText, i + 2);
-				const afterNext = afterPos < jsonText.length ? jsonText[afterPos] : "";
-				// If followed by `"`, `{`, `[`, or end-of-text: this is a genuine
-				// structural close (the next JSON value starts).
-				// If followed by a letter/digit: the delimiter is content text,
-				// so the `"` is a content quote — escape it.
-				if (afterNext === '"' || afterNext === "{" || afterNext === "[" || afterNext === "") {
-					// Genuine structural close — next token is JSON value
-					result += '"';
-					inString = false;
-				} else {
-					// Suspicious — the `,` or `:` might be content text.
-					// Escape the quote as content, stay in string.
-					result += '\\"';
-				}
-			} else {
-				// For `}` or `]` delimiters: always structural close
-				result += '"';
-				inString = false;
-			}
-		} else {
-			// Non-structural — content quote
-			result += '\\"';
-		}
-		return { inString, result };
-	});
-}
 
 // ─── JSON Extraction ──────────────────────────────────────────────
 
@@ -257,10 +49,10 @@ function sanitizeJsonStringsConservative(jsonText: string): string {
  * works because unescaped content quotes almost always come in pairs,
  * so the net effect on string tracking is correct.
  *
- * Note: The sanitizer (sanitizeJsonStrings) uses the smarter
- * isStructuralClose heuristic with a conservative retry fallback for
- * identifying content quotes that need escaping. The extraction step
- * doesn't need that precision — it only needs to skip { } inside strings.
+ * Note: jsonrepair (called later in parseAgentOutput) handles content
+ * quotes and literal newlines inside string values. The extraction step
+ * only needs to skip { } inside strings — precision quote tracking is
+ * not required here.
  */
 function extractLastJson(raw: string): string {
 	// Step 1: Strip 💭 prefix for code fence detection.
@@ -371,8 +163,8 @@ function extractLastJson(raw: string): string {
 	}
 
 	// Step 3: String-boundary-aware brace counting — find all complete outermost {} pairs.
-	// Uses the same inString/escaped tracking as Step 2's fence scanner and
-	// sanitizeJsonStrings to ignore { and } inside JSON string values.
+	// Uses the same inString/escaped tracking as Step 2's fence scanner to
+	// ignore { and } inside JSON string values.
 	// Metadata tool lines (🔧 ✓ ✗ 📋 📊) with {}/quotes are already filtered.
 	// Returns the LAST complete outermost pair (agent's JSON is final output).
 	let depth = 0;
@@ -576,7 +368,7 @@ export function normalizeEscapes(s: string): string {
  * Strategy:
  * 1. Strip ANSI escape sequences
  * 2. Extract JSON from text (code fences, surrounding text)
- * 3. JSON.parse the extracted text
+ * 3. Repair malformed JSON with jsonrepair, then JSON.parse
  * 4. Validate against schema
  *
  * Returns either a valid AgentOutput or a FailedParse with descriptive error.
@@ -607,54 +399,42 @@ export function parseAgentOutput(output: string): ParseResult {
 		return { error: "No JSON structure found in agent output", rawOutput: output };
 	}
 
-	// Step 2.5: Sanitize JSON — escape literal newlines inside string values
-	// Agents often produce commentBody with actual newlines instead of \\n escapes
-	const sanitized = sanitizeJsonStrings(jsonStr);
+	// Step 3: Repair (if needed) and parse JSON
+	// jsonrepair handles the common malformed-JSON patterns agents produce:
+	// unescaped quotes, literal newlines in strings, smart/unicode quotes,
+	// trailing content after JSON, truncated JSON, etc.
+	//
+	// ponytail: jsonrepair is a zero-dependency well-vetted library (~13yr,
+	// 2.4M weekly downloads). If malformed-agent-output rate is near-zero,
+	// this could be replaced with plain JSON.parse (fail-loud). Captured
+	// corpus file at .pi/supervisor-corpus.jsonl measures the actual rate.
+	let repaired: string;
+	try {
+		repaired = jsonrepair(jsonStr);
+	} catch (e: unknown) {
+		const msg = e instanceof Error ? e.message : String(e);
+		getDebugLogger().warn("agent-output", `JSON repair failed: ${msg}`, {
+			jsonLen: jsonStr.length,
+		});
+		return {
+			error: `Failed to parse JSON from agent output: ${msg}`,
+			rawOutput: output,
+		};
+	}
 
-	// Step 3: Parse JSON (sanitized to handle literal newlines in strings)
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(sanitized);
+		parsed = JSON.parse(repaired);
 	} catch (e: unknown) {
-		// Retry with conservative strategy — treats `"` followed by `,` or `:`
-		// as content quotes (not structural close) to handle the false-positive
-		// pattern where unescaped quotes inside string values are followed by
-		// delimiters (e.g. `"key",` or `"value":` inside commentBody).
-		try {
-			parsed = JSON.parse(sanitizeJsonStringsConservative(jsonStr));
-		} catch {
-			// Both passes failed — fall through to auto-recovery
-		}
-
-		if (!parsed) {
-			const msg = e instanceof Error ? e.message : String(e);
-
-			// Auto-recovery: trailing non-JSON content (e.g. agent appends text after JSON)
-			// Error like "Unexpected non-whitespace character after JSON at position 3137"
-			const posMatch = msg.match(/position (\d+)/);
-			if (posMatch) {
-				const pos = parseInt(posMatch[1], 10);
-				if (pos > 10 && pos < sanitized.length) {
-					try {
-						parsed = JSON.parse(sanitized.slice(0, pos));
-					} catch {
-						// retry failed — fall through to error return
-					}
-				}
-			}
-		}
-
-		if (!parsed) {
-			const msg = e instanceof Error ? e.message : String(e);
-			getDebugLogger().warn("agent-output", `JSON parse failed: ${msg}`, {
-				jsonLen: jsonStr.length,
-				sanitizedLen: sanitized.length,
-			});
-			return {
-				error: `Failed to parse JSON from agent output: ${msg}`,
-				rawOutput: output,
-			};
-		}
+		const msg = e instanceof Error ? e.message : String(e);
+		getDebugLogger().warn("agent-output", `JSON parse failed after repair: ${msg}`, {
+			jsonLen: jsonStr.length,
+			repairedLen: repaired.length,
+		});
+		return {
+			error: `Failed to parse JSON from agent output: ${msg}`,
+			rawOutput: output,
+		};
 	}
 
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
