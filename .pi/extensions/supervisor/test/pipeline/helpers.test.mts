@@ -58,6 +58,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 // ─── Tests: fetchIssue() ──────────────────────────────────────────
@@ -136,12 +137,14 @@ describe("readProjectBoard()", () => {
 
 	it("returns null fields when statusField not found", async () => {
 		const port = createMockGitHubPort({
-			getProjectFields: async () => [{
-				id: "sf_1",
-				name: "Priority",
-				type: "SINGLE_SELECT",
-				options: [],
-			}],
+			getProjectFields: async () => [
+				{
+					id: "sf_1",
+					name: "Priority",
+					type: "SINGLE_SELECT",
+					options: [],
+				},
+			],
 			getProjectItems: async () => [],
 			getProjectId: async () => "project_123",
 		});
@@ -188,12 +191,14 @@ describe("checkDependencies()", () => {
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => ({
 				blocked: true,
-				blockers: [{
-					number: 100,
-					title: "Blocker",
-					type: "issue" as const,
-					state: "OPEN",
-				}],
+				blockers: [
+					{
+						number: 100,
+						title: "Blocker",
+						type: "issue" as const,
+						state: "OPEN",
+					},
+				],
 			}),
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];

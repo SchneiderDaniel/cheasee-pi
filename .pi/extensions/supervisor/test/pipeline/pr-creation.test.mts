@@ -22,7 +22,9 @@ interface NotifyCall {
  * Create a mock ExtensionAPI that only handles git push calls.
  * All GitHub API operations go through the port mock instead.
  */
-function createMockPi(calls?: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>): ExtensionAPI {
+function createMockPi(
+	calls?: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>,
+): ExtensionAPI {
 	const callLog = calls || [];
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
@@ -53,7 +55,9 @@ function createFailingMockPi(
 			callLog.push({ cmd, args: args || [], opts: opts || {} });
 			const result = results[idx++] || { code: 0, stdout: "", stderr: "" };
 			if (result.code !== 0) {
-				return Promise.reject(new Error(result.stderr || result.stdout || `Command failed: ${cmd}`));
+				return Promise.reject(
+					new Error(result.stderr || result.stdout || `Command failed: ${cmd}`),
+				);
 			}
 			return Promise.resolve(result);
 		}) as ExtensionAPI["exec"],
@@ -106,6 +110,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 const mockAgentResult: PipelineAgentResult = {
@@ -146,7 +151,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		// 1. git push
 		assert.equal(execCalls[0].cmd, "git");
@@ -175,7 +190,10 @@ describe("createPrOnApproval()", () => {
 
 		// Verify success notification
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
-		assert.ok(infoNotifies.some((n) => n.message.includes("PR #456 created")), "should have PR creation notification");
+		assert.ok(
+			infoNotifies.some((n) => n.message.includes("PR #456 created")),
+			"should have PR creation notification",
+		);
 	});
 
 	it("Happy path without worktree: skip git push → check PR → create PR → success", async () => {
@@ -192,7 +210,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], undefined, "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			undefined,
+			"worktree-git-issue-42-test",
+		);
 
 		// Verify no git push call
 		const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
@@ -204,7 +232,10 @@ describe("createPrOnApproval()", () => {
 		assert.equal(portCalls[1].method, "createPullRequest");
 
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
-		assert.ok(infoNotifies.some((n) => n.message.includes("PR #456 created")), "should have PR creation notification");
+		assert.ok(
+			infoNotifies.some((n) => n.message.includes("PR #456 created")),
+			"should have PR creation notification",
+		);
 	});
 
 	it("Existing PR found: push → check PR → update via port.updatePullRequest", async () => {
@@ -222,7 +253,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		// port call order: compareBranches, listPullRequestsForBranch, updatePullRequest
 		assert.equal(portCalls[0].method, "compareBranches");
@@ -235,7 +276,10 @@ describe("createPrOnApproval()", () => {
 		assert.equal(createCalls.length, 0, "no createPullRequest when PR already exists");
 
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
-		assert.ok(infoNotifies.some((n) => n.message.includes("PR #123 updated")), "should have PR update notification");
+		assert.ok(
+			infoNotifies.some((n) => n.message.includes("PR #123 updated")),
+			"should have PR update notification",
+		);
 	});
 
 	it("Push failure: returns PrCreationResult with success=false and no PR attempt", async () => {
@@ -254,7 +298,17 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort({}, portCalls);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
 		const pushError = errorNotifies.find((n) => n.message.toLowerCase().includes("push failed"));
@@ -278,18 +332,33 @@ describe("createPrOnApproval()", () => {
 			{
 				compareBranches: async () => 3,
 				listPullRequestsForBranch: async () => null,
-				createPullRequest: async () => { throw new Error("create failed: GraphQL error"); },
+				createPullRequest: async () => {
+					throw new Error("create failed: GraphQL error");
+				},
 			},
 			portCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
 
 		await assert.doesNotReject(
-			createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test"),
+			createPrOnApproval(
+				port,
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+			),
 		);
 
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
-		assert.ok(errorNotifies.some((n) => n.message.toLowerCase().includes("failed")), "should have error notification for PR creation failure");
+		assert.ok(
+			errorNotifies.some((n) => n.message.toLowerCase().includes("failed")),
+			"should have error notification for PR creation failure",
+		);
 	});
 
 	it("port.listPullRequestsForBranch failure: caught, warning notification, PR creation still attempted", async () => {
@@ -300,20 +369,38 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort(
 			{
 				compareBranches: async () => 3,
-				listPullRequestsForBranch: async () => { throw new Error("network error"); },
+				listPullRequestsForBranch: async () => {
+					throw new Error("network error");
+				},
 				createPullRequest: async () => ({ number: 456 }),
 			},
 			portCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		const warningNotifies = notifyCalls.filter((n) => n.level === "warning");
-		assert.ok(warningNotifies.some((n) => n.message.toLowerCase().includes("pr conflict check failed")), "should have warning notification for PR conflict check failure");
+		assert.ok(
+			warningNotifies.some((n) => n.message.toLowerCase().includes("pr conflict check failed")),
+			"should have warning notification for PR conflict check failure",
+		);
 
 		// PR creation was still attempted via port
-		assert.ok(portCalls.some((c) => c.method === "createPullRequest"), "should still attempt PR creation");
+		assert.ok(
+			portCalls.some((c) => c.method === "createPullRequest"),
+			"should still attempt PR creation",
+		);
 	});
 
 	it("Regression: does NOT call git rev-list --count anywhere", async () => {
@@ -330,9 +417,21 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
-		const revListCalls = execCalls.filter((c) => c.cmd === "git" && c.args.some((a) => a === "rev-list" || a.includes("rev-list")));
+		const revListCalls = execCalls.filter(
+			(c) => c.cmd === "git" && c.args.some((a) => a === "rev-list" || a.includes("rev-list")),
+		);
 		assert.equal(revListCalls.length, 0, "should NOT call git rev-list --count");
 	});
 
@@ -350,14 +449,27 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [], undefined, "worktree-git-issue-42-test");
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[],
+			undefined,
+			"worktree-git-issue-42-test",
+		);
 
 		assert.equal(portCalls.length, 2, "should have 2 port calls");
 		assert.equal(portCalls[0].method, "listPullRequestsForBranch");
 		assert.equal(portCalls[1].method, "createPullRequest");
 
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
-		assert.ok(infoNotifies.some((n) => n.message.includes("PR #456 created")), "should have PR creation notification");
+		assert.ok(
+			infoNotifies.some((n) => n.message.includes("PR #456 created")),
+			"should have PR creation notification",
+		);
 	});
 
 	it("Boundary: worktreeBranch undefined, no worktreePath: branch generated from issueNum and title", async () => {
@@ -374,12 +486,25 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], undefined, undefined);
+		await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			undefined,
+			undefined,
+		);
 
 		// listPullRequestsForBranch should receive an auto-generated branch name
 		assert.equal(portCalls[0].method, "listPullRequestsForBranch");
 		const branchName = portCalls[0].args[0] as string;
-		assert.ok(branchName.startsWith("worktree-git-issue-42-"), `branch name should be generated from issue number: ${branchName}`);
+		assert.ok(
+			branchName.startsWith("worktree-git-issue-42-"),
+			`branch name should be generated from issue number: ${branchName}`,
+		);
 
 		// PR create should use same generated branch name
 		assert.equal(portCalls[1].method, "createPullRequest");
@@ -404,7 +529,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should be success");
@@ -427,7 +562,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should be success");
@@ -443,13 +588,25 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort(
 			{
 				listPullRequestsForBranch: async () => null,
-				createPullRequest: async () => { throw new Error("create failed: GraphQL error"); },
+				createPullRequest: async () => {
+					throw new Error("create failed: GraphQL error");
+				},
 			},
 			portCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should indicate failure");
@@ -472,7 +629,17 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort({}, portCalls);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should indicate failure when push fails");
@@ -504,7 +671,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should succeed after push retry");
@@ -532,7 +709,17 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort({}, portCalls);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should fail after all push retries exhausted");
@@ -552,17 +739,33 @@ describe("createPrOnApproval()", () => {
 		const port = createMockGitHubPort(
 			{
 				compareBranches: async () => 3,
-				listPullRequestsForBranch: async () => { throw new Error("network error"); },
+				listPullRequestsForBranch: async () => {
+					throw new Error("network error");
+				},
 				createPullRequest: async () => ({ number: 456 }),
 			},
 			portCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
-		assert.equal(result.success, true, "should still succeed if PR creation works despite check failure");
+		assert.equal(
+			result.success,
+			true,
+			"should still succeed if PR creation works despite check failure",
+		);
 		assert.equal(result.prNumber, 456, "should contain PR number");
 	});
 
@@ -586,7 +789,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should succeed after retry");
@@ -606,13 +819,25 @@ describe("createPrOnApproval()", () => {
 			{
 				compareBranches: async () => 3,
 				listPullRequestsForBranch: async () => null,
-				createPullRequest: async () => { throw new Error("rate limit exceeded"); },
+				createPullRequest: async () => {
+					throw new Error("rate limit exceeded");
+				},
 			},
 			portCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should fail after retry exhaustion");
@@ -637,7 +862,17 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should indicate failure when no commits ahead");
@@ -668,10 +903,22 @@ describe("createPrOnApproval()", () => {
 		);
 		const ctx = createMockCtx(notifyCalls);
 
-		const result = await createPrOnApproval(port, pi, ctx, 42, "Test issue", mockConfig as any, [mockAgentResult], "/worktrees/wt-42", "worktree-git-issue-42-test");
+		const result = await createPrOnApproval(
+			port,
+			pi,
+			ctx,
+			42,
+			"Test issue",
+			mockConfig as any,
+			[mockAgentResult],
+			"/worktrees/wt-42",
+			"worktree-git-issue-42-test",
+		);
 
 		// No createPullRequest or updatePullRequest calls
-		const createOrUpdate = portCalls.filter((c) => c.method === "createPullRequest" || c.method === "updatePullRequest");
+		const createOrUpdate = portCalls.filter(
+			(c) => c.method === "createPullRequest" || c.method === "updatePullRequest",
+		);
 		assert.equal(createOrUpdate.length, 0, "no PR create or update should be attempted");
 
 		// Only compareBranches was called

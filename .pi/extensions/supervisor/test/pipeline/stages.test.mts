@@ -99,6 +99,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 function makeProjectFields(statusFieldId: string): ProjectField[] {
@@ -1027,7 +1028,8 @@ describe("applyStatusTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => applyStatusTransition(port, pi, "item_123", "project_456", fields, statusFieldId, "Audit"),
+			() =>
+				applyStatusTransition(port, pi, "item_123", "project_456", fields, statusFieldId, "Audit"),
 			/Cannot find 'Audit' option on board/,
 		);
 	});
@@ -2054,7 +2056,11 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		assert.equal(success, true);
 
 		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
-		assert.equal(commentCalls.length, 1, "only one postIssueComment call — no separate budget-exceeded comment");
+		assert.equal(
+			commentCalls.length,
+			1,
+			"only one postIssueComment call — no separate budget-exceeded comment",
+		);
 	});
 
 	it("researcher + budgetExceeded + no commentBody: graceful degradation comment posted (preserved behavior)", async () => {

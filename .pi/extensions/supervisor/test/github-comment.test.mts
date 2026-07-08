@@ -90,6 +90,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 const filteredData: FilteredIssueData = { body: "", comments: [] };
@@ -270,7 +271,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		// Body contains stopped-early header
 		const body = commentCalls[0].args[2] as string;
-		assert.ok(body.includes("Research stopped early"), "body contains 'Research stopped early' header");
+		assert.ok(
+			body.includes("Research stopped early"),
+			"body contains 'Research stopped early' header",
+		);
 		assert.ok(body.includes("50000"), "body contains tokenCount value");
 		assert.ok(body.includes("Finding 1"), "body contains partial findings content");
 
@@ -660,7 +664,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(commentCalls.length, 1, "one postIssueComment call via fallback");
 
 		const body = commentCalls[0].args[2] as string;
-		assert.ok(body.includes("Extracted from textOutput fallback"), "body content comes from textOutput");
+		assert.ok(
+			body.includes("Extracted from textOutput fallback"),
+			"body content comes from textOutput",
+		);
 
 		const warns = collector.flush("stages");
 		assert.ok(
@@ -708,7 +715,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(commentCalls.length, 1, "one postIssueComment call via fallback");
 
 		const body = commentCalls[0].args[2] as string;
-		assert.ok(body.includes("Extracted from thinkingOutput fallback"), "body content comes from thinkingOutput");
+		assert.ok(
+			body.includes("Extracted from thinkingOutput fallback"),
+			"body content comes from thinkingOutput",
+		);
 
 		const warns = collector.flush("stages");
 		assert.ok(
