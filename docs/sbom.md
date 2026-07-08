@@ -32,6 +32,7 @@ nav_order: 10
 | `shell-quote` | ^1.8.4 | MIT | Shell command parsing for worktree sandbox |
 | `typebox` | ^1.2.8 | MIT | Runtime type validation |
 | `vscode-jsonrpc` | ^8.2.1 | MIT | LSP communication |
+| `zod` | ^4.4.3 | MIT | Schema-driven config validation |
 
 ## System dependencies
 

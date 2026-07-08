@@ -87,13 +87,19 @@ const mockConfig: SupervisorConfig = {
 	repo: "owner/repo",
 	projectNumber: 1,
 	statusField: "Status",
-	statusMapping: {},
+	statusMapping: { todo: "developer" },
 	maxRejections: 3,
 	codeowners: [],
 	defaultBranch: "main",
 	remote: "origin",
 	worktreeBase: "../worktrees",
 	branchPrefix: "worktree-git-issue-",
+	ciGatingTimeoutSec: 300,
+	bellOnComplete: false,
+	enableExperimentalFeatures: false,
+	auditScoreThreshold: 0.75,
+	vulnGateBlocking: false,
+	vulnGateTimeoutSec: 60,
 	agentTimeoutsMin: {},
 };
 
@@ -577,7 +583,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
 		const { notify } = createMockNotify();
-		const configNoBase: SupervisorConfig = { ...mockConfig, worktreeBase: undefined };
+		const configNoBase = { ...mockConfig, worktreeBase: undefined } as unknown as SupervisorConfig;
 
 		const result = await cleanupStalePipelineState(pi, cwd, configNoBase, notify);
 
