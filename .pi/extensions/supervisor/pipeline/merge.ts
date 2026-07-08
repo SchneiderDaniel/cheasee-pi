@@ -28,7 +28,7 @@ export async function handlePostPipelineMerge(
 	collector?: ErrorCollector,
 	// ponytail: test hook for injecting mock runner; external callers omit this
 	_runner?: typeof runAgentSubprocess,
-): Promise<void> {
+): Promise<boolean> {
 	const log = getDebugLogger();
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
@@ -37,6 +37,8 @@ export async function handlePostPipelineMerge(
 		repo: config.repo,
 		loopStatus,
 	});
+
+	let unresolvedConflicts = false;
 
 	try {
 		ctx.ui.setStatus("supervisor", "Checking PR for merge conflicts...");
@@ -47,16 +49,17 @@ export async function handlePostPipelineMerge(
 			const msg = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`PR conflict check failed: ${msg}`, "error");
 			collector?.push("merge", "error", `PR conflict check failed: ${msg}`);
-			return;
+			return false;
 		}
 
 		if (!conflictInfo) {
 			log.info("pipeline-merge", "No PR found for branch — skipping");
 			ctx.ui.notify("No PR found for this branch — skipping conflict check.", "info");
-			return;
+			return false;
 		}
 
 		if (conflictInfo.hasConflict) {
+			unresolvedConflicts = true;
 			log.warn("pipeline-merge", `PR #${conflictInfo.number} has conflicts`, {
 				mergeable: conflictInfo.mergeable,
 				mergeStateStatus: conflictInfo.mergeStateStatus,
@@ -105,6 +108,7 @@ export async function handlePostPipelineMerge(
 						if (pushResult.code !== 0) {
 							throw new Error(pushResult.stderr || pushResult.stdout || "git push failed");
 						}
+						unresolvedConflicts = false;
 						log.info("pipeline-merge", "Merge resolved and pushed");
 						ctx.ui.notify("Merge conflicts resolved and pushed!", "info");
 						pi.sendMessage({
@@ -191,6 +195,7 @@ export async function handlePostPipelineMerge(
 						});
 
 						if (devSuccess) {
+							unresolvedConflicts = false;
 							log.info("pipeline-merge", "Developer resolved conflicts");
 							ctx.ui.notify("Developer resolved merge conflicts successfully!", "info");
 						} else {
@@ -213,10 +218,12 @@ export async function handlePostPipelineMerge(
 				`PR #${conflictInfo.number} has no merge conflicts (mergeable: ${conflictInfo.mergeable}).`,
 				"info",
 			);
+			unresolvedConflicts = false;
 		}
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);
 		// Clear developer widget in case it wasn't cleaned up
 		ctx.ui.setWidget("agent-developer", undefined);
 	}
+	return unresolvedConflicts;
 }
