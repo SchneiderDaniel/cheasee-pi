@@ -15,9 +15,8 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { formatTokensInt, formatDuration, formatTokens, getTermWidth, thinkingLabel, thinkingColor } from "../lib/formatting.ts";
-import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
+import { renderTextLines, renderThinkingBlock, renderToolCallText } from "../lib/render-helpers.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
-import { formatToolCall } from "../lib/formatting.ts";
 
 // ─── Constants (shared with deleted renderSubagentResult) ──────────
 const MAX_TASK_PREVIEW_CHARS = 80;
@@ -119,7 +118,7 @@ function renderSubagentResultInline(
 		container.addChild(new Text(fit(theme.fg("dim", "── Tools ──")), 1, 0));
 		const displayCalls = details.toolCalls.slice(0, MAX_EXPANDED_TOOL_CALLS);
 		for (const tc of displayCalls) {
-			const formatted = formatToolCall(tc.name, tc.args);
+			const formatted = renderToolCallText(tc.name, tc.args, process.cwd());
 			container.addChild(new Text(fit(theme.fg("toolTitle", `  ${formatted}`)), 1, 0));
 		}
 		if (details.toolCalls.length > MAX_EXPANDED_TOOL_CALLS) {

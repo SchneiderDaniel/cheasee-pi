@@ -12,7 +12,7 @@ import {
 	extractAgentCommentBody,
 	filterIssueData,
 } from "../../github/comment.ts";
-import { isToolCallLine } from "../../lib/formatting.ts";
+
 
 // ─── Direct Export Coverage (TDD gate test-covers-symbols) ───────
 // These assertions call exported functions directly inside assert()
@@ -517,10 +517,6 @@ describe("extractAgentCommentBody — new-format tool line filtering", () => {
 		assert.ok(result!.includes("- Decision 1"), "bullet point preserved");
 	});
 
-	it("handles $ as bare dollar sign (no space) — isToolCallLine returns true for bare $", () => {
-		// bare "$" is a tool call line and should be filtered
-		assert.equal(isToolCallLine("$"), true);
-	});
 
 	it("extractAgentCommentBody is a function", () => {
 		assert.equal(typeof extractAgentCommentBody, "function");

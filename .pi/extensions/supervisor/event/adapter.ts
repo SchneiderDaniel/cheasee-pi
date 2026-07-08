@@ -10,7 +10,8 @@
 import type { AgentRunState, AgentPhase } from "../config/types.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { pushLog } from "../agent/state-helpers.ts";
-import { formatToolCall, extractTextFromContent } from "../lib/formatting.ts";
+import { renderToolCallText } from "../lib/render-helpers.ts";
+import { extractTextFromContent } from "../lib/formatting.ts";
 
 // ═══════════════════════════════════════════════════════════════════
 // Types (formerly event/types.ts)
@@ -124,6 +125,7 @@ const LIVE_TEXT_TRIM = 8_000;
 function handleToolExecutionStart(
 	state: AgentRunState,
 	ev: NormalizedEvent & { kind: "tool_execution_start" },
+	cwd?: string,
 ): HandlerResult {
 	const prevPhase = state.phase;
 	state.currentTool = ev.toolName || "tool";
@@ -132,7 +134,7 @@ function handleToolExecutionStart(
 	state.phase = "tool";
 	pushLog(
 		state,
-		formatToolCall(ev.toolName, ev.args as Record<string, unknown> | null | undefined),
+		renderToolCallText(ev.toolName, ev.args, cwd ?? process.cwd()),
 	);
 	return { flush: true, workingChange: prevPhase !== "tool" };
 }
@@ -762,9 +764,10 @@ export function forwardNormalizedEventToChat(
 			pending.pendingToolName = normalized.toolName;
 			pending.pendingToolStartTime = Date.now();
 			pending.pendingToolIsError = false;
-			const formatted = formatToolCall(
+			const formatted = renderToolCallText(
 				normalized.toolName,
-				normalized.args as Record<string, unknown> | null | undefined,
+				normalized.args,
+				process.cwd(),
 			);
 			pending.pendingToolFormattedArgs = formatted;
 			pi.sendMessage({
@@ -835,10 +838,10 @@ export function forwardNormalizedEventToChat(
 	}
 }
 
-export function processNormalizedEvent(ev: NormalizedEvent, state: AgentRunState): HandlerResult {
+export function processNormalizedEvent(ev: NormalizedEvent, state: AgentRunState, cwd?: string): HandlerResult {
 	switch (ev.kind) {
 		case "tool_execution_start":
-			return handleToolExecutionStart(state, ev);
+			return handleToolExecutionStart(state, ev, cwd);
 		case "tool_execution_end":
 			return handleToolExecutionEnd(state, ev);
 		case "thinking_start":

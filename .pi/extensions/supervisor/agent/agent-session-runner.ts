@@ -14,7 +14,7 @@ import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { formatToolCall, extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
+import { extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
 import { resolveTools } from "../lib/extensions.ts";
 
 // DEFAULT_AGENT_TIMEOUT_MS is imported above from config.ts
