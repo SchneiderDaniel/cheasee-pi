@@ -14,6 +14,7 @@ import { describe, it } from "node:test";
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thinkingIcon, thinkingColor } from "../../lib/thinking-level.ts";
 
 // ---------------------------------------------------------------------------
 // Duplicated helpers from .pi/extensions/context-info.ts
@@ -47,44 +48,6 @@ function pickThreshold(tokens: number, thresholds: ThresholdEntry[]): ThresholdE
 		if (tokens <= entry.maxTokens) return entry;
 	}
 	return sorted[sorted.length - 1]!;
-}
-
-function thinkingIcon(level: string | undefined): string {
-	switch (level) {
-		case "off":
-			return "○";
-		case "minimal":
-			return "◐";
-		case "low":
-			return "◑";
-		case "medium":
-			return "◒";
-		case "high":
-			return "◓";
-		case "xhigh":
-			return "●";
-		default:
-			return "·";
-	}
-}
-
-function thinkingColor(level: string | undefined): string {
-	switch (level) {
-		case "off":
-			return "dim";
-		case "minimal":
-			return "dim";
-		case "low":
-			return "muted";
-		case "medium":
-			return "accent";
-		case "high":
-			return "warning";
-		case "xhigh":
-			return "error";
-		default:
-			return "dim";
-	}
 }
 
 function getWorktreeName(cwd: string): string | null {
