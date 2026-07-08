@@ -19,6 +19,7 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments)
 
 - **Package age (npm):** The supervisor pipeline automatically runs `runPackageSafetyAudit` (in `.pi/extensions/supervisor/checks/package-safety.ts`) during audit. When researching npm dependencies, check `npm view <pkg> time.created`. Flag any package below 14-day age threshold as a security concern (typosquatting/dependency confusion risk). Fail-closed: missing or unparseable date = flag.
 - **OSV vulnerability scan:** The supervisor pipeline automatically runs `runVulnScan` (in `.pi/extensions/supervisor/checks/osv-scanner.ts`) during audit. When researching dependencies, check for known CVEs using osv-scanner or OSV.dev API. Flag packages with critical/high severity CVEs. Note that C/C++ commit-level matches may be less reliable than lockfile-based findings.
+- **Existing OSS survey:** For each major capability the issue implies (e.g., parsing, state management, CLI args, date handling, auth), search for mature (>1yr since first publish, >5k GitHub stars or equivalent community adoption) open-source libraries. Evaluate: does a well-known OSS lib already solve this capability? Include name, version, maturity signal (stars/age/downloads), and what capability it covers. If none found, note that. Do not recommend — present findings only.
 
 ### Completion Format
 
@@ -57,6 +58,11 @@ COMMENT_BODY_END
 |---|---|
 | <pattern> | <how it changes a design choice in the issue> |
 
+### Existing OSS Solutions
+| Library | Version | Maturity Signal | Capability Covered |
+|---|---|---|---|
+| <name> | <version> | <stars/age/downloads> | <what it does> |
+
 ### Cost / Trade-off Data
 - <quantitative data that affects a decision> — <source>
 - ...
@@ -66,7 +72,7 @@ COMMENT_BODY_END
 - ...
 ```
 
-Omit any section with zero findings. Do not add sections beyond these four.
+Omit any section with zero findings. Do not add sections beyond these five.
 
 #### Comment Style
 
