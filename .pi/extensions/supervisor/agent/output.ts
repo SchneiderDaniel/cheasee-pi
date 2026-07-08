@@ -6,6 +6,20 @@
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
+// ─── Tool-call line detection ──────────────────────────────────────
+// Inline helper: matches rendered tool-call lines by first word.
+// Not a regex predicate — uses session-state tool names.
+// bash lines start with "$", built-in/extension lines start with tool name.
+function isToolLine(l: string, names?: Set<string>): boolean {
+	if (!l) return false;
+	if (l.startsWith("$ ") || l === "$") return true;
+	// Strip trailing colon — extension tools render as "name: {...}"
+	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
+	if (!firstWord) return false;
+	const toolNames = names ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+	return toolNames.has(firstWord);
+}
+
 // ─── ANSI Stripping ──────────────────────────────────────────────
 
 const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
@@ -261,7 +275,7 @@ function sanitizeJsonStringsConservative(jsonText: string): string {
  * identifying content quotes that need escaping. The extraction step
  * doesn't need that precision — it only needs to skip { } inside strings.
  */
-function extractLastJson(raw: string): string {
+function extractLastJson(raw: string, toolNames?: Set<string>): string {
 	// Step 1: Strip 💭 prefix for code fence detection.
 	// Agents with thinking:high emit JSON in thinking blocks, which
 	// get pushed to fullLog with "💭 " per line. Stripping recovers
@@ -351,27 +365,16 @@ function extractLastJson(raw: string): string {
 	// blocks is valid. Use SIMPLE brace counting (no string tracking) so
 	// double-quotes in thinking content do NOT corrupt brace matching.
 	const metadataLineRe = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}]/u;
-	// Inline check for rendered tool-call lines — matches the format produced by
-	// renderToolCallText (bash: "$ cmd", built-in: "toolname args", extension: "name: {...}")
-	function isToolCallLine(l: string): boolean {
-		if (!l) return false;
-		if (l.startsWith("$ ") || l === "$") return true;
-		const firstSpace = l.indexOf(" ");
-		const firstWord = firstSpace > 0 ? l.slice(0, firstSpace) : l;
-		if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return true;
-		if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(l)) return true;
-		return false;
-	}
 	let braceCandidateRaw = fenceSearchText;
 	// Check if any filtering is needed (either old-format metadata lines or new-format tool call lines)
 	const needsMetadataFilter = metadataLineRe.test(fenceSearchText);
-	const needsToolCallFilter = fenceSearchText.split("\n").some((l) => isToolCallLine(l));
+	const needsToolCallFilter = fenceSearchText.split("\n").some((l) => isToolLine(l, toolNames));
 	if (needsMetadataFilter || needsToolCallFilter) {
 		const lines = fenceSearchText.split("\n");
 		const filteredLines: string[] = [];
 		for (const line of lines) {
 			const trimmed = line.trimStart();
-			if (!metadataLineRe.test(trimmed) && !isToolCallLine(trimmed)) {
+			if (!metadataLineRe.test(trimmed) && !isToolLine(trimmed, toolNames)) {
 				filteredLines.push(line);
 			}
 		}
@@ -591,7 +594,7 @@ export function normalizeEscapes(s: string): string {
  *
  * Returns either a valid AgentOutput or a FailedParse with descriptive error.
  */
-export function parseAgentOutput(output: string): ParseResult {
+export function parseAgentOutput(output: string, toolNames?: Set<string>): ParseResult {
 	// Guard against null/undefined/empty
 	if (output === null || output === undefined) {
 		return { error: "Output is null or undefined", rawOutput: String(output) };
@@ -609,7 +612,7 @@ export function parseAgentOutput(output: string): ParseResult {
 	// 💭 prefix stripping occurs inside extractLastJson for code fence
 	// detection. Brace matching uses simple brace counting (no string
 	// tracking) so double-quotes in thinking content don't corrupt it.
-	const jsonStr = extractLastJson(clean);
+	const jsonStr = extractLastJson(clean, toolNames);
 	if (!jsonStr) {
 		getDebugLogger().warn("agent-output", "No JSON structure found in agent output", {
 			outputLen: clean.length,

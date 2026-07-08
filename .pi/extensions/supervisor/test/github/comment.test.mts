@@ -461,7 +461,7 @@ describe("extractAgentCommentBody — new-format tool line filtering", () => {
 		assert.ok(!result!.includes("ls /home"), "ls line filtered");
 	});
 
-	it("filters fallback format (web_search: ...) lines from comment body", () => {
+	it("filters extension tool lines (web_search, ripgrep_search) via session-state toolNames", () => {
 		const output = [
 			"COMMENT_BODY:",
 			'web_search: {"query":"typescript"}',
@@ -471,11 +471,12 @@ describe("extractAgentCommentBody — new-format tool line filtering", () => {
 			"Multiple codebases confirm this best practice across the ecosystem.",
 			"COMMENT_BODY_END",
 		].join("\n");
-		const result = extractAgentCommentBody(output);
+		const toolNames = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "web_search", "ripgrep_search"]);
+		const result = extractAgentCommentBody(output, toolNames);
 		assert.ok(result, "should extract comment body");
 		assert.ok(result!.includes("Research results show"), "content preserved");
-		assert.ok(!result!.includes("web_search:"), "fallback format line filtered");
-		assert.ok(!result!.includes("ripgrep_search:"), "ripgrep fallback line filtered");
+		assert.ok(!result!.includes("web_search:"), "fallback format line filtered via toolNames");
+		assert.ok(!result!.includes("ripgrep_search:"), "ripgrep fallback line filtered via toolNames");
 	});
 
 	it("filters old-format 🔧 lines (backward compat)", () => {

@@ -41,20 +41,27 @@ export function extractTextFromContent(content: any): string {
 		.join("\n");
 }
 
-// Minimal inline check: returns false for rendered tool-call lines (e.g. "$ npm test",
-// "read /path", "bash echo hi", "extension_name: {...}").
-// Placed here (not in render-helpers.ts) to keep this module free of TUI deps.
-function isPlainTextLine(line: string): boolean {
-	if (!line) return false;
-	// Bash: "$ cmd" or bare "$"
-	if (line.startsWith("$ ") || line === "$") return false;
-	// Known built-in tool names as first word
-	const firstSpace = line.indexOf(" ");
-	const firstWord = firstSpace > 0 ? line.slice(0, firstSpace) : line;
-	if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return false;
-	// Extension/unknown tools: "name: {...}" format
-	if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(line)) return false;
-	return true;
+/**
+ * Inline check: is a line a rendered tool-call line?
+ *
+ * Only TWO rules (no format regex):
+ * 1. Lines starting with `$` (bash tool calls).
+ * 2. Lines whose first word matches a known tool name (from session state).
+ *
+ * When toolNames is provided (from session state), uses those names.
+ * Otherwise falls back to the default set of built-in pi tool names.
+ * This is NOT a regex predicate — it delegates to session-state knowledge.
+ *
+ * Defined here (not in render-helpers.ts) to keep formatting.ts free of
+ * pi-tui dependencies, per module-boundary rule.
+ */
+function isToolLine(l: string, toolNames?: Set<string>): boolean {
+	if (!l) return false;
+	if (l.startsWith("$ ") || l === "$") return true;
+	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
+	if (!firstWord) return false;
+	const names = toolNames ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+	return names.has(firstWord);
 }
 
 /** Pull a one-line summary from the agent's text output */
@@ -62,6 +69,7 @@ export function extractSummaryLine(
 	textOutput: string,
 	success: boolean,
 	agentName: string,
+	toolNames?: Set<string>,
 ): string {
 	if (!textOutput) return success ? `${agentName} completed` : `${agentName} failed`;
 
@@ -108,7 +116,7 @@ export function extractSummaryLine(
 				!l.startsWith("🔧") &&
 				!l.startsWith("📋") &&
 				!l.startsWith("💭") &&
-				isPlainTextLine(l.trim()),
+				!isToolLine(l.trim(), toolNames),
 		);
 	if (firstLine) {
 		return firstLine.trim().slice(0, 120);

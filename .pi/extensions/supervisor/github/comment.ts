@@ -17,6 +17,20 @@ import {
 } from "../agent/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
+// ─── Tool-call line detection ──────────────────────────────────────
+// Inline helper: matches rendered tool-call lines by first word.
+// Not a regex predicate — uses session-state tool names.
+// bash lines start with "$", built-in/extension lines start with tool name.
+function isToolLine(l: string, names?: Set<string>): boolean {
+	if (!l) return false;
+	if (l.startsWith("$ ") || l === "$") return true;
+	// Strip trailing colon — extension tools render as "name: {...}"
+	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
+	if (!firstWord) return false;
+	const toolNames = names ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+	return toolNames.has(firstWord);
+}
+
 // ─── Post Issue Comment ───────────────────────────────────────────
 
 /**
@@ -228,7 +242,7 @@ export function extractStructuredAuditOutput(output: string): StructuredAuditOut
 // Tries parseAgentOutput first for structured commentBody,
 // falls back to COMMENT_BODY marker extraction.
 
-export function extractAgentCommentBody(output: string): string | null {
+export function extractAgentCommentBody(output: string, toolNames?: Set<string>): string | null {
 	// Primary: parseAgentOutput for structured JSON
 	const parseResult = parseAgentOutput(output);
 	if (isAgentOutputSuccess(parseResult)) {
@@ -325,17 +339,7 @@ export function extractAgentCommentBody(output: string): string | null {
 	// metadata lines, making the comment look like "the whole log".
 	// Strip them to produce clean commentBody text.
 	// Also strip reasoning/self-talk lines that LLMs sometimes leak into output.
-	// Inline check for rendered tool-call lines — matches the format produced by
-	// renderToolCallText (bash: "$ cmd", built-in: "toolname args", extension: "name: {...}")
-	function isToolCallLine(l: string): boolean {
-		if (!l) return false;
-		if (l.startsWith("$ ") || l === "$") return true;
-		const firstSpace = l.indexOf(" ");
-		const firstWord = firstSpace > 0 ? l.slice(0, firstSpace) : l;
-		if (["bash", "read", "edit", "write", "grep", "find", "ls", "rg"].includes(firstWord)) return true;
-		if (/^[a-zA-Z_][a-zA-Z0-9_]*:\s/.test(l)) return true;
-		return false;
-	}
+	// Tool-call line detection uses the inline isToolLine (session-state lookup, not regex).
 	const METADATA_LINE_RE = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}\u{1F4AD}]/u;
 	const REASONING_LINE_RE =
 		/^(Now (let me|I|we)|Let me|I need to|I'll|First,? let me|I should|I think|I'm going|Let's|Here's my|My approach|I will)/i;
@@ -352,7 +356,7 @@ export function extractAgentCommentBody(output: string): string | null {
 				if (!trimmed) return true; // keep blank lines
 				// Skip tool/thinking/instrumentation lines (old + new format)
 				if (METADATA_LINE_RE.test(trimmed)) return false;
-				if (isToolCallLine(trimmed)) return false;
+				if (isToolLine(trimmed, toolNames)) return false;
 				// Skip reasoning/self-talk lines that indicate LLM internal monologue
 				if (REASONING_LINE_RE.test(trimmed)) return false;
 				// Skip NDJSON event lines ({"type":"...}) and session entries ({"role":"...})
