@@ -167,20 +167,53 @@ if [ "$CLEAN" = true ]; then
 fi
 
 # --- Host-side cleanup: kill stale pi processes (disconnected docker exec sessions) ---------
-# Uses `docker top` whose TTY column shows pts/X for connected sessions and ? for stale ones.
-# This is the most reliable way to distinguish active from orphaned sessions because
-# Docker keeps the PTY master alive only while the exec client is connected.
-# Runs on the host (not inside container) — kills by host PID which translates across
-# PID namespaces automatically.
+# Runs marker-based orphan detection inside the container (same logic as pre-launch
+# and post-session cleanup). Checks each pi/node process against active marker files
+# in /tmp/pi-active-* — kills only processes whose entire parent chain has no marker.
+# This avoids the lossy docker top TTY="?" heuristic that falsely classifies active
+# non-PTY sessions as stale.
 kill_stale_pi_host() {
     local container="$1"
-    docker top "$container" 2>/dev/null | tail -n +2 | while read -r uid pid ppid c stime tty time cmd; do
-        if [ "$cmd" = "pi" ] && [ "$tty" = "?" ]; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
-    done
-    # Clean up stale marker files inside the container
+    # Run marker-based orphan detection inside container (same logic as
+    # pre-launch/post-session cleanup) instead of lossy docker top TTY heuristic.
+    # docker top TTY="?" falsely classifies active sessions without PTY as stale.
     docker exec "$container" bash -c '
+      active=""
+      for f in /tmp/pi-active-*; do
+        [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
+      done
+
+      is_orphan() {
+        local pid="$1" ppid max_depth=10
+        # Self PID has marker → legitimate session
+        case " $active " in *" $pid "*) return 1 ;; esac
+        ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+        [ -z "$ppid" ] && return 0
+        # Root (docker exec) preserved
+        if [ "$ppid" -eq 0 ] 2>/dev/null; then
+          grep -qs "^PPid:[[:space:]]*$pid$" /proc/[0-9]*/status 2>/dev/null && return 1
+          return 0
+        fi
+        pid="$ppid"
+        while [ "$max_depth" -gt 0 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ] 2>/dev/null; do
+          case " $active " in *" $pid "*) return 1 ;; esac
+          ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
+          [ -z "$ppid" ] && return 0
+          pid="$ppid"; max_depth=$((max_depth - 1))
+        done
+        return 0
+      }
+
+      for f in /proc/[0-9]*/comm; do
+        c=$(< "$f")
+        case "$c" in
+          pi|node)
+            pid="${f%/comm}"; pid="${pid##*/}"
+            is_orphan "$pid" && kill -9 "$pid" 2>/dev/null || true
+            ;;
+        esac
+      done
+
       for m in /tmp/pi-active-*; do
         [ -f "$m" ] && pid=$(cat "$m" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$m" 2>/dev/null || true
       done
@@ -684,11 +717,14 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
     [ -f "$m" ] && active="$active $(cat "$m" 2>/dev/null)"
   done
   # Root (PPID=0) always preserved for parallel sessions.
-  # The host-side kill_stale_pi_host (docker top TTY check) handles stale
-  # disconnected sessions — this internal cleanup only handles sub-agent
-  # processes whose parent chain has no marker.
+  # The host-side kill_stale_pi_host uses marker-based orphan detection
+  # (same logic as this internal cleanup) and handles stale disconnected
+  # sessions — this internal cleanup only handles sub-agent processes
+  # whose parent chain has no marker.
   is_orphan() {
     local pid="$1" ppid max_depth=10
+    # Self PID has marker → legitimate session
+    case " $active " in *" $pid "*) return 1 ;; esac
     ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
     [ -z "$ppid" ] && return 0
     # Root (docker exec launched) always preserved
@@ -727,15 +763,18 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
 # preserves sub-agent pi processes spawned by running supervisor sessions.
 docker exec cheasee-pi bash -c '
   # Root (PPID=0) always preserved for parallel sessions.
-  # The host-side kill_stale_pi_host (docker top TTY check) handles stale
-  # disconnected sessions — this internal cleanup only handles sub-agent
-  # processes whose parent chain has no marker.
+  # The host-side kill_stale_pi_host uses marker-based orphan detection
+  # (same logic as this internal cleanup) and handles stale disconnected
+  # sessions — this internal cleanup only handles sub-agent processes
+  # whose parent chain has no marker.
   active=""
   for f in /tmp/pi-active-*; do
     [ -f "$f" ] && active="$active $(cat "$f" 2>/dev/null)"
   done
   is_orphan() {
     local pid="$1" ppid max_depth=10
+    # Self PID has marker → legitimate session
+    case " $active " in *" $pid "*) return 1 ;; esac
     ppid=$(grep ^PPid: /proc/$pid/status 2>/dev/null | tr -cd 0-9)
     [ -z "$ppid" ] && return 0
     # Root (docker exec launched) always preserved
