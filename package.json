@@ -19,6 +19,7 @@
 		"@octokit/graphql": "^9.0.3",
 		"@octokit/rest": "^22.0.1",
 		"boxen": "^7.1.1",
+		"pino": "^10.3.1",
 		"proper-lockfile": "^4.1.2",
 		"shell-quote": "^1.8.4",
 		"typebox": "^1.2.8",
