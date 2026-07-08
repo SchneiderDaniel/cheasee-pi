@@ -58,7 +58,7 @@ function formatTimestamp(date: Date): string {
 	return `${Y}-${M}-${D}T${h}:${m}:${s}.${String(date.getMilliseconds()).padStart(3, "0")}Z`;
 }
 
-function createDebugLogger(basePath?: string, sessionId?: string): DebugLogger {
+export function createDebugLogger(basePath?: string, sessionId?: string): DebugLogger {
 	const sid = sessionId || `${Date.now()}-${randomBytes(3).toString("hex")}`;
 	const now = new Date();
 	const dateStr = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;

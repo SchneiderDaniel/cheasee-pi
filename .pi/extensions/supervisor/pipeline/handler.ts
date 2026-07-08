@@ -1016,7 +1016,6 @@ export async function handleSupervisorCommand(
 		// 1. Merge resolution (needs worktree to exist)
 		// 2. Worktree cleanup (after merge is complete)
 		const unresolvedConflicts = await handlePostPipeline(
-			port,
 			issueNum,
 			issueTitle,
 			loopStatus,
@@ -1134,7 +1133,6 @@ export async function handlePostPipeline(
 		// Step 1: Post-pipeline merge resolution — needs worktree to exist
 		if (isDoneStatus(loopStatus) && agentResults.length > 0) {
 			unresolvedConflicts = await handlePostPipelineMerge(
-				port,
 				issueNum,
 				issueTitle,
 				loopStatus,
