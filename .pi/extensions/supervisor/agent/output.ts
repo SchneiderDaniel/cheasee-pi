@@ -5,20 +5,7 @@
 
 import type { AgentOutput, FailedParse, ParseResult, FindingSeverity } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
-
-// ─── Tool-call line detection ──────────────────────────────────────
-// Inline helper: matches rendered tool-call lines by first word.
-// Not a regex predicate — uses session-state tool names.
-// bash lines start with "$", built-in/extension lines start with tool name.
-function isToolLine(l: string, names?: Set<string>): boolean {
-	if (!l) return false;
-	if (l.startsWith("$ ") || l === "$") return true;
-	// Strip trailing colon — extension tools render as "name: {...}"
-	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
-	if (!firstWord) return false;
-	const toolNames = names ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-	return toolNames.has(firstWord);
-}
+import { isToolLine } from "../lib/tool-line.ts";
 
 // ─── ANSI Stripping ──────────────────────────────────────────────
 

@@ -31,6 +31,7 @@ function renderSubagentResultInline(
 	subagentResult: AgentToolResult<SubagentDetails>,
 	expanded: boolean,
 	theme: any,
+	cwd?: string,
 ): import("@earendil-works/pi-tui").Component {
 	const details = subagentResult.details;
 	const w = Math.max(40, getTermWidth() - 4);
@@ -173,7 +174,7 @@ function renderSubagentResultInline(
 	return container;
 }
 
-export function createMessageRenderer(pi: ExtensionAPI) {
+export function createMessageRenderer(pi: ExtensionAPI, cwd?: string) {
 	return (message: any, options: any, theme: any) => {
 		const { expanded } = options || { expanded: false };
 		const rawDetails = (message as any).details;
@@ -360,7 +361,7 @@ export function createMessageRenderer(pi: ExtensionAPI) {
 					content: rawDetails.content || [],
 					details: rawDetails.details || rawDetails,
 				};
-				return renderSubagentResultInline(subagentResult, expanded, theme);
+				return renderSubagentResultInline(subagentResult, expanded, theme, cwd);
 			}
 
 			// ── Thinking block ────────────────────────────────────

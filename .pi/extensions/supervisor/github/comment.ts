@@ -16,20 +16,7 @@ import {
 	normalizeEscapes,
 } from "../agent/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
-
-// ─── Tool-call line detection ──────────────────────────────────────
-// Inline helper: matches rendered tool-call lines by first word.
-// Not a regex predicate — uses session-state tool names.
-// bash lines start with "$", built-in/extension lines start with tool name.
-function isToolLine(l: string, names?: Set<string>): boolean {
-	if (!l) return false;
-	if (l.startsWith("$ ") || l === "$") return true;
-	// Strip trailing colon — extension tools render as "name: {...}"
-	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
-	if (!firstWord) return false;
-	const toolNames = names ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-	return toolNames.has(firstWord);
-}
+import { isToolLine } from "../lib/tool-line.ts";
 
 // ─── Post Issue Comment ───────────────────────────────────────────
 
@@ -339,7 +326,7 @@ export function extractAgentCommentBody(output: string, toolNames?: Set<string>)
 	// metadata lines, making the comment look like "the whole log".
 	// Strip them to produce clean commentBody text.
 	// Also strip reasoning/self-talk lines that LLMs sometimes leak into output.
-	// Tool-call line detection uses the inline isToolLine (session-state lookup, not regex).
+	// Tool-call line detection via isToolLine from tool-line.ts (session-state lookup, not regex).
 	const METADATA_LINE_RE = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}\u{1F4AD}]/u;
 	const REASONING_LINE_RE =
 		/^(Now (let me|I|we)|Let me|I need to|I'll|First,? let me|I should|I think|I'm going|Let's|Here's my|My approach|I will)/i;

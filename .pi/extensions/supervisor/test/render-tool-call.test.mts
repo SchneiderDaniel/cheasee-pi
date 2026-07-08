@@ -5,6 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderToolCallText, getBuiltinToolLabels } from "../lib/render-helpers.ts";
+import { isToolLine } from "../lib/tool-line.ts";
 
 const CWD = "/repo";
 
@@ -156,7 +157,7 @@ describe("renderToolCallText — extension tool fallback (JSON preview)", () => 
 // ─── Tests: getBuiltinToolLabels() ───────────────────────────────
 
 describe("getBuiltinToolLabels", () => {
-	it("returns Set containing all 7 built-in tool names", () => {
+	it("returns Set containing all 8 built-in tool names (including rg)", () => {
 		const labels = getBuiltinToolLabels();
 		assert.ok(labels.has("read"));
 		assert.ok(labels.has("bash"));
@@ -165,13 +166,64 @@ describe("getBuiltinToolLabels", () => {
 		assert.ok(labels.has("grep"));
 		assert.ok(labels.has("find"));
 		assert.ok(labels.has("ls"));
-		assert.equal(labels.size, 7);
+		assert.ok(labels.has("rg"));
+		assert.equal(labels.size, 8);
 	});
 
 	it("does not include extension tools", () => {
 		const labels = getBuiltinToolLabels();
 		assert.equal(labels.has("ripgrep_search"), false);
 		assert.equal(labels.has("web_search"), false);
+	});
+});
+
+// ─── Tests: isToolLine() ──────────────────────────────────────────
+
+describe("isToolLine", () => {
+	it("recognizes bash lines starting with $", () => {
+		assert.ok(isToolLine("$ npm test"));
+		assert.ok(isToolLine("$ ls -la"));
+	});
+
+	it("recognizes bare dollar sign", () => {
+		assert.ok(isToolLine("$"));
+	});
+
+	it("recognizes built-in tool names by first word", () => {
+		assert.ok(isToolLine("read /path/file.ts:1-10"));
+		assert.ok(isToolLine("edit /path/file.ts"));
+		assert.ok(isToolLine("write /path (2 lines)"));
+		assert.ok(isToolLine("grep /pattern/ in /src"));
+		assert.ok(isToolLine("ls /home"));
+		assert.ok(isToolLine("find *.ts in /src"));
+	});
+
+	it("recognizes rg as default tool name", () => {
+		assert.ok(isToolLine('rg "TODO" in /src'));
+	});
+
+	it("recognizes extension tools with trailing colon", () => {
+		const extTools = new Set(["ripgrep_search", "web_search", "web_crawl", "structural_search", "ask_user"]);
+		assert.ok(isToolLine('ripgrep_search: {"query":"TODO"}', extTools));
+		assert.ok(isToolLine('web_search: {"query":"typescript"}', extTools));
+		assert.ok(isToolLine('ask_user: {"question":"Proceed?"}', extTools));
+	});
+
+	it("uses provided toolNames set instead of default", () => {
+		const customTools = new Set(["my_tool"]);
+		assert.ok(isToolLine("my_tool: some args", customTools));
+		assert.ok(!isToolLine("read /path", customTools));
+	});
+
+	it("returns false for empty/null line", () => {
+		assert.equal(isToolLine(""), false);
+		assert.equal(isToolLine("   "), false);
+	});
+
+	it("returns false for non-tool lines", () => {
+		assert.equal(isToolLine("Some random text"), false);
+		assert.equal(isToolLine("# comment line"), false);
+		assert.equal(isToolLine("// code comment"), false);
 	});
 });
 

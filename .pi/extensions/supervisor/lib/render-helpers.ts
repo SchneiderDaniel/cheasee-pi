@@ -16,6 +16,7 @@ import {
 	createLsToolDefinition,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
+import { getBuiltinToolLabels } from "./tool-line.ts";
 
 /**
  * Render a thinking block (markdown content with thinkingText color + italic styling)
@@ -100,9 +101,6 @@ function makeRenderContext(cwd: string): Record<string, unknown> {
 	};
 }
 
-const BUILTIN_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
-type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
-
 // ponytail: permissive type — each factory returns a full ToolDefinition with
 // typed renderCall. We only need the runtime dispatch, so cast at the boundary.
 const toolDefFactories: Record<string, (cwd: string) => { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } }> = {
@@ -122,13 +120,6 @@ const EXTENSION_TOOL_NAMES = new Set([
 	"structural_search",
 	"ask_user",
 ]);
-
-/**
- * Return the set of built-in pi tool names (tools with native renderCall).
- */
-export function getBuiltinToolLabels(): Set<string> {
-	return new Set(BUILTIN_TOOL_NAMES);
-}
 
 /**
  * Render a tool call as plain text, matching pi's native renderer format.
@@ -183,6 +174,9 @@ export function renderToolCallText(name: string, args: unknown, cwd: string): st
 	// Generic fallback for unknown tools
 	return formatJsonPreview(name, args);
 }
+
+// Re-export for consumers that import from render-helpers.ts (backward compat)
+export { getBuiltinToolLabels } from "./tool-line.ts";
 
 /** Format args as JSON preview clipped to fit ≤80 total chars. */
 function formatJsonPreview(name: string, args: unknown): string {

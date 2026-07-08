@@ -3,6 +3,7 @@
 
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
 import type { AgentOutput } from "../config/types.ts";
+import { isToolLine } from "./tool-line.ts";
 
 export function formatTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -39,29 +40,6 @@ export function extractTextFromContent(content: any): string {
 		.filter((b: any) => b.type === "text" && b.text)
 		.map((b: any) => b.text)
 		.join("\n");
-}
-
-/**
- * Inline check: is a line a rendered tool-call line?
- *
- * Only TWO rules (no format regex):
- * 1. Lines starting with `$` (bash tool calls).
- * 2. Lines whose first word matches a known tool name (from session state).
- *
- * When toolNames is provided (from session state), uses those names.
- * Otherwise falls back to the default set of built-in pi tool names.
- * This is NOT a regex predicate — it delegates to session-state knowledge.
- *
- * Defined here (not in render-helpers.ts) to keep formatting.ts free of
- * pi-tui dependencies, per module-boundary rule.
- */
-function isToolLine(l: string, toolNames?: Set<string>): boolean {
-	if (!l) return false;
-	if (l.startsWith("$ ") || l === "$") return true;
-	const firstWord = l.trimStart().split(" ")[0].replace(/:$/, "");
-	if (!firstWord) return false;
-	const names = toolNames ?? new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-	return names.has(firstWord);
 }
 
 /** Pull a one-line summary from the agent's text output */

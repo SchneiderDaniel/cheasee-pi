@@ -1062,7 +1062,8 @@ describe("parseAgentOutput — new-format tool call filtering", () => {
 			"",
 			'{"commentBody":"After web search","action":"COMPLETE","agentName":"researcher"}',
 		].join("\n");
-		const result = parseAgentOutput(fullLog);
+		// Pass toolNames including web_search so isToolLine can filter it
+		const result = parseAgentOutput(fullLog, new Set(["web_search", "read", "bash", "edit", "write", "grep", "find", "ls", "rg"]));
 		assert.ok(isAgentOutput(result), "must filter fallback format tool lines with braces");
 		assert.equal((result as AgentOutput).commentBody, "After web search");
 	});
