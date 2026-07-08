@@ -732,7 +732,7 @@ describe("extractLastJson — string-boundary-aware brace matching", () => {
 		// Researcher output: commentBody contains literal newlines and triple backticks.
 		// This happens when fullLog entries are joined with \n — the JSON string
 		// value contains literal newline characters (not \\n escape sequences).
-		// sanitizeJsonStrings later escapes them to \\n for valid JSON parsing.
+		// jsonrepair escapes literal newlines to \\n for valid JSON parsing.
 		const fullLog = [
 			"```json",
 			"{",
@@ -893,8 +893,8 @@ describe("extractLastJson — string-boundary-aware brace matching", () => {
 // ─── Tests: thinking-prefix stripping — JSON in thinking blocks ────
 // When agents use thinking:high, JSON output may be emitted inside
 // thinking blocks. Event handlers push thinking lines to fullLog with
-// "💭 " prefix per line. stripThinkingPrefix removes these prefixes
-// so parseAgentOutput can still extract valid JSON.
+// "💭 " prefix per line. The prefix stripping inside extractLastJson
+// removes these prefixes so parseAgentOutput can still extract valid JSON.
 
 describe("parseAgentOutput — JSON in thinking blocks (💭 prefix)", () => {
 	it("extracts JSON from thinking-prefixed lines (thinking:high scenario)", () => {
@@ -1145,8 +1145,14 @@ describe("parseAgentOutput — malformed JSON corpus (repair invariant)", () => 
 		assert.equal(o.summary, "Done");
 	});
 
-	it("repairs unescaped quotes \"key\", pattern (quote followed by comma)", () => {
-		// When unescaped content quote is followed by comma inside string
+	it("yields FailedParse for unescaped quotes \"key\", pattern (quote followed by comma)", () => {
+		// When unescaped content quote is followed by comma inside string,
+		// jsonrepair cannot disambiguate from a real structural close.
+		// The old heuristic (isStructuralClose) rescued this case (#892),
+		// but the heuristic was removed in favor of jsonrepair. The
+		// targeted fix adds complexity that goes against the replacement
+		// goal; if this pattern surfaces in production, either tighten
+		// the agent prompt or add a pre-repair step for "X", patterns.
 		const input = `{"action":"COMPLETE","agentName":"developer","commentBody":"value: "key", is important"}`;
 		const result = parseAgentOutput(input);
 		assert.ok(isFailedParse(result), "should yield FailedParse — jsonrepair cannot disambiguate this case from a real close");

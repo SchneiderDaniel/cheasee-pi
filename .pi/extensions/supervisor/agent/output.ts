@@ -404,10 +404,14 @@ export function parseAgentOutput(output: string): ParseResult {
 	// unescaped quotes, literal newlines in strings, smart/unicode quotes,
 	// trailing content after JSON, truncated JSON, etc.
 	//
-	// ponytail: jsonrepair is a zero-dependency well-vetted library (~13yr,
-	// 2.4M weekly downloads). If malformed-agent-output rate is near-zero,
-	// this could be replaced with plain JSON.parse (fail-loud). Captured
-	// corpus file at .pi/supervisor-corpus.jsonl measures the actual rate.
+	// Phase 1 gate (instrument corpus → decide) was skipped per audit
+	// finding #1. Decision: keep jsonrepair unconditionally. Rationale:
+	// zero-transitive-dependency, zero-CVE, ~13yr mature library (2.4M
+	// weekly downloads). The old heuristic (~180 LOC) is replaced with
+	// upstream-owned correctness. If malformed-output rate is near-zero,
+	// jsonrepair is still a negligible cost; if non-trivial, it's the
+	// right tool. The ponytail alternative (plain JSON.parse, fail-loud)
+	// would cause regressions on real patterns the heuristic rescued.
 	let repaired: string;
 	try {
 		repaired = jsonrepair(jsonStr);
