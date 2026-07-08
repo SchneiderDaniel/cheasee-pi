@@ -756,11 +756,11 @@ describe("ensureVenv — error paths", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-//  Phase 5: Lock released before pip install (core fix, #1138)
+//  Phase 5: Lock held during pip install (prevents concurrent rm-rf race)
 // ══════════════════════════════════════════════════════════════════════
 
-describe("ensureVenv — lock released before pip install", () => {
-	it("(entity) lock dir ABSENT during pip install exec call (lock released before install)", async () => {
+describe("ensureVenv — lock held during pip install", () => {
+	it("(entity) lock dir PRESENT during pip install exec call (lock held during install)", async () => {
 		let lockDuringInstall: boolean | undefined;
 		const ctx = setupTest({
 			callbacks: {
@@ -773,7 +773,7 @@ describe("ensureVenv — lock released before pip install", () => {
 
 		await ensureVenv(config);
 
-		assert.equal(lockDuringInstall, false, "lock should be released during pip install");
+		assert.equal(lockDuringInstall, true, "lock should be held during pip install");
 	});
 
 	it("(entity) lock dir PRESENT during double-check → rm → create (mutation section)", async () => {
@@ -792,7 +792,7 @@ describe("ensureVenv — lock released before pip install", () => {
 		assert.equal(lockDuringCreate, true, "lock should be held during venv creation");
 	});
 
-	it("(entity) lock dir ABSENT during postInstall hook", async () => {
+	it("(entity) lock dir PRESENT during postInstall hook", async () => {
 		let lockDuringPostInstall: boolean | undefined;
 		const ctx = setupTest();
 		const config = makeConfig(ctx, {
@@ -803,7 +803,7 @@ describe("ensureVenv — lock released before pip install", () => {
 
 		await ensureVenv(config);
 
-		assert.equal(lockDuringPostInstall, false, "lock should be released during postInstall");
+		assert.equal(lockDuringPostInstall, true, "lock should be held during postInstall");
 	});
 
 	it("(entity) lock dir PRESENT during verify step (lock re-acquired after install)", async () => {
@@ -851,7 +851,7 @@ describe("ensureVenv — lock released before pip install", () => {
 		assert.equal(lockDuringFinalVerify, true, "lock should be held during final verify");
 	});
 
-	it("(entity) end-to-end: acquire → mutate → release → install → re-acquire → verify → release", async () => {
+	it("(entity) end-to-end: acquire → create+install+postInstall (under lock) → verify → release", async () => {
 		const events: Array<{ phase: string; lockHeld: boolean }> = [];
 		const ctx = setupTest({
 			callbacks: {
@@ -865,7 +865,10 @@ describe("ensureVenv — lock released before pip install", () => {
 		});
 		const config = makeConfig(ctx, {
 			postInstall: async () => {
-				events.push({ phase: "postInstall", lockHeld: exists(lockDirPath(ctx.cwd, config.venvName)) });
+				events.push({
+					phase: "postInstall",
+					lockHeld: exists(lockDirPath(ctx.cwd, config.venvName)),
+				});
 			},
 		});
 
@@ -876,18 +879,22 @@ describe("ensureVenv — lock released before pip install", () => {
 		assert.ok(createEvent, "create event should have fired");
 		assert.equal(createEvent!.lockHeld, true, "lock should be held during create");
 
-		// Install without lock
+		// Install under lock
 		const installEvent = events.find((e) => e.phase === "install");
 		assert.ok(installEvent, "install event should have fired");
-		assert.equal(installEvent!.lockHeld, false, "lock should NOT be held during install");
+		assert.equal(installEvent!.lockHeld, true, "lock should be held during install");
 
-		// PostInstall without lock
+		// PostInstall under lock
 		const postInstallEvent = events.find((e) => e.phase === "postInstall");
 		assert.ok(postInstallEvent, "postInstall event should have fired");
-		assert.equal(postInstallEvent!.lockHeld, false, "lock should NOT be held during postInstall");
+		assert.equal(postInstallEvent!.lockHeld, true, "lock should be held during postInstall");
 
 		// After completion, lock should be released
-		assert.equal(exists(lockDirPath(ctx.cwd, "test-venv")), false, "lock should be released after completion");
+		assert.equal(
+			exists(lockDirPath(ctx.cwd, "test-venv")),
+			false,
+			"lock should be released after completion",
+		);
 	});
 });
 
@@ -921,11 +928,18 @@ describe("ensureVenv — onCompromised handler", () => {
 		await ensureVenv(config);
 
 		// Should have 2 lock calls (two withLock blocks)
-		assert.ok(capturedOptions.length >= 2, "should capture onCompromised from at least 2 lock calls");
+		assert.ok(
+			capturedOptions.length >= 2,
+			"should capture onCompromised from at least 2 lock calls",
+		);
 
 		// Each call should have an onCompromised handler
 		for (const opts of capturedOptions) {
-			assert.equal(typeof opts.onCompromised, "function", "each lock call should have onCompromised handler");
+			assert.equal(
+				typeof opts.onCompromised,
+				"function",
+				"each lock call should have onCompromised handler",
+			);
 		}
 
 		// Invoke the handler with a mock error — should NOT throw
@@ -967,7 +981,10 @@ describe("ensureVenv — onCompromised handler", () => {
 		// The handler should have triggered an onUpdate with "Lock compromised:" prefix
 		const compromiseWarning = updates.find((u) => u.text.startsWith("Lock compromised:"));
 		assert.ok(compromiseWarning, "should have 'Lock compromised:' warning text");
-		assert.ok(compromiseWarning!.text.includes("ENOENT: utimes failed"), "warning should include error message");
+		assert.ok(
+			compromiseWarning!.text.includes("ENOENT: utimes failed"),
+			"warning should include error message",
+		);
 		assert.equal(compromiseWarning!.warning, true, "details.warning should be true");
 
 		mock.reset();
@@ -1133,7 +1150,8 @@ describe("ensureVenv — import audit", () => {
 			for (const e of entries) {
 				const p = path.join(dir, e.name);
 				if (e.isDirectory()) walk(p);
-				else if (e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) files.push(p);
+				else if (e.isFile() && e.name.endsWith(".ts") && !e.name.endsWith(".test.ts"))
+					files.push(p);
 			}
 		}
 		walk(extDir);
@@ -1167,11 +1185,11 @@ describe("ensureVenv — import audit", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("ensureVenv — concurrent agent scenarios", () => {
-	it("(entity) lock released during pip install → another process can create lock dir", async () => {
+	it("(entity) lock held during pip install → another process can NOT create lock dir", async () => {
 		const ctx = setupTest();
 		const lockPath = lockDirPath(ctx.cwd, "test-venv");
 
-		let lockDirFreeDuringInstall = false;
+		let lockDirHeldDuringInstall = false;
 		let verifyCalls = 0;
 
 		const exec: ExecFn = async (cmd: string, args: string[]) => {
@@ -1194,14 +1212,17 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 				fs.writeFileSync(path.join(venvPath, "bin", "python3"), "");
 				return { code: 0, stdout: "", stderr: "" };
 			}
-			// pip install — check lock is free, briefly simulate other agent
+			// pip install — lock is held, other process can NOT acquire it
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
-				lockDirFreeDuringInstall = !exists(lockPath);
-				// Simulate another process acquiring the lock briefly
-				fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-				fs.mkdirSync(lockPath, { recursive: false });
-				// Other agent releases immediately
-				fs.rmdirSync(lockPath);
+				lockDirHeldDuringInstall = exists(lockPath);
+				// Trying to acquire the lock should fail (held by us)
+				assert.throws(
+					() => {
+						fs.mkdirSync(lockPath, { recursive: false });
+					},
+					{ code: "EEXIST" },
+					"other process should fail to acquire lock",
+				);
 				return { code: 0, stdout: "", stderr: "" };
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1215,14 +1236,15 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 			verifyCommand: "import test; print('ok')",
 		});
 
-		assert.equal(lockDirFreeDuringInstall, true, "lock dir should be free during pip install");
+		assert.equal(lockDirHeldDuringInstall, true, "lock dir should be held during pip install");
 	});
 
-	it("(entity) lock re-acquired by original process after install, even if another process held lock briefly", async () => {
+	it("(entity) lock held during full mutation, verify re-acquires lock after release", async () => {
 		const ctx = setupTest();
 		const lockPath = lockDirPath(ctx.cwd, "test-venv");
 
-		let otherProcessHeldLock = false;
+		let lockHeldDuringCreate = false;
+		let lockHeldDuringInstall = false;
 		let verifyCompletedUnderLock = false;
 		let verifyCallCount = 0;
 
@@ -1236,9 +1258,10 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 				}
 				if (verifyCallCount === 2) {
 					// Double-check verify (step 4) — under lock
+					lockHeldDuringCreate = exists(lockPath);
 					return { code: 1, stdout: "", stderr: "" };
 				}
-				// Final verify (step 9) — check lock is held
+				// Final verify (step 9) — check lock is re-acquired
 				verifyCompletedUnderLock = exists(lockPath);
 				return { code: 0, stdout: "ok", stderr: "" };
 			}
@@ -1253,10 +1276,9 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 				fs.writeFileSync(path.join(venvPath, "bin", "python3"), "");
 				return { code: 0, stdout: "", stderr: "" };
 			}
-			// pip install — release lock (by leaving it as is), simulate other agent
+			// pip install — lock is held throughout
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
-				// Other process acquires then releases lock
-				otherProcessHeldLock = true;
+				lockHeldDuringInstall = exists(lockPath);
 				return { code: 0, stdout: "", stderr: "" };
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1270,7 +1292,8 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 			verifyCommand: "import test; print('ok')",
 		});
 
-		assert.equal(otherProcessHeldLock, true, "other process should have held lock during install window");
+		assert.equal(lockHeldDuringCreate, true, "lock should be held during double-check (step 4)");
+		assert.equal(lockHeldDuringInstall, true, "lock should be held during pip install");
 		assert.equal(verifyCompletedUnderLock, true, "verify should complete under re-acquired lock");
 	});
 
@@ -1300,7 +1323,7 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("ensureVenv — user-journey lock concurrency", () => {
-	it("(use-case) mock slow pip install (deferred promise), verify lock dir absent during install", async () => {
+	it("(use-case) mock slow pip install (deferred promise), verify lock held during install", async () => {
 		const deferred = makeDeferred<{ code: number; stdout: string; stderr: string }>();
 		const ctx = setupTest();
 		const lockPath = lockDirPath(ctx.cwd, "test-venv");
@@ -1329,7 +1352,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 				fs.writeFileSync(path.join(venvPath, "bin", "python3"), "");
 				return { code: 0, stdout: "", stderr: "" };
 			}
-			// pip install — slow, deferred
+			// pip install — slow, deferred, lock held throughout
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
 				installStarted = true;
 				lockDuringInstall = exists(lockPath);
@@ -1350,7 +1373,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 		await new Promise((r) => setTimeout(r, 20));
 
 		assert.equal(installStarted, true, "pip install should have started");
-		assert.equal(lockDuringInstall, false, "lock should be absent during slow pip install");
+		assert.equal(lockDuringInstall, true, "lock should be held during slow pip install");
 
 		// Resolve pip install
 		deferred.resolve({ code: 0, stdout: "", stderr: "" });
@@ -1359,12 +1382,12 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 		assert.equal(result.created, true, "ensureVenv should complete successfully");
 	});
 
-	it("(use-case) simulate concurrent agent acquiring lock during slow pip install, original completes after", async () => {
+	it("(use-case) concurrent agent blocked on lock during slow pip install, completes after lock released", async () => {
 		const deferred = makeDeferred<{ code: number; stdout: string; stderr: string }>();
 		const ctx = setupTest();
 		const lockPath = lockDirPath(ctx.cwd, "test-venv");
 
-		let otherAgentGotLock = false;
+		let pipInstallStarted = false;
 		let verifyPassed = false;
 		let verifyCalls = 0;
 
@@ -1376,7 +1399,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 					// Quick verify (1st) and double-check (2nd): fail
 					return { code: 1, stdout: "", stderr: "" };
 				}
-				// Final verify (3rd): succeed, lock should be held
+				// Final verify (3rd): succeed, lock should be re-acquired
 				verifyPassed = exists(lockPath);
 				return { code: 0, stdout: "ok", stderr: "" };
 			}
@@ -1393,10 +1416,9 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 			}
 			// pip install — slow, deferred
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
-				// Other agent acquires the lock while this agent is installing
-				fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-				fs.mkdirSync(lockPath, { recursive: false });
-				otherAgentGotLock = true;
+				pipInstallStarted = true;
+				// Verify concurrent agent CANNOT acquire lock (we hold it)
+				assert.ok(exists(lockPath), "lock should be held during pip install");
 				return deferred.promise;
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1413,17 +1435,16 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 		// Wait briefly for execution to reach pip install
 		await new Promise((r) => setTimeout(r, 20));
 
-		assert.equal(otherAgentGotLock, true, "other agent should have grabbed lock during install window");
+		assert.equal(pipInstallStarted, true, "pip install should have started");
 
-		// Now release the other agent's lock before resolving pip install
-		// (Otherwise the re-acquire in step 9 will fail)
-		fs.rmdirSync(lockPath);
+		// Verify lock is held by original process during install
+		assert.ok(exists(lockPath), "lock held by original process during install");
 
-		// Resolve pip install
+		// Resolve pip install — original releases lock
 		deferred.resolve({ code: 0, stdout: "", stderr: "" });
 
 		const result = await resultPromise;
-		assert.equal(result.created, true, "original agent should complete after other agent releases");
+		assert.equal(result.created, true, "ensureVenv should complete successfully");
 		assert.equal(verifyPassed, true, "verify should run under re-acquired lock");
 	});
 });
