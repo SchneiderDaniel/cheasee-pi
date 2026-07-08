@@ -507,13 +507,35 @@ HOST_UID=$(id -u)
 export HOST_GID
 HOST_GID=$(id -g)
 
-# --- Step 4b: Export host git identity for container commits -----------
-# Supervisor extension does git commit inside container. Use host identity
-# so commits show the actual user. Falls back to Cheasee-Pi if unset.
+# --- Step 4b: Resolve git identity for container commits (verified) -----
+# NEVER read host `git config user.name/email`. A stale host identity
+# (e.g. "t <t@t.t>") leaks into container commits; GitHub can't map a fake
+# email to a real account, so push attribution falls back to the token
+# holder — commits land under the wrong author.
+# Resolution order (each step verified against a real account):
+#   1. .pi/settings.json `gitIdentity: { name, email }` (explicit override)
+#   2. `gh api user` -> GitHub noreply "<id>+<login>@users.noreply.github.com"
+#      (commit author maps to the authed account; email<->token consistent)
+#   3. Fallback: Cheasee-Pi / cheasee-pi@localhost (last resort)
 export HOST_GIT_NAME
-HOST_GIT_NAME=$(git config user.name 2>/dev/null || echo "Cheasee-Pi")
 export HOST_GIT_EMAIL
-HOST_GIT_EMAIL=$(git config user.email 2>/dev/null || echo "cheasee-pi@localhost")
+if [ -f .pi/settings.json ]; then
+	HOST_GIT_NAME=$(jq -r '.gitIdentity.name // ""' .pi/settings.json 2>/dev/null)
+	HOST_GIT_EMAIL=$(jq -r '.gitIdentity.email // ""' .pi/settings.json 2>/dev/null)
+fi
+if [ -z "$HOST_GIT_NAME" ] || [ -z "$HOST_GIT_EMAIL" ]; then
+	if command -v gh >/dev/null 2>&1; then
+		_gid=$(gh api user --jq '.id // empty' 2>/dev/null)
+		_glogin=$(gh api user --jq '.login // empty' 2>/dev/null)
+		_gname=$(gh api user --jq '.name // .login // empty' 2>/dev/null)
+		if [ -n "$_gid" ] && [ -n "$_glogin" ]; then
+			HOST_GIT_NAME="${HOST_GIT_NAME:-$_gname}"
+			HOST_GIT_EMAIL="${_gid}+${_glogin}@users.noreply.github.com"
+		fi
+	fi
+fi
+HOST_GIT_NAME="${HOST_GIT_NAME:-Cheasee-Pi}"
+HOST_GIT_EMAIL="${HOST_GIT_EMAIL:-cheasee-pi@localhost}"
 
 # --- Step 4c: Write .env for docker-compose -------------------------------
 # docker-compose reads docker/.env automatically when in the same directory.

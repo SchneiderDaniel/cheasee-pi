@@ -111,9 +111,12 @@ fi
 chown -R agentuser:agentuser /home/agentuser || echo "Warning: chown /home/agentuser failed (non-fatal)"
 
 # --- Set git identity for agentuser --------------------------------------
-# Required by supervisor extension (git commit). Identity is just for local
-# commits inside the container — push uses GitHub token, not this identity.
-# Reads HOST_GIT_NAME / HOST_GIT_EMAIL passed from host (cheasee-pi.sh).
+# Required by supervisor extension (git commit). The commit author email
+# IS the push-attribution identity: GitHub maps it to a GitHub account and
+# credits the push to that account. A fake/empty email (e.g. "t@t.t") can't
+# be mapped, so attribution falls back to the token holder → wrong author.
+# cheasee-pi.sh resolves a verified identity (settings.json gitIdentity or
+# gh-derived <id>+<login>@users.noreply.github.com) before passing it here.
 GIT_NAME="${HOST_GIT_NAME:-Cheasee-Pi}"
 GIT_EMAIL="${HOST_GIT_EMAIL:-cheasee-pi@localhost}"
 gosu agentuser git config --global user.name "$GIT_NAME" 2>/dev/null || true
