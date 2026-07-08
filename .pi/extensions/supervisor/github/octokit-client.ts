@@ -5,12 +5,7 @@
 import { Octokit } from "@octokit/rest";
 import { graphql } from "@octokit/graphql";
 import type { DebugLogger } from "../lib/debug.ts";
-import type {
-	ProjectField,
-	ProjectItem,
-	DepsResult,
-	PrConflictInfo,
-} from "../config/types.ts";
+import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../config/types.ts";
 import type { RawIssueData, GitHubPort } from "./ports.ts";
 
 // ─── Hard safety limit (migrated from comment.ts) ────────────────
@@ -228,17 +223,18 @@ export class OctokitClient implements GitHubPort {
 				author: issue.user ? { login: issue.user.login } : undefined,
 			};
 		} catch (err: unknown) {
-			if (err instanceof Object && "status" in (err as object) && (err as { status: number }).status === 404) {
+			if (
+				err instanceof Object &&
+				"status" in (err as object) &&
+				(err as { status: number }).status === 404
+			) {
 				return null;
 			}
 			throw err;
 		}
 	}
 
-	async getIssueWithComments(
-		issueNum: number,
-		repo: string,
-	): Promise<RawIssueData | null> {
+	async getIssueWithComments(issueNum: number, repo: string): Promise<RawIssueData | null> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
@@ -265,7 +261,11 @@ export class OctokitClient implements GitHubPort {
 				})),
 			};
 		} catch (err: unknown) {
-			if (err instanceof Object && "status" in (err as object) && (err as { status: number }).status === 404) {
+			if (
+				err instanceof Object &&
+				"status" in (err as object) &&
+				(err as { status: number }).status === 404
+			) {
 				return null;
 			}
 			throw err;
@@ -285,11 +285,7 @@ export class OctokitClient implements GitHubPort {
 		});
 	}
 
-	async postIssueComment(
-		issueNum: number,
-		repo: string,
-		body: string,
-	): Promise<void> {
+	async postIssueComment(issueNum: number, repo: string, body: string): Promise<void> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
@@ -312,11 +308,7 @@ export class OctokitClient implements GitHubPort {
 		});
 	}
 
-	async compareBranches(
-		base: string,
-		head: string,
-		repo: string,
-	): Promise<number> {
+	async compareBranches(base: string, head: string, repo: string): Promise<number> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
@@ -330,10 +322,7 @@ export class OctokitClient implements GitHubPort {
 		return resp.data.ahead_by;
 	}
 
-	async listPullRequestsForBranch(
-		branch: string,
-		repo: string,
-	): Promise<PrConflictInfo | null> {
+	async listPullRequestsForBranch(branch: string, repo: string): Promise<PrConflictInfo | null> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
@@ -351,11 +340,12 @@ export class OctokitClient implements GitHubPort {
 		const pr = prs[0]! as Record<string, unknown>;
 		return {
 			number: pr.number as number,
-			hasConflict: (pr.mergeable as string) === "CONFLICTING" || (pr.merge_state_status as string) === "DIRTY",
+			hasConflict:
+				(pr.mergeable as string) === "CONFLICTING" || (pr.merge_state_status as string) === "DIRTY",
 			mergeable: (pr.mergeable as string) || "UNKNOWN",
 			mergeStateStatus: (pr.merge_state_status as string) || "UNKNOWN",
-			headRefName: ((pr.head as { ref?: string })?.ref) || branch,
-			baseRefName: ((pr.base as { ref?: string })?.ref) || "main",
+			headRefName: (pr.head as { ref?: string })?.ref || branch,
+			baseRefName: (pr.base as { ref?: string })?.ref || "main",
 		};
 	}
 
@@ -367,7 +357,8 @@ export class OctokitClient implements GitHubPort {
 		body?: string;
 	}): Promise<{ number: number }> {
 		const [owner, name] = input.repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${input.repo} (expected owner/name)`);
+		if (!owner || !name)
+			throw new Error(`Invalid repo format: ${input.repo} (expected owner/name)`);
 
 		this.log.debug("octokit", `createPullRequest ${input.head} → ${input.base}`);
 		const resp = await this.octokit.pulls.create({
@@ -407,7 +398,7 @@ export class OctokitClient implements GitHubPort {
 		const resp = await this.graphqlQuery<ProjectFieldsResponse>(
 			PROJECT_FIELDS_QUERY(projectNumber),
 		);
-		const nodes = resp?.data?.viewer?.projectV2?.fields?.nodes || [];
+		const nodes = resp?.viewer?.projectV2?.fields?.nodes || [];
 		return nodes.map((n) => ({
 			id: n.id,
 			name: n.name,
@@ -423,10 +414,10 @@ export class OctokitClient implements GitHubPort {
 		let hasNextPage = true;
 
 		while (hasNextPage) {
-			const resp = await this.graphqlQuery<ProjectItemsResponse>(
+			const resp = (await this.graphqlQuery<ProjectItemsResponse>(
 				PROJECT_ITEMS_QUERY(projectNumber, after),
-			) as ProjectItemsResponse;
-			const page = resp?.data?.viewer?.projectV2?.items as
+			)) as ProjectItemsResponse;
+			const page = resp?.viewer?.projectV2?.items as
 				| {
 						pageInfo: { hasNextPage: boolean; endCursor: string | null };
 						nodes?: Array<{
@@ -440,7 +431,7 @@ export class OctokitClient implements GitHubPort {
 								}>;
 							};
 						}>;
-					}
+				  }
 				| undefined;
 			if (!page) break;
 
@@ -463,9 +454,7 @@ export class OctokitClient implements GitHubPort {
 				allItems.push({
 					id: n.id,
 					status,
-					content: n.content
-						? { url: n.content.url, number: n.content.number }
-						: undefined,
+					content: n.content ? { url: n.content.url, number: n.content.number } : undefined,
 					fieldValues: fv.length > 0 ? fv : undefined,
 				});
 			}
@@ -479,10 +468,8 @@ export class OctokitClient implements GitHubPort {
 
 	async getProjectId(projectNumber: number): Promise<string> {
 		this.log.debug("octokit", `getProjectId #${projectNumber}`);
-		const resp = await this.graphqlQuery<ProjectIdResponse>(
-			PROJECT_ID_QUERY(projectNumber),
-		);
-		return resp?.data?.viewer?.projectV2?.id || "";
+		const resp = await this.graphqlQuery<ProjectIdResponse>(PROJECT_ID_QUERY(projectNumber));
+		return resp?.viewer?.projectV2?.id || "";
 	}
 
 	async setItemStatusField(
@@ -498,10 +485,7 @@ export class OctokitClient implements GitHubPort {
 		await this.graphqlQuery(SET_STATUS_MUTATION(itemId, projectId, fieldId, optionId));
 	}
 
-	async checkBlockedByDependencies(
-		issueNum: number,
-		repo: string,
-	): Promise<DepsResult> {
+	async checkBlockedByDependencies(issueNum: number, repo: string): Promise<DepsResult> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
@@ -515,7 +499,7 @@ export class OctokitClient implements GitHubPort {
 			throw new Error(`GitHub GraphQL error: ${msgs}`);
 		}
 
-		const nodes = resp?.data?.repository?.issue?.timelineItems?.nodes;
+		const nodes = resp?.repository?.issue?.timelineItems?.nodes;
 		if (!nodes || nodes.length === 0) {
 			return { blocked: false, blockers: [] };
 		}
