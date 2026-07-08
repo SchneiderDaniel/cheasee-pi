@@ -14,9 +14,10 @@ import type {
 	PrCreationResult,
 	SupervisorMessageDetails,
 } from "../config/types.ts";
+import { createGitHubPort } from "../github/index.ts";
+import type { GitHubPort } from "../github/ports.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
-import { findIssueItem, filterIssueData, postIssueComment } from "../github/index.ts";
-import { gh } from "../github/gh-client.ts";
+import { findIssueItem, filterIssueData, type RawIssueData } from "../lib/issue-filter.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { executeAgent } from "./execute-agent.ts";
@@ -231,6 +232,10 @@ export async function handleSupervisorCommand(
 			submodules: config.submodules?.length,
 		});
 
+		// Create GitHub port with token resolution
+		const port = createGitHubPort();
+		getDebugLogger().info("handler", "GitHub port created");
+
 		// Experimental features gate
 		// When enableExperimentalFeatures is false/undefined, advanced
 		// pipeline features (auto-forking, advanced parallelism) are skipped.
@@ -247,7 +252,7 @@ export async function handleSupervisorCommand(
 		if (ctx.hasUI) {
 			ctx.ui.notify(`Fetching issue #${issueNum}...`, "info");
 		}
-		const issueData = await fetchIssue(exec, notify, config, issueNum, collector);
+		const issueData = await fetchIssue(port, notify, config, issueNum, collector);
 		if (!issueData) return;
 		issueTitle = (issueData?.title as string) || `Issue #${issueNum}`;
 
@@ -275,12 +280,12 @@ export async function handleSupervisorCommand(
 			repo: config.repo,
 		});
 
-		const filteredData = filterIssueData(issueData, config.codeowners);
+		const filteredData = filterIssueData(issueData as unknown as RawIssueData, config.codeowners);
 
 		// Read project board
 		ctx.ui.setStatus("supervisor", "Reading project board...");
 		const { fields, items, projectId, statusField } = await readProjectBoard(
-			exec,
+			port,
 			notify,
 			config,
 			issueNum,
@@ -311,7 +316,7 @@ export async function handleSupervisorCommand(
 
 		// Dependency gate
 		ctx.ui.setStatus("supervisor", "Checking dependencies...");
-		if (!(await checkDependencies(exec, notify, config, issueNum, collector))) {
+		if (!(await checkDependencies(port, notify, config, issueNum, collector))) {
 			getDebugLogger().warn("handler", "Dependency check blocked", { issueNum });
 			return;
 		}
@@ -425,6 +430,7 @@ export async function handleSupervisorCommand(
 			if (step.builtIn === "backlog") {
 				loopStatus = await handleBacklogTransition(
 					pi,
+					port,
 					fields,
 					statusField.id,
 					loopItem.id,
@@ -453,7 +459,7 @@ export async function handleSupervisorCommand(
 
 			// Fetch fresh issue data for this iteration
 			const loopFilteredData = await fetchFreshIssueData(
-				exec,
+				port,
 				config,
 				issueNum,
 				issueData,
@@ -485,6 +491,7 @@ export async function handleSupervisorCommand(
 				const nextStatus = inferForwardStatus(step);
 				if (nextStatus) {
 					loopStatus = await applyStatusTransition(
+						port,
 						pi,
 						loopItem.id,
 						projectId,
@@ -714,6 +721,7 @@ export async function handleSupervisorCommand(
 			// comment posting can show gate rejection instead of approval
 			if (result.success) {
 				const continuePipeline = await handlePostAgentSuccess(
+					port,
 					pi,
 					ctx,
 					result,
@@ -786,13 +794,12 @@ export async function handleSupervisorCommand(
 					});
 					// Close issue on GitHub: no changes needed (already resolved)
 					try {
-						await postIssueComment(
-							exec,
+						await port.postIssueComment(
 							issueNum,
 							config.repo,
 							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
 						);
-						await gh(exec, ["issue", "close", String(issueNum), "--repo", config.repo]);
+						await port.closeIssue(issueNum, config.repo);
 						ctx.ui.notify(`Issue #${issueNum} closed — already resolved`, "info");
 					} catch (closeErr: unknown) {
 						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
@@ -818,6 +825,7 @@ export async function handleSupervisorCommand(
 
 				getDebugLogger().info("handler", "Creating PR on approval");
 				prCreationResult = await createPrOnApproval(
+					port,
 					pi,
 					ctx,
 					issueNum,
@@ -846,7 +854,7 @@ export async function handleSupervisorCommand(
 					if (!result.success) {
 						const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
 						try {
-							await postIssueComment(exec, issueNum, config.repo, budgetExceededMsg);
+							await port.postIssueComment(issueNum, config.repo, budgetExceededMsg);
 							ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
 						} catch (commentErr: unknown) {
 							collector?.push(
@@ -861,6 +869,7 @@ export async function handleSupervisorCommand(
 					const nextStatus = inferForwardStatus(step);
 					if (nextStatus) {
 						loopStatus = await applyStatusTransition(
+							port,
 							pi,
 							loopItem.id,
 							projectId,
@@ -987,6 +996,7 @@ export async function handleSupervisorCommand(
 			try {
 				const prev = loopStatus;
 				loopStatus = await applyStatusTransition(
+					port,
 					pi,
 					loopItem.id,
 					projectId,
@@ -1016,6 +1026,7 @@ export async function handleSupervisorCommand(
 		// 1. Merge resolution (needs worktree to exist)
 		// 2. Worktree cleanup (after merge is complete)
 		await handlePostPipeline(
+			port,
 			issueNum,
 			issueTitle,
 			loopStatus,
@@ -1112,6 +1123,7 @@ export async function handleSupervisorCommand(
 // for post-hoc inspection (Bug 7 fix).
 
 export async function handlePostPipeline(
+	port: GitHubPort,
 	issueNum: number,
 	issueTitle: string,
 	loopStatus: string,
@@ -1130,6 +1142,7 @@ export async function handlePostPipeline(
 		// Step 1: Post-pipeline merge resolution — needs worktree to exist
 		if (isDoneStatus(loopStatus) && agentResults.length > 0) {
 			await handlePostPipelineMerge(
+				port,
 				issueNum,
 				issueTitle,
 				loopStatus,

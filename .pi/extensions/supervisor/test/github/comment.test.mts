@@ -1,26 +1,21 @@
-// ─── Tests: github/comment.ts — issue comment posting + parsing ──
-// Tests for postIssueComment, extractStructuredAuditOutput,
-// extractAgentCommentBody.
+// ─── Tests: agent/output.ts + lib/issue-filter.ts — comment parsing ──
+// Tests for extractStructuredAuditOutput, extractAgentCommentBody,
+// filterIssueData (moved from github/comment.ts).
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, rmSync, mkdirSync } from "node:fs";
-import type { ExecFn } from "../../pipeline/helpers.ts";
 import {
-	postIssueComment,
 	extractStructuredAuditOutput,
 	extractAgentCommentBody,
-	filterIssueData,
-} from "../../github/comment.ts";
+} from "../../agent/output.ts";
+import { filterIssueData } from "../../lib/issue-filter.ts";
 import { isToolCallLine } from "../../lib/formatting.ts";
 
-// ─── Direct Export Coverage (TDD gate test-covers-symbols) ───────
-// These assertions call exported functions directly inside assert()
-// so the TDD gate can detect that comment.ts runtime exports are covered.
+// ─── Direct Export Coverage ──────────────────────────────────────
 
-describe("comment.ts runtime exports — direct call in assertions", () => {
+describe("comment parsing exports — direct call in assertions", () => {
 	it("filterIssueData directly callable in assert", () => {
-		assert.strictEqual(filterIssueData({ author: { login: "u" }, body: "b" }, ["u"]).body, "b");
+		assert.strictEqual(filterIssueData({ author: { login: "u" }, body: "b" } as any, ["u"]).body, "b");
 	});
 
 	it("extractStructuredAuditOutput directly callable in assert", () => {
@@ -29,115 +24,6 @@ describe("comment.ts runtime exports — direct call in assertions", () => {
 
 	it("extractAgentCommentBody directly callable in assert", () => {
 		assert.equal(extractAgentCommentBody("COMMENT_BODY: test\nCOMMENT_BODY_END"), "test");
-	});
-
-	it("postIssueComment is a function", () => {
-		assert.equal(typeof postIssueComment, "function");
-	});
-});
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function createMockExec(execResult: { code: number; stdout: string; stderr: string }): ExecFn {
-	return async () => ({ ...execResult, killed: false });
-}
-
-// ─── Tests: postIssueComment() ────────────────────────────────────
-
-describe("postIssueComment()", () => {
-	it("calls gh issue comment with --body-file (not --body)", async () => {
-		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const exec: ExecFn = async (cmd: string, args: string[]) => {
-			calls.push({ cmd, args });
-			return { code: 0, stdout: "", stderr: "", killed: false };
-		};
-		await postIssueComment(exec, 123, "owner/repo", "Comment body");
-		assert.equal(calls.length, 1);
-		// gh() may call via "bash" when GH_TOKEN env is available (gh-client.ts)
-		assert.ok(
-			calls[0].cmd === "gh" || calls[0].cmd === "bash",
-			`expected "gh" or "bash", got "${calls[0].cmd}"`,
-		);
-		// Must use --body-file to avoid shell interpretation of special chars
-		const bodyFileIdx = calls[0].args.indexOf("--body-file");
-		assert.notEqual(bodyFileIdx, -1, "should use --body-file instead of --body");
-		assert.equal(calls[0].args.indexOf("--body"), -1, "should NOT use --body");
-		// Verify temp file path is in ignore/ folder
-		const tempFilePath = calls[0].args[bodyFileIdx + 1];
-		assert.ok(tempFilePath, "temp file path should exist");
-		assert.ok(
-			tempFilePath.startsWith("ignore/comment-body-123-"),
-			`temp file should be in ignore/ folder: ${tempFilePath}`,
-		);
-		assert.ok(tempFilePath.endsWith(".md"), "temp file should end with .md");
-	});
-
-	it("creates ignore/ directory when it does not exist", async () => {
-		const ignorePath = "ignore";
-		// Save and remove ignore/ if it exists
-		const existed = existsSync(ignorePath);
-		const renamed = ignorePath + "_bak_" + Date.now();
-		if (existed) {
-			// Move aside so we can test creation
-			const { renameSync } = await import("node:fs");
-			renameSync(ignorePath, renamed);
-		}
-		try {
-			const calls: Array<{ cmd: string; args: string[] }> = [];
-			const exec: ExecFn = async (cmd: string, args: string[]) => {
-				calls.push({ cmd, args });
-				return { code: 0, stdout: "", stderr: "", killed: false };
-			};
-			await postIssueComment(exec, 456, "owner/repo", "Testing mkdir");
-			// ignore/ should now exist
-			assert.ok(existsSync(ignorePath), "ignore/ should be created");
-			// Temp file should exist and contain body
-			const tempFilePath = calls[0].args[calls[0].args.indexOf("--body-file") + 1];
-			assert.ok(tempFilePath, "temp file path should exist");
-			assert.ok(tempFilePath.startsWith("ignore/comment-body-456-"), "temp file in ignore/");
-		} finally {
-			// Restore original ignore/ if it existed
-			if (existed) {
-				const { renameSync } = await import("node:fs");
-				if (existsSync(ignorePath)) {
-					rmSync(ignorePath, { recursive: true });
-				}
-				renameSync(renamed, ignorePath);
-			} else {
-				// We created it — clean up
-				rmSync(ignorePath, { recursive: true });
-			}
-		}
-	});
-
-	it("works when ignore/ directory already exists", async () => {
-		// Ensure ignore/ exists
-		if (!existsSync("ignore")) {
-			mkdirSync("ignore", { recursive: true });
-		}
-		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const exec: ExecFn = async (cmd: string, args: string[]) => {
-			calls.push({ cmd, args });
-			return { code: 0, stdout: "", stderr: "", killed: false };
-		};
-		await postIssueComment(exec, 789, "owner/repo", "Existing dir test");
-		assert.equal(calls.length, 1, "gh call should succeed");
-	});
-
-	it("cleanup runs in finally after successful write and gh call", async () => {
-		if (!existsSync("ignore")) {
-			mkdirSync("ignore", { recursive: true });
-		}
-		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const exec: ExecFn = async (cmd: string, args: string[]) => {
-			calls.push({ cmd, args });
-			return { code: 0, stdout: "", stderr: "", killed: false };
-		};
-		await postIssueComment(exec, 101, "owner/repo", "Cleanup test");
-		const tempFilePath = calls[0].args[calls[0].args.indexOf("--body-file") + 1];
-		assert.ok(tempFilePath, "temp file path should exist");
-		// Temp file should have been deleted by finally block
-		assert.ok(!existsSync(tempFilePath), "temp file should be deleted in finally");
 	});
 });
 
@@ -575,7 +461,7 @@ describe("extractStructuredAuditOutput() — COMMENT_BODY_END stripping", () => 
 
 describe("stripTrailingMetadata — extracted helper", () => {
 	it("heading section followed by JSON block → commentBody truncated before JSON", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		// Add enough content to pass the minHeadingLen + 20 boundary guard (36 chars from start)
 		// JSON keys on separate lines (matches agent output format)
@@ -588,7 +474,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section followed by 💭 thinking → commentBody truncated before thinking", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n💭 The agent is thinking about something\n";
@@ -598,7 +484,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section followed by 📊 instrumentation → commentBody truncated before instrumentation", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n📊 Some instrumentation data\n";
@@ -608,7 +494,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section with all three trailing patterns → earliest match wins (shortest truncation)", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		// JSON (keys on separate lines) appears first, then thinking, then instrumentation
@@ -622,7 +508,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section with no trailing metadata → content unchanged", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n";
@@ -631,7 +517,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("trailing metadata within 20 chars of heading length → not truncated (boundary guard)", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## A";
 		// Metadata (key on separate line) appears very close to heading (within 20 chars) — should not truncate
 		const slice = heading + "\n\n" + '\n"auditScore": 1';

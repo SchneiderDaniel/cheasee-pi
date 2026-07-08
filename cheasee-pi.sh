@@ -641,7 +641,7 @@ if [ "$FRESH_START" = true ]; then
     done
 
     # ── npm packages from package.json that extensions import ──
-    pkgs="proper-lockfile typebox shell-quote typescript vscode-jsonrpc"
+    pkgs="proper-lockfile typebox shell-quote typescript vscode-jsonrpc @octokit/rest @octokit/graphql"
     for p in $pkgs; do
       if [ ! -d "/workspaces/main/node_modules/$p" ]; then
         echo "  ⚠️  MISSING: $p not in node_modules"
