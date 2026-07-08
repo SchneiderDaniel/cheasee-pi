@@ -205,31 +205,6 @@ export interface DepsResult {
 	blockers: BlockerInfo[];
 }
 
-interface GhBlockingIssue {
-	id: string;
-	number: number;
-	title: string;
-	state: string;
-}
-
-interface GhTimelineNode {
-	__typename: string;
-	blockingIssue?: GhBlockingIssue | null;
-}
-
-export interface GhTimelineResponse {
-	data?: {
-		repository?: {
-			issue?: {
-				timelineItems?: {
-					nodes?: GhTimelineNode[];
-				};
-			};
-		};
-	};
-	errors?: Array<{ message: string }>;
-}
-
 // ─── PR Conflict types ──────────────────────────────────────────────
 
 export interface PrConflictInfo {

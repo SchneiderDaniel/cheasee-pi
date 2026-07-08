@@ -100,7 +100,7 @@ describe("buildAgentTask — no gh issue comment in prompts (Phase 2)", () => {
 
 describe("extractStructuredAuditOutput", () => {
 	it("extracts AUDIT_DECISION from agent output", async () => {
-		const { extractStructuredAuditOutput } = await import("../github/index.ts");
+		const { extractStructuredAuditOutput } = await import("../agent/output.ts");
 		const output =
 			"AUDIT_DECISION: APPROVED\nPR_TITLE: feat(#42): fix\nPR_BODY: desc\nCOMMENT_BODY: nice";
 		const result = extractStructuredAuditOutput(output);
@@ -109,13 +109,13 @@ describe("extractStructuredAuditOutput", () => {
 	});
 
 	it("returns null when no AUDIT_DECISION marker", async () => {
-		const { extractStructuredAuditOutput } = await import("../github/index.ts");
+		const { extractStructuredAuditOutput } = await import("../agent/output.ts");
 		const result = extractStructuredAuditOutput("no markers here");
 		assert.strictEqual(result, null);
 	});
 
 	it("extracts PR_TITLE, PR_BODY, COMMENT_BODY", async () => {
-		const { extractStructuredAuditOutput } = await import("../github/index.ts");
+		const { extractStructuredAuditOutput } = await import("../agent/output.ts");
 		const output = [
 			"AUDIT_DECISION: APPROVED",
 			"PR_TITLE: feat(#42): add feature",
@@ -139,7 +139,7 @@ describe("extractStructuredAuditOutput", () => {
 	});
 
 	it("handles REJECTED decision without PR fields", async () => {
-		const { extractStructuredAuditOutput } = await import("../github/index.ts");
+		const { extractStructuredAuditOutput } = await import("../agent/output.ts");
 		const output = "AUDIT_DECISION: REJECTED\nCOMMENT_BODY: ## Audit Rejected\nMissing tests";
 		const result = extractStructuredAuditOutput(output);
 		assert.ok(result);
@@ -148,7 +148,7 @@ describe("extractStructuredAuditOutput", () => {
 	});
 
 	it("last AUDIT_DECISION marker wins", async () => {
-		const { extractStructuredAuditOutput } = await import("../github/index.ts");
+		const { extractStructuredAuditOutput } = await import("../agent/output.ts");
 		const output =
 			"AUDIT_DECISION: APPROVED\nPR_TITLE: first\nAUDIT_DECISION: REJECTED\nCOMMENT_BODY: nope";
 		const result = extractStructuredAuditOutput(output);

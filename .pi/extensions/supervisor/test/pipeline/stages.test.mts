@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { createMockGitHubPort, type PortCall } from "../../test/helper/mock-github-port.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type {
 	SupervisorConfig,
@@ -98,6 +99,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 function makeProjectFields(statusFieldId: string): ProjectField[] {
@@ -920,16 +922,17 @@ describe("buildAgentResultEntry()", () => {
 
 describe("handleBacklogTransition()", () => {
 	const statusFieldId = "sf_status";
+	const port = createMockGitHubPort();
 
 	it("calls setItemStatus with correct args and returns 'Research' on success", async () => {
-		const calls: ExecCall[] = [];
-		// setItemStatus calls gh(pi, ["project", "item-edit", ...])
-		// which calls pi.exec("gh", [...])
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const fields = makeProjectFields(statusFieldId);
+		const port = createMockGitHubPort({}, portCalls);
 
 		const result = await handleBacklogTransition(
 			pi,
+			port,
 			fields,
 			statusFieldId,
 			"item_123",
@@ -937,12 +940,11 @@ describe("handleBacklogTransition()", () => {
 		);
 		assert.equal(result, "Research");
 
-		// Verify the gh project item-edit call was made
-		assert.ok(calls.length >= 1);
-		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.ok(ghCall, "setItemStatus should call gh");
-		assert.ok(ghCall!.args.includes("item_123"));
-		assert.ok(ghCall!.args.includes("project_456"));
+		// Verify port.setItemStatusField was called with correct args
+		const statusCall = portCalls.find((c) => c.method === "setItemStatusField");
+		assert.ok(statusCall, "setItemStatusField should be called");
+		assert.ok((statusCall!.args[0] as string).includes("item_123"));
+		assert.ok((statusCall!.args[1] as string).includes("project_456"));
 	});
 
 	it("throws when 'Research' option not found", async () => {
@@ -961,18 +963,26 @@ describe("handleBacklogTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => handleBacklogTransition(pi, fields, statusFieldId, "item_123", "project_456"),
+			() => handleBacklogTransition(pi, port, fields, statusFieldId, "item_123", "project_456"),
 			/Cannot find 'Research' status option/,
 		);
 	});
 
 	it("throws when setItemStatus fails", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "network error" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const fields = makeProjectFields(statusFieldId);
+		const port = createMockGitHubPort(
+			{
+				setItemStatusField: async () => {
+					throw new Error("network error");
+				},
+			},
+			portCalls,
+		);
 
 		await assert.rejects(
-			() => handleBacklogTransition(pi, fields, statusFieldId, "item_123", "project_456"),
+			() => handleBacklogTransition(pi, port, fields, statusFieldId, "item_123", "project_456"),
 			/Failed to set status/,
 		);
 	});
@@ -982,13 +992,16 @@ describe("handleBacklogTransition()", () => {
 
 describe("applyStatusTransition()", () => {
 	const statusFieldId = "sf_status";
+	const port = createMockGitHubPort();
 
 	it("calls setItemStatus with correct option id and returns targetStatus", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const fields = makeProjectFields(statusFieldId);
+		const port = createMockGitHubPort({}, portCalls);
 
 		const result = await applyStatusTransition(
+			port,
 			pi,
 			"item_123",
 			"project_456",
@@ -998,9 +1011,9 @@ describe("applyStatusTransition()", () => {
 		);
 		assert.equal(result, "Audit");
 
-		// Verify gh was called
-		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.ok(ghCall, "setItemStatus should call gh");
+		// Verify port.setItemStatusField was called
+		const statusCall = portCalls.find((c) => c.method === "setItemStatusField");
+		assert.ok(statusCall, "setItemStatusField should be called");
 	});
 
 	it("throws when option not found", async () => {
@@ -1015,7 +1028,8 @@ describe("applyStatusTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => applyStatusTransition(pi, "item_123", "project_456", fields, statusFieldId, "Audit"),
+			() =>
+				applyStatusTransition(port, pi, "item_123", "project_456", fields, statusFieldId, "Audit"),
 			/Cannot find 'Audit' option on board/,
 		);
 	});
@@ -1024,6 +1038,7 @@ describe("applyStatusTransition()", () => {
 // ─── Tests: handlePostAgentSuccess() ─────────────────────────────
 
 describe("handlePostAgentSuccess()", () => {
+	const port = createMockGitHubPort();
 	const baseResult: AgentRunResult = {
 		output: "",
 		success: true,
@@ -1039,15 +1054,17 @@ describe("handlePostAgentSuccess()", () => {
 	};
 
 	it("posts comment for architect when output contains COMMENT_BODY — returns true", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const filteredData: FilteredIssueData = {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			baseResult,
@@ -1061,23 +1078,30 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "architect comment post succeeds — pipeline should continue");
-		// Should call gh issue comment
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.ok(ghCall, "should call gh issue comment for architect");
+		// Should call port.postIssueComment
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should call postIssueComment for architect");
 	});
 
-	it("architect comment post fails (gh error) — returns true (advisory), pipeline continues", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "network error" }], calls);
+	it("architect comment post fails (port error) — returns true (advisory), pipeline continues", async () => {
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const filteredData: FilteredIssueData = {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {
+					throw new Error("network error");
+				},
+			},
+			portCalls,
+		);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			baseResult,
@@ -1094,8 +1118,8 @@ describe("handlePostAgentSuccess()", () => {
 	});
 
 	it("posts comment for test-designer when output contains COMMENT_BODY — returns true", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1107,8 +1131,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1122,15 +1148,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "test-designer success — pipeline should continue");
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.ok(ghCall, "should call gh issue comment for test-designer");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should call postIssueComment for test-designer");
 	});
 
 	it("posts comment for researcher when output contains COMMENT_BODY — returns true", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1142,8 +1166,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1157,15 +1183,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "researcher success — pipeline should continue");
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.ok(ghCall, "should call gh issue comment for researcher");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should call postIssueComment for researcher");
 	});
 
-	it("researcher comment post fails (gh error) — returns true (advisory), pipeline continues", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "timeout" }], calls);
+	it("researcher comment post fails (port error) — returns true (advisory), pipeline continues", async () => {
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1177,8 +1201,17 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {
+					throw new Error("timeout");
+				},
+			},
+			portCalls,
+		);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1222,6 +1255,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1261,6 +1295,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1299,6 +1334,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1337,6 +1373,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1377,6 +1414,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1418,6 +1456,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1450,6 +1489,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1467,13 +1507,8 @@ describe("handlePostAgentSuccess()", () => {
 	});
 
 	it("handles auditor approval output with structured AUDIT_DECISION — returns true", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1487,8 +1522,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1502,21 +1539,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		// Should call gh issue comment
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post audit approval comment");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post audit approval comment");
 	});
 
 	it("handles auditor rejection output — returns true", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1530,8 +1559,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1545,15 +1576,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post audit rejection comment");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post audit rejection comment");
 	});
 
 	it("handles auditor output with no COMMENT_BODY marker and no JSON — no comment posted, pipeline continues", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1565,8 +1594,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1580,19 +1611,17 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
 		assert.equal(
-			ghCall,
+			commentCall,
 			undefined,
 			"no comment posted when output has no JSON and no COMMENT_BODY marker",
 		);
 	});
 
 	it("does not post comment for developer (no comment body extraction needed)", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1604,8 +1633,10 @@ describe("handlePostAgentSuccess()", () => {
 			body: "",
 			comments: [],
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1618,9 +1649,9 @@ describe("handlePostAgentSuccess()", () => {
 			"Test issue",
 		);
 
-		// No gh calls expected for developer without worktree
+		// No port calls expected for developer without worktree
 		assert.equal(success, true, "no worktree — no-op, pipeline should continue");
-		assert.equal(calls.length, 0);
+		assert.equal(portCalls.length, 0);
 	});
 
 	// ─── notify parameter tests (Result<T> pattern) ────────────────
@@ -1655,6 +1686,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1706,6 +1738,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1728,13 +1761,8 @@ describe("handlePostAgentSuccess()", () => {
 	});
 
 	it("gateRejected passed to auditor → posts gate rejection comment instead of approval", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment for gate rejection
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1752,8 +1780,10 @@ describe("handlePostAgentSuccess()", () => {
 			required: 6,
 			total: 7,
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1769,26 +1799,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "gate rejection should still allow pipeline to continue");
-		// Should call gh issue comment
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post gate rejection comment");
-		// Verify the comment body contains gate rejection info
-		const commentIdx = calls.findIndex(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(commentIdx >= 0, "comment should be posted");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post gate rejection comment");
 	});
 
 	it("gateRejected with auditor REJECTED action → gate still posted (gate takes priority)", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment for gate rejection
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1806,8 +1823,10 @@ describe("handlePostAgentSuccess()", () => {
 			required: 6,
 			total: 8,
 		};
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1823,21 +1842,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true);
-		// Gate rejection should still be posted even though auditor said REJECTED
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post gate rejection comment");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post gate rejection comment");
 	});
 
 	it("no gateRejected + auditor APPROVED → normal approval comment posted", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1850,8 +1861,10 @@ describe("handlePostAgentSuccess()", () => {
 			textOnly: "",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1865,20 +1878,13 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true);
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post normal approval comment");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post normal approval comment");
 	});
 
 	it("no gateRejected + auditor REJECTED → normal rejection comment posted", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // post issue comment
-			],
-			calls,
-		);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseResult,
@@ -1891,8 +1897,10 @@ describe("handlePostAgentSuccess()", () => {
 			textOnly: "",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -1906,10 +1914,8 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true);
-		const ghCall = calls.find(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("comment"),
-		);
-		assert.ok(ghCall, "should post normal rejection comment");
+		const commentCall = portCalls.find((c) => c.method === "postIssueComment");
+		assert.ok(commentCall, "should post normal rejection comment");
 	});
 
 	// ─── Tests: MAX_PIPELINE_LOOPS constant ───────────────────────────
@@ -1930,6 +1936,7 @@ describe("handlePostAgentSuccess()", () => {
 // ─── Tests: handlePostAgentSuccess — budget exceeded ─────────────
 
 describe("handlePostAgentSuccess — researcher budget exceeded", () => {
+	const port = createMockGitHubPort();
 	const baseBudgetResult: AgentRunResult = {
 		output: "",
 		success: true,
@@ -1977,9 +1984,8 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 	}
 
 	it("researcher + budgetExceeded + valid commentBody: posts combined stopped-early header + findings in single comment", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -1988,8 +1994,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "COMMENT_BODY:\n## Research Findings\nFinding 1\nFinding 2\nCOMMENT_BODY_END",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2004,15 +2012,12 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Single gh comment call — the combined message (NOT two separate calls)
-		const ghCalls = calls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.equal(ghCalls.length, 1, "exactly one issue comment posted (combined message)");
+		// Single postIssueComment call — the combined message
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "exactly one postIssueComment call (combined message)");
 
-		// Verify body content captured from gh --body-file
-		assert.equal(bodies.length, 1, "one comment body captured");
-		const body = bodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
+		assert.ok(body, "body should be present");
 		assert.ok(
 			body.includes("Research stopped early"),
 			"body contains 'Research stopped early' header",
@@ -2022,9 +2027,8 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 	});
 
 	it("researcher + budgetExceeded + valid commentBody: single postIssueComment call (no separate budget comment)", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -2033,8 +2037,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "COMMENT_BODY:\n## Research Findings\nPartial data\nCOMMENT_BODY_END",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2049,16 +2055,17 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 		assert.equal(success, true);
 
-		const ghCalls = calls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(
+			commentCalls.length,
+			1,
+			"only one postIssueComment call — no separate budget-exceeded comment",
 		);
-		assert.equal(ghCalls.length, 1, "only one gh call — no separate budget-exceeded comment");
 	});
 
 	it("researcher + budgetExceeded + no commentBody: graceful degradation comment posted (preserved behavior)", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -2067,8 +2074,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2083,13 +2092,11 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 		assert.equal(success, true);
 
-		const ghCalls = calls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.equal(ghCalls.length, 1, "graceful degradation comment posted");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "graceful degradation comment posted");
 
-		assert.equal(bodies.length, 1, "one comment body captured");
-		const body = bodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
+		assert.ok(body, "body should be present");
 		assert.ok(
 			body.includes("No relevant results found"),
 			"body contains graceful degradation message",
@@ -2097,10 +2104,8 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 	});
 
 	it("researcher + budgetExceeded + comment post fails: returns true (advisory)", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		// For this test we still need the gh call to fail — keep original mock
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "timeout" }], calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -2109,8 +2114,17 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "COMMENT_BODY:\n## Research Findings\nData\nCOMMENT_BODY_END",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {
+					throw new Error("timeout");
+				},
+			},
+			portCalls,
+		);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2127,9 +2141,8 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 	});
 
 	it("architect + budgetExceeded=true: no header prepended, normal architect comment posted", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -2139,8 +2152,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "COMMENT_BODY:\n## Architecture\nDesign spec\nCOMMENT_BODY_END",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2155,13 +2170,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 		assert.equal(success, true);
 
-		const ghCalls = calls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.equal(ghCalls.length, 1, "architect comment posted");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "architect comment posted");
 
-		assert.equal(bodies.length, 1, "one comment body captured");
-		const body = bodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(body.includes("## Architecture"), "architect heading preserved");
 		assert.ok(
 			!body.includes("Research stopped early"),
@@ -2170,9 +2182,8 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 	});
 
 	it("researcher + budgetExceeded=false: normal comment without stopped-early header", async () => {
-		const calls: ExecCall[] = [];
-		const bodies: string[] = [];
-		const pi = createMockPiWithBodyCapture(bodies, calls);
+		const portCalls: PortCall[] = [];
+		const pi = createMockPi([]);
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
 			...baseBudgetResult,
@@ -2181,8 +2192,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 			textOnly: "COMMENT_BODY:\n## Research Findings\nFull data\nCOMMENT_BODY_END",
 		};
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
+		const port = createMockGitHubPort({}, portCalls);
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -2197,13 +2210,10 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 		assert.equal(success, true);
 
-		const ghCalls = calls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.includes("issue"),
-		);
-		assert.equal(ghCalls.length, 1, "normal researcher comment posted");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "normal researcher comment posted");
 
-		assert.equal(bodies.length, 1, "one comment body captured");
-		const body = bodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(body.includes("## Research Findings"), "normal heading preserved");
 		assert.ok(
 			!body.includes("Research stopped early"),

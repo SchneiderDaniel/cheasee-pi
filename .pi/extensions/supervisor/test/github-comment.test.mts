@@ -20,6 +20,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../config/types.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
 import { handlePostAgentSuccess } from "../pipeline/stages.ts";
+import { createMockGitHubPort, type PortCall } from "./helper/mock-github-port.ts";
 import {
 	CapturedOutput,
 	createMockPi,
@@ -89,6 +90,7 @@ const mockConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
+	dupGateBlocking: false,
 };
 
 const filteredData: FilteredIssueData = { body: "", comments: [] };
@@ -133,17 +135,14 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		captured = new CapturedOutput();
 		capturedBodies = [];
 		resetMocks();
-		// Ensure ignore/ directory exists for postIssueComment temp files
-		if (!existsSync("ignore")) {
-			mkdirSync("ignore", { recursive: true });
-		}
 	});
 
 	// ── Phase 1: Researcher comment posting ───────────────────────
 
-	it("Researcher posts findings: textOutput with complete JSON → gh issue comment posted", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+	it("Researcher posts findings: textOutput with complete JSON → postIssueComment called", async () => {
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
 			agentName: "researcher",
@@ -156,6 +155,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -170,20 +170,15 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Exactly one gh issue comment call
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "exactly one gh issue comment call");
-		assert.ok(ghCalls[0].args.includes("42"), "gh call references issue number 42");
+		// Exactly one port.postIssueComment call
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "exactly one postIssueComment call");
+		assert.equal(commentCalls[0].args[0], 42, "postIssueComment references issue number 42");
 
-		// Body captured from --body-file
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		assert.ok(
-			capturedBodies[0].includes("## Research Findings"),
-			"body contains ## Research Findings heading",
-		);
-		assert.ok(capturedBodies[0].includes("Finding 1"), "body contains research content");
+		// Body is passed directly (3rd arg)
+		const body = commentCalls[0].args[2] as string;
+		assert.ok(body.includes("## Research Findings"), "body contains ## Research Findings heading");
+		assert.ok(body.includes("Finding 1"), "body contains research content");
 
 		// Notification
 		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
@@ -194,8 +189,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Researcher graceful degradation: empty textOutput → fallback comment posted", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
 			agentName: "researcher",
@@ -204,6 +200,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -218,14 +215,12 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Fallback comment posted
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call for fallback");
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		// Fallback comment posted via port
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call for fallback");
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(
-			capturedBodies[0].includes("No relevant results found"),
+			body.includes("No relevant results found"),
 			"fallback body contains 'No relevant results found'",
 		);
 
@@ -238,8 +233,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Researcher budget exceeded: budgetExceeded=true → single combined comment with stopped-early header", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
 			agentName: "researcher",
@@ -254,6 +250,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -269,14 +266,11 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(success, true, "pipeline should continue");
 
 		// Single combined comment (NOT two separate calls)
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "exactly one gh issue comment call (combined message)");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "exactly one postIssueComment call (combined message)");
 
 		// Body contains stopped-early header
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		const body = capturedBodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(
 			body.includes("Research stopped early"),
 			"body contains 'Research stopped early' header",
@@ -295,8 +289,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	// ── Phase 2: Architect comment posting — heading validation ───
 
 	it("Architect posts architecture: textOutput with ## Architecture → comment posted", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
 			agentName: "architect",
@@ -309,6 +304,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -323,16 +319,11 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "exactly one gh issue comment call");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "exactly one postIssueComment call");
 
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		assert.ok(
-			capturedBodies[0].includes("## Architecture"),
-			"body contains ## Architecture heading",
-		);
+		const body = commentCalls[0].args[2] as string;
+		assert.ok(body.includes("## Architecture"), "body contains ## Architecture heading");
 
 		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
 		assert.ok(
@@ -342,8 +333,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Architect missing ## Architecture heading → heading injected, comment posted with warning", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
@@ -357,6 +349,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -372,15 +365,12 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Exactly one gh call (heading is injected, comment IS posted)
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call (heading injected)");
+		// Exactly one port call (heading is injected, comment IS posted)
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call (heading injected)");
 
 		// Body contains injected ## Architecture heading
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		const body = capturedBodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(body.includes("## Architecture"), "body contains injected ## Architecture heading");
 		assert.ok(body.includes("Design Notes"), "body preserves original content");
 
@@ -402,8 +392,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	// ── Phase 3: Test-designer comment posting — heading validation ──
 
 	it("Test-designer missing ## Test Plan heading → heading injected, comment posted with warning", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
@@ -417,6 +408,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -432,15 +424,12 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		// Exactly one gh call (heading is injected, comment IS posted)
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call (heading injected)");
+		// Exactly one port call (heading is injected, comment IS posted)
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call (heading injected)");
 
 		// Body contains injected ## Test Plan heading
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		const body = capturedBodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(body.includes("## Test Plan"), "body contains injected ## Test Plan heading");
 		assert.ok(body.includes("Test Strategy"), "body preserves original content");
 
@@ -462,6 +451,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	// ── Phase 4: Developer commit+push ─────────────────────────────
 
 	it("Developer commit+push: worktreePath + worktreeBranch set → git commands executed, returns true", async () => {
+		const port = createMockGitHubPort();
 		const pi = createBodyCapturePi(captured, capturedBodies);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
@@ -479,6 +469,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -523,6 +514,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Developer commitAndPush fails (git add error) → returns false, error notification", async () => {
+		const port = createMockGitHubPort();
 		const pi = createBodyCapturePi(captured, capturedBodies);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
@@ -537,6 +529,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -581,8 +574,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	// ── Phase 5: Defense-in-depth — trailing code fence stripping ──
 
 	it("Trailing ```json code fence stripped from commentBody before posting", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const result = makeResult({
 			agentName: "researcher",
@@ -596,6 +590,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -611,13 +606,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(success, true, "pipeline should continue");
 
 		// Comment was posted (code fence stripped)
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call");
 
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		const body = capturedBodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 
 		// The ```json fence should be stripped
 		assert.ok(!body.includes("```json"), "code fence stripped from posted comment");
@@ -635,8 +627,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	// ── Phase 6: Extraction fallback chain reliability ─────────────
 
 	it("Extraction fallback: textOnly empty, textOutput has JSON → extracted from textOutput with warn", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
@@ -651,6 +644,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -666,14 +660,12 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call via fallback");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call via fallback");
 
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(
-			capturedBodies[0].includes("Extracted from textOutput fallback"),
+			body.includes("Extracted from textOutput fallback"),
 			"body content comes from textOutput",
 		);
 
@@ -685,8 +677,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Extraction fallback: textOnly empty, textOutput empty, thinkingOutput has JSON → extracted from thinkingOutput with warn", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
@@ -702,6 +695,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -717,14 +711,12 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call via fallback");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call via fallback");
 
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(
-			capturedBodies[0].includes("Extracted from thinkingOutput fallback"),
+			body.includes("Extracted from thinkingOutput fallback"),
 			"body content comes from thinkingOutput",
 		);
 
@@ -736,8 +728,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 	});
 
 	it("Extraction bare-text fallback: no JSON or structured heading → wraps in default heading", async () => {
-		registerGhResponse();
-		const pi = createBodyCapturePi(captured, capturedBodies);
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort({}, portCalls);
+		const pi = createMockPi(captured);
 		const ctx = createMockCtx(captured, { hasUI: true });
 		const collector = new ErrorCollector();
 		const result = makeResult({
@@ -748,6 +741,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			port,
 			pi,
 			ctx,
 			result,
@@ -763,13 +757,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(success, true, "pipeline should continue");
 
-		const ghCalls = captured.execCalls.filter(
-			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
-		);
-		assert.equal(ghCalls.length, 1, "one gh issue comment call via bare-text fallback");
+		const commentCalls = portCalls.filter((c) => c.method === "postIssueComment");
+		assert.equal(commentCalls.length, 1, "one postIssueComment call via bare-text fallback");
 
-		assert.equal(capturedBodies.length, 1, "one comment body captured");
-		const body = capturedBodies[0] || "";
+		const body = commentCalls[0].args[2] as string;
 		assert.ok(body.includes("## Architecture"), "body has injected ## Architecture heading");
 		assert.ok(body.includes("Architecture overview"), "body preserves original content");
 

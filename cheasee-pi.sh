@@ -166,20 +166,18 @@ if [ "$CLEAN" = true ]; then
     exit 0
 fi
 
-# --- Host-side cleanup: kill stale pi processes (disconnected docker exec sessions) ---------
-# Uses `docker top` whose TTY column shows pts/X for connected sessions and ? for stale ones.
-# This is the most reliable way to distinguish active from orphaned sessions because
-# Docker keeps the PTY master alive only while the exec client is connected.
-# Runs on the host (not inside container) — kills by host PID which translates across
-# PID namespaces automatically.
+# --- Host-side cleanup: remove stale marker files from dead sessions ---------
+# Process cleanup is handled by internal marker-based cleanup (pre-launch and
+# post-session in the container) which walks /proc and checks /tmp/pi-active-*
+# marker ancestry. This function only cleans up leftover marker files whose
+# PIDs are no longer alive — preventing accumulation after crashes/reboots.
 kill_stale_pi_host() {
     local container="$1"
-    docker top "$container" 2>/dev/null | tail -n +2 | while read -r uid pid ppid c stime tty time cmd; do
-        if [ "$cmd" = "pi" ] && [ "$tty" = "?" ]; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
-    done
-    # Clean up stale marker files inside the container
+    # Clean up stale marker files inside the container.
+    # Process killing is handled by the internal marker-based cleanup
+    # (pre-launch and post-session) which correctly walks /proc and
+    # checks /tmp/pi-active-* marker ancestry — more reliable than
+    # docker top which has host-dependent CMD/PPID formatting.
     docker exec "$container" bash -c '
       for m in /tmp/pi-active-*; do
         [ -f "$m" ] && pid=$(cat "$m" 2>/dev/null) && ! kill -0 "$pid" 2>/dev/null && rm -f "$m" 2>/dev/null || true
@@ -641,7 +639,7 @@ if [ "$FRESH_START" = true ]; then
     done
 
     # ── npm packages from package.json that extensions import ──
-    pkgs="proper-lockfile typebox shell-quote typescript vscode-jsonrpc zod"
+    pkgs="proper-lockfile typebox shell-quote typescript vscode-jsonrpc @octokit/rest @octokit/graphql zod"
     for p in $pkgs; do
       if [ ! -d "/workspaces/main/node_modules/$p" ]; then
         echo "  ⚠️  MISSING: $p not in node_modules"

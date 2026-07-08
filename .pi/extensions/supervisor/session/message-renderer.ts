@@ -14,10 +14,10 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { formatTokensInt, formatDuration, formatTokens, getTermWidth, thinkingLabel, thinkingColor } from "../lib/formatting.ts";
+import { formatTokensInt, formatDuration, formatTokens, getTermWidth, formatToolCall } from "../lib/formatting.ts";
+import { thinkingLabel, thinkingColor } from "../../lib/thinking-level.ts";
 import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
-import { formatToolCall } from "../lib/formatting.ts";
 
 // ─── Constants (shared with deleted renderSubagentResult) ──────────
 const MAX_TASK_PREVIEW_CHARS = 80;

@@ -25,7 +25,13 @@ import { resolve as resolvePath } from "node:path";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { LspPublishDiagnosticsParams, LspDiagnosticData } from "./lib/lsp-types.ts";
 import { isLspPublishDiagnosticsParams, isLspDiagnosticData } from "./lib/lsp-types.ts";
-import type { LspDiagnostic, ServerMapping, AuditResult, LspRuntime, JsonRpcModule } from "./types.ts";
+import type {
+	LspDiagnostic,
+	ServerMapping,
+	AuditResult,
+	LspRuntime,
+	JsonRpcModule,
+} from "./types.ts";
 import { filterBySeverity } from "./formatting.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -246,6 +252,19 @@ export async function auditFileGroup(
 			return { diagnostics: [], errors, note: "" };
 		}
 
+		// Guard stdin against EPIPE that can escape as uncaughtException.
+		// The WritableStreamWrapper's onError handles protocol-level errors,
+		// but EPIPE from a dead child's broken pipe can fire as an unhandled
+		// stream 'error' event during cleanup (after finally removes listeners).
+		// This handler silently absorbs EPIPE — non-EPIPE errors still propagate
+		// through the connection's onError.
+		child.stdin!.on("error", (err: Error) => {
+			if ((err as NodeJS.ErrnoException)?.code === "EPIPE") {
+				return; // Expected when server disconnects
+			}
+			errors.push(`stdin error (${mapping.command}): ${err.message}`);
+		});
+
 		const reader = new jsonRpc.StreamMessageReader(child.stdout!);
 		const writer = new jsonRpc.StreamMessageWriter(child.stdin!);
 		connection = jsonRpc.createMessageConnection(reader, writer) as MessageConnection;
@@ -385,11 +404,13 @@ export async function auditFileGroup(
 		}
 		try {
 			if (child) {
-				// Remove all error listeners to prevent async errors after cleanup
+				// Remove child-process-level error listener to prevent spawn error
+				// callbacks from firing after cleanup. Keep stdin/stdout/stderr
+				// listeners alive — they absorb EPIPE/EOF errors that fire during
+				// async cleanup (after dispose) instead of becoming uncaughtException.
 				child.removeAllListeners("error");
-				if (child.stdin) child.stdin.removeAllListeners("error");
-				if (child.stdout) child.stdout.removeAllListeners("error");
-				if (child.stderr) child.stderr.removeAllListeners("error");
+				// ponytail: stdin/stdout/stderr listeners intentionally kept.
+				// Removing them caused async EPIPE to become uncaughtException.
 				if (child.exitCode === null) {
 					child.kill("SIGTERM");
 					const childRef = child;
