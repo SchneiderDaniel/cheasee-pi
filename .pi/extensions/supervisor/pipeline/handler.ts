@@ -69,7 +69,6 @@ import {
 	type GateRejected,
 	buildDeadCodeContext,
 	buildVulnContext,
-
 } from "./stages.ts";
 import {
 	fetchIssue,
@@ -578,7 +577,6 @@ export async function handleSupervisorCommand(
 			const vulnContext: string | undefined =
 				agentName === "auditor"
 					? (buildVulnContext(stageState.vulnResult) ?? undefined)
-
 					: undefined;
 			const task = buildAgentTask(
 				agentName,
@@ -630,15 +628,13 @@ export async function handleSupervisorCommand(
 
 			// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
 			if (result.budgetExceeded) {
-				getDebugLogger().info("handler",
-					`Agent ${agentName} exceeded budget — retry skipped`,
-					{ budgetExceeded: true },
-				);
+				getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
+					budgetExceeded: true,
+				});
 			} else if (!result.success) {
-				getDebugLogger().info("handler",
-					`Agent ${agentName} failed — retrying once`,
-					{ success: false },
-				);
+				getDebugLogger().info("handler", `Agent ${agentName} failed — retrying once`, {
+					success: false,
+				});
 				const { result: retryResult } = await executeAgent(
 					agent,
 					task,
@@ -976,7 +972,6 @@ export async function handleSupervisorCommand(
 					// Store vuln scan result in stage state for auditor context injection
 					if (auditResult.vulnResult) {
 						stageState.vulnResult = auditResult.vulnResult;
-
 					}
 					getDebugLogger().info("handler", "Pre-transition hook result", {
 						effectiveNextStatus,
@@ -1025,7 +1020,7 @@ export async function handleSupervisorCommand(
 		// Post-pipeline operations with correct ordering:
 		// 1. Merge resolution (needs worktree to exist)
 		// 2. Worktree cleanup (after merge is complete)
-		await handlePostPipeline(
+		const unresolvedConflicts = await handlePostPipeline(
 			port,
 			issueNum,
 			issueTitle,
@@ -1065,6 +1060,7 @@ export async function handleSupervisorCommand(
 				collector,
 				stageState.gateFailureHistory,
 				undefined,
+				unresolvedConflicts,
 			);
 			getDebugLogger().info("handler", "Pipeline finished", {
 				overallStatus,
@@ -1137,11 +1133,13 @@ export async function handlePostPipeline(
 	isDebug?: boolean,
 	collector?: ErrorCollector,
 	notify?: NotifyFn,
-): Promise<void> {
+): Promise<boolean> {
+	let unresolvedConflicts = false;
+
 	try {
 		// Step 1: Post-pipeline merge resolution — needs worktree to exist
 		if (isDoneStatus(loopStatus) && agentResults.length > 0) {
-			await handlePostPipelineMerge(
+			unresolvedConflicts = await handlePostPipelineMerge(
 				port,
 				issueNum,
 				issueTitle,
@@ -1159,7 +1157,14 @@ export async function handlePostPipeline(
 		// (Bug 7 fix — keeps evidence for post-hoc debugging)
 		if (worktreePath && worktreeBranch) {
 			const prFailed = prCreationResult && !prCreationResult.success;
-			if (isDebug && prFailed) {
+			if (unresolvedConflicts) {
+				const log = getDebugLogger();
+				log.warn("handler", "Merge resolution failed — preserving worktree");
+				ctx.ui.notify(
+					`Merge conflicts remain in PR #${issueNum}. Worktree preserved at ${worktreePath} for manual resolution.`,
+					"error",
+				);
+			} else if (isDebug && prFailed) {
 				const log = getDebugLogger();
 				log.info("handler", "PR creation failed in debug mode — preserving worktree", {
 					worktreePath,
@@ -1192,4 +1197,5 @@ export async function handlePostPipeline(
 			getDebugLogger().warn("handler", `Failed to delete checkpoint: ${delResult.error}`);
 		}
 	}
+	return unresolvedConflicts;
 }

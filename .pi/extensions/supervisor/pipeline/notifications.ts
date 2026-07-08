@@ -39,6 +39,7 @@ export function sendPipelineSummary(
 	collector?: ErrorCollector,
 	gateFailureHistory?: string[],
 	packageSafetyResult?: PackageSafetyAuditResult | null,
+	unresolvedConflicts?: boolean,
 ): void {
 	// Prepend warnings block from collector if non-empty
 	const warningsBlock = collector?.toNotificationBlock();
@@ -55,7 +56,12 @@ export function sendPipelineSummary(
 	);
 
 	// Combine warnings and summary
-	const finalContent = warningsBlock ? warningsBlock + "\n\n" + summaryMarkdown : summaryMarkdown;
+	let finalContent = warningsBlock ? warningsBlock + "\n\n" + summaryMarkdown : summaryMarkdown;
+	if (unresolvedConflicts) {
+		finalContent =
+			`⚠️ **Merge conflicts remain in PR #${issueNum}.** Worktree preserved for manual resolution.\n\n` +
+			finalContent;
+	}
 
 	// If warnings exist, also send a separate supervisor-warnings message
 	if (warningsBlock) {
@@ -76,7 +82,9 @@ export function sendPipelineSummary(
 	const isPrFailed = prCreationResult && !prCreationResult.success;
 	const effectiveStatus = isPrFailed && overallStatus === "success" ? "pr-failed" : overallStatus;
 
-	if (effectiveStatus === "pr-failed") {
+	if (unresolvedConflicts) {
+		ctx.ui.notify("Pipeline complete — merge conflicts remain.", "warning");
+	} else if (effectiveStatus === "pr-failed") {
 		ctx.ui.notify("Pipeline complete (PR creation failed).", "warning");
 	} else if (effectiveStatus === "success") {
 		ctx.ui.notify("Pipeline complete.", "info");
@@ -86,7 +94,16 @@ export function sendPipelineSummary(
 		ctx.ui.notify("Pipeline stopped.", "warning");
 	}
 
-	if (effectiveStatus === "success") {
+	if (unresolvedConflicts) {
+		const totalDurationMs = agentResults.reduce((sum, a) => sum + a.durationMs, 0);
+		ctx.ui.setStatus(
+			"supervisor",
+			ctx.ui.theme.fg(
+				"warning",
+				`⚠️ Conflicts remain · ${agentResults.length} agents · ${formatDuration(totalDurationMs)}`,
+			),
+		);
+	} else if (effectiveStatus === "success") {
 		const totalDurationMs = agentResults.reduce((sum, a) => sum + a.durationMs, 0);
 		ctx.ui.setStatus(
 			"supervisor",
