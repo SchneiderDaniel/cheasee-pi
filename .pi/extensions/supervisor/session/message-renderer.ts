@@ -119,7 +119,7 @@ function renderSubagentResultInline(
 		container.addChild(new Text(fit(theme.fg("dim", "── Tools ──")), 1, 0));
 		const displayCalls = details.toolCalls.slice(0, MAX_EXPANDED_TOOL_CALLS);
 		for (const tc of displayCalls) {
-			const formatted = renderToolCallText(tc.name, tc.args, process.cwd());
+			const formatted = renderToolCallText(tc.name, tc.args, cwd ?? process.cwd());
 			container.addChild(new Text(fit(theme.fg("toolTitle", `  ${formatted}`)), 1, 0));
 		}
 		if (details.toolCalls.length > MAX_EXPANDED_TOOL_CALLS) {

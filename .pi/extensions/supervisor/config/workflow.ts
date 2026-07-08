@@ -108,6 +108,7 @@ export function resolveNextStatus(step: WorkflowStep, agentOutput: string): stri
 export function resolveNextStatusFromAgentOutput(
 	step: WorkflowStep,
 	agentOutputText: string,
+	toolNames?: Set<string>,
 ): string | null {
 	if (!step.markerMap) return null;
 
@@ -116,7 +117,7 @@ export function resolveNextStatusFromAgentOutput(
 	let hadBareComplete = false;
 
 	// Try structured JSON parsing first
-	const parseResult = parseAgentOutput(agentOutputText);
+	const parseResult = parseAgentOutput(agentOutputText, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
 		const action = output.action;
@@ -247,9 +248,9 @@ export interface AuditScore {
 	total: number;
 }
 
-export function extractAuditScore(agentOutput: string): AuditScore | null {
+export function extractAuditScore(agentOutput: string, toolNames?: Set<string>): AuditScore | null {
 	// Try structured JSON parsing first
-	const parseResult = parseAgentOutput(agentOutput);
+	const parseResult = parseAgentOutput(agentOutput, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
 		if (output.auditScore) {
@@ -283,7 +284,7 @@ export function extractAuditScore(agentOutput: string): AuditScore | null {
  * A dimension is passing if there are no 🔴 Critical or 🟡 Warning findings in it.
  * 🟢 Suggestions do NOT fail a dimension.
  */
-export const KNOWN_AUDIT_DIMENSIONS = [
+const KNOWN_AUDIT_DIMENSIONS = [
 	"architecture-compliance",
 	"ticket-fulfillment",
 	"test-quality",

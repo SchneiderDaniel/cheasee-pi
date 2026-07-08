@@ -80,6 +80,8 @@ export interface AgentRunResult {
 	textOnly: string;
 	/** Thinking output from sub-agent (for expanded message renderer view) */
 	thinkingOutput?: string;
+	/** Tool names invoked in this session (from AgentRunState.toolCalls) */
+	toolCalls?: string[];
 	/** Whether budget (token/tool limit) was exceeded */
 	budgetExceeded?: boolean;
 
@@ -126,6 +128,8 @@ export interface AgentRunState {
 	thinkingPushedThisTurn: boolean;
 	/** Whether text was already pushed via streaming (dedup message_end) */
 	textPushedThisTurn: boolean;
+	/** Tool names invoked in this session (maintained by handleToolExecutionStart, used for tool-call line filtering) */
+	toolCalls: string[];
 	/** Whether budget (token/tool limit) was exceeded */
 	budgetExceeded: boolean;
 	/** Human-readable reason for budget exceeded */

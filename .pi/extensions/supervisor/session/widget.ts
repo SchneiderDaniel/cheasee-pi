@@ -85,6 +85,7 @@ export function renderWidgetFromDetails(
 		lastToolName: undefined,
 		thinkingPushedThisTurn: false,
 		textPushedThisTurn: false,
+		toolCalls: [],
 		budgetExceeded: false,
 		budgetExceededReason: undefined,
 		maxToolCalls: details.maxToolCalls ?? 0,

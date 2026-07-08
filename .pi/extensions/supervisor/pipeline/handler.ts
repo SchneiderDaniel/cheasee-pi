@@ -668,7 +668,7 @@ export async function handleSupervisorCommand(
 			});
 
 			// Track audit score
-			const auditInfo = trackAuditScore(result.textOnly, stageState);
+			const auditInfo = trackAuditScore(result.textOnly, stageState, new Set(result.toolCalls ?? []));
 			if (auditInfo) {
 				ctx.ui.notify(
 					`Audit #${auditInfo.cycleCount} score: ${auditInfo.score.passing}/${auditInfo.score.total}${auditInfo.trend ? ` (${auditInfo.trend})` : ""}`,
@@ -686,7 +686,7 @@ export async function handleSupervisorCommand(
 			// comment can replace the normal approval comment.
 			let gateRejected: GateRejected | undefined;
 			if (agentName === "auditor" && result.success && result.textOutput) {
-				const parseResult = parseAgentOutput(result.textOutput);
+				const parseResult = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
 				if (isAgentOutputSuccess(parseResult)) {
 					const output = parseResult as AgentOutput;
 					if (output.action === "APPROVED" && output.findings && output.findings.length > 0) {
@@ -760,6 +760,7 @@ export async function handleSupervisorCommand(
 				result.textOnly,
 				result.success,
 				auditContext,
+				new Set(result.toolCalls ?? []),
 			);
 
 			getDebugLogger().info("handler", "Next status determined", {

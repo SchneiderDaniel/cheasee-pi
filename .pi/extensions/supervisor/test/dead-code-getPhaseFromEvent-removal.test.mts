@@ -99,6 +99,7 @@ function createMinimalRunState() {
 		contextInfoReceived: false,
 		thinkingPushedThisTurn: false,
 		textPushedThisTurn: false,
+		toolCalls: [],
 		budgetExceeded: false,
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,

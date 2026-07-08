@@ -281,7 +281,7 @@ export async function runAgentInProcess(
 	const thinkingOutput =
 		state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
 
-	const summaryLine = extractSummaryLine(textOutput, success, agentName);
+	const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
 
 	ctx.ui.setWidget(widgetId, undefined);
 	ctx.ui.setWorkingMessage(undefined);
@@ -315,6 +315,7 @@ export async function runAgentInProcess(
 		summaryLine,
 		errorOutput: exitError ? exitError.message : "",
 		thinkingOutput,
+		toolCalls: state.toolCalls,
 		budgetExceeded: state.budgetExceeded || undefined,
 	};
 }

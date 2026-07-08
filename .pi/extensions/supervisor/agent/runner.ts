@@ -375,7 +375,7 @@ export async function runAgentSubprocess(
 			const thinkingOutput =
 				state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
 
-			const summaryLine = extractSummaryLine(textOutput, success, agentName);
+			const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
 			const filteredStderr = filterStderr(stderr);
 
 			ctx.ui.setWidget(widgetId, undefined);
@@ -396,6 +396,7 @@ export async function runAgentSubprocess(
 				summaryLine,
 				errorOutput: filteredStderr,
 				thinkingOutput,
+				toolCalls: state.toolCalls,
 				budgetExceeded: state.budgetExceeded || undefined,
 			});
 		};

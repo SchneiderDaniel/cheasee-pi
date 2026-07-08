@@ -111,9 +111,9 @@ export interface StructuredAuditOutput {
  * Primary path: parseAgentOutput for structured JSON.
  * Fallback: text marker regex detection (backward compat).
  */
-export function extractStructuredAuditOutput(output: string): StructuredAuditOutput | null {
+export function extractStructuredAuditOutput(output: string, toolNames?: Set<string>): StructuredAuditOutput | null {
 	// Primary: parseAgentOutput
-	const parseResult = parseAgentOutput(output);
+	const parseResult = parseAgentOutput(output, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const agentOutput = parseResult as AgentOutput;
 		if (agentOutput.action === "APPROVED" || agentOutput.action === "REJECTED") {
@@ -231,7 +231,7 @@ export function extractStructuredAuditOutput(output: string): StructuredAuditOut
 
 export function extractAgentCommentBody(output: string, toolNames?: Set<string>): string | null {
 	// Primary: parseAgentOutput for structured JSON
-	const parseResult = parseAgentOutput(output);
+	const parseResult = parseAgentOutput(output, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const agentOutput = parseResult as AgentOutput;
 		if (agentOutput.commentBody) return agentOutput.commentBody;

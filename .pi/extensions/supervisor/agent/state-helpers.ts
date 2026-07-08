@@ -49,6 +49,7 @@ export function createAgentRunState(
 		liveText: "",
 		textOutputLines: [],
 		thinkingOutputLines: [],
+		toolCalls: [],
 		phase: "idle",
 		startedAt,
 		contextInfoReceived: false,

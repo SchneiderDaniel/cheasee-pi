@@ -343,6 +343,7 @@ export function calculateNextStatus(
 	textOnly: string,
 	success: boolean = true,
 	auditContext?: AuditGateContext,
+	toolNames?: Set<string>,
 ): NextStatusResult {
 	const step = WORKFLOW.find((s) => s.agentName === agentName);
 	if (!step)
@@ -354,12 +355,12 @@ export function calculateNextStatus(
 
 	// Phase 2: Try structured AgentOutput parsing first
 	// Use agentOutput (raw text) for JSON parsing since textOnly strips JSON
-	const structuredStatus = resolveNextStatusFromAgentOutput(step, agentOutput);
+	const structuredStatus = resolveNextStatusFromAgentOutput(step, agentOutput, toolNames);
 	if (structuredStatus) {
 		// Audit score gate: when auditor APPROVED but score below threshold,
 		// override to Implementation and attach gate rejection details
 		if (agentName === "auditor" && structuredStatus === "Done" && auditContext) {
-			const parseResult = parseAgentOutput(agentOutput);
+			const parseResult = parseAgentOutput(agentOutput, toolNames);
 			if (isAgentOutputSuccess(parseResult)) {
 				const output = parseResult as AgentOutput;
 				if (output.action === "APPROVED" && output.findings && output.findings.length > 0) {
@@ -494,8 +495,8 @@ export interface AuditScoreInfo {
  * Track audit scores across pipeline iterations.
  * Returns the audit score info if a score marker is found, null otherwise.
  */
-export function trackAuditScore(agentOutput: string, state: StageState): AuditScoreInfo | null {
-	const currentAuditScore = extractAuditScore(agentOutput);
+export function trackAuditScore(agentOutput: string, state: StageState, toolNames?: Set<string>): AuditScoreInfo | null {
+	const currentAuditScore = extractAuditScore(agentOutput, toolNames);
 	if (!currentAuditScore) return null;
 
 	state.auditCycleCount++;
@@ -648,8 +649,9 @@ export async function handlePostAgentSuccess(
 		// is at the end of the text response. textOnly avoids capturing tool call
 		// results, thinking blocks, system prompt echoes, and context info that would
 		// bleed into the section heading extraction fallback.
+		const toolNamesSet = new Set(result.toolCalls ?? []);
 		if (result.textOnly) {
-			commentBody = extractAgentCommentBody(result.textOnly);
+			commentBody = extractAgentCommentBody(result.textOnly, toolNamesSet);
 			if (commentBody) {
 				extractionSource = "result.textOnly";
 			}
@@ -658,7 +660,7 @@ export async function handlePostAgentSuccess(
 		// Fallback 1: textOutput (full instrumented log) — contains JSON from deltas
 		// when textOnly is empty (edge case: non-streaming or subprocess-only agents).
 		if (!commentBody && result.textOutput) {
-			commentBody = extractAgentCommentBody(result.textOutput);
+			commentBody = extractAgentCommentBody(result.textOutput, toolNamesSet);
 			if (commentBody) {
 				extractionSource = "result.textOutput";
 				collector?.push(
@@ -681,7 +683,7 @@ export async function handlePostAgentSuccess(
 		// The pipeline ran ~1000 issues without result.output before the
 		// session-dump event existed.
 		if (!commentBody && result.thinkingOutput) {
-			commentBody = extractAgentCommentBody(result.thinkingOutput);
+			commentBody = extractAgentCommentBody(result.thinkingOutput, toolNamesSet);
 			if (commentBody) {
 				extractionSource = "result.thinkingOutput";
 				collector?.push(
@@ -853,7 +855,7 @@ export async function handlePostAgentSuccess(
 				// If so, null commentBody was intentional — researcher decided "nothing to research."
 				// Only warn if NO valid JSON output was produced at all (crash/parse failure).
 				const researcherOutput = result.textOutput || result.output || "";
-				const parseResult = parseAgentOutput(researcherOutput);
+				const parseResult = parseAgentOutput(researcherOutput, new Set(result.toolCalls ?? []));
 				const hadValidStructuredOutput = isAgentOutputSuccess(parseResult);
 
 				if (!hadValidStructuredOutput) {
@@ -975,8 +977,10 @@ async function handleAuditorOutput(
 		return;
 	}
 
+	const toolNamesSet = new Set(result.toolCalls ?? []);
+
 	// Try structured AgentOutput parsing first
-	const parseResult = parseAgentOutput(agentOutput);
+	const parseResult = parseAgentOutput(agentOutput, toolNamesSet);
 	let actionFromOutput: "APPROVED" | "REJECTED" | undefined;
 	let commentBodyFromOutput: string | undefined;
 
@@ -1004,7 +1008,7 @@ async function handleAuditorOutput(
 
 	// Fallback to old text-marker-based extraction
 	if (!actionFromOutput) {
-		const auditOutput = extractStructuredAuditOutput(agentOutput);
+		const auditOutput = extractStructuredAuditOutput(agentOutput, toolNamesSet);
 
 		// Tertiary fallback: bare approval/rejection text (agent skipped structured format)
 		// Detect lines like "Approved: ..." or "Rejected: ..." or just "Approved"/"Rejected"
@@ -1031,7 +1035,7 @@ async function handleAuditorOutput(
 		}
 
 		if (auditOutput.decision === "APPROVED") {
-			const bodyToPost = auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput);
+			const bodyToPost = auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
 			if (bodyToPost) {
 				try {
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
@@ -1039,7 +1043,7 @@ async function handleAuditorOutput(
 				} catch (acErr: unknown) {}
 			}
 		} else if (auditOutput.decision === "REJECTED") {
-			const bodyToPost = auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput);
+			const bodyToPost = auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
 			if (bodyToPost) {
 				try {
 					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
@@ -1052,7 +1056,7 @@ async function handleAuditorOutput(
 
 	// Structured path: build comment from AgentOutput
 	if (actionFromOutput === "APPROVED") {
-		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput);
+		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
 			try {
 				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
@@ -1066,7 +1070,7 @@ async function handleAuditorOutput(
 			}
 		}
 	} else if (actionFromOutput === "REJECTED") {
-		const bodyToPost = commentBodyFromOutput || buildRejectionCommentFromOutput(agentOutput);
+		const bodyToPost = commentBodyFromOutput || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
 			try {
 				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
@@ -1088,8 +1092,8 @@ async function handleAuditorOutput(
  * Shared audit comment builder — parameterised with title and footer
  * to avoid duplicating the entire audit score + findings rendering.
  */
-function buildAuditComment(agentOutput: string, title: string, footer: string): string | null {
-	const parseResult = parseAgentOutput(agentOutput);
+function buildAuditComment(agentOutput: string, title: string, footer: string, toolNames?: Set<string>): string | null {
+	const parseResult = parseAgentOutput(agentOutput, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
 		const lines: string[] = [title, ""];
@@ -1126,15 +1130,15 @@ function buildAuditComment(agentOutput: string, title: string, footer: string): 
 /**
  * Build an approval comment from AgentOutput fields when no explicit commentBody provided.
  */
-export function buildApprovalCommentFromOutput(agentOutput: string): string | null {
-	return buildAuditComment(agentOutput, "## Audit Approved", "Fix and resubmit if issues remain.");
+export function buildApprovalCommentFromOutput(agentOutput: string, toolNames?: Set<string>): string | null {
+	return buildAuditComment(agentOutput, "## Audit Approved", "Fix and resubmit if issues remain.", toolNames);
 }
 
 /**
  * Build a rejection comment from AgentOutput fields when no explicit commentBody provided.
  */
-export function buildRejectionCommentFromOutput(agentOutput: string): string | null {
-	return buildAuditComment(agentOutput, "## Audit Rejected", "Fix the issues above and resubmit.");
+export function buildRejectionCommentFromOutput(agentOutput: string, toolNames?: Set<string>): string | null {
+	return buildAuditComment(agentOutput, "## Audit Rejected", "Fix the issues above and resubmit.", toolNames);
 }
 
 /**

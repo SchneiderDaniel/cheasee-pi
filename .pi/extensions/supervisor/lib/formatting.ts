@@ -52,7 +52,7 @@ export function extractSummaryLine(
 	if (!textOutput) return success ? `${agentName} completed` : `${agentName} failed`;
 
 	// Primary: parseAgentOutput for structured summary
-	const parseResult = parseAgentOutput(textOutput);
+	const parseResult = parseAgentOutput(textOutput, toolNames);
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
 		if (output.summary) return output.summary;

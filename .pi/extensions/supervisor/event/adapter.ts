@@ -131,6 +131,10 @@ function handleToolExecutionStart(
 	state.currentTool = ev.toolName || "tool";
 	state.currentToolArgs = ev.args ? JSON.stringify(truncateArgsForDisplay(ev.args)) : undefined;
 	state.lastToolName = ev.toolName;
+	// Track tool name in session state for tool-call line filtering
+	if (ev.toolName && !state.toolCalls.includes(ev.toolName)) {
+		state.toolCalls.push(ev.toolName);
+	}
 	state.phase = "tool";
 	pushLog(
 		state,
