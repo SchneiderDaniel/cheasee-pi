@@ -3,59 +3,8 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-export interface SupervisorConfig {
-	repo: string;
-	projectNumber: number;
-	statusField?: string;
-	statusMapping: Record<string, string>;
-	maxRejections?: number;
-	codeowners: string[];
-	submodules?: Array<{ path: string; repo: string }>;
-	defaultBranch?: string;
-	remote?: string;
-	worktreeBase?: string;
-	branchPrefix?: string;
-	agentTimeoutsMin?: Record<string, number>;
-	/** Timeout in seconds for polling CI checks before auditor dispatch.
-	 *  Default: 300 (5 minutes). Set to 0 to disable CI gating. */
-	ciGatingTimeoutSec?: number;
-	/** Emit terminal bell (\x07) on pipeline completion */
-	bellOnComplete?: boolean;
-	/** Soft cap on total tokens per agent session. 0 = unlimited. */
-	agentTokenBudget?: number;
-	/** Hard cap on tool invocations per agent session. 0 = unlimited. */
-	maxToolCalls?: number;
-	/**
-	 * Minimum passing ratio (0.0–1.0) for audit score gate.
-	 * When the auditor approves but score < ceil(total * threshold), the gate
-	 * rejects the audit and returns to Implementation.
-	 * Default: 0.75
-	 */
-	auditScoreThreshold?: number;
-
-	/**
-	 * Enable experimental pipeline features (auto-forking, advanced parallelism).
-	 * When false or undefined, only core stages run.
-	 * Default: false
-	 */
-	enableExperimentalFeatures?: boolean;
-
-	/**
-	 * When true, osv-scanner vulnerabilities found during pre-audit gate cause
-	 * the transition to fail (return to Implementation). Only critical+high vulns
-	 * trigger blocking when this is enabled.
-	 * Default: false (informational only, surfaced to auditor)
-	 */
-	vulnGateBlocking?: boolean;
-
-	/**
-	 * Timeout in seconds for the osv-scanner vulnerability scan.
-	 * osv-scanner makes outbound API calls to OSV.dev — set high enough for
-	 * network latency but tight enough to not stall the pipeline.
-	 * Default: 60
-	 */
-	vulnGateTimeoutSec?: number;
-}
+// Re-export SupervisorConfig type derived from zod schema (single source of truth).
+export type { SupervisorConfig } from "./config.ts";
 
 export interface AgentFrontmatter {
 	name: string;
