@@ -4,8 +4,7 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
-import { formatTokens, formatDuration } from "../lib/formatting.ts";
-import { thinkingLabel } from "../../lib/thinking-level.ts";
+import { formatTokens, formatDuration, thinkingLabel } from "../lib/formatting.ts";
 
 /**
  * Build widget lines from state. Pure function — no side effects.
@@ -86,6 +85,7 @@ export function renderWidgetFromDetails(
 		lastToolName: undefined,
 		thinkingPushedThisTurn: false,
 		textPushedThisTurn: false,
+		toolCalls: [],
 		budgetExceeded: false,
 		budgetExceededReason: undefined,
 		maxToolCalls: details.maxToolCalls ?? 0,

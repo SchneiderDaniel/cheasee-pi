@@ -30,7 +30,6 @@ const defaultConfig: SupervisorConfig = {
 	auditScoreThreshold: 0.75,
 	vulnGateBlocking: false,
 	vulnGateTimeoutSec: 60,
-	dupGateBlocking: false,
 	agentTimeoutsMin: {},
 };
 

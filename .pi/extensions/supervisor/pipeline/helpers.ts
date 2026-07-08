@@ -1,5 +1,5 @@
 // ─── Pipeline Helpers ────────────────────────────────────────────
-// Extracted from handler.ts with injected GitHubPort/NotifyFn/ErrorCollector dependencies.
+// Extracted from handler.ts with injected ExecFn/NotifyFn/ErrorCollector dependencies.
 // Independently unit-testable: no direct pi/ctx dependency.
 
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
@@ -10,8 +10,13 @@ import type {
 	ProjectField,
 	ProjectItem,
 } from "../config/types.ts";
-import { filterIssueData, type RawIssueData } from "../lib/issue-filter.ts";
-import type { GitHubPort } from "../github/ports.ts";
+import {
+	filterIssueData,
+	getProjectFields,
+	getProjectItems,
+	getProjectId,
+	checkBlockedByDependencies,
+} from "../github/index.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
@@ -29,31 +34,26 @@ export interface NotifyFn {
 // ─── Fetch Issue ─────────────────────────────────────────────────
 
 export async function fetchIssue(
-	port: GitHubPort,
+	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	issueNum: number,
 	collector?: ErrorCollector,
 ): Promise<Record<string, unknown> | null> {
 	try {
-		const issue = await port.getIssue(issueNum, config.repo);
-		if (!issue) {
-			const msg = `Issue #${issueNum} not found in ${config.repo}`;
-			notify.error(msg);
-			collector?.push("helpers", "error", msg);
-			return null;
-		}
-		return {
-			number: issue.number,
-			title: issue.title,
-			body: issue.body,
-			author: issue.author,
-			comments: issue.comments,
-		} as Record<string, unknown>;
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		notify.error(`Failed to fetch issue #${issueNum}: ${msg}`);
-		collector?.push("helpers", "error", `Failed to fetch issue #${issueNum}: ${msg}`);
+		return await exec("gh", [
+			"issue",
+			"view",
+			String(issueNum),
+			"--repo",
+			config.repo,
+			"--json",
+			"number,title,body,author,comments",
+		]).then((r) => JSON.parse(r.stdout || "{}"));
+	} catch {
+		const msg = `Issue #${issueNum} not found in ${config.repo}`;
+		notify.error(msg);
+		collector?.push("helpers", "error", msg);
 		return null;
 	}
 }
@@ -68,16 +68,16 @@ export interface ProjectBoardResult {
 }
 
 export async function readProjectBoard(
-	port: GitHubPort,
+	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	_issueNum: number,
 	collector?: ErrorCollector,
 ): Promise<ProjectBoardResult> {
 	try {
-		const fields = await port.getProjectFields(config.projectNumber);
-		const items = await port.getProjectItems(config.projectNumber);
-		const projectId = await port.getProjectId(config.projectNumber);
+		const fields = await getProjectFields(exec, config.projectNumber);
+		const items = await getProjectItems(exec, config.projectNumber);
+		const projectId = await getProjectId(exec, config.projectNumber);
 
 		const statusField =
 			fields.find((f) => f.name.toLowerCase() === config.statusField?.toLowerCase()) || null;
@@ -105,14 +105,14 @@ export async function readProjectBoard(
 // ─── Check Dependencies ──────────────────────────────────────────
 
 export async function checkDependencies(
-	port: GitHubPort,
+	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	issueNum: number,
 	collector?: ErrorCollector,
 ): Promise<boolean> {
 	try {
-		const depsResult = await port.checkBlockedByDependencies(issueNum, config.repo);
+		const depsResult = await checkBlockedByDependencies(exec, issueNum, config.repo);
 		if (depsResult.blocked) {
 			const lines = depsResult.blockers.map(
 				(b) => `${b.type === "pullrequest" ? "!" : "#"}${b.number}: ${b.title} (open)`,
@@ -134,30 +134,30 @@ export async function checkDependencies(
 // ─── Fetch Fresh Issue Data ──────────────────────────────────────
 
 export async function fetchFreshIssueData(
-	port: GitHubPort,
+	exec: ExecFn,
 	config: SupervisorConfig,
 	issueNum: number,
 	fallbackData: Record<string, unknown>,
 	collector?: ErrorCollector,
 ): Promise<FilteredIssueData> {
 	try {
-		const raw = await port.getIssueWithComments(issueNum, config.repo);
-		if (!raw) {
-			collector?.push(
-				"helpers",
-				"warn",
-				`Failed to fetch fresh data for issue #${issueNum}, using cached data`,
-			);
-			return filterIssueData(fallbackData as unknown as RawIssueData, config.codeowners);
-		}
-		return filterIssueData(raw as unknown as RawIssueData, config.codeowners);
+		const raw = await exec("gh", [
+			"issue",
+			"view",
+			String(issueNum),
+			"--repo",
+			config.repo,
+			"--json",
+			"number,title,body,author,comments",
+		]);
+		return filterIssueData(JSON.parse(raw.stdout || "{}"), config.codeowners);
 	} catch {
 		collector?.push(
 			"helpers",
 			"warn",
 			`Failed to fetch fresh data for issue #${issueNum}, using cached data`,
 		);
-		return filterIssueData(fallbackData as unknown as RawIssueData, config.codeowners);
+		return filterIssueData(fallbackData, config.codeowners);
 	}
 }
 

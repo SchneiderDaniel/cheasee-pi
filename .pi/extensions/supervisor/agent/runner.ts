@@ -291,7 +291,7 @@ export async function runAgentSubprocess(
 				// processNormalizedEvent clears state.liveThinking on thinking_end,
 				// so we save it before forwarding below.
 				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
-				const result = processNormalizedEvent(normalized, state);
+				const result = processNormalizedEvent(normalized, state, effectiveCwd);
 				if (result.workingChange) {
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
@@ -299,7 +299,7 @@ export async function runAgentSubprocess(
 				}
 				// Forward key events as supervisor chat messages
 				if (pi) {
-					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText);
+					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText, effectiveCwd);
 				}
 				// Budget exceeded — kill subprocess to prevent further turns
 				if (state.budgetExceeded && !childExited) {
@@ -375,7 +375,7 @@ export async function runAgentSubprocess(
 			const thinkingOutput =
 				state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
 
-			const summaryLine = extractSummaryLine(textOutput, success, agentName);
+			const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
 			const filteredStderr = filterStderr(stderr);
 
 			ctx.ui.setWidget(widgetId, undefined);
@@ -396,6 +396,7 @@ export async function runAgentSubprocess(
 				summaryLine,
 				errorOutput: filteredStderr,
 				thinkingOutput,
+				toolCalls: state.toolCalls,
 				budgetExceeded: state.budgetExceeded || undefined,
 			});
 		};

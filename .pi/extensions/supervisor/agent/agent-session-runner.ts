@@ -14,7 +14,7 @@ import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { formatToolCall, extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
+import { extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
 import { resolveTools } from "../lib/extensions.ts";
 
 // DEFAULT_AGENT_TIMEOUT_MS is imported above from config.ts
@@ -190,7 +190,7 @@ export async function runAgentInProcess(
 
 				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
 
-				const result = processNormalizedEvent(normalized, state);
+				const result = processNormalizedEvent(normalized, state, effectiveCwd);
 				if (result.workingChange) {
 					scheduleFlush();
 					const wm = getWorkingMessage(state, agentName);
@@ -199,7 +199,7 @@ export async function runAgentInProcess(
 
 				// Forward key events as supervisor chat messages
 				if (pi) {
-					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText);
+					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText, effectiveCwd);
 				}
 			} catch (parseErr: unknown) {
 				const errMsg = String(parseErr).slice(0, 200);
@@ -281,7 +281,7 @@ export async function runAgentInProcess(
 	const thinkingOutput =
 		state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
 
-	const summaryLine = extractSummaryLine(textOutput, success, agentName);
+	const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
 
 	ctx.ui.setWidget(widgetId, undefined);
 	ctx.ui.setWorkingMessage(undefined);
@@ -315,6 +315,7 @@ export async function runAgentInProcess(
 		summaryLine,
 		errorOutput: exitError ? exitError.message : "",
 		thinkingOutput,
+		toolCalls: state.toolCalls,
 		budgetExceeded: state.budgetExceeded || undefined,
 	};
 }

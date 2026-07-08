@@ -18,9 +18,11 @@ export const SupervisorConfigSchema = z.object({
 		.int({ message: "supervisor.projectNumber must be an integer" })
 		.positive({ message: "supervisor.projectNumber must be a positive integer" }),
 	statusField: z.string().default("Status"),
-	statusMapping: z.record(z.string(), z.string()).refine((val) => Object.keys(val).length > 0, {
-		message: "supervisor.statusMapping is required",
-	}),
+	statusMapping: z
+		.record(z.string(), z.string())
+		.refine((val) => Object.keys(val).length > 0, {
+			message: "supervisor.statusMapping is required",
+		}),
 	maxRejections: z.number().int().nonnegative().default(3),
 	codeowners: z
 		.array(z.string())
@@ -39,7 +41,6 @@ export const SupervisorConfigSchema = z.object({
 	auditScoreThreshold: z.number().min(0).max(1).default(0.75),
 	vulnGateBlocking: z.boolean().default(false),
 	vulnGateTimeoutSec: z.number().int().nonnegative().default(60),
-	dupGateBlocking: z.boolean().default(false),
 });
 
 /** Inferred config type from schema — fields with .default() are non-optional. */
@@ -90,7 +91,9 @@ export function loadConfig(): SupervisorConfig {
 
 	// Post-parse: submodules fallback to .gitmodules
 	const submodules =
-		parsed.submodules && parsed.submodules.length > 0 ? parsed.submodules : parseGitmodules();
+		parsed.submodules && parsed.submodules.length > 0
+			? parsed.submodules
+			: parseGitmodules();
 
 	// Post-parse: cross-field policy for agentTimeoutsMin
 	const knownAgents = Object.values(parsed.statusMapping) as string[];

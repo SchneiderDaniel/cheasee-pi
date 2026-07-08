@@ -15,12 +15,12 @@ import type { TscCheckpointResult } from "../../lib/tsc-types.ts";
 import { pollCiChecks } from "../checks/ci-gating.ts";
 import { runDuplicateCheck } from "../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
-import { buildDuplicateCodeContext } from "./stages.ts";
 import { runDeadCodeCheck, buildDeadCodeContext } from "../checks/dead-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import { runPackageSafetyAudit, type PackageSafetyAuditResult } from "../checks/package-safety.ts";
 import { runVulnScan, buildVulnContext } from "../checks/osv-scanner.ts";
 import type { OsvScanResult } from "../checks/osv-scanner.ts";
+
 
 import { runRequirementsTraceability } from "../checks/requirements-traceability.ts";
 import { writeCheckpointFile } from "./state-checkpoint.ts";
@@ -52,6 +52,7 @@ export async function runTscAndLspAudit(
 	duplicateCodeResult?: DuplicateCodeResult;
 	deadCodeResult?: DeadCodeResult;
 	vulnResult?: OsvScanResult;
+
 }> {
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
@@ -132,12 +133,6 @@ export async function runTscAndLspAudit(
 				cloneCount: dupResult.clones.length,
 				totalLines: dupResult.totalDuplicateLines,
 			});
-
-			// Blocking check: if dupGateBlocking is enabled, duplicates block transition
-			if (config.dupGateBlocking) {
-				const dupContext = buildDuplicateCodeContext(dupResult) || "Duplicate code found";
-				gateFailures.push(`--- Duplicate Code Gate ---\n${dupContext}`);
-			}
 		} else if (dupResult.status === "no_jscpd") {
 			getDebugLogger().info("pipeline-audit", "jscpd not available, skipping duplicate check");
 		} else if (dupResult.status === "error") {
@@ -249,10 +244,7 @@ export async function runTscAndLspAudit(
 					gateFailures.push(`--- OSV Vulnerability Gate ---\n${vulnContext}`);
 				}
 			} else if (vulnResult.status === "error") {
-				ctx.ui.notify(
-					`Vulnerability scan error: ${vulnResult.message || "Unknown error"}`,
-					"warning",
-				);
+				ctx.ui.notify(`Vulnerability scan error: ${vulnResult.message || "Unknown error"}`, "warning");
 				getDebugLogger().warn("pipeline-audit", "Vulnerability scan error", {
 					message: vulnResult.message,
 				});
@@ -403,6 +395,7 @@ export async function runTscAndLspAudit(
 				duplicateCodeResult: dupResult,
 				deadCodeResult: deadResult,
 				vulnResult,
+
 			};
 		}
 
@@ -413,6 +406,7 @@ export async function runTscAndLspAudit(
 			duplicateCodeResult: dupResult,
 			deadCodeResult: deadResult,
 			vulnResult,
+
 		};
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);

@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { extractStructuredAuditOutput } from "../agent/output.ts";
+import { extractStructuredAuditOutput } from "../github/comment.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 

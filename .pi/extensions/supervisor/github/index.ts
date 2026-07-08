@@ -1,8 +1,13 @@
 // ─── GitHub Module Entry ─────────────────────────────────────────
-// Composition root: exports the GitHubPort interface and factory.
-// Pipeline code depends only on GitHubPort — zero Octokit imports
-// beyond the adapter.
-// git.ts operations (commitAndPush) are re-exported for backward compat.
+// Re-exports consumed through the barrel.
+// Submodules are imported directly where their consumers reside.
 
-export { createGitHubPort } from "./ports.ts";
+export { getProjectFields, getProjectItems, getProjectId, findIssueItem } from "./project.ts";
+export { checkBlockedByDependencies } from "./deps.ts";
+export {
+	postIssueComment,
+	filterIssueData,
+	extractAgentCommentBody,
+	extractStructuredAuditOutput,
+} from "./comment.ts";
 export { commitAndPush } from "./git.ts";

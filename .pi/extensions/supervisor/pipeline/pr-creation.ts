@@ -13,14 +13,15 @@ import { writeFile } from "node:fs/promises";
 import { join as joinPath } from "node:path";
 import { tmpdir } from "node:os";
 import { generateBranchName } from "../agent/task.ts";
-import type { GitHubPort } from "../github/ports.ts";
+import { createPullRequest, checkPrConflicts } from "../github/pr.ts";
+import { gh } from "../github/gh-client.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 /**
- * Maximum number of retry attempts for PR creation.
+ * Maximum number of retry attempts for gh pr create.
  * Handles transient GitHub API failures and rate limiting.
  */
 const MAX_PR_CREATE_RETRIES = 2;
@@ -32,9 +33,15 @@ const RETRY_BASE_DELAY_MS = 1000;
  * Create a pull request after auditor approves and transitions to Done.
  * Pushes branch, builds body, creates PR. Returns structured result so
  * the handler can detect failure and adjust pipeline completion status.
+ *
+ * Features:
+ * - Returns PrCreationResult instead of void (Bug 6 fix)
+ * - Push failure stops the flow early (Bug 3 fix)
+ * - Retries gh pr create with exponential backoff (Bug 5 fix)
+ * - Pre-checks commit count before PR creation (Bug 3 fix)
+ * - Accepts gateFailureHistory for PR body gate failure context (R2)
  */
 export async function createPrOnApproval(
-	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	issueNum: number,
@@ -83,6 +90,7 @@ export async function createPrOnApproval(
 	log.info("pr-creation", `PR title: ${prTitle}`);
 
 	// ─── Phase 2: Push branch (if worktree exists) with retry ───────
+	// Timeout: 60s per attempt. Retry with exponential backoff (3 attempts).
 	const MAX_PUSH_RETRIES = 3;
 	const PUSH_RETRY_DELAYS_MS = [3000, 5000, 10000];
 	if (worktreePath) {
@@ -128,19 +136,26 @@ export async function createPrOnApproval(
 	}
 
 	// ─── Phase 3: Pre-check — verify head has commits beyond base ──
+	// Only runs when worktree exists (branch was pushed). Skip check if
+	// no worktree since there are no new commits to PR.
 	if (worktreePath) {
 		try {
-			const aheadCount = await port.compareBranches(
-				config.defaultBranch!,
-				headBranch,
-				config.repo,
-			);
+			const compareResult = await gh(pi.exec.bind(pi), [
+				"api",
+				`repos/${config.repo}/compare/${config.defaultBranch}...${headBranch}`,
+				"--jq",
+				".ahead_by",
+			]);
+			const aheadCount = parseInt(compareResult, 10);
 			if (aheadCount === 0) {
 				log.warn(
 					"pr-creation",
 					`No commits between ${config.defaultBranch} and ${headBranch} — skipping PR`,
 				);
 				ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
+				// Bug #643: Return failure with descriptive error instead of
+				// { success: true, prNumber: undefined } which renders as
+				// "PR: created — [#undefined]((unknown))" in the pipeline summary.
 				return {
 					success: false,
 					error: "Already implemented on base branch — no new changes to PR",
@@ -149,6 +164,7 @@ export async function createPrOnApproval(
 			}
 			log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
 		} catch (compareErr: unknown) {
+			// Compare check is advisory — if it fails, attempt PR creation anyway
 			const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
 			log.warn("pr-creation", `Commit count check failed: ${compareMsg} — attempting PR anyway`);
 		}
@@ -157,7 +173,7 @@ export async function createPrOnApproval(
 	// ─── Phase 4: Check for existing PR ────────────────────────────
 	let existingPr: PrConflictInfo | null = null;
 	try {
-		existingPr = await port.listPullRequestsForBranch(headBranch, config.repo);
+		existingPr = await checkPrConflicts(pi.exec.bind(pi), headBranch, config.repo);
 	} catch (checkErr: unknown) {
 		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
 		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
@@ -172,7 +188,17 @@ export async function createPrOnApproval(
 		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
 		try {
 			ctx.ui.notify(`Updating PR #${existingPr.number} with latest changes`, "info");
-			await port.updatePullRequest(existingPr.number, config.repo, prBody, prTitle);
+			await gh(pi.exec.bind(pi), [
+				"pr",
+				"edit",
+				String(existingPr.number),
+				"--repo",
+				config.repo,
+				"--body-file",
+				tempFile,
+				"--title",
+				prTitle,
+			]);
 			ctx.ui.notify(`PR #${existingPr.number} updated`, "info");
 			return { success: true, prNumber: existingPr.number, wasUpdate: true, source: "pr-creation" };
 		} catch (editErr: unknown) {
@@ -183,7 +209,7 @@ export async function createPrOnApproval(
 		}
 	}
 
-	// Create PR with retry
+	// Create PR with retry (Bug 5 fix)
 	let lastError: string | undefined;
 	for (let attempt = 0; attempt < MAX_PR_CREATE_RETRIES; attempt++) {
 		try {
@@ -196,13 +222,14 @@ export async function createPrOnApproval(
 				await new Promise((resolve) => setTimeout(resolve, delayMs));
 			}
 
-			const prResult = await port.createPullRequest({
-				repo: config.repo,
-				base: config.defaultBranch!,
-				head: headBranch,
-				title: prTitle,
-				body: prBody,
-			});
+			const prResult = await createPullRequest(
+				pi.exec.bind(pi),
+				config.repo,
+				config.defaultBranch!,
+				headBranch,
+				prTitle,
+				tempFile,
+			);
 			log.info("pr-creation", `PR #${prResult.number} created`);
 			ctx.ui.notify(`PR #${prResult.number} created`, "info");
 			return { success: true, prNumber: prResult.number, source: "pr-creation" };

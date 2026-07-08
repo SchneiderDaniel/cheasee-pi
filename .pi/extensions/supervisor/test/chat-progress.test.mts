@@ -142,6 +142,7 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		contextInfoReceived: false,
 		thinkingPushedThisTurn: false,
 		textPushedThisTurn: false,
+		toolCalls: [],
 		budgetExceeded: false,
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,
@@ -546,7 +547,7 @@ describe("User-journey: widget progress during pipeline", () => {
 		assert.ok(!widgetCalls[0].lines?.[0]?.includes("Analyzing"), "thinking content absent in stats-only widget");
 	});
 
-	it("agent calls tool → widget shows 🔧 tool call via formatToolCall", () => {
+	it("stats-only widget does not show tool call details", () => {
 		const ui = createMockUi();
 		const state = createState({
 			phase: "tool",

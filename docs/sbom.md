@@ -30,8 +30,6 @@ nav_order: 10
 | `proper-lockfile` | ^4.1.2 | MIT | File-based locking for session logs |
 | `retry` | ^0.13.1 | MIT | Retry utilities for async operations |
 | `shell-quote` | ^1.8.4 | MIT | Shell command parsing for worktree sandbox |
-| `@octokit/rest` | ^22.0.1 | MIT | GitHub REST API client (replaces gh CLI wrappers) |
-| `@octokit/graphql` | ^9.0.3 | MIT | GitHub GraphQL API client (ProjectV2, deps timeline) |
 | `typebox` | ^1.2.8 | MIT | Runtime type validation |
 | `vscode-jsonrpc` | ^8.2.1 | MIT | LSP communication |
 | `zod` | ^4.4.3 | MIT | Schema-driven config validation |

@@ -33,6 +33,7 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 		contextInfoReceived: false,
 		thinkingPushedThisTurn: false,
 		textPushedThisTurn: false,
+		toolCalls: [],
 		budgetExceeded: false,
 		budgetExceededReason: undefined,
 		maxToolCalls: 0,

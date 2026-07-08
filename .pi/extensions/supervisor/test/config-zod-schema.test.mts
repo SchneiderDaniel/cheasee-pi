@@ -46,7 +46,6 @@ const validFull = {
 	auditScoreThreshold: 0.85,
 	vulnGateBlocking: true,
 	vulnGateTimeoutSec: 120,
-	dupGateBlocking: true,
 };
 
 describe("SupervisorConfigSchema — parse", () => {
@@ -68,7 +67,6 @@ describe("SupervisorConfigSchema — parse", () => {
 		assert.equal(result.auditScoreThreshold, 0.75);
 		assert.equal(result.vulnGateBlocking, false);
 		assert.equal(result.vulnGateTimeoutSec, 60);
-		assert.equal(result.dupGateBlocking, false);
 		// submodules defaults to undefined (optional, no .default())
 		assert.equal(result.submodules, undefined);
 		// agentTimeoutsMin defaults to undefined (optional, no .default())
@@ -97,7 +95,6 @@ describe("SupervisorConfigSchema — parse", () => {
 		assert.equal(result.auditScoreThreshold, 0.85);
 		assert.equal(result.vulnGateBlocking, true);
 		assert.equal(result.vulnGateTimeoutSec, 120);
-		assert.equal(result.dupGateBlocking, true);
 	});
 
 	it("strips unknown fields by default", () => {
@@ -118,7 +115,10 @@ describe("SupervisorConfigSchema — parse", () => {
 	});
 
 	it("throws ZodError when repo is empty string", () => {
-		assert.throws(() => SupervisorConfigSchema.parse({ ...validMinimal, repo: "" }), z.ZodError);
+		assert.throws(
+			() => SupervisorConfigSchema.parse({ ...validMinimal, repo: "" }),
+			z.ZodError,
+		);
 	});
 
 	// ── projectNumber ────────────────────────────────────────────
@@ -233,7 +233,8 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when enableExperimentalFeatures is string", () => {
 		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, enableExperimentalFeatures: "yes" }),
+			() =>
+				SupervisorConfigSchema.parse({ ...validMinimal, enableExperimentalFeatures: "yes" }),
 			z.ZodError,
 		);
 	});
@@ -247,21 +248,24 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when auditScoreThreshold exceeds 1.0", () => {
 		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: 1.5 }),
+			() =>
+				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: 1.5 }),
 			z.ZodError,
 		);
 	});
 
 	it("throws ZodError when auditScoreThreshold is below 0", () => {
 		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: -0.1 }),
+			() =>
+				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: -0.1 }),
 			z.ZodError,
 		);
 	});
 
 	it("throws ZodError when auditScoreThreshold is NaN", () => {
 		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: NaN }),
+			() =>
+				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: NaN }),
 			z.ZodError,
 		);
 	});
@@ -282,16 +286,8 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when vulnGateTimeoutSec is negative", () => {
 		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, vulnGateTimeoutSec: -5 }),
-			z.ZodError,
-		);
-	});
-
-	// ── dupGateBlocking ───────────────────────────────────────────
-
-	it("throws ZodError when dupGateBlocking is string", () => {
-		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, dupGateBlocking: "true" }),
+			() =>
+				SupervisorConfigSchema.parse({ ...validMinimal, vulnGateTimeoutSec: -5 }),
 			z.ZodError,
 		);
 	});
@@ -425,7 +421,6 @@ describe("loadConfig — zod integration", () => {
 		const config = loadConfig();
 		assert.equal(config.vulnGateBlocking, false);
 		assert.equal(config.vulnGateTimeoutSec, 60);
-		assert.equal(config.dupGateBlocking, false);
 	});
 
 	it("includes all fields when full valid config is provided", () => {
@@ -446,7 +441,6 @@ describe("loadConfig — zod integration", () => {
 		assert.equal(config.auditScoreThreshold, 0.85);
 		assert.equal(config.vulnGateBlocking, true);
 		assert.equal(config.vulnGateTimeoutSec, 120);
-		assert.equal(config.dupGateBlocking, true);
 		assert.deepEqual(config.submodules, [{ path: "lib", repo: "owner/lib" }]);
 	});
 });

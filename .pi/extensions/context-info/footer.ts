@@ -14,13 +14,14 @@ import {
 	formatTokens,
 	fgHex,
 	pickThresholdHex,
+	thinkingIcon,
+	thinkingColor,
 	formatTps,
 	formatCacheStats,
 	formatCacheHitRate,
 	computeTps,
 	formatCpuPct,
 } from "./formatting.ts";
-import { thinkingIcon, thinkingColor } from "../lib/thinking-level.ts";
 
 /** Module-scope process start time — captures true pi process launch time */
 const processStartTime = Date.now();

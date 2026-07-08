@@ -14,6 +14,7 @@ import { describe, it } from "node:test";
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 // ---------------------------------------------------------------------------
 // Duplicated helpers from .pi/extensions/context-info.ts
 // ---------------------------------------------------------------------------
@@ -46,6 +47,44 @@ function pickThreshold(tokens: number, thresholds: ThresholdEntry[]): ThresholdE
 		if (tokens <= entry.maxTokens) return entry;
 	}
 	return sorted[sorted.length - 1]!;
+}
+
+function thinkingIcon(level: string | undefined): string {
+	switch (level) {
+		case "off":
+			return "○";
+		case "minimal":
+			return "◐";
+		case "low":
+			return "◑";
+		case "medium":
+			return "◒";
+		case "high":
+			return "◓";
+		case "xhigh":
+			return "●";
+		default:
+			return "·";
+	}
+}
+
+function thinkingColor(level: string | undefined): string {
+	switch (level) {
+		case "off":
+			return "dim";
+		case "minimal":
+			return "dim";
+		case "low":
+			return "muted";
+		case "medium":
+			return "accent";
+		case "high":
+			return "warning";
+		case "xhigh":
+			return "error";
+		default:
+			return "dim";
+	}
 }
 
 function getWorktreeName(cwd: string): string | null {
@@ -418,6 +457,46 @@ describe("loadConfig", () => {
 		});
 		assert.ok(result.config);
 		assert.strictEqual(result.config!.thresholds[0]!.maxTokens, null);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// thinkingIcon tests
+// ---------------------------------------------------------------------------
+
+describe("thinkingIcon", () => {
+	it("returns correct icons for each level", () => {
+		assert.strictEqual(thinkingIcon("off"), "○");
+		assert.strictEqual(thinkingIcon("minimal"), "◐");
+		assert.strictEqual(thinkingIcon("low"), "◑");
+		assert.strictEqual(thinkingIcon("medium"), "◒");
+		assert.strictEqual(thinkingIcon("high"), "◓");
+		assert.strictEqual(thinkingIcon("xhigh"), "●");
+	});
+
+	it("returns default for unknown/undefined", () => {
+		assert.strictEqual(thinkingIcon(undefined), "·");
+		assert.strictEqual(thinkingIcon("unknown"), "·");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// thinkingColor tests
+// ---------------------------------------------------------------------------
+
+describe("thinkingColor", () => {
+	it("returns correct theme colors for each level", () => {
+		assert.strictEqual(thinkingColor("off"), "dim");
+		assert.strictEqual(thinkingColor("minimal"), "dim");
+		assert.strictEqual(thinkingColor("low"), "muted");
+		assert.strictEqual(thinkingColor("medium"), "accent");
+		assert.strictEqual(thinkingColor("high"), "warning");
+		assert.strictEqual(thinkingColor("xhigh"), "error");
+	});
+
+	it("returns dim for unknown/undefined", () => {
+		assert.strictEqual(thinkingColor(undefined), "dim");
+		assert.strictEqual(thinkingColor("unknown"), "dim");
 	});
 });
 

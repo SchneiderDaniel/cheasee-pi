@@ -2,12 +2,10 @@
 // Structured JSONL logging to /tmp/supervisor-{datetime}-{sessionId}.jsonl.
 // Zero overhead when debug is disabled (no-op interface).
 // Log path resolved ONCE at creation against main worktree (ctx.cwd).
-// Backed by pino (https://github.com/pinojs/pino) — safe-stable-stringify
-// handles circular references, depthLimit/edgeLimit, and custom serializers.
 
+import { appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { randomBytes } from "node:crypto";
-import pino from "pino";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -44,13 +42,23 @@ const NOOP: DebugLogger = {
 	getLogPath: () => "",
 };
 
-// ─── Pino-backed Real Logger ───────────────────────────────────────
+// ─── Real Logger ───────────────────────────────────────────────────
 
 function pad2(n: number): string {
 	return n < 10 ? "0" + n : String(n);
 }
 
-export function createDebugLogger(basePath?: string, sessionId?: string): DebugLogger {
+function formatTimestamp(date: Date): string {
+	const Y = date.getFullYear();
+	const M = pad2(date.getMonth() + 1);
+	const D = pad2(date.getDate());
+	const h = pad2(date.getHours());
+	const m = pad2(date.getMinutes());
+	const s = pad2(date.getSeconds());
+	return `${Y}-${M}-${D}T${h}:${m}:${s}.${String(date.getMilliseconds()).padStart(3, "0")}Z`;
+}
+
+function createDebugLogger(basePath?: string, sessionId?: string): DebugLogger {
 	const sid = sessionId || `${Date.now()}-${randomBytes(3).toString("hex")}`;
 	const now = new Date();
 	const dateStr = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
@@ -58,63 +66,94 @@ export function createDebugLogger(basePath?: string, sessionId?: string): DebugL
 	const logDir = basePath || "/tmp";
 	const logPath = resolvePath(logDir, `supervisor-${dateStr}-${timeStr}-${sid}.jsonl`);
 
-	// pino destination — sync writes (preserves appendFileSync tail-call semantics),
-	// mkdir creates parent directories automatically
-	const transport = pino.destination({ dest: logPath, sync: true, mkdir: true });
-	transport.on("error", () => {}); // silent fail — logging should never crash the pipeline
+	// Ensure /tmp exists
+	if (!existsSync(logDir)) {
+		try {
+			mkdirSync(logDir, { recursive: true });
+		} catch {
+			// fall through — let appendFileSync fail later
+		}
+	}
 
-	const pinoLogger = pino(
-		{
-			level: "debug",
-			// Replace default { pid, hostname } with just sessionId
-			base: { sessionId: sid },
-			// Rename pino's default "msg" key to "message" to match LogEntry
-			messageKey: "message",
-			// Use ISO 8601 timestamp with "timestamp" key (matching LogEntry)
-			timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
-			formatters: {
-				// Map pino's lowercase level labels to uppercase LogLevel strings
-				level(label: string) {
-					return { level: label.toUpperCase() as LogLevel };
-				},
-			},
-		},
-		transport,
-	);
-
-	/** Write a log entry through the pino instance. */
 	function write(
-		pinoLevel: "debug" | "info" | "warn" | "error",
+		level: LogLevel,
 		component: string,
 		message: string,
 		data?: Record<string, unknown>,
 	): void {
-		const context: Record<string, unknown> = { component };
+		const entry: LogEntry = {
+			timestamp: formatTimestamp(new Date()),
+			level,
+			component,
+			sessionId: sid,
+			message,
+		};
 		if (data !== undefined) {
-			// Nest data under "data" key to match LogEntry.shape and avoid key collision
-			context.data = data;
+			entry.data = sanitizeData(data);
 		}
-		pinoLogger[pinoLevel](context, message);
+		try {
+			appendFileSync(logPath, JSON.stringify(entry) + "\n", "utf-8");
+		} catch {
+			// silent fail — logging should never crash the pipeline
+		}
 	}
 
-	/** Create a facade (root or child) sharing the same pino instance. */
-	function makeFacade(prefix: string): DebugLogger {
+	// Strip circular references and truncate large strings
+	function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
+		const seen = new WeakSet<object>();
+		function sanitize(value: unknown, depth: number): unknown {
+			if (depth > 5) return "[MAX_DEPTH]";
+			if (value === null || value === undefined) return value;
+			if (typeof value === "string") {
+				return value.length > 10_000 ? value.slice(0, 10_000) + "..." : value;
+			}
+			if (typeof value === "number" || typeof value === "boolean") return value;
+			if (typeof value === "object") {
+				if (seen.has(value as object)) return "[CIRCULAR]";
+				seen.add(value as object);
+				if (Array.isArray(value)) {
+					return value.length > 100
+						? value.slice(0, 100).map((v) => sanitize(v, depth + 1)) +
+								` [${value.length - 100} more]`
+						: value.map((v) => sanitize(v, depth + 1));
+				}
+				const obj: Record<string, unknown> = {};
+				for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+					obj[k] = sanitize(v, depth + 1);
+				}
+				return obj;
+			}
+			return String(value);
+		}
+		const result: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(data)) {
+			result[k] = sanitize(v, 1);
+		}
+		return result;
+	}
+
+	function child(name: string): DebugLogger {
+		const prefix = name;
 		return {
-			debug: (cmp, msg, data) =>
-				write("debug", prefix ? `${prefix}.${cmp}` : cmp, msg, data),
-			info: (cmp, msg, data) =>
-				write("info", prefix ? `${prefix}.${cmp}` : cmp, msg, data),
-			warn: (cmp, msg, data) =>
-				write("warn", prefix ? `${prefix}.${cmp}` : cmp, msg, data),
-			error: (cmp, msg, data) =>
-				write("error", prefix ? `${prefix}.${cmp}` : cmp, msg, data),
-			child: (name: string) => makeFacade(prefix ? `${prefix}.${name}` : name),
+			debug: (cmp, msg, data) => write("DEBUG", `${prefix}.${cmp}`, msg, data),
+			info: (cmp, msg, data) => write("INFO", `${prefix}.${cmp}`, msg, data),
+			warn: (cmp, msg, data) => write("WARN", `${prefix}.${cmp}`, msg, data),
+			error: (cmp, msg, data) => write("ERROR", `${prefix}.${cmp}`, msg, data),
+			child: (n: string) => child(`${prefix}.${n}`),
 			getSessionId: () => sid,
 			getLogPath: () => logPath,
 		};
 	}
 
-	return makeFacade("");
+	return {
+		debug: (cmp, msg, data) => write("DEBUG", cmp, msg, data),
+		info: (cmp, msg, data) => write("INFO", cmp, msg, data),
+		warn: (cmp, msg, data) => write("WARN", cmp, msg, data),
+		error: (cmp, msg, data) => write("ERROR", cmp, msg, data),
+		child,
+		getSessionId: () => sid,
+		getLogPath: () => logPath,
+	};
 }
 
 // ─── Factory ───────────────────────────────────────────────────────

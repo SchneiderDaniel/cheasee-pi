@@ -16,6 +16,8 @@ import {
 	formatCacheHitRate,
 	formatTps,
 	computeTps,
+	thinkingIcon,
+	thinkingColor,
 } from "../formatting.ts";
 
 // ─── Phase 1: Behavior unchanged after export removal ───────────────────────
@@ -99,6 +101,18 @@ describe("public formatting exports", () => {
 	it("computeTps returns null for insufficient samples", () => {
 		assert.strictEqual(computeTps([]), null);
 		assert.strictEqual(computeTps([{ time: 100, cumulativeTokens: 0 }]), null);
+	});
+
+	it("thinkingIcon returns correct icons", () => {
+		assert.strictEqual(thinkingIcon("off"), "○");
+		assert.strictEqual(thinkingIcon("high"), "◓");
+		assert.strictEqual(thinkingIcon(undefined), "·");
+	});
+
+	it("thinkingColor returns correct colors", () => {
+		assert.strictEqual(thinkingColor("off"), "dim");
+		assert.strictEqual(thinkingColor("high"), "warning");
+		assert.strictEqual(thinkingColor(undefined), "dim");
 	});
 });
 

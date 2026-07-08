@@ -58,6 +58,46 @@ export function pickThresholdHex(tokens: number, thresholds: ThresholdEntry[]): 
 	return colors[colors.length - 1] ?? "#ff5252";
 }
 
+// ─── Thinking level → icon/color ────────────────────────────────
+
+export function thinkingIcon(level: string | undefined): string {
+	switch (level) {
+		case "off":
+			return "○";
+		case "minimal":
+			return "◐";
+		case "low":
+			return "◑";
+		case "medium":
+			return "◒";
+		case "high":
+			return "◓";
+		case "xhigh":
+			return "●";
+		default:
+			return "·";
+	}
+}
+
+export function thinkingColor(level: string | undefined): string {
+	switch (level) {
+		case "off":
+			return "dim";
+		case "minimal":
+			return "dim";
+		case "low":
+			return "muted";
+		case "medium":
+			return "accent";
+		case "high":
+			return "warning";
+		case "xhigh":
+			return "error";
+		default:
+			return "dim";
+	}
+}
+
 // ─── TPS helpers ────────────────────────────────────────────────
 
 /** Compute tokens per second from rolling buffer (30s window) */

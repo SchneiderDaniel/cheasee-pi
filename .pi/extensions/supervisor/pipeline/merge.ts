@@ -7,7 +7,7 @@ import type { PrConflictInfo, SupervisorConfig } from "../config/types.ts";
 import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
 import { tryAutoMerge } from "../config/merge.ts";
-import type { GitHubPort } from "../github/ports.ts";
+import { checkPrConflicts } from "../github/pr.ts";
 import { runAgentSubprocess, DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -18,7 +18,6 @@ import type { ErrorCollector } from "./error-collector.ts";
  * Called when pipeline reaches "Done" status.
  */
 export async function handlePostPipelineMerge(
-	port: GitHubPort,
 	issueNum: number,
 	issueTitle: string,
 	loopStatus: string,
@@ -45,7 +44,7 @@ export async function handlePostPipelineMerge(
 		ctx.ui.setStatus("supervisor", "Checking PR for merge conflicts...");
 		let conflictInfo: PrConflictInfo | null;
 		try {
-			conflictInfo = await port.listPullRequestsForBranch(branch, config.repo);
+			conflictInfo = await checkPrConflicts(pi.exec.bind(pi), branch, config.repo);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`PR conflict check failed: ${msg}`, "error");
