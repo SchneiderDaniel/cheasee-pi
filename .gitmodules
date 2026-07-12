@@ -1,3 +1,6 @@
 [submodule "flask_blogs"]
 	path = flask_blogs
 	url = https://github.com/SchneiderDaniel/flask_blogs
+[submodule "private-pi"]
+	path = private-pi
+	url = https://github.com/SchneiderDaniel/private-pi.git
