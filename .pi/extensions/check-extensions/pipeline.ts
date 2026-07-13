@@ -5,8 +5,9 @@
  * Constants live in constants.ts; this file owns the orchestration.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import fs from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -16,7 +17,6 @@ import { scanExtensionsAST, type ASTFinding, type ExecFn as AstExecFn } from "./
 import { resolveRelevance } from "./change-resolver.ts";
 import { computeImpactScore, type ImpactScore } from "./impact-scorer.ts";
 import { generateMigrationSnippet, type MigrationSnippet } from "./migration-generator.ts";
-import { resolveAstGrepPath } from "./resolve-astgrep.ts";
 
 /** Context object passed to pipeline (subset of pi extension context) */
 export interface PipelineContext {
@@ -143,7 +143,7 @@ export class ChangelogPipeline {
 	 * Returns the file content, or null on failure (error already reported).
 	 */
 	validatePhase(): string | null {
-		if (!existsSync(PI_CHANGELOG_PATH)) {
+		if (!fs.existsSync(PI_CHANGELOG_PATH)) {
 			const msg = `Pi changelog not found at ${PI_CHANGELOG_PATH}`;
 			this.notify(msg, "error");
 			this.report.lines.push(`❌ ${msg}`);
@@ -152,7 +152,7 @@ export class ChangelogPipeline {
 
 		this.notify("Parsing pi CHANGELOG...", "info");
 		try {
-			return readFileSync(PI_CHANGELOG_PATH, "utf-8");
+			return fs.readFileSync(PI_CHANGELOG_PATH, "utf-8");
 		} catch (err) {
 			const msg = `Failed to read changelog: ${(err as Error).message}`;
 			this.notify(msg, "error");
@@ -454,4 +454,28 @@ export async function runPipeline(
 ): Promise<PipelineReport> {
 	const pipeline = new ChangelogPipeline(pi, ctx);
 	return pipeline.run();
+}
+
+/**
+ * Resolve the path to ast-grep binary.
+ * Checks common locations, falls back to "ast-grep" (PATH).
+ *
+ * ESM-safe: uses fs.access instead of CJS require().
+ */
+export function resolveAstGrepPath(): string {
+	const home = process.env.HOME || homedir();
+	const candidates = [
+		join(home, ".npm-global", "bin", "ast-grep"),
+		"/usr/local/bin/ast-grep",
+		"/usr/bin/ast-grep",
+	];
+	for (const c of candidates) {
+		try {
+			fs.accessSync(c);
+			return c;
+		} catch {
+			/* try next */
+		}
+	}
+	return "ast-grep"; // fallback — hope it's on PATH
 }

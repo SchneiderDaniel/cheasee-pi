@@ -16,11 +16,24 @@ import type {
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "./formatting.mts";
 import { formatEslintDiagnostics } from "./eslint.mts";
 import type { Formatter, Linter } from "./ports.mts";
 
 // ─── Handler Registration ────────────────────────────────────────────
+
+/** Maximum file size for formatting (1MB) to avoid perf issues. */
+export const MAX_FILE_SIZE_BYTES = 1_048_576;
+
+/**
+ * Check if a path looks like a valid file path (not a directory, not protocol).
+ */
+export function looksLikeFilePath(path: unknown): path is string {
+	if (typeof path !== "string") return false;
+	if (path.includes("://")) return false;
+	if (path.startsWith("~")) return false;
+	if (path.length === 0) return false;
+	return true;
+}
 
 /**
  * Register the tool_result handler with injected adapters.

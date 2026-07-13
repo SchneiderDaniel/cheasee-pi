@@ -283,8 +283,6 @@ describe("changelog-parser", () => {
 	});
 });
 
-
-
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 4: ast-scanner.ts — AST-based file scanning
 // ═══════════════════════════════════════════════════════════════════════
@@ -1292,10 +1290,9 @@ describe("ast-scanner", () => {
 		mkdirSync(extDir, { recursive: true });
 		writeFileSync(
 			join(extDir, "index.ts"),
-			[
-				`import pi from "pi";`,
-				`import pipeline from "@earendil-works/pi-coding-agent";`,
-			].join("\n"),
+			[`import pi from "pi";`, `import pipeline from "@earendil-works/pi-coding-agent";`].join(
+				"\n",
+			),
 		);
 
 		const execFn = async (): Promise<{
@@ -2053,8 +2050,6 @@ describe("parseStructuredChange", () => {
 	});
 });
 
-
-
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 11: constants.ts — Extracted configuration constants
 // ═══════════════════════════════════════════════════════════════════════
@@ -2352,10 +2347,10 @@ describe("ChangelogPipeline", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 13: resolve-astgrep.ts — ESM-safe ast-grep path resolver
+// Phase 13: ast-grep path resolver (now in pipeline.ts)
 // ═══════════════════════════════════════════════════════════════════════
 
-import { resolveAstGrepPath } from "../resolve-astgrep.ts";
+import { resolveAstGrepPath } from "../pipeline.ts";
 
 describe("resolve-astgrep", () => {
 	it("returns a non-empty string", () => {
