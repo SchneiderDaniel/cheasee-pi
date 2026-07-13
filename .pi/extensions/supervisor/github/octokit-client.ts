@@ -107,15 +107,17 @@ const SET_STATUS_MUTATION = (
 // ─── GraphQL Response Types ──────────────────────────────────────
 
 interface ProjectFieldsResponse {
-	viewer?: {
-		projectV2?: {
-			fields?: {
-				nodes?: Array<{
-					id: string;
-					name: string;
-					dataType?: string;
-					options?: Array<{ id: string; name: string }>;
-				}>;
+	data?: {
+		viewer?: {
+			projectV2?: {
+				fields?: {
+					nodes?: Array<{
+						id: string;
+						name: string;
+						dataType?: string;
+						options?: Array<{ id: string; name: string }>;
+					}>;
+				};
 			};
 		};
 	};
@@ -123,21 +125,23 @@ interface ProjectFieldsResponse {
 }
 
 interface ProjectItemsResponse {
-	viewer?: {
-		projectV2?: {
-			items?: {
-				pageInfo: { hasNextPage: boolean; endCursor: string | null };
-				nodes?: Array<{
-					id: string;
-					content?: { url?: string; number?: number };
-					fieldValues?: {
-						nodes?: Array<{
-							name?: string;
-							text?: string;
-							field?: { id: string; name: string };
-						}>;
-					};
-				}>;
+	data?: {
+		viewer?: {
+			projectV2?: {
+				items?: {
+					pageInfo: { hasNextPage: boolean; endCursor: string | null };
+					nodes?: Array<{
+						id: string;
+						content?: { url?: string; number?: number };
+						fieldValues?: {
+							nodes?: Array<{
+								name?: string;
+								text?: string;
+								field?: { id: string; name: string };
+							}>;
+						};
+					}>;
+				};
 			};
 		};
 	};
@@ -145,27 +149,31 @@ interface ProjectItemsResponse {
 }
 
 interface ProjectIdResponse {
-	viewer?: {
-		projectV2?: {
-			id: string;
+	data?: {
+		viewer?: {
+			projectV2?: {
+				id: string;
+			};
 		};
 	};
 	errors?: Array<{ message: string }>;
 }
 
 interface DepsTimelineResponse {
-	repository?: {
-		issue?: {
-			timelineItems?: {
-				nodes?: Array<{
-					__typename: string;
-					blockingIssue?: {
-						id: string;
-						number: number;
-						title: string;
-						state: string;
-					} | null;
-				}>;
+	data?: {
+		repository?: {
+			issue?: {
+				timelineItems?: {
+					nodes?: Array<{
+						__typename: string;
+						blockingIssue?: {
+							id: string;
+							number: number;
+							title: string;
+							state: string;
+						} | null;
+					}>;
+				};
 			};
 		};
 	};
@@ -390,7 +398,7 @@ export class OctokitClient implements GitHubPort {
 		const resp = await this.graphqlQuery<ProjectFieldsResponse>(
 			PROJECT_FIELDS_QUERY(projectNumber),
 		);
-		const nodes = resp?.viewer?.projectV2?.fields?.nodes || [];
+		const nodes = resp?.data?.viewer?.projectV2?.fields?.nodes || [];
 		return nodes.map((n) => ({
 			id: n.id,
 			name: n.name,
@@ -409,7 +417,7 @@ export class OctokitClient implements GitHubPort {
 			const resp = (await this.graphqlQuery<ProjectItemsResponse>(
 				PROJECT_ITEMS_QUERY(projectNumber, after),
 			)) as ProjectItemsResponse;
-			const page = resp?.viewer?.projectV2?.items as
+			const page = resp?.data?.viewer?.projectV2?.items as
 				| {
 						pageInfo: { hasNextPage: boolean; endCursor: string | null };
 						nodes?: Array<{
@@ -461,7 +469,7 @@ export class OctokitClient implements GitHubPort {
 	async getProjectId(projectNumber: number): Promise<string> {
 		this.log.debug("octokit", `getProjectId #${projectNumber}`);
 		const resp = await this.graphqlQuery<ProjectIdResponse>(PROJECT_ID_QUERY(projectNumber));
-		return resp?.viewer?.projectV2?.id || "";
+		return resp?.data?.viewer?.projectV2?.id || "";
 	}
 
 	async setItemStatusField(
@@ -491,7 +499,7 @@ export class OctokitClient implements GitHubPort {
 			throw new Error(`GitHub GraphQL error: ${msgs}`);
 		}
 
-		const nodes = resp?.repository?.issue?.timelineItems?.nodes;
+		const nodes = resp?.data?.repository?.issue?.timelineItems?.nodes;
 		if (!nodes || nodes.length === 0) {
 			return { blocked: false, blockers: [] };
 		}
