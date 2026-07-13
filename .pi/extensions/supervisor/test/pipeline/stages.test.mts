@@ -5,7 +5,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../../pipeline/helpers.ts";
+import { createGitHubPort } from "../../github/gh-client.ts";
 import type {
 	SupervisorConfig,
 	ProjectField,
@@ -33,6 +35,7 @@ import {
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
 } from "../../pipeline/stages.ts";
+import { createMockGitHubPort } from "../../test/helper/mock-github-port.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
 
@@ -69,6 +72,14 @@ function createMockCtx(): ExtensionCommandContext {
 			},
 		},
 	} as unknown as ExtensionCommandContext;
+}
+
+/** Create a real adapter port backed by a mock pi.exec. */
+function createPortFromPi(pi: ExtensionAPI): ReturnType<typeof createGitHubPort> {
+	const exec: ExecFn = ((cmd: string, args: string[], opts?: ExecOptions) => {
+		return pi.exec(cmd, args, opts) as Promise<ExecResult>;
+	}) as ExecFn;
+	return createGitHubPort(exec);
 }
 
 // ─── Fixtures ──────────────────────────────────────────────────────
@@ -921,15 +932,17 @@ describe("buildAgentResultEntry()", () => {
 describe("handleBacklogTransition()", () => {
 	const statusFieldId = "sf_status";
 
-	it("calls setItemStatus with correct args and returns 'Research' on success", async () => {
-		const calls: ExecCall[] = [];
-		// setItemStatus calls gh(pi, ["project", "item-edit", ...])
-		// which calls pi.exec("gh", [...])
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+	it("calls setItemStatusField with correct args and returns 'Research' on success", async () => {
+		const portCalls: Array<{ method: string; args: unknown[] }> = [];
+		const port = createMockGitHubPort({
+			setItemStatusField: async (itemId, projectId, fieldId, optionId) => {
+				portCalls.push({ method: "setItemStatusField", args: [itemId, projectId, fieldId, optionId] });
+			},
+		});
 		const fields = makeProjectFields(statusFieldId);
 
 		const result = await handleBacklogTransition(
-			pi,
+			port,
 			fields,
 			statusFieldId,
 			"item_123",
@@ -937,12 +950,11 @@ describe("handleBacklogTransition()", () => {
 		);
 		assert.equal(result, "Research");
 
-		// Verify the gh project item-edit call was made
-		assert.ok(calls.length >= 1);
-		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.ok(ghCall, "setItemStatus should call gh");
-		assert.ok(ghCall!.args.includes("item_123"));
-		assert.ok(ghCall!.args.includes("project_456"));
+		// Verify setItemStatusField was called with correct args
+		assert.equal(portCalls.length, 1);
+		assert.equal(portCalls[0].method, "setItemStatusField");
+		assert.equal(portCalls[0].args[0], "item_123");
+		assert.equal(portCalls[0].args[1], "project_456");
 	});
 
 	it("throws when 'Research' option not found", async () => {
@@ -961,18 +973,19 @@ describe("handleBacklogTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => handleBacklogTransition(pi, fields, statusFieldId, "item_123", "project_456"),
+			() => handleBacklogTransition(createMockGitHubPort(), fields, statusFieldId, "item_123", "project_456"),
 			/Cannot find 'Research' status option/,
 		);
 	});
 
-	it("throws when setItemStatus fails", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 1, stdout: "", stderr: "network error" }], calls);
+	it("throws when setItemStatusField fails", async () => {
+		const port = createMockGitHubPort({
+			setItemStatusField: async () => { throw new Error("network error"); },
+		});
 		const fields = makeProjectFields(statusFieldId);
 
 		await assert.rejects(
-			() => handleBacklogTransition(pi, fields, statusFieldId, "item_123", "project_456"),
+			() => handleBacklogTransition(port, fields, statusFieldId, "item_123", "project_456"),
 			/Failed to set status/,
 		);
 	});
@@ -983,13 +996,17 @@ describe("handleBacklogTransition()", () => {
 describe("applyStatusTransition()", () => {
 	const statusFieldId = "sf_status";
 
-	it("calls setItemStatus with correct option id and returns targetStatus", async () => {
-		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+	it("calls setItemStatusField with correct option id and returns targetStatus", async () => {
+		const portCalls: Array<{ method: string; args: unknown[] }> = [];
+		const port = createMockGitHubPort({
+			setItemStatusField: async (itemId, projectId, fieldId, optionId) => {
+				portCalls.push({ method: "setItemStatusField", args: [itemId, projectId, fieldId, optionId] });
+			},
+		});
 		const fields = makeProjectFields(statusFieldId);
 
 		const result = await applyStatusTransition(
-			pi,
+			port,
 			"item_123",
 			"project_456",
 			fields,
@@ -998,9 +1015,9 @@ describe("applyStatusTransition()", () => {
 		);
 		assert.equal(result, "Audit");
 
-		// Verify gh was called
-		const ghCall = calls.find((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.ok(ghCall, "setItemStatus should call gh");
+		// Verify setItemStatusField was called
+		assert.equal(portCalls.length, 1);
+		assert.equal(portCalls[0].method, "setItemStatusField");
 	});
 
 	it("throws when option not found", async () => {
@@ -1015,7 +1032,7 @@ describe("applyStatusTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => applyStatusTransition(pi, "item_123", "project_456", fields, statusFieldId, "Audit"),
+			() => applyStatusTransition(createMockGitHubPort(), "item_123", "project_456", fields, statusFieldId, "Audit"),
 			/Cannot find 'Audit' option on board/,
 		);
 	});
@@ -1048,6 +1065,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			baseResult,
@@ -1078,6 +1096,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			baseResult,
@@ -1109,6 +1128,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1144,6 +1164,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1179,6 +1200,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1222,6 +1244,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1261,6 +1284,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1299,6 +1323,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1337,6 +1362,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1377,6 +1403,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1418,6 +1445,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1450,6 +1478,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1489,6 +1518,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1532,6 +1562,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1567,6 +1598,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1606,6 +1638,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1655,6 +1688,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1706,6 +1740,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1754,6 +1789,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1808,6 +1844,7 @@ describe("handlePostAgentSuccess()", () => {
 		};
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1852,6 +1889,7 @@ describe("handlePostAgentSuccess()", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1893,6 +1931,7 @@ describe("handlePostAgentSuccess()", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -1990,6 +2029,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -2035,6 +2075,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -2069,6 +2110,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -2111,6 +2153,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -2141,6 +2184,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
@@ -2183,6 +2227,7 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		const filteredData: FilteredIssueData = { body: "", comments: [] };
 
 		const success = await handlePostAgentSuccess(
+			createPortFromPi(pi),
 			pi,
 			ctx,
 			result,
