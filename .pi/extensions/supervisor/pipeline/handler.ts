@@ -15,8 +15,9 @@ import type {
 	SupervisorMessageDetails,
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
-import { findIssueItem, filterIssueData, postIssueComment } from "../github/index.ts";
-import { gh } from "../github/gh-client.ts";
+import { findIssueItem, filterIssueData } from "../github/index.ts";
+import { gh, createGitHubPort } from "../github/gh-client.ts";
+import type { GitHubPort } from "../github/ports.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { executeAgent } from "./execute-agent.ts";
@@ -205,6 +206,7 @@ export async function handleSupervisorCommand(
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
 	const exec: ExecFn = pi.exec.bind(pi);
+	const port: GitHubPort = createGitHubPort(exec);
 	const notify: NotifyFn = {
 		info: (msg) => {
 			if (ctx.hasUI) {
@@ -279,7 +281,7 @@ export async function handleSupervisorCommand(
 		// Read project board
 		ctx.ui.setStatus("supervisor", "Reading project board...");
 		const { fields, items, projectId, statusField } = await readProjectBoard(
-			exec,
+			port,
 			notify,
 			config,
 			issueNum,
@@ -310,7 +312,7 @@ export async function handleSupervisorCommand(
 
 		// Dependency gate
 		ctx.ui.setStatus("supervisor", "Checking dependencies...");
-		if (!(await checkDependencies(exec, notify, config, issueNum, collector))) {
+		if (!(await checkDependencies(port, notify, config, issueNum, collector))) {
 			getDebugLogger().warn("handler", "Dependency check blocked", { issueNum });
 			return;
 		}
@@ -423,7 +425,7 @@ export async function handleSupervisorCommand(
 			// Built-in: Backlog → Research
 			if (step.builtIn === "backlog") {
 				loopStatus = await handleBacklogTransition(
-					pi,
+					port,
 					fields,
 					statusField.id,
 					loopItem.id,
@@ -484,7 +486,7 @@ export async function handleSupervisorCommand(
 				const nextStatus = inferForwardStatus(step);
 				if (nextStatus) {
 					loopStatus = await applyStatusTransition(
-						pi,
+						port,
 						loopItem.id,
 						projectId,
 						fields,
@@ -714,6 +716,7 @@ export async function handleSupervisorCommand(
 			// comment posting can show gate rejection instead of approval
 			if (result.success) {
 				const continuePipeline = await handlePostAgentSuccess(
+					port,
 					pi,
 					ctx,
 					result,
@@ -787,8 +790,7 @@ export async function handleSupervisorCommand(
 					});
 					// Close issue on GitHub: no changes needed (already resolved)
 					try {
-						await postIssueComment(
-							exec,
+						await port.postIssueComment(
 							issueNum,
 							config.repo,
 							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
@@ -819,6 +821,7 @@ export async function handleSupervisorCommand(
 
 				getDebugLogger().info("handler", "Creating PR on approval");
 				prCreationResult = await createPrOnApproval(
+					port,
 					pi,
 					ctx,
 					issueNum,
@@ -847,7 +850,7 @@ export async function handleSupervisorCommand(
 					if (!result.success) {
 						const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
 						try {
-							await postIssueComment(exec, issueNum, config.repo, budgetExceededMsg);
+							await port.postIssueComment(issueNum, config.repo, budgetExceededMsg);
 							ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
 						} catch (commentErr: unknown) {
 							collector?.push(
@@ -862,7 +865,7 @@ export async function handleSupervisorCommand(
 					const nextStatus = inferForwardStatus(step);
 					if (nextStatus) {
 						loopStatus = await applyStatusTransition(
-							pi,
+							port,
 							loopItem.id,
 							projectId,
 							fields,
@@ -987,7 +990,7 @@ export async function handleSupervisorCommand(
 			try {
 				const prev = loopStatus;
 				loopStatus = await applyStatusTransition(
-					pi,
+					port,
 					loopItem.id,
 					projectId,
 					fields,
@@ -1021,6 +1024,7 @@ export async function handleSupervisorCommand(
 			loopStatus,
 			agentResults,
 			config,
+			port,
 			pi,
 			ctx,
 			worktreePath,
@@ -1118,6 +1122,7 @@ export async function handlePostPipeline(
 	loopStatus: string,
 	agentResults: PipelineAgentResult[],
 	config: SupervisorConfig,
+	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	worktreePath: string | undefined,
@@ -1137,6 +1142,7 @@ export async function handlePostPipeline(
 				issueTitle,
 				loopStatus,
 				config,
+				port,
 				pi,
 				ctx,
 				worktreePath,

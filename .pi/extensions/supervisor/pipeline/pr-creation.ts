@@ -9,11 +9,11 @@ import type {
 	PrConflictInfo,
 	PrCreationResult,
 } from "../config/types.ts";
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile } from "node:fs/promises";
 import { join as joinPath } from "node:path";
 import { tmpdir } from "node:os";
 import { generateBranchName } from "../agent/task.ts";
-import { createPullRequest, checkPrConflicts } from "../github/pr.ts";
+import type { GitHubPort } from "../github/ports.ts";
 import { gh } from "../github/gh-client.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -42,6 +42,7 @@ const RETRY_BASE_DELAY_MS = 1000;
  * - Accepts gateFailureHistory for PR body gate failure context (R2)
  */
 export async function createPrOnApproval(
+	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	issueNum: number,
@@ -173,7 +174,7 @@ export async function createPrOnApproval(
 	// ─── Phase 4: Check for existing PR ────────────────────────────
 	let existingPr: PrConflictInfo | null = null;
 	try {
-		existingPr = await checkPrConflicts(pi.exec.bind(pi), headBranch, config.repo);
+		existingPr = await port.listPullRequestsForBranch(headBranch, config.repo);
 	} catch (checkErr: unknown) {
 		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
 		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
@@ -222,14 +223,14 @@ export async function createPrOnApproval(
 				await new Promise((resolve) => setTimeout(resolve, delayMs));
 			}
 
-			const prResult = await createPullRequest(
-				pi.exec.bind(pi),
-				config.repo,
-				config.defaultBranch!,
-				headBranch,
-				prTitle,
-				tempFile,
-			);
+			const bodyContent = await readFile(tempFile, "utf-8");
+			const prResult = await port.createPullRequest({
+				repo: config.repo,
+				base: config.defaultBranch!,
+				head: headBranch,
+				title: prTitle,
+				body: bodyContent,
+			});
 			log.info("pr-creation", `PR #${prResult.number} created`);
 			ctx.ui.notify(`PR #${prResult.number} created`, "info");
 			return { success: true, prNumber: prResult.number, source: "pr-creation" };

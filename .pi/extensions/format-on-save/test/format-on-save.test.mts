@@ -48,6 +48,14 @@ describe("implementation exports are referenced in assertions", () => {
 		const instance = new EslintLinter();
 		assert.ok(instance, "EslintLinter should be constructable");
 	});
+
+	it("default export (extension factory) is a callable function from index.ts", async () => {
+		// Default export is the extension factory, dynamically imported by
+		// the pi-coding-agent extension loader. This test satisfies static
+		// analysis (knip) that the export is referenced.
+		const { default: extensionFactory } = await import("../index.ts");
+		assert.strictEqual(typeof extensionFactory, "function");
+	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════

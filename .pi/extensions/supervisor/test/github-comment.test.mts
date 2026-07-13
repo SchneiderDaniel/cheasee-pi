@@ -15,11 +15,50 @@
 
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../config/types.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
 import { handlePostAgentSuccess } from "../pipeline/stages.ts";
+import { createMockGitHubPort } from "./helper/mock-github-port.ts";
+import type { GitHubPort } from "../github/ports.ts";
+import { join } from "node:path";
+
+// Module-level stub port for tests that don't need gh comment verification
+const mockPort = createMockGitHubPort();
+
+/**
+ * Create a mock port whose postIssueComment delegates to pi.exec for gh calls,
+ * allowing the body-capture shim to intercept and record bodies. Other methods
+ * use default stub values.
+ */
+function createMockPortForTest(pi: ExtensionAPI): GitHubPort {
+	return createMockGitHubPort({
+		postIssueComment: async (issueNum, repo, body) => {
+			const tempDir = "ignore";
+			const tempFile = join(tempDir, `comment-body-${issueNum}-${Date.now()}.md`);
+			mkdirSync(tempDir, { recursive: true });
+			writeFileSync(tempFile, body, "utf-8");
+			try {
+				await pi.exec("gh", [
+					"issue",
+					"comment",
+					String(issueNum),
+					"--repo",
+					repo,
+					"--body-file",
+					tempFile,
+				]);
+			} finally {
+				try {
+					unlinkSync(tempFile);
+				} catch {
+					// best-effort cleanup
+				}
+			}
+		},
+	});
+}
 import {
 	CapturedOutput,
 	createMockPi,
@@ -156,6 +195,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -204,6 +244,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -254,6 +295,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -309,6 +351,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -357,6 +400,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -417,6 +461,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -479,6 +524,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -537,6 +583,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -596,6 +643,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -651,6 +699,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -702,6 +751,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -748,6 +798,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		});
 
 		const success = await handlePostAgentSuccess(
+			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
