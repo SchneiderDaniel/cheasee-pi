@@ -171,17 +171,6 @@ export async function getProjectId(exec: ExecFn, projectNumber: number): Promise
 	return id;
 }
 
-// ─── Find Issue Item ──────────────────────────────────────────────
-
-export function findIssueItem(items: ProjectItem[], issueNumber: number): ProjectItem | null {
-	for (const item of items) {
-		if (item.content?.number === issueNumber) return item;
-		const url = item.content?.url || "";
-		if (url.includes(`/issues/${issueNumber}`) || url.includes(`/pull/${issueNumber}`)) return item;
-	}
-	return null;
-}
-
 // ─── Set Item Status ──────────────────────────────────────────────
 
 export async function setItemStatus(

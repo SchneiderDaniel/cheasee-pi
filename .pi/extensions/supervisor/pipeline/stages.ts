@@ -25,13 +25,9 @@ import {
 	type WorkflowStep,
 	WORKFLOW,
 } from "../config/workflow.ts";
-import { setItemStatus } from "../github/project.ts";
-import {
-	postIssueComment,
-	extractAgentCommentBody,
-	extractStructuredAuditOutput,
-	commitAndPush,
-} from "../github/index.ts";
+import { commitAndPush } from "../github/git.ts";
+import { extractAgentCommentBody, extractStructuredAuditOutput } from "../agent/output.ts";
+import type { GitHubPort } from "../github/ports.ts";
 import { hasResearchFindings } from "../config/workflow.ts";
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
 import type { AgentOutput } from "../config/types.ts";
@@ -117,7 +113,7 @@ function findOption(
  * Returns new status on success, throws with a message on failure.
  */
 export async function handleBacklogTransition(
-	pi: ExtensionAPI,
+	port: GitHubPort,
 	fields: ProjectField[],
 	statusFieldId: string,
 	itemId: string,
@@ -128,7 +124,7 @@ export async function handleBacklogTransition(
 		throw new Error("Cannot find 'Research' status option");
 	}
 	try {
-		await setItemStatus(pi.exec.bind(pi), itemId, projectId, statusFieldId, optId);
+		await port.setItemStatusField(itemId, projectId, statusFieldId, optId);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		throw new Error(`Failed to set status: ${msg}`);
@@ -525,7 +521,7 @@ export function trackAuditScore(agentOutput: string, state: StageState, toolName
  * Returns the new effective status.
  */
 export async function applyStatusTransition(
-	pi: ExtensionAPI,
+	port: GitHubPort,
 	itemId: string,
 	projectId: string,
 	fields: ProjectField[],
@@ -536,7 +532,7 @@ export async function applyStatusTransition(
 	if (!optId) {
 		throw new Error(`Cannot find '${targetStatus}' option on board.`);
 	}
-	await setItemStatus(pi.exec.bind(pi), itemId, projectId, statusFieldId, optId);
+	await port.setItemStatusField(itemId, projectId, statusFieldId, optId);
 	return targetStatus;
 }
 
@@ -635,6 +631,7 @@ export async function handlePostAgentSuccess(
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
 	notify?: NotifyFn,
+	port?: GitHubPort,
 ): Promise<boolean> {
 	// Agent comments: architect, test-designer, researcher
 	if (agentName === "architect" || agentName === "test-designer" || agentName === "researcher") {
@@ -833,7 +830,7 @@ export async function handlePostAgentSuccess(
 
 		if (commentBody) {
 			try {
-				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, commentBody);
+				if (port) await port.postIssueComment(issueNum, config.repo, commentBody);
 				ctx.ui.notify(`Posted ${agentName} comment on issue #${issueNum}`, "info");
 			} catch (commentErr: unknown) {
 				collector?.push(
@@ -869,7 +866,7 @@ export async function handlePostAgentSuccess(
 					);
 				}
 				try {
-					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, fallbackComment);
+					if (port) await port.postIssueComment(issueNum, config.repo, fallbackComment);
 					ctx.ui.notify(
 						`Posted ${agentName} comment (graceful degradation) on issue #${issueNum}`,
 						"info",
@@ -939,6 +936,7 @@ export async function handlePostAgentSuccess(
 			config,
 			collector,
 			gateRejected,
+			port,
 		);
 	}
 
@@ -961,13 +959,14 @@ async function handleAuditorOutput(
 	config: SupervisorConfig,
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
+	port?: GitHubPort,
 ): Promise<void> {
 	// If gate rejected, post gate-specific rejection comment and skip normal processing
 	if (gateRejected) {
 		const gateBody = buildGateRejectionComment(gateRejected);
 		if (gateBody) {
 			try {
-				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, gateBody);
+				if (port) await port.postIssueComment(issueNum, config.repo, gateBody);
 				ctx.ui.notify(
 					`Audit score gate rejected: ${gateRejected.score.passing}/${gateRejected.total} < ${gateRejected.required}/${gateRejected.total}`,
 					"warning",
@@ -991,9 +990,6 @@ async function handleAuditorOutput(
 			commentBodyFromOutput = output.commentBody;
 		} else if (output.action === "COMPLETE") {
 			// Map COMPLETE to APPROVED/REJECTED based on findings.
-			// Minimax-m3 often uses the generic template instead of the
-			// auditor-specific APPROVED/REJECTED, causing silent-drops.
-			// Mirrors resolveNextStatusFromAgentOutput logic in workflow.ts.
 			if (output.findings && output.findings.length > 0) {
 				const hasBlockers = output.findings.some(
 					(f) => f.severity === "critical" || f.severity === "warning",
@@ -1010,9 +1006,6 @@ async function handleAuditorOutput(
 	if (!actionFromOutput) {
 		const auditOutput = extractStructuredAuditOutput(agentOutput, toolNamesSet);
 
-		// Tertiary fallback: bare approval/rejection text (agent skipped structured format)
-		// Detect lines like "Approved: ..." or "Rejected: ..." or just "Approved"/"Rejected"
-		// and wrap into a default comment so the review is not silently lost.
 		if (!auditOutput) {
 			const trimmed = agentOutput.trim();
 			const approvedMatch = /^Approved[^a-zA-Z]/.test(trimmed) || /\bApproved\b/i.test(trimmed);
@@ -1021,13 +1014,13 @@ async function handleAuditorOutput(
 			if (approvedMatch && !rejectedMatch) {
 				try {
 					const body = `## Audit Approved\n\n${trimmed.slice(0, 2000)}`;
-					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
+					if (port) await port.postIssueComment(issueNum, config.repo, body);
 					ctx.ui.notify("Audit approval comment posted (bare text fallback)", "info");
 				} catch (acErr: unknown) {}
 			} else if (rejectedMatch) {
 				try {
 					const body = `## Audit Rejected\n\n${trimmed.slice(0, 2000)}`;
-					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, body);
+					if (port) await port.postIssueComment(issueNum, config.repo, body);
 					ctx.ui.notify("Audit rejection comment posted (bare text fallback)", "info");
 				} catch (rcErr: unknown) {}
 			}
@@ -1038,7 +1031,7 @@ async function handleAuditorOutput(
 			const bodyToPost = auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
 			if (bodyToPost) {
 				try {
-					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
+					if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit comment posted (text marker fallback)", "info");
 				} catch (acErr: unknown) {}
 			}
@@ -1046,7 +1039,7 @@ async function handleAuditorOutput(
 			const bodyToPost = auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
 			if (bodyToPost) {
 				try {
-					await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
+					if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
 					ctx.ui.notify("Audit rejection comment posted (text marker fallback)", "info");
 				} catch (rcErr: unknown) {}
 			}
@@ -1059,7 +1052,7 @@ async function handleAuditorOutput(
 		const bodyToPost = commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
 			try {
-				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
+				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
 				ctx.ui.notify("Audit approval comment posted (from structured output)", "info");
 			} catch (acErr: unknown) {
 				collector?.push(
@@ -1073,7 +1066,7 @@ async function handleAuditorOutput(
 		const bodyToPost = commentBodyFromOutput || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
 			try {
-				await postIssueComment(pi.exec.bind(pi), issueNum, config.repo, bodyToPost);
+				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
 				ctx.ui.notify("Audit rejection comment posted (from structured output)", "info");
 			} catch (rcErr: unknown) {
 				collector?.push(

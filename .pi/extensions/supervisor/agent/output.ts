@@ -723,3 +723,292 @@ export function parseAgentOutput(output: string, toolNames?: Set<string>): Parse
 export function isSuccess(result: ParseResult): result is AgentOutput {
 	return "action" in result && "agentName" in result;
 }
+
+// ─── Agent Comment Body Extraction ────────────────────────────────
+// Tries parseAgentOutput first for structured commentBody,
+// falls back to COMMENT_BODY marker extraction.
+
+export function extractAgentCommentBody(output: string, toolNames?: Set<string>): string | null {
+	// Primary: parseAgentOutput for structured JSON
+	const parseResult = parseAgentOutput(output, toolNames);
+	if (isSuccess(parseResult)) {
+		const agentOutput = parseResult as AgentOutput;
+		if (agentOutput.commentBody) return agentOutput.commentBody;
+	}
+
+	// Fallback: COMMENT_BODY marker extraction
+	const startMarker = /COMMENT_BODY\s*:\s*/g;
+	const endMarker = /COMMENT_BODY_END/g;
+
+	let lastBody: string | null = null;
+	let match;
+	while ((match = startMarker.exec(output)) !== null) {
+		const start = match.index + match[0].length;
+		const endIdx = output.indexOf("COMMENT_BODY_END", start);
+		const body = endIdx !== -1 ? output.slice(start, endIdx) : output.slice(start);
+		lastBody = body.trim();
+	}
+
+	// Fallback 2: structured section heading extraction
+	if (!lastBody) {
+		const sectionHeadings = [
+			"## Architecture",
+			"## Research Findings",
+			"## Test Plan",
+			"## Audit Approved",
+			"## Audit Rejected",
+		];
+		let bestIdx = -1;
+		let bestHeading = "";
+		for (const heading of sectionHeadings) {
+			const headingRegex = new RegExp(
+				heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|$)",
+				"gm",
+			);
+			let match;
+			let lastMatch: RegExpExecArray | null = null;
+			while ((match = headingRegex.exec(output)) !== null) {
+				lastMatch = match;
+			}
+			if (lastMatch && lastMatch.index > bestIdx) {
+				bestIdx = lastMatch.index;
+				bestHeading = heading;
+			}
+		}
+		if (bestIdx !== -1) {
+			let slice = output.slice(bestIdx).trim();
+			slice = stripTrailingMetadata(slice, bestHeading.length);
+
+			const lastJsonFence = slice.lastIndexOf("\n\`\`\`json");
+			if (lastJsonFence > bestHeading.length + 20) {
+				const beforeFence = slice.slice(0, lastJsonFence).trim();
+				if (beforeFence.length > bestHeading.length + 20) {
+					slice = beforeFence;
+				}
+			}
+
+			if (slice.length > bestHeading.length + 20) {
+				lastBody = slice;
+			}
+		}
+	}
+
+	// Strip metadata lines from extracted content
+	const METADATA_LINE_RE = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}\u{1F4AD}]/u;
+	const REASONING_LINE_RE =
+		/^(Now (let me|I|we)|Let me|I need to|I'll|First,? let me|I should|I think|I'm going|Let's|Here's my|My approach|I will)/i;
+	const NDJSON_LINE_RE = /^\{\s*"(?:type|role)"\s*:/;
+	const MESSAGES_LINE_RE = /^\{\s*"messages"\s*:\s*\[/;
+	const stripNoise = (text: string): string => {
+		return text
+			.split("\n")
+			.filter((line) => {
+				const trimmed = line.trim();
+				if (!trimmed) return true;
+				if (METADATA_LINE_RE.test(trimmed)) return false;
+				if (isToolLine(trimmed, toolNames)) return false;
+				if (REASONING_LINE_RE.test(trimmed)) return false;
+				if (NDJSON_LINE_RE.test(trimmed)) return false;
+				if (MESSAGES_LINE_RE.test(trimmed)) return false;
+				return true;
+			})
+			.join("\n")
+			.trim();
+	};
+
+	function isContaminated(text: string): boolean {
+		const ndjsonPattern = /\{\s*"(?:type|role|messages)"\s*[:\[]/g;
+		const matches = text.match(ndjsonPattern);
+		if (!matches) return false;
+		return matches.length >= 2;
+	}
+
+	if (lastBody) {
+		lastBody = normalizeEscapes(lastBody);
+		const stripped = stripNoise(lastBody);
+		if (stripped.length >= 50) {
+			lastBody = stripped;
+		}
+		if (lastBody && isContaminated(lastBody)) {
+			return null;
+		}
+	}
+
+	return lastBody;
+}
+
+// ─── Structured Audit Output ──────────────────────────────────────
+
+export interface StructuredAuditOutput {
+	decision: "APPROVED" | "REJECTED";
+	prTitle?: string;
+	prBody?: string;
+	commentBody?: string;
+}
+
+/**
+ * Extract structured audit output from agent output.
+ */
+export function extractStructuredAuditOutput(output: string, toolNames?: Set<string>): StructuredAuditOutput | null {
+	const parseResult = parseAgentOutput(output, toolNames);
+	if (isSuccess(parseResult)) {
+		const agentOutput = parseResult as AgentOutput;
+		if (agentOutput.action === "APPROVED" || agentOutput.action === "REJECTED") {
+			const result: StructuredAuditOutput = {
+				decision: agentOutput.action,
+			};
+			if (agentOutput.commentBody) result.commentBody = agentOutput.commentBody;
+			if (agentOutput.prTitle) result.prTitle = agentOutput.prTitle;
+			if (agentOutput.prBody) result.prBody = agentOutput.prBody;
+			return result;
+		}
+	}
+
+	// Fallback: text marker detection
+	const decisionMatch = output.match(/AUDIT_DECISION\s*:\s*(APPROVED|REJECTED)/g);
+	const standaloneApproved = output.match(/\bAUDIT_APPROVED\b/g);
+	const standaloneRejected = output.match(/\bAUDIT_REJECTED\b/g);
+
+	if (!decisionMatch && !standaloneApproved && !standaloneRejected) {
+		const approvedHeading = "## Audit Approved";
+		const rejectedHeading = "## Audit Rejected";
+		const approvedIdx = output.lastIndexOf(approvedHeading);
+		const rejectedIdx = output.lastIndexOf(rejectedHeading);
+
+		if (approvedIdx !== -1 || rejectedIdx !== -1) {
+			let decision: "APPROVED" | "REJECTED";
+			let heading: string;
+			let bodyStart: number;
+
+			if (approvedIdx > rejectedIdx) {
+				decision = "APPROVED";
+				heading = approvedHeading;
+				bodyStart = approvedIdx;
+			} else {
+				decision = "REJECTED";
+				heading = rejectedHeading;
+				bodyStart = rejectedIdx;
+			}
+
+			let slice = output.slice(bodyStart).trim();
+			slice = stripTrailingMetadata(slice, heading.length);
+
+			const lastJsonFence = slice.lastIndexOf("\n\`\`\`json");
+			if (lastJsonFence > heading.length + 20) {
+				const beforeFence = slice.slice(0, lastJsonFence).trim();
+				if (beforeFence.length > heading.length + 20) {
+					slice = beforeFence;
+				}
+			}
+
+			if (slice.length > heading.length + 20) {
+				return { decision, commentBody: slice };
+			}
+		}
+
+		return null;
+	}
+
+	let decision: "APPROVED" | "REJECTED";
+	if (decisionMatch && decisionMatch.length > 0) {
+		const lastDecision = decisionMatch[decisionMatch.length - 1];
+		decision = lastDecision.includes("APPROVED") ? ("APPROVED" as const) : ("REJECTED" as const);
+	} else if (standaloneApproved && standaloneApproved.length > 0) {
+		const lastStandalone = standaloneApproved[standaloneApproved.length - 1];
+		const approvedIdx = output.lastIndexOf(lastStandalone);
+		const rejectedIdx = standaloneRejected
+			? output.lastIndexOf(standaloneRejected[standaloneRejected.length - 1])
+			: -1;
+		decision = approvedIdx > rejectedIdx ? "APPROVED" : "REJECTED";
+	} else {
+		decision = "REJECTED";
+	}
+
+	const result: StructuredAuditOutput = { decision };
+
+	const prTitleMatch = output.match(/PR_TITLE\s*:\s*(.+)$/gm);
+	if (prTitleMatch) {
+		result.prTitle = prTitleMatch[prTitleMatch.length - 1].replace(/^PR_TITLE\s*:\s*/i, "").trim();
+	}
+
+	const prBodyMatch = output.match(
+		/PR_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:COMMENT_BODY|SUBMODULE_PR|PR_TITLE)\s*:|$)/,
+	);
+	if (prBodyMatch) {
+		result.prBody = prBodyMatch[1].trim();
+	}
+
+	const commentBodyMatch = output.match(
+		/COMMENT_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:SUBMODULE_PR|AUDIT_DECISION)\s*:|$)/,
+	);
+	if (commentBodyMatch) {
+		let body = commentBodyMatch[1].trim();
+		const bodyEndIdx = body.lastIndexOf("COMMENT_BODY_END");
+		if (bodyEndIdx !== -1) {
+			body = body.slice(0, bodyEndIdx).trim();
+		}
+		result.commentBody = body;
+	}
+
+	return result;
+}
+
+/**
+ * Strip trailing JSON blocks, thinking text, and instrumentation metadata
+ * from a markdown slice.
+ */
+function stripTraditionalJsonEnd(
+	slice: string,
+	minHeadingLen: number,
+	truncatePos: number,
+): number {
+	const jsonEndRe = /\n\s*"(?:auditScore|findings|action)"\s*:/;
+	const jsonMatch = slice.match(jsonEndRe);
+	if (jsonMatch?.index && jsonMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, jsonMatch.index);
+	}
+	return truncatePos;
+}
+
+export function stripTrailingMetadata(slice: string, minHeadingLen: number): string {
+	let truncatePos = slice.length;
+
+	truncatePos = stripTraditionalJsonEnd(slice, minHeadingLen, truncatePos);
+
+	const thinkEndRe = /\n\u{1F4AD}/u;
+	const instrEndRe = /\n\u{1F4CA}/u;
+	const thinkMatch = slice.match(thinkEndRe);
+	if (thinkMatch?.index && thinkMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, thinkMatch.index);
+	}
+	const instrMatch = slice.match(instrEndRe);
+	if (instrMatch?.index && instrMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, instrMatch.index);
+	}
+
+	const ndjsonLineRe = /\n\{\s*"(?:type|role)"\s*:/;
+	const ndjsonMatch = slice.match(ndjsonLineRe);
+	if (ndjsonMatch?.index && ndjsonMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, ndjsonMatch.index);
+	}
+
+	const agentEndRe = /\n\s*"willRetry"\s*:/;
+	const agentEndMatch = slice.match(agentEndRe);
+	if (agentEndMatch?.index && agentEndMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, agentEndMatch.index);
+	}
+
+	const messagesRe = /\n\s*"messages"\s*:\s*\[/;
+	const messagesMatch = slice.match(messagesRe);
+	if (messagesMatch?.index && messagesMatch.index > minHeadingLen + 20) {
+		truncatePos = Math.min(truncatePos, messagesMatch.index);
+	}
+
+	if (truncatePos < slice.length) {
+		const trimmed = slice.slice(0, truncatePos).trim();
+		if (trimmed.length > minHeadingLen + 20) {
+			return trimmed;
+		}
+	}
+	return slice;
+}

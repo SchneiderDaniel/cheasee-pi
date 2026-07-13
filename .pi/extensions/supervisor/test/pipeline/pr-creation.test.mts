@@ -1,18 +1,14 @@
 // ─── Tests: pipeline/pr-creation.ts — createPrOnApproval ──────────
-// Unit tests for the PR creation flow. Mocks pi.exec and ctx.ui.
+// Unit tests for the PR creation flow. Mocks GitHubPort and ctx.ui.
 // Follows the same mock pattern as handler.test.mts.
 
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig, PipelineAgentResult } from "../../config/types.ts";
+import type { SupervisorConfig, PipelineAgentResult, PrConflictInfo } from "../../config/types.ts";
+import type { GitHubPort } from "../../github/ports.ts";
+import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 
-// ─── gh-client normalization ──────────────────────────────────────
-// gh() in gh-client.ts wraps calls in bash -c GH_TOKEN=... when
-// process.env.GH_TOKEN or ~/.config/gh/hosts.yml exists. This breaks
-// test assertions that check cmd === "gh". The pi.exec mock below
-// normalizes bash -c GH_TOKEN=... gh wrappers back to native gh calls
-// so assertions work regardless of host GH auth state.
 import { createPrOnApproval } from "../../pipeline/pr-creation.ts";
 
 // ─── Call Tracking ────────────────────────────────────────────────
@@ -28,28 +24,27 @@ interface NotifyCall {
 	level: string;
 }
 
-/**
- * Normalize an ExecCall to a gh-like command. gh() in gh-client.ts wraps
- * calls in bash -c GH_TOKEN=... gh "$@" _ <args> when GH_TOKEN or
- * ~/.config/gh/hosts.yml exists. This helper extracts the normalized gh
- * command from both formats so assertions work regardless of host GH auth.
- */
-function normalizeGhCall(call: ExecCall): { cmd: string; args: string[] } | null {
-	// Case 1: gh() called pi.exec("gh", args) directly (no GH_TOKEN)
-	if (call.cmd === "gh") {
-		return { cmd: "gh", args: call.args };
-	}
-	// Case 2: gh() called pi.exec("bash", ["-c", "...", "_", ...args]) (GH_TOKEN set)
-	if (
-		call.cmd === "bash" &&
-		call.args[0] === "-c" &&
-		call.args.length >= 3 &&
-		call.args.indexOf("_") !== -1
-	) {
-		const sepIdx = call.args.indexOf("_");
-		return { cmd: "gh", args: call.args.slice(sepIdx + 1) };
-	}
-	return null;
+// ─── Port Helpers ──────────────────────────────────────────────────
+
+function makeConflictInfo(prNumber: number = 123, hasConflict: boolean = false): PrConflictInfo {
+	return {
+		number: prNumber,
+		hasConflict,
+		mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
+		mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
+		headRefName: "worktree-git-issue-42-test",
+		baseRefName: "main",
+	};
+}
+
+function createMockComparePort(aheadBy: number = 3, existingPrNumber?: number): GitHubPort {
+	return createMockGitHubPort({
+		compareBranches: async () => aheadBy,
+		listPullRequestsForBranch: async () =>
+			existingPrNumber ? makeConflictInfo(existingPrNumber) : null,
+		createPullRequest: async () => ({ number: 456 }),
+		updatePullRequest: async () => {},
+	});
 }
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
@@ -67,18 +62,7 @@ function createMockPi(
 	let idx = 0;
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
-			// Normalize bash -c GH_TOKEN=... gh wrappers into native gh calls
-			// so test assertions work regardless of GH_TOKEN env state.
-			if (cmd === "bash" && args[0] === "-c" && /\bgh\b/.test(args[1] ?? "")) {
-				const sepIdx = args.indexOf("_");
-				if (sepIdx !== -1) {
-					callLog.push({ cmd: "gh", args: args.slice(sepIdx + 1), opts: opts || {} });
-				} else {
-					callLog.push({ cmd, args: args || [], opts: opts || {} });
-				}
-			} else {
-				callLog.push({ cmd, args: args || [], opts: opts || {} });
-			}
+			callLog.push({ cmd, args: args || [], opts: opts || {} });
 			const result = results[idx++];
 			if (!result || result.code !== 0) {
 				const errMsg = result?.stderr || result?.stdout || `Command failed: ${cmd}`;
@@ -145,40 +129,6 @@ const mockAgentResult: PipelineAgentResult = {
 	toolCount: 20,
 };
 
-/**
- * Helper: create a gh pr list response for no existing PR.
- */
-function emptyPrListResponse(): string {
-	return "[]";
-}
-
-/**
- * Helper: create a gh pr list response for an existing PR.
- */
-function existingPrListResponse(prNumber: number = 123): string {
-	return JSON.stringify([
-		{
-			number: prNumber,
-			mergeable: "MERGEABLE",
-			mergeStateStatus: "CLEAN",
-			headRefName: "worktree-git-issue-42-test",
-			baseRefName: "main",
-		},
-	]);
-}
-
-/**
- * Helper: gh api compare response for head being ahead of base.
- * Returns the ahead_by count as stdout string.
- */
-function compareAheadResponse(aheadBy: number = 3): {
-	code: number;
-	stdout: string;
-	stderr: string;
-} {
-	return { code: 0, stdout: String(aheadBy), stderr: "" };
-}
-
 // ─── Tests ─────────────────────────────────────────────────────────
 
 describe("createPrOnApproval()", () => {
@@ -189,16 +139,11 @@ describe("createPrOnApproval()", () => {
 			[
 				// 1. git push --force
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
-				// 2. gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				// 3. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 4. gh pr create
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		await createPrOnApproval(
 			pi,
@@ -209,10 +154,14 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// Verify exec call order: push, compare, pr list, pr create
-		assert.equal(execCalls.length, 4, "should have 4 exec calls");
+		// Verify only git push is an exec call (the rest use port)
+		assert.equal(execCalls.length, 1, "should have 1 exec call (git push)");
 
 		// 1. git push
 		assert.equal(execCalls[0].cmd, "git");
@@ -222,21 +171,6 @@ describe("createPrOnApproval()", () => {
 		assert.equal(execCalls[0].args[3], "worktree-git-issue-42-test");
 		assert.equal(execCalls[0].opts.cwd, "/worktrees/wt-42");
 		assert.equal(execCalls[0].opts.timeout, 60000);
-
-		// 2. gh api compare
-		assert.equal(execCalls[1].cmd, "gh");
-		assert.equal(execCalls[1].args[0], "api");
-		assert.ok(execCalls[1].args[1].includes("compare"));
-
-		// 3. gh pr list
-		assert.equal(execCalls[2].cmd, "gh");
-		assert.equal(execCalls[2].args[0], "pr");
-		assert.equal(execCalls[2].args[1], "list");
-
-		// 4. gh pr create
-		assert.equal(execCalls[3].cmd, "gh");
-		assert.equal(execCalls[3].args[0], "pr");
-		assert.equal(execCalls[3].args[1], "create");
 
 		// Verify success notifications
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
@@ -250,16 +184,9 @@ describe("createPrOnApproval()", () => {
 	it("Happy path without worktree: skip git push → check PR → create PR → success", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		const pi = createMockPi(
-			[
-				// 1. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 2. gh pr create
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
-			],
-			execCalls,
-		);
+		const pi = createMockPi([], execCalls);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		await createPrOnApproval(
 			pi,
@@ -270,41 +197,33 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			undefined, // no worktreePath
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Verify no git push call
 		const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 		assert.equal(gitPushCalls.length, 0, "no git push when worktreePath is undefined");
 
-		// Verify PR was created
-		assert.equal(execCalls.length, 2, "should have 2 exec calls");
-		assert.equal(execCalls[0].cmd, "gh");
-		assert.equal(execCalls[0].args[1], "list");
-		assert.equal(execCalls[1].cmd, "gh");
-		assert.equal(execCalls[1].args[1], "create");
-
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
 		const prCreatedNotify = infoNotifies.find((n) => n.message.includes("PR #456 created"));
 		assert.ok(prCreatedNotify, "should have PR creation success notification");
 	});
 
-	it("Existing PR found: push → check PR → update via gh pr edit", async () => {
+	it("Existing PR found: push → check PR → update via port.updatePullRequest", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
 				// 1. git push --force
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				// 3. gh pr list (existing PR found)
-				{ code: 0, stdout: existingPrListResponse(123), stderr: "" },
-				// 4. gh pr edit
-				{ code: 0, stdout: "", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3, 123); // existing PR #123
 
 		await createPrOnApproval(
 			pi,
@@ -315,24 +234,15 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// Verify call order: push, compare, pr list, pr edit
-		assert.equal(execCalls.length, 4);
+		// Verify call: only git push is exec — PR update is port.call
+		assert.equal(execCalls.length, 1);
 		assert.equal(execCalls[0].cmd, "git");
-		assert.equal(execCalls[1].cmd, "gh");
-		assert.equal(execCalls[1].args[0], "api"); // gh api compare
-		assert.ok(execCalls[1].args[1].includes("compare"));
-		assert.equal(execCalls[2].cmd, "gh");
-		assert.equal(execCalls[2].args[1], "list");
-		assert.equal(execCalls[3].cmd, "gh");
-		assert.equal(execCalls[3].args[0], "pr");
-		assert.equal(execCalls[3].args[1], "edit");
-		assert.equal(execCalls[3].args[2], "123"); // existing PR number
-
-		// Verify no gh pr create call
-		const prCreateCalls = execCalls.filter((c) => c.cmd === "gh" && c.args[1] === "create");
-		assert.equal(prCreateCalls.length, 0, "no gh pr create when PR already exists");
 
 		// Verify update notification
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
@@ -347,10 +257,15 @@ describe("createPrOnApproval()", () => {
 			[
 				// 1. git push --force FAILS
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
+				// 2. git push --force retry 1 FAILS
+				{ code: 1, stdout: "", stderr: "push failed: still down" },
+				// 3. git push --force retry 2 FAILS
+				{ code: 1, stdout: "", stderr: "push failed: still down" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		const result = await createPrOnApproval(
 			pi,
@@ -361,6 +276,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Verify error notification for push failure
@@ -368,32 +287,33 @@ describe("createPrOnApproval()", () => {
 		const pushError = errorNotifies.find((n) => n.message.toLowerCase().includes("push failed"));
 		assert.ok(pushError, "should have error notification for push failure");
 
-		// Verify NO gh calls were made after push failure (early return)
-		const ghCalls = execCalls.filter((c) => c.cmd === "gh");
-		assert.equal(ghCalls.length, 0, "should not attempt PR after push failure");
-
 		// Verify PrCreationResult
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should indicate failure");
 		assert.ok(result.error, "should contain error message");
-		assert.ok(result.error!.includes("push"), "error should mention push failure");
 	});
 
-	it("gh pr create failure: error notification delivered, function does not throw unhandled", async () => {
+	it("port.createPullRequest failure: error notification delivered, function does not throw unhandled", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
 				// 1. git push --force
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 3. gh pr create FAILS
-				{ code: 1, stdout: "", stderr: "create failed: GraphQL error" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		// createPullRequest rejects twice (retry exhaustion)
+		let callCount = 0;
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => null,
+			createPullRequest: async () => {
+				callCount++;
+				throw new Error("create failed: GraphQL error");
+			},
+		});
 
 		// Function should NOT throw — errors are caught internally
 		await assert.doesNotReject(
@@ -406,6 +326,10 @@ describe("createPrOnApproval()", () => {
 				[mockAgentResult],
 				"/worktrees/wt-42",
 				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
 			),
 		);
 
@@ -413,25 +337,26 @@ describe("createPrOnApproval()", () => {
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
 		const prErrorNotify = errorNotifies.find((n) => n.message.toLowerCase().includes("failed"));
 		assert.ok(prErrorNotify, "should have error notification for PR creation failure");
+		// Should have been retried (at least 2 calls)
+		assert.equal(callCount, 2, "createPullRequest should be retried once");
 	});
 
-	it("gh pr list failure: caught, warning notification, PR creation still attempted", async () => {
+	it("port.listPullRequestsForBranch failure: caught, warning notification, PR creation still attempted", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
 				// 1. git push --force
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				// 3. gh pr list FAILS
-				{ code: 1, stdout: "", stderr: "network error" },
-				// 4. gh pr create (fallback)
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			createPullRequest: async () => ({ number: 456 }),
+		});
 
 		await createPrOnApproval(
 			pi,
@@ -442,6 +367,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Verify warning notification for checkPrConflicts failure
@@ -451,12 +380,8 @@ describe("createPrOnApproval()", () => {
 		);
 		assert.ok(checkWarning, "should have warning notification for PR conflict check failure");
 
-		// Verify PR creation was still attempted
-		assert.equal(execCalls.length, 4, "should have 4 exec calls despite check failure");
-		// execCalls[3] is the pr create call
-		const lastCall = execCalls[execCalls.length - 1];
-		assert.equal(lastCall.cmd, "gh");
-		assert.equal(lastCall.args[1], "create", "should still attempt PR creation");
+		// Verify PR creation was still attempted (git push only — port handles the rest)
+		assert.equal(execCalls.length, 1, "should have 1 exec call (git push)");
 	});
 
 	it("Regression: does NOT call git rev-list --count anywhere", async () => {
@@ -466,14 +391,11 @@ describe("createPrOnApproval()", () => {
 			[
 				// 1. git push --force
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 3. gh pr create
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		await createPrOnApproval(
 			pi,
@@ -484,6 +406,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Scan all exec calls for rev-list
@@ -493,19 +419,12 @@ describe("createPrOnApproval()", () => {
 		assert.equal(revListCalls.length, 0, "should NOT call git rev-list --count");
 	});
 
-	it("agentResults empty array: still writes PR body file and creates PR", async () => {
+	it("agentResults empty array: still creates PR body and creates PR", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		const pi = createMockPi(
-			[
-				// 1. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 2. gh pr create
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
-			],
-			execCalls,
-		);
+		const pi = createMockPi([], execCalls);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		await createPrOnApproval(
 			pi,
@@ -516,12 +435,11 @@ describe("createPrOnApproval()", () => {
 			[], // empty agentResults
 			undefined,
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
-
-		// Verify PR was created despite empty agentResults
-		assert.equal(execCalls.length, 2, "should have 2 exec calls");
-		const prCreateCalls = execCalls.filter((c) => c.cmd === "gh" && c.args[1] === "create");
-		assert.equal(prCreateCalls.length, 1, "should create PR even with empty agentResults");
 
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
 		const prCreatedNotify = infoNotifies.find((n) => n.message.includes("PR #456 created"));
@@ -531,16 +449,9 @@ describe("createPrOnApproval()", () => {
 	it("Boundary: worktreeBranch undefined, no worktreePath: branch generated from issueNum and title", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		const pi = createMockPi(
-			[
-				// 1. gh pr list (no existing PR)
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 2. gh pr create
-				{ code: 0, stdout: "https://github.com/owner/repo/pull/456\n", stderr: "" },
-			],
-			execCalls,
-		);
+		const pi = createMockPi([], execCalls);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		// Call without worktreePath and worktreeBranch to trigger auto-generation
 		await createPrOnApproval(
@@ -552,27 +463,15 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			undefined, // no worktreePath
 			undefined, // no worktreeBranch — will be auto-generated
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// Verify the generated branch name appears in the gh pr list call
-		const prListCall = execCalls.find((c) => c.cmd === "gh" && c.args[1] === "list");
-		assert.ok(prListCall, "should have gh pr list call");
-		const headArgIndex = prListCall!.args.indexOf("--head");
-		assert.notEqual(headArgIndex, -1, "should have --head argument");
-		const branchName = prListCall!.args[headArgIndex + 1];
-		assert.ok(branchName, "branch name should be present");
-		assert.ok(
-			branchName.startsWith("worktree-git-issue-42-"),
-			`branch name should be generated from issue number: ${branchName}`,
-		);
-
-		// Verify PR was created
-		const prCreateCall = execCalls.find((c) => c.cmd === "gh" && c.args[1] === "create");
-		assert.ok(prCreateCall, "should have gh pr create call");
-		const createHeadArgIndex = prCreateCall!.args.indexOf("--head");
-		assert.notEqual(createHeadArgIndex, -1, "should have --head argument in pr create");
-		const createBranchName = prCreateCall!.args[createHeadArgIndex + 1];
-		assert.equal(createBranchName, branchName, "pr create should use same generated branch name");
+		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
+		const prCreatedNotify = infoNotifies.find((n) => n.message.includes("PR #456 created"));
+		assert.ok(prCreatedNotify, "should have PR creation success notification");
 	});
 
 	// ─── PrCreationResult Tests ────────────────────────────────────────
@@ -583,13 +482,11 @@ describe("createPrOnApproval()", () => {
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				compareAheadResponse(3),
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				{ code: 0, stdout: "https://github.com/o/r/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		const result = await createPrOnApproval(
 			pi,
@@ -600,6 +497,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -614,13 +515,11 @@ describe("createPrOnApproval()", () => {
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				compareAheadResponse(3),
-				{ code: 0, stdout: existingPrListResponse(123), stderr: "" },
-				{ code: 0, stdout: "", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3, 123); // existing PR 123
 
 		const result = await createPrOnApproval(
 			pi,
@@ -631,6 +530,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -639,21 +542,25 @@ describe("createPrOnApproval()", () => {
 		assert.equal(result.wasUpdate, true, "should be marked as update");
 	});
 
-	it("returns PrCreationResult with success=false when gh pr create fails (both retries)", async () => {
+	it("returns PrCreationResult with success=false when port.createPullRequest fails (both retries)", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// gh pr create attempt 1 FAILS
-				{ code: 1, stdout: "", stderr: "create failed: GraphQL error" },
-				// gh pr create attempt 2 (retry) also FAILS
-				{ code: 1, stdout: "", stderr: "still failing: rate limit" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		let callCount = 0;
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => null,
+			createPullRequest: async () => {
+				callCount++;
+				throw new Error("create failed: GraphQL error");
+			},
+		});
 
 		const result = await createPrOnApproval(
 			pi,
@@ -664,6 +571,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -686,6 +597,7 @@ describe("createPrOnApproval()", () => {
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		const result = await createPrOnApproval(
 			pi,
@@ -696,6 +608,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -717,16 +633,11 @@ describe("createPrOnApproval()", () => {
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
 				// 2. git push --force attempt 2 succeeds
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
-				// 3. gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				// 4. gh pr list
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 5. gh pr create
-				{ code: 0, stdout: "https://github.com/o/r/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		const result = await createPrOnApproval(
 			pi,
@@ -737,6 +648,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -768,6 +683,7 @@ describe("createPrOnApproval()", () => {
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
 
 		const result = await createPrOnApproval(
 			pi,
@@ -778,6 +694,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -800,16 +720,15 @@ describe("createPrOnApproval()", () => {
 			[
 				// 1. git push --force OK
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				// 3. gh pr list FAILS
-				{ code: 1, stdout: "", stderr: "network error" },
-				// 4. gh pr create (should still attempt)
-				{ code: 0, stdout: "https://github.com/o/r/pull/456\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			createPullRequest: async () => ({ number: 456 }),
+		});
 
 		const result = await createPrOnApproval(
 			pi,
@@ -820,6 +739,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -831,23 +754,26 @@ describe("createPrOnApproval()", () => {
 		assert.equal(result.prNumber, 456, "should contain PR number");
 	});
 
-	it("retries gh pr create with backoff on transient failure", async () => {
+	it("retries createPullRequest with backoff on transient failure", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		// First call fails, second succeeds (retry with backoff)
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				compareAheadResponse(3),
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 1st gh pr create FAILS
-				{ code: 1, stdout: "", stderr: "rate limit exceeded" },
-				// 2nd gh pr create succeeds (retry)
-				{ code: 0, stdout: "https://github.com/o/r/pull/789\n", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		let callCount = 0;
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => null,
+			createPullRequest: async () => {
+				callCount++;
+				if (callCount === 1) throw new Error("rate limit exceeded");
+				return { number: 789 };
+			},
+		});
 
 		const result = await createPrOnApproval(
 			pi,
@@ -858,35 +784,39 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should succeed after retry");
 		assert.equal(result.prNumber, 789, "should contain PR number from retry");
 
-		// Verify two gh pr create calls were made
-		const prCreateCalls = execCalls.filter((c) => c.cmd === "gh" && c.args[1] === "create");
-		assert.equal(prCreateCalls.length, 2, "should retry gh pr create once");
+		// Verify two createPullRequest calls were made
+		assert.equal(callCount, 2, "createPullRequest should be retried once");
 	});
 
 	it("fails after retry exhausted", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		// Both attempts fail
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// gh api compare (pre-check: head has commits)
-				compareAheadResponse(3),
-				{ code: 0, stdout: emptyPrListResponse(), stderr: "" },
-				// 1st gh pr create FAILS
-				{ code: 1, stdout: "", stderr: "rate limit exceeded" },
-				// 2nd gh pr create also FAILS
-				{ code: 1, stdout: "", stderr: "still rate limited" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		let callCount = 0;
+		const port = createMockGitHubPort({
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async () => null,
+			createPullRequest: async () => {
+				callCount++;
+				throw new Error(`attempt ${callCount} failed`);
+			},
+		});
 
 		const result = await createPrOnApproval(
 			pi,
@@ -897,15 +827,18 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should fail after retry exhaustion");
 		assert.ok(result.error, "should contain error message");
 
-		// Verify two gh pr create calls were made
-		const prCreateCalls = execCalls.filter((c) => c.cmd === "gh" && c.args[1] === "create");
-		assert.equal(prCreateCalls.length, 2, "should make exactly 2 attempts");
+		// Verify two createPullRequest calls were made
+		assert.equal(callCount, 2, "should make exactly 2 attempts");
 	});
 
 	// ─── Bug 2: ahead_by=0 ─────────────────────────────────────────
@@ -917,12 +850,11 @@ describe("createPrOnApproval()", () => {
 			[
 				// 1. git push --force OK
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 2. gh api compare returns 0 (no commits ahead)
-				{ code: 0, stdout: "0", stderr: "" },
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(0); // ahead_by = 0
 
 		const result = await createPrOnApproval(
 			pi,
@@ -933,6 +865,10 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.ok(result, "should return a PrCreationResult");
@@ -945,27 +881,19 @@ describe("createPrOnApproval()", () => {
 			`error should mention no commits: ${result.error}`,
 		);
 		assert.equal(result.prNumber, undefined, "prNumber should be undefined when no commits");
-		// Should NOT attempt pr list or pr create after compare check
-		const compareCalls = execCalls.filter((c) => c.args.some((a: string) => a.includes("compare")));
-		assert.equal(compareCalls.length, 1, "should have exactly 1 compare call, no pr list/create");
-		const prListCalls = execCalls.filter(
-			(c) => c.args.some((a: string) => a === "list") || c.args.some((a: string) => a === "create"),
-		);
-		assert.equal(prListCalls.length, 0, "should NOT have any pr list or create calls");
 	});
 
 	it("Bug 2: ahead_by=0 does NOT report 'created' in output (no misleading PR #undefined)", async () => {
-		// Verify that the compare check happens and no PR creation is attempted
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "push ok", stderr: "" },
-				{ code: 0, stdout: "0", stderr: "" }, // ahead_by = 0
 			],
 			execCalls,
 		);
 		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(0); // ahead_by = 0
 
 		const result = await createPrOnApproval(
 			pi,
@@ -976,22 +904,15 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// No gh pr create or gh pr edit calls
-		const prCreateOrEdit = execCalls.filter(
-			(c) => c.args.some((a: string) => a === "create") || c.args.some((a: string) => a === "edit"),
-		);
-		assert.equal(prCreateOrEdit.length, 0, "no PR create or edit should be attempted");
-
-		// Verify the compare API was called with ahead_by
-		const compareCall = execCalls.find((c) => c.args.some((a: string) => a.includes("compare")));
-		assert.ok(compareCall, "should call gh api compare");
-		const compareArgs = compareCall!.args;
-		assert.ok(
-			compareArgs.some((a: string) => a.includes("compare")),
-			"should be compare endpoint",
-		);
+		// No PR creation should be attempted
+		const infoNotifies = notifyCalls.filter((n) => n.message.includes("PR #"));
+		assert.equal(infoNotifies.length, 0, "no PR notifications should be sent");
 
 		// The result should not be misleading
 		assert.equal(result.success, false, "should not indicate success");

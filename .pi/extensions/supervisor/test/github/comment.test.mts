@@ -6,12 +6,13 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, rmSync, mkdirSync } from "node:fs";
 import type { ExecFn } from "../../pipeline/helpers.ts";
+import { postIssueComment } from "../../github/comment.ts";
 import {
-	postIssueComment,
 	extractStructuredAuditOutput,
 	extractAgentCommentBody,
-	filterIssueData,
-} from "../../github/comment.ts";
+	stripTrailingMetadata,
+} from "../../agent/output.ts";
+import { filterIssueData } from "../../lib/issue-filter.ts";
 
 
 // ─── Direct Export Coverage (TDD gate test-covers-symbols) ───────
@@ -572,7 +573,7 @@ describe("extractStructuredAuditOutput() — COMMENT_BODY_END stripping", () => 
 
 describe("stripTrailingMetadata — extracted helper", () => {
 	it("heading section followed by JSON block → commentBody truncated before JSON", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		// Add enough content to pass the minHeadingLen + 20 boundary guard (36 chars from start)
 		// JSON keys on separate lines (matches agent output format)
@@ -585,7 +586,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section followed by 💭 thinking → commentBody truncated before thinking", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n💭 The agent is thinking about something\n";
@@ -595,7 +596,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section followed by 📊 instrumentation → commentBody truncated before instrumentation", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n📊 Some instrumentation data\n";
@@ -605,7 +606,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section with all three trailing patterns → earliest match wins (shortest truncation)", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		// JSON (keys on separate lines) appears first, then thinking, then instrumentation
@@ -619,7 +620,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("heading section with no trailing metadata → content unchanged", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## Audit Approved";
 		const content = "This review finds the implementation acceptable with minor formatting nits.";
 		const slice = heading + "\n\n" + content + "\n";
@@ -628,7 +629,7 @@ describe("stripTrailingMetadata — extracted helper", () => {
 	});
 
 	it("trailing metadata within 20 chars of heading length → not truncated (boundary guard)", async () => {
-		const { stripTrailingMetadata } = await import("../../github/comment.ts");
+		const { stripTrailingMetadata } = await import("../../agent/output.ts");
 		const heading = "## A";
 		// Metadata (key on separate line) appears very close to heading (within 20 chars) — should not truncate
 		const slice = heading + "\n\n" + '\n"auditScore": 1';

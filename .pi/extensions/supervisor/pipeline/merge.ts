@@ -7,7 +7,7 @@ import type { PrConflictInfo, SupervisorConfig } from "../config/types.ts";
 import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
 import { tryAutoMerge } from "../config/merge.ts";
-import { checkPrConflicts } from "../github/pr.ts";
+import type { GitHubPort } from "../github/ports.ts";
 import { runAgentSubprocess, DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -26,8 +26,8 @@ export async function handlePostPipelineMerge(
 	ctx: ExtensionCommandContext,
 	worktreePath?: string,
 	collector?: ErrorCollector,
-	// ponytail: test hook for injecting mock runner; external callers omit this
 	_runner?: typeof runAgentSubprocess,
+	port?: GitHubPort,
 ): Promise<boolean> {
 	const log = getDebugLogger();
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
@@ -44,7 +44,11 @@ export async function handlePostPipelineMerge(
 		ctx.ui.setStatus("supervisor", "Checking PR for merge conflicts...");
 		let conflictInfo: PrConflictInfo | null;
 		try {
-			conflictInfo = await checkPrConflicts(pi.exec.bind(pi), branch, config.repo);
+			if (!port) {
+				ctx.ui.notify("GitHubPort not available — skipping conflict check", "error");
+				return false;
+			}
+			conflictInfo = await port.listPullRequestsForBranch(branch, config.repo);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`PR conflict check failed: ${msg}`, "error");
