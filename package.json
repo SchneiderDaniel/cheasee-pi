@@ -45,6 +45,9 @@
 			".pi/extensions/check-extensions/ast-scanner.ts": [
 				"exports",
 				"types"
+			],
+			".pi/extensions/format-on-save/index.ts": [
+				"default"
 			]
 		},
 		"ignoreDependencies": [

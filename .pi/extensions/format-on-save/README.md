@@ -64,7 +64,6 @@ Adapter pattern with pluggable Formatter/Linter ports:
 
 ```
 ├── index.ts               # Entry: registerHandler, tool_result event wiring
-├── formatting.mts         # looksLikeFilePath, MAX_FILE_SIZE_BYTES
 ├── eslint.mts             # formatEslintDiagnostics: diagnostic message formatting
 ├── eslint-adapter.mts     # EslintLinter: ESLint adapter (dynamic import)
 ├── prettier-adapter.mts   # PrettierFormatter: Prettier adapter (dynamic import)
