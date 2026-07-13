@@ -13,7 +13,7 @@ import { describe, it, mock } from "node:test";
 
 import { registerHandler } from "../index.ts";
 import { formatEslintDiagnostics } from "../eslint.mts";
-import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../formatting.mts";
+import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../index.ts";
 import type { Formatter, Linter, FormatResult, LintResult, Diagnostic } from "../ports.mts";
 
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";

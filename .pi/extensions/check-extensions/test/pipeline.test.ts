@@ -19,7 +19,7 @@ import * as os from "node:os";
 import { ChangelogPipeline, runPipeline, type PipelineContext } from "../pipeline.ts";
 import { PI_CHANGELOG_PATH } from "../constants.ts";
 import { parseCheckExtensionsArgs, registerCheckExtensions } from "../index.ts";
-import { resolveAstGrepPath } from "../resolve-astgrep.ts";
+import { resolveAstGrepPath } from "../pipeline.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ChangeEntry } from "../changelog-parser.ts";
 import type { ASTFinding, ASTScanningResult } from "../ast-scanner.ts";

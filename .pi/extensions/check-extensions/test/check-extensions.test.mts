@@ -2352,10 +2352,10 @@ describe("ChangelogPipeline", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 13: resolve-astgrep.ts — ESM-safe ast-grep path resolver
+// Phase 13: ast-grep path resolver (now in pipeline.ts)
 // ═══════════════════════════════════════════════════════════════════════
 
-import { resolveAstGrepPath } from "../resolve-astgrep.ts";
+import { resolveAstGrepPath } from "../pipeline.ts";
 
 describe("resolve-astgrep", () => {
 	it("returns a non-empty string", () => {

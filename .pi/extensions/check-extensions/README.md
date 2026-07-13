@@ -58,7 +58,6 @@ Modular pipeline for CHANGELOG-based API breakage detection:
 ├── change-resolver.ts     # Cross-reference API usage vs changelog entries
 ├── impact-scorer.ts       # Score compatibility issues by severity
 ├── migration-generator.ts # Generate old to new code migration snippets
-├── resolve-astgrep.ts     # Resolve ast-grep binary path
 ├── constants.ts           # Severity enum, threshold values
 ├── types.ts               # All interfaces
 └── test/                  # Pipeline + parser tests
