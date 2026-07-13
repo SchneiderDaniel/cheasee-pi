@@ -24,6 +24,8 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
+		"@octokit/graphql": "^9.0.3",
+		"@octokit/rest": "^22.0.1",
 		"@types/node": "^25.9.1",
 		"@types/shell-quote": "^1.7.5",
 		"eslint": "^10.5.0",
