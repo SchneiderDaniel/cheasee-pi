@@ -107,17 +107,15 @@ const SET_STATUS_MUTATION = (
 // ─── GraphQL Response Types ──────────────────────────────────────
 
 interface ProjectFieldsResponse {
-	data?: {
-		viewer?: {
-			projectV2?: {
-				fields?: {
-					nodes?: Array<{
-						id: string;
-						name: string;
-						dataType?: string;
-						options?: Array<{ id: string; name: string }>;
-					}>;
-				};
+	viewer?: {
+		projectV2?: {
+			fields?: {
+				nodes?: Array<{
+					id: string;
+					name: string;
+					dataType?: string;
+					options?: Array<{ id: string; name: string }>;
+				}>;
 			};
 		};
 	};
@@ -125,23 +123,21 @@ interface ProjectFieldsResponse {
 }
 
 interface ProjectItemsResponse {
-	data?: {
-		viewer?: {
-			projectV2?: {
-				items?: {
-					pageInfo: { hasNextPage: boolean; endCursor: string | null };
-					nodes?: Array<{
-						id: string;
-						content?: { url?: string; number?: number };
-						fieldValues?: {
-							nodes?: Array<{
-								name?: string;
-								text?: string;
-								field?: { id: string; name: string };
-							}>;
-						};
-					}>;
-				};
+	viewer?: {
+		projectV2?: {
+			items?: {
+				pageInfo: { hasNextPage: boolean; endCursor: string | null };
+				nodes?: Array<{
+					id: string;
+					content?: { url?: string; number?: number };
+					fieldValues?: {
+						nodes?: Array<{
+							name?: string;
+							text?: string;
+							field?: { id: string; name: string };
+						}>;
+					};
+				}>;
 			};
 		};
 	};
@@ -149,31 +145,27 @@ interface ProjectItemsResponse {
 }
 
 interface ProjectIdResponse {
-	data?: {
-		viewer?: {
-			projectV2?: {
-				id: string;
-			};
+	viewer?: {
+		projectV2?: {
+			id: string;
 		};
 	};
 	errors?: Array<{ message: string }>;
 }
 
 interface DepsTimelineResponse {
-	data?: {
-		repository?: {
-			issue?: {
-				timelineItems?: {
-					nodes?: Array<{
-						__typename: string;
-						blockingIssue?: {
-							id: string;
-							number: number;
-							title: string;
-							state: string;
-						} | null;
-					}>;
-				};
+	repository?: {
+		issue?: {
+			timelineItems?: {
+				nodes?: Array<{
+					__typename: string;
+					blockingIssue?: {
+						id: string;
+						number: number;
+						title: string;
+						state: string;
+					} | null;
+				}>;
 			};
 		};
 	};
