@@ -82,3 +82,7 @@
 {"datetime":"2026-07-08T21:04:14.067Z","question":"Changes are local uncommitted on main. Main is locked. Next step?","answer":"leave"}
 {"datetime":"2026-07-08T21:08:06.460Z","question":"Apply which fixes? (main locked — these edits go to .bare/config + tracked hook dir, not main commits)","answer":"both"}
 {"datetime":"2026-07-08T21:10:08.299Z","question":"Fix design — how should git identity be sourced? All fix host-side `cheasee-pi.sh` (writes docker/.env), container inherits. Need to pick source + fallback policy.","answer":"settings_noreply"}
+{"datetime":"2026-07-13T19:21:08.768Z","question":"For the Go CLI's runtime role: should `cheasee-pi` have thin convenience wrappers that literally call `docker compose` / `docker exec` as subprocesses (no Docker SDK for runtime), or should it have *zero* runtime subcommands — user runs `docker compose up` directly after `cheasee-pi init`?","answer":"init_only"}
+{"datetime":"2026-07-13T19:29:52.344Z","question":"Proposed breakdown for epic #1202 — 6 sub-issues, Docker runtime first, Go CLI installation after. Create these as GitHub sub-issues?","answer":"no_cancel"}
+{"datetime":"2026-07-13T19:32:38.241Z","question":"How should pi be launched after docker compose starts the container?","answer":"step 2 but we need to make sure that we can run multiple session in the container in parallel"}
+{"datetime":"2026-07-13T19:33:54.844Z","question":"Adjusted breakdown for epic #1202 — Docker first, installation after, with parallel-session pattern:","answer":"yes_create_all"}
