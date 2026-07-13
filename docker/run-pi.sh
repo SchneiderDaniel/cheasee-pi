@@ -32,6 +32,9 @@ fi
 DOCKER_ENV=""
 AUTH_JSON="$HOME/.pi/agent/auth.json"
 
+# ponytail: auth.json→env mapping duplicated from cheasee-pi.sh (lines 437-455).
+# Drift risk if auth.json schema changes. Extract to docker/lib/auth-env.sh if a
+# third consumer appears.
 if [ -f "$AUTH_JSON" ] && command -v jq &>/dev/null; then
     while IFS= read -r provider; do
         [ -z "$provider" ] && continue
