@@ -5,8 +5,9 @@
  * Constants live in constants.ts; this file owns the orchestration.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import fs, { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -16,7 +17,30 @@ import { scanExtensionsAST, type ASTFinding, type ExecFn as AstExecFn } from "./
 import { resolveRelevance } from "./change-resolver.ts";
 import { computeImpactScore, type ImpactScore } from "./impact-scorer.ts";
 import { generateMigrationSnippet, type MigrationSnippet } from "./migration-generator.ts";
-import { resolveAstGrepPath } from "./resolve-astgrep.ts";
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the path to ast-grep binary.
+ * Checks common locations, falls back to "ast-grep" (PATH).
+ */
+export function resolveAstGrepPath(): string {
+	const home = process.env.HOME || homedir();
+	const candidates = [
+		join(home, ".npm-global", "bin", "ast-grep"),
+		"/usr/local/bin/ast-grep",
+		"/usr/bin/ast-grep",
+	];
+	for (const c of candidates) {
+		try {
+			fs.accessSync(c, fs.constants.F_OK);
+			return c;
+		} catch {
+			/* try next */
+		}
+	}
+	return "ast-grep"; // fallback — hope it's on PATH
+}
 
 /** Context object passed to pipeline (subset of pi extension context) */
 export interface PipelineContext {

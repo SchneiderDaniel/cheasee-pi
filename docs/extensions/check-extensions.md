@@ -224,7 +224,6 @@ The overall score for an extension is the sum of all severity weights across its
 | `change-resolver.ts` | Cross-references AST findings against changelog entries; eliminates false positives via structured change signature matching |
 | `impact-scorer.ts` | Scores compatibility issues by severity weight (removed > renamed > deprecated > changed) |
 | `migration-generator.ts` | Generates old-to-new migration code snippets from structured change patterns |
-| `resolve-astgrep.ts` | Resolves the ast-grep binary path from environment and PATH |
 | `constants.ts` | API pattern mappings, changelog path resolution |
 | `test/` | Pipeline and parser test suite |
 

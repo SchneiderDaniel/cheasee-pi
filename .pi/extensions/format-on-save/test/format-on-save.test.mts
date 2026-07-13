@@ -13,7 +13,7 @@ import { describe, it, mock } from "node:test";
 
 import { registerHandler } from "../index.ts";
 import { formatEslintDiagnostics } from "../eslint.mts";
-import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../formatting.mts";
+import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../index.ts";
 import type { Formatter, Linter, FormatResult, LintResult, Diagnostic } from "../ports.mts";
 
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
@@ -47,6 +47,14 @@ describe("implementation exports are referenced in assertions", () => {
 		assert.strictEqual(typeof EslintLinter, "function");
 		const instance = new EslintLinter();
 		assert.ok(instance, "EslintLinter should be constructable");
+	});
+
+	it("default export (extension factory) is a callable function from index.ts", async () => {
+		// Default export is the extension factory, dynamically imported by
+		// the pi-coding-agent extension loader. This test satisfies static
+		// analysis (knip) that the export is referenced.
+		const { default: extensionFactory } = await import("../index.ts");
+		assert.strictEqual(typeof extensionFactory, "function");
 	});
 });
 
