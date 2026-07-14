@@ -40,12 +40,14 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ## Quick start
 
-See the [installation guide](https://schneiderdaniel.github.io/cheasee-pi/installation) for full step-by-step setup.
+**Recommended:** Download the `cheasee-pi` binary and run `cheasee-pi init` —
+see the full [Installation guide](installation.md) for step-by-step setup
+(both Go CLI and legacy bash paths).
 
-TL;DR — native Docker workflow (no wrapper needed):
+TL;DR — native Docker workflow (works with either path once set up):
 
 ```bash
-git clone https://github.com/SchneiderDaniel/cheasee-pi.git
+# Clone the repo (legacy path) or cd into your init-created workspace (Go CLI path)
 cd cheasee-pi
 
 # Build image and start container
@@ -69,7 +71,7 @@ docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
 > **Rebuild after dependency changes:** `docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d`
 
 For the full daily usage guide — parallel sessions, troubleshooting, and convenience
-scripts — see the [Daily Usage guide](https://schneiderdaniel.github.io/cheasee-pi/daily-usage).
+scripts — see the [Daily Usage guide](daily-usage.md).
 
 The original `./cheasee-pi.sh` wrapper is still available as a legacy convenience
 alternative. Run it for an all-in-one experience (build, start, env injection).
