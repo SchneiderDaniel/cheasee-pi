@@ -132,12 +132,16 @@ const mockAgentResult: PipelineAgentResult = {
 // ─── Tests ─────────────────────────────────────────────────────────
 
 describe("createPrOnApproval()", () => {
-	it("Happy path first run: compareBranches returns ahead_by=3 BEFORE push → push with --force-with-lease → PR created", async () => {
+	it("Happy path first run: compareBranches returns ahead_by=3 BEFORE push → rebase (fetch + rebase) → push with --force-with-lease → PR created", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force-with-lease (ahead_by=3, push proceeds)
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push --force-with-lease (ahead_by=3, push proceeds)
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
 			],
 			execCalls,
@@ -160,17 +164,29 @@ describe("createPrOnApproval()", () => {
 			port,
 		);
 
-		// Verify only git push is an exec call (the rest use port)
-		assert.equal(execCalls.length, 1, "should have 1 exec call (git push)");
+		// Verify exec call order: fetch → rebase → push
+		assert.equal(execCalls.length, 3, "should have 3 exec calls (fetch, rebase, push)");
 
-		// 1. git push uses --force-with-lease
+		// 1. git fetch
 		assert.equal(execCalls[0].cmd, "git");
-		assert.equal(execCalls[0].args[0], "push");
-		assert.equal(execCalls[0].args[1], "--force-with-lease");
-		assert.equal(execCalls[0].args[2], "origin");
-		assert.equal(execCalls[0].args[3], "worktree-git-issue-42-test");
-		assert.equal(execCalls[0].opts.cwd, "/worktrees/wt-42");
-		assert.equal(execCalls[0].opts.timeout, 60000);
+		assert.equal(execCalls[0].args[0], "fetch");
+		assert.equal(execCalls[0].args[1], "origin");
+		assert.equal(execCalls[0].args[2], "main");
+
+		// 2. git rebase --autostash
+		assert.equal(execCalls[1].cmd, "git");
+		assert.equal(execCalls[1].args[0], "rebase");
+		assert.equal(execCalls[1].args[1], "--autostash");
+		assert.equal(execCalls[1].args[2], "origin/main");
+
+		// 3. git push uses --force-with-lease
+		assert.equal(execCalls[2].cmd, "git");
+		assert.equal(execCalls[2].args[0], "push");
+		assert.equal(execCalls[2].args[1], "--force-with-lease");
+		assert.equal(execCalls[2].args[2], "origin");
+		assert.equal(execCalls[2].args[3], "worktree-git-issue-42-test");
+		assert.equal(execCalls[2].opts.cwd, "/worktrees/wt-42");
+		assert.equal(execCalls[2].opts.timeout, 60000);
 
 		// Verify success notifications
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
@@ -217,7 +233,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -240,9 +260,11 @@ describe("createPrOnApproval()", () => {
 			port,
 		);
 
-		// Verify call: only git push is exec — PR update is port.call
-		assert.equal(execCalls.length, 1);
-		assert.equal(execCalls[0].cmd, "git");
+		// Verify exec call order: fetch → rebase → push
+		assert.equal(execCalls.length, 3, "should have 3 exec calls (fetch, rebase, push)");
+		assert.equal(execCalls[0].args[0], "fetch");
+		assert.equal(execCalls[1].args[0], "rebase");
+		assert.equal(execCalls[2].args[0], "push");
 
 		// Verify update notification
 		const infoNotifies = notifyCalls.filter((n) => n.level === "info");
@@ -255,11 +277,15 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force FAILS
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push --force FAILS
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
-				// 2. git push --force retry 1 FAILS
+				// 4. git push --force retry 1 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: still down" },
-				// 3. git push --force retry 2 FAILS
+				// 5. git push --force retry 2 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: still down" },
 			],
 			execCalls,
@@ -298,7 +324,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -346,7 +376,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -380,8 +414,8 @@ describe("createPrOnApproval()", () => {
 		);
 		assert.ok(checkWarning, "should have warning notification for PR conflict check failure");
 
-		// Verify PR creation was still attempted (git push only — port handles the rest)
-		assert.equal(execCalls.length, 1, "should have 1 exec call (git push)");
+		// Verify PR creation was still attempted (3 exec: fetch → rebase → push)
+		assert.equal(execCalls.length, 3, "should have 3 exec calls (fetch, rebase, push)");
 	});
 
 	it("Regression: does NOT call git rev-list --count anywhere", async () => {
@@ -389,7 +423,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -433,7 +471,7 @@ describe("createPrOnApproval()", () => {
 			"Test issue",
 			mockConfig as any,
 			[], // empty agentResults
-			undefined,
+			undefined, // no worktreePath — skips Phase 2 and 2.5
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
@@ -481,6 +519,8 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -514,6 +554,8 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -547,6 +589,8 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -589,7 +633,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1-3. git push --force all 3 retry attempts FAIL
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3-5. git push --force all 3 retry attempts FAIL
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
 				{ code: 1, stdout: "", stderr: "push failed: still down" },
 				{ code: 1, stdout: "", stderr: "push failed: timeout" },
@@ -629,9 +677,13 @@ describe("createPrOnApproval()", () => {
 		// First push fails, second succeeds
 		const pi = createMockPi(
 			[
-				// 1. git push --force attempt 1 FAILS
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push --force attempt 1 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
-				// 2. git push --force attempt 2 succeeds
+				// 4. git push --force attempt 2 succeeds
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
 			],
 			execCalls,
@@ -657,7 +709,7 @@ describe("createPrOnApproval()", () => {
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, true, "should succeed after push retry");
 
-		// Verify two git push calls were made
+		// Verify two git push calls were made (after fetch + rebase)
 		const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 		assert.equal(gitPushCalls.length, 2, "should retry push once after failure");
 
@@ -673,11 +725,13 @@ describe("createPrOnApproval()", () => {
 		// All 3 push attempts fail
 		const pi = createMockPi(
 			[
-				// 1. git push --force attempt 1 FAILS
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3-5. git push --force all 3 retry attempts FAIL
 				{ code: 1, stdout: "", stderr: "push failed: error 1" },
-				// 2. git push --force attempt 2 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: error 2" },
-				// 3. git push --force attempt 3 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: error 3" },
 			],
 			execCalls,
@@ -704,7 +758,7 @@ describe("createPrOnApproval()", () => {
 		assert.equal(result.success, false, "should fail after all push retries exhausted");
 		assert.ok(result.error, "should contain error message");
 
-		// Verify 3 git push calls were made
+		// Verify 3 git push calls were made (after fetch + rebase)
 		const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 		assert.equal(gitPushCalls.length, 3, "should make 3 push attempts");
 
@@ -718,7 +772,11 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force OK
+				// 1. git fetch origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// 2. git rebase --autostash origin/main (rebase Phase 2.5)
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -759,6 +817,8 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -803,6 +863,8 @@ describe("createPrOnApproval()", () => {
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
 			],
 			execCalls,
@@ -916,11 +978,13 @@ describe("createPrOnApproval()", () => {
 	});
 
 	describe("createPrOnApproval - Phase reorder: ahead_by check before push — Bug fix", () => {
-		it("Re-run with reconciliation (remote ahead): ahead_by=3 before push → push proceeds → existing PR updated", async () => {
+		it("Re-run with reconciliation (remote ahead): ahead_by=3 → rebase → push → existing PR updated", async () => {
 			const execCalls: ExecCall[] = [];
 			const notifyCalls: NotifyCall[] = [];
 			const pi = createMockPi(
 				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
 					{ code: 0, stdout: "push ok", stderr: "" },
 				],
 				execCalls,
@@ -951,6 +1015,12 @@ describe("createPrOnApproval()", () => {
 			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 			assert.equal(gitPushCalls.length, 1, "push should be called once");
 			assert.equal(gitPushCalls[0].args[1], "--force-with-lease", "push should use --force-with-lease");
+
+			// Verify exec call order: fetch → rebase → push
+			assert.equal(execCalls.length, 3, "should have 3 exec calls");
+			assert.equal(execCalls[0].args[0], "fetch");
+			assert.equal(execCalls[1].args[0], "rebase");
+			assert.equal(execCalls[2].args[0], "push");
 		});
 
 		it("compareBranches throws → local fallback: fetch + merge-base succeeds, head is ahead → push proceeds", async () => {
@@ -958,8 +1028,13 @@ describe("createPrOnApproval()", () => {
 			const notifyCalls: NotifyCall[] = [];
 			const pi = createMockPi(
 				[
+					// Phase 2 fallback: fetch + merge-base
 					{ code: 0, stdout: "", stderr: "" },  // git fetch origin <branch>
 					{ code: 0, stdout: "", stderr: "" },  // git merge-base --is-ancestor exits 0
+					// Phase 2.5: rebase
+					{ code: 0, stdout: "fetch ok", stderr: "" },  // git fetch origin main
+					{ code: 0, stdout: "rebase ok", stderr: "" },  // git rebase --autostash
+					// Phase 3: push
 					{ code: 0, stdout: "push ok", stderr: "" },  // git push --force-with-lease
 				],
 				execCalls,
@@ -989,12 +1064,14 @@ describe("createPrOnApproval()", () => {
 			assert.equal(result.success, true, "should succeed after fallback check passes");
 			assert.equal(result.pushSkipped, undefined, "pushSkipped should be undefined when push proceeds");
 
-			// Verify exec call order: fetch → merge-base → push
-			assert.equal(execCalls.length, 3, "should have 3 exec calls (fetch, merge-base, push)");
-			assert.ok(execCalls[0].args.includes("fetch"), "first should be git fetch");
+			// Verify exec call order: fetch (phase 2) → merge-base → fetch (phase 2.5) → rebase → push
+			assert.equal(execCalls.length, 5, "should have 5 exec calls (fetch, merge-base, fetch, rebase, push)");
+			assert.ok(execCalls[0].args.includes("fetch"), "first should be git fetch (phase 2)");
 			assert.ok(execCalls[1].args.includes("merge-base"), "second should be git merge-base");
-			assert.ok(execCalls[2].args.includes("push"), "third should be git push");
-			assert.equal(execCalls[2].args[1], "--force-with-lease", "push should use --force-with-lease");
+			assert.ok(execCalls[2].args.includes("fetch"), "third should be git fetch (phase 2.5)");
+			assert.ok(execCalls[3].args.includes("rebase"), "fourth should be git rebase");
+			assert.ok(execCalls[4].args.includes("push"), "fifth should be git push");
+			assert.equal(execCalls[4].args[1], "--force-with-lease", "push should use --force-with-lease");
 		});
 
 		it("compareBranches throws → local fallback: merge-base says NOT ahead → push skipped", async () => {
@@ -1103,6 +1180,8 @@ describe("createPrOnApproval()", () => {
 			const execCalls: ExecCall[] = [];
 			const pi = createMockPi(
 				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
 					{ code: 0, stdout: "push ok", stderr: "" },
 				],
 				execCalls,
@@ -1128,6 +1207,357 @@ describe("createPrOnApproval()", () => {
 			const pushCall = execCalls.find((c) => c.cmd === "git" && c.args[0] === "push");
 			assert.ok(pushCall, "push should be called");
 			assert.equal(pushCall!.args[1], "--force-with-lease", "should use --force-with-lease");
+		});
+	});
+
+	// ─── Rebase orchestration tests ────────────────────────────────────
+
+	describe("createPrOnApproval - Rebase orchestration: Phase 2.5", () => {
+		it("Rebase success → push proceeds → PR created", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(result.success, "should succeed");
+			assert.equal(result.prNumber, 456, "should have PR number");
+			// Verify call order: fetch → rebase → push
+			assert.equal(execCalls.length, 3);
+			assert.equal(execCalls[0].args[0], "fetch");
+			assert.equal(execCalls[1].args[0], "rebase");
+			assert.equal(execCalls[2].args[0], "push");
+		});
+
+		it("Rebase conflict → pushSkipped=true, rebaseConflicts populated, no push or PR", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					// 1. git fetch succeeds
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					// 2. git rebase --autostash FAILS (conflict)
+					{ code: 1, stdout: "", stderr: "rebase conflict" },
+					// 3. git diff --diff-filter=U returns conflicted files
+					{ code: 0, stdout: "src/a.ts\nsrc/b.ts\n", stderr: "" },
+					// 4. git rebase --abort
+					{ code: 0, stdout: "", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(!result.success, "should fail");
+			assert.equal(result.pushSkipped, true, "pushSkipped should be true");
+			assert.deepEqual(result.rebaseConflicts, ["src/a.ts", "src/b.ts"], "should report rebase conflict files");
+			assert.equal(result.prNumber, undefined, "no PR number");
+
+			// Verify warning notification with conflict file names
+			const warningNotifies = notifyCalls.filter((n) => n.level === "warning");
+			const rebaseWarning = warningNotifies.find((n) =>
+				n.message.includes("Rebase conflicts")
+			);
+			assert.ok(rebaseWarning, "should have warning notification for rebase conflicts");
+			assert.ok(rebaseWarning!.message.includes("src/a.ts"), "warning should mention conflicted files");
+			assert.ok(rebaseWarning!.message.includes("src/b.ts"), "warning should mention all conflicted files");
+
+			// Verify no push or PR exec calls
+			const pushCalls = execCalls.filter((c) => c.args[0] === "push");
+			assert.equal(pushCalls.length, 0, "no push should be called after rebase conflict");
+		});
+
+		it("Rebase conflict → warning notification and PrCreationResult reflects rebase", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 1, stdout: "", stderr: "rebase conflict" },
+					{ code: 0, stdout: "file1.ts\nfile2.ts\nfile3.ts\n", stderr: "" },
+					{ code: 0, stdout: "", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, false);
+			assert.equal(result.pushSkipped, true);
+			assert.equal(result.rebaseConflicts?.length, 3, "should have 3 rebase conflict files");
+			assert.ok(result.rebaseConflicts?.includes("file1.ts"), "should include all conflict files");
+		});
+
+		it("Fetch failure (all retries) → pushSkipped=true, error notification, no push or PR", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					// 3 fetch attempts all fail
+					{ code: 1, stdout: "", stderr: "fetch failed: network 1" },
+					{ code: 1, stdout: "", stderr: "fetch failed: network 2" },
+					{ code: 1, stdout: "", stderr: "fetch failed: network 3" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(!result.success, "should fail");
+			assert.equal(result.pushSkipped, true, "pushSkipped should be true");
+
+			// Error notification should be sent
+			const errorNotifies = notifyCalls.filter((n) => n.level === "error");
+			const fetchError = errorNotifies.find((n) => n.message.includes("rebase"));
+			assert.ok(fetchError, "should have error notification for rebase failure");
+
+			// No push calls
+			const pushCalls = execCalls.filter((c) => c.args[0] === "push");
+			assert.equal(pushCalls.length, 0, "no push should be called");
+		});
+
+		it("No worktree path → no rebase exec calls, PR creation proceeds", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi([], execCalls);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				undefined, // no worktreePath — skips Phase 2 and 2.5 and 3
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			// No fetch or rebase calls should be made
+			const gitCalls = execCalls.filter((c) => c.cmd === "git");
+			assert.equal(gitCalls.length, 0, "no git calls when worktreePath is undefined");
+
+			const infoNotifies = notifyCalls.filter((n) => n.level === "info" && n.message.includes("PR #"));
+			assert.ok(infoNotifies.length > 0, "should have PR notification");
+		});
+
+		it("Ahead-by=0: returns early before rebase, pushSkipped=true, no rebaseConflicts", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi([], execCalls);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(0);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, false);
+			assert.equal(result.pushSkipped, true);
+			assert.equal(result.rebaseConflicts, undefined, "rebaseConflicts should not be set when rebase not attempted");
+
+			// No exec calls at all
+			assert.equal(execCalls.length, 0, "no exec calls when ahead-by=0");
+		});
+
+		it("Rebase uses correct branch/remote args: git fetch origin main, git rebase --autostash origin/main", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(result.success, "should succeed");
+
+			// Verify correct args
+			const fetchCall = execCalls[0];
+			assert.equal(fetchCall.args[0], "fetch");
+			assert.equal(fetchCall.args[1], "origin");
+			assert.equal(fetchCall.args[2], "main");
+
+			const rebaseCall = execCalls[1];
+			assert.equal(rebaseCall.args[0], "rebase");
+			assert.equal(rebaseCall.args[1], "--autostash");
+			assert.equal(rebaseCall.args[2], "origin/main");
+
+			const pushCall = execCalls[2];
+			assert.equal(pushCall.args[0], "push");
+			assert.equal(pushCall.args[1], "--force-with-lease");
+		});
+
+		it("Regression: push retry (3 attempts) still works when rebase succeeds", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
+					{ code: 1, stdout: "", stderr: "push failed" },
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(result.success, "should succeed after push retry");
+
+			const pushCalls = execCalls.filter((c) => c.args[0] === "push");
+			assert.equal(pushCalls.length, 2, "push should be retried once");
+		});
+
+		it("Regression: existing PR update path works when rebase succeeds", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "fetch ok", stderr: "" },
+					{ code: 0, stdout: "rebase ok", stderr: "" },
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3, 789);
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.ok(result.success, "should succeed");
+			assert.equal(result.prNumber, 789, "should reference existing PR");
+			assert.equal(result.wasUpdate, true, "should be marked as update");
 		});
 	});
 });

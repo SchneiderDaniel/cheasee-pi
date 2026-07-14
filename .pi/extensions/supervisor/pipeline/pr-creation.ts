@@ -12,6 +12,7 @@ import type {
 
 import { generateBranchName } from "../agent/task.ts";
 import type { GitHubPort } from "../github/ports.ts";
+import { tryRebaseOntoBase } from "./rebase.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
@@ -145,6 +146,59 @@ export async function createPrOnApproval(
 		} else {
 			log.warn("pr-creation", "Port not available — cannot verify ahead count, proceeding with push");
 		}
+	}
+
+	// ─── Phase 2.5: Rebase onto latest base branch ─────────────────
+	// Fetch latest defaultBranch and rebase worktree branch onto it
+	// to avoid stale-base merge conflicts caused by PRs merged during
+	// pipeline runtime. On conflict, return early with rebaseConflicts
+	// so the post-PR merge handler (handlePostPipelineMerge) can dispatch
+	// the developer agent for resolution.
+	if (worktreePath && !skipPush) {
+		log.info("pr-creation", `Rebasing onto ${config.remote}/${config.defaultBranch}`);
+		const rebaseResult = await tryRebaseOntoBase(
+			worktreePath,
+			config.defaultBranch!,
+			config.remote!,
+			pi,
+		);
+
+		if (!rebaseResult.success) {
+			if (rebaseResult.conflictFiles.length > 0) {
+				log.warn(
+					"pr-creation",
+					`Rebase conflicts in ${rebaseResult.conflictFiles.length} files: ${rebaseResult.conflictFiles.join(", ")}`,
+				);
+				ctx.ui.notify(
+					`Rebase conflicts with latest ${config.defaultBranch} in ${rebaseResult.conflictFiles.length} file(s): ${rebaseResult.conflictFiles.join(", ")}. Post-PR merge handler will dispatch developer for resolution.`,
+					"warning",
+				);
+				return {
+					success: false,
+					error: rebaseResult.message,
+					source: "pr-creation",
+					pushSkipped: true,
+					rebaseConflicts: rebaseResult.conflictFiles,
+				};
+			}
+			// Non-conflict failure (fetch failed, etc.)
+			log.error("pr-creation", `Rebase failed: ${rebaseResult.message}`);
+			ctx.ui.notify(
+				`Cannot rebase onto latest ${config.defaultBranch}: ${rebaseResult.message}`,
+				"error",
+			);
+			return {
+				success: false,
+				error: rebaseResult.message,
+				source: "pr-creation",
+				pushSkipped: true,
+			};
+		}
+		log.info("pr-creation", "Rebase succeeded — proceeding with push");
+	} else if (!worktreePath) {
+		log.info("pr-creation", "No worktree path — skipping rebase");
+	} else {
+		log.info("pr-creation", "Skip push is set — skipping rebase");
 	}
 
 	// ─── Phase 3: Push branch (if worktree exists) with retry ───────
