@@ -159,7 +159,7 @@ cheasee-pi init
 5. Configure the submodule (prompts for your repo URL)
 6. Extract embedded `docker-compose.yml`, `Dockerfile`, and `entrypoint.sh`
 7. Generate `docker/.env` with your settings
-8. Save authentication config to `~/.pi/agent/auth.json`
+8. Save authentication config to your platform's XDG user config directory (e.g., `~/.config/cheasee-pi/auth.json` on Linux; the exact path is printed at runtime as "✓ Auth config saved to...")
 
 After completion, you'll see:
 
