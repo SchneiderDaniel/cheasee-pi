@@ -21,3 +21,7 @@ cache/
 # Jekyll docs build output
 docs/_site/
 ignore/
+
+# Unix core dumps (Go crashes during dev)
+core
+core.*
