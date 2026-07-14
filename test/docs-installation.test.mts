@@ -128,13 +128,23 @@ describe("docs/installation.md", () => {
 			);
 		});
 
-		it("Go CLI path mentions cheasee-pi start", () => {
+		it("Go CLI path does NOT mention cheasee-pi start", () => {
 			const content = readDoc();
 			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
 			assert.ok(goSection, "Go CLI Path section content not found");
 			assert.ok(
-				goSection.includes("cheasee-pi start"),
-				"Go CLI path missing 'cheasee-pi start'"
+				!goSection.includes("cheasee-pi start"),
+				"Go CLI path must NOT mention 'cheasee-pi start'"
+			);
+		});
+
+		it("Go CLI path Step 6 contains docker compose up --build", () => {
+			const content = readDoc();
+			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
+			assert.ok(goSection, "Go CLI Path section content not found");
+			assert.ok(
+				goSection.includes("docker compose -f docker/docker-compose.yml up -d --build"),
+				"Go CLI path missing docker compose command"
 			);
 		});
 	});

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -755,6 +756,58 @@ func TestRunInitEnv_AllFallbacksFail(t *testing.T) {
 	err := runInitEnv(context.Background(), &mockEnvRenderer{}, uidResolver, &mockGitIdentity{}, t.TempDir(), mockConfirmFn(false, nil))
 	if err == nil {
 		t.Fatal("expected error when all UID fallbacks fail")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Success message test
+// ──────────────────────────────────────────────
+
+func TestInit_SuccessMessage(t *testing.T) {
+	// Capture stderr to verify the success message
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+
+	// Restore after test
+	defer func() {
+		w.Close()
+		os.Stderr = oldStderr
+	}()
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+
+	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	output := buf.String()
+
+	if strings.Contains(output, "cheasee-pi start") {
+		t.Error("success message must NOT reference 'cheasee-pi start'")
+	}
+	if !strings.Contains(output, "docker compose -f docker/docker-compose.yml up -d --build") {
+		t.Error("success message must contain the docker compose command")
+	}
+	if !strings.Contains(output, "✅ Init complete") {
+		t.Error("success message must contain the checkmark and 'Init complete'")
 	}
 }
 
