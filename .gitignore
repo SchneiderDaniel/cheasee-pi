@@ -27,7 +27,7 @@ core
 core.*
 
 # Go build artifacts
-cheasee-pi
+/cheasee-pi
 cmd/cheasee-pi/cheasee-pi
 *.exe
 

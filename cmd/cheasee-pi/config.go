@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 )
 
-// Auth represents the API key authentication configuration.
+// Auth represents the authentication configuration.
 type Auth struct {
-	APIKey string `json:"api_key"`
+	APIKey      string `json:"api_key"`
+	GitHubToken string `json:"github_token,omitempty"`
+	GitHubUser  string `json:"github_user,omitempty"`
+	RepoPath    string `json:"repo_path,omitempty"`
 }
 
 // Repository persists and loads Auth config.

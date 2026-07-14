@@ -1,0 +1,306 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/cli/oauth/api"
+	"github.com/cli/oauth/device"
+	"github.com/go-git/go-git/v5"
+	goGitHTTP "github.com/go-git/go-git/v5/plumbing/transport/http"
+)
+
+// ──────────────────────────────────────────────
+// Ports
+// ──────────────────────────────────────────────
+
+// Authenticator handles GitHub OAuth device flow authentication.
+type Authenticator interface {
+	RequestCode(ctx context.Context, scopes []string) (*device.CodeResponse, error)
+	Wait(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error)
+}
+
+// GitHubClient handles GitHub API operations.
+type GitHubClient interface {
+	GetAuthenticatedUser(ctx context.Context, token string) (string, error)
+	CreateFork(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error)
+	WaitForkReady(ctx context.Context, token, owner, repo string) error
+}
+
+// Cloner handles git clone and submodule operations.
+type Cloner interface {
+	Clone(ctx context.Context, token, repoURL, destPath string) error
+	ConfigureSubmodule(ctx context.Context, repoPath, submodulePath, newURL string) error
+}
+
+// ──────────────────────────────────────────────
+// Authenticator: deviceFlowAuthenticator
+// ──────────────────────────────────────────────
+
+type deviceFlowAuthenticator struct {
+	clientID   string
+	httpClient *http.Client
+}
+
+// NewAuthenticator creates a device flow authenticator with the given GitHub OAuth client ID.
+func NewAuthenticator(clientID string) Authenticator {
+	return &deviceFlowAuthenticator{
+		clientID:   clientID,
+		httpClient: http.DefaultClient,
+	}
+}
+
+func (a *deviceFlowAuthenticator) RequestCode(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
+	return device.RequestCode(
+		a.httpClient,
+		"https://github.com/login/device/code",
+		a.clientID,
+		scopes,
+	)
+}
+
+func (a *deviceFlowAuthenticator) Wait(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error) {
+	return device.Wait(ctx, a.httpClient, "https://github.com/login/oauth/access_token", device.WaitOptions{
+		ClientID:   a.clientID,
+		DeviceCode: code,
+	})
+}
+
+// ──────────────────────────────────────────────
+// GitHubClient: httpGitHubClient
+// ──────────────────────────────────────────────
+
+type httpGitHubClient struct {
+	httpClient *http.Client
+	baseURL    string // optional, for testing
+}
+
+// NewGitHubClient creates a GitHub API client.
+func NewGitHubClient() GitHubClient {
+	return &httpGitHubClient{httpClient: http.DefaultClient, baseURL: "https://api.github.com"}
+}
+
+// newRequest creates an authenticated HTTP request with GitHub API headers.
+func (c *httpGitHubClient) newRequest(ctx context.Context, method, path, token string, body io.Reader) (*http.Request, error) {
+	url := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+func (c *httpGitHubClient) GetAuthenticatedUser(ctx context.Context, token string) (string, error) {
+	req, err := c.newRequest(ctx, "GET", "/user", token, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("user API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("invalid token: unauthorized (401)")
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("user API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var user struct {
+		Login string `json:"login"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return "", fmt.Errorf("failed to decode user response: %w", err)
+	}
+	if user.Login == "" {
+		return "", fmt.Errorf("user API returned nil login")
+	}
+	return user.Login, nil
+}
+
+func (c *httpGitHubClient) CreateFork(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
+	path := fmt.Sprintf("/repos/%s/%s/forks", sourceOwner, sourceRepo)
+	req, err := c.newRequest(ctx, "POST", path, token, strings.NewReader("{}"))
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fork request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	// 202 Accepted — fork is being created asynchronously
+	// 422 Unprocessable Entity — fork already exists (common case)
+	if resp.StatusCode == http.StatusUnprocessableEntity {
+		return "", fmt.Errorf("fork already exists: %s", strings.TrimSpace(string(body)))
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		return "", fmt.Errorf("fork API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var fork struct {
+		Owner *struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &fork); err != nil {
+		return "", fmt.Errorf("failed to decode fork response: %w", err)
+	}
+	if fork.Owner == nil || fork.Owner.Login == "" {
+		return "", fmt.Errorf("fork response missing owner")
+	}
+	return fmt.Sprintf("%s/%s", fork.Owner.Login, fork.Name), nil
+}
+
+func (c *httpGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo string) error {
+	path := fmt.Sprintf("/repos/%s/%s", owner, repo)
+	interval := 5 * time.Second
+	cap := 5 * time.Minute
+	deadline := time.Now().Add(cap)
+
+	for {
+		req, err := c.newRequest(ctx, "GET", path, token, nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("fork ready check failed: %w", err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("fork not ready after %s timeout", cap)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(interval):
+				continue
+			}
+		}
+
+		return fmt.Errorf("unexpected status %d checking fork", resp.StatusCode)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Cloner: goGitCloner
+// ──────────────────────────────────────────────
+
+type goGitCloner struct{}
+
+// NewCloner creates a git cloner backed by go-git.
+func NewCloner() Cloner {
+	return &goGitCloner{}
+}
+
+func (cl *goGitCloner) Clone(ctx context.Context, token, repoURL, destPath string) error {
+	auth := &goGitHTTP.BasicAuth{
+		Username: "",     // Must be empty for GitHub token auth
+		Password: token,
+	}
+
+	_, err := git.PlainCloneContext(ctx, destPath, false, &git.CloneOptions{
+		URL:  repoURL,
+		Auth: auth,
+	})
+	if err != nil {
+		return fmt.Errorf("clone failed: %w", err)
+	}
+	return nil
+}
+
+func (cl *goGitCloner) ConfigureSubmodule(ctx context.Context, repoPath, submodulePath, newURL string) error {
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("open repo: %w", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	sub, err := wt.Submodule(submodulePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ Submodule %q not found, skipping\n", submodulePath)
+		return nil
+	}
+
+	// Rewrite .gitmodules URL by editing the file directly
+	gitmodulesPath := filepath.Join(repoPath, ".gitmodules")
+	data, err := os.ReadFile(gitmodulesPath)
+	if err != nil {
+		return fmt.Errorf("read .gitmodules: %w", err)
+	}
+
+	subConfig := sub.Config()
+	oldURL := subConfig.URL
+	if oldURL != "" {
+		data = bytes.ReplaceAll(data, []byte(oldURL), []byte(newURL))
+	}
+
+	if err := os.WriteFile(gitmodulesPath, data, 0644); err != nil {
+		return fmt.Errorf("write .gitmodules: %w", err)
+	}
+
+	// Init and update submodule with Init: true
+	if err := sub.UpdateContext(ctx, &git.SubmoduleUpdateOptions{
+		Init: true,
+	}); err != nil {
+		return fmt.Errorf("submodule update: %w", err)
+	}
+
+	return nil
+}
+
+// ParseGitHubURL parses "owner/repo" from various GitHub URL formats.
+func ParseGitHubURL(url string) (owner, repo string) {
+	url = strings.TrimSuffix(url, ".git")
+	if strings.Contains(url, "github.com/") {
+		parts := strings.SplitN(url, "github.com/", 2)
+		if len(parts) == 2 {
+			url = parts[1]
+		}
+	} else if strings.Contains(url, "github.com:") {
+		parts := strings.SplitN(url, "github.com:", 2)
+		if len(parts) == 2 {
+			url = parts[1]
+		}
+	}
+	parts := strings.SplitN(url, "/", 3)
+	if len(parts) >= 2 {
+		return parts[0], strings.TrimSuffix(parts[1], ".git")
+	}
+	return "", ""
+}
