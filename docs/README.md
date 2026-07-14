@@ -44,12 +44,28 @@ All components run locally. No code leaves your machine (except LLM API calls to
 see the full [Installation guide](installation.md) for step-by-step setup
 (both Go CLI and legacy bash paths).
 
-TL;DR — native Docker workflow (works with either path once set up):
+TL;DR — one-command convenience script (works with either path once set up):
 
 ```bash
-# Clone the repo (legacy path) or cd into your init-created workspace (Go CLI path)
+# cd into your init-created workspace (Go CLI path) or cloned repo (legacy path)
 cd cheasee-pi
 
+# Start container, inject API keys, and run pi — all in one command
+bash docker/run-pi.sh
+```
+
+`bash docker/run-pi.sh` starts the container if needed, injects API keys from
+your saved `auth.json` or environment variables, and opens the pi TUI.
+When you're done, `bash docker/stop-pi.sh` stops the container cleanly.
+
+First run builds the Docker image (~2 min). Set your API key inside the container
+when pi prompts you.
+
+### Advanced — native Docker workflow
+
+If you need to manage the container directly (alternative to the convenience script):
+
+```bash
 # Build image and start container
 docker compose -f docker/docker-compose.yml up -d --build
 
@@ -60,8 +76,7 @@ docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
 docker compose -f docker/docker-compose.yml down
 ```
 
-First run builds the Docker image (~2 min). Set your API key inside the container
-when pi prompts you, or pass it via `-e`:
+Pass API keys from your host environment with `-e`:
 
 ```bash
 docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \

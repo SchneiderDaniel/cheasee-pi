@@ -138,13 +138,23 @@ describe("docs/installation.md", () => {
 			);
 		});
 
-		it("Go CLI path Step 6 contains docker compose up --build", () => {
+		it("Go CLI path references docker/run-pi.sh", () => {
+			const content = readDoc();
+			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
+			assert.ok(goSection, "Go CLI Path section content not found");
+			assert.ok(
+				goSection.includes("run-pi.sh"),
+				"Go CLI path must mention run-pi.sh"
+			);
+		});
+
+		it("Go CLI path still contains docker compose up --build in Advanced subsection", () => {
 			const content = readDoc();
 			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
 			assert.ok(goSection, "Go CLI Path section content not found");
 			assert.ok(
 				goSection.includes("docker compose -f docker/docker-compose.yml up -d --build"),
-				"Go CLI path missing docker compose command"
+				"Go CLI path missing docker compose command in Advanced subsection"
 			);
 		});
 	});
