@@ -13,8 +13,7 @@ import (
 //go:embed embedded
 var embeddedFS embed.FS
 
-// AssetFS returns the embedded filesystem containing docker-compose.yml,
-// Dockerfile, and entrypoint.sh.
+// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh}.
 func AssetFS() fs.FS {
 	return embeddedFS
 }
@@ -34,7 +33,7 @@ type Extractor interface {
 
 type FSExtractor struct {
 	source fs.FS
-	prefix string // subdirectory within FS, e.g. "embedded"
+	prefix string // walk root within FS; nested source-tree structure determines destination subtree
 }
 
 // NewExtractor creates an Extractor that reads from the embedded FS.

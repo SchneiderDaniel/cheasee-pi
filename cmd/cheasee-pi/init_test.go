@@ -682,6 +682,44 @@ func TestRunInitExtract_Fails(t *testing.T) {
 	}
 }
 
+func TestRunInitExtract_LogMessage(t *testing.T) {
+	// Capture stderr to verify the log message includes /docker suffix
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		w.Close()
+		os.Stderr = oldStderr
+	}()
+
+	mockExt := &mockExtractor{}
+	dir := t.TempDir()
+	if err := runInitExtract(context.Background(), mockExt, dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	output := buf.String()
+
+	// Should contain the /docker suffix on the workdir path
+	expectedSuffix := dir + "/docker"
+	if !strings.Contains(output, expectedSuffix) {
+		t.Errorf("log message should contain %q, got: %s", expectedSuffix, output)
+	}
+	if !strings.Contains(output, "Compose files extracted to") {
+		t.Errorf("log message should mention extraction, got: %s", output)
+	}
+}
+
 // ──────────────────────────────────────────────
 // Env generation tests
 // ──────────────────────────────────────────────
