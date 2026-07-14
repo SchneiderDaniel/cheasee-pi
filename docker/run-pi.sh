@@ -13,12 +13,15 @@ set -e
 #
 # Dependencies:
 #   - Docker Engine running
-#   - `cheasee-pi.sh` run at least once (image built, auth configured)
+#   - `cheasee-pi init` or `cheasee-pi.sh` run at least once
 # ------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 CONTAINER_NAME="cheasee-pi"
+
+# --- Source shared auth library ---
+source "$SCRIPT_DIR/lib/auth-env.sh"
 
 # --- Check if container already running ---
 if docker ps --filter name="$CONTAINER_NAME" --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
@@ -28,29 +31,16 @@ else
     docker compose -f "$COMPOSE_FILE" up -d
 fi
 
-# --- Build env passthrough from ~/.pi/agent/auth.json ---
+# --- Build env passthrough from auth.json (XDG path, with legacy fallback) ---
 DOCKER_ENV=""
-AUTH_JSON="$HOME/.pi/agent/auth.json"
+AUTH_JSON=$(resolve_auth_json)
 
-# ponytail: auth.json→env mapping duplicated from cheasee-pi.sh (lines 437-455).
-# Drift risk if auth.json schema changes. Extract to docker/lib/auth-env.sh if a
-# third consumer appears.
-if [ -f "$AUTH_JSON" ] && command -v jq &>/dev/null; then
+if [ -n "$AUTH_JSON" ] && [ -f "$AUTH_JSON" ] && command -v jq &>/dev/null; then
     while IFS= read -r provider; do
         [ -z "$provider" ] && continue
         key=$(jq -r ".\"$provider\".key // empty" "$AUTH_JSON")
         if [ -n "$key" ]; then
-            case "$provider" in
-                opencode-go|opencode)       var="OPENCODE_API_KEY" ;;
-                openai*)                    var="OPENAI_API_KEY" ;;
-                anthropic*|claude*)         var="ANTHROPIC_API_KEY" ;;
-                deepseek*)                  var="DEEPSEEK_API_KEY" ;;
-                gemini*|google*)            var="GEMINI_API_KEY" ;;
-                groq*)                      var="GROQ_API_KEY" ;;
-                mistral*)                   var="MISTRAL_API_KEY" ;;
-                openrouter*)                var="OPENROUTER_API_KEY" ;;
-                *)                          var="" ;;
-            esac
+            var=$(provider_to_envvar "$provider")
             if [ -n "$var" ]; then
                 DOCKER_ENV="$DOCKER_ENV -e $var=$key"
             fi

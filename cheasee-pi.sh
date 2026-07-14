@@ -12,6 +12,10 @@ set -e
 #   ./cheasee-pi.sh
 # ------------------------------------------------------------------
 
+# --- Source shared auth library ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/docker/lib/auth-env.sh"
+
 # --- Help --------------------------------------------------------------
 show_help() {
     cat <<EOF
@@ -272,8 +276,9 @@ run_configure() {
     # Helper: check if a key exists in auth.json for any provider
     has_auth_key() {
         local envvar="$1"
-        [ -f "$HOME/.pi/agent/auth.json" ] || return 1
-        jq -e "to_entries[] | select(.value.key != null) as \$e | \$e.key" "$HOME/.pi/agent/auth.json" >/dev/null 2>&1
+        local auth_file
+        auth_file=$(resolve_auth_json)
+        [ -n "$auth_file" ] && [ -f "$auth_file" ] || return 1
         # Map envvar back to provider names and check
         local providers
         case "$envvar" in
@@ -284,7 +289,7 @@ run_configure() {
             GEMINI_API_KEY)       providers='"gemini","google"' ;;
             *)                    return 1 ;;
         esac
-        jq -e "[keys[] | select(. == $providers) | . as \$p | .[\$p].key | length > 0] | any" "$HOME/.pi/agent/auth.json" >/dev/null 2>&1
+        jq -e "[keys[] | select(. == $providers) | . as \$p | .[\$p].key | length > 0] | any" "$auth_file" >/dev/null 2>&1
     }
 
     echo "Available providers:"
@@ -295,7 +300,7 @@ run_configure() {
         elif grep -q "^export $var=" "$PROFILE" 2>/dev/null; then
             status="(already saved)"
         elif has_auth_key "$var"; then
-            status="(in ~/.pi/agent/auth.json)"
+            status="(in auth.json)"
         fi
         echo "  [$((i+1))] $var  $desc $status"
     done
@@ -419,24 +424,9 @@ export CHEASEEPI_CPUS
 
 PROVIDER=$(jq -r '.defaultProvider // "opencode-go"' .pi/settings.json)
 
-# --- Helper: map provider name to env var -----------------------------
-provider_to_envvar() {
-    case "$1" in
-        opencode-go|opencode)  echo "OPENCODE_API_KEY" ;;
-        openai*)               echo "OPENAI_API_KEY" ;;
-        anthropic*|claude*)    echo "ANTHROPIC_API_KEY" ;;
-        deepseek*)             echo "DEEPSEEK_API_KEY" ;;
-        gemini*|google*)       echo "GEMINI_API_KEY" ;;
-        groq*)                 echo "GROQ_API_KEY" ;;
-        mistral*)              echo "MISTRAL_API_KEY" ;;
-        openrouter*)           echo "OPENROUTER_API_KEY" ;;
-        *)                     echo "" ;;
-    esac
-}
-
-# --- Read keys from ~/.pi/agent/auth.json if exists -----------------
-AUTH_JSON="$HOME/.pi/agent/auth.json"
-if [ -f "$AUTH_JSON" ]; then
+# --- Read keys from auth.json if exists (XDG path, legacy fallback) ---
+AUTH_JSON=$(resolve_auth_json)
+if [ -n "$AUTH_JSON" ] && [ -f "$AUTH_JSON" ]; then
     # Extract all provider keys from auth.json and export as env vars
     while IFS= read -r provider; do
         [ -z "$provider" ] && continue
