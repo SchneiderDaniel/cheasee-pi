@@ -1118,8 +1118,6 @@ func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 		t.Error("expected openai provider key in output")
 	}
 }
-	}
-}
 
 // ──────────────────────────────────────────────
 // Legacy/backward compat tests
