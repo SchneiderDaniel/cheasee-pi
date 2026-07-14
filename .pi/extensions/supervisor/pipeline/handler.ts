@@ -15,9 +15,9 @@ import type {
 	SupervisorMessageDetails,
 } from "../config/types.ts";
 import { loadConfig, resolveTimeoutMs } from "../config/config.ts";
-import { findIssueItem, filterIssueData } from "../github/index.ts";
-import { gh, createGitHubPort } from "../github/gh-client.ts";
+import { findIssueItem, filterIssueData } from "../lib/issue-filter.ts";
 import type { GitHubPort } from "../github/ports.ts";
+import { createGitHubPort } from "../github/ports.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
 import { executeAgent } from "./execute-agent.ts";
@@ -206,7 +206,6 @@ export async function handleSupervisorCommand(
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
 	const exec: ExecFn = pi.exec.bind(pi);
-	const port: GitHubPort = createGitHubPort(exec);
 	const notify: NotifyFn = {
 		info: (msg) => {
 			if (ctx.hasUI) {
@@ -231,6 +230,9 @@ export async function handleSupervisorCommand(
 			projectNumber: config.projectNumber,
 			submodules: config.submodules?.length,
 		});
+
+		// Create GitHubPort — throws if no token found
+		const port: GitHubPort = createGitHubPort();
 
 		// Experimental features gate
 		// When enableExperimentalFeatures is false/undefined, advanced
@@ -281,11 +283,12 @@ export async function handleSupervisorCommand(
 		// Read project board
 		ctx.ui.setStatus("supervisor", "Reading project board...");
 		const { fields, items, projectId, statusField } = await readProjectBoard(
-			port,
+			exec,
 			notify,
 			config,
 			issueNum,
 			collector,
+			port,
 		);
 		if (!fields || !statusField) {
 			getDebugLogger().error("handler", "Project board read failed", {
@@ -312,7 +315,7 @@ export async function handleSupervisorCommand(
 
 		// Dependency gate
 		ctx.ui.setStatus("supervisor", "Checking dependencies...");
-		if (!(await checkDependencies(port, notify, config, issueNum, collector))) {
+		if (!(await checkDependencies(exec, notify, config, issueNum, collector, port))) {
 			getDebugLogger().warn("handler", "Dependency check blocked", { issueNum });
 			return;
 		}
@@ -716,7 +719,6 @@ export async function handleSupervisorCommand(
 			// comment posting can show gate rejection instead of approval
 			if (result.success) {
 				const continuePipeline = await handlePostAgentSuccess(
-					port,
 					pi,
 					ctx,
 					result,
@@ -730,6 +732,7 @@ export async function handleSupervisorCommand(
 					collector,
 					gateRejected,
 					notify,
+					port,
 				);
 				if (!continuePipeline) {
 					stopReason = `commitAndPush failed for ${agentName}`;
@@ -795,7 +798,7 @@ export async function handleSupervisorCommand(
 							config.repo,
 							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
 						);
-						await gh(exec, ["issue", "close", String(issueNum), "--repo", config.repo]);
+						await port.closeIssue(issueNum, config.repo);
 						ctx.ui.notify(`Issue #${issueNum} closed — already resolved`, "info");
 					} catch (closeErr: unknown) {
 						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
@@ -821,7 +824,6 @@ export async function handleSupervisorCommand(
 
 				getDebugLogger().info("handler", "Creating PR on approval");
 				prCreationResult = await createPrOnApproval(
-					port,
 					pi,
 					ctx,
 					issueNum,
@@ -833,6 +835,7 @@ export async function handleSupervisorCommand(
 					collector,
 					stageState.gateFailureHistory,
 					undefined,
+					port,
 				);
 				if (prCreationResult && !prCreationResult.success) {
 					getDebugLogger().warn("handler", "PR creation failed", {
@@ -1024,7 +1027,6 @@ export async function handleSupervisorCommand(
 			loopStatus,
 			agentResults,
 			config,
-			port,
 			pi,
 			ctx,
 			worktreePath,
@@ -1033,6 +1035,7 @@ export async function handleSupervisorCommand(
 			isDebug,
 			collector,
 			notify,
+			port,
 		);
 
 		// Completion notification
@@ -1122,7 +1125,6 @@ export async function handlePostPipeline(
 	loopStatus: string,
 	agentResults: PipelineAgentResult[],
 	config: SupervisorConfig,
-	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	worktreePath: string | undefined,
@@ -1131,6 +1133,7 @@ export async function handlePostPipeline(
 	isDebug?: boolean,
 	collector?: ErrorCollector,
 	notify?: NotifyFn,
+	port?: GitHubPort,
 ): Promise<boolean> {
 	let unresolvedConflicts = false;
 
@@ -1142,11 +1145,12 @@ export async function handlePostPipeline(
 				issueTitle,
 				loopStatus,
 				config,
-				port,
 				pi,
 				ctx,
 				worktreePath,
 				collector,
+				undefined,
+				port,
 			);
 		}
 	} finally {

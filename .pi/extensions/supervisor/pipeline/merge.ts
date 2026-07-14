@@ -22,13 +22,12 @@ export async function handlePostPipelineMerge(
 	issueTitle: string,
 	loopStatus: string,
 	config: SupervisorConfig,
-	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	worktreePath?: string,
 	collector?: ErrorCollector,
-	// ponytail: test hook for injecting mock runner; external callers omit this
 	_runner?: typeof runAgentSubprocess,
+	port?: GitHubPort,
 ): Promise<boolean> {
 	const log = getDebugLogger();
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
@@ -45,6 +44,10 @@ export async function handlePostPipelineMerge(
 		ctx.ui.setStatus("supervisor", "Checking PR for merge conflicts...");
 		let conflictInfo: PrConflictInfo | null;
 		try {
+			if (!port) {
+				ctx.ui.notify("GitHubPort not available — skipping conflict check", "error");
+				return false;
+			}
 			conflictInfo = await port.listPullRequestsForBranch(branch, config.repo);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);

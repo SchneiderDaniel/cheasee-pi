@@ -16,49 +16,13 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../config/types.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
 import { handlePostAgentSuccess } from "../pipeline/stages.ts";
 import { createMockGitHubPort } from "./helper/mock-github-port.ts";
 import type { GitHubPort } from "../github/ports.ts";
-import { join } from "node:path";
-
-// Module-level stub port for tests that don't need gh comment verification
-const mockPort = createMockGitHubPort();
-
-/**
- * Create a mock port whose postIssueComment delegates to pi.exec for gh calls,
- * allowing the body-capture shim to intercept and record bodies. Other methods
- * use default stub values.
- */
-function createMockPortForTest(pi: ExtensionAPI): GitHubPort {
-	return createMockGitHubPort({
-		postIssueComment: async (issueNum, repo, body) => {
-			const tempDir = "ignore";
-			const tempFile = join(tempDir, `comment-body-${issueNum}-${Date.now()}.md`);
-			mkdirSync(tempDir, { recursive: true });
-			writeFileSync(tempFile, body, "utf-8");
-			try {
-				await pi.exec("gh", [
-					"issue",
-					"comment",
-					String(issueNum),
-					"--repo",
-					repo,
-					"--body-file",
-					tempFile,
-				]);
-			} finally {
-				try {
-					unlinkSync(tempFile);
-				} catch {
-					// best-effort cleanup
-				}
-			}
-		},
-	});
-}
 import {
 	CapturedOutput,
 	createMockPi,
@@ -76,6 +40,31 @@ import {
 // calls gh --body-file <path>, then deletes the file in its finally block.
 // This shim intercepts the gh exec call, reads the body file before deletion,
 // and captures the content into an array for test assertions.
+
+/**
+ * Create a mock port whose postIssueComment delegates to pi.exec for gh calls,
+ * allowing the body-capture shim to intercept and record bodies.
+ */
+function createMockPortForTest(pi: ExtensionAPI): GitHubPort {
+	return createMockGitHubPort({
+		postIssueComment: async (issueNum: number, repo: string, body: string) => {
+			const tempDir = "ignore";
+			const tempFile = join(tempDir, `comment-body-${issueNum}-${Date.now()}.md`);
+			mkdirSync(tempDir, { recursive: true });
+			writeFileSync(tempFile, body, "utf8");
+			await pi.exec("gh", [
+				"issue",
+				"comment",
+				String(issueNum),
+				"--body-file",
+				tempFile,
+				"--repo",
+				repo,
+			]);
+			unlinkSync(tempFile);
+		},
+	});
+}
 
 function createBodyCapturePi(captured: CapturedOutput, capturedBodies: string[]): ExtensionAPI {
 	const pi = createMockPi(captured);
@@ -194,8 +183,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -206,6 +195,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			undefined,
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -243,8 +236,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			output: "",
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -255,6 +248,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			undefined,
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -294,8 +291,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -306,6 +303,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			undefined,
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -350,8 +351,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -362,6 +363,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			undefined,
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -399,8 +404,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -412,6 +417,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -460,8 +468,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -473,6 +481,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -523,8 +534,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			// checkReadmeUpdated git diff will fall through to default code:1 — fine
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -535,6 +546,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"/repo/worktree",
 			"feature-branch",
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "commitAndPush succeeded — pipeline continues");
@@ -582,8 +597,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"git add -A": makeExecResult({ code: 1, stderr: "fatal: could not add" }),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -595,6 +610,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"feature-branch",
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, false, "commitAndPush failure returns false — pipeline stops");
@@ -642,8 +660,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -654,6 +672,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			undefined,
 			"Test issue",
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -698,8 +720,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -711,6 +733,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -750,8 +775,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			}),
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -763,6 +788,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");
@@ -797,8 +825,8 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			thinkingOutput: undefined,
 		});
 
+		const port = createMockPortForTest(pi);
 		const success = await handlePostAgentSuccess(
-			createMockPortForTest(pi),
 			pi,
 			ctx,
 			result,
@@ -810,6 +838,9 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			undefined,
 			"Test issue",
 			collector,
+			undefined,
+			undefined,
+			port,
 		);
 
 		assert.equal(success, true, "pipeline should continue");

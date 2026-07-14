@@ -15,10 +15,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig, AgentRunResult } from "../../config/types.ts";
-import { createMockGitHubPort } from "../../test/helper/mock-github-port.ts";
-import { createGitHubPort } from "../../github/gh-client.ts";
-import type { ExecFn } from "../../pipeline/helpers.ts";
+import type { SupervisorConfig, AgentRunResult, PrConflictInfo } from "../../config/types.ts";
+import type { GitHubPort } from "../../github/ports.ts";
+import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 
 // ─── Temp worktree helper ─────────────────────────────────────────
 // merge.ts checks if .pi/extensions/supervisor/agents/developer.md
@@ -74,6 +73,23 @@ afterEach(() => {
 });
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
+
+function makeConflictInfo(hasConflict: boolean): PrConflictInfo {
+	return {
+		number: 123,
+		hasConflict,
+		mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
+		mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
+		headRefName: "worktree-git-issue-42-foo-issue",
+		baseRefName: "main",
+	};
+}
+
+function createMockMergePort(hasConflict: boolean = true): GitHubPort {
+	return createMockGitHubPort({
+		listPullRequestsForBranch: async () => makeConflictInfo(hasConflict),
+	});
+}
 
 function createMockPi(
 	results: Array<{ code: number; stdout: string; stderr: string }>,
@@ -151,30 +167,6 @@ function prListResult(hasConflict: boolean): string {
 	]);
 }
 
-
-/** Create a mock port that returns PR conflict info for merge tests. */
-
-/** Create a real adapter port from a mock ExtensionAPI, for tests that check exec calls. */
-function createRealPort(pi: ExtensionAPI) {
-	const exec: ExecFn = ((cmd: string, args: string[], opts?: any) => {
-		return pi.exec(cmd, args, opts) as any;
-	}) as ExecFn;
-	return createGitHubPort(exec);
-}
-
-function makeMergePort(hasConflict: boolean = true, prNumber: number = 123) {
-	return {
-		listPullRequestsForBranch: async () => ({
-			number: prNumber,
-			hasConflict,
-			mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
-			mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
-			headRefName: "worktree-git-issue-42-foo-issue",
-			baseRefName: "main",
-		}),
-	};
-}
-
 const BRANCH = "worktree-git-issue-42-foo-issue";
 
 // ─── Tests ─────────────────────────────────────────────────────────
@@ -184,6 +176,7 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 			],
@@ -193,8 +186,8 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const config = makeConfig();
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, explicitWorktreePath);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath, undefined, undefined, createMockMergePort(true));
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -211,6 +204,7 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 			],
@@ -219,8 +213,8 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const ctx = createMockCtx(true);
 		const config = makeConfig();
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, undefined);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -238,6 +232,7 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 			],
@@ -246,8 +241,8 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const ctx = createMockCtx(true);
 		const config = makeConfig({ worktreeBase: "../worktrees" });
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, undefined);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -263,6 +258,7 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 			],
@@ -271,8 +267,8 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const ctx = createMockCtx(true);
 		const config = makeConfig({ worktreeBase: "/tmp/worktrees" });
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, undefined);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -286,6 +282,7 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 			],
@@ -295,8 +292,8 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const config = makeConfig({ worktreeBase: "../worktrees/" });
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, explicitWorktreePath);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath, undefined, undefined, createMockMergePort(true));
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -305,27 +302,27 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		assert.equal(fetchCall!.opts.cwd, explicitWorktreePath, "worktreePath takes precedence");
 	});
 
-	it("handles PR info via port when called with 7 parameters", async () => {
+	it("signature accepts 6 or 7 parameters without breaking existing callers", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
 		const ctx = createMockCtx(true);
 		const config = makeConfig();
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		// No exec calls — conflict check is via port
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(false));
 
-		// Merge detection happens via port, not pi.exec
-		// The function should complete without throwing
-		assert.ok(true, "function completed without error");
+		// No exec calls should be made since no conflict and no auto-merge
+		assert.equal(calls.length, 0, "no exec calls when no conflict");
 	});
 
 	it("does not call tryAutoMerge when user declines", async () => {
 		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: prListResult(true), stderr: "" }], calls);
+		const pi = createMockPi([], calls);
 		const ctx = createMockCtx(false);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", makeConfig(), createMockGitHubPort(makeMergePort()), pi, ctx, undefined);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", makeConfig(), pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
 
 		const gitCalls = calls.filter((c) => c.cmd === "git");
 		assert.equal(gitCalls.length, 0, "no git calls when user declines merge");
@@ -348,6 +345,7 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 	function createPiWithFailedMerge(execCalls: ExecCall[]) {
 		return createMockPi(
 			[
+				// PR conflict check is via port now, so no gh exec mock needed
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 1, stdout: "", stderr: "merge failed" },
 				{ code: 0, stdout: "file1.ts\nfile2.ts\n", stderr: "" },
@@ -383,19 +381,20 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const runner = createMockRunner();
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
 			"Done",
 			makeConfig(),
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			wt,
 			undefined,
 			runner,
+			port,
 		);
 
 		assert.ok(
@@ -411,19 +410,20 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const runner = createMockRunner();
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
 			"Done",
 			makeConfig(),
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			wt,
 			undefined,
 			runner,
+			port,
 		);
 
 		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
@@ -438,9 +438,10 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
 		const runner = createMockRunner();
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, createMockGitHubPort(makeMergePort()), pi, ctx, wt, undefined, runner);
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, wt, undefined, runner, createMockMergePort(true));
 
 		assert.ok(runner.mock.callCount() > 0, "should have runAgentSubprocess calls");
 		const args = runner.mock.calls[0]?.arguments;
@@ -457,19 +458,20 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const runner = createMockRunner();
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
 			"Done",
 			makeConfig(),
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			wt,
 			undefined,
 			runner,
+			port,
 		);
 
 		assert.ok(runner.mock.callCount() > 0, "should have runAgentSubprocess calls");
@@ -487,19 +489,20 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const runner = createMockRunner();
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
 			"Done",
 			makeConfig(),
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			wt,
 			undefined,
 			runner,
+			port,
 		);
 
 		const clearCalls = (ctx as any).setWidgetCalls.filter(
@@ -517,19 +520,20 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const pi = createPiWithFailedMerge(execCalls);
 		const wt = createTempWorktree();
 		tempDirs.push(wt);
+		const port = createMockMergePort(true);
 
-		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts"); const mPort = createMockGitHubPort();
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		await handlePostPipelineMerge(
 			42,
 			"Foo issue",
 			"Done",
 			makeConfig(),
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			wt,
 			undefined,
 			runner,
+			port,
 		);
 
 		const clearCalls = (ctx as any).setWidgetCalls.filter(

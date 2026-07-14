@@ -1,12 +1,12 @@
 // ─── Mock GitHubPort for tests ────────────────────────────────────
-// Creates a lightweight stub that implements the 8-method GitHubPort.
+// Creates a lightweight stub that implements GitHubPort.
 // Each method returns a resolved promise with a sensible default
 // (empty/false/null) unless overridden via constructor options.
 // When trackCalls array is provided, every method invocation is
 // recorded for assertion — including custom implementations.
-// Default methods never throw — fully functional stub with no overrides.
 
 import type { GitHubPort } from "../../github/ports.ts";
+import type { RawIssueData } from "../../lib/issue-filter.ts";
 import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../../config/types.ts";
 
 // ─── Call tracking ────────────────────────────────────────────────
@@ -17,7 +17,28 @@ export interface PortCall {
 }
 
 export interface MockGitHubPortOptions {
+	getIssue?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
+	getIssueWithComments?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
+	closeIssue?: (issueNum: number, repo: string) => Promise<void>;
 	postIssueComment?: (issueNum: number, repo: string, body: string) => Promise<void>;
+	compareBranches?: (base: string, head: string, repo: string) => Promise<number>;
+	listPullRequestsForBranch?: (
+		branch: string,
+		repo: string,
+	) => Promise<PrConflictInfo | null>;
+	createPullRequest?: (input: {
+		repo: string;
+		base: string;
+		head: string;
+		title: string;
+		body?: string;
+	}) => Promise<{ number: number }>;
+	updatePullRequest?: (
+		prNumber: number,
+		repo: string,
+		body: string,
+		title?: string,
+	) => Promise<void>;
 	getProjectFields?: (projectNumber: number) => Promise<ProjectField[]>;
 	getProjectItems?: (projectNumber: number) => Promise<ProjectItem[]>;
 	getProjectId?: (projectNumber: number) => Promise<string>;
@@ -27,18 +48,11 @@ export interface MockGitHubPortOptions {
 		fieldId: string,
 		optionId: string,
 	) => Promise<void>;
-	checkBlockedByDependencies?: (issueNum: number, repo: string) => Promise<DepsResult>;
-	createPullRequest?: (input: {
-		repo: string;
-		base: string;
-		head: string;
-		title: string;
-		body?: string;
-	}) => Promise<{ number: number }>;
-	listPullRequestsForBranch?: (
-		branch: string,
+	checkBlockedByDependencies?: (
+		issueNum: number,
 		repo: string,
-	) => Promise<PrConflictInfo | null>;
+	) => Promise<DepsResult>;
+	setToken?: (token: string) => void;
 }
 
 // ─── Factory with call tracking ───────────────────────────────────
@@ -59,23 +73,51 @@ export function createMockGitHubPort(
 		(...args: A): R => {
 			record(method, args);
 			if (fn) return fn(...args);
-			// Fallback: throw if override provided but doesn't match
 			throw new Error(`No implementation for port.${method}()`);
 		};
 
-	// Default return values for unmocked methods — never throw
+	// Default return values for unmocked methods
 	const defaults = {
+		getIssue: null as RawIssueData | null,
+		getIssueWithComments: null as RawIssueData | null,
+		closeIssue: undefined as void,
 		postIssueComment: undefined as void,
+		compareBranches: 0,
+		listPullRequestsForBranch: null as PrConflictInfo | null,
+		createPullRequest: { number: 123 },
+		updatePullRequest: undefined as void,
 		getProjectFields: [] as ProjectField[],
 		getProjectItems: [] as ProjectItem[],
 		getProjectId: "",
 		setItemStatusField: undefined as void,
 		checkBlockedByDependencies: { blocked: false, blockers: [] } as DepsResult,
-		createPullRequest: { number: 123 },
-		listPullRequestsForBranch: null as PrConflictInfo | null,
 	};
 
 	return {
+		getIssue:
+			opts?.getIssue
+				? wrap("getIssue", opts.getIssue)
+				: (async (issueNum: number, repo: string) => {
+						record("getIssue", [issueNum, repo]);
+						return defaults.getIssue;
+					}) as GitHubPort["getIssue"],
+
+		getIssueWithComments:
+			opts?.getIssueWithComments
+				? wrap("getIssueWithComments", opts.getIssueWithComments)
+				: (async (issueNum: number, repo: string) => {
+						record("getIssueWithComments", [issueNum, repo]);
+						return defaults.getIssueWithComments;
+					}) as GitHubPort["getIssueWithComments"],
+
+		closeIssue:
+			opts?.closeIssue
+				? wrap("closeIssue", opts.closeIssue)
+				: (async (issueNum: number, repo: string) => {
+						record("closeIssue", [issueNum, repo]);
+						return defaults.closeIssue;
+					}) as GitHubPort["closeIssue"],
+
 		postIssueComment:
 			opts?.postIssueComment
 				? wrap("postIssueComment", opts.postIssueComment)
@@ -83,6 +125,38 @@ export function createMockGitHubPort(
 						record("postIssueComment", [issueNum, repo, body]);
 						return defaults.postIssueComment;
 					}) as GitHubPort["postIssueComment"],
+
+		compareBranches:
+			opts?.compareBranches
+				? wrap("compareBranches", opts.compareBranches)
+				: (async (base: string, head: string, repo: string) => {
+						record("compareBranches", [base, head, repo]);
+						return defaults.compareBranches;
+					}) as GitHubPort["compareBranches"],
+
+		listPullRequestsForBranch:
+			opts?.listPullRequestsForBranch
+				? wrap("listPullRequestsForBranch", opts.listPullRequestsForBranch)
+				: (async (branch: string, repo: string) => {
+						record("listPullRequestsForBranch", [branch, repo]);
+						return defaults.listPullRequestsForBranch;
+					}) as GitHubPort["listPullRequestsForBranch"],
+
+		createPullRequest:
+			opts?.createPullRequest
+				? wrap("createPullRequest", opts.createPullRequest)
+				: (async (input: { repo: string; base: string; head: string; title: string; body?: string }) => {
+						record("createPullRequest", [input]);
+						return defaults.createPullRequest;
+					}) as GitHubPort["createPullRequest"],
+
+		updatePullRequest:
+			opts?.updatePullRequest
+				? wrap("updatePullRequest", opts.updatePullRequest)
+				: (async (prNumber: number, repo: string, body: string, title?: string) => {
+						record("updatePullRequest", [prNumber, repo, body, title]);
+						return defaults.updatePullRequest;
+					}) as GitHubPort["updatePullRequest"],
 
 		getProjectFields:
 			opts?.getProjectFields
@@ -124,26 +198,6 @@ export function createMockGitHubPort(
 						return defaults.checkBlockedByDependencies;
 					}) as GitHubPort["checkBlockedByDependencies"],
 
-		createPullRequest:
-			opts?.createPullRequest
-				? wrap("createPullRequest", opts.createPullRequest)
-				: (async (input: {
-						repo: string;
-						base: string;
-						head: string;
-						title: string;
-						body?: string;
-				  }) => {
-						record("createPullRequest", [input]);
-						return defaults.createPullRequest;
-					}) as GitHubPort["createPullRequest"],
-
-		listPullRequestsForBranch:
-			opts?.listPullRequestsForBranch
-				? wrap("listPullRequestsForBranch", opts.listPullRequestsForBranch)
-				: (async (branch: string, repo: string) => {
-						record("listPullRequestsForBranch", [branch, repo]);
-						return defaults.listPullRequestsForBranch;
-					}) as GitHubPort["listPullRequestsForBranch"],
+		setToken: opts?.setToken ?? ((_token: string) => {}),
 	};
 }

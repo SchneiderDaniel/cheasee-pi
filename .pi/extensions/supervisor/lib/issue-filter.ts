@@ -8,7 +8,7 @@ import type { FilteredIssueData, ProjectItem } from "../config/types.ts";
 // ─── Raw Issue Data (from Octokit) ───────────────────────────────
 
 export interface RawIssueData {
-	number: number;
+	number?: number;
 	title?: string;
 	body?: string;
 	author?: { login: string };

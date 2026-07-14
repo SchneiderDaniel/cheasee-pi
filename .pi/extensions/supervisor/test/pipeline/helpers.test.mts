@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
-import { createMockGitHubPort } from "../../test/helper/mock-github-port.ts";
+import { createMockGitHubPort, type PortCall } from "../helper/mock-github-port.ts";
 import {
 	fetchIssue,
 	readProjectBoard,
@@ -140,34 +140,45 @@ describe("fetchIssue()", () => {
 // ─── Tests: readProjectBoard() ────────────────────────────────────
 
 describe("readProjectBoard()", () => {
-	it("reads project fields, items, and returns statusField", async () => {
+	it("reads project fields, items, and returns statusField via port", async () => {
+		const trackCalls: PortCall[] = [];
 		const port = createMockGitHubPort({
 			getProjectFields: async () => [
 				{ id: "sf_1", name: "Status", type: "SINGLE_SELECT", options: [{ id: "opt_ar", name: "Architecture" }] },
 			],
 			getProjectItems: async () => [],
 			getProjectId: async () => "project_123",
-		});
+		}, trackCalls);
 		const notify = makeNotify();
+		const exec = makeExec([]);
 
-		const result = await readProjectBoard(port, notify, mockConfig, 42);
+		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
 		assert.ok(result.fields, "fields should be returned");
 		assert.ok(Array.isArray(result.items), "items should be an array");
 		assert.equal(result.projectId, "project_123");
 		assert.ok(result.statusField, "statusField should be found");
 		assert.equal(result.statusField!.name, "Status");
+
+		// Verify port calls
+		assert.equal(trackCalls.length, 3);
+		assert.equal(trackCalls[0].method, "getProjectFields");
+		assert.equal(trackCalls[1].method, "getProjectItems");
+		assert.equal(trackCalls[2].method, "getProjectId");
 	});
 
 	it("returns null fields when statusField not found", async () => {
 		const port = createMockGitHubPort({
-			getProjectFields: async () => [{ id: "sf_1", name: "Priority", type: "SINGLE_SELECT", options: [] }],
+			getProjectFields: async () => [
+				{ id: "sf_1", name: "Priority", type: "SINGLE_SELECT", options: [] },
+			],
 			getProjectItems: async () => [],
 			getProjectId: async () => "project_123",
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
+		const exec = makeExec([]);
 
-		const result = await readProjectBoard(port, notify, mockConfig, 42);
+		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
 		assert.equal(result.fields, null);
 		assert.ok(notifyLog.some((n) => n.level === "error" && n.msg.includes("Status")));
 	});
@@ -178,8 +189,9 @@ describe("readProjectBoard()", () => {
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
+		const exec = makeExec([]);
 
-		const result = await readProjectBoard(port, notify, mockConfig, 42);
+		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
 		assert.equal(result.fields, null);
 		assert.ok(notifyLog.some((n) => n.level === "error"));
 	});
@@ -189,38 +201,41 @@ describe("readProjectBoard()", () => {
 
 describe("checkDependencies()", () => {
 	it("returns true when no blockers found", async () => {
+		const exec = makeExec([]);
+		const notify = makeNotify();
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => ({ blocked: false, blockers: [] }),
 		});
-		const notify = makeNotify();
 
-		const result = await checkDependencies(port, notify, mockConfig, 42);
+		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
 		assert.equal(result, true);
 	});
 
 	it("returns false and notifies when blockers exist", async () => {
+		const exec = makeExec([]);
+		const notifyLog: Array<{ level: string; msg: string }> = [];
+		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => ({
 				blocked: true,
 				blockers: [{ number: 100, title: "Blocker", type: "issue" as const, state: "OPEN" }],
 			}),
 		});
-		const notifyLog: Array<{ level: string; msg: string }> = [];
-		const notify = makeNotify(notifyLog);
 
-		const result = await checkDependencies(port, notify, mockConfig, 42);
+		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
 		assert.equal(result, false);
 		assert.ok(notifyLog.some((n) => n.level === "error" && n.msg.includes("blocked")));
 	});
 
 	it("returns false on port error", async () => {
+		const exec = makeExec([]);
+		const notifyLog: Array<{ level: string; msg: string }> = [];
+		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => { throw new Error("network error"); },
 		});
-		const notifyLog: Array<{ level: string; msg: string }> = [];
-		const notify = makeNotify(notifyLog);
 
-		const result = await checkDependencies(port, notify, mockConfig, 42);
+		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
 		assert.equal(result, false);
 		assert.ok(notifyLog.some((n) => n.level === "error"));
 	});

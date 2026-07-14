@@ -10,8 +10,8 @@ import type {
 	ProjectField,
 	ProjectItem,
 } from "../config/types.ts";
+import { filterIssueData } from "../lib/issue-filter.ts";
 import type { GitHubPort } from "../github/ports.ts";
-import { filterIssueData } from "../github/index.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
@@ -63,13 +63,15 @@ export interface ProjectBoardResult {
 }
 
 export async function readProjectBoard(
-	port: GitHubPort,
+	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	_issueNum: number,
 	collector?: ErrorCollector,
+	port?: GitHubPort,
 ): Promise<ProjectBoardResult> {
 	try {
+		if (!port) throw new Error("GitHubPort not provided to readProjectBoard");
 		const fields = await port.getProjectFields(config.projectNumber);
 		const items = await port.getProjectItems(config.projectNumber);
 		const projectId = await port.getProjectId(config.projectNumber);
@@ -100,13 +102,15 @@ export async function readProjectBoard(
 // ─── Check Dependencies ──────────────────────────────────────────
 
 export async function checkDependencies(
-	port: GitHubPort,
+	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	issueNum: number,
 	collector?: ErrorCollector,
+	port?: GitHubPort,
 ): Promise<boolean> {
 	try {
+		if (!port) throw new Error("GitHubPort not provided to checkDependencies");
 		const depsResult = await port.checkBlockedByDependencies(issueNum, config.repo);
 		if (depsResult.blocked) {
 			const lines = depsResult.blockers.map(

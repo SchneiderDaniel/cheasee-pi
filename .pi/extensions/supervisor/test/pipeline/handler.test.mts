@@ -5,10 +5,10 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { PipelineAgentResult, PrCreationResult } from "../../config/types.ts";
-import { createMockGitHubPort, type MockGitHubPortOptions } from "../../test/helper/mock-github-port.ts";
+import type { PipelineAgentResult, PrCreationResult, PrConflictInfo } from "../../config/types.ts";
+import type { GitHubPort } from "../../github/ports.ts";
+import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import { handlePostPipeline } from "../../pipeline/handler.ts";
-import type { PrConflictInfo } from "../../config/types.ts";
 import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
@@ -42,20 +42,6 @@ function createMockPi(
 		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
 		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
 	} as ExtensionAPI;
-}
-
-/** Create a mock port for merge tests that returns the expected PR info. */
-function makeMergePort(hasConflict: boolean = true, prNumber: number = 123): MockGitHubPortOptions {
-	return {
-		listPullRequestsForBranch: async () => ({
-			number: prNumber,
-			hasConflict,
-			mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
-			mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
-			headRefName: "worktree-git-issue-42-test",
-			baseRefName: "main",
-		}) as PrConflictInfo,
-	};
 }
 
 function createMockCtx(confirmResult: boolean = true): ExtensionCommandContext {
@@ -102,18 +88,23 @@ const mockAgentResult: PipelineAgentResult = {
 	toolCount: 20,
 };
 
-// Each exec call returns a JSON array for gh `pr list` by default (used by checkPrConflicts).
-// Function resultBuilder builds the response array incrementally.
-function prListResult(hasConflict: boolean): string {
-	return JSON.stringify([
-		{
-			number: 123,
-			mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
-			mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
-			headRefName: "worktree-git-issue-42-test",
-			baseRefName: "main",
-		},
-	]);
+// ─── Port Helpers ──────────────────────────────────────────────────
+
+function makeConflictInfo(hasConflict: boolean): PrConflictInfo {
+	return {
+		number: 123,
+		hasConflict,
+		mergeable: hasConflict ? "CONFLICTING" : "MERGEABLE",
+		mergeStateStatus: hasConflict ? "DIRTY" : "CLEAN",
+		headRefName: "worktree-git-issue-42-test",
+		baseRefName: "main",
+	};
+}
+
+function createMockMergePort(hasConflict: boolean = true): GitHubPort {
+	return createMockGitHubPort({
+		listPullRequestsForBranch: async () => makeConflictInfo(hasConflict),
+	});
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────
@@ -121,26 +112,26 @@ function prListResult(hasConflict: boolean): string {
 describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 	it("calls handlePostPipelineMerge before cleanupWorktree (call order: merge, cleanup)", async () => {
 		const calls: ExecCall[] = [];
+		// PR conflict check is now via port — git fetch/merge/push are still exec calls
 		const pi = createMockPi(
 			[
-				// 1. checkPrConflicts → gh pr list returns conflict
-				{ code: 0, stdout: prListResult(true), stderr: "" },
-				// 2. tryAutoMerge: git fetch origin main
+				// 1. tryAutoMerge: git fetch origin main
 				{ code: 0, stdout: "fetch ok", stderr: "" },
-				// 3. tryAutoMerge: git merge origin/main --no-edit
+				// 2. tryAutoMerge: git merge origin/main --no-edit
 				{ code: 0, stdout: "merge ok", stderr: "" },
-				// 4. git push
+				// 3. git push
 				{ code: 0, stdout: "push ok", stderr: "" },
-				// 5. cleanupWorktree: git worktree remove --force
+				// 4. cleanupWorktree: git worktree remove --force
 				{ code: 0, stdout: "", stderr: "" },
-				// 6. cleanupWorktree: git worktree prune
+				// 5. cleanupWorktree: git worktree prune
 				{ code: 0, stdout: "", stderr: "" },
-				// 7. cleanupWorktree: git branch -D
+				// 6. cleanupWorktree: git branch -D
 				{ code: 0, stdout: "", stderr: "" },
 			],
 			calls,
 		);
 		const ctx = createMockCtx(true);
+		const port = createMockMergePort(true);
 
 		await handlePostPipeline(
 			42,
@@ -148,20 +139,22 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// Verify merge calls come before cleanup calls
+		// Merge calls (git fetch, merge, push) come before cleanup calls
 		const mergeCalls = calls.filter(
 			(c) =>
-				c.cmd === "gh" ||
-				c.cmd === "bash" ||
-				(c.cmd === "git" &&
-					(c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push")),
+				c.cmd === "git" &&
+				(c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		const cleanupCalls = calls.filter(
 			(c) => c.cmd === "git" && (c.args[0] === "worktree" || c.args[0] === "branch"),
@@ -183,7 +176,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: prListResult(true), stderr: "" },
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				{ code: 0, stdout: "merge ok", stderr: "" },
 				{ code: 0, stdout: "push ok", stderr: "" },
@@ -194,6 +186,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			calls,
 		);
 		const ctx = createMockCtx(true);
+		const port = createMockMergePort(true);
 
 		await handlePostPipeline(
 			42,
@@ -201,19 +194,20 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Both merge and cleanup calls present
 		const hasMerge = calls.some(
-			(c) =>
-				c.cmd === "gh" ||
-				c.cmd === "bash" ||
-				(c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge")),
+			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		const hasCleanup = calls.some((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.ok(hasMerge, "merge calls should be present");
@@ -222,10 +216,9 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 	it("still calls cleanupWorktree when handlePostPipelineMerge succeeds (no-conflict path)", async () => {
 		const calls: ExecCall[] = [];
-		// No-conflict path: gh pr list returns mergeable PR, no tryAutoMerge
+		// No-conflict path: port.listPullRequestsForBranch returns non-conflicting PR, no tryAutoMerge
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: prListResult(false), stderr: "" },
 				// cleanupWorktree
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
@@ -234,6 +227,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			calls,
 		);
 		const ctx = createMockCtx(true);
+		const port = createMockMergePort(false);
 
 		await handlePostPipeline(
 			42,
@@ -241,11 +235,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// cleanup should still run even though no auto-merge was needed
@@ -272,16 +270,17 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Architecture", // not Done
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 		);
 
-		// No gh calls (no merge attempted)
-		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.equal(ghCalls.length, 0, "no merge/gh calls when not Done");
+		// No merge calls when not Done
+		const gitFetchMergeCalls = calls.filter(
+			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+		);
+		assert.equal(gitFetchMergeCalls.length, 0, "no merge calls when not Done");
 
 		// Cleanup should still run
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
@@ -306,15 +305,17 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[], // empty agentResults
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 		);
 
-		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.equal(ghCalls.length, 0, "no merge/gh calls when agentResults empty");
+		// No merge calls when agentResults empty
+		const gitFetchMergeCalls = calls.filter(
+			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+		);
+		assert.equal(gitFetchMergeCalls.length, 0, "no merge calls when agentResults empty");
 
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.ok(cleanupCalls.length > 0, "cleanup should still run");
@@ -322,6 +323,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 	it("skips cleanup when worktreePath is undefined, but merge still runs", async () => {
 		const calls: ExecCall[] = [];
+		const port = createMockMergePort(false);
 		const pi = createMockPi([], calls);
 		const ctx = createMockCtx(true);
 
@@ -331,20 +333,25 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			undefined, // no worktreePath
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
-		// Merge runs via port (no pi.exec gh calls), cleanup skips
+		// Merge runs (port.listPullRequestsForBranch called) — no exec calls since merge skips auto-merge
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.equal(cleanupCalls.length, 0, "no cleanup calls when worktreePath undefined");
 	});
 
 	it("skips cleanup when worktreeBranch is undefined, but merge still runs", async () => {
 		const calls: ExecCall[] = [];
+		const port = createMockMergePort(false);
 		const pi = createMockPi([], calls);
 		const ctx = createMockCtx(true);
 
@@ -354,21 +361,30 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			undefined, // no worktreeBranch
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		const cleanupCalls = calls.filter((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.equal(cleanupCalls.length, 0, "no cleanup calls when worktreeBranch undefined");
 	});
 
-	it("runs cleanup even when merge check fails (network error, listPullRequestsForBranch throws)", async () => {
+	it("runs cleanup even when merge check fails (network error from port)", async () => {
 		const calls: ExecCall[] = [];
+		// port.listPullRequestsForBranch throws → handlePostPipelineMerge catches it
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+		});
 		const pi = createMockPi(
 			[
+				// cleanup still runs
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
@@ -383,13 +399,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort({
-				listPullRequestsForBranch: async () => { throw new Error("network error"); },
-			}),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Cleanup should still run even though merge check failed
@@ -401,16 +419,21 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 	it("passes worktreePath through to git fetch cwd in tryAutoMerge", async () => {
 		const calls: ExecCall[] = [];
-		// Need extra results for cleanup (3 git calls)
+		const port = createMockMergePort(true);
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: prListResult(true), stderr: "" }, // gh pr list
-				{ code: 0, stdout: "fetch ok", stderr: "" }, // git fetch
-				{ code: 0, stdout: "merge ok", stderr: "" }, // git merge
-				{ code: 0, stdout: "push ok", stderr: "" }, // git push
-				{ code: 0, stdout: "", stderr: "" }, // git worktree remove
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D
+				// tryAutoMerge: git fetch
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// tryAutoMerge: git merge
+				{ code: 0, stdout: "merge ok", stderr: "" },
+				// tryAutoMerge: git push
+				{ code: 0, stdout: "push ok", stderr: "" },
+				// cleanup: git worktree remove
+				{ code: 0, stdout: "", stderr: "" },
+				// cleanup: git worktree prune
+				{ code: 0, stdout: "", stderr: "" },
+				// cleanup: git branch -D
+				{ code: 0, stdout: "", stderr: "" },
 			],
 			calls,
 		);
@@ -423,11 +446,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			expectedCwd,
 			"worktree-git-issue-42-test",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Find git fetch call from tryAutoMerge
@@ -469,16 +496,17 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[], // empty agentResults → skip merge
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			undefined, // no worktreePath → skip cleanup too
 			"worktree-git-issue-42-test",
 		);
 
-		// No gh calls = no merge
-		const ghCalls = calls.filter((c) => c.cmd === "gh" || c.cmd === "bash");
-		assert.equal(ghCalls.length, 0, "no merge attempted when agentResults empty");
+		// No merge calls
+		const gitFetchMergeCalls = calls.filter(
+			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+		);
+		assert.equal(gitFetchMergeCalls.length, 0, "no merge attempted when agentResults empty");
 
 		// No cleanup either since worktreePath is undefined
 		const gitCalls = calls.filter((c) => c.cmd === "git");
@@ -489,15 +517,10 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 	it("PR fails + isDebug=true → worktree preserved (cleanup skipped)", async () => {
 		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				// handlePostPipelineMerge: checkPrConflicts
-				{ code: 0, stdout: prListResult(false), stderr: "" },
-			],
-			calls,
-		);
+		const pi = createMockPi([], calls);
 		const ctx = createMockCtx(true);
 		const failedPr: PrCreationResult = { success: false, error: "Push failed" };
+		const port = createMockMergePort(false);
 
 		await handlePostPipeline(
 			42,
@@ -505,13 +528,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 			failedPr,
 			true, // isDebug = true → preserve worktree
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Cleanup should NOT be called
@@ -525,8 +550,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				// handlePostPipelineMerge: checkPrConflicts
-				{ code: 0, stdout: prListResult(false), stderr: "" },
 				// cleanup
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
@@ -536,6 +559,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		);
 		const ctx = createMockCtx(true);
 		const failedPr: PrCreationResult = { success: false, error: "Push failed" };
+		const port = createMockMergePort(false);
 
 		await handlePostPipeline(
 			42,
@@ -543,13 +567,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 			failedPr,
 			false, // isDebug = false → normal cleanup
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Cleanup SHOULD be called
@@ -563,8 +589,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				// handlePostPipelineMerge: checkPrConflicts
-				{ code: 0, stdout: prListResult(false), stderr: "" },
 				// cleanup
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
@@ -574,6 +598,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		);
 		const ctx = createMockCtx(true);
 		const successPr: PrCreationResult = { success: true, prNumber: 456 };
+		const port = createMockMergePort(false);
 
 		await handlePostPipeline(
 			42,
@@ -581,13 +606,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 			successPr,
 			true, // isDebug = true but PR succeeded → normal cleanup
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Cleanup SHOULD be called (PR succeeded, debug doesn't preserve)
@@ -601,8 +628,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				// handlePostPipelineMerge: checkPrConflicts
-				{ code: 0, stdout: prListResult(false), stderr: "" },
 				// cleanup
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
@@ -611,6 +636,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			calls,
 		);
 		const ctx = createMockCtx(true);
+		const port = createMockMergePort(false);
 
 		await handlePostPipeline(
 			42,
@@ -618,13 +644,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			"Done",
 			[mockAgentResult],
 			mockConfig as any,
-			createMockGitHubPort(makeMergePort()),
 			pi,
 			ctx,
 			"/repo/../worktrees/worktree-git-issue-42-test",
 			"worktree-git-issue-42-test",
 			undefined, // no prCreationResult
 			true, // isDebug = true but no PR failure → normal cleanup
+			undefined,
+			undefined,
+			port,
 		);
 
 		// Cleanup SHOULD be called (no PR failure)
@@ -679,7 +707,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 				"Architecture", // not Done → merge skipped
 				[mockAgentResult],
 				mockConfig as any,
-				createMockGitHubPort(makeMergePort()),
 				pi,
 				ctxWithCwd,
 				"/repo/../worktrees/worktree-git-issue-42-test",
@@ -720,12 +747,13 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 				cwd: tmpDir,
 			} as unknown as ExtensionCommandContext;
 
-			// handlePostPipelineMerge will fail (gh pr list returns error)
+			// handlePostPipelineMerge will fail (port.listPullRequestsForBranch throws)
+			const port = createMockGitHubPort({
+				listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			});
 			const calls: ExecCall[] = [];
 			const pi = createMockPi(
 				[
-					// merge fails (gh pr list)
-					{ code: 1, stdout: "", stderr: "network error" },
 					// cleanup still runs
 					{ code: 0, stdout: "", stderr: "" },
 					{ code: 0, stdout: "", stderr: "" },
@@ -740,11 +768,15 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 				"Done",
 				[mockAgentResult],
 				mockConfig as any,
-				createMockGitHubPort(makeMergePort()),
 				pi,
 				ctxWithCwd,
 				"/repo/../worktrees/worktree-git-issue-42-test",
 				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				port,
 			);
 
 			// State file should still be deleted (finally block runs)
@@ -795,7 +827,6 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 				"Architecture",
 				[mockAgentResult],
 				mockConfig as any,
-				createMockGitHubPort(makeMergePort()),
 				pi,
 				ctxWithCwd,
 				"/repo/../worktrees/worktree-git-issue-42-test",
@@ -810,4 +841,3 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		});
 	});
 });
-

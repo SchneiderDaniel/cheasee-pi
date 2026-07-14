@@ -8,9 +8,9 @@ import {
 	getProjectFields,
 	getProjectItems,
 	getProjectId,
-	findIssueItem,
 	setItemStatus,
 } from "../../github/project.ts";
+import { findIssueItem } from "../../lib/issue-filter.ts";
 import type { ProjectItem, ProjectField } from "../../config/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────

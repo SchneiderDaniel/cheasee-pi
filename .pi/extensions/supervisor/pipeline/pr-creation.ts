@@ -9,12 +9,9 @@ import type {
 	PrConflictInfo,
 	PrCreationResult,
 } from "../config/types.ts";
-import { writeFile, readFile } from "node:fs/promises";
-import { join as joinPath } from "node:path";
-import { tmpdir } from "node:os";
+
 import { generateBranchName } from "../agent/task.ts";
 import type { GitHubPort } from "../github/ports.ts";
-import { gh } from "../github/gh-client.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
@@ -42,7 +39,6 @@ const RETRY_BASE_DELAY_MS = 1000;
  * - Accepts gateFailureHistory for PR body gate failure context (R2)
  */
 export async function createPrOnApproval(
-	port: GitHubPort,
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	issueNum: number,
@@ -54,6 +50,7 @@ export async function createPrOnApproval(
 	collector?: ErrorCollector,
 	gateFailureHistory?: string[],
 	packageSafetyResult?: PackageSafetyAuditResult | null,
+	port?: GitHubPort,
 ): Promise<PrCreationResult> {
 	const log = getDebugLogger();
 	const headBranch =
@@ -70,22 +67,8 @@ export async function createPrOnApproval(
 		gateFailureHistory,
 		packageSafetyResult,
 	);
-	const tempFile = joinPath(tmpdir(), `pr-body-${issueNum}.md`);
-	log.info("pr-creation", `Writing PR body to ${tempFile}`);
 
-	// ─── Phase 1: Write body file ───────────────────────────────────
-	try {
-		await writeFile(tempFile, prBody, "utf-8");
-	} catch (writeErr: unknown) {
-		const writeMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
-		log.error("pr-creation", `Failed to write PR body file: ${writeMsg}`);
-		ctx.ui.notify(`Failed to write PR body: ${writeMsg}`, "error");
-		return {
-			success: false,
-			error: `Failed to write PR body file: ${writeMsg}`,
-			source: "pr-creation",
-		};
-	}
+	log.info("pr-creation", `PR body built (${prBody.length} chars)`);
 
 	const prTitle = `feat(#${issueNum}): ${issueTitle}`;
 	log.info("pr-creation", `PR title: ${prTitle}`);
@@ -139,24 +122,15 @@ export async function createPrOnApproval(
 	// ─── Phase 3: Pre-check — verify head has commits beyond base ──
 	// Only runs when worktree exists (branch was pushed). Skip check if
 	// no worktree since there are no new commits to PR.
-	if (worktreePath) {
+	if (worktreePath && port) {
 		try {
-			const compareResult = await gh(pi.exec.bind(pi), [
-				"api",
-				`repos/${config.repo}/compare/${config.defaultBranch}...${headBranch}`,
-				"--jq",
-				".ahead_by",
-			]);
-			const aheadCount = parseInt(compareResult, 10);
+			const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
 			if (aheadCount === 0) {
 				log.warn(
 					"pr-creation",
 					`No commits between ${config.defaultBranch} and ${headBranch} — skipping PR`,
 				);
 				ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
-				// Bug #643: Return failure with descriptive error instead of
-				// { success: true, prNumber: undefined } which renders as
-				// "PR: created — [#undefined]((unknown))" in the pipeline summary.
 				return {
 					success: false,
 					error: "Already implemented on base branch — no new changes to PR",
@@ -165,7 +139,6 @@ export async function createPrOnApproval(
 			}
 			log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
 		} catch (compareErr: unknown) {
-			// Compare check is advisory — if it fails, attempt PR creation anyway
 			const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
 			log.warn("pr-creation", `Commit count check failed: ${compareMsg} — attempting PR anyway`);
 		}
@@ -173,15 +146,19 @@ export async function createPrOnApproval(
 
 	// ─── Phase 4: Check for existing PR ────────────────────────────
 	let existingPr: PrConflictInfo | null = null;
-	try {
-		existingPr = await port.listPullRequestsForBranch(headBranch, config.repo);
-	} catch (checkErr: unknown) {
-		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
-		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
-		ctx.ui.notify(
-			`PR conflict check failed: ${checkMsg} — attempting PR creation anyway`,
-			"warning",
-		);
+	if (port) {
+		try {
+			existingPr = await port.listPullRequestsForBranch(headBranch, config.repo);
+		} catch (checkErr: unknown) {
+			const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
+			log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
+			ctx.ui.notify(
+				`PR conflict check failed: ${checkMsg} — attempting PR creation anyway`,
+				"warning",
+			);
+		}
+	} else {
+		log.warn("pr-creation", "Port not available — skipping PR check");
 	}
 
 	// ─── Phase 5: Create or update PR (with retry) ─────────────────
@@ -189,17 +166,9 @@ export async function createPrOnApproval(
 		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
 		try {
 			ctx.ui.notify(`Updating PR #${existingPr.number} with latest changes`, "info");
-			await gh(pi.exec.bind(pi), [
-				"pr",
-				"edit",
-				String(existingPr.number),
-				"--repo",
-				config.repo,
-				"--body-file",
-				tempFile,
-				"--title",
-				prTitle,
-			]);
+			if (port) {
+				await port.updatePullRequest(existingPr.number, config.repo, prBody, prTitle);
+			}
 			ctx.ui.notify(`PR #${existingPr.number} updated`, "info");
 			return { success: true, prNumber: existingPr.number, wasUpdate: true, source: "pr-creation" };
 		} catch (editErr: unknown) {
@@ -223,13 +192,13 @@ export async function createPrOnApproval(
 				await new Promise((resolve) => setTimeout(resolve, delayMs));
 			}
 
-			const bodyContent = await readFile(tempFile, "utf-8");
+			if (!port) throw new Error("GitHubPort not available for PR creation");
 			const prResult = await port.createPullRequest({
 				repo: config.repo,
 				base: config.defaultBranch!,
 				head: headBranch,
 				title: prTitle,
-				body: bodyContent,
+				body: prBody,
 			});
 			log.info("pr-creation", `PR #${prResult.number} created`);
 			ctx.ui.notify(`PR #${prResult.number} created`, "info");
