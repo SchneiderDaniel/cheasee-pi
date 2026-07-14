@@ -91,8 +91,8 @@ func TestGoReleaserConfig_CorrectOwnerAndRepo(t *testing.T) {
 	if !strings.Contains(content, "owner: SchneiderDaniel") {
 		t.Error(".goreleaser.yml release.github.owner must be SchneiderDaniel")
 	}
-	if !strings.Contains(content, "repo: cheasee-pi") {
-		t.Error(".goreleaser.yml release.github.repo must be cheasee-pi")
+	if !strings.Contains(content, "name: cheasee-pi") {
+		t.Error(".goreleaser.yml release.github.name must be cheasee-pi")
 	}
 }
 

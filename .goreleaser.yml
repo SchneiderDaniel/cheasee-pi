@@ -28,4 +28,4 @@ checksum:
 release:
   github:
     owner: SchneiderDaniel
-    repo: cheasee-pi
+    name: cheasee-pi
