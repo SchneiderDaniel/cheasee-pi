@@ -177,6 +177,25 @@ RUN case "$(dpkg --print-architecture)" in \
     osv-scanner --version
 
 # ---------------------------------------------------------------
+# Layer 5g: Go toolchain (for building cheasee-pi CLI)
+# Pinned to Go 1.25.x for compatibility with huh v2.0.3 (requires go >= 1.25.8).
+# ---------------------------------------------------------------
+ARG GO_VERSION=1.25.8
+RUN case "$(dpkg --print-architecture)" in \
+        amd64) \
+            go_asset="go${GO_VERSION}.linux-amd64.tar.gz" ;; \
+        arm64) \
+            go_asset="go${GO_VERSION}.linux-arm64.tar.gz" ;; \
+        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://go.dev/dl/${go_asset}" -o "/tmp/${go_asset}" && \
+    tar -C /usr/local -xzf "/tmp/${go_asset}" && \
+    rm -f "/tmp/${go_asset}" && \
+    /usr/local/go/bin/go version
+
+ENV PATH=/usr/local/go/bin:${PATH}
+
+# ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \
