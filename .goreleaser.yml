@@ -15,10 +15,17 @@ builds:
       - amd64
       - arm64
 
+archives:
+  - name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats: ["tar.gz"]
+    files:
+      - README.md
+      - LICENSE
+
 checksum:
   name_template: "checksums.txt"
 
 release:
   github:
     owner: SchneiderDaniel
-    repo: cheasee-pi
+    name: cheasee-pi

@@ -119,6 +119,47 @@ func TestAllCommandsUseRunE(t *testing.T) {
 	check(rootCmd)
 }
 
+func TestRootCmd_Version_IsNotStalePlaceholder(t *testing.T) {
+	if rootCmd.Version == "0.1.0" {
+		t.Errorf("rootCmd.Version is still the stale placeholder 0.1.0; update to %q", "1.0.0")
+	}
+}
+
+func TestRootCmd_Version_NoVPrefix(t *testing.T) {
+	if strings.HasPrefix(rootCmd.Version, "v") {
+		t.Error("rootCmd.Version must not have a 'v' prefix (GoReleaser adds it in the tag, archive naming uses bare version)")
+	}
+}
+
+func TestRootCmd_Version_IsValidSemver(t *testing.T) {
+	v := rootCmd.Version
+	if v == "" {
+		t.Fatal("rootCmd.Version must not be empty")
+	}
+	// Simple semver validation: must match MAJOR.MINOR.PATCH
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		t.Errorf("rootCmd.Version %q is not valid semver (expected MAJOR.MINOR.PATCH)", v)
+	}
+	for _, p := range parts {
+		if p == "" {
+			t.Errorf("rootCmd.Version %q has empty segment", v)
+		}
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				t.Errorf("rootCmd.Version %q contains non-numeric segment %q", v, p)
+			}
+		}
+	}
+}
+
+func TestRootCmd_Version_IsExpectedRelease(t *testing.T) {
+	expected := "1.0.0"
+	if rootCmd.Version != expected {
+		t.Errorf("rootCmd.Version = %q, want %q", rootCmd.Version, expected)
+	}
+}
+
 func TestInitCmd_HelpShowsFlags(t *testing.T) {
 	rootCmd.SetArgs([]string{"init", "--help"})
 	var buf bytes.Buffer
