@@ -877,6 +877,9 @@ func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 
 func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 	// GitHub-only auth: no Provider, no APIKey
+	// When Provider is empty, api_key is always written at top level for
+	// backward compatibility (even if empty string), preserving the
+	// pre-existing TestConfigSave_EmptyAPIKey contract.
 	auth := &Auth{
 		GitHubToken: "gho_token",
 		GitHubUser:  "testuser",
@@ -893,8 +896,14 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 		t.Fatalf("Unmarshal of output failed: %v", err)
 	}
 
-	if _, ok := raw["api_key"]; ok {
-		t.Error("expected no 'api_key' field for GitHub-only auth")
+	// api_key is written even when empty because Provider is empty —
+	// this maintains backward compat with pre-existing TestConfigSave_EmptyAPIKey
+	if v, ok := raw["api_key"]; ok {
+		if v != "" {
+			t.Errorf("expected empty api_key string, got %v", v)
+		}
+	} else {
+		t.Error("expected 'api_key' field (empty) for backward compat when Provider is empty")
 	}
 	if raw["github_token"] != "gho_token" {
 		t.Errorf("expected github_token 'gho_token', got %v", raw["github_token"])

@@ -32,7 +32,7 @@ func (a *Auth) MarshalJSON() ([]byte, error) {
 	m := make(map[string]any)
 	if a.Provider != "" && a.APIKey != "" {
 		m[a.Provider] = map[string]string{"key": a.APIKey}
-	} else if a.APIKey != "" {
+	} else if a.Provider == "" {
 		m["api_key"] = a.APIKey
 	}
 	if a.GitHubToken != "" {
