@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestFSExtractor_WritesDockerSubtree(t *testing.T) {
 		}
 
 		// Read content from embedded FS
-		embeddedContent, err := assetFS.ReadFile(embeddedPath)
+		embeddedContent, err := fs.ReadFile(assetFS, embeddedPath)
 		if err != nil {
 			t.Errorf("read embedded %s: %v", embeddedPath, err)
 			continue

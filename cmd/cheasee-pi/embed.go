@@ -33,7 +33,7 @@ type Extractor interface {
 
 type FSExtractor struct {
 	source fs.FS
-	prefix string // subdirectory within FS, e.g. "embedded" (currently embedded/docker)
+	prefix string // walk root within FS; nested source-tree structure determines destination subtree
 }
 
 // NewExtractor creates an Extractor that reads from the embedded FS.
