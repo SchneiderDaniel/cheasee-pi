@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
+      - name: Run tests
+        run: go test ./cmd/cheasee-pi/...
       - name: Build smoke test
         run: go build ./cmd/cheasee-pi/
       - name: Validate GoReleaser config
