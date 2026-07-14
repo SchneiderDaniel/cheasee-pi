@@ -25,3 +25,24 @@ ignore/
 # Unix core dumps (Go crashes during dev)
 core
 core.*
+
+# Go build artifacts
+cheasee-pi
+cmd/cheasee-pi/cheasee-pi
+*.exe
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# macOS metadata files
+.DS_Store
+
+# Editor/IDE session files
+*.swp
+*.swo
+*.swn
+*~
+.vim/
+.idea/
+*.iml
