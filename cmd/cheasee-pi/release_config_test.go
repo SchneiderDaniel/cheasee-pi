@@ -39,7 +39,7 @@ func TestGoReleaserConfig_Version2(t *testing.T) {
 	}
 }
 
-func TestGoReleaserConfig_GoosContainsLinuxAndDarwin(t *testing.T) {
+func TestGoReleaserConfig_GoosContainsAllTargets(t *testing.T) {
 	data, err := os.ReadFile(goreleaserPath())
 	if err != nil {
 		t.Fatalf("reading .goreleaser.yml: %v", err)
@@ -51,6 +51,9 @@ func TestGoReleaserConfig_GoosContainsLinuxAndDarwin(t *testing.T) {
 	}
 	if !strings.Contains(content, "darwin") {
 		t.Error(".goreleaser.yml goos must include darwin")
+	}
+	if !strings.Contains(content, "windows") {
+		t.Error(".goreleaser.yml goos must include windows")
 	}
 }
 
@@ -105,6 +108,21 @@ func TestGoReleaserConfig_CgoEnabled(t *testing.T) {
 
 	if !strings.Contains(content, "CGO_ENABLED=0") {
 		t.Error(".goreleaser.yml must have CGO_ENABLED=0 in builds[0].env")
+	}
+}
+
+func TestGoReleaserConfig_ArchiveFormatOverridesWindows(t *testing.T) {
+	data, err := os.ReadFile(goreleaserPath())
+	if err != nil {
+		t.Fatalf("reading .goreleaser.yml: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "format_overrides") {
+		t.Error(".goreleaser.yml archives must include format_overrides for windows .zip")
+	}
+	if !strings.Contains(content, "windows") && !strings.Contains(content, "zip") {
+		t.Error(".goreleaser.yml format_overrides must specify goos: windows and formats: [zip]")
 	}
 }
 

@@ -42,8 +42,9 @@ func TestInstallationDoc_NoIgnoreMissing(t *testing.T) {
 	}
 }
 
-// TestInstallationDoc_DownloadURLPattern verifies the curl URL pattern matches
-// GoReleaser default archive naming: cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz.
+// TestInstallationDoc_DownloadURLPattern verifies the doc contains a download
+// URL pattern matching GoReleaser archive naming for any supported platform.
+// linux/darwin use .tar.gz, windows uses .zip.
 func TestInstallationDoc_DownloadURLPattern(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
@@ -51,8 +52,35 @@ func TestInstallationDoc_DownloadURLPattern(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz") {
-		t.Error("curl URL must use GoReleaser default naming: cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz")
+	if !strings.Contains(content, ".tar.gz") && !strings.Contains(content, ".zip") {
+		t.Error("doc must reference .tar.gz (linux/mac) or .zip (windows) archive files")
+	}
+	hasTarball := strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz")
+	hasZip := strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}.zip") ||
+		strings.Contains(content, "cheasee-pi_${VERSION}_windows_${ARCH}.zip") ||
+		strings.Contains(content, "_windows_${ARCH}.zip")
+	if !hasTarball && !hasZip {
+		t.Error("doc curl URL must use GoReleaser naming pattern: cheasee-pi_${VERSION}_${OS}_${ARCH}.(tar.gz|zip)")
+	}
+}
+
+// TestInstallationDoc_WindowsDownloadPath verifies the doc includes a
+// Windows-specific download path (PowerShell snippet, .exe mention, or
+// _windows_ archive URL reference).
+func TestInstallationDoc_WindowsDownloadPath(t *testing.T) {
+	data, err := os.ReadFile(docPath())
+	if err != nil {
+		t.Fatalf("reading docs/installation.md: %v", err)
+	}
+	content := string(data)
+
+	// Check for at least one Windows-specific signal
+	hasWindowsSignal := strings.Contains(content, "PowerShell") ||
+		strings.Contains(content, ".exe") ||
+		strings.Contains(content, "_windows_") ||
+		strings.Contains(content, "Windows")
+	if !hasWindowsSignal {
+		t.Error("doc must reference Windows download path (PowerShell, .exe, or _windows_ archive)")
 	}
 }
 
