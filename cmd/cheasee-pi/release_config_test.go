@@ -187,7 +187,7 @@ func extractJobSection(content, jobName string) string {
 			continue
 		}
 		indent := len(line) - len(strings.TrimLeft(line, " "))
-		if trimmed == jobName+":" && indent == 0 {
+		if trimmed == jobName+":" && indent == 2 {
 			startIdx = i
 			break
 		}
@@ -195,7 +195,7 @@ func extractJobSection(content, jobName string) string {
 	if startIdx == -1 {
 		return ""
 	}
-	// Find the end: next top-level key (indent 0, not a list item)
+	// Find the end: next job at same indent level (indent 2, not a list item)
 	endIdx := len(lines)
 	for i := startIdx + 1; i < len(lines); i++ {
 		line := lines[i]
@@ -204,7 +204,7 @@ func extractJobSection(content, jobName string) string {
 			continue
 		}
 		indent := len(line) - len(strings.TrimLeft(line, " "))
-		if indent == 0 && strings.Contains(trimmed, ":") && !strings.HasPrefix(trimmed, "-") {
+		if indent == 2 && strings.Contains(trimmed, ":") && !strings.HasPrefix(trimmed, "-") {
 			endIdx = i
 			break
 		}

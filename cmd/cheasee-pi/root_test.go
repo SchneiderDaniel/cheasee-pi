@@ -121,7 +121,7 @@ func TestAllCommandsUseRunE(t *testing.T) {
 
 func TestRootCmd_Version_IsNotStalePlaceholder(t *testing.T) {
 	if rootCmd.Version == "0.1.0" {
-		t.Error("rootCmd.Version is still the stale placeholder 0.1.0; update to "1.0.0"")
+		t.Errorf("rootCmd.Version is still the stale placeholder 0.1.0; update to %q", "1.0.0")
 	}
 }
 
