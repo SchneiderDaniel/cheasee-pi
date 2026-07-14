@@ -11,6 +11,65 @@ import type { NotifyFn } from "./helpers.ts";
 
 // ─── Create Worktree ─────────────────────────────────────────────
 
+/**
+ * Reconcile the worktree branch to match the remote tracking branch if one exists.
+ *
+ * When a worktree is recreated after pipeline cleanup (local branch deleted but
+ * remote branch persists), the new local branch may be at defaultBranch HEAD while
+ * the remote tracking branch has the developer's actual commits. This function
+ * detects that scenario and resets the worktree to match its remote counterpart.
+ *
+ * Returns Result<void> — never throws. On failure, the caller decides whether
+ * reconciliation is fatal (createWorktree treats it as fatal).
+ */
+export async function reconcileToRemoteBranch(
+	pi: ExtensionAPI,
+	cwd: string,
+	wtPath: string,
+	worktreeBranch: string,
+	remote: string,
+	notify: NotifyFn,
+): Promise<Result<void>> {
+	const log = getDebugLogger();
+	const remoteRef = `refs/remotes/${remote}/${worktreeBranch}`;
+
+	try {
+		// Check if remote tracking branch exists
+		// rev-parse --verify exits 128 when the ref doesn't exist — pi.exec
+		// may throw or return a result, so handle both via try/catch.
+		try {
+			await pi.exec("git", ["rev-parse", "--verify", remoteRef], { cwd, timeout: 10000 });
+		} catch {
+			log.info("worktree", `No remote tracking branch ${remote}/${worktreeBranch} — skipping reconciliation`);
+			return { ok: true, value: undefined };
+		}
+
+		log.info("worktree", `Remote tracking branch ${remote}/${worktreeBranch} exists — reconciling`);
+
+		// Fetch latest from remote for this branch
+		await pi.exec(
+			"git",
+			["fetch", remote, worktreeBranch],
+			{ cwd, timeout: 30000 },
+		);
+
+		// Reset worktree to match remote tracking branch
+		await pi.exec(
+			"git",
+			["reset", "--hard", `${remote}/${worktreeBranch}`],
+			{ cwd: wtPath, timeout: 15000 },
+		);
+
+		log.info("worktree", `Worktree reconciled to ${remote}/${worktreeBranch}`);
+		notify.info(`Reconciled worktree to remote branch ${remote}/${worktreeBranch}`);
+		return { ok: true, value: undefined };
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log.error("worktree", `Reconciliation failed: ${msg}`);
+		return { ok: false, error: msg, source: "worktree" };
+	}
+}
+
 export async function createWorktree(
 	pi: ExtensionAPI,
 	cwd: string,
@@ -36,6 +95,13 @@ export async function createWorktree(
 					throw new Error(result.stderr || result.stdout || "git worktree add failed");
 				}
 				log.info("worktree", `Worktree created at ${wt}`);
+
+				// Reconcile to remote tracking branch if one exists
+				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+				if (!reconcile.ok) {
+					throw new Error(`Reconciliation failed: ${reconcile.error}`);
+				}
+
 				return wt;
 			} catch (err: unknown) {
 				const attempt1Err = err instanceof Error ? err.message : String(err);
@@ -52,6 +118,13 @@ export async function createWorktree(
 					throw new Error(result.stderr || result.stdout || "git worktree add failed");
 				}
 				log.info("worktree", `Worktree attached at ${wt} (existing branch ${worktreeBranch})`);
+
+				// Reconcile to remote tracking branch if one exists
+				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+				if (!reconcile.ok) {
+					throw new Error(`Reconciliation failed: ${reconcile.error}`);
+				}
+
 				return wt;
 			} catch (err2: unknown) {
 				const attempt2Err = err2 instanceof Error ? err2.message : String(err2);
@@ -62,6 +135,13 @@ export async function createWorktree(
 			try {
 				await pi.exec("test", ["-d", wt], { timeout: 5000 });
 				log.warn("worktree", "Both attempts failed but worktree dir exists — using it");
+
+				// Reconcile to remote tracking branch if one exists
+				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+				if (!reconcile.ok) {
+					throw new Error(`Reconciliation failed: ${reconcile.error}`);
+				}
+
 				return wt;
 			} catch {
 				// Directory doesn't exist — throw to stop pipeline early

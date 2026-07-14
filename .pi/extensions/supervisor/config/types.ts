@@ -259,6 +259,8 @@ export interface PrCreationResult {
 	wasUpdate?: boolean;
 	/** Source identifier for error tracking (e.g. "pr-creation") */
 	source?: string;
+	/** Whether the push was skipped (branch already ahead of base) */
+	pushSkipped?: boolean;
 }
 
 // ─── Merge result ────────────────────────────────────────────────────

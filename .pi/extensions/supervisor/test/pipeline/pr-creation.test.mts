@@ -132,12 +132,12 @@ const mockAgentResult: PipelineAgentResult = {
 // ─── Tests ─────────────────────────────────────────────────────────
 
 describe("createPrOnApproval()", () => {
-	it("Happy path with worktree: push → compare check → list PR → create PR → success notifications", async () => {
+	it("Happy path first run: compareBranches returns ahead_by=3 BEFORE push → push with --force-with-lease → PR created", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git push --force
+				// 1. git push --force-with-lease (ahead_by=3, push proceeds)
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
 			],
 			execCalls,
@@ -163,10 +163,10 @@ describe("createPrOnApproval()", () => {
 		// Verify only git push is an exec call (the rest use port)
 		assert.equal(execCalls.length, 1, "should have 1 exec call (git push)");
 
-		// 1. git push
+		// 1. git push uses --force-with-lease
 		assert.equal(execCalls[0].cmd, "git");
 		assert.equal(execCalls[0].args[0], "push");
-		assert.equal(execCalls[0].args[1], "--force");
+		assert.equal(execCalls[0].args[1], "--force-with-lease");
 		assert.equal(execCalls[0].args[2], "origin");
 		assert.equal(execCalls[0].args[3], "worktree-git-issue-42-test");
 		assert.equal(execCalls[0].opts.cwd, "/worktrees/wt-42");
@@ -841,18 +841,13 @@ describe("createPrOnApproval()", () => {
 		assert.equal(callCount, 2, "should make exactly 2 attempts");
 	});
 
-	// ─── Bug 2: ahead_by=0 ─────────────────────────────────────────
+	// ─── Bug 2 (fix): ahead_by=0 checked before push ────────────────
 
-	it("Bug 2: ahead_by=0 returns success=false with 'No commits ahead' error", async () => {
+	it("Bug 2 (fix): ahead_by=0 — push skipped, pushSkipped=true, no git push exec calls", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		const pi = createMockPi(
-			[
-				// 1. git push --force OK
-				{ code: 0, stdout: "push ok", stderr: "" },
-			],
-			execCalls,
-		);
+		// No mock exec results needed — ahead_by check runs first and returns early
+		const pi = createMockPi([], execCalls);
 		const ctx = createMockCtx(notifyCalls);
 		const port = createMockComparePort(0); // ahead_by = 0
 
@@ -871,27 +866,27 @@ describe("createPrOnApproval()", () => {
 			port,
 		);
 
+		// No git push exec calls should be made
+		const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+		assert.equal(gitPushCalls.length, 0, "no git push should be called when ahead_by=0");
+
+		// Result should indicate failure with pushSkipped
 		assert.ok(result, "should return a PrCreationResult");
 		assert.equal(result.success, false, "should indicate failure when no commits ahead");
+		assert.equal(result.pushSkipped, true, "pushSkipped should be true when ahead_by=0");
 		assert.ok(result.error, "should contain error message");
 		assert.ok(
-			result.error!.toLowerCase().includes("no commits") ||
-				result.error!.toLowerCase().includes("skipped") ||
-				result.error!.toLowerCase().includes("no new changes"),
-			`error should mention no commits: ${result.error}`,
+			result.error!.toLowerCase().includes("no new changes") ||
+				result.error!.toLowerCase().includes("no changes"),
+			`error should mention no changes: ${result.error}`,
 		);
 		assert.equal(result.prNumber, undefined, "prNumber should be undefined when no commits");
 	});
 
-	it("Bug 2: ahead_by=0 does NOT report 'created' in output (no misleading PR #undefined)", async () => {
+	it("Bug 2 (fix): ahead_by=0 — no misleading PR notifications, pushSkipped=true", async () => {
 		const execCalls: ExecCall[] = [];
 		const notifyCalls: NotifyCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "push ok", stderr: "" },
-			],
-			execCalls,
-		);
+		const pi = createMockPi([], execCalls);
 		const ctx = createMockCtx(notifyCalls);
 		const port = createMockComparePort(0); // ahead_by = 0
 
@@ -910,12 +905,229 @@ describe("createPrOnApproval()", () => {
 			port,
 		);
 
-		// No PR creation should be attempted
+		// No PR creation should be attempted — no "PR #" notifications
 		const infoNotifies = notifyCalls.filter((n) => n.message.includes("PR #"));
 		assert.equal(infoNotifies.length, 0, "no PR notifications should be sent");
 
 		// The result should not be misleading
 		assert.equal(result.success, false, "should not indicate success");
 		assert.equal(result.prNumber, undefined, "prNumber should be undefined");
+		assert.equal(result.pushSkipped, true, "pushSkipped should be true");
+	});
+
+	describe("createPrOnApproval - Phase reorder: ahead_by check before push — Bug fix", () => {
+		it("Re-run with reconciliation (remote ahead): ahead_by=3 before push → push proceeds → existing PR updated", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3, 123); // ahead_by=3, existing PR
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, true, "should succeed");
+			assert.equal(result.prNumber, 123, "should return existing PR number");
+			assert.equal(result.wasUpdate, true, "should be marked as update");
+			assert.equal(result.pushSkipped, undefined, "pushSkipped should be undefined when push proceeds");
+
+			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+			assert.equal(gitPushCalls.length, 1, "push should be called once");
+			assert.equal(gitPushCalls[0].args[1], "--force-with-lease", "push should use --force-with-lease");
+		});
+
+		it("compareBranches throws → local fallback: fetch + merge-base succeeds, head is ahead → push proceeds", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "", stderr: "" },  // git fetch origin <branch>
+					{ code: 0, stdout: "", stderr: "" },  // git merge-base --is-ancestor exits 0
+					{ code: 0, stdout: "push ok", stderr: "" },  // git push --force-with-lease
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockGitHubPort({
+				compareBranches: async () => { throw new Error("API rate limit"); },
+				listPullRequestsForBranch: async () => null,
+				createPullRequest: async () => ({ number: 456 }),
+			});
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, true, "should succeed after fallback check passes");
+			assert.equal(result.pushSkipped, undefined, "pushSkipped should be undefined when push proceeds");
+
+			// Verify exec call order: fetch → merge-base → push
+			assert.equal(execCalls.length, 3, "should have 3 exec calls (fetch, merge-base, push)");
+			assert.ok(execCalls[0].args.includes("fetch"), "first should be git fetch");
+			assert.ok(execCalls[1].args.includes("merge-base"), "second should be git merge-base");
+			assert.ok(execCalls[2].args.includes("push"), "third should be git push");
+			assert.equal(execCalls[2].args[1], "--force-with-lease", "push should use --force-with-lease");
+		});
+
+		it("compareBranches throws → local fallback: merge-base says NOT ahead → push skipped", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "", stderr: "" },  // git fetch succeeds
+					{ code: 1, stdout: "", stderr: "" },  // git merge-base exits 1 (NOT ancestor)
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockGitHubPort({
+				compareBranches: async () => { throw new Error("API rate limit"); },
+			});
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, false, "should fail when merge-base says not ahead");
+			assert.equal(result.pushSkipped, true, "pushSkipped should be true");
+
+			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+			assert.equal(gitPushCalls.length, 0, "no push should be called");
+		});
+
+		it("compareBranches throws → local fallback fetch fails → push skipped (fail-closed)", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 1, stdout: "", stderr: "fetch failed" },  // git fetch fails
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockGitHubPort({
+				compareBranches: async () => { throw new Error("API rate limit"); },
+			});
+
+			const result = await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			assert.equal(result.success, false, "should fail when fetch fails");
+			assert.equal(result.pushSkipped, true, "pushSkipped should be true (fail-closed)");
+
+			const errorNotifies = notifyCalls.filter((n) => n.level === "error");
+			assert.ok(errorNotifies.length > 0, "should have error notification");
+		});
+
+		it("No worktree path: ahead_by check + push skipped, PR creation proceeds", async () => {
+			const execCalls: ExecCall[] = [];
+			const notifyCalls: NotifyCall[] = [];
+			const pi = createMockPi([], execCalls);
+			const ctx = createMockCtx(notifyCalls);
+			const port = createMockComparePort(3);
+
+			await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				undefined,
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+			assert.equal(gitPushCalls.length, 0, "no git push when worktreePath is undefined");
+
+			const infoNotifies = notifyCalls.filter((n) => n.level === "info" && n.message.includes("PR #"));
+			assert.ok(infoNotifies.length > 0, "should have PR notification");
+		});
+
+		it("--force-with-lease used in exec args instead of bare --force", async () => {
+			const execCalls: ExecCall[] = [];
+			const pi = createMockPi(
+				[
+					{ code: 0, stdout: "push ok", stderr: "" },
+				],
+				execCalls,
+			);
+			const ctx = createMockCtx([]);
+			const port = createMockComparePort(3);
+
+			await createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+
+			const pushCall = execCalls.find((c) => c.cmd === "git" && c.args[0] === "push");
+			assert.ok(pushCall, "push should be called");
+			assert.equal(pushCall!.args[1], "--force-with-lease", "should use --force-with-lease");
+		});
 	});
 });
