@@ -141,74 +141,81 @@ func runInit(
 		return nil
 	}
 
+	// Phase 3-8: Authentication and repository setup
+	var auth *Auth
 	if noGitHub {
 		// Legacy path: API key only
-		return runInitLegacy(ctx, cfg, apiKey)
-	}
-
-	// Phase 3: GitHub OAuth device flow
-	token, user, err := runInitAuth(ctx, authenticator)
-	if err != nil {
-		return fmt.Errorf("GitHub authentication failed: %w", err)
-	}
-
-	// Phase 4: Get authenticated user identity
-	if user == "" {
-		u, err := gitHubClient.GetAuthenticatedUser(ctx, token)
+		auth, err = runInitLegacy(ctx, cfg, apiKey)
 		if err != nil {
-			return fmt.Errorf("get GitHub user: %w", err)
+			return err
 		}
-		user = u
-	}
+		auth.RepoPath = workdir
+	} else {
+		// Phase 3: GitHub OAuth device flow
+		token, user, err := runInitAuth(ctx, authenticator)
+		if err != nil {
+			return fmt.Errorf("GitHub authentication failed: %w", err)
+		}
 
-	// Phase 5: Fork the source repository
-	sourceOwner, sourceRepoName := ParseGitHubURL(sourceRepo)
-	forkOwner := user
-	forkRepo := sourceRepoName
+		// Phase 4: Get authenticated user identity
+		if user == "" {
+			u, err := gitHubClient.GetAuthenticatedUser(ctx, token)
+			if err != nil {
+				return fmt.Errorf("get GitHub user: %w", err)
+			}
+			user = u
+		}
 
-	_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
-	if err != nil {
-		// 422 "fork already exists" is not a fatal error
-		if strings.Contains(err.Error(), "fork already exists") {
-			fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
-		} else {
-			return fmt.Errorf("fork repository: %w", err)
+		// Phase 5: Fork the source repository
+		sourceOwner, sourceRepoName := ParseGitHubURL(sourceRepo)
+		forkOwner := user
+		forkRepo := sourceRepoName
+
+		_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+		if err != nil {
+			// 422 "fork already exists" is not a fatal error
+			if strings.Contains(err.Error(), "fork already exists") {
+				fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
+			} else {
+				return fmt.Errorf("fork repository: %w", err)
+			}
+		}
+
+		// Phase 6: Wait for fork to be ready
+		if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
+			return fmt.Errorf("wait for fork ready: %w", err)
+		}
+
+		// Phase 7: Clone the fork
+		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
+		if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
+			return fmt.Errorf("clone fork: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
+
+		// Phase 8: Configure submodule
+		if err := runInitSubmodule(ctx, cloner, workdir, cloneURL); err != nil {
+			return fmt.Errorf("submodule config: %w", err)
+		}
+
+		auth = &Auth{
+			GitHubToken: token,
+			GitHubUser:  user,
+			RepoPath:    workdir,
 		}
 	}
 
-	// Phase 6: Wait for fork to be ready
-	if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
-		return fmt.Errorf("wait for fork ready: %w", err)
-	}
-
-	// Phase 7: Clone the fork
-	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
-	if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
-		return fmt.Errorf("clone fork: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
-
-	// Phase 8: Configure submodule
-	if err := runInitSubmodule(ctx, cloner, workdir, cloneURL); err != nil {
-		return fmt.Errorf("submodule config: %w", err)
-	}
-
-	// Phase 9: Extract embedded compose files
+	// Phase 9: Extract embedded compose files (always)
 	if err := runInitExtract(ctx, extractor, workdir); err != nil {
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
-	// Phase 10: Generate docker/.env
+	// Phase 10: Generate docker/.env (always)
 	if err := runInitEnv(ctx, envRenderer, uidResolver, gitIdentity, workdir, confirmFn); err != nil {
 		return fmt.Errorf("env generation: %w", err)
 	}
 
 	// Phase 11: Save auth config
-	auth := &Auth{
-		GitHubToken: token,
-		GitHubUser:  user,
-		RepoPath:    workdir,
-	}
 	if err := cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
@@ -300,24 +307,18 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 	return accessToken.Token, "", nil
 }
 
-// runInitLegacy runs the original API-key-only init path.
-func runInitLegacy(ctx context.Context, cfg Repository, apiKey string) error {
+// runInitLegacy is an auth-only helper that returns an *Auth with the API key.
+// It does NOT save, extract, or render — the orchestrator handles those.
+func runInitLegacy(ctx context.Context, cfg Repository, apiKey string) (*Auth, error) {
 	if apiKey == "" {
 		key, err := promptAPIKey()
 		if err != nil {
-			return fmt.Errorf("API key prompt failed: %w", err)
+			return nil, fmt.Errorf("API key prompt failed: %w", err)
 		}
 		apiKey = key
 	}
 
-	auth := &Auth{APIKey: apiKey}
-	if err := cfg.Save(ctx, auth); err != nil {
-		return fmt.Errorf("failed to save auth config: %w", err)
-	}
-
-	path, _ := cfg.Path()
-	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
-	return nil
+	return &Auth{APIKey: apiKey}, nil
 }
 
 // runInitSubmodule configures the pi submodule with the user's fork URL.
