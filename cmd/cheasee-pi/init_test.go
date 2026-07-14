@@ -842,8 +842,8 @@ func TestInit_SuccessMessage(t *testing.T) {
 	if strings.Contains(output, "cheasee-pi start") {
 		t.Error("success message must NOT reference 'cheasee-pi start'")
 	}
-	if !strings.Contains(output, "docker compose -f docker/docker-compose.yml up -d --build") {
-		t.Error("success message must contain the docker compose command")
+	if !strings.Contains(output, "bash docker/run-pi.sh") {
+		t.Error("success message must contain the convenience script command")
 	}
 	if !strings.Contains(output, "✅ Init complete") {
 		t.Error("success message must contain the checkmark and 'Init complete'")

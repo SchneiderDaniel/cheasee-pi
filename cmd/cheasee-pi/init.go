@@ -14,9 +14,9 @@ import (
 
 // nextStepHint is the post-init instruction printed after a successful init run.
 // It is a constant so both the CLI and documentation stay in sync.
-// If the compose filename or flag shape changes, update both init.go and
+// If the script path changes, update both init.go and
 // docs/installation.md in lockstep.
-const nextStepHint = "docker compose -f docker/docker-compose.yml up -d --build"
+const nextStepHint = "bash docker/run-pi.sh"
 
 var (
 	initAPIKey        string

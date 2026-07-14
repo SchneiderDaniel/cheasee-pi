@@ -207,30 +207,42 @@ After completion, you'll see:
 
 ```
 ✅ Init complete! Next step:
-   docker compose -f docker/docker-compose.yml up -d --build
+   bash docker/run-pi.sh
 ```
 
 > **No GitHub?** Use `cheasee-pi init --no-github` to skip the GitHub OAuth and fork
 > steps. You'll need to provide your API key manually.
 
-### Step 6: Start the container
+### Step 6: Run pi with the convenience script
 
 ```bash
+bash docker/run-pi.sh
+```
+
+This single command starts the container if needed, injects API keys from your
+saved `auth.json` or environment variables, and opens the pi TUI. First run
+builds the Docker image (~2 min).
+
+When you're done, stop the container with:
+
+```bash
+bash docker/stop-pi.sh
+```
+
+#### Advanced — native Docker workflow
+
+If you need to manage the container directly (alternative to the convenience script):
+
+```bash
+# Build image and start container
 docker compose -f docker/docker-compose.yml up -d --build
-```
 
-This runs `docker compose up` with the configuration extracted in Step 5,
-building the OCI image (~2 min first time) and starting the container in
-detached mode.
-
-### Step 7: Enter the container
-
-```bash
+# Run pi inside the container
 docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
-```
 
-On first run, pi will prompt you to configure your API key. Follow the
-interactive setup.
+# Stop and remove container when done
+docker compose -f docker/docker-compose.yml down
+```
 
 To pass API keys from your host environment:
 
@@ -241,7 +253,7 @@ docker exec -it \
   --user agentuser -w /workspaces/main cheasee-pi pi
 ```
 
-### Step 8: Configure repository settings
+### Step 7: Configure repository settings
 
 After forking, update `.pi/settings.json` so the pipeline targets your fork:
 
