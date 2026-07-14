@@ -106,16 +106,6 @@ bash docker/run-pi.sh
 This combines start and exec into a single idempotent command — it starts the container
 if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
 
-### Using the legacy wrapper
-
-```bash
-./cheasee-pi.sh
-```
-
-The `cheasee-pi.sh` wrapper is the original way to run pi. It handles image builds,
-container start, environment passthrough, and stale-process cleanup automatically.
-Run `./cheasee-pi.sh --help` for all options.
-
 ## Parallel sessions
 
 You can run multiple pi sessions against the same container simultaneously from
@@ -141,9 +131,6 @@ docker exec cheasee-pi bash -c \
      [ -f "$f" ] && pid=$(cat "$f") && ! kill -0 "$pid" 2>/dev/null && rm -f "$f";
    done'
 ```
-
-The `cheasee-pi.sh` wrapper handles this automatically via its built-in
-`kill_stale_pi_host` function.
 
 ## Stop
 
@@ -198,8 +185,6 @@ or pass `--build` to pick up changes.
 **Build timing:** The first build takes ~2 min (Debian 12-slim + Node.js 22 + Python
 3 + pi + dependencies). Subsequent builds take ~10-30s thanks to Docker layer caching.
 
-> Tip: The legacy `./cheasee-pi.sh --rebuild` command handles this automatically.
-
 ## Troubleshooting
 
 ### Bind-mount permission errors
@@ -243,7 +228,6 @@ errors about existing sessions.
 interfere with new sessions.
 
 **Fix:** Run the stale-process cleanup (see [Parallel sessions](#stale-process-cleanup)).
-Or use `./cheasee-pi.sh` which handles this automatically.
 
 ### Container doesn't start
 
@@ -267,15 +251,4 @@ Or use `./cheasee-pi.sh` which handles this automatically.
 **Fix:** Ensure `gh auth login -s repo,project,workflow` has been run on the host.
 The container mounts `~/.config/gh/` read-write automatically.
 
-## Legacy: cheasee-pi.sh
 
-The `./cheasee-pi.sh` wrapper provides the original all-in-one experience:
-
-- Builds and starts the container
-- Auto-injects API keys from `~/.config/cheasee-pi/auth.json` (or legacy `~/.pi/agent/auth.json` as fallback)
-- Handles stale-process cleanup
-- Rebuilds on dependency changes (`--rebuild` flag)
-- Attach mode for parallel sessions (`--attach` flag)
-
-Run `./cheasee-pi.sh --help` for full usage. The wrapper source at `cheasee-pi.sh`
-documents its internals if you need to understand the implementation.

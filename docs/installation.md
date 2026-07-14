@@ -48,13 +48,9 @@ don't render after installation.
 
 ---
 
-> **Two paths available.** Pick the one that fits your setup:
->
-> - **Go CLI Path (Recommended)** — Static binary, one `init` command replaces manual
->   fork/clone/submodule/extract. ~15–30 MB download vs ~500 MB clone. No Go toolchain
->   required. Supports **Linux** and **macOS** (Intel + Apple Silicon).
-> - **Legacy Bash Path** — The original 8-step `./cheasee-pi.sh` workflow. Works on any
->   system with bash + Docker, including **Windows via WSL2**. No Go binary needed.
+> **Recommended:** Static binary, one `init` command replaces manual
+> fork/clone/submodule/extract. ~15–30 MB download vs ~500 MB clone. No Go toolchain
+> required. Supports **Linux** and **macOS** (Intel + Apple Silicon).
 
 ---
 
@@ -272,207 +268,6 @@ After forking, update `.pi/settings.json` so the pipeline targets your fork:
 nano .pi/settings.json
 ```
 
-> **Done with setup?** See the [Daily Usage guide](daily-usage.md) for running pi,
-> parallel sessions, stop/start, and troubleshooting.
-
----
-
-## Legacy Bash Path
-
-**For existing users or Windows (WSL2) users.** This is the original 8-step workflow
-using the `./cheasee-pi.sh` bash wrapper. It requires `git`, `gh`, and manual
-fork/clone/submodule setup.
-
-### Step 1: Install Docker
-
-Pick your platform:
-
-| Platform    | Install Link                                                                                                            | Instructions |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
-| **Linux**   | [Docker Engine](https://docs.docker.com/engine/install/) + [Compose V2](https://docs.docker.com/compose/install/linux/) | `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo groupadd -f docker && sudo usermod -aG docker $USER`, then `newgrp docker` to activate |
-| **macOS**   | [OrbStack](https://orbstack.dev/) (fast, lightweight Docker + Compose V2)              | Download from orbstack.dev or `brew install orbstack` |
-| **Windows** | [Docker Engine](https://docs.docker.com/engine/install/) inside WSL2 (Compose V2 included)                      | Enable VM platform: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart` + restart (on Win ≥10 v2004, `wsl --install` does this automatically — skip `dism`). Then `wsl --install -d Ubuntu`. Inside WSL: `sudo sh -c "$(curl -fsSL https://get.docker.com)"` then `sudo groupadd -f docker && sudo usermod -aG docker $USER`, then `newgrp docker` to activate |
-
-**Platform:** Docker-only. Linux native, macOS via OrbStack, Windows via WSL2 + Docker Engine.
-
-> **Windows advice:** WSL2 is resource-heavy (RAM, disk). We strongly recommend Linux for the best experience. If using Windows, ensure your system has ≥16 GB RAM.
-
-> ▶ **Execute — Linux:**
-> ```bash
-> sudo sh -c "$(curl -fsSL https://get.docker.com)"
-> sudo groupadd -f docker
-> sudo usermod -aG docker $USER
-> newgrp docker
-> ```
->
-> **macOS:** download OrbStack or `brew install orbstack`.
->
-> **Windows (WSL):** run the WSL setup first, then the same Linux commands inside WSL.
-
-### Step 2: Install git & GitHub CLI — authenticate
-
-> ▶ **Execute:**
-> ```bash
-> # Linux
-> sudo apt install git gh
->
-> # macOS
-> brew install git gh
->
-> # Windows (inside WSL)
-> sudo apt install git gh
-> ```
-
-Set your git identity and authenticate with GitHub via browser:
-
-> ▶ **Execute:**
-> ```bash
-> git config --global user.name "Your Name"
-> git config --global user.email "your.email@example.com"
-> gh auth login -s repo,project,workflow
-> ```
-
-`gh auth login` opens a browser for OAuth. Follow the prompts:
-1. Select **GitHub.com**
-2. Select **HTTPS**
-3. Choose **Login with a web browser**
-4. Copy the one-time code, press Enter to open browser
-5. Paste the code, authorize
-6. Terminal shows: `✓ Logged in as YOUR_USER`
-
-Verify the token scopes:
-
-> ▶ **Execute:**
-> ```bash
-> gh auth status
-> ```
-
-Expected output includes:
-```text
-Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
-```
-
-Minimum scopes: `repo`, `project`, `workflow`. Re-run `gh auth login -s repo,project,workflow` if any are missing.
-
-The container mounts `~/.config/gh/` read-only, so host auth works inside automatically.
-
-### Step 3: Fork & clone the bare repo
-
-Fork [github.com/SchneiderDaniel/cheasee-pi](https://github.com/SchneiderDaniel/cheasee-pi) to your GitHub account, then clone your fork:
-
-> ▶ **Execute:**
-> ```bash
-> mkdir cheasee-pi && cd cheasee-pi
-> git clone --bare https://github.com/YOUR_USER/cheasee-pi.git .bare
-> git --git-dir=.bare remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
-> # Ensure origin has a fetch refspec
-> git --git-dir=.bare config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-> ```
-
-This creates a bare repo at `.bare` with **origin** pointing to your fork and **upstream** pointing to the source repo. The `config` line ensures `origin` has a fetch refspec — without it, `git fetch --all` silently skips `origin` (only `upstream` refs appear).
-
-### Step 4: Create the worktree
-
-> ▶ **Execute:**
-> ```bash
-> git --git-dir=.bare worktree add main main
-> cd main
-> git fetch --all
-> ```
-
-**⚠️ Fetch is required.** Without it, no remote-tracking branches (`origin/main`, `upstream/main`) exist locally. Git GUIs (Zed, VS Code, GitKraken…) will:
-- Show **Publish** instead of **Fetch** — no upstream ref to compare against
-- Hide the local-vs-remote commit overview — nothing to diff `HEAD` against
-- Require re-selecting upstream on every branch switch
-
-One `git fetch --all` populates all remote refs (`origin`, `upstream`) and makes any git GUI behave the same as on your other machines.
-
-All worktrees live alongside each other under the workspace root. Feature branches get their own worktree (`../worktree-git-issue-*`). The container mounts the whole workspace so agents can access any worktree.
-
-### Step 5: Configure the submodule
-
-**⚠️ CRITICAL:** The project includes one submodule (`flask_blogs`) pointing to a **private** repo (`github.com/SchneiderDaniel/flask_blogs`). You do NOT have access. `git submodule update --init --recursive` as-is will **fail**.
-
-Replace the URL with **your own project repo** (any public or private repo you own) before initializing:
-
-> ▶ **Execute:**
-> ```bash
-> git submodule set-url flask_blogs https://github.com/YOUR_USER/YOUR_REPO.git
-> git submodule sync
-> git submodule update --init --recursive
-> ```
-
-To optionally track the original repo as upstream:
-
-> ▶ **Execute:**
-> ```bash
-> git -C flask_blogs remote add upstream https://github.com/SchneiderDaniel/flask_blogs.git
-> ```
-
-> Don't want a submodule at all? Remove it:
-> ```bash
-> git submodule deinit -f flask_blogs
-> git rm -f flask_blogs
-> rm -rf .git/modules/flask_blogs
-> ```
-
-### Step 6: Start the container
-
-> ▶ **Execute:**
-> ```bash
-> ./cheasee-pi.sh
-> ```
-
-First run builds the OCI image (~2 min), then drops you into the Pi TUI inside the container. The wrapper:
-- Builds from `docker/Dockerfile`
-- Starts the container with workspace root bind-mounted, UID/GID mapped
-- Launches the Pi TUI
-
-The container stays running — subsequent runs of `./cheasee-pi.sh` skip straight to the TUI.
-
-### Step 7: Set API key
-
-On first run, `./cheasee-pi.sh` detects no keys and launches interactive setup. Select your providers and enter keys. They're saved to your shell profile.
-
-To add or change keys later:
-
-> ▶ **Execute:**
-> ```bash
-> ./cheasee-pi.sh --configure
-> ```
-
-To override for a single session:
-
-> ▶ **Execute:**
-> ```bash
-> ./cheasee-pi.sh --api-key "sk-..."
-> ```
-
-See `./cheasee-pi.sh --help` for all options.
-
-### Step 8: Configure repository settings
-
-After forking, **you must update** `.pi/settings.json` so the pipeline targets your fork instead of the original repo:
-
-| Field | Type | Must change? | Description |
-|-------|------|-------------|-------------|
-| `supervisor.repo` | string | **Yes** | Your fork (`YOUR_USER/cheasee-pi`) |
-| `supervisor.projectNumber` | number | If using kanban | GitHub project number |
-| `supervisor.statusField` | string | If using kanban | Single-select field name |
-| `defaultProvider` | string | Optional | AI provider for agents |
-| `defaultModel` | string | Optional | Default model |
-| `theme` | string | Optional | TUI theme from `.pi/themes/` |
-| `docker.memory` | string | Optional | Container memory limit |
-| `docker.cpus` | string | Optional | Container CPU limit |
-
-> ▶ **Execute — edit the file:**
-> ```bash
-> # Change "SchneiderDaniel/cheasee-pi" → "YOUR_USER/cheasee-pi"
-> nano .pi/settings.json
-> ```
-
----
-
 ## IDE (optional)
 
 Any IDE works with the workspace. We recommend [Zed](https://zed.dev/) for optimal experience:
@@ -486,7 +281,7 @@ Open the workspace: `zed .` from the `cheasee-pi` root.
 
 ## What happens under the hood
 
-The `docker compose -f docker/docker-compose.yml up -d --build` command (or the legacy `./cheasee-pi.sh`) runs `docker compose up` with:
+The `docker compose -f docker/docker-compose.yml up -d --build` command runs `docker compose up` with:
 
 - Image built from `docker/Dockerfile` (Debian 12-slim, Node.js 22, Python 3, ripgrep, ast-grep, pi, gosu)
 - Workspace root (`../` relative to `main/`) bind-mounted to `/workspaces` inside the container — your worktree at `/workspaces/main`
@@ -535,16 +330,9 @@ docker compose -f docker/docker-compose.yml build --no-cache
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Or for the legacy path:
-
-```bash
-docker compose -f docker/docker-compose.yml build --no-cache
-./cheasee-pi.sh
-```
-
 ### Permission errors on bind-mounted files
 
-UID/GID mapping is automatic via `cheasee-pi.sh` or the Docker Compose command. If you need to run manually:
+The Docker Compose command auto-maps UID/GID. If you need to run manually:
 
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
@@ -585,8 +373,6 @@ After installing, rebuild font cache and restart the Pi session:
 sudo fc-cache -fv
 # Exit pi (/exit), then restart:
 docker compose -f docker/docker-compose.yml up -d
-# Or legacy:
-./cheasee-pi.sh
 ```
 
 **Nerd Font for git branch icon:** The footer also uses `` (U+E0A0) from
@@ -616,8 +402,6 @@ the font name to match the Nerd Font you installed.
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
-# Or legacy:
-./cheasee-pi.sh
 ```
 
 ---

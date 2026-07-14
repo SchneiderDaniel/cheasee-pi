@@ -41,13 +41,12 @@ All components run locally. No code leaves your machine (except LLM API calls to
 ## Quick start
 
 **Recommended:** Download the `cheasee-pi` binary and run `cheasee-pi init` —
-see the full [Installation guide](installation.md) for step-by-step setup
-(both Go CLI and legacy bash paths).
+see the full [Installation guide](installation.md) for step-by-step setup.
 
 TL;DR — one-command convenience script (works with either path once set up):
 
 ```bash
-# cd into your init-created workspace (Go CLI path) or cloned repo (legacy path)
+# cd into your init-created workspace
 cd cheasee-pi
 
 # Start container, inject API keys, and run pi — all in one command
@@ -88,9 +87,6 @@ docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
 For the full daily usage guide — parallel sessions, troubleshooting, and convenience
 scripts — see the [Daily Usage guide](daily-usage.md).
 
-The original `./cheasee-pi.sh` wrapper is still available as a legacy convenience
-alternative. Run it for an all-in-one experience (build, start, env injection).
-
 ## Documentation
 
 Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schneiderdaniel.github.io/cheasee-pi/)**.
@@ -123,12 +119,6 @@ When pi, ponytail, or any container dependency updates, rebuild the image:
 
 ```bash
 docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d
-```
-
-Or use the legacy convenience wrapper:
-
-```bash
-./cheasee-pi.sh --rebuild
 ```
 
 Both rebuild the Docker image with updated packages and restart the container.
