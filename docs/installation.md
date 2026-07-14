@@ -90,7 +90,7 @@ case "$ARCH" in
 esac
 
 # Download the latest release archive
-VERSION="0.1.0"
+VERSION="1.0.0"
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
 ```
 
@@ -102,7 +102,7 @@ Download the checksums file and verify the archive:
 
 ```bash
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/checksums.txt"
-sha256sum --check checksums.txt --ignore-missing
+sha256sum -c checksums.txt 2>&1 | grep OK
 ```
 
 Expected output includes `cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz: OK`.
