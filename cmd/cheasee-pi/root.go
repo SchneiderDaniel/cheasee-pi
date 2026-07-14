@@ -6,9 +6,10 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "cheasee-pi",
-	Short: "Cheasee-PI — Raspberry Pi management and monitoring",
-	Long: `Cheasee-PI is a tool for managing Raspberry Pi devices
-with support for Docker-based deployments, monitoring, and configuration.`,
+	Short: "Cheasee-PI — Token-saving Pi agent harness with Docker setup",
+	Long: `Cheasee-PI is a Pi agent harness built on the Pi coding agent (pi.dev).
+Its init command authenticates with GitHub, clones your fork, configures
+submodules, and extracts Docker compose files for containerized deployment.`,
 	Version:            "0.1.0",
 	DisableAutoGenTag:  true,
 }

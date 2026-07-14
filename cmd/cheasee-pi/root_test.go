@@ -59,6 +59,15 @@ func TestRootCmd_HelpContainsAppName(t *testing.T) {
 	}
 }
 
+func TestRootCmd_NoRaspberryPiReference(t *testing.T) {
+	if strings.Contains(rootCmd.Short, "Raspberry") {
+		t.Error("rootCmd.Short must not reference Raspberry Pi")
+	}
+	if strings.Contains(rootCmd.Long, "Raspberry") {
+		t.Error("rootCmd.Long must not reference Raspberry Pi")
+	}
+}
+
 func TestRootCmd_UnknownFlagError(t *testing.T) {
 	rootCmd.SetArgs([]string{"--unknown-flag"})
 	err := rootCmd.Execute()
