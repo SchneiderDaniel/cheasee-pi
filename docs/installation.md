@@ -64,8 +64,7 @@ don't render after installation.
 `cheasee-pi init` to set up your fork, clone, submodule, and Docker configuration in a
 single interactive command.
 
-**Supported platforms:** Linux (amd64, arm64) and macOS (amd64, arm64). Windows users
-should follow the [Legacy Bash Path](#legacy-bash-path) via WSL2.
+**Supported platforms:** Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64, arm64).
 
 > **Size:** The Go binary is ~15–30 MB. Compare to a full repo clone at ~500 MB
 > (includes node_modules, test fixtures, images) — a 15–30× bandwidth saving.
@@ -75,7 +74,7 @@ should follow the [Legacy Bash Path](#legacy-bash-path) via WSL2.
 Visit the [GitHub Releases page](https://github.com/SchneiderDaniel/cheasee-pi/releases)
 and download the archive matching your OS and architecture.
 
-Or use the terminal to detect your platform and download automatically:
+**Linux / macOS** — use the terminal:
 
 ```bash
 # Detect OS and architecture
@@ -94,11 +93,22 @@ VERSION="1.0.0"
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
 ```
 
-Adjust `VERSION` to the latest release tag.
+**Windows (PowerShell)** — run in PowerShell:
+
+```powershell
+# Detect architecture
+$ARCH = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
+$VERSION = "1.0.0"
+Invoke-WebRequest -Uri "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$VERSION/cheasee-pi_$VERSION`_windows_$ARCH.zip" -OutFile "cheasee-pi.zip"
+```
+
+Adjust `$VERSION` to the latest release tag.
 
 ### Step 2: Verify the checksum (optional but recommended)
 
 Download the checksums file and verify the archive:
+
+**Linux / macOS:**
 
 ```bash
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/checksums.txt"
@@ -107,12 +117,44 @@ sha256sum -c checksums.txt 2>&1 | grep OK
 
 Expected output includes `cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz: OK`.
 
+**Windows (PowerShell):**
+
+```powershell
+$VERSION = "1.0.0"
+Invoke-WebRequest -Uri "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$VERSION/checksums.txt" -OutFile "checksums.txt"
+# Verify the .zip checksum (PowerShell 5.1+)
+$expectedHash = (Get-Content checksums.txt | Select-String "cheasee-pi_$VERSION`_windows_amd64.zip" | ForEach-Object { $_ -split ' ' | Select-Object -First 1 })
+$actualHash = (Get-FileHash cheasee-pi.zip -Algorithm SHA256).Hash.ToLower()
+if ($expectedHash -eq $actualHash) { Write-Host "OK" } else { Write-Host "CHECKSUM MISMATCH" }
+```
+
 ### Step 3: Extract and install
+
+**Linux / macOS:**
 
 ```bash
 tar -xzf "cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
 chmod +x cheasee-pi
 sudo mv cheasee-pi /usr/local/bin/
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Extract the downloaded archive
+tar -xf cheasee-pi.zip
+# Place in a directory on your PATH (e.g., C:\cheasee-pi)
+Move-Item cheasee-pi.exe C:\cheasee-pi\
+# Add to PATH for the current session
+$env:Path += ";C:\cheasee-pi"
+# To make permanent, add to your PowerShell profile:
+# [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\cheasee-pi", "User")
+```
+
+Verify the binary works:
+
+```powershell
+cheasee-pi version
 ```
 
 > **macOS only:** Gatekeeper may block the unsigned binary. If you see
