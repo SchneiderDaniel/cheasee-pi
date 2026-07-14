@@ -261,6 +261,10 @@ export interface PrCreationResult {
 	source?: string;
 	/** Whether the push was skipped (branch already ahead of base) */
 	pushSkipped?: boolean;
+	/** Files with rebase conflicts (only when rebase fails) */
+	rebaseConflicts?: string[];
+	/** Whether rebase was skipped (e.g., ahead-check short-circuited) */
+	rebaseSkipped?: boolean;
 }
 
 // ─── Merge result ────────────────────────────────────────────────────
@@ -284,6 +288,19 @@ export interface MergeResult {
 	success: boolean;
 	conflictFiles: string[];
 	message: string;
+}
+
+export interface RebaseResult {
+	/** Whether rebase succeeded */
+	success: boolean;
+	/** Files with conflicts (empty array if no conflicts) */
+	conflictFiles: string[];
+	/** Human-readable message describing the outcome */
+	message: string;
+	/** Whether rebase was skipped entirely */
+	skipped?: boolean;
+	/** Reason for skipping */
+	skipReason?: string;
 }
 
 // ─── Agent Output Schema ────────────────────────────────────────────
