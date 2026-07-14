@@ -73,11 +73,86 @@ export async function createPrOnApproval(
 	const prTitle = `feat(#${issueNum}): ${issueTitle}`;
 	log.info("pr-creation", `PR title: ${prTitle}`);
 
-	// ─── Phase 2: Push branch (if worktree exists) with retry ───────
+	// ─── Phase 2: Pre-check — verify head has commits beyond base ──
+	// Runs BEFORE push to avoid force-pushing over existing remote commits.
+	// When the remote branch already has commits ahead of main, the push is
+	// skipped entirely (the branch is already up-to-date on the remote).
+	//
+	// Fallback: if port.compareBranches fails (network error), use local git
+	// fetch + merge-base --is-ancestor to determine whether to push.
+	let skipPush = false;
+	if (worktreePath) {
+		if (port) {
+			try {
+				const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
+				if (aheadCount === 0) {
+					log.warn(
+						"pr-creation",
+						`No commits between ${config.defaultBranch} and ${headBranch} — skipping push and PR`,
+					);
+					ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
+					return {
+						success: false,
+						error: "Already implemented on base branch — no new changes to PR",
+						source: "pr-creation",
+						pushSkipped: true,
+					};
+				}
+				log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
+			} catch (compareErr: unknown) {
+				// Local fallback: fetch + merge-base --is-ancestor
+				const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
+				log.warn("pr-creation", `compareBranches failed: ${compareMsg} — using local fallback`);
+
+				try {
+					await pi.exec("git", ["fetch", config.remote!, headBranch], {
+						cwd: worktreePath,
+						timeout: 30000,
+					});
+					const mergeBase = await pi.exec(
+						"git",
+						["merge-base", "--is-ancestor", config.defaultBranch!, headBranch],
+						{ cwd: worktreePath, timeout: 15000 },
+					);
+					// merge-base --is-ancestor exits 0 if defaultBranch is ancestor of headBranch
+					if (mergeBase.code !== 0) {
+						log.warn(
+							"pr-creation",
+							`Local check: ${headBranch} is not ahead of ${config.defaultBranch} — skipping PR`,
+						);
+						ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
+						return {
+							success: false,
+							error: "Already implemented on base branch — no new changes to PR",
+							source: "pr-creation",
+							pushSkipped: true,
+						};
+					}
+					log.info("pr-creation", "Local check passed — head is ahead of base");
+				} catch (fallbackErr: unknown) {
+					// Local fallback also failed — fail closed, skip push
+					const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+					log.error("pr-creation", `Local ahead check failed: ${fallbackMsg} — skipping push (fail-closed)`);
+					ctx.ui.notify(`Cannot verify branch state — skipping push: ${fallbackMsg}`, "error");
+					return {
+						success: false,
+						error: `Cannot verify branch state: ${fallbackMsg}`,
+						source: "pr-creation",
+						pushSkipped: true,
+					};
+				}
+			}
+		} else {
+			log.warn("pr-creation", "Port not available — cannot verify ahead count, proceeding with push");
+		}
+	}
+
+	// ─── Phase 3: Push branch (if worktree exists) with retry ───────
 	// Timeout: 60s per attempt. Retry with exponential backoff (3 attempts).
+	// Uses --force-with-lease to avoid overwriting remote commits we haven't seen.
 	const MAX_PUSH_RETRIES = 3;
 	const PUSH_RETRY_DELAYS_MS = [3000, 5000, 10000];
-	if (worktreePath) {
+	if (worktreePath && !skipPush) {
 		log.info("pr-creation", `Pushing ${headBranch} from worktree`);
 		let lastPushErr: unknown;
 		let pushSucceeded = false;
@@ -91,7 +166,7 @@ export async function createPrOnApproval(
 					);
 					await new Promise((resolve) => setTimeout(resolve, delayMs));
 				}
-				await pi.exec("git", ["push", "--force", config.remote!, headBranch], {
+				await pi.exec("git", ["push", "--force-with-lease", config.remote!, headBranch], {
 					cwd: worktreePath,
 					timeout: 60000,
 				});
@@ -117,31 +192,8 @@ export async function createPrOnApproval(
 				source: "pr-creation",
 			};
 		}
-	}
-
-	// ─── Phase 3: Pre-check — verify head has commits beyond base ──
-	// Only runs when worktree exists (branch was pushed). Skip check if
-	// no worktree since there are no new commits to PR.
-	if (worktreePath && port) {
-		try {
-			const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
-			if (aheadCount === 0) {
-				log.warn(
-					"pr-creation",
-					`No commits between ${config.defaultBranch} and ${headBranch} — skipping PR`,
-				);
-				ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
-				return {
-					success: false,
-					error: "Already implemented on base branch — no new changes to PR",
-					source: "pr-creation",
-				};
-			}
-			log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
-		} catch (compareErr: unknown) {
-			const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
-			log.warn("pr-creation", `Commit count check failed: ${compareMsg} — attempting PR anyway`);
-		}
+	} else if (!worktreePath) {
+		log.info("pr-creation", "No worktree path — skipping push");
 	}
 
 	// ─── Phase 4: Check for existing PR ────────────────────────────

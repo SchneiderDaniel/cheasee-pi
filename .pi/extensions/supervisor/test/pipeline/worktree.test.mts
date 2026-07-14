@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createWorktree,
+	reconcileToRemoteBranch,
 	installWorktreeDeps,
 	cleanupWorktree,
 	deleteBranch,
@@ -42,6 +43,27 @@ function createMockPi(
 	} as ExtensionAPI;
 }
 
+/**
+ * Create a mock pi.exec that records calls but doesn't execute results in order.
+ * Unlike createMockPi, this uses a map of command patterns to results for when
+ * you need different responses for different commands (e.g., rev-parse=0 vs fetch=0).
+ */
+function createMockPiWithDefaults(defaultResult: { code: number; stdout: string; stderr: string }): ExtensionAPI {
+	const callLog: ExecCall[] = [];
+	return {
+		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
+			callLog.push({ cmd, args: args || [], opts: opts || {} });
+			const result = { ...defaultResult };
+			if (result.code !== 0) {
+				return Promise.reject(
+					new Error(result.stderr || result.stdout || `Command failed: ${cmd}`),
+				);
+			}
+			return Promise.resolve(result);
+		}) as ExtensionAPI["exec"],
+	} as unknown as ExtensionAPI;
+}
+
 function createMockNotify(): { notify: NotifyFn; calls: Array<{ level: string; msg: string }> } {
 	const calls: Array<{ level: string; msg: string }> = [];
 	const notify: NotifyFn = {
@@ -56,7 +78,14 @@ function createMockNotify(): { notify: NotifyFn; calls: Array<{ level: string; m
 describe("createWorktree()", () => {
 	it("creates worktree with -b flag on first attempt — returns { ok: true, value }", async () => {
 		const calls: ExecCall[] = [];
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		// add succeeds → reconciliation: rev-parse exits 128 (no remote ref)
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
+			],
+			calls,
+		);
 		const { notify } = createMockNotify();
 		const result = await createWorktree(
 			pi,
@@ -78,6 +107,9 @@ describe("createWorktree()", () => {
 			result.ok ? result.value : "",
 			"main",
 		]);
+		// Reconciliation: rev-parse exits 128 → no-op, no fetch/reset
+		assert.equal(calls.length, 2, "should have 2 exec calls (add + rev-parse)");
+		assert.deepEqual(calls[1].args, ["rev-parse", "--verify", "refs/remotes/origin/feature-branch"]);
 	});
 
 	it("falls back to add without -b when first attempt fails — returns { ok: true }", async () => {
@@ -86,6 +118,7 @@ describe("createWorktree()", () => {
 			[
 				{ code: 1, stdout: "", stderr: "already exists" },
 				{ code: 0, stdout: "", stderr: "" },
+				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
 			],
 			calls,
 		);
@@ -99,7 +132,7 @@ describe("createWorktree()", () => {
 			notify,
 		);
 		assert.equal(result.ok, true);
-		assert.equal(calls.length, 2);
+		assert.equal(calls.length, 3, "should have 3 exec calls (add -b fail, add, rev-parse)");
 		assert.deepEqual(calls[1].args, ["worktree", "add", calls[1].args[2], "feature-branch"]);
 	});
 
@@ -108,6 +141,7 @@ describe("createWorktree()", () => {
 			{ code: 1, stdout: "", stderr: "error" },
 			{ code: 1, stdout: "", stderr: "already exists" },
 			{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
+			{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }, // rev-parse: no remote
 		]);
 		const { notify } = createMockNotify();
 		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
@@ -119,7 +153,7 @@ describe("createWorktree()", () => {
 			{ code: 1, stdout: "", stderr: "error" },
 			{ code: 1, stdout: "", stderr: "already exists" },
 			{ code: 1, stdout: "", stderr: "directory not found" }, // test -d fails
-		]);
+		]);		// Both attempts fail AND dir doesn't exist → reconciliation never reached
 		const { notify, calls } = createMockNotify();
 		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
 		assert.equal(result.ok, false);
@@ -135,7 +169,11 @@ describe("createWorktree()", () => {
 	});
 
 	it("does not call notify.error when create succeeds", async () => {
-		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }]);
+		// add succeeds → rev-parse: no remote (128)
+		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },
+			{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
+		]);
 		const { notify, calls } = createMockNotify();
 		const result = await createWorktree(
 			pi,
@@ -347,5 +385,113 @@ describe("cleanupWorktree()", () => {
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 3, "All 3 git commands when skipBranch omitted");
 		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
+	});
+});
+
+// ─── Tests: reconcileToRemoteBranch() ─────────────────────────────
+
+describe("reconcileToRemoteBranch()", () => {
+	it("remote ref exists — fetches and resets worktree, returns { ok: true }", async () => {
+		const calls: ExecCall[] = [];
+		// rev-parse succeeds → fetch succeeds → reset succeeds
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },  // rev-parse
+				{ code: 0, stdout: "", stderr: "" },  // fetch
+				{ code: 0, stdout: "", stderr: "" },  // reset
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
+		assert.equal(result.ok, true, "should succeed when remote ref exists");
+		assert.equal(calls.length, 3);
+		assert.deepEqual(calls[0].args, ["rev-parse", "--verify", "refs/remotes/origin/feature"]);
+		assert.deepEqual(calls[1].args, ["fetch", "origin", "feature"]);
+		assert.deepEqual(calls[2].args, ["reset", "--hard", "origin/feature"]);
+	});
+
+	it("no remote ref — no fetch, no reset, returns { ok: true }", async () => {
+		const calls: ExecCall[] = [];
+		// rev-parse exits 128 (no remote ref)
+		const pi = createMockPi(
+			[
+				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
+		assert.equal(result.ok, true, "should succeed (no-op) when no remote ref");
+		assert.equal(calls.length, 1, "only rev-parse call");
+	});
+
+	it("fetch fails — returns { ok: false, error }", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },  // rev-parse succeeds
+				{ code: 1, stdout: "", stderr: "fetch failed: network error" },  // fetch fails
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.ok(result.error.includes("fetch failed"), "error should mention fetch failure");
+			assert.equal(result.source, "worktree");
+		}
+		// Should not call notify.error (function returns error, caller decides fatality)
+		assert.equal(notifyCalls.length, 0, "reconcileToRemoteBranch should not call notify itself");
+	});
+
+	it("fetch succeeds but reset fails — returns { ok: false }", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },  // rev-parse succeeds
+				{ code: 0, stdout: "", stderr: "" },  // fetch succeeds
+				{ code: 1, stdout: "", stderr: "reset failed: dirty index" },  // reset fails
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.ok(result.error.includes("reset failed"), "error should mention reset failure");
+			assert.equal(result.source, "worktree");
+		}
+	});
+
+	it("calls notify.info on successful reconciliation", async () => {
+		const pi = createMockPi([
+			{ code: 0, stdout: "", stderr: "" },  // rev-parse
+			{ code: 0, stdout: "", stderr: "" },  // fetch
+			{ code: 0, stdout: "", stderr: "" },  // reset
+		]);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
+		assert.equal(result.ok, true);
+		// notify.info should be called with reconciliation message
+		const reconcileInfo = notifyCalls.find((c) => c.msg.includes("Reconciled worktree to remote"));
+		assert.ok(reconcileInfo, "notify.info should be called on successful reconciliation");
+	});
+
+	it("first run (no remote) — createWorktree exec call count unchanged from expected", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },  // worktree add -b succeeds
+				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },  // rev-parse: no remote
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "feature", "main", notify);
+		assert.equal(result.ok, true);
+		// Only 2 calls: worktree add + rev-parse (no fetch/reset since no remote)
+		assert.equal(calls.length, 2, "should have 2 exec calls on first run (add + no-op rev-parse)");
 	});
 });
