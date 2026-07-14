@@ -26,6 +26,7 @@ services:
     volumes:
       - ../../:/workspaces
       - ~/.config/gh:/home/agentuser/.config/gh:rw
+      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw
     mem_limit: ${CHEASEEPI_MEMORY:-2G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
     init: true

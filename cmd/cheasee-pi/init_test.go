@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -502,7 +503,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
 	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
-	auth, err := runInitLegacy(context.Background(), &mockRepository{}, "sk-legacy-key")
+	auth, err := runInitLegacy(context.Background(), &mockRepository{}, "sk-legacy-key", "opencode-go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -812,6 +813,277 @@ func TestInit_SuccessMessage(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// Auth per-provider schema tests (entity layer)
+// ──────────────────────────────────────────────
+
+func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
+	auth := &Auth{
+		APIKey:   "sk-abc",
+		Provider: "opencode-go",
+	}
+
+	data, err := json.Marshal(auth)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Must contain the provider-keyed object
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal of output failed: %v", err)
+	}
+
+	providerEntry, ok := raw["opencode-go"]
+	if !ok {
+		t.Fatal("expected 'opencode-go' key in marshaled JSON")
+	}
+	entry, ok := providerEntry.(map[string]any)
+	if !ok {
+		t.Fatal("expected provider entry to be an object")
+	}
+	if entry["key"] != "sk-abc" {
+		t.Errorf("expected key 'sk-abc', got %v", entry["key"])
+	}
+
+	// Must NOT have flat api_key field
+	if _, ok := raw["api_key"]; ok {
+		t.Error("expected no flat 'api_key' field when Provider is set")
+	}
+}
+
+func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
+	auth := &Auth{
+		APIKey: "sk-abc",
+		// Provider is empty — should write flat api_key
+	}
+
+	data, err := json.Marshal(auth)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal of output failed: %v", err)
+	}
+
+	if _, ok := raw["api_key"]; !ok {
+		t.Error("expected flat 'api_key' field when Provider is empty")
+	}
+	if raw["api_key"] != "sk-abc" {
+		t.Errorf("expected api_key 'sk-abc', got %v", raw["api_key"])
+	}
+}
+
+func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
+	// GitHub-only auth: no Provider, no APIKey
+	// When Provider is empty, api_key is always written at top level for
+	// backward compatibility (even if empty string), preserving the
+	// pre-existing TestConfigSave_EmptyAPIKey contract.
+	auth := &Auth{
+		GitHubToken: "gho_token",
+		GitHubUser:  "testuser",
+		RepoPath:    "/workspace",
+	}
+
+	data, err := json.Marshal(auth)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal of output failed: %v", err)
+	}
+
+	// api_key is written even when empty because Provider is empty —
+	// this maintains backward compat with pre-existing TestConfigSave_EmptyAPIKey
+	if v, ok := raw["api_key"]; ok {
+		if v != "" {
+			t.Errorf("expected empty api_key string, got %v", v)
+		}
+	} else {
+		t.Error("expected 'api_key' field (empty) for backward compat when Provider is empty")
+	}
+	if raw["github_token"] != "gho_token" {
+		t.Errorf("expected github_token 'gho_token', got %v", raw["github_token"])
+	}
+}
+
+func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
+	data := []byte(`{
+		"opencode-go": {"key": "sk-abc"},
+		"github_token": "gho_123",
+		"github_user": "testuser",
+		"repo_path": "/workspace"
+	}`)
+
+	var auth Auth
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatalf("Unmarshal of provider format failed: %v", err)
+	}
+
+	if auth.APIKey != "sk-abc" {
+		t.Errorf("expected APIKey 'sk-abc', got %q", auth.APIKey)
+	}
+	if auth.Provider != "opencode-go" {
+		t.Errorf("expected Provider 'opencode-go', got %q", auth.Provider)
+	}
+	if auth.GitHubToken != "gho_123" {
+		t.Errorf("expected GitHubToken 'gho_123', got %q", auth.GitHubToken)
+	}
+	if auth.GitHubUser != "testuser" {
+		t.Errorf("expected GitHubUser 'testuser', got %q", auth.GitHubUser)
+	}
+	if auth.RepoPath != "/workspace" {
+		t.Errorf("expected RepoPath '/workspace', got %q", auth.RepoPath)
+	}
+}
+
+func TestAuthPerProvider_UnmarshalFlatFormat(t *testing.T) {
+	data := []byte(`{"api_key": "sk-old", "github_token": "gho_old"}`)
+
+	var auth Auth
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatalf("Unmarshal of flat format failed: %v", err)
+	}
+
+	if auth.APIKey != "sk-old" {
+		t.Errorf("expected APIKey 'sk-old', got %q", auth.APIKey)
+	}
+	if auth.Provider != "" {
+		t.Errorf("expected empty Provider for flat format, got %q", auth.Provider)
+	}
+	if auth.GitHubToken != "gho_old" {
+		t.Errorf("expected GitHubToken 'gho_old', got %q", auth.GitHubToken)
+	}
+}
+
+func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	cfg := NewRepository()
+	auth := &Auth{
+		APIKey:   "sk-jq-test",
+		Provider: "opencode-go",
+	}
+
+	if err := cfg.Save(context.Background(), auth); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Read raw file and verify it's valid JSON with expected structure
+	path, _ := cfg.Path()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Saved file is not valid JSON: %v", err)
+	}
+
+	entry, ok := raw["opencode-go"]
+	if !ok {
+		t.Fatal("saved file must contain provider key 'opencode-go'")
+	}
+	entryMap, ok := entry.(map[string]any)
+	if !ok {
+		t.Fatal("provider entry must be an object")
+	}
+	if entryMap["key"] != "sk-jq-test" {
+		t.Errorf("expected key 'sk-jq-test', got %v", entryMap["key"])
+	}
+}
+
+func TestAuthPerProvider_UnmarshalEmptyObject(t *testing.T) {
+	data := []byte(`{}`)
+
+	var auth Auth
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatalf("Unmarshal of empty object failed: %v", err)
+	}
+
+	if auth.APIKey != "" {
+		t.Errorf("expected empty APIKey, got %q", auth.APIKey)
+	}
+	if auth.GitHubToken != "" {
+		t.Errorf("expected empty GitHubToken, got %q", auth.GitHubToken)
+	}
+}
+
+func TestAuthPerProvider_UnmarshalMalformedJSON(t *testing.T) {
+	data := []byte(`{not json}`)
+
+	var auth Auth
+	err := json.Unmarshal(data, &auth)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	cfg := NewRepository()
+	auth := &Auth{
+		APIKey:      "sk-abc",
+		Provider:    "opencode-go",
+		GitHubToken: "gho_token",
+		GitHubUser:  "testuser",
+		RepoPath:    "/some/path",
+	}
+
+	if err := cfg.Save(context.Background(), auth); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := cfg.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.APIKey != "sk-abc" {
+		t.Errorf("expected api_key 'sk-abc', got %q", loaded.APIKey)
+	}
+	if loaded.Provider != "opencode-go" {
+		t.Errorf("expected Provider 'opencode-go', got %q", loaded.Provider)
+	}
+	if loaded.GitHubToken != "gho_token" {
+		t.Errorf("expected GitHubToken 'gho_token', got %q", loaded.GitHubToken)
+	}
+	if loaded.GitHubUser != "testuser" {
+		t.Errorf("expected GitHubUser 'testuser', got %q", loaded.GitHubUser)
+	}
+	if loaded.RepoPath != "/some/path" {
+		t.Errorf("expected RepoPath '/some/path', got %q", loaded.RepoPath)
+	}
+}
+
+func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
+	auth := &Auth{
+		APIKey:   "sk-abc",
+		Provider: "openai",
+	}
+
+	data, err := json.Marshal(auth)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	if bytes.Contains(data, []byte("github_token")) {
+		t.Error("expected no github_token in output when empty")
+	}
+	if !bytes.Contains(data, []byte("openai")) {
+		t.Error("expected openai provider key in output")
+	}
+}
+	}
+}
+
+// ──────────────────────────────────────────────
 // Legacy/backward compat tests
 // ──────────────────────────────────────────────
 
@@ -889,7 +1161,7 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 	}
 
 	output := buf.String()
-	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id"}
+	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)

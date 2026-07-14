@@ -71,10 +71,12 @@ function createMockDocker(mockDir: string, traceFile: string, stateFile: string)
 
 /**
  * Create auth.json in the given home directory with the given
- * provider→key mapping.
+ * provider→key mapping. Writes to either the XDG path (default)
+ * or the legacy path.
  */
-function createAuthJson(homeDir: string, entries: Record<string, { key: string }>): void {
-	const authDir = join(homeDir, ".pi", "agent");
+function createAuthJson(homeDir: string, entries: Record<string, { key: string }>, opts?: { legacy?: boolean }): void {
+	const subPath = opts?.legacy ? [".pi", "agent"] : [".config", "cheasee-pi"];
+	const authDir = join(homeDir, ...subPath);
 	mkdirSync(authDir, { recursive: true });
 	writeFileSync(join(authDir, "auth.json"), JSON.stringify(entries, null, 2), "utf-8");
 }
@@ -413,6 +415,59 @@ describe("Phase 1b — run-pi.sh env var passthrough", () => {
 		const trace = readTrace(fix.traceFile);
 		const execLine = trace.find((l) => l.startsWith("docker exec"));
 		assert.ok(execLine, "expected docker exec call");
+	});
+
+	it("adapter — falls back to legacy ~/.pi/agent/auth.json when XDG path absent", () => {
+		// Write auth.json to legacy path only
+		createAuthJson(fix.homeDir, {
+			opencode: { key: "legacy-key-789" },
+		}, { legacy: true });
+
+		const result = runScript(RUN_SCRIPT, {
+			mockDir: fix.mockDir,
+			homeDir: fix.homeDir,
+		});
+
+		assert.strictEqual(result.status, 0);
+		const trace = readTrace(fix.traceFile);
+		const execLine = trace.find((l) => l.startsWith("docker exec"));
+
+		assert.ok(execLine, "expected docker exec call");
+		assert.ok(
+			execLine!.includes("-e OPENCODE_API_KEY=legacy-key-789"),
+			"should pass OPENCODE_API_KEY from legacy path",
+		);
+	});
+
+	it("adapter — prefers XDG path when both auth.json files exist", () => {
+		// Write XDG path (new) with one key
+		createAuthJson(fix.homeDir, {
+			openai: { key: "xdg-key" },
+		});
+		// Write legacy path with different key
+		createAuthJson(fix.homeDir, {
+			opencode: { key: "legacy-key" },
+		}, { legacy: true });
+
+		const result = runScript(RUN_SCRIPT, {
+			mockDir: fix.mockDir,
+			homeDir: fix.homeDir,
+		});
+
+		assert.strictEqual(result.status, 0);
+		const trace = readTrace(fix.traceFile);
+		const execLine = trace.find((l) => l.startsWith("docker exec"));
+
+		assert.ok(execLine, "expected docker exec call");
+		// Should use XDG path (openai), not legacy path (opencode)
+		assert.ok(
+			execLine!.includes("-e OPENAI_API_KEY=xdg-key"),
+			"should read from XDG path when both exist",
+		);
+		assert.ok(
+			!execLine!.includes("legacy-key"),
+			"should NOT read from legacy path when XDG path exists",
+		);
 	});
 });
 
