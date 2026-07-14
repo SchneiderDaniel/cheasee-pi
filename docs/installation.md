@@ -18,11 +18,11 @@ nav_order: 2
 
 ## Prerequisites
 
-**Dependencies:** [Docker Engine](https://docs.docker.com/engine/install/) ≥24.0 with Compose V2 + [git](https://git-scm.com/) + [GitHub CLI](https://cli.github.com/) (`gh`).
+**Dependencies:** [Docker Engine](https://docs.docker.com/engine/install/) ≥24.0 with Compose V2 + [git](https://git-scm.com/).
 
 Git identity is required so the supervisor extension can commit changes inside the
 container. The host's `git config user.name` and `git config user.email` are passed
-into the container automatically by `cheasee-pi.sh`. If unset on the host, the
+into the container automatically by the setup scripts. If unset on the host, the
 container defaults to `Cheasee-Pi <cheasee-pi@localhost>`.
 
 **Emoji font (optional, recommended):** The `context-info` extension and various
@@ -43,12 +43,196 @@ sudo dnf install google-noto-color-emoji-fonts
 # macOS / Windows — fonts are bundled; no action required
 ```
 
-See the [Troubleshooting](#emoji--icons-not-displaying) section if icons still
+See the [Troubleshooting](#emoji-icons-not-displaying) section if icons still
 don't render after installation.
 
+---
 
+> **Two paths available.** Pick the one that fits your setup:
+>
+> - **Go CLI Path (Recommended)** — Static binary, one `init` command replaces manual
+>   fork/clone/submodule/extract. ~15–30 MB download vs ~500 MB clone. No Go toolchain
+>   required. Supports **Linux** and **macOS** (Intel + Apple Silicon).
+> - **Legacy Bash Path** — The original 8-step `./cheasee-pi.sh` workflow. Works on any
+>   system with bash + Docker, including **Windows via WSL2**. No Go binary needed.
 
-## Installation
+---
+
+## Go CLI Path (Recommended) {: #go-cli-path }
+
+**Best for new users.** Download a statically linked binary from GitHub Releases and run
+`cheasee-pi init` to set up your fork, clone, submodule, and Docker configuration in a
+single interactive command.
+
+**Supported platforms:** Linux (amd64, arm64) and macOS (amd64, arm64). Windows users
+should follow the [Legacy Bash Path](#legacy-bash-path) via WSL2.
+
+> **Size:** The Go binary is ~15–30 MB. Compare to a full repo clone at ~500 MB
+> (includes node_modules, test fixtures, images) — a 15–30× bandwidth saving.
+
+### Step 1: Download the binary
+
+Visit the [GitHub Releases page](https://github.com/SchneiderDaniel/cheasee-pi/releases)
+and download the archive matching your OS and architecture.
+
+Or use the terminal to detect your platform and download automatically:
+
+```bash
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+# Map uname arch to GoReleaser arch names
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  arm64)   ARCH="arm64" ;;
+esac
+
+# Download the latest release archive
+VERSION="0.1.0"
+curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
+```
+
+Adjust `VERSION` to the latest release tag.
+
+### Step 2: Verify the checksum (optional but recommended)
+
+Download the checksums file and verify the archive:
+
+```bash
+curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/checksums.txt"
+sha256sum --check checksums.txt --ignore-missing
+```
+
+Expected output includes `cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz: OK`.
+
+### Step 3: Extract and install
+
+```bash
+tar -xzf "cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
+chmod +x cheasee-pi
+sudo mv cheasee-pi /usr/local/bin/
+```
+
+> **macOS only:** Gatekeeper may block the unsigned binary. If you see
+> "“cheasee-pi” cannot be opened because the developer cannot be verified",
+> remove the quarantine attribute:
+>
+> ```bash
+> xattr -d com.apple.quarantine /usr/local/bin/cheasee-pi
+> ```
+>
+> Or Ctrl-click → Open in Finder and confirm.
+
+Verify the binary works:
+
+```bash
+cheasee-pi version
+```
+
+### Step 4: Verify Docker is installed
+
+```bash
+docker compose version
+docker info
+```
+
+If Docker is not installed, see the [platform-specific install table](#step-1-install-docker)
+before proceeding.
+
+### Step 5: Run `cheasee-pi init`
+
+This single interactive command replaces Steps 3–5 of the legacy path (fork, clone,
+submodule config, compose extraction, and env file generation).
+
+```bash
+cheasee-pi init
+```
+
+`cheasee-pi init` will:
+
+1. Verify Docker Engine is running
+2. Open GitHub OAuth device flow to authenticate (browser window)
+3. Fork the source repo to your GitHub account
+4. Clone your fork with a bare worktree setup
+5. Configure the submodule (prompts for your repo URL)
+6. Extract embedded `docker-compose.yml`, `Dockerfile`, and `entrypoint.sh`
+7. Generate `docker/.env` with your settings
+8. Save authentication config to `~/.pi/agent/auth.json`
+
+After completion, you'll see:
+
+```
+✅ Init complete! Next step: run 'cheasee-pi start'
+```
+
+> **No GitHub?** Use `cheasee-pi init --no-github` to skip the GitHub OAuth and fork
+> steps. You'll need to provide your API key manually.
+
+### Step 6: Start the container
+
+```bash
+cheasee-pi start
+```
+
+This runs `docker compose up` with the configuration extracted in Step 5,
+building the OCI image (~2 min first time) and starting the container in
+detached mode.
+
+Alternatively, run docker compose directly:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+### Step 7: Enter the container
+
+```bash
+docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
+```
+
+On first run, pi will prompt you to configure your API key. Follow the
+interactive setup.
+
+To pass API keys from your host environment:
+
+```bash
+docker exec -it \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  --user agentuser -w /workspaces/main cheasee-pi pi
+```
+
+### Step 8: Configure repository settings
+
+After forking, update `.pi/settings.json` so the pipeline targets your fork:
+
+| Field | Type | Must change? | Description |
+|-------|------|-------------|-------------|
+| `supervisor.repo` | string | **Yes** | Your fork (`YOUR_USER/cheasee-pi`) |
+| `supervisor.projectNumber` | number | If using kanban | GitHub project number |
+| `supervisor.statusField` | string | If using kanban | Single-select field name |
+| `defaultProvider` | string | Optional | AI provider for agents |
+| `defaultModel` | string | Optional | Default model |
+| `theme` | string | Optional | TUI theme from `.pi/themes/` |
+| `docker.memory` | string | Optional | Container memory limit |
+| `docker.cpus` | string | Optional | Container CPU limit |
+
+```bash
+nano .pi/settings.json
+```
+
+> **Done with setup?** See the [Daily Usage guide](daily-usage.md) for running pi,
+> parallel sessions, stop/start, and troubleshooting.
+
+---
+
+## Legacy Bash Path
+
+**For existing users or Windows (WSL2) users.** This is the original 8-step workflow
+using the `./cheasee-pi.sh` bash wrapper. It requires `git`, `gh`, and manual
+fork/clone/submodule setup.
 
 ### Step 1: Install Docker
 
@@ -238,6 +422,8 @@ After forking, **you must update** `.pi/settings.json` so the pipeline targets y
 > nano .pi/settings.json
 > ```
 
+---
+
 ## IDE (optional)
 
 Any IDE works with the workspace. We recommend [Zed](https://zed.dev/) for optimal experience:
@@ -251,7 +437,7 @@ Open the workspace: `zed .` from the `cheasee-pi` root.
 
 ## What happens under the hood
 
-`./cheasee-pi.sh` runs `docker compose up` with:
+`cheasee-pi start` (or the legacy `./cheasee-pi.sh`) runs `docker compose up` with:
 
 - Image built from `docker/Dockerfile` (Debian 12-slim, Node.js 22, Python 3, ripgrep, ast-grep, pi, gosu)
 - Workspace root (`../` relative to `main/`) bind-mounted to `/workspaces` inside the container — your worktree at `/workspaces/main`
@@ -297,12 +483,19 @@ Rebuild the image without cache:
 
 ```bash
 docker compose -f docker/docker-compose.yml build --no-cache
+cheasee-pi start
+```
+
+Or for the legacy path:
+
+```bash
+docker compose -f docker/docker-compose.yml build --no-cache
 ./cheasee-pi.sh
 ```
 
 ### Permission errors on bind-mounted files
 
-UID/GID mapping is automatic via `cheasee-pi.sh`. If you need to run manually:
+UID/GID mapping is automatic via `cheasee-pi.sh` or `cheasee-pi start`. If you need to run manually:
 
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
@@ -342,6 +535,8 @@ After installing, rebuild font cache and restart the Pi session:
 ```bash
 sudo fc-cache -fv
 # Exit pi (/exit), then restart:
+cheasee-pi start
+# Or legacy:
 ./cheasee-pi.sh
 ```
 
@@ -371,6 +566,12 @@ the font name to match the Nerd Font you installed.
 **Rebuild the container after any Dockerfile change:**
 
 ```bash
+cheasee-pi start --rebuild
+# Or legacy:
 ./cheasee-pi.sh --rebuild
 ```
 
+---
+
+> **Next steps?** After installation, head over to the [Daily Usage guide](daily-usage.md)
+> for running pi, managing parallel sessions, stop/start workflows, and troubleshooting.
