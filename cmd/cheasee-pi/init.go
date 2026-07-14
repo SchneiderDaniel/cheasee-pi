@@ -343,7 +343,7 @@ func runInitExtract(ctx context.Context, extractor Extractor, workdir string) er
 	if err := extractor.Extract(ctx, workdir); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "  ✓ Compose files extracted to %s\n", workdir)
+	fmt.Fprintf(os.Stderr, "  ✓ Compose files extracted to %s/docker\n", workdir)
 	return nil
 }
 
