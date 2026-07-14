@@ -152,10 +152,10 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -176,10 +176,10 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -200,10 +200,10 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -220,10 +220,10 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -448,23 +448,71 @@ func TestRunInit_FullFlow(t *testing.T) {
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
-	// --no-github flag preserves legacy API-key-only path
+	// --no-github flag: extract + env + save all run after auth
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+	extractCalled := false
+	ext := &mockExtractor{
+		extractFunc: func(ctx context.Context, destDir string) error {
+			extractCalled = true
+			return nil
+		},
+	}
+
+	renderCalled := false
+	env := &mockEnvRenderer{
+		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
+			renderCalled = true
+			return nil
+		},
+	}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirEmpty, nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
+	}
+	if !extractCalled {
+		t.Error("Extract should be called on legacy path")
+	}
+	if !renderCalled {
+		t.Error("Env render should be called on legacy path")
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called on legacy path")
 	}
 	if mockCfg.savedKey != "sk-abc123" {
 		t.Errorf("expected API key 'sk-abc123', got %q", mockCfg.savedKey)
+	}
+	if mockCfg.savedAuth == nil || mockCfg.savedAuth.RepoPath != workdir {
+		t.Errorf("expected RepoPath %q, got %q", workdir, mockCfg.savedAuth.RepoPath)
+	}
+}
+
+func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
+	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
+	auth, err := runInitLegacy(context.Background(), &mockRepository{}, "sk-legacy-key")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if auth.APIKey != "sk-legacy-key" {
+		t.Errorf("expected API key 'sk-legacy-key', got %q", auth.APIKey)
+	}
+	if auth.RepoPath != "" {
+		t.Errorf("expected empty RepoPath from runInitLegacy (orchestrator fills it), got %q", auth.RepoPath)
+	}
+	if auth.GitHubToken != "" {
+		t.Errorf("expected empty GitHubToken, got %q", auth.GitHubToken)
 	}
 }
 
