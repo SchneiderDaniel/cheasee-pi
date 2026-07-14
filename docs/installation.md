@@ -164,7 +164,8 @@ cheasee-pi init
 After completion, you'll see:
 
 ```
-✅ Init complete! Next step: run 'cheasee-pi start'
+✅ Init complete! Next step:
+   docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 > **No GitHub?** Use `cheasee-pi init --no-github` to skip the GitHub OAuth and fork
@@ -173,18 +174,12 @@ After completion, you'll see:
 ### Step 6: Start the container
 
 ```bash
-cheasee-pi start
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 This runs `docker compose up` with the configuration extracted in Step 5,
 building the OCI image (~2 min first time) and starting the container in
 detached mode.
-
-Alternatively, run docker compose directly:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
-```
 
 ### Step 7: Enter the container
 
@@ -437,7 +432,7 @@ Open the workspace: `zed .` from the `cheasee-pi` root.
 
 ## What happens under the hood
 
-`cheasee-pi start` (or the legacy `./cheasee-pi.sh`) runs `docker compose up` with:
+The `docker compose -f docker/docker-compose.yml up -d --build` command (or the legacy `./cheasee-pi.sh`) runs `docker compose up` with:
 
 - Image built from `docker/Dockerfile` (Debian 12-slim, Node.js 22, Python 3, ripgrep, ast-grep, pi, gosu)
 - Workspace root (`../` relative to `main/`) bind-mounted to `/workspaces` inside the container — your worktree at `/workspaces/main`
@@ -483,7 +478,7 @@ Rebuild the image without cache:
 
 ```bash
 docker compose -f docker/docker-compose.yml build --no-cache
-cheasee-pi start
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Or for the legacy path:
@@ -495,7 +490,7 @@ docker compose -f docker/docker-compose.yml build --no-cache
 
 ### Permission errors on bind-mounted files
 
-UID/GID mapping is automatic via `cheasee-pi.sh` or `cheasee-pi start`. If you need to run manually:
+UID/GID mapping is automatic via `cheasee-pi.sh` or the Docker Compose command. If you need to run manually:
 
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
@@ -535,7 +530,7 @@ After installing, rebuild font cache and restart the Pi session:
 ```bash
 sudo fc-cache -fv
 # Exit pi (/exit), then restart:
-cheasee-pi start
+docker compose -f docker/docker-compose.yml up -d
 # Or legacy:
 ./cheasee-pi.sh
 ```
@@ -566,9 +561,9 @@ the font name to match the Nerd Font you installed.
 **Rebuild the container after any Dockerfile change:**
 
 ```bash
-cheasee-pi start --rebuild
+docker compose -f docker/docker-compose.yml up -d --build
 # Or legacy:
-./cheasee-pi.sh --rebuild
+./cheasee-pi.sh
 ```
 
 ---

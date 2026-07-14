@@ -12,6 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// nextStepHint is the post-init instruction printed after a successful init run.
+// It is a constant so both the CLI and documentation stay in sync.
+// If the compose filename or flag shape changes, update both init.go and
+// docs/installation.md in lockstep.
+const nextStepHint = "docker compose -f docker/docker-compose.yml up -d --build"
+
 var (
 	initAPIKey        string
 	initNoDockerCheck bool
@@ -222,7 +228,8 @@ func runInit(
 
 	path, _ := cfg.Path()
 	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
-	fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step: run 'cheasee-pi start'\n")
+	fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
+	fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
 	return nil
 }
 
