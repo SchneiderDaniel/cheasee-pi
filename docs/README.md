@@ -40,17 +40,39 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ## Quick start
 
-See the [installation guide](https://schneiderdaniel.github.io/cheasee-pi/installation) for full step-by-step instructions.
+See the [installation guide](https://schneiderdaniel.github.io/cheasee-pi/installation) for full step-by-step setup.
 
-TL;DR for Linux:
+TL;DR — native Docker workflow (no wrapper needed):
 
 ```bash
 git clone https://github.com/SchneiderDaniel/cheasee-pi.git
 cd cheasee-pi
-./cheasee-pi.sh
+
+# Build image and start container
+docker compose -f docker/docker-compose.yml up -d --build
+
+# Run pi inside the container
+docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
+
+# Stop and remove container when done
+docker compose -f docker/docker-compose.yml down
 ```
 
-First run of `./cheasee-pi.sh` builds the Docker image (~2 min) and drops you into the Pi TUI — follow the prompts to set your API key.
+First run builds the Docker image (~2 min). Set your API key inside the container
+when pi prompts you, or pass it via `-e`:
+
+```bash
+docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  --user agentuser -w /workspaces/main cheasee-pi pi
+```
+
+> **Rebuild after dependency changes:** `docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d`
+
+For the full daily usage guide — parallel sessions, troubleshooting, and convenience
+scripts — see the [Daily Usage guide](https://schneiderdaniel.github.io/cheasee-pi/daily-usage).
+
+The original `./cheasee-pi.sh` wrapper is still available as a legacy convenience
+alternative. Run it for an all-in-one experience (build, start, env injection).
 
 ## Documentation
 
@@ -59,6 +81,7 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | Section | What's there |
 |---------|-------------|
 | [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
+| [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage) | Docker workflow, parallel sessions, troubleshooting |
 | [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
 | [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 19 extensions, agent definitions, published packages |
 | [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 5 reusable skill definitions |
@@ -82,10 +105,16 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 When pi, ponytail, or any container dependency updates, rebuild the image:
 
 ```bash
+docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d
+```
+
+Or use the legacy convenience wrapper:
+
+```bash
 ./cheasee-pi.sh --rebuild
 ```
 
-This rebuilds the Docker image with updated packages. The container restarts automatically.
+Both rebuild the Docker image with updated packages and restart the container.
 
 ## Contributing
 
