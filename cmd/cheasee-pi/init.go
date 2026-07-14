@@ -25,6 +25,7 @@ var (
 	initSourceRepo    string
 	initNoGitHub      bool
 	initClientID      string
+	initProvider      string
 )
 
 var initCmd = &cobra.Command{
@@ -55,6 +56,7 @@ func init() {
 	initCmd.Flags().StringVar(&initSourceRepo, "source-repo", "SchneiderDaniel/cheasee-pi", "Source repository to fork")
 	initCmd.Flags().BoolVar(&initNoGitHub, "no-github", false, "Use legacy API-key-only path (skip GitHub OAuth)")
 	initCmd.Flags().StringVar(&initClientID, "client-id", "Iv23li6xWD3wR8aJbPP3", "GitHub OAuth client ID")
+	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -151,7 +153,7 @@ func runInit(
 	var auth *Auth
 	if noGitHub {
 		// Legacy path: API key only
-		auth, err = runInitLegacy(ctx, cfg, apiKey)
+		auth, err = runInitLegacy(ctx, cfg, apiKey, initProvider)
 		if err != nil {
 			return err
 		}
@@ -316,7 +318,7 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 
 // runInitLegacy is an auth-only helper that returns an *Auth with the API key.
 // It does NOT save, extract, or render — the orchestrator handles those.
-func runInitLegacy(ctx context.Context, cfg Repository, apiKey string) (*Auth, error) {
+func runInitLegacy(ctx context.Context, cfg Repository, apiKey string, provider string) (*Auth, error) {
 	if apiKey == "" {
 		key, err := promptAPIKey()
 		if err != nil {
@@ -325,7 +327,7 @@ func runInitLegacy(ctx context.Context, cfg Repository, apiKey string) (*Auth, e
 		apiKey = key
 	}
 
-	return &Auth{APIKey: apiKey}, nil
+	return &Auth{APIKey: apiKey, Provider: provider}, nil
 }
 
 // runInitSubmodule configures the pi submodule with the user's fork URL.

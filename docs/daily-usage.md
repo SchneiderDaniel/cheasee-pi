@@ -68,7 +68,7 @@ bash docker/run-pi.sh
 ```
 
 `run-pi.sh` checks if the container is running, starts it if needed, then execs into it.
-It also reads `~/.pi/agent/auth.json` and passes API keys as environment variables
+It also reads `~/.config/cheasee-pi/auth.json` (or the legacy `~/.pi/agent/auth.json` as fallback) and passes API keys as environment variables
 (see [Missing API keys](#missing-api-keys) in Troubleshooting).
 
 ## Run pi
@@ -94,7 +94,7 @@ docker exec -it \
   cheasee-pi pi
 ```
 
-> **Tip:** For automatic API key injection from `~/.pi/agent/auth.json`, use the
+> **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use the
 > [convenience script](#using-the-convenience-script) instead.
 
 ### Using the convenience script
@@ -104,7 +104,7 @@ bash docker/run-pi.sh
 ```
 
 This combines start and exec into a single idempotent command — it starts the container
-if not running, injects API keys from `~/.pi/agent/auth.json`, and opens the pi TUI.
+if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
 
 ### Using the legacy wrapper
 
@@ -226,7 +226,7 @@ complains about missing credentials.
 unless explicitly forwarded via `docker exec -e`.
 
 **Fix:** Use the convenience script (`bash docker/run-pi.sh`) which reads API keys from
-`~/.pi/agent/auth.json` and forwards them, or pass each key explicitly:
+`~/.config/cheasee-pi/auth.json` (or legacy `~/.pi/agent/auth.json`) and forwards them, or pass each key explicitly:
 
 ```bash
 docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
@@ -272,7 +272,7 @@ The container mounts `~/.config/gh/` read-write automatically.
 The `./cheasee-pi.sh` wrapper provides the original all-in-one experience:
 
 - Builds and starts the container
-- Auto-injects API keys from `~/.pi/agent/auth.json`
+- Auto-injects API keys from `~/.config/cheasee-pi/auth.json` (or legacy `~/.pi/agent/auth.json` as fallback)
 - Handles stale-process cleanup
 - Rebuilds on dependency changes (`--rebuild` flag)
 - Attach mode for parallel sessions (`--attach` flag)

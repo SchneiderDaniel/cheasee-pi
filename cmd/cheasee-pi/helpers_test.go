@@ -41,13 +41,14 @@ func (m *mockCheckerCtx) Check(ctx context.Context) (*CheckResult, error) {
 
 // mockRepository implements Repository for testing.
 type mockRepository struct {
-	saved     bool
-	savedKey  string
-	savedAuth *Auth
-	saveErr   error
-	loadErr   error
-	loadAuth  *Auth
-	path      string
+	saved          bool
+	savedKey       string
+	savedProvider  string
+	savedAuth      *Auth
+	saveErr        error
+	loadErr        error
+	loadAuth       *Auth
+	path           string
 }
 
 func (m *mockRepository) Load(_ context.Context) (*Auth, error) {
@@ -66,6 +67,7 @@ func (m *mockRepository) Save(_ context.Context, auth *Auth) error {
 	}
 	m.saved = true
 	m.savedKey = auth.APIKey
+	m.savedProvider = auth.Provider
 	m.savedAuth = auth
 	return nil
 }
