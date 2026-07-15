@@ -1241,3 +1241,598 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 		}
 	}
 }
+
+// ──────────────────────────────────────────────
+// Phase 1: Settings scaffold renderer (entity)
+// ──────────────────────────────────────────────
+
+func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := SettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test User",
+		GitEmail: "test@example.com",
+		Memory:   "4G",
+		CPUs:     "4.0",
+	}
+
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "gpt-4o" {
+		t.Errorf("expected defaultModel 'gpt-4o', got %v", raw["defaultModel"])
+	}
+
+	docker, ok := raw["docker"].(map[string]any)
+	if !ok {
+		t.Fatal("expected docker object")
+	}
+	if docker["memory"] != "4G" {
+		t.Errorf("expected memory '4G', got %v", docker["memory"])
+	}
+	if docker["cpus"] != "4.0" {
+		t.Errorf("expected cpus '4.0', got %v", docker["cpus"])
+	}
+
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "Test User" {
+		t.Errorf("expected gitIdentity.name 'Test User', got %v", gitID["name"])
+	}
+	if gitID["email"] != "test@example.com" {
+		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
+	}
+}
+
+func TestSettingsScaffold_Idempotent(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := SettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Original",
+		GitEmail: "orig@example.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+	}
+
+	// First call: write file
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("first Scaffold failed: %v", err)
+	}
+
+	// Second call: should no-op (file exists)
+	vals2 := SettingsValues{
+		Provider: "overwrite",
+		GitName:  "Overwrite",
+		GitEmail: "overwrite@example.com",
+		Memory:   "8G",
+		CPUs:     "8.0",
+	}
+	if err := scaffold.Scaffold(context.Background(), workdir, vals2); err != nil {
+		t.Fatalf("second Scaffold failed: %v", err)
+	}
+
+	// Content must still be from first call (unchanged)
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("expected defaultProvider 'opencode-go' (unchanged), got %v", raw["defaultProvider"])
+	}
+}
+
+func TestSettingsScaffold_EmptyValues(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := SettingsValues{} // all empty
+
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	// Empty values should be empty strings in output
+	if raw["defaultProvider"] != "" {
+		t.Errorf("expected empty defaultProvider, got %v", raw["defaultProvider"])
+	}
+
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "" {
+		t.Errorf("expected empty gitIdentity.name, got %v", gitID["name"])
+	}
+	if gitID["email"] != "" {
+		t.Errorf("expected empty gitIdentity.email, got %v", gitID["email"])
+	}
+
+	docker, ok := raw["docker"].(map[string]any)
+	if !ok {
+		t.Fatal("expected docker object")
+	}
+	if docker["memory"] != "" {
+		t.Errorf("expected empty docker.memory, got %v", docker["memory"])
+	}
+	if docker["cpus"] != "" {
+		t.Errorf("expected empty docker.cpus, got %v", docker["cpus"])
+	}
+}
+
+func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+
+	vals := SettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test",
+		GitEmail: "test@test.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+	}
+
+	// Non-existent parent path should fail with mkdir error
+	err := scaffold.Scaffold(context.Background(), "/nonexistent/path/to/workdir", vals)
+	if err == nil {
+		t.Fatal("expected error for invalid workdir")
+	}
+	if !strings.Contains(err.Error(), ".pi") && !strings.Contains(err.Error(), "mkdir") {
+		t.Errorf("error should mention .pi directory or mkdir: %v", err)
+	}
+}
+
+func TestSettingsScaffold_ContextCancelled(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := SettingsValues{
+		Provider: "opencode-go",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancelled
+
+	err := scaffold.Scaffold(ctx, workdir, vals)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("error should mention context: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 2: Git initializer (entity)
+// ──────────────────────────────────────────────
+
+func TestGitInitializer_Init(t *testing.T) {
+	gitInit := NewGitInitializer()
+	workdir := t.TempDir()
+
+	if err := gitInit.Init(context.Background(), workdir); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	// .git directory should exist
+	gitDir := filepath.Join(workdir, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		t.Error("expected .git directory to exist after Init")
+	}
+}
+
+func TestGitInitializer_Idempotent(t *testing.T) {
+	gitInit := NewGitInitializer()
+	workdir := t.TempDir()
+
+	// First call: create .git
+	if err := gitInit.Init(context.Background(), workdir); err != nil {
+		t.Fatalf("first Init failed: %v", err)
+	}
+
+	// Second call: should no-op
+	if err := gitInit.Init(context.Background(), workdir); err != nil {
+		t.Fatalf("second Init should not error: %v", err)
+	}
+
+	// .git still exists
+	gitDir := filepath.Join(workdir, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		t.Error("expected .git directory to exist after idempotent Init")
+	}
+}
+
+func TestGitInitializer_NonExistentWorkdir(t *testing.T) {
+	gitInit := NewGitInitializer()
+
+	err := gitInit.Init(context.Background(), "/nonexistent/path/to/nowhere")
+	if err == nil {
+		t.Fatal("expected error for non-existent workdir")
+	}
+	if !strings.Contains(err.Error(), "git init") {
+		t.Errorf("error should mention 'git init': %v", err)
+	}
+}
+
+func TestGitInitializer_ContextCancelled(t *testing.T) {
+	gitInit := NewGitInitializer()
+	workdir := t.TempDir()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancelled
+
+	err := gitInit.Init(ctx, workdir)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("error should mention context: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 4: Orchestrator — --no-github edge cases
+// ──────────────────────────────────────────────
+
+func TestRunInit_NoGitHub_ScaffoldError(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	ext := &mockExtractor{}
+	env := &mockEnvRenderer{}
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			return fmt.Errorf("scaffold failed: disk full")
+		},
+	}
+	gitInit := &mockGitInitializer{}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirEmpty, nil
+		},
+	}
+
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error when scaffold fails")
+	}
+	if !strings.Contains(err.Error(), "settings scaffold") {
+		t.Errorf("error should mention settings scaffold: %v", err)
+	}
+}
+
+func TestRunInit_NoGitHub_GitInitError(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	ext := &mockExtractor{}
+	env := &mockEnvRenderer{}
+	scaffold := &mockSettingsScaffold{}
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			return fmt.Errorf("git init failed")
+		},
+	}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirEmpty, nil
+		},
+	}
+
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error when git init fails")
+	}
+	if !strings.Contains(err.Error(), "git init") {
+		t.Errorf("error should mention git init: %v", err)
+	}
+}
+
+func TestRunInit_NoGitHub_NoDockerCheck(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: false},
+	}
+	mockCfg := &mockRepository{}
+
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+	gitInitCalled := false
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			gitInitCalled = true
+			return nil
+		},
+	}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirEmpty, nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", workdir,
+		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !scaffoldCalled {
+		t.Error("scaffold should be called with --no-docker-check")
+	}
+	if !gitInitCalled {
+		t.Error("git init should be called with --no-docker-check")
+	}
+}
+
+func TestRunInit_NoGitHub_ContextCancelledMidScaffold(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	ext := &mockExtractor{}
+	env := &mockEnvRenderer{}
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			// Cancel context to simulate mid-scaffold cancellation
+			cancel()
+			return ctx.Err()
+		},
+	}
+	gitInit := &mockGitInitializer{}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirEmpty, nil
+		},
+	}
+
+	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("error should mention context: %v", err)
+	}
+}
+
+func TestRunInit_NoGitHub_ExistingGitNoPi(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	workdir := t.TempDir()
+
+	// Pre-create .git (simulate git already present)
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	gitInitCalled := false
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			gitInitCalled = true
+			return nil
+		},
+	}
+
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			// Has .git but no compose — but --no-github probe is called before scaffold, so it's WorkdirEmpty
+			return WorkdirHasRepo, nil
+		},
+	}
+
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// git init should still be called (osGitInitializer.Init handles idempotency internally)
+	if !gitInitCalled {
+		t.Error("git init should be called (idempotency handled by adapter)")
+	}
+	if !scaffoldCalled {
+		t.Error("scaffold should be called when .pi/settings.json missing")
+	}
+}
+
+func TestRunInit_NoGitHub_ExistingPiNoGit(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	workdir := t.TempDir()
+
+	// Pre-create .pi/settings.json (simulate scaffold already done)
+	piDir := filepath.Join(workdir, ".pi")
+	os.MkdirAll(piDir, 0755)
+	os.WriteFile(filepath.Join(piDir, "settings.json"), []byte(`{"defaultProvider":"existing"}`), 0644)
+
+	gitInitCalled := false
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			gitInitCalled = true
+			return nil
+		},
+	}
+
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+
+	probe := &mockWorkingDirProbe{
+		inspectFunc: func(path string) (WorkdirState, error) {
+			return WorkdirHasCompose, nil
+		},
+	}
+
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Scaffold is called (idempotency handled by adapter layer)
+	if !scaffoldCalled {
+		t.Error("scaffold should be called (idempotency handled by adapter)")
+	}
+	if !gitInitCalled {
+		t.Error("git init should be called when .git missing")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 5: Orchestrator — GitHub flow edge cases
+// ──────────────────────────────────────────────
+
+func TestRunInit_GitHubFlow_ScaffoldCalled(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+	gitInitCalled := false
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			gitInitCalled = true
+			return nil
+		},
+	}
+
+	auth, gh, clone, ext, env, probe, uid, gitID, _, _ := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("GitHub flow failed: %v", err)
+	}
+	if !scaffoldCalled {
+		t.Error("scaffold should be called on GitHub flow (idempotent fill)")
+	}
+	if gitInitCalled {
+		t.Error("git init should NOT be called on GitHub flow (clone creates .git)")
+	}
+}
+
+func TestRunInit_GitHubFlow_ContextCancelledMidScaffold(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			cancel()
+			return ctx.Err()
+		},
+	}
+	gitInit := &mockGitInitializer{}
+
+	auth, gh, clone, ext, env, probe, uid, gitID, _, _ := defaultMocks()
+
+	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", t.TempDir(),
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("error should mention context: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 6: Extract guard — pi/ assets not extracted
+// ──────────────────────────────────────────────
+
+func TestExtract_SkipsPiSubtree(t *testing.T) {
+	ext := NewExtractor()
+	workdir := t.TempDir()
+
+	if err := ext.Extract(context.Background(), workdir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// docker/ should exist
+	if _, err := os.Stat(filepath.Join(workdir, "docker", "docker-compose.yml")); os.IsNotExist(err) {
+		t.Error("expected docker-compose.yml to be extracted")
+	}
+
+	// .pi/ should NOT be extracted (it's consumed by scaffold, not extractor)
+	if _, err := os.Stat(filepath.Join(workdir, "pi")); err == nil {
+		t.Error("pi/ should not be extracted to workspace")
+	}
+}
