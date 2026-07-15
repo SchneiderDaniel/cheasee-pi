@@ -67,7 +67,7 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 	_, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -91,7 +91,7 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 	_, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -116,7 +116,7 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 	_, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -141,7 +141,7 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 	_, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker CheckResult.Err is set")
 	}
@@ -157,7 +157,7 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -225,7 +225,7 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -440,7 +440,7 @@ func TestRunInit_FullFlow(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		auth, gh, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	cancel()
 
 	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		mockAuth, nil, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, nil, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -571,7 +571,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -600,49 +600,412 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
 }
 
 // ──────────────────────────────────────────────
-// Submodule tests
+// Phase 2: parseSubmoduleURLs tests
 // ──────────────────────────────────────────────
 
-func TestRunInitSubmodule_Success(t *testing.T) {
-	mockClone := &mockCloner{
-		configureSubmodFunc: func(ctx context.Context, repoPath, submodulePath, newURL string) error {
-			if submodulePath != "private-pi" {
-				return fmt.Errorf("expected private-pi, got %s", submodulePath)
-			}
+func TestParseSubmoduleURLs_HappyPath(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"flask_blogs=https://github.com/user/flask_blogs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result))
+	}
+	if result["flask_blogs"] != "https://github.com/user/flask_blogs" {
+		t.Errorf("expected URL, got %q", result["flask_blogs"])
+	}
+}
+
+func TestParseSubmoduleURLs_SCPStyle(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"private-pi=git@github.com:user/private-pi.git"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["private-pi"] != "git@github.com:user/private-pi.git" {
+		t.Errorf("expected SCP URL, got %q", result["private-pi"])
+	}
+}
+
+func TestParseSubmoduleURLs_Multiple(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"a=https://a.com", "b=https://b.com"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result["a"] != "https://a.com" {
+		t.Errorf("expected 'https://a.com', got %q", result["a"])
+	}
+	if result["b"] != "https://b.com" {
+		t.Errorf("expected 'https://b.com', got %q", result["b"])
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyName(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"=url"})
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyURL(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"name="})
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+}
+
+func TestParseSubmoduleURLs_MissingEquals(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"invalid"})
+	if err == nil {
+		t.Fatal("expected error for missing =")
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyInput(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(result))
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 4: runInitSubmodule orchestrator tests
+// ──────────────────────────────────────────────
+
+func TestRunInitSubmodule_SkipAll(t *testing.T) {
+	mc := &mockCloner{}
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.listSubmodulesCalled {
+		t.Error("ListSubmodules should not be called when skipAll is true")
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called when skipAll is true")
+	}
+	if mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should not be called when skipAll is true")
+	}
+}
+
+func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.listSubmodulesCalled {
+		t.Error("ListSubmodules should be called")
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with no overrides")
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return nil, nil // user accepted all defaults
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with no changes")
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should be called")
+	}
+	if mc.setSubmoduleURLName != "flask_blogs" {
+		t.Errorf("expected flask_blogs, got %q", mc.setSubmoduleURLName)
+	}
+	if mc.setSubmoduleURLURL != "https://github.com/user/flask_blogs" {
+		t.Errorf("expected URL, got %q", mc.setSubmoduleURLURL)
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
 			return nil
 		},
 	}
 
-	err := mockClone.ConfigureSubmodule(context.Background(), t.TempDir(), "private-pi", "https://github.com/testuser/cheasee-pi.git")
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+		"private-pi":  "https://github.com/user/private-pi.git",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestRunInitSubmodule_NotExists(t *testing.T) {
-	err := runInitSubmodule(context.Background(), &mockCloner{}, t.TempDir(), "https://github.com/testuser/cheasee-pi.git")
-	if err != nil {
-		t.Fatalf("expected no error for missing submodule: %v", err)
+	// Should have called SetSubmoduleURL for both
+	if len(mc.setSubmoduleURLCalls) != 2 {
+		t.Errorf("expected 2 SetSubmoduleURL calls, got %d", len(mc.setSubmoduleURLCalls))
 	}
 }
 
-func TestRunInitSubmodule_Fails(t *testing.T) {
-	mockClone := &mockCloner{
-		configureSubmodFunc: func(ctx context.Context, repoPath, submodulePath, newURL string) error {
-			return fmt.Errorf("submodule update failed")
+func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mockClone, t.TempDir(), "https://github.com/testuser/cheasee-pi.git")
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return map[string]string{
+			"flask_blogs": "https://github.com/user/flask_blogs",
+		}, nil
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should be called for the prompted override")
+	}
+	if mc.setSubmoduleURLName != "flask_blogs" {
+		t.Errorf("expected flask_blogs, got %q", mc.setSubmoduleURLName)
+	}
+}
+
+func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	// Prompt returns one URL, but override wins
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return map[string]string{
+			"flask_blogs": "https://github.com/prompt/flask_blogs",
+		}, nil
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/cli/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLURL != "https://github.com/cli/flask_blogs" {
+		t.Errorf("expected CLI override URL, got %q", mc.setSubmoduleURLURL)
+	}
+}
+
+func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return nil, fmt.Errorf("repo not found")
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "repo not found") {
+		t.Errorf("expected 'repo not found', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
+			return fmt.Errorf("invalid URL")
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid URL") {
+		t.Errorf("expected 'invalid URL', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
+			return fmt.Errorf("update failed")
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "update failed") {
+		t.Errorf("expected 'update failed', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_PromptError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return nil, fmt.Errorf("user cancelled")
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "user cancelled") {
+		t.Errorf("expected 'user cancelled', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return nil, ctx.Err()
+		},
+	}
+
+	err := runInitSubmodule(ctx, mc, t.TempDir(), nil, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{}, nil
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with empty list")
+	}
+	if mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should not be called with empty list")
+	}
+}
+
+func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
+			return fmt.Errorf("submodule %q not found in .gitmodules", name)
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"nonexistent": "https://github.com/user/nonexistent",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err == nil {
+		t.Fatal("expected error for non-existent submodule")
 	}
 }
 
@@ -824,7 +1187,7 @@ func TestInit_SuccessMessage(t *testing.T) {
 	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
 
 	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil), nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1197,7 +1560,7 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 	}
 
 	output := buf.String()
-	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider"}
+	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--submodule-url", "--skip-submodules"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)
