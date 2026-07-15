@@ -1,56 +1,97 @@
 ---
-description: Create a new GitHub release for cheasee-pi. Determine version from feature count since last tag, fetch and categorize all merged PRs, run tests, create tag only if all pass.
+description: Create a new GitHub release for cheasee-pi. Determine version from feature count since last tag, fetch and categorize all merged PRs, run all checks (TypeScript + Go + GoReleaser), create tag, let GoReleaser publish artifacts, then update release body.
 ---
 
 # Release — cheasee-pi
 
 Creates a new GitHub release for the `SchneiderDaniel/cheasee-pi` repository.
 
-Requires: `gh` CLI authenticated, `git` in PATH.
+Requires: `gh` CLI authenticated, `git` in PATH, `go` in PATH, `goreleaser` CLI in PATH.
+
+## Architecture
+
+This repo has a **dual release** model:
+
+- **TypeScript/Node** — pi extension code, tested via `npm test`, version in `package.json`
+- **Go CLI** — `cmd/cheasee-pi/`, tested via `go test`, version in `root.go` and `docs/installation.md`
+
+When a tag `v*` is pushed, the **GoReleaser GitHub Actions workflow** (`.github/workflows/release.yml`)
+builds Go binaries for linux/mac/windows (amd64+arm64), creates archives + checksums, and publishes
+them to the GitHub release. The release skill therefore does NOT use `gh release create` — it lets
+GoReleaser own artifact publishing. After GoReleaser finishes, this skill updates the release body
+with categorized PR notes.
 
 ## Workflow
 
-### Step 1 — Run Tests + TypeScript Check
+### Step 1 — Run All Checks
 
-Run both checks first. If either fails, stop immediately. Do not proceed to fetching tags or PRs.
+Run all pre-release checks. If any fails, stop immediately.
 
-TypeScript compilation:
+#### 1a — TypeScript Compilation
 
 ```bash
 npm run tsc:extensions
-```
-
-Capture exit code:
-
-```bash
-export TSC_EXIT_CODE=$?
+TSC_EXIT_CODE=$?
 ```
 
 If `TSC_EXIT_CODE != 0`:
 
 > **STOP.** TypeScript compilation failed. Fix type errors before releasing. Do not create release.
 
-Do not proceed further.
-
-Test suite:
+#### 1b — Node Test Suite
 
 ```bash
 npm test
-```
-
-Capture exit code:
-
-```bash
-export TEST_EXIT_CODE=$?
+TEST_EXIT_CODE=$?
 ```
 
 If `TEST_EXIT_CODE != 0`:
 
-> **STOP.** Tests failed. Do NOT create any tag or release.
-> Print the failing test output and inform the user:
-> "Tests failed (exit code $TEST_EXIT_CODE). Release aborted. Fix failing tests before retrying."
+> **STOP.** Tests failed (exit code $TEST_EXIT_CODE). Release aborted. Fix failing tests before retrying.
 
-Do not proceed further.
+#### 1c — Go Build Check
+
+```bash
+go build ./cmd/cheasee-pi/
+GO_BUILD_EXIT_CODE=$?
+```
+
+If `GO_BUILD_EXIT_CODE != 0`:
+
+> **STOP.** Go compilation failed. The Go CLI binary does not compile. Fix before releasing.
+
+#### 1d — Go Vet (static analysis)
+
+```bash
+go vet ./cmd/cheasee-pi/...
+GO_VET_EXIT_CODE=$?
+```
+
+If `GO_VET_EXIT_CODE != 0`:
+
+> **STOP.** Go vet found issues. Fix before releasing.
+
+#### 1e — Go Test Suite
+
+```bash
+go test ./cmd/cheasee-pi/...
+GO_TEST_EXIT_CODE=$?
+```
+
+If `GO_TEST_EXIT_CODE != 0`:
+
+> **STOP.** Go tests failed. Fix before releasing.
+
+#### 1f — GoReleaser Config Validation
+
+```bash
+goreleaser check
+GORELEASER_CHECK_EXIT_CODE=$?
+```
+
+If `GORELEASER_CHECK_EXIT_CODE != 0`:
+
+> **STOP.** GoReleaser config (.goreleaser.yml) is invalid. Fix before releasing.
 
 ### Step 2 — Configuration
 
@@ -201,7 +242,7 @@ Print the categorized list.
 
 After categorizing, write categorized PRs to a temp file using the `write` tool:
 
-```
+```bash
 write ignore/categorized-prs.txt
 ...
 ```
@@ -274,6 +315,17 @@ New version:  v$NEW_VERSION
 Feature count: $FEATURE_COUNT
 Increment:    0.XX
 
+Files to update:
+  - package.json: version -> $NEW_VERSION
+  - cmd/cheasee-pi/root.go: Version -> "$NEW_VERSION"
+  - docs/installation.md: VERSION -> "$NEW_VERSION"
+
+GoReleaser will auto-publish:
+  - linux (amd64, arm64) — tar.gz
+  - darwin (amd64, arm64) — tar.gz
+  - windows (amd64, arm64) — zip
+  - checksums.txt
+
 Proposed release body:
 ---
 ## Release v{NEW_VERSION}
@@ -291,7 +343,7 @@ Ready to create this release?
 
 Save the preview to `ignore/release-preview.md` using the `write` tool for user reference:
 
-```
+```bash
 write ignore/release-preview.md
 ═══ Release Preview ═══
 ...
@@ -302,11 +354,15 @@ Then **ask the user for confirmation** before proceeding. Use a choice prompt:
 > "Create release v$NEW_VERSION?"
 > Options: [Create] [Preview release body] [Cancel]
 
-If user cancels, stop. Do not create tag or release.
+If user cancels, stop. Do not create tag or push.
 
-### Step 12 — Sync package.json Version
+### Step 12 — Sync Versions Across All Files
 
-Update the `version` field in `package.json` to match the new release version:
+Three files need version updates. Edit them all before committing.
+
+#### 12a — package.json
+
+Find the current `"version"` field in `package.json` and replace it with `"$NEW_VERSION_CLEAN"` where NEW_VERSION_CLEAN = version without `v` prefix:
 
 ```bash
 export NEW_VERSION_CLEAN=$(echo "$NEW_VERSION" | sed 's/^v//')
@@ -314,14 +370,34 @@ export NEW_VERSION_CLEAN=$(echo "$NEW_VERSION" | sed 's/^v//')
 
 Use the `edit` tool to replace `"version": "1.0.0"` (or whatever the current version is) with `"version": "$NEW_VERSION_CLEAN"` in `package.json`.
 
-Then commit the change:
+#### 12b — cmd/cheasee-pi/root.go
+
+The version string in `root.go` is in the `rootCmd` declaration. Replace the current version string with the new one.
+
+Use the `edit` tool on `cmd/cheasee-pi/root.go`:
+
+Find: `Version:            "X.X.X",` (where X.X.X is the current `BASE_VERSION`)
+Replace with: `Version:            "$NEW_VERSION_CLEAN",`
+
+(Keep the exact spacing. Use `read` to verify the current line.)
+
+#### 12c — docs/installation.md
+
+The `VERSION="X.X.X"` line in `docs/installation.md` must match.
+
+Use the `edit` tool on `docs/installation.md`:
+
+Find: `VERSION="X.X.X"` (where X.X.X is the current `BASE_VERSION`)
+Replace with: `VERSION="$NEW_VERSION_CLEAN"`
+
+### Step 13 — Commit Version Bump
 
 ```bash
-git add package.json
+git add package.json cmd/cheasee-pi/root.go docs/installation.md
 git commit -m "chore: bump version to v$NEW_VERSION"
 ```
 
-### Step 13 — Build Release Body
+### Step 14 — Build Release Body (for later use)
 
 Generate release notes from the categorized PR list. Format per category:
 
@@ -347,51 +423,93 @@ Generate release notes from the categorized PR list. Format per category:
 Use the categorized list to produce real content. Omit any category with zero entries. Use the `write` tool to save the body:
 
 ```bash
-# Use write tool to create ignore/release-body.md with the release notes content
+write ignore/release-body.md
+...
 ```
 
-### Step 14 — Create Tag
+### Step 15 — Create Tag
 
 ```bash
 git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
 ```
 
-Do not push yet — the tag will be pushed together with the version bump commit.
-
-### Step 15 — Push Tag + Version Commit
+### Step 16 — Push Tag + Version Commit
 
 ```bash
 git push origin main
 git push origin "v$NEW_VERSION"
 ```
 
-### Step 16 — Create Draft Release
+### Step 17 — Wait for GoReleaser + Update Release Body
 
-Create the release as a **draft** so the user can review and publish manually:
+After the tag is pushed, the GitHub Actions workflow `.github/workflows/release.yml` auto-triggers.
+This workflow runs `goreleaser release --clean` which:
+1. Builds Go binaries for all targets
+2. Creates archives (tar.gz / zip)
+3. Generates checksums.txt
+4. Creates/updates the GitHub release with assets
+
+**Do not proceed until GoReleaser has completed.** Check the Actions status:
 
 ```bash
-gh release create "v$NEW_VERSION" \
-  --repo "$REPO" \
-  --title "Release v$NEW_VERSION" \
-  --notes-file ignore/release-body.md \
-  --draft
+gh run list --repo "$REPO" --workflow "Release" --branch main --limit 5 --json conclusion,headBranch,createdAt,databaseId
 ```
 
-### Step 17 — Confirm
+Wait for the workflow run on the new tag to complete. Poll every 30s:
+
+```bash
+RUN_ID=$(gh run list --repo "$REPO" --workflow "Release" --branch "v$NEW_VERSION" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+```
+
+If the workflow hasn't started yet (RUN_ID is empty), wait 30s and retry.
+Once RUN_ID is available, wait for it to complete:
+
+```bash
+gh run watch "$RUN_ID" --repo "$REPO"
+CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion')
+```
+
+If `CONCLUSION != "success"`:
+
+> **WARNING.** GoReleaser workflow finished with status: $CONCLUSION. The release may be incomplete.
+> Check: https://github.com/$REPO/actions/runs/$RUN_ID
+
+Print a warning but do not block the release body update — the user should investigate.
+
+### Step 18 — Update Release Body
+
+GoReleaser creates the release but uses an auto-generated changelog (git log).
+Replace it with the categorized PR list built in Step 14.
+
+```bash
+gh release edit "v$NEW_VERSION" --repo "$REPO" --notes-file ignore/release-body.md
+```
+
+### Step 19 — Confirm
 
 Print confirmation:
 
 ```
-Release v$NEW_VERSION prepared as draft.
+Release v$NEW_VERSION published.
 
 Version bump commit:  (hash)
 Tag:                 v$NEW_VERSION
-Draft release URL:   https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/v$NEW_VERSION
+Release URL:         https://github.com/SchneiderDaniel/cheasee-pi/releases/tag/v$NEW_VERSION
+GoReleaser run:      https://github.com/SchneiderDaniel/cheasee-pi/actions/runs/$RUN_ID
 
-Next step: Review and publish the draft release on GitHub.
+Go CLI artifacts (attached to release):
+  - cheasee-pi_{version}_linux_amd64.tar.gz
+  - cheasee-pi_{version}_linux_arm64.tar.gz
+  - cheasee-pi_{version}_darwin_amd64.tar.gz
+  - cheasee-pi_{version}_darwin_arm64.tar.gz
+  - cheasee-pi_{version}_windows_amd64.zip
+  - cheasee-pi_{version}_windows_arm64.zip
+  - checksums.txt
+
 To roll back: git tag -d v$NEW_VERSION && git push --delete origin v$NEW_VERSION && git revert <commit-hash>
+```
 
-### Step 18 — Clean Up Temp Files
+### Step 20 — Clean Up Temp Files
 
 Remove all temporary files created during the release process:
 
@@ -407,8 +525,11 @@ Temporary files cleaned from ignore/.
 
 ## Constraints
 
-- **Do NOT create tag or release if any test fails.** Hard stop.
-- **Ask user confirmation before any irreversible action** (tag push, release creation).
+- **Do NOT create tag or release if any check fails.** Hard stop on: TSC errors, test failures, Go build failure, Go vet failure, Go test failure, GoReleaser config invalid.
+- **Ask user confirmation before any irreversible action** (tag push).
+- Version sync must be consistent across three files: `package.json`, `cmd/cheasee-pi/root.go`, `docs/installation.md`.
+- **Do NOT use `gh release create`.** GoReleaser owns release creation. The skill pushes a tag and the GitHub Actions workflow handles artifact publishing.
+- Release body is updated AFTER GoReleaser finishes, via `gh release edit`.
 - Use `gh` CLI for all GitHub operations — not curl, not raw API calls.
 - PR categorization is done by LLM reading PR titles, not by fixed keyword list.
 - Version base always comes from the latest semver tag (strip `v` prefix).
@@ -418,7 +539,6 @@ Temporary files cleaned from ignore/.
 - Trim version to 2 decimal places.
 - Do not overwrite existing tags — check first and stop if duplicate.
 - Use `write` tool for file creation, not `cat >` in bash.
-- Create releases as drafts — never publish immediately.
 - Always sync `package.json` version field with the git tag.
 
 ## Quality Checklist
@@ -434,10 +554,17 @@ Temporary files cleaned from ignore/.
 - [ ] Version calculation follows rules (>=10 → +0.1, <10 → +0.01)
 - [ ] Duplicate version tag does not already exist
 - [ ] User confirmed release preview before proceeding
-- [ ] TypeScript compiles cleanly (`npm run tsc:extensions`) — Step 1
-- [ ] All tests pass (`npm test`) — Step 1
+- [ ] TypeScript compiles cleanly (`npm run tsc:extensions`) — Step 1a
+- [ ] All Node tests pass (`npm test`) — Step 1b
+- [ ] Go compiles cleanly (`go build ./cmd/cheasee-pi/`) — Step 1c
+- [ ] Go vet passes (`go vet ./cmd/cheasee-pi/...`) — Step 1d
+- [ ] All Go tests pass (`go test ./cmd/cheasee-pi/...`) — Step 1e
+- [ ] GoReleaser config valid (`goreleaser check`) — Step 1f
 - [ ] `package.json` version field synced with new version
-- [ ] Version bump commit created
+- [ ] `cmd/cheasee-pi/root.go` Version field synced
+- [ ] `docs/installation.md` VERSION synced
+- [ ] Version bump commit created with all three files
 - [ ] Tag created and pushed
-- [ ] Release created as draft, not published directly
+- [ ] GoReleaser workflow completed successfully
+- [ ] Release body updated with categorized PRs (not flat commit list)
 - [ ] Rollback instructions printed
