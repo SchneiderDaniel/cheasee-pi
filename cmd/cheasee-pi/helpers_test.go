@@ -208,6 +208,21 @@ func (m *mockExtractor) Extract(ctx context.Context, destDir string) error {
 }
 
 // ──────────────────────────────────────────────
+// Mock: SettingsGenerator
+// ──────────────────────────────────────────────
+
+type mockSettingsGenerator struct {
+	renderFunc func(ctx context.Context, dest string, vals SettingsValues) error
+}
+
+func (m *mockSettingsGenerator) Render(ctx context.Context, dest string, vals SettingsValues) error {
+	if m.renderFunc != nil {
+		return m.renderFunc(ctx, dest, vals)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────
 // Mock: EnvRenderer
 // ──────────────────────────────────────────────
 
@@ -290,6 +305,7 @@ var (
 	_ GitHubClient     = (*mockGitHubClient)(nil)
 	_ Cloner           = (*mockCloner)(nil)
 	_ Extractor        = (*mockExtractor)(nil)
+	_ SettingsGenerator = (*mockSettingsGenerator)(nil)
 	_ EnvRenderer      = (*mockEnvRenderer)(nil)
 	_ WorkingDirProbe  = (*mockWorkingDirProbe)(nil)
 	_ UIDResolver      = (*mockUIDResolver)(nil)
