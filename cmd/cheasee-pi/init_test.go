@@ -25,6 +25,8 @@ func defaultMocks() (
 	*mockWorkingDirProbe,
 	*mockUIDResolver,
 	*mockGitIdentity,
+	*mockSettingsScaffold,
+	*mockGitInitializer,
 ) {
 	auth := &mockAuthenticator{}
 	gh := &mockGitHubClient{
@@ -48,7 +50,9 @@ func defaultMocks() (
 	}
 	uid := &mockUIDResolver{}
 	gitID := &mockGitIdentity{}
-	return auth, gh, clone, ext, env, probe, uid, gitID
+	scaffold := &mockSettingsScaffold{}
+	gitInit := &mockGitInitializer{}
+	return auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit
 }
 
 // ──────────────────────────────────────────────
@@ -64,10 +68,10 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -88,10 +92,10 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -113,10 +117,10 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -138,10 +142,10 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker CheckResult.Err is set")
 	}
@@ -154,10 +158,10 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -178,10 +182,10 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -202,10 +206,10 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -222,10 +226,10 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -436,13 +440,24 @@ func TestRunInit_FullFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID := defaultMocks()
+
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+	auth, gh, clone, ext, env, probe, uid, gitID, _, gitInit := defaultMocks()
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
+	}
+	if !scaffoldCalled {
+		t.Error("SettingsScaffold.Scaffold should be called on GitHub flow")
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called after full flow")
@@ -472,6 +487,22 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		},
 	}
 
+	scaffoldCalled := false
+	scaffold := &mockSettingsScaffold{
+		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
+			scaffoldCalled = true
+			return nil
+		},
+	}
+
+	gitInitCalled := false
+	gitInit := &mockGitInitializer{
+		initFunc: func(ctx context.Context, workdir string) error {
+			gitInitCalled = true
+			return nil
+		},
+	}
+
 	probe := &mockWorkingDirProbe{
 		inspectFunc: func(path string) (WorkdirState, error) {
 			return WorkdirEmpty, nil
@@ -480,7 +511,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -489,6 +520,12 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 	if !renderCalled {
 		t.Error("Env render should be called on legacy path")
+	}
+	if !scaffoldCalled {
+		t.Error("SettingsScaffold.Scaffold should be called on legacy path")
+	}
+	if !gitInitCalled {
+		t.Error("GitInitializer.Init should be called on legacy path")
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called on legacy path")
@@ -525,7 +562,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	// Use a mock authenticator that respects cancelled context
 	mockAuth := &mockAuthenticator{
@@ -538,7 +575,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	cancel()
 
 	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		mockAuth, nil, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, nil, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -553,7 +590,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	// Override GitHub client to return fork-already-exists
 	mockGH := &mockGitHubClient{
@@ -571,7 +608,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -586,7 +623,7 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	mockGH := &mockGitHubClient{
 		getUserFunc: func(ctx context.Context, token string) (string, error) {
@@ -600,7 +637,7 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
@@ -821,10 +858,10 @@ func TestInit_SuccessMessage(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

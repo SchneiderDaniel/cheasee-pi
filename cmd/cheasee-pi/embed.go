@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed embedded
@@ -62,6 +63,12 @@ func (e *FSExtractor) Extract(ctx context.Context, destDir string) error {
 		}
 		if rel == "." || rel == "" {
 			return nil // skip root
+		}
+		// Skip non-docker embedded assets (pi/ subtree).
+		// The settings template is consumed directly by the scaffold adapter,
+		// not extracted to the workspace.
+		if strings.HasPrefix(rel, "pi") {
+			return nil
 		}
 
 		destPath := filepath.Join(destDir, rel)
