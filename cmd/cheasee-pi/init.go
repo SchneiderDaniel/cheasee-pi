@@ -28,6 +28,8 @@ var (
 	initNoGitHub      bool
 	initClientID      string
 	initProvider      string
+	initSubmoduleURLs []string
+	initSkipSubmodules bool
 )
 
 var initCmd = &cobra.Command{
@@ -59,6 +61,8 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoGitHub, "no-github", false, "Use legacy API-key-only path (skip GitHub OAuth)")
 	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
+	initCmd.Flags().StringArrayVar(&initSubmoduleURLs, "submodule-url", nil, "Override submodule URL (repeatable, format: name=url)")
+	initCmd.Flags().BoolVar(&initSkipSubmodules, "skip-submodules", false, "Skip all submodule setup")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -77,6 +81,11 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("get working directory: %w", err)
 		}
+	}
+
+	submoduleURLs, err := parseSubmoduleURLs(initSubmoduleURLs)
+	if err != nil {
+		return fmt.Errorf("parse submodule URLs: %w", err)
 	}
 
 	dockerChecker := NewChecker(5 * time.Second)
@@ -111,6 +120,9 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		uidResolver,
 		gitIdentity,
 		confirmFn,
+		submoduleURLs,
+		initSkipSubmodules,
+		promptSubmoduleURLs,
 	)
 }
 
@@ -133,6 +145,9 @@ func runInit(
 	uidResolver UIDResolver,
 	gitIdentity GitIdentity,
 	confirmFn func(string) (bool, error),
+	submoduleURLs map[string]string,
+	skipSubmodules bool,
+	promptFn func([]Submodule) (map[string]string, error),
 ) error {
 	// Phase 1: Docker check (unless --no-docker-check)
 	if !noDockerCheck {
@@ -214,8 +229,8 @@ func runInit(
 			}
 			fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
 
-			// Phase 8: Configure submodule
-			if err := runInitSubmodule(ctx, cloner, workdir, cloneURL); err != nil {
+			// Phase 8: Configure submodules
+			if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn); err != nil {
 				return fmt.Errorf("submodule config: %w", err)
 			}
 
@@ -344,12 +359,62 @@ func runInitLegacy(ctx context.Context, cfg Repository, apiKey string, provider 
 	return &Auth{APIKey: apiKey, Provider: provider}, nil
 }
 
-// runInitSubmodule configures the pi submodule with the user's fork URL.
-func runInitSubmodule(ctx context.Context, cloner Cloner, workdir, forkURL string) error {
-	fmt.Fprintf(os.Stderr, "  ℹ Configuring submodules...\n")
-	if err := cloner.ConfigureSubmodule(ctx, workdir, "private-pi", forkURL); err != nil {
-		return err
+// runInitSubmodule orchestrates submodule enumeration, URL prompting, URL overrides,
+// and init/update of all submodules.
+func runInitSubmodule(
+	ctx context.Context,
+	cloner Cloner,
+	workdir string,
+	urlOverrides map[string]string,
+	skipAll bool,
+	promptFn func([]Submodule) (map[string]string, error),
+) error {
+	if skipAll {
+		fmt.Fprintf(os.Stderr, "  ℹ Skipping submodule setup (--skip-submodules)\n")
+		return nil
 	}
+
+	fmt.Fprintf(os.Stderr, "  ℹ Configuring submodules...\n")
+
+	submodules, err := cloner.ListSubmodules(ctx, workdir)
+	if err != nil {
+		return fmt.Errorf("list submodules: %w", err)
+	}
+
+	if len(submodules) == 0 {
+		fmt.Fprintf(os.Stderr, "  ℹ No submodules found\n")
+		return nil
+	}
+
+	// Collect URL overrides: prompt first, then CLI flags take precedence
+	overrides := make(map[string]string)
+	if promptFn != nil {
+		promptResult, err := promptFn(submodules)
+		if err != nil {
+			return fmt.Errorf("prompt for submodule URLs: %w", err)
+		}
+		for name, url := range promptResult {
+			overrides[name] = url
+		}
+	}
+	for name, url := range urlOverrides {
+		overrides[name] = url
+	}
+
+	// Apply URL changes
+	for name, url := range overrides {
+		fmt.Fprintf(os.Stderr, "  ℹ Setting submodule %q URL to %s\n", name, url)
+		if err := cloner.SetSubmoduleURL(ctx, workdir, name, url); err != nil {
+			return fmt.Errorf("set submodule %q URL: %w", name, err)
+		}
+	}
+
+	// Init and update all submodules
+	if err := cloner.InitAndUpdateSubmodules(ctx, workdir); err != nil {
+		return fmt.Errorf("update submodules: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "  ✓ Submodules configured\n")
 	return nil
 }
 
@@ -461,4 +526,64 @@ func promptGitIdentity() (name, email string, err error) {
 	)
 	err = form.Run()
 	return name, email, err
+}
+
+// parseSubmoduleURLs parses --submodule-url flag values (format: name=url).
+func parseSubmoduleURLs(entries []string) (map[string]string, error) {
+	result := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid --submodule-url format: %q (expected name=url)", entry)
+		}
+		name := strings.TrimSpace(parts[0])
+		url := strings.TrimSpace(parts[1])
+		if name == "" {
+			return nil, fmt.Errorf("empty submodule name in %q", entry)
+		}
+		if url == "" {
+			return nil, fmt.Errorf("empty URL for submodule %q", name)
+		}
+		result[name] = url
+	}
+	return result, nil
+}
+
+// promptSubmoduleURLs prompts the user for each submodule's URL.
+// Returns a map of name→newURL for entries the user changed.
+func promptSubmoduleURLs(submodules []Submodule) (map[string]string, error) {
+	type entry struct {
+		name       string
+		defaultURL string
+		url        string
+	}
+
+	entries := make([]entry, len(submodules))
+	fields := make([]huh.Field, 0, len(submodules))
+
+	for i, sm := range submodules {
+		entries[i] = entry{name: sm.Name, defaultURL: sm.URL, url: sm.URL}
+		fields = append(fields, huh.NewInput().
+			Title(fmt.Sprintf("Submodule %q", sm.Name)).
+			Description(fmt.Sprintf("Repository URL [default: %s]", sm.URL)).
+			Value(&entries[i].url),
+		)
+	}
+
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	form := huh.NewForm(huh.NewGroup(fields...))
+	if err := form.Run(); err != nil {
+		return nil, err
+	}
+
+	overrides := make(map[string]string)
+	for _, e := range entries {
+		if e.url != "" && e.url != e.defaultURL {
+			overrides[e.name] = e.url
+		}
+	}
+	return overrides, nil
 }

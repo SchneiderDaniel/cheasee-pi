@@ -430,6 +430,10 @@ if [ -n "$AUTH_JSON" ] && [ -f "$AUTH_JSON" ]; then
     # Extract all provider keys from auth.json and export as env vars
     while IFS= read -r provider; do
         [ -z "$provider" ] && continue
+        # Skip flat keys (legacy format) — only provider entries have {"key": ...}
+        case "$provider" in
+            api_key|github_token|github_user|repo_path) continue ;;
+        esac
         key=$(jq -r ".\"$provider\".key // empty" "$AUTH_JSON")
         if [ -n "$key" ]; then
             envvar=$(provider_to_envvar "$provider")
