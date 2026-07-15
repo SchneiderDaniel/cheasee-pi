@@ -144,8 +144,18 @@ func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 // ──────────────────────────────────────────────
 
 type mockCloner struct {
-	cloneFunc           func(ctx context.Context, token, repoURL, destPath string) error
-	configureSubmodFunc func(ctx context.Context, repoPath, submodulePath, newURL string) error
+	cloneFunc                func(ctx context.Context, token, repoURL, destPath string) error
+	listSubmodulesFunc       func(ctx context.Context, repoPath string) ([]Submodule, error)
+	setSubmoduleURLFunc      func(ctx context.Context, repoPath, name, newURL string) error
+	initAndUpdateSubmodFunc  func(ctx context.Context, repoPath string) error
+
+	// Tracking fields for test assertions
+	listSubmodulesCalled    bool
+	setSubmoduleURLCalled   bool
+	setSubmoduleURLName     string
+	setSubmoduleURLURL      string
+	setSubmoduleURLCalls    []struct{ Name, URL string }
+	initAndUpdateCalled     bool
 }
 
 func (m *mockCloner) Clone(ctx context.Context, token, repoURL, destPath string) error {
@@ -155,9 +165,29 @@ func (m *mockCloner) Clone(ctx context.Context, token, repoURL, destPath string)
 	return nil
 }
 
-func (m *mockCloner) ConfigureSubmodule(ctx context.Context, repoPath, submodulePath, newURL string) error {
-	if m.configureSubmodFunc != nil {
-		return m.configureSubmodFunc(ctx, repoPath, submodulePath, newURL)
+func (m *mockCloner) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+	m.listSubmodulesCalled = true
+	if m.listSubmodulesFunc != nil {
+		return m.listSubmodulesFunc(ctx, repoPath)
+	}
+	return nil, nil
+}
+
+func (m *mockCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
+	m.setSubmoduleURLCalled = true
+	m.setSubmoduleURLName = name
+	m.setSubmoduleURLURL = newURL
+	m.setSubmoduleURLCalls = append(m.setSubmoduleURLCalls, struct{ Name, URL string }{name, newURL})
+	if m.setSubmoduleURLFunc != nil {
+		return m.setSubmoduleURLFunc(ctx, repoPath, name, newURL)
+	}
+	return nil
+}
+
+func (m *mockCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
+	m.initAndUpdateCalled = true
+	if m.initAndUpdateSubmodFunc != nil {
+		return m.initAndUpdateSubmodFunc(ctx, repoPath)
 	}
 	return nil
 }
@@ -173,6 +203,21 @@ type mockExtractor struct {
 func (m *mockExtractor) Extract(ctx context.Context, destDir string) error {
 	if m.extractFunc != nil {
 		return m.extractFunc(ctx, destDir)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────
+// Mock: SettingsGenerator
+// ──────────────────────────────────────────────
+
+type mockSettingsGenerator struct {
+	renderFunc func(ctx context.Context, dest string, vals SettingsValues) error
+}
+
+func (m *mockSettingsGenerator) Render(ctx context.Context, dest string, vals SettingsValues) error {
+	if m.renderFunc != nil {
+		return m.renderFunc(ctx, dest, vals)
 	}
 	return nil
 }
@@ -271,6 +316,7 @@ var (
 	_ GitHubClient     = (*mockGitHubClient)(nil)
 	_ Cloner           = (*mockCloner)(nil)
 	_ Extractor        = (*mockExtractor)(nil)
+	_ SettingsGenerator = (*mockSettingsGenerator)(nil)
 	_ EnvRenderer      = (*mockEnvRenderer)(nil)
 	_ WorkingDirProbe  = (*mockWorkingDirProbe)(nil)
 	_ UIDResolver      = (*mockUIDResolver)(nil)
