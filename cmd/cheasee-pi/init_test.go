@@ -70,8 +70,8 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -94,8 +94,8 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -119,8 +119,8 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -144,8 +144,8 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Docker CheckResult.Err is set")
 	}
@@ -160,8 +160,8 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -184,8 +184,8 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -208,8 +208,8 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
 	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -228,8 +228,8 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
-	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -440,24 +440,13 @@ func TestRunInit_FullFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-	auth, gh, clone, ext, env, probe, uid, gitID, _, gitInit := defaultMocks()
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
-	}
-	if !scaffoldCalled {
-		t.Error("SettingsScaffold.Scaffold should be called on GitHub flow")
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called after full flow")
@@ -487,21 +476,8 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		},
 	}
 
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-
-	gitInitCalled := false
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			gitInitCalled = true
-			return nil
-		},
-	}
+	scaffold := &mockSettingsScaffold{}
+	gitInit := &mockGitInitializer{}
 
 	probe := &mockWorkingDirProbe{
 		inspectFunc: func(path string) (WorkdirState, error) {
@@ -510,8 +486,8 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, workdir,
+		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -520,12 +496,6 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 	if !renderCalled {
 		t.Error("Env render should be called on legacy path")
-	}
-	if !scaffoldCalled {
-		t.Error("SettingsScaffold.Scaffold should be called on legacy path")
-	}
-	if !gitInitCalled {
-		t.Error("GitInitializer.Init should be called on legacy path")
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called on legacy path")
@@ -574,8 +544,8 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	// Cancel right after docker check
 	cancel()
 
-	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		mockAuth, nil, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(ctx, mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		mockAuth, nil, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -607,8 +577,8 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 	mockAuth := &mockAuthenticator{}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -636,50 +606,413 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 	mockAuth := &mockAuthenticator{}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
 }
 
 // ──────────────────────────────────────────────
-// Submodule tests
+// Phase 2: parseSubmoduleURLs tests
 // ──────────────────────────────────────────────
 
-func TestRunInitSubmodule_Success(t *testing.T) {
-	mockClone := &mockCloner{
-		configureSubmodFunc: func(ctx context.Context, repoPath, submodulePath, newURL string) error {
-			if submodulePath != "private-pi" {
-				return fmt.Errorf("expected private-pi, got %s", submodulePath)
-			}
+func TestParseSubmoduleURLs_HappyPath(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"flask_blogs=https://github.com/user/flask_blogs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result))
+	}
+	if result["flask_blogs"] != "https://github.com/user/flask_blogs" {
+		t.Errorf("expected URL, got %q", result["flask_blogs"])
+	}
+}
+
+func TestParseSubmoduleURLs_SCPStyle(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"private-pi=git@github.com:user/private-pi.git"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["private-pi"] != "git@github.com:user/private-pi.git" {
+		t.Errorf("expected SCP URL, got %q", result["private-pi"])
+	}
+}
+
+func TestParseSubmoduleURLs_Multiple(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{"a=https://a.com", "b=https://b.com"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result["a"] != "https://a.com" {
+		t.Errorf("expected 'https://a.com', got %q", result["a"])
+	}
+	if result["b"] != "https://b.com" {
+		t.Errorf("expected 'https://b.com', got %q", result["b"])
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyName(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"=url"})
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyURL(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"name="})
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+}
+
+func TestParseSubmoduleURLs_MissingEquals(t *testing.T) {
+	_, err := parseSubmoduleURLs([]string{"invalid"})
+	if err == nil {
+		t.Fatal("expected error for missing =")
+	}
+}
+
+func TestParseSubmoduleURLs_EmptyInput(t *testing.T) {
+	result, err := parseSubmoduleURLs([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(result))
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 4: runInitSubmodule orchestrator tests
+// ──────────────────────────────────────────────
+
+func TestRunInitSubmodule_SkipAll(t *testing.T) {
+	mc := &mockCloner{}
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.listSubmodulesCalled {
+		t.Error("ListSubmodules should not be called when skipAll is true")
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called when skipAll is true")
+	}
+	if mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should not be called when skipAll is true")
+	}
+}
+
+func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.listSubmodulesCalled {
+		t.Error("ListSubmodules should be called")
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with no overrides")
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return nil, nil // user accepted all defaults
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with no changes")
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should be called")
+	}
+	if mc.setSubmoduleURLName != "flask_blogs" {
+		t.Errorf("expected flask_blogs, got %q", mc.setSubmoduleURLName)
+	}
+	if mc.setSubmoduleURLURL != "https://github.com/user/flask_blogs" {
+		t.Errorf("expected URL, got %q", mc.setSubmoduleURLURL)
+	}
+	if !mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should be called")
+	}
+}
+
+func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
 			return nil
 		},
 	}
 
-	err := mockClone.ConfigureSubmodule(context.Background(), t.TempDir(), "private-pi", "https://github.com/testuser/cheasee-pi.git")
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+		"private-pi":  "https://github.com/user/private-pi.git",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestRunInitSubmodule_NotExists(t *testing.T) {
-	err := runInitSubmodule(context.Background(), &mockCloner{}, t.TempDir(), "https://github.com/testuser/cheasee-pi.git")
-	if err != nil {
-		t.Fatalf("expected no error for missing submodule: %v", err)
+	// Should have called SetSubmoduleURL for both
+	if len(mc.setSubmoduleURLCalls) != 2 {
+		t.Errorf("expected 2 SetSubmoduleURL calls, got %d", len(mc.setSubmoduleURLCalls))
 	}
 }
 
-func TestRunInitSubmodule_Fails(t *testing.T) {
-	mockClone := &mockCloner{
-		configureSubmodFunc: func(ctx context.Context, repoPath, submodulePath, newURL string) error {
-			return fmt.Errorf("submodule update failed")
+func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
+			}, nil
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mockClone, t.TempDir(), "https://github.com/testuser/cheasee-pi.git")
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return map[string]string{
+			"flask_blogs": "https://github.com/user/flask_blogs",
+		}, nil
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should be called for the prompted override")
+	}
+	if mc.setSubmoduleURLName != "flask_blogs" {
+		t.Errorf("expected flask_blogs, got %q", mc.setSubmoduleURLName)
+	}
+}
+
+func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	// Prompt returns one URL, but override wins
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return map[string]string{
+			"flask_blogs": "https://github.com/prompt/flask_blogs",
+		}, nil
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/cli/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, promptFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLURL != "https://github.com/cli/flask_blogs" {
+		t.Errorf("expected CLI override URL, got %q", mc.setSubmoduleURLURL)
+	}
+}
+
+func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return nil, fmt.Errorf("repo not found")
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "repo not found") {
+		t.Errorf("expected 'repo not found', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
+			return fmt.Errorf("invalid URL")
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"flask_blogs": "https://github.com/user/flask_blogs",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid URL") {
+		t.Errorf("expected 'invalid URL', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
+			return fmt.Errorf("update failed")
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "update failed") {
+		t.Errorf("expected 'update failed', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_PromptError(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+	}
+
+	promptFn := func(sms []Submodule) (map[string]string, error) {
+		return nil, fmt.Errorf("user cancelled")
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "user cancelled") {
+		t.Errorf("expected 'user cancelled', got %v", err)
+	}
+}
+
+func TestRunInitSubmodule_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return nil, ctx.Err()
+		},
+	}
+
+	err := runInitSubmodule(ctx, mc, t.TempDir(), nil, false, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{}, nil
+		},
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mc.setSubmoduleURLCalled {
+		t.Error("SetSubmoduleURL should not be called with empty list")
+	}
+	if mc.initAndUpdateCalled {
+		t.Error("InitAndUpdateSubmodules should not be called with empty list")
+	}
+}
+
+func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
+	mc := &mockCloner{
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{
+				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
+			}, nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
+			return fmt.Errorf("submodule %q not found in .gitmodules", name)
+		},
+	}
+
+	urlOverrides := map[string]string{
+		"nonexistent": "https://github.com/user/nonexistent",
+	}
+
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	if err == nil {
+		t.Fatal("expected error for non-existent submodule")
 	}
 }
 
@@ -860,8 +1193,8 @@ func TestInit_SuccessMessage(t *testing.T) {
 	mockCfg := &mockRepository{}
 	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
 
-	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
+	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
+		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1234,7 +1567,7 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 	}
 
 	output := buf.String()
-	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider"}
+	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--skip-fork", "--fork-url", "--no-input", "--submodule-url", "--skip-submodules"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)
@@ -1243,6 +1576,302 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// Phase 1: SourceForkMode constants (entity layer)
+// ──────────────────────────────────────────────
+
+func TestSourceForkMode_Constants(t *testing.T) {
+	// Verify all three are distinct
+	if ModePromptFork == ModeUseForkURL || ModePromptFork == ModeSkipFork || ModeUseForkURL == ModeSkipFork {
+		t.Error("SourceForkMode constants must be distinct")
+	}
+}
+
+func TestSourceForkInput_Defaults(t *testing.T) {
+	sfi := SourceForkInput{}
+	if sfi.Mode != ModePromptFork {
+		t.Errorf("expected ModePromptFork (0), got %d", sfi.Mode)
+	}
+	if sfi.SourceRepo != "" {
+		t.Errorf("expected empty SourceRepo, got %q", sfi.SourceRepo)
+	}
+	if sfi.ForkURL != "" {
+		t.Errorf("expected empty ForkURL, got %q", sfi.ForkURL)
+	}
+}
+
+func TestSourceForkInput_RoundTrip(t *testing.T) {
+	sfi := SourceForkInput{
+		Mode:       ModeUseForkURL,
+		SourceRepo: "user/repo",
+		ForkURL:    "https://github.com/user/repo.git",
+	}
+	if sfi.Mode != ModeUseForkURL {
+		t.Errorf("expected ModeUseForkURL, got %d", sfi.Mode)
+	}
+	if sfi.SourceRepo != "user/repo" {
+		t.Errorf("expected 'user/repo', got %q", sfi.SourceRepo)
+	}
+	if sfi.ForkURL != "https://github.com/user/repo.git" {
+		t.Errorf("expected fork URL, got %q", sfi.ForkURL)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 2: runInitPromptSource tests (use-case layer)
+// ──────────────────────────────────────────────
+
+func TestRunInitPromptSource_EmptyInputDefaults(t *testing.T) {
+	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "SchneiderDaniel/cheasee-pi" {
+		t.Errorf("expected default 'SchneiderDaniel/cheasee-pi', got %q", result)
+	}
+}
+
+func TestRunInitPromptSource_UserInput(t *testing.T) {
+	result, err := runInitPromptSource(mockInputFn("user/repo", nil), SourceForkInput{Mode: ModePromptFork}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "user/repo" {
+		t.Errorf("expected 'user/repo', got %q", result)
+	}
+}
+
+func TestRunInitPromptSource_InputError(t *testing.T) {
+	_, err := runInitPromptSource(mockInputFn("", fmt.Errorf("input cancelled")), SourceForkInput{Mode: ModePromptFork}, false)
+	if err == nil {
+		t.Fatal("expected error when inputFn fails")
+	}
+	if !strings.Contains(err.Error(), "input cancelled") {
+		t.Errorf("error should propagate: %v", err)
+	}
+}
+
+func TestRunInitPromptSource_NoInputFlag(t *testing.T) {
+	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork}, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "SchneiderDaniel/cheasee-pi" {
+		t.Errorf("expected default, got %q", result)
+	}
+}
+
+func TestRunInitPromptSource_SourceRepoFlag(t *testing.T) {
+	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork, SourceRepo: "org/custom"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "org/custom" {
+		t.Errorf("expected 'org/custom', got %q", result)
+	}
+}
+
+func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
+	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "user/existing-fork" {
+		t.Errorf("expected 'user/existing-fork', got %q", result)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 4: Orchestration tests
+// ──────────────────────────────────────────────
+
+func TestRunInit_SkipFork(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeSkipFork}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	if err != nil {
+		t.Fatalf("skip-fork flow failed: %v", err)
+	}
+	if !mockCfg.saved {
+		t.Error("Save should be called after skip-fork flow")
+	}
+}
+
+func TestRunInit_ForkURL(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	cloneCalled := false
+	submoduleInited := false
+	clone := &mockCloner{
+		cloneFunc: func(ctx context.Context, token, repoURL, destPath string) error {
+			cloneCalled = true
+			if repoURL != "https://github.com/user/existing-fork.git" {
+				t.Errorf("expected clone URL 'https://github.com/user/existing-fork.git', got %q", repoURL)
+			}
+			return nil
+		},
+		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
+			return []Submodule{{Name: "pi", URL: "https://github.com/SchneiderDaniel/pi.git"}}, nil
+		},
+		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
+			submoduleInited = true
+			return nil
+		},
+	}
+
+	auth, gh, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	if err != nil {
+		t.Fatalf("fork-url flow failed: %v", err)
+	}
+	if !cloneCalled {
+		t.Error("Clone should be called with fork URL")
+	}
+	if !submoduleInited {
+		t.Error("Submodule init should be called with fork URL")
+	}
+	if !mockCfg.saved {
+		t.Error("Save should be called after fork-url flow")
+	}
+}
+
+func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	forkCalled := false
+	waitForkCalled := false
+	mockGH := &mockGitHubClient{
+		getUserFunc: func(ctx context.Context, token string) (string, error) {
+			return "testuser", nil
+		},
+		createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
+			forkCalled = true
+			return "testuser/cheasee-pi", nil
+		},
+		waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
+			waitForkCalled = true
+			return nil
+		},
+	}
+
+	clone := &mockCloner{
+		cloneFunc: func(ctx context.Context, token, repoURL, destPath string) error {
+			return nil
+		},
+		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, newURL string) error {
+			return nil
+		},
+	}
+
+	mockAuth := &mockAuthenticator{}
+	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, workdir,
+		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	if err != nil {
+		t.Fatalf("fork-url flow failed: %v", err)
+	}
+	if forkCalled {
+		t.Error("CreateFork should NOT be called when --fork-url is used")
+	}
+	if waitForkCalled {
+		t.Error("WaitForkReady should NOT be called when --fork-url is used")
+	}
+}
+
+func TestRunInit_ForkURLInvalid(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid fork URL")
+	}
+	if !strings.Contains(err.Error(), "invalid clone URL") {
+		t.Errorf("error should mention invalid clone URL: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 5: Post-clone confirm tests
+// ──────────────────────────────────────────────
+
+func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), false, nil, false, nil)
+	if err != nil {
+		t.Fatalf("post-clone confirm flow failed: %v", err)
+	}
+	if !mockCfg.saved {
+		t.Error("Save should be called when confirm is accepted")
+	}
+}
+
+func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(false, nil), mockInputFn("", nil), false, nil, false, nil)
+	if err != nil {
+		t.Fatalf("expected nil error (clean exit) when confirm is declined: %v", err)
+	}
+	if mockCfg.saved {
+		t.Error("Save should NOT be called when confirm is declined")
+	}
+}
+
+func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
+	// With noInput=true, the post-clone confirm should be skipped
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+
+	// If confirm were called with false, we'd error (but it won't be called)
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, nil, mockInputFn("", nil), true, nil, false, nil)
+	if err != nil {
+		t.Fatalf("post-clone confirm with noInput=true failed: %v", err)
+	}
+	if !mockCfg.saved {
+		t.Error("Save should be called when noInput skips prompt")
+	}
+}
+// ──────────────────────────────────────────────
 // Phase 1: Settings scaffold renderer (entity)
 // ──────────────────────────────────────────────
 
@@ -1250,7 +1879,7 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 	scaffold := NewSettingsScaffold()
 	workdir := t.TempDir()
 
-	vals := SettingsValues{
+	vals := TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
@@ -1306,7 +1935,7 @@ func TestSettingsScaffold_Idempotent(t *testing.T) {
 	scaffold := NewSettingsScaffold()
 	workdir := t.TempDir()
 
-	vals := SettingsValues{
+	vals := TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Original",
 		GitEmail: "orig@example.com",
@@ -1320,7 +1949,7 @@ func TestSettingsScaffold_Idempotent(t *testing.T) {
 	}
 
 	// Second call: should no-op (file exists)
-	vals2 := SettingsValues{
+	vals2 := TemplateSettingsValues{
 		Provider: "overwrite",
 		GitName:  "Overwrite",
 		GitEmail: "overwrite@example.com",
@@ -1351,7 +1980,7 @@ func TestSettingsScaffold_EmptyValues(t *testing.T) {
 	scaffold := NewSettingsScaffold()
 	workdir := t.TempDir()
 
-	vals := SettingsValues{} // all empty
+	vals := TemplateSettingsValues{} // all empty
 
 	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
 		t.Fatalf("Scaffold failed: %v", err)
@@ -1398,7 +2027,7 @@ func TestSettingsScaffold_EmptyValues(t *testing.T) {
 func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
 	scaffold := NewSettingsScaffold()
 
-	vals := SettingsValues{
+	vals := TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Test",
 		GitEmail: "test@test.com",
@@ -1420,7 +2049,7 @@ func TestSettingsScaffold_ContextCancelled(t *testing.T) {
 	scaffold := NewSettingsScaffold()
 	workdir := t.TempDir()
 
-	vals := SettingsValues{
+	vals := TemplateSettingsValues{
 		Provider: "opencode-go",
 	}
 
@@ -1503,320 +2132,6 @@ func TestGitInitializer_ContextCancelled(t *testing.T) {
 		t.Errorf("error should mention context: %v", err)
 	}
 }
-
-// ──────────────────────────────────────────────
-// Phase 4: Orchestrator — --no-github edge cases
-// ──────────────────────────────────────────────
-
-func TestRunInit_NoGitHub_ScaffoldError(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	ext := &mockExtractor{}
-	env := &mockEnvRenderer{}
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			return fmt.Errorf("scaffold failed: disk full")
-		},
-	}
-	gitInit := &mockGitInitializer{}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
-
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err == nil {
-		t.Fatal("expected error when scaffold fails")
-	}
-	if !strings.Contains(err.Error(), "settings scaffold") {
-		t.Errorf("error should mention settings scaffold: %v", err)
-	}
-}
-
-func TestRunInit_NoGitHub_GitInitError(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	ext := &mockExtractor{}
-	env := &mockEnvRenderer{}
-	scaffold := &mockSettingsScaffold{}
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			return fmt.Errorf("git init failed")
-		},
-	}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
-
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err == nil {
-		t.Fatal("expected error when git init fails")
-	}
-	if !strings.Contains(err.Error(), "git init") {
-		t.Errorf("error should mention git init: %v", err)
-	}
-}
-
-func TestRunInit_NoGitHub_NoDockerCheck(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: false},
-	}
-	mockCfg := &mockRepository{}
-
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-	gitInitCalled := false
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			gitInitCalled = true
-			return nil
-		},
-	}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
-
-	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", workdir,
-		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !scaffoldCalled {
-		t.Error("scaffold should be called with --no-docker-check")
-	}
-	if !gitInitCalled {
-		t.Error("git init should be called with --no-docker-check")
-	}
-}
-
-func TestRunInit_NoGitHub_ContextCancelledMidScaffold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	ext := &mockExtractor{}
-	env := &mockEnvRenderer{}
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			// Cancel context to simulate mid-scaffold cancellation
-			cancel()
-			return ctx.Err()
-		},
-	}
-	gitInit := &mockGitInitializer{}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
-
-	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if !strings.Contains(err.Error(), "context") {
-		t.Errorf("error should mention context: %v", err)
-	}
-}
-
-func TestRunInit_NoGitHub_ExistingGitNoPi(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	workdir := t.TempDir()
-
-	// Pre-create .git (simulate git already present)
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0755); err != nil {
-		t.Fatalf("mkdir .git: %v", err)
-	}
-
-	gitInitCalled := false
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			gitInitCalled = true
-			return nil
-		},
-	}
-
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			// Has .git but no compose — but --no-github probe is called before scaffold, so it's WorkdirEmpty
-			return WorkdirHasRepo, nil
-		},
-	}
-
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// git init should still be called (osGitInitializer.Init handles idempotency internally)
-	if !gitInitCalled {
-		t.Error("git init should be called (idempotency handled by adapter)")
-	}
-	if !scaffoldCalled {
-		t.Error("scaffold should be called when .pi/settings.json missing")
-	}
-}
-
-func TestRunInit_NoGitHub_ExistingPiNoGit(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	workdir := t.TempDir()
-
-	// Pre-create .pi/settings.json (simulate scaffold already done)
-	piDir := filepath.Join(workdir, ".pi")
-	os.MkdirAll(piDir, 0755)
-	os.WriteFile(filepath.Join(piDir, "settings.json"), []byte(`{"defaultProvider":"existing"}`), 0644)
-
-	gitInitCalled := false
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			gitInitCalled = true
-			return nil
-		},
-	}
-
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirHasCompose, nil
-		},
-	}
-
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Scaffold is called (idempotency handled by adapter layer)
-	if !scaffoldCalled {
-		t.Error("scaffold should be called (idempotency handled by adapter)")
-	}
-	if !gitInitCalled {
-		t.Error("git init should be called when .git missing")
-	}
-}
-
-// ──────────────────────────────────────────────
-// Phase 5: Orchestrator — GitHub flow edge cases
-// ──────────────────────────────────────────────
-
-func TestRunInit_GitHubFlow_ScaffoldCalled(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	scaffoldCalled := false
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			scaffoldCalled = true
-			return nil
-		},
-	}
-	gitInitCalled := false
-	gitInit := &mockGitInitializer{
-		initFunc: func(ctx context.Context, workdir string) error {
-			gitInitCalled = true
-			return nil
-		},
-	}
-
-	auth, gh, clone, ext, env, probe, uid, gitID, _, _ := defaultMocks()
-
-	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err != nil {
-		t.Fatalf("GitHub flow failed: %v", err)
-	}
-	if !scaffoldCalled {
-		t.Error("scaffold should be called on GitHub flow (idempotent fill)")
-	}
-	if gitInitCalled {
-		t.Error("git init should NOT be called on GitHub flow (clone creates .git)")
-	}
-}
-
-func TestRunInit_GitHubFlow_ContextCancelledMidScaffold(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	scaffold := &mockSettingsScaffold{
-		scaffoldFunc: func(ctx context.Context, workdir string, vals SettingsValues) error {
-			cancel()
-			return ctx.Err()
-		},
-	}
-	gitInit := &mockGitInitializer{}
-
-	auth, gh, clone, ext, env, probe, uid, gitID, _, _ := defaultMocks()
-
-	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", t.TempDir(),
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil))
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if !strings.Contains(err.Error(), "context") {
-		t.Errorf("error should mention context: %v", err)
-	}
-}
-
-// ──────────────────────────────────────────────
-// Phase 6: Extract guard — pi/ assets not extracted
-// ──────────────────────────────────────────────
 
 func TestExtract_SkipsPiSubtree(t *testing.T) {
 	ext := NewExtractor()

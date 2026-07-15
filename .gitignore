@@ -30,6 +30,7 @@ core.*
 /cheasee-pi
 cmd/cheasee-pi/cheasee-pi
 *.exe
+*.test
 
 # Python bytecode
 __pycache__/

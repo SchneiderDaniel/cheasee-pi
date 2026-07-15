@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	goGitHTTP "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -35,10 +35,23 @@ type GitHubClient interface {
 	WaitForkReady(ctx context.Context, token, owner, repo string) error
 }
 
+// Submodule represents a git submodule entry from .gitmodules.
+type Submodule struct {
+	Name string
+	Path string
+	URL  string
+}
+
 // Cloner handles git clone and submodule operations.
 type Cloner interface {
 	Clone(ctx context.Context, token, repoURL, destPath string) error
-	ConfigureSubmodule(ctx context.Context, repoPath, submodulePath, newURL string) error
+	// ListSubmodules returns all submodules defined in .gitmodules.
+	ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error)
+	// SetSubmoduleURL rewrites the URL for a named submodule in .gitmodules
+	// and syncs it to .git/config via Init.
+	SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error
+	// InitAndUpdateSubmodules runs git submodule init + update --init --recursive.
+	InitAndUpdateSubmodules(ctx context.Context, repoPath string) error
 }
 
 // ──────────────────────────────────────────────
@@ -240,7 +253,85 @@ func (cl *goGitCloner) Clone(ctx context.Context, token, repoURL, destPath strin
 	return nil
 }
 
-func (cl *goGitCloner) ConfigureSubmodule(ctx context.Context, repoPath, submodulePath, newURL string) error {
+func (cl *goGitCloner) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("get worktree: %w", err)
+	}
+
+	subs, err := wt.Submodules()
+	if err != nil {
+		return nil, fmt.Errorf("list submodules: %w", err)
+	}
+
+	result := make([]Submodule, 0, len(subs))
+	for _, sub := range subs {
+		cfg := sub.Config()
+		result = append(result, Submodule{
+			Name: cfg.Name,
+			Path: cfg.Path,
+			URL:  cfg.URL,
+		})
+	}
+	return result, nil
+}
+
+func (cl *goGitCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("open repo: %w", err)
+	}
+
+	// Parse .gitmodules using config.Modules for safe structured editing
+	gitmodulesPath := filepath.Join(repoPath, ".gitmodules")
+	data, err := os.ReadFile(gitmodulesPath)
+	if err != nil {
+		return fmt.Errorf("read .gitmodules: %w", err)
+	}
+
+	modules := config.NewModules()
+	if err := modules.Unmarshal(data); err != nil {
+		return fmt.Errorf("parse .gitmodules: %w", err)
+	}
+
+	subCfg, ok := modules.Submodules[name]
+	if !ok {
+		return fmt.Errorf("submodule %q not found in .gitmodules", name)
+	}
+	subCfg.URL = newURL
+
+	newData, err := modules.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal .gitmodules: %w", err)
+	}
+
+	if err := os.WriteFile(gitmodulesPath, newData, 0644); err != nil {
+		return fmt.Errorf("write .gitmodules: %w", err)
+	}
+
+	// Sync new URL from .gitmodules to .git/config via Init
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	sub, err := wt.Submodule(subCfg.Path)
+	if err != nil {
+		return fmt.Errorf("find submodule %q in worktree: %w", name, err)
+	}
+	if err := sub.Init(); err != nil {
+		return fmt.Errorf("init submodule %q: %w", name, err)
+	}
+
+	return nil
+}
+
+func (cl *goGitCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("open repo: %w", err)
@@ -251,34 +342,20 @@ func (cl *goGitCloner) ConfigureSubmodule(ctx context.Context, repoPath, submodu
 		return fmt.Errorf("get worktree: %w", err)
 	}
 
-	sub, err := wt.Submodule(submodulePath)
+	subs, err := wt.Submodules()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ Submodule %q not found, skipping\n", submodulePath)
-		return nil
+		return fmt.Errorf("list submodules: %w", err)
 	}
 
-	// Rewrite .gitmodules URL by editing the file directly
-	gitmodulesPath := filepath.Join(repoPath, ".gitmodules")
-	data, err := os.ReadFile(gitmodulesPath)
-	if err != nil {
-		return fmt.Errorf("read .gitmodules: %w", err)
+	if err := subs.Init(); err != nil {
+		return fmt.Errorf("init submodules: %w", err)
 	}
 
-	subConfig := sub.Config()
-	oldURL := subConfig.URL
-	if oldURL != "" {
-		data = bytes.ReplaceAll(data, []byte(oldURL), []byte(newURL))
-	}
-
-	if err := os.WriteFile(gitmodulesPath, data, 0644); err != nil {
-		return fmt.Errorf("write .gitmodules: %w", err)
-	}
-
-	// Init and update submodule with Init: true
-	if err := sub.UpdateContext(ctx, &git.SubmoduleUpdateOptions{
-		Init: true,
+	if err := subs.UpdateContext(ctx, &git.SubmoduleUpdateOptions{
+		Init:              true,
+		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 	}); err != nil {
-		return fmt.Errorf("submodule update: %w", err)
+		return fmt.Errorf("update submodules: %w", err)
 	}
 
 	return nil

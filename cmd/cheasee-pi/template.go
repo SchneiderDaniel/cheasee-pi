@@ -247,11 +247,11 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 }
 
 // ──────────────────────────────────────────────
-// SettingsValues
+// TemplateSettingsValues
 // ──────────────────────────────────────────────
 
-// SettingsValues holds the values for .pi/settings.json template substitution.
-type SettingsValues struct {
+// TemplateSettingsValues holds the values for .pi/settings.json template substitution.
+type TemplateSettingsValues struct {
 	Provider string
 	GitName  string
 	GitEmail string
@@ -268,7 +268,7 @@ type SettingsValues struct {
 // It is idempotent: calling Scaffold on a directory where .pi/settings.json
 // already exists returns nil (no error, no overwrite).
 type SettingsScaffold interface {
-	Scaffold(ctx context.Context, workdir string, vals SettingsValues) error
+	Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error
 }
 
 // ──────────────────────────────────────────────
@@ -289,7 +289,7 @@ func NewSettingsScaffold() SettingsScaffold {
 	}
 }
 
-func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string, vals SettingsValues) error {
+func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error {
 	destDir := filepath.Join(workdir, ".pi")
 	destPath := filepath.Join(destDir, "settings.json")
 
