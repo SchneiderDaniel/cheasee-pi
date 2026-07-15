@@ -28,9 +28,28 @@ var (
 	initNoGitHub      bool
 	initClientID      string
 	initProvider      string
-	initSubmoduleURLs []string
+	initSkipFork       bool
+	initForkURL        string
+	initNoInput        bool
+	initSubmoduleURLs  []string
 	initSkipSubmodules bool
 )
+
+// SourceForkMode controls how the fork source is determined.
+type SourceForkMode int
+
+const (
+	ModePromptFork  SourceForkMode = iota
+	ModeUseForkURL
+	ModeSkipFork
+)
+
+// SourceForkInput carries the fork source configuration.
+type SourceForkInput struct {
+	Mode       SourceForkMode
+	SourceRepo string
+	ForkURL    string
+}
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -57,10 +76,13 @@ func init() {
 	initCmd.Flags().StringVar(&initAPIKey, "api-key", "", "API key (skips interactive prompt)")
 	initCmd.Flags().BoolVar(&initNoDockerCheck, "no-docker-check", false, "Skip Docker Engine check")
 	initCmd.Flags().StringVar(&initWorkdir, "workdir", "", "Working directory (default: current directory)")
-	initCmd.Flags().StringVar(&initSourceRepo, "source-repo", "SchneiderDaniel/cheasee-pi", "Source repository to fork")
+	initCmd.Flags().StringVar(&initSourceRepo, "source-repo", "", "Source repository to fork (default: SchneiderDaniel/cheasee-pi)")
 	initCmd.Flags().BoolVar(&initNoGitHub, "no-github", false, "Use legacy API-key-only path (skip GitHub OAuth)")
 	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
+	initCmd.Flags().BoolVar(&initSkipFork, "skip-fork", false, "Skip fork step, use existing repo")
+	initCmd.Flags().StringVar(&initForkURL, "fork-url", "", "Specify existing fork URL (skip fork and clone)")
+	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
 	initCmd.Flags().StringArrayVar(&initSubmoduleURLs, "submodule-url", nil, "Override submodule URL (repeatable, format: name=url)")
 	initCmd.Flags().BoolVar(&initSkipSubmodules, "skip-submodules", false, "Skip all submodule setup")
 }
@@ -101,6 +123,28 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 	uidResolver := NewUIDResolver()
 	gitIdentity := NewGitIdentity()
 	confirmFn := promptConfirm
+	inputFn := promptInput
+
+	// Build source fork input from flags
+	var sourceForkInput SourceForkInput
+	switch {
+	case initForkURL != "":
+		sourceForkInput = SourceForkInput{
+			Mode:       ModeUseForkURL,
+			SourceRepo: initSourceRepo,
+			ForkURL:    initForkURL,
+		}
+	case initSkipFork:
+		sourceForkInput = SourceForkInput{
+			Mode:       ModeSkipFork,
+			SourceRepo: initSourceRepo,
+		}
+	default:
+		sourceForkInput = SourceForkInput{
+			Mode:       ModePromptFork,
+			SourceRepo: initSourceRepo,
+		}
+	}
 
 	return runInit(
 		ctx,
@@ -109,7 +153,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		initAPIKey,
 		initNoDockerCheck,
 		initNoGitHub,
-		initSourceRepo,
+		sourceForkInput,
 		workdir,
 		authenticator,
 		gitHubClient,
@@ -120,6 +164,8 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		uidResolver,
 		gitIdentity,
 		confirmFn,
+		inputFn,
+		initNoInput,
 		submoduleURLs,
 		initSkipSubmodules,
 		promptSubmoduleURLs,
@@ -134,7 +180,7 @@ func runInit(
 	apiKey string,
 	noDockerCheck bool,
 	noGitHub bool,
-	sourceRepo string,
+	sourceForkInput SourceForkInput,
 	workdir string,
 	authenticator Authenticator,
 	gitHubClient GitHubClient,
@@ -145,6 +191,8 @@ func runInit(
 	uidResolver UIDResolver,
 	gitIdentity GitIdentity,
 	confirmFn func(string) (bool, error),
+	inputFn func(title, placeholder string) (string, error),
+	noInput bool,
 	submoduleURLs map[string]string,
 	skipSubmodules bool,
 	promptFn func([]Submodule) (map[string]string, error),
@@ -202,36 +250,70 @@ func runInit(
 				user = u
 			}
 
-			// Phase 5: Fork the source repository
-			sourceOwner, sourceRepoName := ParseGitHubURL(sourceRepo)
-			forkOwner := user
-			forkRepo := sourceRepoName
-
-			_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+			// Phase 4.5: Prompt for source repo
+			resolvedSourceRepo, err := runInitPromptSource(inputFn, sourceForkInput, noInput)
 			if err != nil {
-				// 422 "fork already exists" is not a fatal error
-				if strings.Contains(err.Error(), "fork already exists") {
-					fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
-				} else {
-					return fmt.Errorf("fork repository: %w", err)
+				return fmt.Errorf("source repo prompt: %w", err)
+			}
+
+			// Determine clone URL and whether to fork
+			var cloneURL string
+			switch sourceForkInput.Mode {
+			case ModeUseForkURL:
+				// Use user-supplied fork URL directly — skip fork and wait
+				cloneURL = sourceForkInput.ForkURL
+				if err := runInitCloneSubmodule(ctx, cloner, token, cloneURL, workdir); err != nil {
+					return err
+				}
+
+			case ModeSkipFork:
+				// Skip fork and clone entirely
+
+			case ModePromptFork:
+				// Phase 5: Fork the source repository
+				sourceOwner, sourceRepoName := ParseGitHubURL(resolvedSourceRepo)
+				forkOwner := user
+				forkRepo := sourceRepoName
+
+				_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+				if err != nil {
+					// 422 "fork already exists" is not a fatal error
+					if strings.Contains(err.Error(), "fork already exists") {
+						fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
+					} else {
+						return fmt.Errorf("fork repository: %w", err)
+					}
+				}
+
+				// Phase 6: Wait for fork to be ready
+				if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
+					return fmt.Errorf("wait for fork ready: %w", err)
+				}
+
+				// Phase 7: Clone the fork
+				cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
+				if err := runInitCloneSubmodule(ctx, cloner, token, cloneURL, workdir); err != nil {
+					return err
 				}
 			}
 
-			// Phase 6: Wait for fork to be ready
-			if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
-				return fmt.Errorf("wait for fork ready: %w", err)
+			// Post-clone confirm (skip when noInput is true or fork+clone was skipped)
+			if sourceForkInput.Mode != ModeSkipFork && !noInput {
+				ok, err := confirmFn(fmt.Sprintf("Forked/Cloned %s to %s. Continue? [Y/n]", cloneURL, workdir))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					fmt.Fprintln(os.Stderr, "Init cancelled.")
+					return nil
+				}
 			}
 
-			// Phase 7: Clone the fork
-			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
-			if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
-				return fmt.Errorf("clone fork: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
-
-			// Phase 8: Configure submodules
-			if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn); err != nil {
-				return fmt.Errorf("submodule config: %w", err)
+			// Configure submodules for non-skip modes
+			if sourceForkInput.Mode != ModeSkipFork {
+				if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn); err != nil {
+					return fmt.Errorf("submodule config: %w", err)
+				}
 			}
 
 			auth = &Auth{
@@ -526,6 +608,74 @@ func promptGitIdentity() (name, email string, err error) {
 	)
 	err = form.Run()
 	return name, email, err
+}
+
+// promptInput shows an interactive text input using huh and returns the entered value.
+func promptInput(title, placeholder string) (string, error) {
+	var value string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title(title).
+				Placeholder(placeholder).
+				Value(&value),
+		),
+	)
+	err := form.Run()
+	return value, err
+}
+
+// runInitPromptSource resolves the source repository to fork from.
+// If sourceRepo is empty and noInput is false, prompts interactively.
+// Falls back to the default "SchneiderDaniel/cheasee-pi" when input is empty.
+func runInitPromptSource(inputFn func(title, placeholder string) (string, error), sfi SourceForkInput, noInput bool) (string, error) {
+	switch sfi.Mode {
+	case ModeUseForkURL:
+		// For fork URL mode, derive source repo from the fork URL
+		owner, repo := ParseGitHubURL(sfi.ForkURL)
+		if owner != "" && repo != "" {
+			return owner + "/" + repo, nil
+		}
+	case ModeSkipFork:
+		// Skip fork entirely — source repo is not used
+		if sfi.SourceRepo != "" {
+			return sfi.SourceRepo, nil
+		}
+		return "SchneiderDaniel/cheasee-pi", nil
+	}
+
+	if sfi.SourceRepo != "" {
+		// User explicitly provided --source-repo
+		return sfi.SourceRepo, nil
+	}
+
+	if noInput {
+		// Non-interactive: use default
+		return "SchneiderDaniel/cheasee-pi", nil
+	}
+
+	repo, err := inputFn("Which repository would you like to fork?", "SchneiderDaniel/cheasee-pi")
+	if err != nil {
+		return "", err
+	}
+	if repo == "" {
+		repo = "SchneiderDaniel/cheasee-pi"
+	}
+	return repo, nil
+}
+
+// runInitCloneSubmodule clones a repo and configures its submodule.
+func runInitCloneSubmodule(ctx context.Context, cloner Cloner, token, cloneURL, workdir string) error {
+	sourceOwner, sourceRepoName := ParseGitHubURL(cloneURL)
+	if sourceOwner == "" || sourceRepoName == "" {
+		return fmt.Errorf("invalid clone URL: %s", cloneURL)
+	}
+
+	if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
+		return fmt.Errorf("clone fork: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", sourceOwner, sourceRepoName, workdir)
+	return nil
 }
 
 // parseSubmoduleURLs parses --submodule-url flag values (format: name=url).

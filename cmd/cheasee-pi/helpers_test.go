@@ -294,6 +294,17 @@ func mockConfirmFn(result bool, err error) func(string) (bool, error) {
 }
 
 // ──────────────────────────────────────────────
+// Mock: InputFn
+// ──────────────────────────────────────────────
+
+// mockInputFn returns an input function that returns the given result.
+func mockInputFn(result string, err error) func(title, placeholder string) (string, error) {
+	return func(title, placeholder string) (string, error) {
+		return result, err
+	}
+}
+
+// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
