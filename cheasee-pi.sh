@@ -413,8 +413,8 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-CHEASEEPI_MEMORY=$(jq -r '.docker.memory // "2G"' .pi/settings.json)
-CHEASEEPI_CPUS=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json)
+CHEASEEPI_MEMORY=$(jq -r '.docker.memory // "2G"' .pi/settings.json 2>/dev/null || echo "2G")
+CHEASEEPI_CPUS=$(jq -r '.docker.cpus // "2.0"' .pi/settings.json 2>/dev/null || echo "2.0")
 
 export CHEASEEPI_MEMORY
 export CHEASEEPI_CPUS
@@ -422,7 +422,7 @@ export CHEASEEPI_CPUS
 # --- Step 3: Resolve API key -------------------------------------------
 # Priority: --api-key flag > env vars already set > configure interactively
 
-PROVIDER=$(jq -r '.defaultProvider // "opencode-go"' .pi/settings.json)
+PROVIDER=$(jq -r '.defaultProvider // "opencode-go"' .pi/settings.json 2>/dev/null || echo "opencode-go")
 
 # --- Read keys from auth.json if exists (XDG path, legacy fallback) ---
 AUTH_JSON=$(resolve_auth_json)

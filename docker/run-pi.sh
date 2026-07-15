@@ -61,6 +61,15 @@ if [ -n "${GH_TOKEN:-}" ]; then
     DOCKER_ENV="$DOCKER_ENV -e GH_TOKEN=$GH_TOKEN"
 fi
 
+# --- Ensure .pi/settings.json exists before launching pi ---
+# Prevents the pi trust-prompt loop when the file is missing (e.g.
+# after a partial init or manual deletion).  Non-fatal guard.
+SETTINGS_DIR="$(dirname "$SCRIPT_DIR")/.pi"
+if [ ! -f "$SETTINGS_DIR/settings.json" ]; then
+    mkdir -p "$SETTINGS_DIR"
+    echo '{}' > "$SETTINGS_DIR/settings.json"
+fi
+
 # --- Launch interactive pi session ---
 # shellcheck disable=SC2086
 docker exec $DOCKER_ENV -it --user agentuser -w /workspaces/main "$CONTAINER_NAME" pi

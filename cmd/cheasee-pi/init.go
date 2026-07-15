@@ -122,6 +122,8 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 	workdirProbe := NewWorkingDirProbe()
 	uidResolver := NewUIDResolver()
 	gitIdentity := NewGitIdentity()
+	scaffold := NewSettingsScaffold()
+	gitInit := NewGitInitializer()
 	confirmFn := promptConfirm
 	inputFn := promptInput
 
@@ -163,6 +165,8 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		workdirProbe,
 		uidResolver,
 		gitIdentity,
+		scaffold,
+		gitInit,
 		confirmFn,
 		inputFn,
 		initNoInput,
@@ -190,6 +194,8 @@ func runInit(
 	workdirProbe WorkingDirProbe,
 	uidResolver UIDResolver,
 	gitIdentity GitIdentity,
+	scaffold SettingsScaffold,
+	gitInit GitInitializer,
 	confirmFn func(string) (bool, error),
 	inputFn func(title, placeholder string) (string, error),
 	noInput bool,
@@ -334,7 +340,17 @@ func runInit(
 		return fmt.Errorf("env generation: %w", err)
 	}
 
-	// Phase 11: Save auth config
+	// Phase 11: Scaffold workspace — git init (no-github only) + .pi/settings.json (always)
+	if noGitHub {
+		if err := runInitGitInit(ctx, gitInit, workdir); err != nil {
+			return fmt.Errorf("git init: %w", err)
+		}
+	}
+	if err := runInitScaffold(ctx, scaffold, gitIdentity, confirmFn, workdir); err != nil {
+		return fmt.Errorf("settings scaffold: %w", err)
+	}
+
+	// Phase 12: Save auth config
 	if err := cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
@@ -608,6 +624,70 @@ func promptGitIdentity() (name, email string, err error) {
 	)
 	err = form.Run()
 	return name, email, err
+}
+
+// runInitGitInit initializes a git repository in the working directory.
+// This is only called on the --no-github path (clone creates .git otherwise).
+func runInitGitInit(ctx context.Context, gitInit GitInitializer, workdir string) error {
+	fmt.Fprintf(os.Stderr, "  ℹ Initializing git repository...\n")
+	if err := gitInit.Init(ctx, workdir); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ Git repository initialized\n")
+	return nil
+}
+
+// runInitScaffold writes .pi/settings.json from the embedded template.
+// It resolves git identity from the system (same fallback chain as runInitEnv).
+func runInitScaffold(
+	ctx context.Context,
+	scaffold SettingsScaffold,
+	gitIdentity GitIdentity,
+	confirmFn func(string) (bool, error),
+	workdir string,
+) error {
+	fmt.Fprintf(os.Stderr, "  ℹ Creating .pi/settings.json...\n")
+
+	gitName, gitEmail, _ := gitIdentity.Lookup()
+	if gitName == "" || gitEmail == "" {
+		ok, err := confirmFn("No git identity found. Configure git user.name and user.email for .pi/settings.json?")
+		if err != nil {
+			return err
+		}
+		if ok {
+			promptedName, promptedEmail, err := promptGitIdentity()
+			if err != nil {
+				return fmt.Errorf("git identity prompt: %w", err)
+			}
+			if promptedName != "" {
+				gitName = promptedName
+			}
+			if promptedEmail != "" {
+				gitEmail = promptedEmail
+			}
+		} else {
+			if gitName == "" {
+				gitName = "Cheasee-Pi"
+			}
+			if gitEmail == "" {
+				gitEmail = "cheasee-pi@localhost"
+			}
+		}
+	}
+
+	vals := TemplateSettingsValues{
+		Provider: initProvider,
+		GitName:  gitName,
+		GitEmail: gitEmail,
+		Memory:   "2G",
+		CPUs:     "2.0",
+	}
+
+	if err := scaffold.Scaffold(ctx, workdir, vals); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ .pi/settings.json created\n")
+	return nil
 }
 
 // promptInput shows an interactive text input using huh and returns the entered value.

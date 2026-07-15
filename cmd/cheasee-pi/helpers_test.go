@@ -305,6 +305,36 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 }
 
 // ──────────────────────────────────────────────
+// Mock: SettingsScaffold
+// ──────────────────────────────────────────────
+
+type mockSettingsScaffold struct {
+	scaffoldFunc func(ctx context.Context, workdir string, vals TemplateSettingsValues) error
+}
+
+func (m *mockSettingsScaffold) Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error {
+	if m.scaffoldFunc != nil {
+		return m.scaffoldFunc(ctx, workdir, vals)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────
+// Mock: GitInitializer
+// ──────────────────────────────────────────────
+
+type mockGitInitializer struct {
+	initFunc func(ctx context.Context, workdir string) error
+}
+
+func (m *mockGitInitializer) Init(ctx context.Context, workdir string) error {
+	if m.initFunc != nil {
+		return m.initFunc(ctx, workdir)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
@@ -321,4 +351,6 @@ var (
 	_ WorkingDirProbe  = (*mockWorkingDirProbe)(nil)
 	_ UIDResolver      = (*mockUIDResolver)(nil)
 	_ GitIdentity      = (*mockGitIdentity)(nil)
+	_ SettingsScaffold = (*mockSettingsScaffold)(nil)
+	_ GitInitializer   = (*mockGitInitializer)(nil)
 )

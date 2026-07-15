@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"text/template"
 )
 
 // ──────────────────────────────────────────────
@@ -242,4 +244,100 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 	default:
 		return WorkdirEmpty, nil
 	}
+}
+
+// ──────────────────────────────────────────────
+// TemplateSettingsValues
+// ──────────────────────────────────────────────
+
+// TemplateSettingsValues holds the values for .pi/settings.json template substitution.
+type TemplateSettingsValues struct {
+	Provider string
+	GitName  string
+	GitEmail string
+	Memory   string
+	CPUs     string
+}
+
+// ──────────────────────────────────────────────
+// Port: SettingsScaffold
+// ──────────────────────────────────────────────
+
+// SettingsScaffold writes a .pi/settings.json file from an embedded template,
+// substituting provider, git identity, and docker resource values.
+// It is idempotent: calling Scaffold on a directory where .pi/settings.json
+// already exists returns nil (no error, no overwrite).
+type SettingsScaffold interface {
+	Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error
+}
+
+// ──────────────────────────────────────────────
+// Adapter: templateSettingsRenderer
+// ──────────────────────────────────────────────
+
+type templateSettingsRenderer struct {
+	source       fs.FS
+	templatePath string
+}
+
+// NewSettingsScaffold creates a SettingsScaffold that renders the embedded
+// pi/settings.json template using text/template substitution.
+func NewSettingsScaffold() SettingsScaffold {
+	return &templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/pi/settings.json",
+	}
+}
+
+func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error {
+	destDir := filepath.Join(workdir, ".pi")
+	destPath := filepath.Join(destDir, "settings.json")
+
+	// Idempotent: skip if file already exists.
+	if _, err := os.Stat(destPath); err == nil {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Read embedded template.
+	tmplContent, err := fs.ReadFile(r.source, r.templatePath)
+	if err != nil {
+		return fmt.Errorf("read embedded settings template: %w", err)
+	}
+
+	// Parse template.
+	tmpl, err := template.New("settings").Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse settings template: %w", err)
+	}
+
+	// Ensure .pi directory exists.
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("create .pi directory: %w", err)
+	}
+
+	// Atomic write: write to .tmp then rename.
+	tmpPath := destPath + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("create temporary settings file: %w", err)
+	}
+	defer os.Remove(tmpPath)
+
+	if err := tmpl.Execute(f, vals); err != nil {
+		f.Close()
+		return fmt.Errorf("execute settings template: %w", err)
+	}
+	f.Close()
+
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("rename settings file: %w", err)
+	}
+
+	return nil
 }
