@@ -22,6 +22,7 @@ func defaultMocks() (
 	*mockCloner,
 	*mockExtractor,
 	*mockEnvRenderer,
+	*mockSettingsGenerator,
 	*mockWorkingDirProbe,
 	*mockUIDResolver,
 	*mockGitIdentity,
@@ -40,6 +41,7 @@ func defaultMocks() (
 	}
 	clone := &mockCloner{}
 	ext := &mockExtractor{}
+	settings := &mockSettingsGenerator{}
 	env := &mockEnvRenderer{}
 	probe := &mockWorkingDirProbe{
 		inspectFunc: func(path string) (WorkdirState, error) {
@@ -48,7 +50,7 @@ func defaultMocks() (
 	}
 	uid := &mockUIDResolver{}
 	gitID := &mockGitIdentity{}
-	return auth, gh, clone, ext, env, probe, uid, gitID
+	return auth, gh, clone, ext, env, settings, probe, uid, gitID
 }
 
 // ──────────────────────────────────────────────
@@ -64,10 +66,10 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -88,10 +90,10 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -113,10 +115,10 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -138,10 +140,10 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _ := defaultMocks()
+	_, _, _, _, _, _, probe, _, _ := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
+		nil, nil, nil, nil, nil, nil, probe, nil, nil, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Docker CheckResult.Err is set")
 	}
@@ -154,10 +156,10 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -178,10 +180,10 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -202,10 +204,10 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -222,10 +224,10 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, _, probe, uid, gitID := defaultMocks()
 
 	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, nil, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -436,11 +438,11 @@ func TestRunInit_FullFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID := defaultMocks()
+	auth, gh, clone, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		auth, gh, clone, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
@@ -472,6 +474,20 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		},
 	}
 
+	settingsRenderCalled := false
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			settingsRenderCalled = true
+			if vals.GitHubUser != "" {
+				t.Error("expected empty GitHubUser for legacy path")
+			}
+			if vals.RepoName != "cheasee-pi" {
+				t.Errorf("expected RepoName 'cheasee-pi', got %q", vals.RepoName)
+			}
+			return nil
+		},
+	}
+
 	probe := &mockWorkingDirProbe{
 		inspectFunc: func(path string) (WorkdirState, error) {
 			return WorkdirEmpty, nil
@@ -480,12 +496,15 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, settings, probe, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
 	if !extractCalled {
 		t.Error("Extract should be called on legacy path")
+	}
+	if !settingsRenderCalled {
+		t.Error("Settings generator should be called on legacy path")
 	}
 	if !renderCalled {
 		t.Error("Env render should be called on legacy path")
@@ -525,7 +544,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, _, probe, uid, gitID := defaultMocks()
 
 	// Use a mock authenticator that respects cancelled context
 	mockAuth := &mockAuthenticator{
@@ -538,7 +557,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	cancel()
 
 	err := runInit(ctx, mockDocker, mockCfg, "", false, false, "", t.TempDir(),
-		mockAuth, nil, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, nil, clone, ext, env, nil, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -553,7 +572,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	// Override GitHub client to return fork-already-exists
 	mockGH := &mockGitHubClient{
@@ -571,7 +590,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -586,7 +605,7 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, clone, ext, env, _, probe, uid, gitID := defaultMocks()
 
 	mockGH := &mockGitHubClient{
 		getUserFunc: func(ctx context.Context, token string) (string, error) {
@@ -600,7 +619,7 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		mockAuth, mockGH, clone, ext, env, nil, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
@@ -821,10 +840,10 @@ func TestInit_SuccessMessage(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID := defaultMocks()
+	_, _, _, ext, env, settings, probe, uid, gitID := defaultMocks()
 
 	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, mockConfirmFn(true, nil))
+		nil, nil, nil, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -847,6 +866,229 @@ func TestInit_SuccessMessage(t *testing.T) {
 	}
 	if !strings.Contains(output, "✅ Init complete") {
 		t.Error("success message must contain the checkmark and 'Init complete'")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Settings phase integration tests
+// ──────────────────────────────────────────────
+
+func TestRunInit_SettingsError(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			return fmt.Errorf("disk full")
+		},
+	}
+
+	// Use mock env to verify it is NOT called when settings fails
+	envCalled := false
+	env := &mockEnvRenderer{
+		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
+			envCalled = true
+			return nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, &mockExtractor{}, env, settings, &mockWorkingDirProbe{}, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error when settings generation fails")
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("error should propagate settings error: %v", err)
+	}
+	if envCalled {
+		t.Error("Env should NOT be called when settings generation fails")
+	}
+	if mockCfg.saved {
+		t.Error("Save should NOT be called when settings generation fails")
+	}
+}
+
+func TestRunInit_SettingsPhaseOrdering(t *testing.T) {
+	var callOrder []string
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	ext := &mockExtractor{
+		extractFunc: func(ctx context.Context, destDir string) error {
+			callOrder = append(callOrder, "extract")
+			return nil
+		},
+	}
+
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			callOrder = append(callOrder, "settings")
+			return nil
+		},
+	}
+
+	env := &mockEnvRenderer{
+		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
+			callOrder = append(callOrder, "env")
+			return nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, ext, env, settings, &mockWorkingDirProbe{}, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(callOrder) < 3 {
+		t.Fatalf("expected at least 3 calls, got %d: %v", len(callOrder), callOrder)
+	}
+	if callOrder[0] != "extract" {
+		t.Errorf("expected extract first, got %q", callOrder[0])
+	}
+	if callOrder[1] != "settings" {
+		t.Errorf("expected settings second, got %q", callOrder[1])
+	}
+	if callOrder[2] != "env" {
+		t.Errorf("expected env third, got %q", callOrder[2])
+	}
+}
+
+func TestRunInit_SettingsContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			// Cancel context during settings generation
+			cancel()
+			return ctx.Err()
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, "", workdir,
+		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, settings, &mockWorkingDirProbe{}, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+	if err == nil {
+		t.Fatal("expected error when context cancelled during settings generation")
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("error should mention context cancellation: %v", err)
+	}
+	if mockCfg.saved {
+		t.Error("Save should NOT be called when settings generation fails")
+	}
+}
+
+func TestRunInit_SettingsStderrMessage(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		w.Close()
+		os.Stderr = oldStderr
+	}()
+
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+	_, _, _, ext, env, settings, probe, uid, gitID := defaultMocks()
+
+	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "", t.TempDir(),
+		nil, nil, nil, ext, env, settings, probe, uid, gitID, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "Generating .pi/settings.json") {
+		t.Error("stderr should mention generating .pi/settings.json")
+	}
+}
+
+func TestRunInit_LegacyPassesCorrectValues(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	var capturedVals SettingsValues
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			capturedVals = vals
+			return nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, "my-source/cheasee-pi", workdir,
+		nil, nil, nil, &mockExtractor{}, &mockEnvRenderer{}, settings, &mockWorkingDirProbe{}, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedVals.GitHubUser != "" {
+		t.Errorf("expected empty GitHubUser for legacy path, got %q", capturedVals.GitHubUser)
+	}
+	if capturedVals.RepoName != "cheasee-pi" {
+		t.Errorf("expected RepoName 'cheasee-pi', got %q", capturedVals.RepoName)
+	}
+	if capturedVals.SourceRepo != "my-source/cheasee-pi" {
+		t.Errorf("expected SourceRepo 'my-source/cheasee-pi', got %q", capturedVals.SourceRepo)
+	}
+}
+
+func TestRunInit_GitHubPathPassesGitHubUser(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	var capturedVals SettingsValues
+	settings := &mockSettingsGenerator{
+		renderFunc: func(ctx context.Context, dest string, vals SettingsValues) error {
+			capturedVals = vals
+			return nil
+		},
+	}
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, "owner/cheasee-pi", workdir,
+		&mockAuthenticator{}, &mockGitHubClient{}, &mockCloner{}, &mockExtractor{}, &mockEnvRenderer{}, settings,
+		&mockWorkingDirProbe{}, &mockUIDResolver{}, &mockGitIdentity{}, mockConfirmFn(true, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedVals.GitHubUser != "testuser" {
+		t.Errorf("expected GitHubUser 'testuser', got %q", capturedVals.GitHubUser)
+	}
+	if capturedVals.RepoName != "cheasee-pi" {
+		t.Errorf("expected RepoName 'cheasee-pi', got %q", capturedVals.RepoName)
+	}
+	if capturedVals.SourceRepo != "owner/cheasee-pi" {
+		t.Errorf("expected SourceRepo 'owner/cheasee-pi', got %q", capturedVals.SourceRepo)
 	}
 }
 

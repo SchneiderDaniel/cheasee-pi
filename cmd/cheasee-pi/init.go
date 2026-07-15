@@ -28,6 +28,7 @@ var (
 	initNoGitHub      bool
 	initClientID      string
 	initProvider      string
+	initSettingsTemplate string
 )
 
 var initCmd = &cobra.Command{
@@ -59,6 +60,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoGitHub, "no-github", false, "Use legacy API-key-only path (skip GitHub OAuth)")
 	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
+	initCmd.Flags().StringVar(&initSettingsTemplate, "settings-template", "", "Path to a custom .pi/settings.json template (default: cloned repo's file)")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -88,6 +90,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 	cloner := NewCloner()
 	extractor := NewExtractor()
 	envRenderer := NewEnvRenderer()
+	settingsGenerator := NewSettingsGenerator()
 	workdirProbe := NewWorkingDirProbe()
 	uidResolver := NewUIDResolver()
 	gitIdentity := NewGitIdentity()
@@ -107,6 +110,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		cloner,
 		extractor,
 		envRenderer,
+		settingsGenerator,
 		workdirProbe,
 		uidResolver,
 		gitIdentity,
@@ -129,6 +133,7 @@ func runInit(
 	cloner Cloner,
 	extractor Extractor,
 	envRenderer EnvRenderer,
+	settingsGenerator SettingsGenerator,
 	workdirProbe WorkingDirProbe,
 	uidResolver UIDResolver,
 	gitIdentity GitIdentity,
@@ -232,12 +237,26 @@ func runInit(
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
-	// Phase 10: Generate docker/.env (always)
+	// Phase 10: Generate .pi/settings.json with user-specific values
+	settingsVals := SettingsValues{
+		GitHubUser: "",
+		RepoName:   "cheasee-pi",
+		SourceRepo: sourceRepo,
+	}
+	if auth != nil && auth.GitHubUser != "" {
+		settingsVals.GitHubUser = auth.GitHubUser
+	}
+	settingsDest := filepath.Join(workdir, ".pi", "settings.json")
+	if err := runInitSettings(ctx, settingsGenerator, settingsDest, settingsVals); err != nil {
+		return err
+	}
+
+	// Phase 11: Generate docker/.env (always)
 	if err := runInitEnv(ctx, envRenderer, uidResolver, gitIdentity, workdir, confirmFn); err != nil {
 		return fmt.Errorf("env generation: %w", err)
 	}
 
-	// Phase 11: Save auth config
+	// Phase 12: Save auth config
 	if err := cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
@@ -360,6 +379,19 @@ func runInitExtract(ctx context.Context, extractor Extractor, workdir string) er
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Compose files extracted to %s/docker\n", workdir)
+	return nil
+}
+
+// runInitSettings generates .pi/settings.json with user-specific values.
+func runInitSettings(ctx context.Context, gen SettingsGenerator, dest string, vals SettingsValues) error {
+	fmt.Fprintf(os.Stderr, "  ℹ Generating .pi/settings.json...\n")
+	if gen == nil {
+		return fmt.Errorf("settings generator is nil")
+	}
+	if err := gen.Render(ctx, dest, vals); err != nil {
+		return fmt.Errorf("settings generation: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ .pi/settings.json generated at %s\n", dest)
 	return nil
 }
 
