@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"charm.land/huh/v2"
+	"github.com/cli/oauth/device"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +57,7 @@ func init() {
 	initCmd.Flags().StringVar(&initWorkdir, "workdir", "", "Working directory (default: current directory)")
 	initCmd.Flags().StringVar(&initSourceRepo, "source-repo", "SchneiderDaniel/cheasee-pi", "Source repository to fork")
 	initCmd.Flags().BoolVar(&initNoGitHub, "no-github", false, "Use legacy API-key-only path (skip GitHub OAuth)")
-	initCmd.Flags().StringVar(&initClientID, "client-id", "Iv23li6xWD3wR8aJbPP3", "GitHub OAuth client ID")
+	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
 }
 
@@ -153,6 +155,8 @@ func runInit(
 	var auth *Auth
 	if noGitHub {
 		// Legacy path: API key only
+		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
+		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", initProvider)
 		auth, err = runInitLegacy(ctx, cfg, apiKey, initProvider)
 		if err != nil {
 			return err
@@ -162,54 +166,64 @@ func runInit(
 		// Phase 3: GitHub OAuth device flow
 		token, user, err := runInitAuth(ctx, authenticator)
 		if err != nil {
-			return fmt.Errorf("GitHub authentication failed: %w", err)
-		}
-
-		// Phase 4: Get authenticated user identity
-		if user == "" {
-			u, err := gitHubClient.GetAuthenticatedUser(ctx, token)
-			if err != nil {
-				return fmt.Errorf("get GitHub user: %w", err)
-			}
-			user = u
-		}
-
-		// Phase 5: Fork the source repository
-		sourceOwner, sourceRepoName := ParseGitHubURL(sourceRepo)
-		forkOwner := user
-		forkRepo := sourceRepoName
-
-		_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
-		if err != nil {
-			// 422 "fork already exists" is not a fatal error
-			if strings.Contains(err.Error(), "fork already exists") {
-				fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
+			if errors.Is(err, device.ErrUnsupported) {
+				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
+				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
+				auth, err = runInitLegacy(ctx, cfg, apiKey, initProvider)
+				if err != nil {
+					return err
+				}
+				auth.RepoPath = workdir
 			} else {
-				return fmt.Errorf("fork repository: %w", err)
+				return fmt.Errorf("GitHub authentication failed: %w", err)
 			}
-		}
+		} else {
+			// Phase 4: Get authenticated user identity
+			if user == "" {
+				u, err := gitHubClient.GetAuthenticatedUser(ctx, token)
+				if err != nil {
+					return fmt.Errorf("get GitHub user: %w", err)
+				}
+				user = u
+			}
 
-		// Phase 6: Wait for fork to be ready
-		if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
-			return fmt.Errorf("wait for fork ready: %w", err)
-		}
+			// Phase 5: Fork the source repository
+			sourceOwner, sourceRepoName := ParseGitHubURL(sourceRepo)
+			forkOwner := user
+			forkRepo := sourceRepoName
 
-		// Phase 7: Clone the fork
-		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
-		if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
-			return fmt.Errorf("clone fork: %w", err)
-		}
-		fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
+			_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+			if err != nil {
+				// 422 "fork already exists" is not a fatal error
+				if strings.Contains(err.Error(), "fork already exists") {
+					fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
+				} else {
+					return fmt.Errorf("fork repository: %w", err)
+				}
+			}
 
-		// Phase 8: Configure submodule
-		if err := runInitSubmodule(ctx, cloner, workdir, cloneURL); err != nil {
-			return fmt.Errorf("submodule config: %w", err)
-		}
+			// Phase 6: Wait for fork to be ready
+			if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
+				return fmt.Errorf("wait for fork ready: %w", err)
+			}
 
-		auth = &Auth{
-			GitHubToken: token,
-			GitHubUser:  user,
-			RepoPath:    workdir,
+			// Phase 7: Clone the fork
+			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
+			if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
+				return fmt.Errorf("clone fork: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", forkOwner, forkRepo, workdir)
+
+			// Phase 8: Configure submodule
+			if err := runInitSubmodule(ctx, cloner, workdir, cloneURL); err != nil {
+				return fmt.Errorf("submodule config: %w", err)
+			}
+
+			auth = &Auth{
+				GitHubToken: token,
+				GitHubUser:  user,
+				RepoPath:    workdir,
+			}
 		}
 	}
 
@@ -414,7 +428,8 @@ func promptAPIKey() (string, error) {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("API Key").
-				Prompt("Enter your API key: ").
+				Description("Provider: " + initProvider + " (set via --provider)\nGet your key at the provider's dashboard and paste it below.").
+				Prompt("Paste your API key: ").
 				Value(&apiKey),
 		),
 	)

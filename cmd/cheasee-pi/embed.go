@@ -13,7 +13,7 @@ import (
 //go:embed embedded
 var embeddedFS embed.FS
 
-// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh}.
+// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,run-pi.sh,stop-pi.sh,lib/auth-env.sh}.
 func AssetFS() fs.FS {
 	return embeddedFS
 }
