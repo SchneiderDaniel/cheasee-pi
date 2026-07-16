@@ -10,6 +10,6 @@ var rootCmd = &cobra.Command{
 	Long: `Cheasee-PI is a Pi agent harness built on the Pi coding agent (pi.dev).
 Its init command authenticates with GitHub, clones your fork, configures
 submodules, and extracts Docker compose files for containerized deployment.`,
-	Version:            "1.0.0",
+	Version:            "0.31.0",
 	DisableAutoGenTag:  true,
 }

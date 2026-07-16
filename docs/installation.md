@@ -85,7 +85,7 @@ case "$ARCH" in
 esac
 
 # Download the latest release archive
-VERSION="1.0.0"
+VERSION="0.31.0"
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
 ```
 
@@ -94,7 +94,7 @@ curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VE
 ```powershell
 # Detect architecture
 $ARCH = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
-$VERSION = "1.0.0"
+$VERSION = "0.31.0"
 Invoke-WebRequest -Uri "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$VERSION/cheasee-pi_$VERSION`_windows_$ARCH.zip" -OutFile "cheasee-pi.zip"
 ```
 
@@ -116,7 +116,7 @@ Expected output includes `cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz: OK`.
 **Windows (PowerShell):**
 
 ```powershell
-$VERSION = "1.0.0"
+$VERSION = "0.31.0"
 Invoke-WebRequest -Uri "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$VERSION/checksums.txt" -OutFile "checksums.txt"
 # Verify the .zip checksum (PowerShell 5.1+)
 $expectedHash = (Get-Content checksums.txt | Select-String "cheasee-pi_$VERSION`_windows_amd64.zip" | ForEach-Object { $_ -split ' ' | Select-Object -First 1 })
