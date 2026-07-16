@@ -18,14 +18,14 @@
 		"memory": "5G",
 		"cpus": "4.0"
 	},
-	"skills": [".pi/skills", "private-pi/skills"],
+	"skills": [".pi/skills", "../private-pi/skills"],
 	"prompts": [
 		"prompts",
 		"prompts/operations",
 		"prompts/development",
 		"prompts/requirement",
 		"prompts/misc",
-		"private-pi/prompts"
+		"../private-pi/prompts"
 	],
 	"supervisor": {
 		"repo": "SchneiderDaniel/cheasee-pi",
