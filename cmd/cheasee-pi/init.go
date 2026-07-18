@@ -924,7 +924,7 @@ func runInitCloneSubmodule(ctx context.Context, cloner Cloner, token, cloneURL, 
 		}
 	}
 
-	if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {
+	if err := cloner.CloneWorktree(ctx, token, cloneURL, workdir); err != nil {
 		return fmt.Errorf("clone fork: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", sourceOwner, sourceRepoName, workdir)

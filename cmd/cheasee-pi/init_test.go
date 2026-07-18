@@ -1701,7 +1701,7 @@ func TestRunInit_ForkURL(t *testing.T) {
 	cloneCalled := false
 	submoduleInited := false
 	clone := &mockCloner{
-		cloneFunc: func(ctx context.Context, token, repoURL, destPath string) error {
+		cloneWorktreeFunc: func(ctx context.Context, token, repoURL, workdir string) error {
 			cloneCalled = true
 			if repoURL != "https://github.com/user/existing-fork.git" {
 				t.Errorf("expected clone URL 'https://github.com/user/existing-fork.git', got %q", repoURL)

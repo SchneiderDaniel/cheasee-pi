@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
@@ -145,6 +146,7 @@ func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 
 type mockCloner struct {
 	cloneFunc                func(ctx context.Context, token, repoURL, destPath string) error
+	cloneWorktreeFunc        func(ctx context.Context, token, repoURL, workdir string) error
 	listSubmodulesFunc       func(ctx context.Context, repoPath string) ([]Submodule, error)
 	setSubmoduleURLFunc      func(ctx context.Context, repoPath, name, newURL string) error
 	initAndUpdateSubmodFunc  func(ctx context.Context, repoPath string) error
@@ -164,6 +166,15 @@ func (m *mockCloner) Clone(ctx context.Context, token, repoURL, destPath string)
 	if m.cloneFunc != nil {
 		return m.cloneFunc(ctx, token, repoURL, destPath)
 	}
+	return nil
+}
+
+func (m *mockCloner) CloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
+	if m.cloneWorktreeFunc != nil {
+		return m.cloneWorktreeFunc(ctx, token, repoURL, workdir)
+	}
+	// Create the workdir so tests that check for it pass
+	os.MkdirAll(workdir, 0755)
 	return nil
 }
 

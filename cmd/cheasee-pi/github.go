@@ -46,6 +46,8 @@ type Submodule struct {
 // Cloner handles git clone and submodule operations.
 type Cloner interface {
 	Clone(ctx context.Context, token, repoURL, destPath string) error
+	// CloneWorktree clones bare and creates a worktree at workdir.
+	CloneWorktree(ctx context.Context, token, repoURL, workdir string) error
 	// ListSubmodules returns all submodules defined in .gitmodules.
 	ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error)
 	// SetSubmoduleURL rewrites the URL for a named submodule in .gitmodules
@@ -253,6 +255,52 @@ func (cl *goGitCloner) Clone(ctx context.Context, token, repoURL, destPath strin
 	if err != nil {
 		return fmt.Errorf("clone failed: %w", err)
 	}
+	return nil
+}
+
+// CloneWorktree clones bare and creates a worktree.
+func (cl *goGitCloner) CloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
+	sourceOwner, sourceRepoName := ParseGitHubURL(repoURL)
+	if sourceOwner == "" || sourceRepoName == "" {
+		return fmt.Errorf("invalid repo URL: %s", repoURL)
+	}
+
+	parentDir := filepath.Dir(workdir)
+	bareDir := filepath.Join(parentDir, ".bare")
+
+	// Build URL with embedded token for git CLI auth
+	authRepoURL := fmt.Sprintf("https://oauth2:%s@github.com/%s/%s.git", token, sourceOwner, sourceRepoName)
+
+	// Create parent directory
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("create parent dir: %w", err)
+	}
+
+	// Clone bare
+	cmd := exec.CommandContext(ctx, "git", "clone", "--bare", authRepoURL, bareDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bare clone failed: %w\n%s", err, string(out))
+	}
+
+	// Detect default branch
+	defaultBranch := "main"
+	branchCmd := exec.CommandContext(ctx, "git", "--git-dir", bareDir, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if out, err := branchCmd.Output(); err == nil {
+		ref := strings.TrimSpace(string(out))
+		if parts := strings.Split(ref, "/"); len(parts) > 0 {
+			if last := parts[len(parts)-1]; last != "" {
+				defaultBranch = last
+			}
+		}
+	}
+
+	// Create worktree
+	wtCmd := exec.CommandContext(ctx, "git", "--git-dir", bareDir, "worktree", "add", "--detach", workdir, defaultBranch)
+	if out, err := wtCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("worktree add failed: %w\n%s", err, string(out))
+	}
+
+	fmt.Fprintf(os.Stderr, "  ✓ Cloned (bare + worktree) to %s\n", workdir)
 	return nil
 }
 
