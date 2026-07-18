@@ -693,7 +693,7 @@ func TestParseSubmoduleURLs_EmptyInput(t *testing.T) {
 
 func TestRunInitSubmodule_SkipAll(t *testing.T) {
 	mc := &mockCloner{}
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -718,7 +718,7 @@ func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -746,7 +746,7 @@ func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
 		return nil, nil // user accepted all defaults
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -772,7 +772,7 @@ func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
 		"flask_blogs": "https://github.com/user/flask_blogs",
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -808,7 +808,7 @@ func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
 		"private-pi":  "https://github.com/user/private-pi.git",
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
 		}, nil
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -866,7 +866,7 @@ func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
 		"flask_blogs": "https://github.com/cli/flask_blogs",
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, promptFn)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, promptFn, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -882,7 +882,7 @@ func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -907,7 +907,7 @@ func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
 		"flask_blogs": "https://github.com/user/flask_blogs",
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -928,7 +928,7 @@ func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -950,7 +950,7 @@ func TestRunInitSubmodule_PromptError(t *testing.T) {
 		return nil, fmt.Errorf("user cancelled")
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, promptFn, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -969,7 +969,7 @@ func TestRunInitSubmodule_ContextCancelled(t *testing.T) {
 		},
 	}
 
-	err := runInitSubmodule(ctx, mc, t.TempDir(), nil, false, nil)
+	err := runInitSubmodule(ctx, mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -982,7 +982,7 @@ func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
 		},
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1010,7 +1010,7 @@ func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
 		"nonexistent": "https://github.com/user/nonexistent",
 	}
 
-	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil)
+	err := runInitSubmodule(context.Background(), mc, t.TempDir(), urlOverrides, false, nil, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent submodule")
 	}
@@ -1621,7 +1621,7 @@ func TestSourceForkInput_RoundTrip(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInitPromptSource_EmptyInputDefaults(t *testing.T) {
-	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork}, false)
+	result, err := runInitPromptSource(SourceForkInput{Mode: ModePromptFork})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1631,7 +1631,7 @@ func TestRunInitPromptSource_EmptyInputDefaults(t *testing.T) {
 }
 
 func TestRunInitPromptSource_UserInput(t *testing.T) {
-	result, err := runInitPromptSource(mockInputFn("user/repo", nil), SourceForkInput{Mode: ModePromptFork}, false)
+	result, err := runInitPromptSource(SourceForkInput{Mode: ModePromptFork, SourceRepo: "user/repo"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1640,18 +1640,8 @@ func TestRunInitPromptSource_UserInput(t *testing.T) {
 	}
 }
 
-func TestRunInitPromptSource_InputError(t *testing.T) {
-	_, err := runInitPromptSource(mockInputFn("", fmt.Errorf("input cancelled")), SourceForkInput{Mode: ModePromptFork}, false)
-	if err == nil {
-		t.Fatal("expected error when inputFn fails")
-	}
-	if !strings.Contains(err.Error(), "input cancelled") {
-		t.Errorf("error should propagate: %v", err)
-	}
-}
-
 func TestRunInitPromptSource_NoInputFlag(t *testing.T) {
-	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork}, true)
+	result, err := runInitPromptSource(SourceForkInput{Mode: ModePromptFork})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1661,7 +1651,7 @@ func TestRunInitPromptSource_NoInputFlag(t *testing.T) {
 }
 
 func TestRunInitPromptSource_SourceRepoFlag(t *testing.T) {
-	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModePromptFork, SourceRepo: "org/custom"}, false)
+	result, err := runInitPromptSource(SourceForkInput{Mode: ModePromptFork, SourceRepo: "org/custom"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1671,7 +1661,7 @@ func TestRunInitPromptSource_SourceRepoFlag(t *testing.T) {
 }
 
 func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
-	result, err := runInitPromptSource(mockInputFn("", nil), SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, false)
+	result, err := runInitPromptSource(SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

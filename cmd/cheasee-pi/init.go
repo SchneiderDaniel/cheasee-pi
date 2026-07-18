@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -256,8 +257,8 @@ func runInit(
 				user = u
 			}
 
-			// Phase 4.5: Prompt for source repo
-			resolvedSourceRepo, err := runInitPromptSource(inputFn, sourceForkInput, noInput)
+			// Phase 4.5: Resolve source repo
+			resolvedSourceRepo, err := runInitPromptSource(sourceForkInput)
 			if err != nil {
 				return fmt.Errorf("source repo prompt: %w", err)
 			}
@@ -276,28 +277,44 @@ func runInit(
 				// Skip fork and clone entirely
 
 			case ModePromptFork:
-				// Phase 5: Fork the source repository
 				sourceOwner, sourceRepoName := ParseGitHubURL(resolvedSourceRepo)
-				forkOwner := user
-				forkRepo := sourceRepoName
 
-				_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
-				if err != nil {
-					// 422 "fork already exists" is not a fatal error
-					if strings.Contains(err.Error(), "fork already exists") {
-						fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
-					} else {
-						return fmt.Errorf("fork repository: %w", err)
+				// Ask if user wants their own fork
+				createFork := true
+				if !noInput {
+					ok, err := confirmFn(fmt.Sprintf("Create your own fork of %s/%s?", sourceOwner, sourceRepoName))
+					if err != nil {
+						return err
 					}
+					createFork = ok
 				}
 
-				// Phase 6: Wait for fork to be ready
-				if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
-					return fmt.Errorf("wait for fork ready: %w", err)
+				if createFork {
+					forkOwner := user
+					forkRepo := sourceRepoName
+
+					_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+					if err != nil {
+						// 422 "fork already exists" is not a fatal error
+						if strings.Contains(err.Error(), "fork already exists") {
+							fmt.Fprintf(os.Stderr, "  ℹ Fork already exists, continuing\n")
+						} else {
+							return fmt.Errorf("fork repository: %w", err)
+						}
+					}
+
+					// Phase 6: Wait for fork to be ready
+					if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
+						return fmt.Errorf("wait for fork ready: %w", err)
+					}
+
+					// Phase 7: Clone the fork
+					cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
+				} else {
+					// Use source repo directly
+					cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", sourceOwner, sourceRepoName)
 				}
 
-				// Phase 7: Clone the fork
-				cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", forkOwner, forkRepo)
 				if err := runInitCloneSubmodule(ctx, cloner, token, cloneURL, workdir); err != nil {
 					return err
 				}
@@ -317,7 +334,7 @@ func runInit(
 
 			// Configure submodules for non-skip modes
 			if sourceForkInput.Mode != ModeSkipFork {
-				if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn); err != nil {
+				if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn, noInput, confirmFn, inputFn); err != nil {
 					return fmt.Errorf("submodule config: %w", err)
 				}
 			}
@@ -457,8 +474,9 @@ func runInitLegacy(ctx context.Context, cfg Repository, apiKey string, provider 
 	return &Auth{APIKey: apiKey, Provider: provider}, nil
 }
 
-// runInitSubmodule orchestrates submodule enumeration, URL prompting, URL overrides,
-// and init/update of all submodules.
+// runInitSubmodule orchestrates submodule setup.
+// Interactive flow (noInput=false): asks yes/no, count, entries, adds each.
+// Non-interactive flow (noInput=true or confirmFn nil): reads .gitmodules, applies CLI overrides.
 func runInitSubmodule(
 	ctx context.Context,
 	cloner Cloner,
@@ -466,12 +484,87 @@ func runInitSubmodule(
 	urlOverrides map[string]string,
 	skipAll bool,
 	promptFn func([]Submodule) (map[string]string, error),
+	noInput bool,
+	confirmFn func(string) (bool, error),
+	inputFn func(title, placeholder string) (string, error),
 ) error {
 	if skipAll {
 		fmt.Fprintf(os.Stderr, "  ℹ Skipping submodule setup (--skip-submodules)\n")
 		return nil
 	}
 
+	// Interactive flow: ask user what submodules they want
+	if !noInput && confirmFn != nil && inputFn != nil {
+		ok, err := confirmFn("Set up git submodules?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintf(os.Stderr, "  ℹ Skipping submodule setup\n")
+			// Remove submodule directories
+			removeSubmoduleDirs(workdir)
+			// Remove .gitmodules if present
+			if err := os.Remove(filepath.Join(workdir, ".gitmodules")); err == nil {
+				fmt.Fprintf(os.Stderr, "  ✓ Removed .gitmodules\n")
+			}
+			// Clean submodule paths from .pi/settings.json
+			if err := removeSubmoduleSettings(workdir); err != nil {
+				return fmt.Errorf("clean submodule settings: %w", err)
+			}
+			return nil
+		}
+
+		// Remove original submodules before setting up user's own
+		removeSubmoduleDirs(workdir)
+		if err := os.Remove(filepath.Join(workdir, ".gitmodules")); err == nil {
+			fmt.Fprintf(os.Stderr, "  ✓ Removed original .gitmodules\n")
+		}
+
+		countStr, err := inputFn("How many submodules?", "0")
+		if err != nil {
+			return err
+		}
+		count := 0
+		if countStr != "" {
+			fmt.Sscanf(countStr, "%d", &count)
+		}
+
+		for i := 0; i < count; i++ {
+			name, err := inputFn(fmt.Sprintf("Submodule %d — name (directory path)", i+1), "")
+			if err != nil {
+				return err
+			}
+			url, err := inputFn(fmt.Sprintf("Submodule %d — repository URL", i+1), "")
+			if err != nil {
+				return err
+			}
+			if name == "" || url == "" {
+				fmt.Fprintf(os.Stderr, "  ⚠ Skipping submodule %d — name or URL empty\n", i+1)
+				continue
+			}
+
+			// URL override from CLI flag takes precedence
+			if override, ok := urlOverrides[name]; ok {
+				url = override
+			}
+
+			fmt.Fprintf(os.Stderr, "  ℹ Adding submodule %s → %s\n", name, url)
+			if err := cloner.AddSubmodule(ctx, workdir, name, url); err != nil {
+				return fmt.Errorf("add submodule %q: %w", name, err)
+			}
+		}
+
+		if count > 0 {
+			if err := cloner.InitAndUpdateSubmodules(ctx, workdir); err != nil {
+				return fmt.Errorf("update submodules: %w", err)
+			}
+		}
+
+		fmt.Fprintf(os.Stderr, "  ✓ Submodules configured\n")
+		return nil
+	}
+
+	// Non-interactive flow: read from .gitmodules, apply overrides
 	fmt.Fprintf(os.Stderr, "  ℹ Configuring submodules...\n")
 
 	submodules, err := cloner.ListSubmodules(ctx, workdir)
@@ -513,6 +606,84 @@ func runInitSubmodule(
 	}
 
 	fmt.Fprintf(os.Stderr, "  ✓ Submodules configured\n")
+	return nil
+}
+
+// removeSubmoduleDirs reads .gitmodules and removes submodule directories.
+func removeSubmoduleDirs(workdir string) {
+	gitmodulesPath := filepath.Join(workdir, ".gitmodules")
+	data, err := os.ReadFile(gitmodulesPath)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "path = ") {
+			path := strings.TrimPrefix(line, "path = ")
+			fullPath := filepath.Join(workdir, path)
+			if err := os.RemoveAll(fullPath); err == nil {
+				fmt.Fprintf(os.Stderr, "  ✓ Removed submodule directory %s\n", path)
+			}
+		}
+	}
+}
+
+// removeSubmoduleSettings removes entries referencing submodule paths
+// (.g./../private-pi/skills) from .pi/settings.json skills and prompts arrays.
+func removeSubmoduleSettings(workdir string) error {
+	path := filepath.Join(workdir, ".pi", "settings.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+
+	changed := false
+	for _, key := range []string{"skills", "prompts"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		arr, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		filtered := make([]any, 0, len(arr))
+		for _, v := range arr {
+			s, ok := v.(string)
+			if !ok {
+				filtered = append(filtered, v)
+				continue
+			}
+			// Skip entries that reference parent directories (submodule paths)
+			if strings.HasPrefix(s, "../") || strings.HasPrefix(s, "..\\") {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, v)
+		}
+		cfg[key] = filtered
+	}
+
+	if !changed {
+		return nil
+	}
+
+	out, err := json.MarshalIndent(cfg, "", "\t")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ Removed submodule paths from .pi/settings.json\n")
 	return nil
 }
 
@@ -706,9 +877,8 @@ func promptInput(title, placeholder string) (string, error) {
 }
 
 // runInitPromptSource resolves the source repository to fork from.
-// If sourceRepo is empty and noInput is false, prompts interactively.
-// Falls back to the default "SchneiderDaniel/cheasee-pi" when input is empty.
-func runInitPromptSource(inputFn func(title, placeholder string) (string, error), sfi SourceForkInput, noInput bool) (string, error) {
+// Returns "SchneiderDaniel/cheasee-pi" by default, or --source-repo if set.
+func runInitPromptSource(sfi SourceForkInput) (string, error) {
 	switch sfi.Mode {
 	case ModeUseForkURL:
 		// For fork URL mode, derive source repo from the fork URL
@@ -716,6 +886,7 @@ func runInitPromptSource(inputFn func(title, placeholder string) (string, error)
 		if owner != "" && repo != "" {
 			return owner + "/" + repo, nil
 		}
+		return "SchneiderDaniel/cheasee-pi", nil
 	case ModeSkipFork:
 		// Skip fork entirely — source repo is not used
 		if sfi.SourceRepo != "" {
@@ -729,19 +900,7 @@ func runInitPromptSource(inputFn func(title, placeholder string) (string, error)
 		return sfi.SourceRepo, nil
 	}
 
-	if noInput {
-		// Non-interactive: use default
-		return "SchneiderDaniel/cheasee-pi", nil
-	}
-
-	repo, err := inputFn("Which repository would you like to fork?", "SchneiderDaniel/cheasee-pi")
-	if err != nil {
-		return "", err
-	}
-	if repo == "" {
-		repo = "SchneiderDaniel/cheasee-pi"
-	}
-	return repo, nil
+	return "SchneiderDaniel/cheasee-pi", nil
 }
 
 // runInitCloneSubmodule clones a repo and configures its submodule.
@@ -749,6 +908,20 @@ func runInitCloneSubmodule(ctx context.Context, cloner Cloner, token, cloneURL, 
 	sourceOwner, sourceRepoName := ParseGitHubURL(cloneURL)
 	if sourceOwner == "" || sourceRepoName == "" {
 		return fmt.Errorf("invalid clone URL: %s", cloneURL)
+	}
+
+	// Check if target dir already has content
+	if fi, err := os.Stat(workdir); err == nil && fi.IsDir() {
+		entries, _ := os.ReadDir(workdir)
+		if len(entries) > 0 {
+			// Has .git → repo exists, skip clone
+			if _, err := os.Stat(filepath.Join(workdir, ".git")); err == nil {
+				fmt.Fprintf(os.Stderr, "  ℹ Repository already exists at %s, skipping clone\n", workdir)
+				return nil
+			}
+			// Non-empty, no .git → refuse
+			return fmt.Errorf("directory %s exists and is not empty. Remove it or use --workdir to point elsewhere", workdir)
+		}
 	}
 
 	if err := cloner.Clone(ctx, token, cloneURL, workdir); err != nil {

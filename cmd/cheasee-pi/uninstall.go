@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,8 @@ The uninstall command removes:
   1. docker/ directory (compose files, Dockerfile, scripts)
   2. .pi/ directory (agent configuration, contexts, themes)
   3. Auth config (~/.config/cheasee-pi/auth.json)
-  4. .git/ directory (if --remove-git is set)
+  4. cheasee-pi binary (the running executable)
+  5. .git/ directory (if --remove-git is set)
 
 Use --force to skip the confirmation prompt.`,
 	DisableAutoGenTag: true,
@@ -58,6 +60,19 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 	piDir := filepath.Join(workdir, ".pi")
 	gitDir := filepath.Join(workdir, ".git")
 
+	// Detect binary path — skip if running from Go build cache
+	binaryPath, _ := os.Executable()
+	if binaryPath != "" {
+		// Resolve symlinks to get real path
+		if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil {
+			binaryPath = resolved
+		}
+		// Skip removal if binary is in a Go build cache or temp directory
+		if strings.Contains(binaryPath, "/go-build") || strings.Contains(binaryPath, "/tmp/go") {
+			binaryPath = ""
+		}
+	}
+
 	// Show summary
 	fmt.Fprintf(os.Stderr, "The following will be removed:\n")
 	fmt.Fprintf(os.Stderr, "  %s/docker/   — %s\n", filepath.Base(workdir), identify(dockerDir))
@@ -76,6 +91,11 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		if _, err := os.Stat(authPath); err == nil {
 			fmt.Fprintf(os.Stderr, "  %s        — will remove\n", authPath)
 		}
+	}
+
+	// Binary
+	if binaryPath != "" {
+		fmt.Fprintf(os.Stderr, "  %s — will remove\n", binaryPath)
 	}
 
 	if !uninstallForce {
@@ -121,6 +141,22 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		}
 		// Try removing empty parent dir
 		os.Remove(filepath.Dir(authPath)) // best-effort
+	}
+
+	// Remove binary (last — running process keeps the file handle)
+	if binaryPath != "" {
+		binaryDir := filepath.Dir(binaryPath)
+		// Check if parent dir is writable — if not, suggest sudo
+		if f, err := os.Stat(binaryDir); err == nil && f.Mode().Perm()&0o222 == 0 {
+			fmt.Fprintf(os.Stderr, "  ⚠ cannot remove binary — %s is not writable by you\n", binaryDir)
+			fmt.Fprintf(os.Stderr, "    Re-run with: sudo %s uninstall\n", filepath.Base(binaryPath))
+		} else if err := os.Remove(binaryPath); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove binary at %s\n", binaryPath)
+			fmt.Fprintf(os.Stderr, "    Cause: %v\n", err)
+			fmt.Fprintf(os.Stderr, "    To remove manually: sudo rm %s\n", binaryPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "  ✓ Removed binary\n")
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n✅ Uninstall complete.\n")

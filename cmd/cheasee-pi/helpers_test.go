@@ -148,6 +148,7 @@ type mockCloner struct {
 	listSubmodulesFunc       func(ctx context.Context, repoPath string) ([]Submodule, error)
 	setSubmoduleURLFunc      func(ctx context.Context, repoPath, name, newURL string) error
 	initAndUpdateSubmodFunc  func(ctx context.Context, repoPath string) error
+	addSubmoduleFunc         func(ctx context.Context, repoPath, name, url string) error
 
 	// Tracking fields for test assertions
 	listSubmodulesCalled    bool
@@ -156,6 +157,7 @@ type mockCloner struct {
 	setSubmoduleURLURL      string
 	setSubmoduleURLCalls    []struct{ Name, URL string }
 	initAndUpdateCalled     bool
+	addSubmoduleCalls       []struct{ Name, URL string }
 }
 
 func (m *mockCloner) Clone(ctx context.Context, token, repoURL, destPath string) error {
@@ -188,6 +190,14 @@ func (m *mockCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath strin
 	m.initAndUpdateCalled = true
 	if m.initAndUpdateSubmodFunc != nil {
 		return m.initAndUpdateSubmodFunc(ctx, repoPath)
+	}
+	return nil
+}
+
+func (m *mockCloner) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
+	m.addSubmoduleCalls = append(m.addSubmoduleCalls, struct{ Name, URL string }{name, url})
+	if m.addSubmoduleFunc != nil {
+		return m.addSubmoduleFunc(ctx, repoPath, name, url)
 	}
 	return nil
 }

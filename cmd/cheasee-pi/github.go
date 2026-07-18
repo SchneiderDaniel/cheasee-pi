@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,6 +53,8 @@ type Cloner interface {
 	SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error
 	// InitAndUpdateSubmodules runs git submodule init + update --init --recursive.
 	InitAndUpdateSubmodules(ctx context.Context, repoPath string) error
+	// AddSubmodule runs git submodule add for a new submodule.
+	AddSubmodule(ctx context.Context, repoPath, name, url string) error
 }
 
 // ──────────────────────────────────────────────
@@ -358,6 +361,16 @@ func (cl *goGitCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath str
 		return fmt.Errorf("update submodules: %w", err)
 	}
 
+	return nil
+}
+
+func (cl *goGitCloner) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
+	cmd := exec.CommandContext(ctx, "git", "submodule", "add", url, name)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git submodule add %s %s: %w\nOutput: %s", url, name, err, string(output))
+	}
 	return nil
 }
 

@@ -413,5 +413,37 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ---
 
+## Uninstall
+
+To remove cheasee-pi configuration, project files, and the binary itself:
+
+```bash
+sudo cheasee-pi uninstall
+```
+
+This removes:
+  1. `docker/` directory (compose files, Dockerfile, scripts)
+  2. `.pi/` directory (agent configuration, contexts, themes)
+  3. Auth config (`~/.config/cheasee-pi/auth.json`)
+  4. cheasee-pi binary (the running executable)
+  5. `.git/` directory (if `--remove-git` is set)
+
+Use `sudo` because the binary is typically installed to `/usr/local/bin/`.
+If installed to a user-writable directory, `sudo` is not needed.
+
+Add `--force` to skip the confirmation prompt:
+
+```bash
+sudo cheasee-pi uninstall --force
+```
+
+Add `--remove-git` to also delete the `.git/` directory:
+
+```bash
+sudo cheasee-pi uninstall --remove-git
+```
+
+---
+
 > **Next steps?** After installation, head over to the [Daily Usage guide](daily-usage.md)
 > for running pi, managing parallel sessions, stop/start workflows, and troubleshooting.
