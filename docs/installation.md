@@ -190,7 +190,7 @@ cheasee-pi init
 
 `cheasee-pi init` will:
 
-1. Verify Docker Engine is running
+1. Verify Docker Engine 24.0+ is installed and running
 2. Open GitHub OAuth device flow to authenticate (browser window)
 3. **Prompt for the repository to fork** (default: `SchneiderDaniel/cheasee-pi`; accepts `owner/repo`, full URL, or git URL)
 4. Fork the source repo to your GitHub account
@@ -200,6 +200,7 @@ cheasee-pi init
 8. Extract embedded `docker-compose.yml`, `Dockerfile`, and `entrypoint.sh`
 9. Generate `docker/.env` with your settings
 10. Save authentication config to your platform's XDG user config directory (e.g., `~/.config/cheasee-pi/auth.json` on Linux; the exact path is printed at runtime as "✓ Auth config saved to...")
+11. **Configure API keys for pi providers** (interactive — pick provider, enter key, select model)
 
 After completion, you'll see:
 
@@ -207,6 +208,10 @@ After completion, you'll see:
 ✅ Init complete! Next step:
    bash docker/run-pi.sh
 ```
+
+> **Managing API keys after init:** Use `cheasee-pi auth add` to add or update a
+> provider key, `cheasee-pi auth list` to view configured providers, and
+> `cheasee-pi auth remove` to delete one. See `cheasee-pi auth --help`.
 
 > **No GitHub?** Use `cheasee-pi init --no-github` to skip the GitHub OAuth and fork
 > steps. You'll need to provide your API key manually.
