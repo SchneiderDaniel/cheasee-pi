@@ -4,17 +4,12 @@ set -e
 # ------------------------------------------------------------------
 # Cheasee-Pi — Docker Compose orchestration wrapper
 #
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  DEPRECATED — Use 'cheasee-pi' Go CLI instead.                 ║
-# ║                                                                  ║
-# ║  All configuration (API keys, providers, git identity) is now   ║
-# ║  handled by the 'cheasee-pi' CLI. Run:                          ║
-# ║    cheasee-pi init          # one-time setup                    ║
-# ║    cheasee-pi auth add ...  # manage API keys                   ║
-# ║    bash docker/run-pi.sh    # start container + pi               ║
-# ║                                                                  ║
-# ║  This script will be removed in a future release.               ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# Single entry point to build, start, and enter the cheasee-pi-v1
+# container with workspace mounts and resource limits configured
+# via the project's settings file.
+#
+# Uses container name cheasee-pi-v1 to coexist with the
+# docker/run-pi.sh script (which uses cheasee-pi).
 #
 # Usage:
 #   ./cheasee-pi.sh
@@ -44,7 +39,7 @@ EOF
 check_container_resources() {
     local threshold=80
     local stats container_name
-    container_name="cheasee-pi"
+    container_name="cheasee-pi-v1"
 
     stats=$(docker stats "$container_name" --no-stream --format '{{.CPUPerc}}|{{.MemPerc}}' 2>/dev/null) || return 0
 
@@ -132,7 +127,7 @@ done
 # Kills pi/node processes that have no active PID marker file.
 # Session marker files are created by the interactive session launcher.
 if [ "$CLEAN" = true ]; then
-    docker exec cheasee-pi bash -c '
+    docker exec cheasee-pi-v1 bash -c '
       # Collect active PIDs from marker files
       active=""
       for f in /tmp/pi-active-*; do
@@ -365,8 +360,8 @@ if [ "$ATTACH" = true ]; then
         echo "Error: Docker not found."
         exit 1
     fi
-    if ! docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
-        echo "Error: cheasee-pi container is not running."
+    if ! docker ps --filter name=cheasee-pi-v1 --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi-v1; then
+        echo "Error: cheasee-pi-v1 container is not running."
         echo "Start it first with: ./cheasee-pi.sh"
         exit 1
     fi
@@ -396,9 +391,9 @@ if [ "$ATTACH" = true ]; then
     check_container_resources
 
     # Host-side cleanup: kill stale pi sessions before starting new one
-    kill_stale_pi_host cheasee-pi
+    kill_stale_pi_host cheasee-pi-v1
 
-    exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+    exec docker exec $DOCKER_ENV -it --user agentuser cheasee-pi-v1 /bin/bash -c '
       echo $$ > /tmp/pi-active-$$
       cd /workspaces/main && clear && exec pi --approve "$@"
     ' --
@@ -457,7 +452,7 @@ HAVE_ANY=false
 
 # Check if container already running — skip interactive prompts on subsequent calls
 FIRST_RUN=true
-if docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
+if docker ps --filter name=cheasee-pi-v1 --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi-v1; then
     FIRST_RUN=false
 fi
 
@@ -558,7 +553,7 @@ PI_VERSION=$(npm view @earendil-works/pi-coding-agent version 2>/dev/null || ech
 export PI_VERSION
 
 CONTAINER_RUNNING=false
-if docker ps --filter name=cheasee-pi --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi; then
+if docker ps --filter name=cheasee-pi-v1 --format '{{.Names}}' 2>/dev/null | grep -q cheasee-pi-v1; then
     CONTAINER_RUNNING=true
 fi
 
@@ -566,35 +561,35 @@ FRESH_START=false
 
 if [ "$CONTAINER_RUNNING" = true ] && [ "$REBUILD" = false ]; then
     # Container alive — skip compose, just attach
-    INSTALLED_PI=$(docker exec cheasee-pi pi --version 2>/dev/null || echo "?")
+    INSTALLED_PI=$(docker exec cheasee-pi-v1 pi --version 2>/dev/null || echo "?")
     if [ "$INSTALLED_PI" != "$PI_VERSION" ] && [ "$INSTALLED_PI" != "?" ]; then
         echo "Warning: container pi $INSTALLED_PI, latest is $PI_VERSION."
         echo "  Run './cheasee-pi.sh --rebuild' to upgrade."
     fi
-    echo "Reusing running container cheasee-pi..."
+    echo "Reusing running container cheasee-pi-v1..."
 
     check_container_resources
 else
     FRESH_START=true
     # --- Mutual exclusion: prevent concurrent docker compose up ------------
-    exec 200>/tmp/cheasee-pi.lock
+    exec 200>/tmp/cheasee-pi-v1.lock
     flock -n 200 || {
         echo "Another cheasee-pi.sh instance is starting the container. Waiting..."
         flock 200
     }
-    trap 'rm -f /tmp/cheasee-pi.lock' EXIT
+    trap 'rm -f /tmp/cheasee-pi-v1.lock' EXIT
 
-    echo "Starting cheasee-pi container (pi $PI_VERSION)..."
+    echo "Starting cheasee-pi-v1 container (pi $PI_VERSION)..."
 
     # Remove old container before rebuild to avoid orphan conflicts
-    docker rm -f cheasee-pi 2>/dev/null || true
+    docker rm -f cheasee-pi-v1 2>/dev/null || true
 
     # Raise timeouts so the docker daemon doesn't drop the connection
     # during long builds (~8 min with Chromium download).
     export DOCKER_CLIENT_TIMEOUT=900
     export COMPOSE_HTTP_TIMEOUT=900
 
-    docker compose -f docker/docker-compose.yml up -d --build
+    docker compose -f docker/docker-compose.yml -f docker/docker-compose.legacy.yml up -d --build
 
     # Prune dangling images only — keep the fresh build cache intact
     # so subsequent starts (e.g., after reboot) are fast incremental builds.
@@ -621,7 +616,7 @@ fi
 # --- Step 6b: Verify gh CLI auth inside container ---------------------
 REQUIRED_SCOPES=("repo" "project" "workflow")
 MISSING_SCOPES=()
-GH_AUTH_OUTPUT=$(docker exec ${GH_TOKEN:+-e GH_TOKEN="$GH_TOKEN"} --user agentuser cheasee-pi gh auth status 2>&1) || true
+GH_AUTH_OUTPUT=$(docker exec ${GH_TOKEN:+-e GH_TOKEN="$GH_TOKEN"} --user agentuser cheasee-pi-v1 gh auth status 2>&1) || true
 if echo "$GH_AUTH_OUTPUT" | grep -q "not logged in\|not authenticated\|auth.*required\|HTTP 401"; then
     # Check if token was extracted but still fails inside container
     if [ -n "${GH_TOKEN:-}" ]; then
@@ -673,7 +668,7 @@ if [ "$FRESH_START" = true ]; then
   # Run it synchronously here (not relying on the entrypoint) so pi doesn't
   # start before all modules are ready. Idempotent — npm is fast when nothing changed.
   echo "Ensuring workspace npm dependencies…"
-  docker exec --user agentuser cheasee-pi \
+  docker exec --user agentuser cheasee-pi-v1 \
       bash -c 'cd /workspaces/main && npm install --no-audit --no-fund' \
       || echo "Warning: npm install failed (non-fatal — extensions may not load)"
 
@@ -685,7 +680,7 @@ if [ "$FRESH_START" = true ]; then
   # To add a new check, add an entry to one of the arrays below.
   echo "Verifying extension prerequisites…"
 
-  docker exec --user agentuser cheasee-pi bash -c '
+  docker exec --user agentuser cheasee-pi-v1 bash -c '
     any_missing=false
 
     # ── System binaries that extensions expect in PATH ──
@@ -715,7 +710,7 @@ if [ "$FRESH_START" = true ]; then
   # Keeps packages from settings.json up to date so "Package Updates
   # Available" nag never shows. Idempotent — fast when nothing changed.
   echo "Syncing extension packages…"
-  docker exec --user agentuser cheasee-pi \
+  docker exec --user agentuser cheasee-pi-v1 \
       bash -c 'cd /workspaces/main && pi update --extensions --approve 2>&1' \
       || echo "Warning: pi update --extensions failed (non-fatal)"
 fi
@@ -726,9 +721,9 @@ fi
 
 # Host-side cleanup: kill stale pi processes before new session starts.
 # The docker top TTY column shows pts/X for connected sessions, ? for stale ones.
-kill_stale_pi_host cheasee-pi
+kill_stale_pi_host cheasee-pi-v1
 
-docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
+docker exec $DOCKER_ENV -it --user agentuser cheasee-pi-v1 /bin/bash -c '
   # Pre-launch cleanup: kill orphaned pi/node processes from previous
   # sessions that survived after terminal disconnect.
   # The marker-based cleanup below runs on host AFTER docker exec returns,
@@ -785,7 +780,7 @@ docker exec $DOCKER_ENV -it --user agentuser cheasee-pi /bin/bash -c '
 # Does NOT cover terminal-close disconnects — the pre-launch cleanup above does.
 # Only kills processes whose entire parent chain has no active marker —
 # preserves sub-agent pi processes spawned by running supervisor sessions.
-docker exec cheasee-pi bash -c '
+docker exec cheasee-pi-v1 bash -c '
   # Root (PPID=0) always preserved for parallel sessions.
   # The host-side kill_stale_pi_host uses marker-based orphan detection
   # (same logic as this internal cleanup) and handles stale disconnected

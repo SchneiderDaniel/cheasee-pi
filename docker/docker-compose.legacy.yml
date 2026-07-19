@@ -1,0 +1,11 @@
+# Cheasee-Pi legacy compose override
+# ====================================
+# Override the container name so cheasee-pi.sh runs independently
+# from docker/run-pi.sh (which uses the default "cheasee-pi" name).
+#
+# Used by: cheasee-pi.sh
+# Usage:   docker compose -f docker/docker-compose.yml -f docker/docker-compose.legacy.yml up -d
+
+services:
+  cheasee-pi:
+    container_name: cheasee-pi-v1
