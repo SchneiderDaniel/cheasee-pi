@@ -27,7 +27,7 @@ import {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 import { DiagnosticsWatcher } from "./watcher.ts";
-import { formatTrend, formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
+import { formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
 import { runTscCheckpoint } from "./checkpoint.ts";
 
 // ── parseArgs: structural import, not yet used in handler ──────────
@@ -52,7 +52,7 @@ export {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 export { DiagnosticsWatcher } from "./watcher.ts";
-export { formatTrend, formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
+export { formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
 export { runTscCheckpoint } from "./checkpoint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
