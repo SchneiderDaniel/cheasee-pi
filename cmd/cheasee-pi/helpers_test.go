@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
@@ -78,6 +79,20 @@ func (m *mockRepository) Path() (string, error) {
 		return m.path, nil
 	}
 	return "/mock/path/auth.json", nil
+}
+
+func (m *mockRepository) AddProvider(_ context.Context, provider, key string) error {
+	m.savedProvider = provider
+	m.savedKey = key
+	return nil
+}
+
+func (m *mockRepository) RemoveProvider(_ context.Context, provider string) error {
+	return nil
+}
+
+func (m *mockRepository) ListProviders(_ context.Context) (map[string]string, error) {
+	return nil, nil
 }
 
 // ──────────────────────────────────────────────
@@ -308,8 +323,16 @@ func (m *mockGitIdentity) Lookup() (name, email string, err error) {
 // ──────────────────────────────────────────────
 
 // mockConfirmFn returns a confirm function that returns the given result.
-func mockConfirmFn(result bool, err error) func(string) (bool, error) {
+// mockConfirmFn creates a mock confirm function.
+// If exceptions are provided, any question whose title contains one of the
+// exception substrings returns !result instead of result.
+func mockConfirmFn(result bool, err error, exceptions ...string) func(string) (bool, error) {
 	return func(title string) (bool, error) {
+		for _, exc := range exceptions {
+			if strings.Contains(title, exc) {
+				return !result, err
+			}
+		}
 		return result, err
 	}
 }

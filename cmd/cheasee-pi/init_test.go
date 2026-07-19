@@ -1815,7 +1815,7 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), false, nil, false, nil)
+		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil, "Configure API keys"), mockInputFn("", nil), false, nil, false, nil)
 	if err != nil {
 		t.Fatalf("post-clone confirm flow failed: %v", err)
 	}

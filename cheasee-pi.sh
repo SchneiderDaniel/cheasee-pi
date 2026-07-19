@@ -4,9 +4,17 @@ set -e
 # ------------------------------------------------------------------
 # Cheasee-Pi — Docker Compose orchestration wrapper
 #
-# Single entry point to build, start, and enter the cheasee-pi
-# container with workspace mounts and resource limits configured
-# via the project's settings file.
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  DEPRECATED — Use 'cheasee-pi' Go CLI instead.                 ║
+# ║                                                                  ║
+# ║  All configuration (API keys, providers, git identity) is now   ║
+# ║  handled by the 'cheasee-pi' CLI. Run:                          ║
+# ║    cheasee-pi init          # one-time setup                    ║
+# ║    cheasee-pi auth add ...  # manage API keys                   ║
+# ║    bash docker/run-pi.sh    # start container + pi               ║
+# ║                                                                  ║
+# ║  This script will be removed in a future release.               ║
+# ╚══════════════════════════════════════════════════════════════════╝
 #
 # Usage:
 #   ./cheasee-pi.sh

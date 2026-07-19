@@ -93,6 +93,13 @@ type Repository interface {
 	Load(ctx context.Context) (*Auth, error)
 	Save(ctx context.Context, auth *Auth) error
 	Path() (string, error)
+	// AddProvider adds or updates a provider API key in the auth config.
+	// Other providers and GitHub token are preserved.
+	AddProvider(ctx context.Context, provider, key string) error
+	// RemoveProvider deletes a provider entry from the auth config.
+	RemoveProvider(ctx context.Context, provider string) error
+	// ListProviders returns all configured provider API keys.
+	ListProviders(ctx context.Context) (map[string]string, error)
 }
 
 // fileRepository implements Repository using a JSON file on disk.
@@ -110,6 +117,19 @@ func (r *fileRepository) configPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(userConfigDir, "cheasee-pi", "auth.json"), nil
+}
+
+// atomicWrite writes data to path atomically via .tmp + rename.
+func atomicWrite(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // Path returns the full path to the auth config file.
@@ -156,15 +176,98 @@ func (r *fileRepository) Save(_ context.Context, auth *Auth) error {
 		return err
 	}
 
-	// Atomic write: write to .tmp then rename.
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
-		return err
+	return atomicWrite(path, data, 0600)
+}
+
+// readRawAuth reads the auth config file as a raw JSON map.
+// Returns empty map if file does not exist.
+func (r *fileRepository) readRawMap() (map[string]json.RawMessage, error) {
+	path, err := r.configPath()
+	if err != nil {
+		return nil, err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // best-effort cleanup
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]json.RawMessage), nil
+		}
+		return nil, err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// writeRawMap writes a raw JSON map to the auth config file atomically.
+func (r *fileRepository) writeRawMap(raw map[string]json.RawMessage) error {
+	path, err := r.configPath()
+	if err != nil {
 		return err
 	}
 
-	return nil
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return atomicWrite(path, data, 0600)
+}
+
+// AddProvider adds or updates a provider API key in the auth config.
+// Other providers and GitHub token fields are preserved.
+func (r *fileRepository) AddProvider(_ context.Context, provider, key string) error {
+	raw, err := r.readRawMap()
+	if err != nil {
+		return err
+	}
+
+	// Build the provider entry: {"<provider>": {"key": "..."}}
+	entry, _ := json.Marshal(map[string]string{"key": key})
+	raw[provider] = entry
+
+	return r.writeRawMap(raw)
+}
+
+// RemoveProvider deletes a provider entry from the auth config.
+func (r *fileRepository) RemoveProvider(_ context.Context, provider string) error {
+	raw, err := r.readRawMap()
+	if err != nil {
+		return err
+	}
+
+	delete(raw, provider)
+	return r.writeRawMap(raw)
+}
+
+// ListProviders returns all configured provider API keys.
+// Filters out non-provider keys (github_token, github_user, repo_path, api_key).
+func (r *fileRepository) ListProviders(_ context.Context) (map[string]string, error) {
+	raw, err := r.readRawMap()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	for k, v := range raw {
+		switch k {
+		case "github_token", "github_user", "repo_path", "api_key":
+			continue
+		}
+		var entry struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(v, &entry); err == nil && entry.Key != "" {
+			result[k] = entry.Key
+		}
+	}
+	return result, nil
 }

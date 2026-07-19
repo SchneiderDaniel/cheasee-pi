@@ -65,6 +65,12 @@ The init command will:
   4. Configure the pi submodule for your fork
   5. Extract embedded docker-compose.yml, Dockerfile, and entrypoint.sh
   6. Generate docker/.env with host UID/GID and git identity
+  7. Configure API keys for pi providers (interactive)
+
+After init, manage API keys with:
+  cheasee-pi auth add <provider>
+  cheasee-pi auth list
+  cheasee-pi auth remove <provider>
 
 GitHub OAuth is the primary authentication method. Use --no-github to fall
 back to the legacy API-key-only path.`,
@@ -374,6 +380,14 @@ func runInit(
 
 	path, _ := cfg.Path()
 	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
+
+	// Phase 13: API key setup for pi providers (interactive only)
+	if !noInput {
+		if err := runInitAPIKeys(ctx, cfg, workdir, confirmFn); err != nil {
+			return fmt.Errorf("API key setup: %w", err)
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
 	fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
 	return nil
@@ -458,6 +472,79 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 
 	fmt.Fprintf(os.Stderr, "  ✓ GitHub authentication successful\n")
 	return accessToken.Token, "", nil
+}
+
+// runInitAPIKeys guides the user through configuring API keys for pi providers.
+// Called after the main init flow (GitHub auth + scaffold), only in interactive mode.
+// Each provider key is saved to auth.json. Last provider added becomes default in
+// workspace settings. Skips if Docker Engine check failed or workspace has no .pi dir.
+func runInitAPIKeys(ctx context.Context, cfg Repository, workdir string, confirmFn func(string) (bool, error)) error {
+	ok, err := confirmFn("Configure API keys for pi providers?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Fprintf(os.Stderr, "  ℹ Skipping API key setup. Use 'cheasee-pi auth add' later.\n")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "\n🔑 Provider API Keys\n")
+	fmt.Fprintf(os.Stderr, "   ───────────────────\n")
+	fmt.Fprintf(os.Stderr, "   Keys are stored in ~/.config/cheasee-pi/auth.json\n")
+	fmt.Fprintf(os.Stderr, "   The last provider you add becomes the default.\n\n")
+
+	sw := &SettingsWriter{Workdir: workdir}
+	lastProvider := ""
+	lastModel := ""
+
+	for {
+		provider, err := promptProvider()
+		if err != nil {
+			return err
+		}
+
+		key, err := promptAPIKeyForProvider(provider)
+		if err != nil {
+			return err
+		}
+
+		if err := cfg.AddProvider(ctx, provider, key); err != nil {
+			return fmt.Errorf("save %q: %w", provider, err)
+		}
+		fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
+
+		model := DefaultModel(provider)
+		if models, ok := KnownModels[provider]; ok && len(models) > 0 {
+			picked, err := promptModel(provider, models)
+			if err != nil {
+				return err
+			}
+			if picked != "" {
+				model = picked
+			}
+		}
+
+		lastProvider = provider
+		lastModel = model
+
+		more, err := confirmFn("Add another provider?")
+		if err != nil {
+			return err
+		}
+		if !more {
+			break
+		}
+	}
+
+	// Last provider added becomes default
+	if lastProvider != "" {
+		if err := sw.WriteDefaultProvider(lastProvider, lastModel); err != nil {
+			return fmt.Errorf("update workspace settings: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "  ✓ Default provider set to %q (model: %s)\n", lastProvider, lastModel)
+	}
+
+	return nil
 }
 
 // runInitLegacy is an auth-only helper that returns an *Auth with the API key.
