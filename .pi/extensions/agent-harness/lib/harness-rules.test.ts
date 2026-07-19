@@ -18,6 +18,19 @@ import {
 	CASCADE_THRESHOLD,
 } from "./harness-rules.ts";
 
+// ── BASH_SEARCH_SIGNALS (dead export) ──
+
+describe("BASH_SEARCH_SIGNALS", () => {
+	it("is no longer exported from the module", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal(
+			(mod as Record<string, unknown>).BASH_SEARCH_SIGNALS,
+			undefined,
+			"BASH_SEARCH_SIGNALS should be removed — use BashCommand.isSearch() with isBashSearch() from lib/bash-query.ts",
+		);
+	});
+});
+
 // ── buildRedirectMessage ──
 
 describe("buildRedirectMessage", () => {
@@ -220,15 +233,21 @@ describe("SEARCH_TOOLS removal", () => {
 		const m = mod as Record<string, unknown>;
 
 		// Constants
-		assert.ok(Array.isArray(m.BASH_SEARCH_SIGNALS), "BASH_SEARCH_SIGNALS should be an array");
 		assert.equal(typeof m.CACHE_TTL_TURNS, "number", "CACHE_TTL_TURNS should be a number");
 		assert.equal(m.CASCADE_THRESHOLD, 8, "CASCADE_THRESHOLD should be 8");
 		assert.ok(m.MULTI_VERB_TOOLS instanceof Set, "MULTI_VERB_TOOLS should be a Set");
-		assert.ok(typeof m.TOOL_META === "object" && m.TOOL_META !== null, "TOOL_META should be an object");
+		assert.ok(
+			typeof m.TOOL_META === "object" && m.TOOL_META !== null,
+			"TOOL_META should be an object",
+		);
 
 		// Functions
 		assert.equal(typeof m.loadDefaultRules, "function", "loadDefaultRules should be a function");
-		assert.equal(typeof m.buildRedirectMessage, "function", "buildRedirectMessage should be a function");
+		assert.equal(
+			typeof m.buildRedirectMessage,
+			"function",
+			"buildRedirectMessage should be a function",
+		);
 		assert.equal(typeof m.parseBashCmd, "function", "parseBashCmd should be a function");
 		assert.equal(typeof m.getToolMeta, "function", "getToolMeta should be a function");
 		assert.equal(typeof m.shouldBlockRetry, "function", "shouldBlockRetry should be a function");

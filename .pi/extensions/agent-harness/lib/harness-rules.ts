@@ -6,7 +6,7 @@
  * from bash-command.ts).
  *
  * This module exports:
- *  - Constants: BASH_SEARCH_SIGNALS, etc.
+ *  - Constants: CACHE_TTL_TURNS, CASCADE_THRESHOLD, MULTI_VERB_TOOLS, TOOL_META, etc.
  *  - Types: ToolMeta
  *  - Helpers: buildRedirectMessage, getToolMeta, isRedundantRead, etc.
  *  - Re-exports: BashCommand, BashSegment, parseBashCmd from bash-command.ts
@@ -20,18 +20,6 @@ export { BashCommand, parseBashCmd } from "./bash-command.ts";
 export type { BashSegment } from "./bash-command.ts";
 
 // ── Constants ──
-
-/** Bash search signals: grep/rg/find used via pipe or backtick. */
-export const BASH_SEARCH_SIGNALS: readonly string[] = [
-	"| grep",
-	"| rg",
-	"| find",
-	"`grep",
-	"`rg",
-	"`find",
-	"`rg`",
-	"`grep`",
-];
 
 /** Code file extensions (lowercase). */
 const CODE_EXTENSIONS = new Set([".ts", ".js", ".tsx", ".jsx", ".py", ".rs", ".go"]);
@@ -164,14 +152,4 @@ export function isCodeFilePath(path: string): boolean {
 	return false;
 }
 
-// ── Shared helper ──
 
-/**
- * Check if text contains grep-like patterns.
- * Used by both session-analyzer.ts (post-hoc) and agent-harness (runtime).
- */
-export function grepLike(s: string): boolean {
-	if (!s) return false;
-	const low = s.toLowerCase();
-	return low.includes("grep") || low.includes("| rg") || low.includes("`rg");
-}
