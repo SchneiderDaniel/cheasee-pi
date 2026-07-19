@@ -31,7 +31,7 @@ Skills differ from extensions in that they are **prompt-based instruction sets**
 Systematic dead code detection for pi extensions. Picks random extension, analyzes for unused exports, unreachable paths, dead branches, orphaned utilities, and other dead code patterns. Validates with deterministic proof and creates GitHub issues.
 
 - **Skills:** Export analysis, reachability analysis, branch coverage, orphan detection
-- **Output:** GitHub issue with `dead-code-<ext>-<date>` label
+- **Output:** GitHub issue with `<ext>` label
 
 ### extension-bug-hunter
 

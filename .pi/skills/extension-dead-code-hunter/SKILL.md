@@ -20,7 +20,7 @@ This is a **hunt loop**. Core instruction: **keep hunting until ALL valid findin
 ```
 loop:
   1. Pick random extension from .pi/extensions/ (skip previously picked)
-  2. Create hunt session label (dead-code-<ext>-<YYYYMMDD>)
+  2. Create hunt session label (<ext>)
   3. Run Phase 1.5 (knip preliminary scan)
   4. If knip found dead code → file EACH finding as separate issue (Phase 5)
   5. If knip found nothing or errored → run Phase 2-4 (understand + hunt + validate)
@@ -631,13 +631,13 @@ When filing multiple issues in one hunt session, cluster them so the group is di
 
 1. **Create a session label** — Before filing the first issue, create a hunt-specific label:
    ```bash
-   gh label create "dead-code-<ext-name>-<YYYYMMDD>" --repo <repo> --color "#B60205" --description "Dead code findings from <ext-name> hunt on <date>" 2>/dev/null || true
+   gh label create "<ext-name>" --repo <repo> --color "#B60205" --description "Dead code findings for <ext-name> extension" 2>/dev/null || true
    ```
-   Apply this label to ALL issues from this hunt session (in addition to `dead-code` or `bug`).
+   Apply this label to ALL issues from this hunt session.
 2. **Defer cross-references** — File all issues first, collecting their numbers. Then update each issue body with a `## Related Issues` section listing siblings:
    ```bash
    # After all issues created, update each body
-   gh issue edit <N> --repo <repo> --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file <body-with-cross-refs>.md
+   gh issue edit <N> --repo <repo> --add-label "<ext-name>" --body-file <body-with-cross-refs>.md
    ```
 3. **Tracking comment** — Post a comment on the first/filed-with-lowest-number issue listing all:
    ```bash
@@ -713,9 +713,9 @@ cat > ignore/dead-code-report-<ext-name>-<seq>.md << 'ISSUEOF'
 <!-- FILLED_AFTER_ALL_ISSUES_CREATED -->
 ISSUEOF
 
-github_label="dead-code"
-# If dead-code label doesn't exist, fall back to bug
-gh label list --repo "$REPO" 2>/dev/null | grep -q dead-code || github_label="bug"
+github_label="<ext-name>"
+# Create extension label if it doesn't exist
+gh label create "<ext-name>" --repo "$REPO" --color "#B60205" --description "Dead code findings for <ext-name> extension" 2>/dev/null || true
 
 gh issue create \
   --repo "$(grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)".*/\1/')" \
@@ -731,7 +731,7 @@ After all issues are created, update each one with cross-references and add the 
 
 ```bash
 # Build cross-reference table
-TABLE="## Related Issues\nSame hunt session (label: \`dead-code-<ext-name>-<YYYYMMDD>\`):\n\n| # | Finding | Issue |\n|---|---------|-------|"
+TABLE="## Related Issues\nSame hunt session (label: \`<ext-name>\`):\n\n| # | Finding | Issue |\n|---|---------|-------|"
 SEQ=0
 for URL in "${ISSUE_URLES[@]}"; do
   NUM=$(echo "$URL" | grep -oE '[0-9]+$')
@@ -745,7 +745,7 @@ for URL in "${ISSUE_URLS[@]}"; do
   # Read original body, append cross-references, write back
   gh issue view "$NUM" --repo "$REPO" --json body --jq '.body' > ignore/update-${NUM}.md
   echo -e "\n$TABLE" >> ignore/update-${NUM}.md
-  gh issue edit "$NUM" --repo "$REPO" --add-label "dead-code-<ext-name>-<YYYYMMDD>" --body-file ignore/update-${NUM}.md
+  gh issue edit "$NUM" --repo "$REPO" --add-label "<ext-name>" --body-file ignore/update-${NUM}.md
   rm ignore/update-${NUM}.md
 done
 ```
@@ -758,18 +758,18 @@ grep -o '"repo"[^,]*' .pi/settings.json | tail -1 | sed 's/.*"repo": *"\([^"]*\)
 
 #### Labels
 
-Always add `dead-code` label. Add severity label if exists in repo: `severity:high`, `severity:medium`, `severity:low`. If `dead-code` label does not exist on repo, use `bug` instead.
+Always add `<ext-name>` label. Create it if missing. Add severity label if exists in repo: `severity:high`, `severity:medium`, `severity:low`.
 
 #### Existing Issues Check
 
 Before creating issue, check if similar dead code already reported:
 
 ```bash
-gh issue list --repo <repo> --label dead-code --state open --json title --limit 30 \
+gh issue list --repo <repo> --label "<ext-name>" --state open --json title --limit 30 \
   | grep -i "<keyword>"
 ```
 
-If duplicate found, skip and note which issue. Also check `bug` label issues for keywords.
+If duplicate found, skip and note which issue.
 
 ### Phase 6 — Report
 
@@ -779,7 +779,7 @@ After all issues filed, update cluster cross-references, then output summary.
 ## Dead Code Hunt Report
 
 **Extension:** <name>
-**Session label:** dead-code-<ext-name>-<YYYYMMDD>
+**Session label:** <ext-name>
 **Files analyzed:** <count>
 **Total lines:** <approximate>
 **Techniques applied:** <all 11>
@@ -795,9 +795,9 @@ After all issues filed, update cluster cross-references, then output summary.
 <total findings, total filed, any skips with reason>
 
 ### Cluster
-All issues share label \`dead-code-<ext-name>-<YYYYMMDD>\` for bulk operations:
+All issues share label \`<ext-name>\` for bulk operations:
 \`\`\`bash
-gh issue list --repo <repo> --label "dead-code-<ext-name>-<YYYYMMDD>" --state open
+gh issue list --repo <repo> --label "<ext-name>" --state open
 \`\`\`
 ```
 
