@@ -18,6 +18,19 @@ import {
 	CASCADE_THRESHOLD,
 } from "./harness-rules.ts";
 
+// ── BASH_SEARCH_SIGNALS (dead export) ──
+
+describe("BASH_SEARCH_SIGNALS", () => {
+	it("is no longer exported from the module", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal(
+			(mod as Record<string, unknown>).BASH_SEARCH_SIGNALS,
+			undefined,
+			"BASH_SEARCH_SIGNALS should be removed — use BashCommand.isSearch() with isBashSearch() from lib/bash-query.ts",
+		);
+	});
+});
+
 // ── buildRedirectMessage ──
 
 describe("buildRedirectMessage", () => {
