@@ -5,3 +5,4 @@
 {"datetime":"2026-07-19T21:38:00.623Z","question":"Re-instrumented `rtk/index.ts` + re-added `\"extensions\":[\"rtk\"]` to settings.json. Run `/reload`, then say \"done\"?","answer":"let me reload"}
 {"datetime":"2026-07-19T21:41:03.680Z","question":"Re-instrumented rtk/index.ts + re-added \"extensions\":[\"rtk\"]. Run `/reload`, then say \"done\"?","answer":"stop, then let me reload"}
 {"datetime":"2026-07-19T21:44:18.062Z","question":"Re-add \"extensions\":[\"rtk\"] to .pi/settings.json so current session keeps rtk after next /reload?","answer":"add_persistent"}
+{"datetime":"2026-07-19T21:54:09.420Z","question":"Single ponytail test fails: csv correctness test needs `pandas` python module missing from container. Not a ponytail code bug — env dep. Fix?","answer":"install_pandas"}
