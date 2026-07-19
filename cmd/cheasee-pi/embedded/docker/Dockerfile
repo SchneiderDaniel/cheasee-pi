@@ -54,6 +54,7 @@ RUN apt-get update && \
         libxcomposite1 \
         libxdamage1 \
         libxkbcommon0 \
+        libxfixes3 \
         libxrandr2 \
         fonts-noto-color-emoji \
     && apt-get clean \
