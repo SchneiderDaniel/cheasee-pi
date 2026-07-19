@@ -16,7 +16,6 @@ import {
 	resolveDiagnosticFilePath,
 	formatDiagnostics,
 	formatDiagnosticsJson,
-	formatTrend,
 	runTscCheckpoint,
 	diagnosticToTscDiagnostic,
 } from "../index.ts";

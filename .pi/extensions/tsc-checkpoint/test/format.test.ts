@@ -9,48 +9,9 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
-import { formatTrend, formatDiagnostics, formatDiagnosticsJson } from "../format.ts";
+import { formatDiagnostics, formatDiagnosticsJson } from "../format.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../types.ts";
-
-// ═══════════════════════════════════════════════════════════════════════
-// formatTrend
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("formatTrend", () => {
-	it("formats regressed trend with ↑ arrow", () => {
-		const result = formatTrend({
-			current: 5,
-			previous: 2,
-			direction: "regressed",
-			delta: 3,
-		});
-		assert.ok(result.includes("5 errors"));
-		assert.ok(result.includes("↑"));
-		assert.ok(result.includes("3"));
-	});
-
-	it("formats improved trend with ↓ arrow", () => {
-		const result = formatTrend({
-			current: 1,
-			previous: 4,
-			direction: "improved",
-			delta: 3,
-		});
-		assert.ok(result.includes("1 errors"));
-		assert.ok(result.includes("↓"));
-	});
-
-	it("formats stable trend with → arrow", () => {
-		const result = formatTrend({
-			current: 2,
-			previous: 2,
-			direction: "stable",
-			delta: 0,
-		});
-		assert.ok(result.includes("→"));
-	});
-});
 
 // ═══════════════════════════════════════════════════════════════════════
 // formatDiagnostics

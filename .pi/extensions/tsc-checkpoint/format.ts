@@ -8,14 +8,6 @@
 import type { TscDiagnostic, DiagnosticTrend } from "./types.ts";
 
 /**
- * Format a diagnostic trend for display.
- */
-export function formatTrend(trend: DiagnosticTrend): string {
-	const arrow = trend.direction === "regressed" ? "↑" : trend.direction === "improved" ? "↓" : "→";
-	return `${trend.current} errors (${arrow} ${trend.delta}, was ${trend.previous})`;
-}
-
-/**
  * Format diagnostics as grouped, sorted, developer-readable output.
  *
  * Groups diagnostics by file, sorts files alphabetically, sorts
