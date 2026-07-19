@@ -44,6 +44,7 @@ let currentRuntime: LspRuntime | undefined;
  * Override the default runtime with a custom LspRuntime.
  * Used by tests to inject canned implementations without module mocking.
  *
+ * @internal - Test injection seam. Only call from test files.
  * @param runtime - LspRuntime to use
  * @throws TypeError if runtime is undefined
  */
@@ -57,6 +58,8 @@ export function setLspRuntime(runtime: LspRuntime): void {
 /**
  * Reset the injected runtime to use the default production implementation.
  * Must be called in afterEach to prevent cross-test bleed.
+ *
+ * @internal - Test injection seam. Only call from test files.
  */
 export function resetLspRuntime(): void {
 	currentRuntime = undefined;
