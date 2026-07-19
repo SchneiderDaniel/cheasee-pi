@@ -25,6 +25,7 @@ import {
 	buildRedirectMessage,
 	MULTI_VERB_TOOLS,
 	loadDefaultRules,
+	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
 import type { ResolvedHarnessRules, ToolMeta } from "./lib/harness-rules.ts";
 
@@ -207,7 +208,7 @@ export class AgentHarness {
 		if (!event.isError) {
 			// ── 3. Error retry blocking ──
 			const errors = this.state.errorTracker.getLastErrors(toolName);
-			if (errors.length >= 2) {
+			if (shouldBlockRetry(errors.length)) {
 				const lastErrorTurn = errors[errors.length - 1]?.turn ?? 0;
 				result = {
 					block: true,
