@@ -11,7 +11,7 @@
 import assert from "node:assert";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { FooterState } from "../footer-state.ts";
+import { FooterState, createDefaultFooterConfig } from "../footer-state.ts";
 import type { InstallFooterFn } from "../footer-state.ts";
 import type { ContextStatusBarConfig } from "../types.ts";
 
@@ -49,6 +49,51 @@ const ENABLED_CONFIG: ContextStatusBarConfig = {
 	showCache: true,
 	welcomeTimeoutMs: 0,
 };
+
+// ---------------------------------------------------------------------------
+// createDefaultFooterConfig — factory function
+// ---------------------------------------------------------------------------
+
+describe("createDefaultFooterConfig", () => {
+	it("is exported as a function", () => {
+		assert.strictEqual(typeof createDefaultFooterConfig, "function");
+	});
+
+	it("returns a FooterConfig with all default values", () => {
+		const cfg = createDefaultFooterConfig();
+		assert.strictEqual(cfg.worktreeName, null);
+		assert.strictEqual(cfg.thinkingLevel, "");
+		assert.deepStrictEqual(cfg.tpsSamples, []);
+		assert.strictEqual(cfg.lastComputedTps.value, null);
+		assert.strictEqual(cfg.lastContextWindow.value, undefined);
+		assert.strictEqual(cfg.toolCallCount.value, 0);
+		assert.strictEqual(cfg.cacheRead, undefined);
+		assert.strictEqual(cfg.cacheWrite, undefined);
+		assert.strictEqual(cfg.cacheHitRate, undefined);
+		assert.strictEqual(cfg.sessionName, undefined);
+		assert.strictEqual(cfg.trustStatus, undefined);
+		assert.strictEqual(cfg.sessionId, "");
+		assert.strictEqual(cfg.issueNumber.value, undefined);
+		assert.strictEqual(cfg.issueRepo.value, undefined);
+		assert.strictEqual(cfg.issueTitle.value, undefined);
+		assert.strictEqual(cfg.prevCpuUsage, 0);
+		assert.strictEqual(cfg.prevCpuTime, 0);
+		assert.strictEqual(cfg.allocatedCpus, 4);
+		assert.strictEqual(cfg.containerDisplay.value, "");
+	});
+
+	it("returns a fresh object on each call", () => {
+		const first = createDefaultFooterConfig();
+		const second = createDefaultFooterConfig();
+		assert.notStrictEqual(first, second, "should be different object references");
+		assert.notStrictEqual(first.tpsSamples, second.tpsSamples, "nested arrays should be fresh");
+		assert.notStrictEqual(
+			first.lastComputedTps,
+			second.lastComputedTps,
+			"nested wrappers should be fresh",
+		);
+	});
+});
 
 // ---------------------------------------------------------------------------
 // FooterState — Construction & defaults
