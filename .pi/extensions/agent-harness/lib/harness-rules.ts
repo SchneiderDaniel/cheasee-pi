@@ -167,14 +167,4 @@ export function isCodeFilePath(path: string): boolean {
 	return false;
 }
 
-// ── Shared helper ──
 
-/**
- * Check if text contains grep-like patterns.
- * Used by both session-analyzer.ts (post-hoc) and agent-harness (runtime).
- */
-export function grepLike(s: string): boolean {
-	if (!s) return false;
-	const low = s.toLowerCase();
-	return low.includes("grep") || low.includes("| rg") || low.includes("`rg");
-}
