@@ -17,8 +17,6 @@
 export interface CacheEntry {
 	turn: number;
 	timestamp: number;
-	/** Batch ID for parallel call grouping (optional). */
-	batchId?: number;
 }
 
 export interface ErrorEntry {
@@ -36,9 +34,9 @@ export interface ConsecutiveInfo {
 
 export interface ReadCache {
 	/** Get cached entry. Returns null on miss or TTL expiry. */
-	get(key: string, currentTurn: number, currentBatchId?: number): CacheEntry | null;
+	get(key: string, currentTurn: number): CacheEntry | null;
 	/** Set cached entry with current turn and timestamp. */
-	set(key: string, turn: number, batchId?: number): void;
+	set(key: string, turn: number): void;
 	/** Clear all cache entries. */
 	clear(): void;
 }
@@ -102,12 +100,6 @@ export interface HarnessState {
 	 * Used for cascade detection (sinceTurn tracking).
 	 */
 	sessionTurn: number;
-	/**
-	 * Batch ID for parallel call detection.
-	 * Set by session manager before dispatching parallel calls.
-	 * When undefined, falls back to toolCallIndex (backward compat).
-	 */
-	batchId?: number;
 }
 
 // ── Constants ──
@@ -126,7 +118,7 @@ export const CACHE_TTL_MS = 30_000;
  * Each agent session gets its own state via this factory.
  */
 export function createHarnessState(): HarnessState {
-	// ── Read Cache (TimedMap with dual TTL + batch awareness) ──
+	// ── Read Cache (TimedMap with dual TTL) ──
 
 	const cacheMap = new TimedMap<string, CacheEntry>({
 		ttlTurns: CACHE_TTL_TURNS,
@@ -134,27 +126,16 @@ export function createHarnessState(): HarnessState {
 	});
 
 	const readCache: ReadCache = {
-		get(key: string, currentTurn: number, currentBatchId?: number): CacheEntry | null {
-			// Batch-aware bypass: if both entry and current call share the same
-			// batchId, the entry is valid regardless of turn diff (parallel calls)
-			if (currentBatchId !== undefined) {
-				const entry = cacheMap.peek(key);
-				if (entry && entry.batchId !== undefined && entry.batchId === currentBatchId) {
-					return entry;
-				}
-			}
-
-			// Standard TTL check via TimedMap
+		get(key: string, currentTurn: number): CacheEntry | null {
 			return cacheMap.get(key, currentTurn);
 		},
 
-		set(key: string, turn: number, batchId?: number): void {
+		set(key: string, turn: number): void {
 			cacheMap.set(
 				key,
 				{
 					turn,
 					timestamp: Date.now(),
-					batchId,
 				},
 				turn,
 			);

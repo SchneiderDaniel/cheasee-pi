@@ -222,7 +222,7 @@ export class AgentHarness {
 					const offset = (args.offset ?? 0) as number;
 					const limit = (args.limit ?? "") as number;
 					const cacheKey = `${path}|${offset}|${limit}`;
-					const cached = this.state.readCache.get(cacheKey, sessionTurn, this.state.batchId);
+					const cached = this.state.readCache.get(cacheKey, sessionTurn);
 					if (cached) {
 						// Same-turn → pass through (let re-read happen in same turn)
 						if (cached.turn === sessionTurn) {
@@ -237,7 +237,7 @@ export class AgentHarness {
 						}
 					} else {
 						// Store existence marker to track that this path+offset+limit was recently read
-						this.state.readCache.set(cacheKey, sessionTurn, this.state.batchId);
+						this.state.readCache.set(cacheKey, sessionTurn);
 					}
 				}
 			}
