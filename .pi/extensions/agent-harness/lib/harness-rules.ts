@@ -6,7 +6,7 @@
  * from bash-command.ts).
  *
  * This module exports:
- *  - Constants: SEARCH_TOOLS, etc.
+ *  - Constants: CACHE_TTL_TURNS, CASCADE_THRESHOLD, MULTI_VERB_TOOLS, TOOL_META, etc.
  *  - Types: ToolMeta
  *  - Helpers: buildRedirectMessage, getToolMeta, isRedundantRead, etc.
  *  - Re-exports: BashCommand, BashSegment, parseBashCmd from bash-command.ts
@@ -20,9 +20,6 @@ export { BashCommand, parseBashCmd } from "./bash-command.ts";
 export type { BashSegment } from "./bash-command.ts";
 
 // ── Constants ──
-
-/** Dedicated search tools available to the agent. */
-export const SEARCH_TOOLS = new Set(["ripgrep_search", "structural_search"]);
 
 /** Code file extensions (lowercase). */
 const CODE_EXTENSIONS = new Set([".ts", ".js", ".tsx", ".jsx", ".py", ".rs", ".go"]);
