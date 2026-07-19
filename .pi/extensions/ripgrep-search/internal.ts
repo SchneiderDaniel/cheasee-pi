@@ -133,7 +133,4 @@ export function clearCache(): void {
 	resultCache.clear();
 }
 
-/** Get the current number of cached entries. */
-export function getCacheSize(): number {
-	return resultCache.size;
-}
+
