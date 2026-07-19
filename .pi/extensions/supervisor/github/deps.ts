@@ -6,53 +6,7 @@ import type { ExecFn } from "../pipeline/helpers.ts";
 import type { DepsResult, GhTimelineResponse } from "../config/types.ts";
 import { ghGraphQL } from "./gh-client.ts";
 import { getDebugLogger } from "../lib/debug.ts";
-
-// ─── Parse Timeline Response ─────────────────────────────────────
-
-function parseTimelineResponse(response: GhTimelineResponse | null): DepsResult {
-	if (response?.errors && response.errors.length > 0) {
-		const msgs = response.errors.map((e) => e.message).join("; ");
-		throw new Error(`GitHub GraphQL error: ${msgs}`);
-	}
-
-	const nodes = response?.data?.repository?.issue?.timelineItems?.nodes;
-	if (!nodes || nodes.length === 0) {
-		return { blocked: false, blockers: [] };
-	}
-
-	const lastEventByIssue = new Map<string, string>();
-
-	for (const node of nodes) {
-		const blockingId = node?.blockingIssue?.id;
-		if (!blockingId) continue;
-		lastEventByIssue.set(blockingId, node.__typename);
-	}
-
-	const blockers: DepsResult["blockers"] = [];
-	const seenNumbers = new Set<number>();
-
-	for (const node of nodes) {
-		const issue = node.blockingIssue;
-		if (!issue) continue;
-		const lastEvent = lastEventByIssue.get(issue.id);
-		if (lastEvent !== "BlockedByAddedEvent") continue;
-		if (seenNumbers.has(issue.number)) continue;
-		seenNumbers.add(issue.number);
-		const state = issue.state || "UNKNOWN";
-		if (state === "CLOSED") continue;
-		blockers.push({
-			number: issue.number,
-			title: issue.title || "",
-			type: "issue",
-			state,
-		});
-	}
-
-	return {
-		blocked: blockers.length > 0,
-		blockers,
-	};
-}
+import { parseDepsTimeline } from "./parsers.ts";
 
 // ─── Check Blocked By Dependencies ────────────────────────────────
 
@@ -108,7 +62,15 @@ export async function checkBlockedByDependencies(
 		throw new Error(`Failed to query GitHub for dependencies: ${msg}`);
 	}
 
-	const result = parseTimelineResponse(response);
+	// Adapter-level error check (GraphQL errors) — not in pure parser
+	if (response?.errors && response.errors.length > 0) {
+		const msgs = response.errors.map((e) => e.message).join("; ");
+		throw new Error(`GitHub GraphQL error: ${msgs}`);
+	}
+
+	const result = parseDepsTimeline(
+		response?.data?.repository?.issue?.timelineItems?.nodes,
+	);
 	log.info(
 		"deps",
 		`Deps check result: blocked=${result.blocked}, blockers=${result.blockers.length}`,

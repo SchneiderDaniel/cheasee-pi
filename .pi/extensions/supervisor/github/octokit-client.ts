@@ -5,8 +5,9 @@
 import { Octokit } from "@octokit/rest";
 import { graphql } from "@octokit/graphql";
 import type { DebugLogger } from "../lib/debug.ts";
-import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../config/types.ts";
+import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo, GhTimelineNode, ProjectFieldValueNode } from "../config/types.ts";
 import type { RawIssueData, GitHubPort } from "./ports.ts";
+import { parseDepsTimeline, extractProjectItemFields } from "./parsers.ts";
 
 // ─── Hard safety limit (migrated from comment.ts) ────────────────
 
@@ -131,11 +132,7 @@ interface ProjectItemsResponse {
 					id: string;
 					content?: { url?: string; number?: number };
 					fieldValues?: {
-						nodes?: Array<{
-							name?: string;
-							text?: string;
-							field?: { id: string; name: string };
-						}>;
+						nodes?: ProjectFieldValueNode[];
 					};
 				}>;
 			};
@@ -157,15 +154,7 @@ interface DepsTimelineResponse {
 	repository?: {
 		issue?: {
 			timelineItems?: {
-				nodes?: Array<{
-					__typename: string;
-					blockingIssue?: {
-						id: string;
-						number: number;
-						title: string;
-						state: string;
-					} | null;
-				}>;
+				nodes?: GhTimelineNode[];
 			};
 		};
 	};
@@ -416,11 +405,7 @@ export class OctokitClient implements GitHubPort {
 							id: string;
 							content?: { url?: string; number?: number };
 							fieldValues?: {
-								nodes?: Array<{
-									name?: string;
-									text?: string;
-									field?: { id: string; name: string };
-								}>;
+								nodes?: ProjectFieldValueNode[];
 							};
 						}>;
 				  }
@@ -428,26 +413,14 @@ export class OctokitClient implements GitHubPort {
 			if (!page) break;
 
 			for (const n of page.nodes || []) {
-				const fieldNodes = n?.fieldValues?.nodes || [];
-				let status: string | undefined;
-				const fv: Array<{ fieldId: string; value: string; optionId?: string }> = [];
-				for (const f of fieldNodes) {
-					if (f.name && f.field?.name?.toLowerCase() === "status") {
-						status = f.name;
-					}
-					if (f.field?.id) {
-						fv.push({
-							fieldId: f.field.id,
-							value: f.name || f.text || "",
-							optionId: undefined,
-						});
-					}
-				}
+				const { status, fieldValues } = extractProjectItemFields(
+					n?.fieldValues?.nodes,
+				);
 				allItems.push({
 					id: n.id,
 					status,
 					content: n.content ? { url: n.content.url, number: n.content.number } : undefined,
-					fieldValues: fv.length > 0 ? fv : undefined,
+					fieldValues,
 				});
 			}
 
@@ -492,40 +465,7 @@ export class OctokitClient implements GitHubPort {
 		}
 
 		const nodes = resp?.repository?.issue?.timelineItems?.nodes;
-		if (!nodes || nodes.length === 0) {
-			return { blocked: false, blockers: [] };
-		}
-
-		const lastEventByIssue = new Map<string, string>();
-		for (const node of nodes) {
-			const blockingId = node?.blockingIssue?.id;
-			if (!blockingId) continue;
-			lastEventByIssue.set(blockingId, node.__typename);
-		}
-
-		const blockers: DepsResult["blockers"] = [];
-		const seenNumbers = new Set<number>();
-		for (const node of nodes) {
-			const issue = node.blockingIssue;
-			if (!issue) continue;
-			const lastEvent = lastEventByIssue.get(issue.id);
-			if (lastEvent !== "BlockedByAddedEvent") continue;
-			if (seenNumbers.has(issue.number)) continue;
-			seenNumbers.add(issue.number);
-			const state = issue.state || "UNKNOWN";
-			if (state === "CLOSED") continue;
-			blockers.push({
-				number: issue.number,
-				title: issue.title || "",
-				type: "issue",
-				state,
-			});
-		}
-
-		return {
-			blocked: blockers.length > 0,
-			blockers,
-		};
+		return parseDepsTimeline(nodes);
 	}
 
 	// ─── GraphQL helper ─────────────────────────────────────────
