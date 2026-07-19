@@ -206,3 +206,32 @@ describe("loadDefaultRules", () => {
 		assert.notEqual(a.toolMeta, b.toolMeta);
 	});
 });
+
+// ── SEARCH_TOOLS removal (#1282) ──
+
+describe("SEARCH_TOOLS removal", () => {
+	it("(#1282) SEARCH_TOOLS is undefined after removal (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal((mod as Record<string, unknown>).SEARCH_TOOLS, undefined);
+	});
+
+	it("(#1282) All other exports are still present (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		const m = mod as Record<string, unknown>;
+
+		// Constants
+		assert.ok(Array.isArray(m.BASH_SEARCH_SIGNALS), "BASH_SEARCH_SIGNALS should be an array");
+		assert.equal(typeof m.CACHE_TTL_TURNS, "number", "CACHE_TTL_TURNS should be a number");
+		assert.equal(m.CASCADE_THRESHOLD, 8, "CASCADE_THRESHOLD should be 8");
+		assert.ok(m.MULTI_VERB_TOOLS instanceof Set, "MULTI_VERB_TOOLS should be a Set");
+		assert.ok(typeof m.TOOL_META === "object" && m.TOOL_META !== null, "TOOL_META should be an object");
+
+		// Functions
+		assert.equal(typeof m.loadDefaultRules, "function", "loadDefaultRules should be a function");
+		assert.equal(typeof m.buildRedirectMessage, "function", "buildRedirectMessage should be a function");
+		assert.equal(typeof m.parseBashCmd, "function", "parseBashCmd should be a function");
+		assert.equal(typeof m.getToolMeta, "function", "getToolMeta should be a function");
+		assert.equal(typeof m.shouldBlockRetry, "function", "shouldBlockRetry should be a function");
+		assert.equal(typeof m.isRedundantRead, "function", "isRedundantRead should be a function");
+	});
+});

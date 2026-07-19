@@ -6,7 +6,7 @@
  * from bash-command.ts).
  *
  * This module exports:
- *  - Constants: BASH_SEARCH_SIGNALS, SEARCH_TOOLS, etc.
+ *  - Constants: BASH_SEARCH_SIGNALS, etc.
  *  - Types: ToolMeta
  *  - Helpers: buildRedirectMessage, getToolMeta, isRedundantRead, etc.
  *  - Re-exports: BashCommand, BashSegment, parseBashCmd from bash-command.ts
@@ -32,9 +32,6 @@ export const BASH_SEARCH_SIGNALS: readonly string[] = [
 	"`rg`",
 	"`grep`",
 ];
-
-/** Dedicated search tools available to the agent. */
-export const SEARCH_TOOLS = new Set(["ripgrep_search", "structural_search"]);
 
 /** Code file extensions (lowercase). */
 const CODE_EXTENSIONS = new Set([".ts", ".js", ".tsx", ".jsx", ".py", ".rs", ".go"]);
