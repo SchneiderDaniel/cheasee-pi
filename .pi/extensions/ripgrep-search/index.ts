@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { RgResult, SearchConfig } from "./types.ts";
+import type { ExtensionMode, RgResult, SearchConfig } from "./types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "./config.ts";
 import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "./backends.ts";
 import {
@@ -22,6 +22,8 @@ import {
 	getCachedResult,
 	setCachedResult,
 	clearCache,
+	setTestCtxMode,
+	getCtxMode,
 } from "./internal.ts";
 
 const MAX_TOTAL_RESULTS = 500;
@@ -30,14 +32,8 @@ const DEFAULT_DISPLAY_RESULTS = 10;
 // ---------------------------------------------------------------------------
 // Mode awareness — ExtensionMode mirrors upstream type for mode gating
 // ---------------------------------------------------------------------------
-
-type ExtensionMode = "tui" | "rpc" | "json" | "print";
-let _ctxMode: ExtensionMode | undefined;
-
-/** @internal Test-only: override ctx mode for rendering tests. */
-export function _setTestCtxMode(mode: ExtensionMode | undefined): void {
-	_ctxMode = mode;
-}
+// Mode state owned by internal.ts; index.ts delegates read/write to
+// setTestCtxMode / getCtxMode so test and prod share one write path.
 
 export function buildSearchErrorText(
 	searcherName: string,
@@ -187,7 +183,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 	let backendNoteInjected = false;
 
 	pi.on("session_start", async (_event, ctx) => {
-		_ctxMode = ctx.mode as ExtensionMode;
+		setTestCtxMode(ctx.mode as ExtensionMode);
 		searchConfig = loadSearchConfig(ctx.cwd);
 		rgAvailable = searchConfig.searchBackend !== "grep" ? await ripgrepAvailable(pi.exec) : false;
 		backendNoteInjected = false;
@@ -365,7 +361,8 @@ export function renderCallImpl(
 	theme: Theme,
 	_context: unknown,
 ): Text {
-	if (_ctxMode && _ctxMode !== "tui") {
+	const mode = getCtxMode();
+	if (mode && mode !== "tui") {
 		return new Text(args.query, 0, 0);
 	}
 
@@ -386,9 +383,10 @@ export function renderResultImpl(
 	_context: unknown,
 ): Text {
 	const { expanded, isPartial } = options;
+	const mode = getCtxMode();
 
 	// Non-TUI mode: pass through raw text content without theme
-	if (_ctxMode && _ctxMode !== "tui") {
+	if (mode && mode !== "tui") {
 		const textContent = (result.content[0] as { text?: string })?.text ?? "";
 		return new Text(textContent, 0, 0);
 	}
