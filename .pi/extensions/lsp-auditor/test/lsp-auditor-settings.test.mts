@@ -9,23 +9,14 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { before, after, describe, it } from "node:test";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Value } from "typebox/value";
 import { buildServerMappings } from "../server-mappings.ts";
+import { readSettings, ServerEntrySchema } from "../settings.ts";
 import type { LspAuditorSettings } from "../settings.ts";
-
-// Re-create schema references here for test isolation — avoids import of
-// non-exported schema objects while testing the same constraints.
-import { Type } from "typebox";
-
-const ServerEntrySchema = Type.Object({
-	extensions: Type.Array(Type.String(), { minItems: 1 }),
-	command: Type.String({ minLength: 1 }),
-	args: Type.Optional(Type.Array(Type.String())),
-	severityThreshold: Type.Optional(
-		Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("info")]),
-	),
-});
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: Schema validation tests
@@ -236,5 +227,224 @@ describe("buildServerMappings — config integration", () => {
 		const result = buildServerMappings(config);
 		const tsMapping = result.find((m) => m.extensions.includes(".ts"))!;
 		assert.strictEqual(tsMapping.severityThreshold, "info");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 3: Adapter/integration tests (filesystem → readSettings → buildServerMappings)
+// ═══════════════════════════════════════════════════════════════════════
+
+function withTempSettings(
+	settings: Record<string, unknown>,
+	fn: (worktreePath: string) => void,
+): void {
+	const tmpDir = mkdtempSync(join(tmpdir(), "lsp-auditor-integration-"));
+	try {
+		const piDir = join(tmpDir, ".pi");
+		mkdirSync(piDir, { recursive: true });
+		writeFileSync(join(piDir, "settings.json"), JSON.stringify(settings));
+		fn(tmpDir);
+	} finally {
+		rmSync(tmpDir, { recursive: true, force: true });
+	}
+}
+
+describe("readSettings → buildServerMappings — filesystem integration", () => {
+	it("valid config round-trip", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [
+						{ extensions: [".ts"], command: "custom-ts", args: ["--stdio"] },
+						{ extensions: [".kt"], command: "kotlin-ls" },
+					],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings, "settings should not be null");
+				assert.ok(settings!.lspAuditor, "lspAuditor should be present");
+				assert.strictEqual(settings!.lspAuditor!.servers!.length, 2);
+
+				const mappings = buildServerMappings(settings!.lspAuditor);
+				assert.ok(mappings.some((m) => m.command === "custom-ts"));
+				assert.ok(mappings.some((m) => m.command === "kotlin-ls"));
+				// Defaults still present for non-overlapping extensions
+				assert.ok(mappings.some((m) => m.command === "pyright-langserver"));
+				assert.ok(mappings.some((m) => m.command === "rust-analyzer"));
+				assert.ok(mappings.some((m) => m.command === "gopls"));
+			},
+		);
+	});
+
+	it("bug 1: non-string extension element -> entry dropped, no crash", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [
+						{ extensions: [".ts", 123], command: "bad-ts" },
+						{ extensions: [".py"], command: "custom-py", args: ["--stdio"] },
+					],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings, "settings should not be null");
+				// Malformed entry filtered out, only valid one remains
+				assert.strictEqual(settings!.lspAuditor!.servers!.length, 1);
+				assert.strictEqual(settings!.lspAuditor!.servers![0]!.command, "custom-py");
+
+				// No crash when building mappings
+				const mappings = buildServerMappings(settings!.lspAuditor);
+				assert.ok(mappings.some((m) => m.command === "custom-py"));
+				assert.ok(mappings.some((m) => m.command === "typescript-language-server"));
+			},
+		);
+	});
+
+	it("bug 3: string args -> entry dropped, no crash, defaults apply", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [
+						{ extensions: [".ts"], command: "ts-ls", args: "--stdio" },
+					],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings, "settings should not be null");
+				// Malformed entry filtered out
+				assert.strictEqual(settings!.lspAuditor!.servers!.length, 0);
+
+				// No crash — defaults apply
+				const mappings = buildServerMappings(settings!.lspAuditor);
+				assert.strictEqual(mappings.length, 4);
+				const tsMapping = mappings.find((m) => m.extensions.includes(".ts"))!;
+				assert.strictEqual(tsMapping.command, "typescript-language-server");
+				assert.deepStrictEqual(tsMapping.args, ["--stdio"]);
+			},
+		);
+	});
+
+	it("all entries malformed -> lspAuditor undefined, defaults only", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [
+						{ extensions: [".ts", 123], command: "bad-ts" },
+						{ extensions: [".py"], command: 42 },
+					],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings, "settings should not be null");
+				// Both malformed -> empty servers array
+				assert.strictEqual(settings!.lspAuditor!.servers!.length, 0);
+
+				const mappings = buildServerMappings(settings!.lspAuditor);
+				assert.strictEqual(mappings.length, 4);
+			},
+		);
+	});
+
+	it("lspAuditor is non-object (array) -> undefined, defaults apply", () => {
+		withTempSettings(
+			{
+				lspAuditor: ["not", "an", "object"],
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings, "settings should not be null");
+				assert.strictEqual(settings!.lspAuditor, undefined);
+
+				const mappings = buildServerMappings(settings!.lspAuditor);
+				assert.strictEqual(mappings.length, 4);
+			},
+		);
+	});
+
+	describe("user-journey: console.warn emitted for dropped entries", () => {
+		let originalWarn: typeof console.warn;
+		let warnMessages: string[];
+
+		before(() => {
+			originalWarn = console.warn;
+		});
+
+		after(() => {
+			console.warn = originalWarn;
+		});
+
+		it("settings with non-string extension logs warning with entry content", () => {
+			warnMessages = [];
+			console.warn = (...args: unknown[]) => {
+				warnMessages.push(args.join(" "));
+			};
+
+			withTempSettings(
+				{
+					lspAuditor: {
+						servers: [
+							{ extensions: [".ts", 123], command: "ts-ls" },
+							{ extensions: [".py"], command: "pyright-langserver", args: ["--stdio"] },
+						],
+					},
+				},
+				(worktree) => {
+					const settings = readSettings(worktree);
+					assert.ok(settings, "settings should not be null");
+
+					// Verify warning was emitted with malformed entry content
+					assert.ok(
+						warnMessages.some((m) => m.includes("123") && m.includes("[lsp-auditor]")),
+						"console.warn should mention the malformed entry",
+					);
+					assert.ok(
+						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
+						"console.warn should say 'Dropped malformed server entry'",
+					);
+
+					// Valid entry still processed
+					const mappings = buildServerMappings(settings!.lspAuditor);
+					assert.ok(mappings.some((m) => m.command === "pyright-langserver"));
+					assert.ok(mappings.some((m) => m.command === "typescript-language-server"));
+				},
+			);
+
+			console.warn = originalWarn;
+		});
+
+		it("settings with string args logs warning with entry content", () => {
+			warnMessages = [];
+			console.warn = (...args: unknown[]) => {
+				warnMessages.push(args.join(" "));
+			};
+
+			withTempSettings(
+				{
+					lspAuditor: {
+						servers: [
+							{ extensions: [".ts"], command: "ts-ls", args: "--stdio" },
+						],
+					},
+				},
+				(worktree) => {
+					readSettings(worktree);
+
+					assert.ok(
+						warnMessages.some((m) => m.includes("--stdio") && m.includes("[lsp-auditor]")),
+						"console.warn should mention the malformed args entry",
+					);
+					assert.ok(
+						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
+						"console.warn should say 'Dropped malformed server entry'",
+					);
+				},
+			);
+
+			console.warn = originalWarn;
+		});
 	});
 });

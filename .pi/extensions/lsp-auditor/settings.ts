@@ -17,7 +17,7 @@ import { Value } from "typebox/value";
 // ─── Schema ──────────────────────────────────────────────────────────
 
 /** Schema for a single LSP server entry. Enforces types at runtime. */
-const ServerEntrySchema = Type.Object({
+export const ServerEntrySchema = Type.Object({
 	extensions: Type.Array(Type.String(), { minItems: 1 }),
 	command: Type.String({ minLength: 1 }),
 	args: Type.Optional(Type.Array(Type.String())),
