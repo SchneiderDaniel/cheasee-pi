@@ -7,6 +7,7 @@ import type { ProjectField, ProjectItem } from "../config/types.ts";
 import { ghGraphQL, gh } from "./gh-client.ts";
 import type { ProjectFieldsResponse, ProjectItemsResponse, ProjectIdResponse } from "./types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
+import { extractProjectItemFields } from "./parsers.ts";
 
 // ─── Get Project Fields ───────────────────────────────────────────
 
@@ -110,21 +111,9 @@ export async function getProjectItems(exec: ExecFn, projectNumber: number): Prom
 			| undefined = resp?.data?.viewer?.projectV2?.items;
 		const nodes = page?.nodes || [];
 		for (const n of nodes) {
-			const fieldNodes = n.fieldValues?.nodes || [];
-			let status: string | undefined;
-			const fv: Array<{ fieldId: string; value: string; optionId?: string }> = [];
-			for (const f of fieldNodes) {
-				if (f.name && f.field?.name?.toLowerCase() === "status") {
-					status = f.name;
-				}
-				if (f.field?.id) {
-					fv.push({
-						fieldId: f.field.id,
-						value: f.name || f.text || "",
-						optionId: undefined,
-					});
-				}
-			}
+			const { status, fieldValues } = extractProjectItemFields(
+				n.fieldValues?.nodes,
+			);
 			allItems.push({
 				id: n.id,
 				status,
@@ -134,7 +123,7 @@ export async function getProjectItems(exec: ExecFn, projectNumber: number): Prom
 							number: n.content.number,
 						}
 					: undefined,
-				fieldValues: fv.length > 0 ? fv : undefined,
+				fieldValues,
 			});
 		}
 		hasNextPage = page?.pageInfo?.hasNextPage ?? false;

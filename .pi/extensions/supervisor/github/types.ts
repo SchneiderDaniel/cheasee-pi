@@ -1,6 +1,8 @@
 // ─── GitHub Module Types ─────────────────────────────────────────
 // Typed wrappers for ghJson/ghGraphQL and GraphQL response shapes.
 
+import type { ProjectFieldValueNode } from "../config/types.ts";
+
 // ─── GraphQL Response Types ───────────────────────────────────────
 
 export interface ProjectFieldsResponse {
@@ -31,11 +33,7 @@ export interface ProjectItemsResponse {
 						id: string;
 						content?: { url?: string; number?: number };
 						fieldValues?: {
-							nodes?: Array<{
-								name?: string;
-								text?: string;
-								field?: { id: string; name: string };
-							}>;
+							nodes?: ProjectFieldValueNode[];
 						};
 					}>;
 				};

@@ -216,7 +216,7 @@ interface GhBlockingIssue {
 	state: string;
 }
 
-interface GhTimelineNode {
+export interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
 }
@@ -232,6 +232,14 @@ export interface GhTimelineResponse {
 		};
 	};
 	errors?: Array<{ message: string }>;
+}
+
+// ─── Project Item Field Value Node ──────────────────────────────────
+
+export interface ProjectFieldValueNode {
+	name?: string;
+	text?: string;
+	field?: { id: string; name: string };
 }
 
 // ─── PR Conflict types ──────────────────────────────────────────────
