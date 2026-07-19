@@ -4,7 +4,7 @@ description: Proposes target architecture/implementation approach via a GitHub i
 tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/minimax-m3
 thinking: high
-extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer"
+extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,rtk"
 skills: extension-spec
 ---
 

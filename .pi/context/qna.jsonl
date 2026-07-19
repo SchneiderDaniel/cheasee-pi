@@ -1,2 +1,7 @@
 {"datetime":"2026-07-16T19:42:15.821Z","question":"Einziger Ordner: **dettenhausen-silberstrasse**. HTML-Bericht daraus erstellen?","answer":"proceed"}
 {"datetime":"2026-07-18T20:43:47.049Z","question":"\"Release binary\" — which do you want?","answer":"local-build"}
+{"datetime":"2026-07-19T21:30:07.387Z","question":"Instrumented `.pi/extensions/rtk/index.ts` with trace writes to `/tmp/rtk-debug.log`. Need `/reload` so jiti reimports the patched module. Run `/reload` now, then tell me done?","answer":"/reload"}
+{"datetime":"2026-07-19T21:31:51.447Z","question":"How to proceed with live hook test?","answer":"let me reload"}
+{"datetime":"2026-07-19T21:38:00.623Z","question":"Re-instrumented `rtk/index.ts` + re-added `\"extensions\":[\"rtk\"]` to settings.json. Run `/reload`, then say \"done\"?","answer":"let me reload"}
+{"datetime":"2026-07-19T21:41:03.680Z","question":"Re-instrumented rtk/index.ts + re-added \"extensions\":[\"rtk\"]. Run `/reload`, then say \"done\"?","answer":"stop, then let me reload"}
+{"datetime":"2026-07-19T21:44:18.062Z","question":"Re-add \"extensions\":[\"rtk\"] to .pi/settings.json so current session keeps rtk after next /reload?","answer":"add_persistent"}

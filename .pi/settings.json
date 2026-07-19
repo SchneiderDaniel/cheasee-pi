@@ -18,6 +18,7 @@
 		"memory": "5G",
 		"cpus": "4.0"
 	},
+	"extensions": ["rtk"],
 	"skills": [".pi/skills", "../private-pi/skills"],
 	"prompts": [
 		"prompts",
