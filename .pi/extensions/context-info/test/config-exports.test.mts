@@ -56,6 +56,86 @@ describe("config.ts module boundary", () => {
 	});
 });
 
+describe("ContextStatusBarConfigSchema", () => {
+	it("exports ContextStatusBarConfigSchema", async () => {
+		const mod = await import("../config.ts");
+		assert.ok(
+			mod.ContextStatusBarConfigSchema &&
+				typeof mod.ContextStatusBarConfigSchema === "object" &&
+				"parse" in mod.ContextStatusBarConfigSchema &&
+				"safeParse" in mod.ContextStatusBarConfigSchema,
+			"ContextStatusBarConfigSchema should be a zod schema with parse/safeParse",
+		);
+	});
+
+	it("parses empty object with all defaults", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({});
+		assert.ok(result.success, "empty object should parse successfully");
+		assert.strictEqual(result.data.enabled, true);
+		assert.strictEqual(result.data.showTimer, true);
+		assert.strictEqual(result.data.showTps, true);
+		assert.strictEqual(result.data.showCache, true);
+		assert.strictEqual(result.data.welcomeTimeoutMs, 0);
+	});
+
+	it("accepts boolean values for boolean fields", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({
+			enabled: false,
+			showTimer: false,
+		});
+		assert.ok(result.success);
+		assert.strictEqual(result.data.enabled, false);
+		assert.strictEqual(result.data.showTimer, false);
+		assert.strictEqual(result.data.showTps, true); // default
+	});
+
+	it("rejects non-boolean for boolean fields", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({ enabled: "yes" });
+		assert.ok(!result.success, "string should not be accepted for boolean field");
+	});
+
+	it("accepts finite number for welcomeTimeoutMs", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({ welcomeTimeoutMs: 5000 });
+		assert.ok(result.success);
+		assert.strictEqual(result.data.welcomeTimeoutMs, 5000);
+	});
+
+	it("rejects Infinity for welcomeTimeoutMs", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({ welcomeTimeoutMs: Infinity });
+		assert.ok(!result.success, "Infinity should be rejected");
+	});
+
+	it("rejects NaN for welcomeTimeoutMs", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({ welcomeTimeoutMs: NaN });
+		assert.ok(!result.success, "NaN should be rejected");
+	});
+
+	it("strips unknown fields", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({
+			enabled: true,
+			extraField: "should be stripped",
+		});
+		assert.ok(result.success);
+		assert.strictEqual((result.data as Record<string, unknown>).extraField, undefined);
+	});
+
+	it("does NOT include thresholds in schema", async () => {
+		const mod = await import("../config.ts");
+		const result = mod.ContextStatusBarConfigSchema.safeParse({
+			thresholds: [{ maxTokens: 999 }],
+		});
+		assert.ok(result.success);
+		assert.strictEqual((result.data as Record<string, unknown>).thresholds, undefined);
+	});
+});
+
 describe("loadConfig() default fallback", () => {
 	it("returns threshold array matching DEFAULT_THRESHOLDS when settings have no thresholds", async () => {
 		const mod = await import("../config.ts");

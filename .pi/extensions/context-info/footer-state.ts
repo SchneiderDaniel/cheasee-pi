@@ -11,6 +11,35 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 
+/**
+ * Create a fresh FooterConfig with all default values.
+ * Shared factory used by both the constructor and resetProperties()
+ * to ensure a single source of truth for defaults.
+ */
+export function createDefaultFooterConfig(): FooterConfig {
+	return {
+		worktreeName: null,
+		thinkingLevel: "",
+		tpsSamples: [],
+		lastComputedTps: { value: null },
+		lastContextWindow: { value: undefined },
+		toolCallCount: { value: 0 },
+		cacheRead: undefined,
+		cacheWrite: undefined,
+		cacheHitRate: undefined,
+		sessionName: undefined,
+		trustStatus: undefined,
+		sessionId: "",
+		issueNumber: { value: undefined },
+		issueRepo: { value: undefined },
+		issueTitle: { value: undefined },
+		prevCpuUsage: 0,
+		prevCpuTime: 0,
+		allocatedCpus: 4,
+		containerDisplay: { value: "" },
+	};
+}
+
 /** Callback signature for installing the footer */
 export type InstallFooterFn = (
 	ctx: ExtensionContext,
@@ -39,27 +68,7 @@ export class FooterState {
 	constructor(ctx: ExtensionContext, installFooterCb: InstallFooterFn = () => {}) {
 		this.ctx = ctx;
 		this.installFooterCb = installFooterCb;
-		this.footerConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			issueNumber: { value: undefined },
-			issueRepo: { value: undefined },
-			issueTitle: { value: undefined },
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		this.footerConfig = createDefaultFooterConfig();
 	}
 
 	/** Mark state as disposed — stops timer and prevents any further callInstallFooter */
@@ -141,24 +150,6 @@ export class FooterState {
 		this.emitted = false;
 		this.lastSampledOutput = undefined;
 
-		this.footerConfig.worktreeName = null;
-		this.footerConfig.thinkingLevel = "";
-		this.footerConfig.tpsSamples.length = 0;
-		this.footerConfig.lastComputedTps.value = null;
-		this.footerConfig.lastContextWindow.value = undefined;
-		this.footerConfig.toolCallCount.value = 0;
-		this.footerConfig.cacheRead = undefined;
-		this.footerConfig.cacheWrite = undefined;
-		this.footerConfig.cacheHitRate = undefined;
-		this.footerConfig.sessionName = undefined;
-		this.footerConfig.trustStatus = undefined;
-		this.footerConfig.sessionId = "";
-		this.footerConfig.issueNumber.value = undefined;
-		this.footerConfig.issueRepo.value = undefined;
-		this.footerConfig.issueTitle.value = undefined;
-		this.footerConfig.prevCpuUsage = 0;
-		this.footerConfig.prevCpuTime = 0;
-		this.footerConfig.allocatedCpus = 4;
-		this.footerConfig.containerDisplay.value = "";
+		Object.assign(this.footerConfig, createDefaultFooterConfig());
 	}
 }

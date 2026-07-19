@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join as joinPath } from "node:path";
+import { z } from "zod";
 import type { ContextStatusBarConfig, ThresholdEntry } from "./types.js";
 
 // ─── Default thresholds ───────────────────────────────────────────
@@ -20,6 +21,19 @@ const DEFAULT_THRESHOLDS: ThresholdEntry[] = [
 	{ maxTokens: 150_000 },
 	{ maxTokens: null },
 ];
+
+/**
+ * Schema for context-status-bar config object fields.
+ * All fields have defaults — safeParse fills missing fields.
+ * Thresholds are NOT part of this schema (manual skip-invalid parsing).
+ */
+export const ContextStatusBarConfigSchema = z.object({
+	enabled: z.boolean().default(true),
+	showTimer: z.boolean().default(true),
+	showTps: z.boolean().default(true),
+	showCache: z.boolean().default(true),
+	welcomeTimeoutMs: z.number().finite().default(0),
+});
 
 /** Read a single value from pi's global settings.json */
 export function readPiSetting(key: string): string | undefined {
@@ -66,10 +80,11 @@ export function loadConfig(): ContextStatusBarConfig | null {
 
 	const cfg = raw as Record<string, unknown>;
 
-	let enabled = true;
-	if ("enabled" in cfg && typeof cfg.enabled === "boolean") {
-		enabled = cfg.enabled;
-	}
+	// Parse all scalar config fields via zod schema
+	const parsed = ContextStatusBarConfigSchema.safeParse(cfg);
+	if (!parsed.success) return defaults;
+	const { enabled, showTimer, showTps, showCache, welcomeTimeoutMs } = parsed.data;
+
 	if (!enabled) return null;
 
 	let thresholds: ThresholdEntry[];
@@ -86,34 +101,6 @@ export function loadConfig(): ContextStatusBarConfig | null {
 			parsed.push({ maxTokens: maxTokens as number | null });
 		}
 		thresholds = parsed.length > 0 ? parsed : DEFAULT_THRESHOLDS;
-	}
-
-	// Parse showTimer
-	let showTimer = true;
-	if ("showTimer" in cfg && typeof cfg.showTimer === "boolean") {
-		showTimer = cfg.showTimer;
-	}
-
-	// Parse showTps
-	let showTps = true;
-	if ("showTps" in cfg && typeof cfg.showTps === "boolean") {
-		showTps = cfg.showTps;
-	}
-
-	// Parse showCache
-	let showCache = true;
-	if ("showCache" in cfg && typeof cfg.showCache === "boolean") {
-		showCache = cfg.showCache;
-	}
-
-	// Parse welcomeTimeoutMs
-	let welcomeTimeoutMs = DEFAULT_WELCOME_TIMEOUT_MS;
-	if (
-		"welcomeTimeoutMs" in cfg &&
-		typeof cfg.welcomeTimeoutMs === "number" &&
-		Number.isFinite(cfg.welcomeTimeoutMs)
-	) {
-		welcomeTimeoutMs = cfg.welcomeTimeoutMs;
 	}
 
 	return { enabled, thresholds, showTimer, showTps, showCache, welcomeTimeoutMs };
