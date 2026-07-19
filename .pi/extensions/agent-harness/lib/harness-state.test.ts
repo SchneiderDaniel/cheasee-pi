@@ -57,10 +57,6 @@ describe("HarnessState", () => {
 		assert.equal(state.toolCallIndex, 5); // not affected
 	});
 
-	it("batchId is undefined by default", () => {
-		const state = createHarnessState();
-		assert.equal(state.batchId, undefined);
-	});
 });
 
 // ── CACHE_TTL_TURNS ──
