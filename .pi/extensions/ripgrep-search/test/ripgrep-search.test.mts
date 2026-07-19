@@ -45,7 +45,7 @@ import {
 	getCachedResult,
 	setCachedResult,
 	clearCache,
-	getCacheSize,
+	resultCache,
 	buildCacheKey,
 } from "../internal.ts";
 
@@ -1214,9 +1214,9 @@ describe("cache module", () => {
 				result: { total_returned: 1, results: [] },
 				rawStdout: "",
 			});
-			assert.strictEqual(getCacheSize(), 2);
+			assert.strictEqual(resultCache.size, 2);
 			clearCache();
-			assert.strictEqual(getCacheSize(), 0);
+			assert.strictEqual(resultCache.size, 0);
 		});
 
 		it("after clear, get returns undefined", () => {
@@ -1230,25 +1230,7 @@ describe("cache module", () => {
 		});
 	});
 
-	// ── getCacheSize ──
 
-	describe("getCacheSize", () => {
-		it("returns 0 for empty cache", () => {
-			assert.strictEqual(getCacheSize(), 0);
-		});
-
-		it("returns correct count after inserts", () => {
-			setCachedResult("a", ".", {
-				result: { total_returned: 1, results: [] },
-				rawStdout: "",
-			});
-			setCachedResult("b", ".", {
-				result: { total_returned: 1, results: [] },
-				rawStdout: "",
-			});
-			assert.strictEqual(getCacheSize(), 2);
-		});
-	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════
