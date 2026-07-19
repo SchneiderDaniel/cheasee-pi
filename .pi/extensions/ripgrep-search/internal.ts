@@ -5,7 +5,23 @@
  * Consolidates three pass-through modules into one for reduced file-bouncing.
  */
 
-import type { RgResult } from "./types.ts";
+import type { ExtensionMode, RgResult } from "./types.ts";
+
+// ═══════════════════════════════════════════════════════════════════════
+// Extension mode — owned here, consumed by renderers via getCtxMode
+// ═══════════════════════════════════════════════════════════════════════
+
+let _ctxMode: ExtensionMode | undefined;
+
+/** Set ctx mode (called by both production session_start and tests). */
+export function setTestCtxMode(mode: ExtensionMode | undefined): void {
+	_ctxMode = mode;
+}
+
+/** Read ctx mode (consumed by renderCallImpl / renderResultImpl in index.ts). */
+export function getCtxMode(): ExtensionMode | undefined {
+	return _ctxMode;
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Query validation

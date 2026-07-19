@@ -20,6 +20,9 @@ export interface RgResult {
 	truncated?: boolean;
 }
 
+/** Extension mode — mirrors upstream for mode gating in renderers. */
+export type ExtensionMode = "tui" | "rpc" | "json" | "print";
+
 /** Search configuration from .pi/settings.json. */
 export interface SearchConfig {
 	searchBackend: "auto" | "ripgrep" | "grep";

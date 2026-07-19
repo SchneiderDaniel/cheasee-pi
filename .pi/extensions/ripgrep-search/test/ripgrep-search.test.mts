@@ -32,11 +32,14 @@ import {
 	buildStructuredSummary,
 	buildSearchErrorText,
 	verifyDirectory,
-	_setTestCtxMode,
 	renderCallImpl,
 	renderResultImpl,
 	wrapOsc8Link,
 } from "../index.ts";
+import {
+	setTestCtxMode,
+	getCtxMode,
+} from "../internal.ts";
 import {
 	validateQuery,
 	registerTempDir,
@@ -1927,7 +1930,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 	}
 
 	afterEach(() => {
-		_setTestCtxMode(undefined);
+		setTestCtxMode(undefined);
 	});
 
 	// ---------------------------------------------------------------------------
@@ -1936,7 +1939,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 
 	describe("renderResult — TUI mode", () => {
 		beforeEach(() => {
-			_setTestCtxMode("tui");
+			setTestCtxMode("tui");
 		});
 
 		it("results present → each file path line wrapped with OSC 8 file:// hyperlink", () => {
@@ -1984,7 +1987,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 		});
 
 		it("isPartial=true → returns 'Searching...'", () => {
-			_setTestCtxMode("tui");
+			setTestCtxMode("tui");
 			const result = makeResult(sampleText);
 			const rendered = renderResultImpl(result, { isPartial: true }, tuiTheme, undefined);
 
@@ -2015,7 +2018,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 
 		for (const mode of modes) {
 			it(`${mode} mode → returns raw text content, no theme formatting, no OSC 8`, () => {
-				_setTestCtxMode(mode);
+				setTestCtxMode(mode);
 				const result = makeResult(sampleText, { searchDirectory: "/tmp/test" });
 				const rendered = renderResultImpl(result, { expanded: true }, tuiTheme, undefined);
 
@@ -2033,7 +2036,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 	describe("renderResult — _ctxMode undefined (session_start not fired)", () => {
 		it("defaults to TUI rendering (OSC 8 applied if data present)", () => {
 			// _ctxMode starts as undefined, test doesn't set it
-			_setTestCtxMode(undefined);
+			setTestCtxMode(undefined);
 			const searchDir = "/home/user/project";
 			const result = makeResult(sampleText, { searchDirectory: searchDir });
 			const rendered = renderResultImpl(result, { expanded: true }, tuiTheme, undefined);
@@ -2045,7 +2048,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 		});
 
 		it("no searchDirectory → renders as before (no OSC 8)", () => {
-			_setTestCtxMode(undefined);
+			setTestCtxMode(undefined);
 			const result = makeResult(sampleText);
 			const rendered = renderResultImpl(result, { expanded: true }, tuiTheme, undefined);
 
@@ -2061,7 +2064,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 
 	describe("renderCall", () => {
 		it('TUI mode → formatted `rg "query"` with theme colors', () => {
-			_setTestCtxMode("tui");
+			setTestCtxMode("tui");
 			const rendered = renderCallImpl({ query: "TIMEOUT_MS", directory: "." }, tuiTheme, undefined);
 			const content = (rendered as any).text;
 			assert.ok(content.includes("rg"), "Should contain rg");
@@ -2071,28 +2074,28 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 		});
 
 		it("non-TUI mode (rpc) → returns raw args.query text, no theme colors", () => {
-			_setTestCtxMode("rpc");
+			setTestCtxMode("rpc");
 			const rendered = renderCallImpl({ query: "TIMEOUT_MS", directory: "." }, tuiTheme, undefined);
 			const content = (rendered as any).text;
 			assert.strictEqual(content, "TIMEOUT_MS", "rpc mode should return raw query");
 		});
 
 		it("non-TUI mode (json) → returns raw args.query text", () => {
-			_setTestCtxMode("json");
+			setTestCtxMode("json");
 			const rendered = renderCallImpl({ query: "TIMEOUT_MS" }, tuiTheme, undefined);
 			const content = (rendered as any).text;
 			assert.strictEqual(content, "TIMEOUT_MS", "json mode should return raw query");
 		});
 
 		it("non-TUI mode (print) → returns raw args.query text", () => {
-			_setTestCtxMode("print");
+			setTestCtxMode("print");
 			const rendered = renderCallImpl({ query: "TIMEOUT_MS" }, tuiTheme, undefined);
 			const content = (rendered as any).text;
 			assert.strictEqual(content, "TIMEOUT_MS", "print mode should return raw query");
 		});
 
 		it("undefined _ctxMode → defaults to TUI (same as before)", () => {
-			_setTestCtxMode(undefined);
+			setTestCtxMode(undefined);
 			const rendered = renderCallImpl(
 				{ query: "TIMEOUT_MS", directory: "src" },
 				tuiTheme,
@@ -2171,7 +2174,7 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 		it("non-cached result → details.searchDirectory is set to resolved absolute path", () => {
 			// This tests that the execute handler would set searchDirectory
 			// We verify via makeResult that the details contain it
-			_setTestCtxMode("tui");
+			setTestCtxMode("tui");
 			const searchDir = "/home/user/project";
 			const result = makeResult(sampleText, { searchDirectory: searchDir });
 			assert.strictEqual(
@@ -2203,5 +2206,114 @@ describe("mode gate + OSC 8 hyperlinks", () => {
 				"Zero-result should have searchDirectory",
 			);
 		});
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 1: setTestCtxMode / getCtxMode — setter/getter pair in internal.ts
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("setTestCtxMode / getCtxMode", () => {
+	afterEach(() => {
+		setTestCtxMode(undefined);
+	});
+
+	it('setTestCtxMode("tui") then getCtxMode() returns "tui"', () => {
+		setTestCtxMode("tui");
+		assert.strictEqual(getCtxMode(), "tui");
+	});
+
+	it('setTestCtxMode("rpc") then getCtxMode() returns "rpc"', () => {
+		setTestCtxMode("rpc");
+		assert.strictEqual(getCtxMode(), "rpc");
+	});
+
+	it('setTestCtxMode("json") then getCtxMode() returns "json"', () => {
+		setTestCtxMode("json");
+		assert.strictEqual(getCtxMode(), "json");
+	});
+
+	it('setTestCtxMode("print") then getCtxMode() returns "print"', () => {
+		setTestCtxMode("print");
+		assert.strictEqual(getCtxMode(), "print");
+	});
+
+	it("setTestCtxMode(undefined) then getCtxMode() returns undefined", () => {
+		setTestCtxMode(undefined);
+		assert.strictEqual(getCtxMode(), undefined);
+	});
+
+	it("sequence: set tui, then rpc, then json — each read returns latest", () => {
+		setTestCtxMode("tui");
+		assert.strictEqual(getCtxMode(), "tui");
+		setTestCtxMode("rpc");
+		assert.strictEqual(getCtxMode(), "rpc");
+		setTestCtxMode("json");
+		assert.strictEqual(getCtxMode(), "json");
+	});
+
+	it("getCtxMode() before any setTestCtxMode call returns undefined", () => {
+		setTestCtxMode(undefined); // reset to initial state
+		assert.strictEqual(getCtxMode(), undefined);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2: _setTestCtxMode removed from index.ts
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("_setTestCtxMode removed from index.ts", () => {
+	it("dynamic import shows _setTestCtxMode is undefined (export removed)", async () => {
+		const mod = await import("../index.ts");
+		assert.strictEqual(
+			(mod as Record<string, unknown>)._setTestCtxMode,
+			undefined,
+			"_setTestCtxMode should not be exported from index.ts",
+		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2: session_start handler preserves production write path
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("session_start sets mode through setTestCtxMode", () => {
+	let capturedHandlers: Map<string, Function>;
+	let restorePi: { on: (e: string, h: Function) => void; registerTool: () => void };
+
+	beforeEach(() => {
+		capturedHandlers = new Map();
+		restorePi = {
+			on: (event: string, handler: Function) => {
+				capturedHandlers.set(event, handler);
+			},
+			registerTool: () => {},
+		};
+	});
+
+	afterEach(() => {
+		setTestCtxMode(undefined);
+	});
+
+	it('ctx.mode = "json" → getCtxMode() returns "json"', async () => {
+		const { default: ripgrepSearch } = await import("../index.ts");
+		ripgrepSearch(restorePi as any);
+
+		const handler = capturedHandlers.get("session_start");
+		assert.ok(handler, "session_start handler should be registered");
+
+		await handler(undefined, { mode: "json", cwd: process.cwd() });
+		assert.strictEqual(getCtxMode(), "json");
+	});
+
+	it('ctx.mode = "tui" → getCtxMode() returns "tui"', async () => {
+		const { default: ripgrepSearch } = await import("../index.ts");
+		ripgrepSearch(restorePi as any);
+
+		const handler = capturedHandlers.get("session_start");
+		assert.ok(handler, "session_start handler should be registered");
+
+		await handler(undefined, { mode: "tui", cwd: process.cwd() });
+		assert.strictEqual(getCtxMode(), "tui");
 	});
 });
