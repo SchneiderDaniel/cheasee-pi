@@ -6,6 +6,7 @@
  */
 
 import type { ServerMapping } from "./types.ts";
+import type { LspAuditorSettings } from "./settings.ts";
 
 // ─── Defaults ────────────────────────────────────────────────────────
 
@@ -35,39 +36,26 @@ export const DEFAULT_SERVER_MAPPINGS: ServerMapping[] = [
 /**
  * Build the final server mapping list from user settings merged with defaults.
  * User config overrides/extends defaults.
+ *
+ * The input is already runtime-validated by readSettings() against the
+ * typebox schema — no ad-hoc typeof/Array.isArray guards needed here.
+ * Schema guarantees: extensions (string[], minItems 1), command (string, minLength 1),
+ * args (string[] | undefined), severityThreshold (enum value | undefined).
  */
-export function buildServerMappings(configRaw: unknown): ServerMapping[] {
-	if (!configRaw || typeof configRaw !== "object") return [...DEFAULT_SERVER_MAPPINGS];
-
-	const config = configRaw as {
-		servers?: Array<{
-			extensions: string[];
-			command: string;
-			args?: string[];
-			severityThreshold?: string;
-		}>;
-	};
-	if (!config.servers || !Array.isArray(config.servers) || config.servers.length === 0)
-		return [...DEFAULT_SERVER_MAPPINGS];
+export function buildServerMappings(config: LspAuditorSettings | undefined): ServerMapping[] {
+	if (!config?.servers?.length) return [...DEFAULT_SERVER_MAPPINGS];
 
 	const merged = [...DEFAULT_SERVER_MAPPINGS];
 
 	for (const srv of config.servers) {
-		if (!srv.extensions || !Array.isArray(srv.extensions) || srv.extensions.length === 0) continue;
-		if (!srv.command || typeof srv.command !== "string" || !srv.command.trim()) continue;
-
 		const exts = [...new Set(srv.extensions.map((e) => e.toLowerCase()))];
 
-		let threshold: "error" | "warning" | "info" = "warning";
-		if (srv.severityThreshold) {
-			const t = srv.severityThreshold.toLowerCase();
-			if (t === "error" || t === "warning" || t === "info") threshold = t;
-		}
+		const threshold: "error" | "warning" | "info" = srv.severityThreshold ?? "warning";
 
 		const newMapping: ServerMapping = {
 			extensions: exts,
 			command: srv.command.trim(),
-			args: srv.args || [],
+			args: srv.args ?? [],
 			severityThreshold: threshold,
 		};
 

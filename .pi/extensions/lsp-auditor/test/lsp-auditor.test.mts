@@ -294,25 +294,9 @@ describe("buildServerMappings", () => {
 		assert.strictEqual(ts!.severityThreshold, "error");
 	});
 
-	it("invalid severityThreshold → falls back to warning", () => {
-		const result = buildServerMappings({
-			servers: [{ extensions: [".ts"], command: "ts-ls", severityThreshold: "critical" }],
-		});
-		const ts = result.find((m) => m.extensions.includes(".ts"));
-		assert.strictEqual(ts!.severityThreshold, "warning");
-	});
-
 	it("empty servers → returns defaults", () => {
 		const result = buildServerMappings({ servers: [] });
 		assert.strictEqual(result.length, 4);
-	});
-
-	it("empty command → entry skipped", () => {
-		const result = buildServerMappings({
-			servers: [{ extensions: [".ts"], command: "" }],
-		});
-		const ts = result.find((m) => m.extensions.includes(".ts"));
-		assert.strictEqual(ts!.command, "typescript-language-server");
 	});
 
 	it("extensions deduplicated", () => {
