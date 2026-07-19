@@ -2,24 +2,21 @@
  * harness-rules.ts — Shared tool-call detection rules, constants, and helpers.
  *
  * Bash command parsing and detection are provided by the BashCommand class
- * (import from this module or directly from bash-command.ts).
+ * or the parseBashCmd function (both importable from this module or directly
+ * from bash-command.ts).
  *
  * This module exports:
  *  - Constants: BASH_SEARCH_SIGNALS, SEARCH_TOOLS, etc.
  *  - Types: ToolMeta
  *  - Helpers: buildRedirectMessage, getToolMeta, isRedundantRead, etc.
- *  - Re-exports: BashCommand, BashSegment from bash-command.ts
+ *  - Re-exports: BashCommand, BashSegment, parseBashCmd from bash-command.ts
  *
  * Zero pi dependencies — domain layer only.
  */
 
-// ── Imports ──
+// ── Re-export bash-command.ts symbols for direct use ──
 
-import { parseBashCmd as parseBashCmdImpl } from "./bash-command.ts";
-
-// ── Re-export BashCommand class for direct use ──
-
-export { BashCommand } from "./bash-command.ts";
+export { BashCommand, parseBashCmd } from "./bash-command.ts";
 export type { BashSegment } from "./bash-command.ts";
 
 // ── Constants ──
@@ -114,27 +111,6 @@ export const TOOL_META: Record<string, ToolMeta> = {
  */
 export function getToolMeta(toolName: string): ToolMeta {
 	return TOOL_META[toolName] ?? { passThrough: false, cascadeThreshold: CASCADE_THRESHOLD };
-}
-
-// ── Bash tokenization (kept for backward compatibility) ──
-
-/**
- * Tokenize a bash command string respecting quotes, pipes, and redirects.
- * Splits by pipe (|) outside single/double quotes.
- * Returns array of segments, each with tokens and optional redirect type.
- *
- * Handles:
- *  - Single and double quoted strings (pipe inside quotes = literal)
- *  - Tab and space token splitting
- *  - > (write) and >> (append) redirect detection
- *
- * Does NOT handle:
- *  - eval, exec, subshells ($(), ``)
- *  - Escaped quotes inside quotes
- *  - Heredoc bodies (<< delimiter is treated as redirect)
- */
-export function parseBashCmd(cmd: string): import("./bash-command.ts").BashSegment[] {
-	return parseBashCmdImpl(cmd);
 }
 
 /**
