@@ -42,6 +42,8 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ```bash
 cheasee-pi init && cd cheasee-pi && bash docker/run-pi.sh
+
+For legacy environments, `bash cheasee-pi.sh` at the repo root provides the same workflow.
 ```
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.

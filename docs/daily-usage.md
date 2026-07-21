@@ -68,6 +68,7 @@ bash docker/run-pi.sh
 ```
 
 `run-pi.sh` checks if the container is running, starts it if needed, then execs into it.
+The legacy `cheasee-pi.sh` at the repo root provides the same workflow.
 It also reads `~/.config/cheasee-pi/auth.json` (or the legacy `~/.pi/agent/auth.json` as fallback) and passes API keys as environment variables
 (see [Missing API keys](#missing-api-keys) in Troubleshooting).
 
