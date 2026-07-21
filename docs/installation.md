@@ -85,7 +85,7 @@ case "$ARCH" in
 esac
 
 # Download the latest release archive
-VERSION="0.31.0"
+VERSION="0.32"
 curl -fLO "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz"
 ```
 
