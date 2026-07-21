@@ -138,8 +138,6 @@ export class BashCommand {
 	 */
 	private static readonly FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
 		"sed",
-		"echo",
-		"cat",
 		"tee",
 		"mv",
 		"cp",
