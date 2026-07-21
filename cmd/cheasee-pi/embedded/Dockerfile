@@ -39,7 +39,6 @@ RUN apt-get update && \
         fd-find \
         git \
         wget \
-        make \
         gosu \
         libasound2 \
         libatk-bridge2.0-0 \
