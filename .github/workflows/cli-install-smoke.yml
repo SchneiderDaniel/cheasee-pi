@@ -64,9 +64,21 @@ jobs:
         with:
           go-version: "1.25"
 
+      # PR: build from source to test the current branch's changes
       - name: Build cheasee-pi binary
+        if: github.event_name != 'workflow_dispatch'
         run: |
           go build -o "$RUNNER_TEMP/cheasee-pi" ./cmd/cheasee-pi/
+          echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
+
+      # For workflow_dispatch, simulate a user downloading a release binary
+      - name: Download cheasee-pi release binary
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo SchneiderDaniel/cheasee-pi --pattern "cheasee-pi-linux-amd64" --output "$RUNNER_TEMP/cheasee-pi"
+          chmod +x "$RUNNER_TEMP/cheasee-pi"
           echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
 
       - name: Verify Docker daemon is reachable
@@ -92,6 +104,11 @@ jobs:
           git config --global user.name "Test"
           git config --global user.email "test@test.com"
 
+      - name: Install docker-compose-plugin
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends docker-compose-plugin
+          rm -rf /var/lib/apt/lists/*
+
       - name: Run CLI install smoke test
         run: |
           node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
@@ -101,6 +118,9 @@ jobs:
         run: |
           echo "--- Container logs ---"
           docker logs cheasee-pi 2>/dev/null || echo "(no container logs)"
+          # ponytail: workflow doesn't know test's temp workdir path;
+          # test's after() hook does docker compose down -v.
+          # This safety net removes by container name directly.
           echo "--- Cleaning up container ---"
           docker rm -fv cheasee-pi 2>/dev/null || echo "(no container to remove)"
           echo "--- Pruning build cache ---"

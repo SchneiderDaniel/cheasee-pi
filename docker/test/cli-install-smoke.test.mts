@@ -25,10 +25,12 @@ import {
 	existsSync,
 	readFileSync,
 	rmSync,
+	chmodSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync, ExecSyncOptionsWithStringEncoding } from "node:child_process";
+import { execSync } from "node:child_process";
+import type { ExecSyncOptionsWithStringEncoding } from "node:child_process";
 
 // ═══════════════════════════════════════════════════════════════════
 // Configuration
@@ -305,9 +307,21 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
+	let errWorkdir: string;
+
+	before(() => {
+		errWorkdir = mkdtempSync(join(tmpdir(), "cli-install-error-"));
+	});
+
+	after(() => {
+		if (errWorkdir) {
+			rmSync(errWorkdir, { recursive: true, force: true });
+		}
+	});
+
 	it("adapter — init with --no-input but without --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --provider opencode-go`,
+			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for missing --api-key");
@@ -315,10 +329,18 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 
 	it("adapter — init with empty --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --api-key "" --provider opencode-go`,
+			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --api-key "" --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for empty --api-key");
+	});
+
+	it("adapter — non-existent binary exits non-zero", () => {
+		const result = exec(
+			"/tmp/nonexistent-cheasee-pi --version",
+			{ timeout: 10_000 },
+		);
+		assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-existent binary");
 	});
 });
 
@@ -385,8 +407,8 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 		assert.ok("defaultModel" in parsed, "settings.json missing defaultModel");
 		assert.ok("docker" in parsed, "settings.json missing docker");
 		const docker = parsed.docker as Record<string, unknown>;
-		assert.ok(docker?.memory, "settings.json docker.missing memory");
-		assert.ok(docker?.cpus, "settings.json docker.missing cpus");
+		assert.ok(docker?.memory, "settings.json missing docker.memory");
+		assert.ok(docker?.cpus, "settings.json missing docker.cpus");
 		assert.strictEqual(
 			parsed.defaultProvider,
 			"opencode-go",
@@ -418,5 +440,57 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			"opencode-go",
 			`idempotent init should keep defaultProvider`,
 		);
+	});
+
+	it("adapter — init without --provider flag uses default provider", () => {
+		const noProvDir = mkdtempSync(join(tmpdir(), "cli-install-noprov-"));
+		try {
+			const result = exec(
+				`"${BINARY_PATH}" init ` +
+					"--no-github " +
+					"--skip-fork " +
+					"--skip-submodules " +
+					"--no-input " +
+					"--no-docker-check " +
+					'--api-key ci-test-key ' +
+					`--workdir "${noProvDir}"`,
+				{ timeout: 60_000 },
+			);
+			assert.strictEqual(result.status, 0, `init without --provider exited ${result.status}: ${result.stderr}`);
+			const settingsPath = join(noProvDir, ".pi", "settings.json");
+			const content = readFileSync(settingsPath, "utf-8");
+			const parsed = JSON.parse(content) as Record<string, unknown>;
+			assert.strictEqual(
+				parsed.defaultProvider,
+				"opencode-go",
+				`expected defaultProvider to be "opencode-go", got: ${parsed.defaultProvider}`,
+			);
+		} finally {
+			rmSync(noProvDir, { recursive: true, force: true });
+		}
+	});
+
+	it("adapter — init in workdir whose parent is non-writable exits non-zero", () => {
+		const parentDir = mkdtempSync(join(tmpdir(), "cli-install-nonwritable-"));
+		const childWorkdir = join(parentDir, "sub");
+		try {
+			chmodSync(parentDir, 0o444); // remove write permission
+			const result = exec(
+				`"${BINARY_PATH}" init ` +
+					"--no-github " +
+					"--skip-fork " +
+					"--skip-submodules " +
+					"--no-input " +
+					"--no-docker-check " +
+					'--api-key ci-test-key ' +
+					'--provider opencode-go ' +
+					`--workdir "${childWorkdir}"`,
+				{ timeout: 10_000 },
+			);
+			assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-writable parent");
+		} finally {
+			chmodSync(parentDir, 0o755); // restore for cleanup
+			rmSync(parentDir, { recursive: true, force: true });
+		}
 	});
 });
