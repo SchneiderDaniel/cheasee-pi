@@ -23,7 +23,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { ensureVenv, EnsureVenvError } from "./ensureVenv.ts";
-import type { ExecFn, EnsureVenvConfig } from "./ensureVenv.ts";
+import type { ExecFn } from "./port-types.ts";
+import type { EnsureVenvConfig } from "./ensureVenv.ts";
 import lockfile from "proper-lockfile";
 
 /**

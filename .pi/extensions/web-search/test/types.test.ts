@@ -75,31 +75,27 @@ describe("types.ts exports — SearchResult, SearchParams, SearchCacheEntry", ()
 		);
 	});
 
-	it("(D) types.ts exports ExecResult with code, stdout, stderr fields", () => {
+	it("(D) types.ts re-exports ExecResult from lib/port-types.ts", () => {
+		const reexport = /export\s+type\s*\{[^}]*\bExecResult\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
-			/export\s+interface\s+ExecResult/.test(typesSource),
-			"types.ts should export interface ExecResult",
-		);
-		assert.ok(/^\s*code:\s*number;/m.test(typesSource), "ExecResult should have code: number");
-		assert.ok(/^\s*stdout:\s*string;/m.test(typesSource), "ExecResult should have stdout: string");
-		assert.ok(/^\s*stderr:\s*string;/m.test(typesSource), "ExecResult should have stderr: string");
-	});
-
-	it("(D) types.ts exports ExecFn with correct signature", () => {
-		assert.ok(
-			/export\s+interface\s+ExecFn/.test(typesSource),
-			"types.ts should export interface ExecFn",
-		);
-		assert.ok(
-			typesSource.includes("Promise<ExecResult>"),
-			"ExecFn should return Promise<ExecResult>",
+			reexport.test(typesSource),
+			"types.ts should re-export ExecResult from lib/port-types.ts",
 		);
 	});
 
-	it("(D) types.ts exports OnUpdateCallback", () => {
+	it("(D) types.ts re-exports ExecFn from lib/port-types.ts", () => {
+		const reexport = /export\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
-			/export\s+interface\s+OnUpdateCallback/.test(typesSource),
-			"OnUpdateCallback should remain exported",
+			reexport.test(typesSource),
+			"types.ts should re-export ExecFn from lib/port-types.ts",
+		);
+	});
+
+	it("(D) types.ts re-exports OnUpdateCallback from lib/port-types.ts", () => {
+		const reexport = /export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
+		assert.ok(
+			reexport.test(typesSource),
+			"types.ts should re-export OnUpdateCallback from lib/port-types.ts",
 		);
 	});
 });

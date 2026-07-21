@@ -16,6 +16,7 @@ import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
 /** Exec function type for subprocess calls — port matching the real dependency. */
+// Diverges from lib/port-types.ExecFn: opts use @earendil-works/pi-coding-agent ExecOptions
 export type ExecFn = (cmd: string, args: string[], opts?: ExecOptions) => Promise<ExecResult>;
 
 /**

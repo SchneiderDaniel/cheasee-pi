@@ -11,7 +11,7 @@
  *
  * ```ts
  * // Turn-based TTL (6 turns)
- * const cache = new TimedMap<string, CacheEntry>({ ttlTurns: 6, ttlMs: 30_000 });
+ * const cache = new TimedMap<string, ReadCacheEntry>({ ttlTurns: 6, ttlMs: 30_000 });
  * cache.turn = currentTurn; // synchronize turn before get/set
  * cache.set("key", value);
  * cache.get("key");          // null if expired

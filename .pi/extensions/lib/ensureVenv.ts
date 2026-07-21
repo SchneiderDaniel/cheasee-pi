@@ -23,28 +23,9 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
+import type { ExecFn, OnUpdateCallback } from "./port-types.ts";
 
 // ── Public Types ──
-
-export interface ExecFn {
-	(
-		cmd: string,
-		args: string[],
-		opts?: { timeout?: number; signal?: AbortSignal },
-	): Promise<{ code: number; stdout: string; stderr: string }>;
-}
-
-/**
- * Callback for structured progress updates.
- *
- * Callers must tolerate `text` starting with `'Lock compromised: …'` and
- * `details.warning === true` — these are non-fatal warnings emitted by the
- * `onCompromised` handler when proper-lockfile's lock update timer detects
- * staleness or filesystem error. See #1136 for rationale.
- */
-interface OnUpdateCallback {
-	(u: { content: Array<{ type: "text"; text: string }>; details: unknown }): void;
-}
 
 export interface EnsureVenvConfig {
 	/** Exec function (typically pi.exec). */
@@ -98,7 +79,7 @@ export class EnsureVenvError extends Error {
 
 // ── In-memory retry cache ──
 
-interface CacheEntry {
+interface RetryCacheEntry {
 	ready: boolean;
 	timestamp: number;
 	retries: number;
@@ -107,13 +88,13 @@ interface CacheEntry {
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_RETRIES = 3;
 
-const cache = new Map<string, CacheEntry>();
+const cache = new Map<string, RetryCacheEntry>();
 
 function cacheKey(cwd: string, venvName: string): string {
 	return `${cwd}::${venvName}`;
 }
 
-function cacheGet(key: string): { entry: CacheEntry | undefined; shouldRetry: boolean } {
+function cacheGet(key: string): { entry: RetryCacheEntry | undefined; shouldRetry: boolean } {
 	const entry = cache.get(key);
 	if (!entry) return { entry: undefined, shouldRetry: false };
 	if (entry.ready) return { entry, shouldRetry: false };
