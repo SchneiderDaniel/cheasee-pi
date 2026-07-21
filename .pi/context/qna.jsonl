@@ -6,3 +6,6 @@
 {"datetime":"2026-07-19T21:41:03.680Z","question":"Re-instrumented rtk/index.ts + re-added \"extensions\":[\"rtk\"]. Run `/reload`, then say \"done\"?","answer":"stop, then let me reload"}
 {"datetime":"2026-07-19T21:44:18.062Z","question":"Re-add \"extensions\":[\"rtk\"] to .pi/settings.json so current session keeps rtk after next /reload?","answer":"add_persistent"}
 {"datetime":"2026-07-19T21:54:09.420Z","question":"Single ponytail test fails: csv correctness test needs `pandas` python module missing from container. Not a ponytail code bug — env dep. Fix?","answer":"install_pandas"}
+{"datetime":"2026-07-21T18:35:43.871Z","question":"Which approach to improve Docker caching when pi version changes?","answer":"split_pi_to_end"}
+{"datetime":"2026-07-21T18:38:16.596Z","question":"What to do about the duplicate Dockerfiles?\n\n`docker/Dockerfile` = agent dev container (needs all tools)\n`cmd/cheasee-pi/embedded/Dockerfile` (and its copy in `embedded/docker/Dockerfile`) = user-init template\n\nOptions:","answer":"dedupe_one_source"}
+{"datetime":"2026-07-21T18:39:03.849Z","question":"How to make docker/Dockerfile the single source of truth and embed it at build time?","answer":"delete_plus_gogenerate"}

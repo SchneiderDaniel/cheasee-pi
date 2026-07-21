@@ -11,6 +11,7 @@ import (
 	"strings"
 )
 
+//go:generate cp ../../docker/Dockerfile embedded/docker/Dockerfile
 //go:embed embedded
 var embeddedFS embed.FS
 

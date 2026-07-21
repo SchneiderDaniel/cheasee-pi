@@ -39,6 +39,7 @@ RUN apt-get update && \
         fd-find \
         git \
         wget \
+        make \
         gosu \
         libasound2 \
         libatk-bridge2.0-0 \
@@ -82,9 +83,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # ---------------------------------------------------------------
 # Layer 5: npm global tools
 # ---------------------------------------------------------------
-ARG PI_VERSION=latest
 RUN npm install -g --force \
-        @earendil-works/pi-coding-agent@${PI_VERSION} \
         @ast-grep/cli \
         eslint \
         jscpd \
@@ -195,6 +194,15 @@ RUN case "$(dpkg --print-architecture)" in \
     /usr/local/go/bin/go version
 
 ENV PATH=/usr/local/go/bin:${PATH}
+
+# ---------------------------------------------------------------
+# Layer 5h: pi-coding-agent (last npm layer — pi version bumps
+#           don't invalidate expensive binary layers above)
+# ---------------------------------------------------------------
+ARG PI_VERSION=latest
+RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
+    && npm cache clean --force \
+    && rm -rf /tmp/*
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
