@@ -77,9 +77,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download --repo SchneiderDaniel/cheasee-pi --pattern "cheasee-pi-linux-amd64" --output "$RUNNER_TEMP/cheasee-pi"
+          gh release download v0.31 \
+            --repo SchneiderDaniel/cheasee-pi \
+            --pattern "cheasee-pi_*_linux_amd64.tar.gz" \
+            --output "$RUNNER_TEMP/cheasee-pi.tar.gz"
+          mkdir -p "$RUNNER_TEMP/cheasee-pi-extract"
+          tar -xzf "$RUNNER_TEMP/cheasee-pi.tar.gz" -C "$RUNNER_TEMP/cheasee-pi-extract"
+          # Binary name inside tarball is "cheasee-pi" or similar — find it
+          BIN="$(find "$RUNNER_TEMP/cheasee-pi-extract" -type f -executable -name 'cheasee-pi' | head -1)"
+          if [ -z "$BIN" ]; then
+            BIN="$(find "$RUNNER_TEMP/cheasee-pi-extract" -type f -name 'cheasee-pi' | head -1)"
+          fi
+          cp "$BIN" "$RUNNER_TEMP/cheasee-pi"
           chmod +x "$RUNNER_TEMP/cheasee-pi"
           echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
+          rm -rf "$RUNNER_TEMP/cheasee-pi.tar.gz" "$RUNNER_TEMP/cheasee-pi-extract"
 
       - name: Verify Docker daemon is reachable
         run: |

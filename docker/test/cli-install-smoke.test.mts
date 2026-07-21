@@ -29,8 +29,8 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
-import type { ExecSyncOptionsWithStringEncoding } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 
 // ═══════════════════════════════════════════════════════════════════
 // Configuration
@@ -57,8 +57,10 @@ interface ExecResult {
 }
 
 /**
- * Run a command via execSync with timeout and string encoding.
+ * Run a command via spawnSync with timeout and string encoding.
  * Always returns { stdout, stderr, status } — never throws.
+ * Uses spawnSync (not execSync) so stderr is captured on both
+ * success and failure paths.
  */
 function exec(
 	cmd: string,
@@ -69,29 +71,20 @@ function exec(
 		...process.env as Record<string, string>,
 		...opts?.env,
 	};
-	const execOpts: ExecSyncOptionsWithStringEncoding = {
+	const spawnOpts: SpawnSyncOptionsWithStringEncoding = {
 		encoding: "utf-8",
 		timeout: defaultTimeout,
 		cwd: opts?.cwd,
 		env,
 		stdio: ["pipe", "pipe", "pipe"] as const,
+		shell: true,
 	};
-	try {
-		const stdout = execSync(cmd, execOpts);
-		return { stdout: stdout.toString(), stderr: "", status: 0 };
-	} catch (e: unknown) {
-		const err = e as {
-			status?: number;
-			stdout?: string | Buffer;
-			stderr?: string | Buffer;
-			message?: string;
-		};
-		return {
-			stdout: (err.stdout ?? "").toString(),
-			stderr: (err.stderr ?? err.message ?? "unknown error").toString(),
-			status: err.status ?? 1,
-		};
-	}
+	const result = spawnSync(cmd, spawnOpts);
+	return {
+		stdout: (result.stdout ?? "").toString(),
+		stderr: (result.stderr ?? "").toString(),
+		status: result.status ?? 1,
+	};
 }
 
 /**
