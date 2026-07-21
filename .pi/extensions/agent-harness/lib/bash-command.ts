@@ -8,10 +8,6 @@
  *   isSearchInBash()       → BashCommand(cmd).isSearch()
  *   isCatHeadTailInBash()  → BashCommand(cmd).isFileRead()
  *   isFileModifyingBash()  → BashCommand(cmd).isFileModify()
- *   isStandaloneToolCall() → BashCommand(cmd).isStandalone()
- *   isLsInBash()           → BashCommand(cmd).isLs()
- *   detectMismatchAndSuggest() → BashCommand(cmd).detectMismatch()
- *   suggestRedirection()   → BashCommand(cmd).suggestRedirection()
  *
  */
 
@@ -128,8 +124,7 @@ export function parseBashCmd(cmd: string): BashSegment[] {
  * Example:
  * ```ts
  * const cmd = new BashCommand("grep foo bar.ts");
- * cmd.isSearch();     // true
- * cmd.isStandalone(); // true
+ * cmd.isSearch(); // true
  * ```
  */
 export class BashCommand {
@@ -158,20 +153,6 @@ export class BashCommand {
 		this.raw = cmd;
 		this.lower = cmd.toLowerCase();
 		this.segments = parseBashCmd(cmd);
-	}
-
-	/**
-	 * Create a BashCommand instance from a command string.
-	 * Static factory that delegates to the constructor.
-	 *
-	 * Example:
-	 * ```ts
-	 * const cmd = BashCommand.from("grep foo");
-	 * cmd.isSearch(); // true
-	 * ```
-	 */
-	static from(cmd: string): BashCommand {
-		return new BashCommand(cmd);
 	}
 
 	/**
@@ -217,118 +198,4 @@ export class BashCommand {
 		return BashCommand.FILE_MODIFY_SIGNALS.includes(firstToken);
 	}
 
-	/**
-	 * True if the command is a simple standalone call
-	 * (no pipes, && chains, or semicolons).
-	 *
-	 * Logic matches harness-rules.ts isStandaloneToolCall().
-	 */
-	isStandalone(): boolean {
-		if (!this.raw) return false;
-		// Complex commands with pipes, &&, or ; are not standalone
-		if (this.raw.includes("|") || this.raw.includes("&&") || this.raw.includes(";")) {
-			return false;
-		}
-		return true;
-	}
-
-	/**
-	 * True if the command is `ls` or `ls <flags>`.
-	 * Does NOT match `npm ls`, `lsass`, etc.
-	 *
-	 * Logic matches harness-rules.ts isLsInBash().
-	 */
-	isLs(): boolean {
-		if (!this.raw) return false;
-
-		// Exact match for bare "ls"
-		if (this.raw.trim().toLowerCase() === "ls") return true;
-
-		// Starts with "ls " followed by flags/paths — check first token is "ls"
-		const tokens = this.raw.trim().split(/\s+/);
-		if (tokens.length > 0 && tokens[0] === "ls") return true;
-
-		return false;
-	}
-
-	/**
-	 * Shared detection logic — identifies the kind of tool mismatch
-	 * in a bash command.
-	 *
-	 * Returns:
-	 *  - "search"    — grep/rg used where ripgrep_search is appropriate
-	 *  - "file-read" — cat/head/tail/less/more used where read is appropriate
-	 *  - null        — no recognized mismatch
-	 *
-	 * Used by both detectMismatch() (which maps to category/suggestion objects)
-	 * and suggestRedirection() (which maps to tool-name strings).
-	 *
-	 * Delegates to isSearch()/isFileRead() which delegate to lib/bash-query.ts.
-	 * NOTE: Redirect (>) does NOT suppress grep/rg search detection —
-	 * a user piping grep results to a file should still be told to use
-	 * ripgrep_search. However, redirect DOES suppress file-read detection
-	 * (cat > file is a write, not a read).
-	 */
-	private detectMismatchKind(): "search" | "file-read" | null {
-		if (!this.raw) return null;
-		if (this.segments.length === 0) return null;
-
-		if (this.isSearch()) return "search";
-		if (this.isFileRead()) return "file-read";
-
-		return null;
-	}
-
-	/**
-	 * Detect tool mismatch and suggest alternative.
-	 * Returns null if no mismatch detected.
-	 *
-	 * Delegates to detectMismatchKind() for shared detection logic,
-	 * then maps the result to a { category, suggestion } object.
-	 * Includes an ls-specific check not present in suggestRedirection().
-	 */
-	detectMismatch(): { category: string; suggestion: string } | null {
-		const kind = this.detectMismatchKind();
-
-		if (kind === "search") {
-			return {
-				category: "tool-mismatch",
-				suggestion: "Use ripgrep_search tool for text search instead of bash grep/rg",
-			};
-		}
-
-		if (kind === "file-read") {
-			return {
-				category: "tool-mismatch",
-				suggestion: "Use read tool instead of bash cat/head/tail/less/more for file inspection",
-			};
-		}
-
-		// ls (informational only — unique to detectMismatch)
-		if (this.isLs()) {
-			return {
-				category: "tool-mismatch",
-				suggestion:
-					"Use bash ls for directory listing. For file contents, use read tool. For finding files, use ripgrep_search.",
-			};
-		}
-
-		return null;
-	}
-
-	/**
-	 * Suggest a redirection for a mismatched bash command.
-	 * Returns the suggested tool name or null if no mismatch.
-	 *
-	 * Delegates to detectMismatchKind() for shared detection logic,
-	 * then maps the result to a tool-name string.
-	 */
-	suggestRedirection(): string | null {
-		const kind = this.detectMismatchKind();
-
-		if (kind === "search") return "ripgrep_search";
-		if (kind === "file-read") return "read";
-
-		return null;
-	}
 }
