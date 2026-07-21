@@ -1,0 +1,138 @@
+# CLI Installation Smoke Test
+# ============================
+# Simulates a real user's machine with Docker-in-Docker:
+#   - Start DinD service container
+#   - Build cheasee-pi binary from source
+#   - cheasee-pi init with all non-interactive flags
+#   - docker compose build + up -d
+#   - Health check + pi --version inside container
+#   - Teardown (always runs)
+#
+# Budget: ~5-6 min (cold cache), ~15 min timeout for safety
+
+name: CLI Install Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - "docker/Dockerfile"
+      - "cmd/cheasee-pi/embedded/**"
+      - "cmd/cheasee-pi/init*.go"
+      - "cmd/cheasee-pi/embed.go"
+      - "cmd/cheasee-pi/template.go"
+      - "cmd/cheasee-pi/git_init.go"
+      - "docker/docker-compose.yml"
+      - "docker/entrypoint.sh"
+      - "docker/run-pi.sh"
+      - "docker/stop-pi.sh"
+      - "docker/lib/auth-env.sh"
+      - ".github/workflows/cli-install-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Point Docker CLI at the DinD service container (non-TLS on port 2375)
+  DOCKER_HOST: tcp://localhost:2375
+  DOCKER_TLS_VERIFY: ""
+  DOCKER_CERT_PATH: ""
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        ports:
+          - 2375:2375
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      # PR: build from source to test the current branch's changes
+      - name: Build cheasee-pi binary
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          go build -o "$RUNNER_TEMP/cheasee-pi" ./cmd/cheasee-pi/
+          echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
+
+      # For workflow_dispatch, simulate a user downloading a release binary
+      - name: Download cheasee-pi release binary
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.31 \
+            --repo SchneiderDaniel/cheasee-pi \
+            --pattern "cheasee-pi_*_linux_amd64.tar.gz" \
+            --output "$RUNNER_TEMP/cheasee-pi.tar.gz"
+          mkdir -p "$RUNNER_TEMP/cheasee-pi-extract"
+          tar -xzf "$RUNNER_TEMP/cheasee-pi.tar.gz" -C "$RUNNER_TEMP/cheasee-pi-extract"
+          # Binary name inside tarball is "cheasee-pi" or similar — find it
+          BIN="$(find "$RUNNER_TEMP/cheasee-pi-extract" -type f -executable -name 'cheasee-pi' | head -1)"
+          if [ -z "$BIN" ]; then
+            BIN="$(find "$RUNNER_TEMP/cheasee-pi-extract" -type f -name 'cheasee-pi' | head -1)"
+          fi
+          cp "$BIN" "$RUNNER_TEMP/cheasee-pi"
+          chmod +x "$RUNNER_TEMP/cheasee-pi"
+          echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
+          rm -rf "$RUNNER_TEMP/cheasee-pi.tar.gz" "$RUNNER_TEMP/cheasee-pi-extract"
+
+      - name: Verify Docker daemon is reachable
+        run: |
+          docker info > /dev/null 2>&1 || {
+            echo "Waiting for Docker daemon..."
+            for i in $(seq 1 30); do
+              if docker info > /dev/null 2>&1; then
+                echo "Docker daemon ready after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+            docker info > /dev/null 2>&1 || {
+              echo "Docker daemon not reachable after 30s"
+              docker logs "$(docker ps -q --filter ancestor=docker:dind)" 2>/dev/null || true
+              exit 1
+            }
+          }
+
+      - name: Set up git config
+        run: |
+          git config --global user.name "Test"
+          git config --global user.email "test@test.com"
+
+      # docker compose (v2 plugin) is pre-installed on ubuntu-latest runners.
+      # No apt install needed — the apt lock is often held by another process
+      # in the runner environment, causing Permission denied on /var/lib/apt/lists/lock.
+
+      - name: Run CLI install smoke test
+        run: |
+          node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
+
+      - name: Teardown
+        if: always()
+        run: |
+          echo "--- Container logs ---"
+          docker logs cheasee-pi 2>/dev/null || echo "(no container logs)"
+          # ponytail: workflow doesn't know test's temp workdir path;
+          # test's after() hook does docker compose down -v.
+          # This safety net removes by container name directly.
+          echo "--- Cleaning up container ---"
+          docker rm -fv cheasee-pi 2>/dev/null || echo "(no container to remove)"
+          echo "--- Pruning build cache ---"
+          docker builder prune -f 2>/dev/null || true

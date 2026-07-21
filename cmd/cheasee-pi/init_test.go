@@ -248,7 +248,7 @@ func TestInitProbe_Empty(t *testing.T) {
 			return WorkdirEmpty, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestInitProbe_Complete_UserAccepts(t *testing.T) {
 			return WorkdirComplete, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestInitProbe_Complete_UserDeclines(t *testing.T) {
 			return WorkdirComplete, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestInitProbe_HasRepo_UserAccepts(t *testing.T) {
 			return WorkdirHasRepo, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestInitProbe_HasCompose_UserAccepts(t *testing.T) {
 			return WorkdirHasCompose, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestInitProbe_HasRepo_UserDeclines(t *testing.T) {
 			return WorkdirHasRepo, nil
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil))
+	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestInitProbe_Error(t *testing.T) {
 			return WorkdirEmpty, fmt.Errorf("permission denied")
 		},
 	}
-	_, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil))
+	_, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
 	if err == nil {
 		t.Fatal("expected error")
 	}

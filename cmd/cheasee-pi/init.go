@@ -218,7 +218,7 @@ func runInit(
 	}
 
 	// Phase 2: Probe existing working directory
-	proceed, err := runInitProbe(ctx, workdirProbe, workdir, confirmFn)
+	proceed, err := runInitProbe(ctx, workdirProbe, workdir, confirmFn, noInput)
 	if err != nil {
 		return err
 	}
@@ -413,10 +413,16 @@ func runInitDockerCheck(ctx context.Context, docker Checker) error {
 }
 
 // runInitProbe checks for existing setup and prompts the user.
-func runInitProbe(ctx context.Context, probe WorkingDirProbe, workdir string, confirmFn func(string) (bool, error)) (bool, error) {
+// If noInput is true, skips the confirm prompt and proceeds.
+func runInitProbe(ctx context.Context, probe WorkingDirProbe, workdir string, confirmFn func(string) (bool, error), noInput bool) (bool, error) {
 	state, err := probe.Inspect(workdir)
 	if err != nil {
 		return false, fmt.Errorf("check working directory: %w", err)
+	}
+
+	if noInput {
+		// Non-interactive: proceed without prompting
+		return true, nil
 	}
 
 	switch state {
