@@ -1,0 +1,107 @@
+# CLI Installation Smoke Test
+# ============================
+# Simulates a real user's machine with Docker-in-Docker:
+#   - Start DinD service container
+#   - Build cheasee-pi binary from source
+#   - cheasee-pi init with all non-interactive flags
+#   - docker compose build + up -d
+#   - Health check + pi --version inside container
+#   - Teardown (always runs)
+#
+# Budget: ~5-6 min (cold cache), ~15 min timeout for safety
+
+name: CLI Install Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - "docker/Dockerfile"
+      - "cmd/cheasee-pi/embedded/**"
+      - "cmd/cheasee-pi/init*.go"
+      - "cmd/cheasee-pi/embed.go"
+      - "cmd/cheasee-pi/template.go"
+      - "cmd/cheasee-pi/git_init.go"
+      - "docker/docker-compose.yml"
+      - "docker/entrypoint.sh"
+      - "docker/run-pi.sh"
+      - "docker/stop-pi.sh"
+      - "docker/lib/auth-env.sh"
+      - ".github/workflows/cli-install-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Point Docker CLI at the DinD service container (non-TLS on port 2375)
+  DOCKER_HOST: tcp://localhost:2375
+  DOCKER_TLS_VERIFY: ""
+  DOCKER_CERT_PATH: ""
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        ports:
+          - 2375:2375
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Build cheasee-pi binary
+        run: |
+          go build -o "$RUNNER_TEMP/cheasee-pi" ./cmd/cheasee-pi/
+          echo "CHEASEE_PI_BIN=$RUNNER_TEMP/cheasee-pi" >> "$GITHUB_ENV"
+
+      - name: Verify Docker daemon is reachable
+        run: |
+          docker info > /dev/null 2>&1 || {
+            echo "Waiting for Docker daemon..."
+            for i in $(seq 1 30); do
+              if docker info > /dev/null 2>&1; then
+                echo "Docker daemon ready after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+            docker info > /dev/null 2>&1 || {
+              echo "Docker daemon not reachable after 30s"
+              docker logs "$(docker ps -q --filter ancestor=docker:dind)" 2>/dev/null || true
+              exit 1
+            }
+          }
+
+      - name: Set up git config
+        run: |
+          git config --global user.name "Test"
+          git config --global user.email "test@test.com"
+
+      - name: Run CLI install smoke test
+        run: |
+          node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
+
+      - name: Teardown
+        if: always()
+        run: |
+          echo "--- Container logs ---"
+          docker logs cheasee-pi 2>/dev/null || echo "(no container logs)"
+          echo "--- Cleaning up container ---"
+          docker rm -fv cheasee-pi 2>/dev/null || echo "(no container to remove)"
+          echo "--- Pruning build cache ---"
+          docker builder prune -f 2>/dev/null || true
