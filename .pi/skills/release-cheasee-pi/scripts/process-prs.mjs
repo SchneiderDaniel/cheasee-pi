@@ -84,8 +84,13 @@ const featureCount = prs.filter((pr) => {
 
 // Calculate version
 const increment = featureCount >= 10 ? 0.1 : 0.01;
-const newVersionRaw = parseFloat(baseVersion || "0.1") + increment;
-const newVersion = newVersionRaw.toFixed(2);
+// Preserve the number of version parts from baseVersion
+// baseVersion "0.31" → 2-part;  "0.31.0" → 3-part
+const parts = (baseVersion || "0.1").split(".");
+const baseMajorMinor = parseFloat(parts.slice(0, 2).join("."));
+const newVersionRaw = baseMajorMinor + increment;
+const basePrecision = parts.length; // 2 or 3
+const newVersion = basePrecision === 3 ? newVersionRaw.toFixed(2) + ".0" : newVersionRaw.toFixed(2);
 const newTag = "v" + newVersion;
 
 // Guard: check if tag already exists

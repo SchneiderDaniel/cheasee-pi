@@ -16,7 +16,9 @@ This skill owns the tag push and release body — GoReleaser owns artifact publi
 **Scripts** (in `scripts/` relative to this skill):
 - `fetch-prs.sh` — Fetch all merged PRs since last release tag
 - `process-prs.mjs` — Categorize PRs, calculate version, build release body markdown
-- `sync-version.mjs` — Update version string in all 4 files
+- `sync-version.mjs` — Update version string in all 4 files (exits non-zero if any file unchanged)
+- `format-plan.mjs` — Print formatted release plan + prompt user (exit 0=create, 1=cancel, 2=show body)
+- `run-checks.mjs` — Run all pre-release checks with failure snapshot comparison
 
 **Script directory** (resolve relative to SKILL.md):
 
@@ -36,42 +38,24 @@ SKILL_DIR="/workspaces/main/.pi/skills/release-cheasee-pi"
 
 ## Step 1 — Run All Pre-Release Checks
 
-Each check must pass before proceeding. Any failure → STOP.
-
-### 1a — TypeScript
+Automated via script. Takes a snapshot of pre-existing failures so the release
+isn't blocked by unrelated test rot.
 
 ```bash
-cd /workspaces/main && npm run tsc:extensions
+cd /workspaces/main
+SCRIPT_DIR="/workspaces/main/.pi/skills/release-cheasee-pi/scripts"
+
+# First run: save snapshot of current failures as baseline
+node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
 ```
 
-### 1b — Node Tests
+If this fails, fix the issues before proceeding. Once baseline is saved,
+re-running will only fail on NEW failures not in the snapshot.
+
+Run again after version sync (Step 6) to verify no regressions:
 
 ```bash
-cd /workspaces/main && npm test
-```
-
-### 1c — Go Build
-
-```bash
-cd /workspaces/main && go build ./cmd/cheasee-pi/
-```
-
-### 1d — Go Vet
-
-```bash
-cd /workspaces/main && go vet ./cmd/cheasee-pi/...
-```
-
-### 1e — Go Tests
-
-```bash
-cd /workspaces/main && go test ./cmd/cheasee-pi/...
-```
-
-### 1f — GoReleaser Check
-
-```bash
-cd /workspaces/main && goreleaser check
+node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
 ```
 
 ---
@@ -113,38 +97,18 @@ SCRIPT_DIR="/workspaces/main/.pi/skills/release-cheasee-pi/scripts"
 node "$SCRIPT_DIR/process-prs.mjs" < ignore/release-data.json > ignore/release-plan.json
 ```
 
-Read `ignore/release-plan.json` and present the result to the user:
-
-```bash
-cat ignore/release-plan.json
-```
-
-**If `prCount` is 0:** no new PRs since last tag. STOP — nothing to release.
-
-**If `tagExists` is true:** tag collision. STOP — delete existing tag first or abort.
-
----
-
 ## Step 5 — User Confirmation
 
-Present the numbers from `release-plan.json`:
-
-```
-Last tag:    v{baseVersion}
-PRs merged:  {prCount}
-Features:    {featureCount}  (>=10 → +0.1, <10 → +0.01)
-Increment:   {increment}
-New version: v{newVersion}
+```bash
+node "$SCRIPT_DIR/format-plan.mjs" < ignore/release-plan.json
 ```
 
-Show first 5 rows of the proposed release body from `release-plan.json.body`.
+Exit codes:
+- **0** → user confirmed. Proceed.
+- **1** → cancelled. STOP.
+- **2** → user requested full body (printed to stderr). Re-run to confirm.
 
-Ask user:
-
-> "Create release v{newVersion}?"
-> Options: [Create] [Show full release body] [Cancel]
-
-If Cancel → STOP. Do not create tag.
+> **Version format:** Scripts output 2-part version (`MAJOR.MINOR`). Go tests accept both 2-part and 3-part, but GoReleaser archive naming uses bare tag version. Keep 2-part everywhere.
 
 ---
 
@@ -155,8 +119,8 @@ node "$SCRIPT_DIR/sync-version.mjs" "{newVersion}" > ignore/sync-result.json
 cat ignore/sync-result.json
 ```
 
-Read `ignore/sync-result.json` and verify all 4 files were changed. If any file shows
-`changed: false`, manually check and update it.
+Script exits non-zero if any file wasn't updated. If it fails, check which file
+wasn't matched and update `sync-version.mjs` regex patterns.
 
 ---
 
@@ -264,15 +228,15 @@ rm -f ignore/release-data.json ignore/release-plan.json ignore/sync-result.json 
 
 ## Quality Checklist
 
-- [ ] Step 1: tsc, npm test, go build, go vet, go test, goreleaser check — all pass
+- [ ] Step 1: `run-checks.mjs` baseline saved (exit 0 or baseline-only failures)
 - [ ] Step 2: on main, clean tree, gh authenticated
-- [ ] Step 3: last tag identified (or empty state handled)
-- [ ] Step 4: scripts fetched + processed all PRs (prCount > 0)
-- [ ] Step 4: no tag collision (tagExists = false)
-- [ ] Step 5: user confirmed
-- [ ] Step 6: all 4 files synced (package.json, root.go, root_test.go, installation.md)
+- [ ] Step 3: last tag identified
+- [ ] Step 4: `process-prs.mjs` produced `release-plan.json` — `prCount > 0`, `tagExists = false`
+- [ ] Step 5: `format-plan.mjs` exited 0 (user confirmed)
+- [ ] Step 6: `sync-version.mjs` exited 0 (all 4 files changed)
+- [ ] Step 6: `run-checks.mjs` with baseline exits 0 (no regressions)
 - [ ] Step 7: version bump committed
 - [ ] Step 8-9: tag created and pushed
 - [ ] Step 10: GoReleaser CI completed
-- [ ] Step 11: release body updated (emoji headers, every PR linked, full changelog compare link)
+- [ ] Step 11: release body updated
 - [ ] Step 12: temp files cleaned
