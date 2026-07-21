@@ -5,16 +5,9 @@
  * Zero dependencies — importable from any module without side effects.
  */
 
-export interface TscDiagnostic {
-	file: string;
-	line: number;
-	column: number;
-	severity: "Error";
-	message: string;
-	code?: string;
-	/** Absolute path to the file (resolved from tsconfig dir) */
-	filePath: string;
-}
+import type { TscDiagnostic } from "../lib/tsc-types.ts";
+
+export type { TscDiagnostic };
 
 export interface TscWatchOptions {
 	/** Polling interval in ms (reserved for future polling mode) */

@@ -16,11 +16,7 @@ import { getChangedFilesFromGitDiff, isExecutableNotFound } from "../../checks/s
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════
 
-type ExecFn = (
-	cmd: string,
-	args: string[],
-	opts?: Record<string, unknown>,
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+import type { ExecFn } from "../../../lib/port-types.ts";
 
 function makeExec(results: Array<{ code: number; stdout: string; stderr: string }>): ExecFn {
 	let idx = 0;

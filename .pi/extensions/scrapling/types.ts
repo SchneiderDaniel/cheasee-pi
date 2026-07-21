@@ -2,6 +2,7 @@
  * Shared types for scrapling extension
  */
 
+// Diverges from lib/port-types.ExecResult: adds killed/signal for killed-process detection
 export interface ExecResult {
 	code: number;
 	stdout: string;
@@ -27,6 +28,8 @@ export function isExecFailure(result: ExecResult): boolean {
 	return result.code !== 0 || result.killed;
 }
 
+// Diverges from lib/port-types.ExecFn: opts adds maxBuffer, return uses divergent ExecResult
+// Diverges from lib/port-types.ExecResult: adds killed/signal
 export interface ExecFn {
 	(
 		cmd: string,
@@ -35,9 +38,7 @@ export interface ExecFn {
 	): Promise<ExecResult>;
 }
 
-export interface OnUpdateCallback {
-	(u: { content: Array<{ type: "text"; text: string }>; details: unknown }): void;
-}
+export type { OnUpdateCallback } from "../lib/port-types.ts";
 
 export interface CrawlParams {
 	url: string;

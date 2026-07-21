@@ -14,7 +14,7 @@
 
 // ── Types ──
 
-export interface CacheEntry {
+export interface ReadCacheEntry {
 	turn: number;
 	timestamp: number;
 }
@@ -34,7 +34,7 @@ export interface ConsecutiveInfo {
 
 export interface ReadCache {
 	/** Get cached entry. Returns null on miss or TTL expiry. */
-	get(key: string, currentTurn: number): CacheEntry | null;
+	get(key: string, currentTurn: number): ReadCacheEntry | null;
 	/** Set cached entry with current turn and timestamp. */
 	set(key: string, turn: number): void;
 	/** Clear all cache entries. */
@@ -120,13 +120,13 @@ export const CACHE_TTL_MS = 30_000;
 export function createHarnessState(): HarnessState {
 	// ── Read Cache (TimedMap with dual TTL) ──
 
-	const cacheMap = new TimedMap<string, CacheEntry>({
+	const cacheMap = new TimedMap<string, ReadCacheEntry>({
 		ttlTurns: CACHE_TTL_TURNS,
 		ttlMs: CACHE_TTL_MS,
 	});
 
 	const readCache: ReadCache = {
-		get(key: string, currentTurn: number): CacheEntry | null {
+		get(key: string, currentTurn: number): ReadCacheEntry | null {
 			return cacheMap.get(key, currentTurn);
 		},
 

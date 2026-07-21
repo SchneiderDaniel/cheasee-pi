@@ -6,23 +6,7 @@
  * SearchCacheEntry provides in-session caching
  */
 
-export interface ExecResult {
-	code: number;
-	stdout: string;
-	stderr: string;
-}
-
-export interface ExecFn {
-	(
-		cmd: string,
-		args: string[],
-		opts?: { timeout?: number; signal?: AbortSignal },
-	): Promise<ExecResult>;
-}
-
-export interface OnUpdateCallback {
-	(u: { content: Array<{ type: "text"; text: string }>; details: unknown }): void;
-}
+export type { ExecResult, ExecFn, OnUpdateCallback } from "../lib/port-types.ts";
 
 export interface SearchResult {
 	title: string;

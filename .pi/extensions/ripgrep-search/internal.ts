@@ -101,13 +101,13 @@ export async function cleanupTrackedTempDirs(
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Cache entry stored for each unique query+directory */
-export interface CacheEntry {
+export interface RgCacheEntry {
 	result: RgResult;
 	rawStdout: string;
 }
 
 /** @internal Exported for testability */
-export const resultCache = new Map<string, CacheEntry>();
+export const resultCache = new Map<string, RgCacheEntry>();
 
 const MAX_CACHE_ENTRIES = 100;
 
@@ -122,7 +122,7 @@ export function buildCacheKey(query: string, directory: string): string {
 }
 
 /** Look up a cached search result. Returns undefined on miss. */
-export function getCachedResult(query: string, directory: string): CacheEntry | undefined {
+export function getCachedResult(query: string, directory: string): RgCacheEntry | undefined {
 	return resultCache.get(buildCacheKey(query, directory));
 }
 
@@ -130,7 +130,7 @@ export function getCachedResult(query: string, directory: string): CacheEntry | 
  * Store a search result in the cache.
  * Evicts oldest entry (by insertion order) when at max capacity and key is new.
  */
-export function setCachedResult(query: string, directory: string, entry: CacheEntry): void {
+export function setCachedResult(query: string, directory: string, entry: RgCacheEntry): void {
 	const key = buildCacheKey(query, directory);
 
 	// If at max capacity and this is a new key, evict oldest by insertion order

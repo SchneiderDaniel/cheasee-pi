@@ -105,14 +105,18 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 		assert.equal(isExecFailure({ code: 1, stdout: "", stderr: "", killed: true }), true);
 	});
 
-	it("(D) CrawlParams and OnUpdateCallback remain exported", () => {
+	it("(D) CrawlParams remains exported", () => {
 		assert.ok(
 			/export\s+interface\s+CrawlParams/.test(typesSource),
 			"CrawlParams should remain exported",
 		);
+	});
+
+	it("(D) OnUpdateCallback re-exported from lib/port-types.ts", () => {
+		const reexport = /export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
-			/export\s+interface\s+OnUpdateCallback/.test(typesSource),
-			"OnUpdateCallback should remain exported",
+			reexport.test(typesSource),
+			"types.ts should re-export OnUpdateCallback from lib/port-types.ts",
 		);
 	});
 });

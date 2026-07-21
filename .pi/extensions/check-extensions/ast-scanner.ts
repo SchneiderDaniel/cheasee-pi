@@ -43,6 +43,7 @@ export interface ASTScanningResult {
 }
 
 /** Exec function type for ast-grep subprocess calls */
+// Diverges from lib/port-types.ExecFn: return adds killed: boolean for ast-grep signal detection
 export type ExecFn = (
 	command: string,
 	args: string[],
