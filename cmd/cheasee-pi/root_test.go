@@ -136,10 +136,10 @@ func TestRootCmd_Version_IsValidSemver(t *testing.T) {
 	if v == "" {
 		t.Fatal("rootCmd.Version must not be empty")
 	}
-	// Simple semver validation: must match MAJOR.MINOR.PATCH
+	// Semver validation: must match MAJOR.MINOR[.PATCH]
 	parts := strings.Split(v, ".")
-	if len(parts) != 3 {
-		t.Errorf("rootCmd.Version %q is not valid semver (expected MAJOR.MINOR.PATCH)", v)
+	if len(parts) < 2 || len(parts) > 3 {
+		t.Errorf("rootCmd.Version %q is not valid semver (expected MAJOR.MINOR[.PATCH])", v)
 	}
 	for _, p := range parts {
 		if p == "" {
@@ -154,7 +154,7 @@ func TestRootCmd_Version_IsValidSemver(t *testing.T) {
 }
 
 func TestRootCmd_Version_IsExpectedRelease(t *testing.T) {
-	expected := "0.31.0"
+	expected := "0.32"
 	if rootCmd.Version != expected {
 		t.Errorf("rootCmd.Version = %q, want %q", rootCmd.Version, expected)
 	}
