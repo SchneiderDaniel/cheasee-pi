@@ -116,10 +116,9 @@ jobs:
           git config --global user.name "Test"
           git config --global user.email "test@test.com"
 
-      - name: Install docker-compose-plugin
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends docker-compose-plugin
-          rm -rf /var/lib/apt/lists/*
+      # docker compose (v2 plugin) is pre-installed on ubuntu-latest runners.
+      # No apt install needed — the apt lock is often held by another process
+      # in the runner environment, causing Permission denied on /var/lib/apt/lists/lock.
 
       - name: Run CLI install smoke test
         run: |
