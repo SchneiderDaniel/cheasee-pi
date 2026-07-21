@@ -79,7 +79,7 @@ describe("BashCommand.isFileModify", () => {
 	});
 
 	it("detects tee command", () => {
-		assert.equal(new BashCommand("echo 'x' | tee file.ts").isFileModify(), true);
+		assert.equal(new BashCommand("tee f.ts").isFileModify(), true);
 	});
 
 	it("detects mv command", () => {
@@ -109,15 +109,15 @@ describe("BashCommand.isFileModify", () => {
 	});
 
 	it("echo triggers isFileModify (characterization)", () => {
-		// echo alone triggers isFileModify because "echo" is in FILE_MODIFY_SIGNALS
-		assert.equal(new BashCommand("echo hi").isFileModify(), true);
+		// echo without redirect is stdout-only; redirect cases caught by > check
+		assert.equal(new BashCommand("echo hi").isFileModify(), false);
 		assert.equal(new BashCommand("echo hi > f.ts").isFileModify(), true);
 	});
 
 	it("cat triggers isFileModify (characterization)", () => {
-		// cat is in FILE_MODIFY_SIGNALS (used with redirect), so even plain cat returns true
+		// cat without redirect is read-only; redirect cases caught by > check
 		assert.equal(new BashCommand("cat > f.ts").isFileModify(), true);
-		assert.equal(new BashCommand("cat file.ts").isFileModify(), true);
+		assert.equal(new BashCommand("cat file.ts").isFileModify(), false);
 	});
 
 	it("tee triggers isFileModify (characterization)", () => {
@@ -142,6 +142,14 @@ describe("BashCommand.isFileModify", () => {
 
 	it("dd triggers isFileModify (characterization)", () => {
 		assert.equal(new BashCommand("dd if=/dev/zero of=f bs=1M count=1").isFileModify(), true);
+	});
+
+	it("bare cat does not flag isFileModify (regression)", () => {
+		assert.equal(new BashCommand("cat file.ts").isFileModify(), false);
+	});
+
+	it("bare echo does not flag isFileModify (regression)", () => {
+		assert.equal(new BashCommand("echo hello").isFileModify(), false);
 	});
 
 	it("does not flag read-only commands", () => {
