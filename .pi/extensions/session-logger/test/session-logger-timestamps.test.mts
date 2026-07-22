@@ -14,8 +14,6 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import { parseSessionStats } from "../renderer.ts";
-import { createFileOps } from "../files.ts";
-import type { FileOps } from "../files.ts";
 import { generateMissingReports } from "../index.ts";
 import type { Metadata } from "../types.ts";
 
@@ -274,13 +272,11 @@ describe("parseSessionStats — model/thinking timestamps", () => {
 describe("generateMissingReports — model/thinking timestamps", () => {
 	let tmpDir: string;
 	let sessionsDir: string;
-	let files: FileOps;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-ts-gen-"));
 		sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
-		files = createFileOps();
 	});
 
 	afterEach(() => {
@@ -322,7 +318,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 				modelId: "claude-3",
 			},
 		]);
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`));
 		const meta = loadMeta(sessionId);
 		assert.ok(Array.isArray(meta.modelChanges));
 		assert.strictEqual(meta.modelChanges.length, 2);
@@ -344,7 +340,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 				thinkingLevel: "medium",
 			},
 		]);
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`));
 		const meta = loadMeta(sessionId);
 		assert.strictEqual(meta.thinkingChanges.length, 2);
 		assert.strictEqual(meta.thinkingChanges[0].time, "2025-01-01T12:05:00Z");
@@ -366,7 +362,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 				thinkingLevel: "high",
 			},
 		]);
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`));
 		const meta = loadMeta(sessionId);
 		assert.strictEqual(meta.modelChanges[0].time, "2025-01-01T12:05:00Z");
 		assert.strictEqual(meta.thinkingChanges[0].time, "2025-01-01T12:06:00Z");
@@ -395,7 +391,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 			perTurnTokens: [],
 			fileModifications: [],
 		};
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files, snapshot);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), snapshot);
 		const meta = loadMeta(sessionId);
 		assert.strictEqual(meta.modelChanges.length, 1);
 		assert.strictEqual(meta.modelChanges[0].time, "2025-01-01T12:05:00Z");
@@ -405,7 +401,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 	it("no model/thinking entries — metadata arrays empty", async () => {
 		const sessionId = "ts-empty-1";
 		writeJsonl(sessionId, []);
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`));
 		const meta = loadMeta(sessionId);
 		assert.deepStrictEqual(meta.modelChanges, []);
 		assert.deepStrictEqual(meta.thinkingChanges, []);
@@ -427,7 +423,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 			perTurnTokens: [],
 			fileModifications: [],
 		};
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files, snapshot);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), snapshot);
 		const meta = loadMeta(sessionId);
 		assert.deepStrictEqual(meta.modelChanges, []);
 		assert.deepStrictEqual(meta.thinkingChanges, []);
@@ -469,7 +465,7 @@ describe("generateMissingReports — model/thinking timestamps", () => {
 			perTurnTokens: [],
 			fileModifications: [],
 		};
-		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), files, snapshot);
+		await generateMissingReports(path.join(sessionsDir, `${sessionId}.jsonl`), snapshot);
 		const meta = loadMeta(sessionId);
 		// Parsed has 1 call, snapshot has 1500ms duration
 		assert.strictEqual(meta.toolStats?.bash?.calls, 1);

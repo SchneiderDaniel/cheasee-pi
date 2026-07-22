@@ -3,20 +3,6 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Metadata } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// FileOps interface
-// ---------------------------------------------------------------------------
-
-export interface FileOps {
-	ensureSymlink(sessionFile: string, sessionsDir: string): Promise<void>;
-	ensureMdSymlink(sessionDir: string, mdFile: string): Promise<void>;
-	ensureLatestMetadataSymlink(sessionDir: string, metaFile: string): Promise<void>;
-	/** Write metadata using sessionPrefix as filename prefix (same as JSONL basename). */
-	writeMetadata(sessionDir: string, sessionPrefix: string, metadata: Metadata): Promise<void>;
-	/** Write markdown report using sessionPrefix as filename prefix. */
-	writeSessionReport(sessionDir: string, sessionPrefix: string, markdown: string): Promise<void>;
-}
-
 /**
  * Create a symlink at `linkDir/linkName` pointing to `targetFile`.
  *
@@ -28,7 +14,7 @@ export interface FileOps {
  * temp file and return silently. Non-ENOENT errors are rethrown.
  *
  * This is the single source of truth for atomic symlink creation — both
- * {@link ensureLatestLink} and the background retry in {@link scheduleLinkRetry}
+ * {@link ensureSymlink} and the background retry in {@link scheduleLinkRetry}
  * delegate to this helper to avoid code duplication.
  */
 export async function createAtomicSymlink(
@@ -61,13 +47,13 @@ export async function createAtomicSymlink(
 }
 
 /**
- * Create a symlink at `linkDir/linkName` pointing to `targetFile`.
+ * Create or update a symlink at `linkDir/linkName` pointing to `targetFile`.
  *
  * Ensures the link directory exists, delegates to {@link createAtomicSymlink}
- * for the actual symlink creation, then schedules a background retry if
+ * for atomic symlink creation, then schedules a background retry if
  * the target file doesn't exist yet (dangling symlink fix).
  */
-async function ensureLatestLink(
+export async function ensureSymlink(
 	linkDir: string,
 	targetFile: string,
 	linkName: string,
@@ -114,38 +100,28 @@ function scheduleLinkRetry(linkDir: string, targetFile: string, linkName: string
 	setTimeout(tick, RETRY_INTERVAL);
 }
 
-export function createFileOps(): FileOps {
-	return {
-		async ensureSymlink(sessionFile: string, sessionsDir: string): Promise<void> {
-			await ensureLatestLink(sessionsDir, sessionFile, "latest.jsonl");
-		},
+/**
+ * Write metadata JSON using sessionPrefix as filename prefix (same as JSONL basename).
+ */
+export async function writeMetadata(
+	sessionDir: string,
+	sessionPrefix: string,
+	metadata: Metadata,
+): Promise<void> {
+	await fs.writeFile(
+		path.join(sessionDir, `${sessionPrefix}.metadata.json`),
+		JSON.stringify(metadata, null, 2),
+	);
+}
 
-		async ensureMdSymlink(sessionDir: string, mdFile: string): Promise<void> {
-			await ensureLatestLink(sessionDir, mdFile, "latest.md");
-		},
-
-		async ensureLatestMetadataSymlink(sessionDir: string, metaFile: string): Promise<void> {
-			await ensureLatestLink(sessionDir, metaFile, "latest.metadata.json");
-		},
-
-		async writeMetadata(
-			sessionDir: string,
-			sessionPrefix: string,
-			metadata: Metadata,
-		): Promise<void> {
-			await fs.writeFile(
-				path.join(sessionDir, `${sessionPrefix}.metadata.json`),
-				JSON.stringify(metadata, null, 2),
-			);
-		},
-
-		async writeSessionReport(
-			sessionDir: string,
-			sessionPrefix: string,
-			markdown: string,
-		): Promise<void> {
-			const mdPath = path.join(sessionDir, `${sessionPrefix}.md`);
-			await fs.writeFile(mdPath, markdown, "utf-8");
-		},
-	};
+/**
+ * Write markdown report using sessionPrefix as filename prefix.
+ */
+export async function writeSessionReport(
+	sessionDir: string,
+	sessionPrefix: string,
+	markdown: string,
+): Promise<void> {
+	const mdPath = path.join(sessionDir, `${sessionPrefix}.md`);
+	await fs.writeFile(mdPath, markdown, "utf-8");
 }

@@ -13,22 +13,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { createFileOps, type FileOps } from "../files.ts";
+import { ensureSymlink } from "../files.ts";
 
 // ---------------------------------------------------------------------------
-// Phase 4: non-blocking ensureLatestLink background retry
+// Phase 4: non-blocking ensureSymlink background retry
 // ---------------------------------------------------------------------------
 
-describe("ensureLatestLink background retry (non-blocking)", () => {
+describe("ensureSymlink background retry (non-blocking)", () => {
 	let tmpDir: string;
 	let sessionsDir: string;
-	let files: FileOps;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-dangling-"));
 		sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
-		files = createFileOps();
 	});
 
 	afterEach(() => {
@@ -39,7 +37,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		const sessionFile = path.join(sessionsDir, "session-present.jsonl");
 		fs.writeFileSync(sessionFile, "{}");
 
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "should be symlink");
@@ -50,7 +48,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		const sessionFile = path.join(sessionsDir, "session-delayed.jsonl");
 
 		// ensureSymlink returns immediately (non-blocking)
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		// Symlink exists but is dangling
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
@@ -70,7 +68,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		const sessionFile = path.join(sessionsDir, "session-never-exists.jsonl");
 
 		// Returns immediately (non-blocking), no error
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "dangling symlink created");
@@ -82,8 +80,8 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 
 		// Both return immediately
 		await Promise.all([
-			files.ensureSymlink(sessionFile, sessionsDir),
-			files.ensureSymlink(sessionFile, sessionsDir),
+			ensureSymlink(sessionsDir, sessionFile, "latest.jsonl"),
+			ensureSymlink(sessionsDir, sessionFile, "latest.jsonl"),
 		]);
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
@@ -102,7 +100,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		const sessionFile = path.join(sessionsDir, "session-lifecycle.jsonl");
 
 		// Simulate session_start: ensureSymlink called before file exists
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		// Simulate subprocess writing file
 		fs.writeFileSync(sessionFile, "{}");
@@ -117,17 +115,17 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		// Simulate session_shutdown: create .md file and its symlink
 		const mdFile = path.join(sessionsDir, "session-lifecycle.md");
 		fs.writeFileSync(mdFile, "# Lifecycle Report");
-		await files.ensureMdSymlink(sessionsDir, mdFile);
+		await ensureSymlink(sessionsDir, mdFile, "latest.md");
 
 		const latestMd = path.join(sessionsDir, "latest.md");
 		assert.ok(fs.lstatSync(latestMd).isSymbolicLink(), "latest.md should be symlink");
 		assert.ok(fs.existsSync(latestMd), "latest.md target should resolve");
 	});
 
-	it("ensureMdSymlink with delayed md file creation: non-blocking, background retry resolves", async () => {
+	it("ensureSymlink with delayed md file creation: non-blocking, background retry resolves", async () => {
 		const mdFile = path.join(sessionsDir, "session-delayed.md");
 
-		await files.ensureMdSymlink(sessionsDir, mdFile);
+		await ensureSymlink(sessionsDir, mdFile, "latest.md");
 
 		const latestLink = path.join(sessionsDir, "latest.md");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "symlink created");
@@ -140,10 +138,10 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 		assert.ok(fs.existsSync(latestLink), "symlink resolved after retry");
 	});
 
-	it("ensureLatestMetadataSymlink with delayed metadata file: non-blocking, background retry resolves", async () => {
+	it("ensureSymlink with delayed metadata file: non-blocking, background retry resolves", async () => {
 		const metaFile = path.join(sessionsDir, "session-delayed.metadata.json");
 
-		await files.ensureLatestMetadataSymlink(sessionsDir, metaFile);
+		await ensureSymlink(sessionsDir, metaFile, "latest.metadata.json");
 
 		const latestLink = path.join(sessionsDir, "latest.metadata.json");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "symlink created");
@@ -166,7 +164,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 
 		const otherDir = path.join(tmpDir, "other", "sessions");
 		assert.ok(!fs.existsSync(otherDir), "other dir should not exist before call");
-		await files.ensureSymlink(sessionFile, otherDir);
+		await ensureSymlink(otherDir, sessionFile, "latest.jsonl");
 		assert.ok(fs.existsSync(otherDir), "other dir should exist after call");
 
 		const latestLink = path.join(otherDir, "latest.jsonl");
@@ -177,7 +175,7 @@ describe("ensureLatestLink background retry (non-blocking)", () => {
 	it("background retry fixes symlink when file appears before first retry", async () => {
 		const sessionFile = path.join(sessionsDir, "session-early.jsonl");
 
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(!fs.existsSync(latestLink), "dangling initially");

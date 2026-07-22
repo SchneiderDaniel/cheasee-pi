@@ -29,18 +29,15 @@ describe("waitForFile dead code removal", () => {
 	});
 
 	// Confirm no collateral damage — adjacent exports must still be intact
-	it("createFileOps should still be exported from files.ts", async () => {
+	it("ensureSymlink should still be exported from files.ts", async () => {
 		const mod = await import("../files.ts");
-		assert.strictEqual(typeof mod.createFileOps, "function");
+		assert.strictEqual(typeof mod.ensureSymlink, "function");
 	});
 
 	it("createAtomicSymlink should still be exported from files.ts", async () => {
 		const mod = await import("../files.ts");
 		assert.strictEqual(typeof mod.createAtomicSymlink, "function");
 	});
-
-	// FileOps is a type-only export — not present at runtime after the TypeScript
-	// transpilation, so we verify its members are accessible via createFileOps return type.
 });
 
 describe("orphaned test file deletion", () => {

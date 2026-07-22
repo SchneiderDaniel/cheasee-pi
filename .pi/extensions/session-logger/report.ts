@@ -9,7 +9,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { computeToolStats } from "./stats.ts";
 import type { StatsSnapshot } from "./stats.ts";
-import { createFileOps } from "./files.ts";
+import { ensureSymlink } from "./files.ts";
 import { renderSessionToMarkdown, parseSessionStats } from "./renderer.ts";
 import type { ParsedSessionStats } from "./renderer.ts";
 import type { Metadata } from "./types.ts";
@@ -72,7 +72,6 @@ export function buildMetadata(
  */
 export async function generateMissingReports(
 	sessionFilePath: string,
-	files: ReturnType<typeof createFileOps>,
 	snapshot?: StatsSnapshot,
 	overrides?: { sessionName?: string; mode?: string },
 ): Promise<void> {
@@ -104,7 +103,7 @@ export async function generateMissingReports(
 	if (!fs.existsSync(metaPath)) {
 		try {
 			fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-			await files.ensureLatestMetadataSymlink(sessionDir, metaPath);
+			await ensureSymlink(sessionDir, metaPath, "latest.metadata.json");
 		} catch (err) {
 			console.error(`[session-logger] Failed to write metadata: ${(err as Error).message}`);
 		}
@@ -115,7 +114,7 @@ export async function generateMissingReports(
 		try {
 			const md = renderSessionToMarkdown(sessionFilePath, overrides);
 			fs.writeFileSync(mdPath, md, "utf-8");
-			await files.ensureMdSymlink(sessionDir, mdPath);
+			await ensureSymlink(sessionDir, mdPath, "latest.md");
 		} catch (err) {
 			console.error(`[session-logger] Failed to write report: ${(err as Error).message}`);
 		}
