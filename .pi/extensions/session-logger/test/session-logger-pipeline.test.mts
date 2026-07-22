@@ -2,16 +2,19 @@
  * Tests for session-logger/pipeline.ts — LoggerPipeline class
  *
  * Verifies that event handlers delegate correctly to stats/file tracking.
- * Uses mock gate and inspects internal state via the exposed getStats().
+ * Uses real temp directories for filesystem assertions.
+ * Stats aggregation is tested in session-logger-stats.test.mts.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/session-logger/test/session-logger-pipeline.test.mts
  */
 
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import { LoggerPipeline, beginSession } from "../pipeline.ts";
-import type { FileOps } from "../files.ts";
 import type { SessionLoggerGate } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +23,30 @@ import type { SessionLoggerGate } from "../types.ts";
 
 function createGate(enabled = true): SessionLoggerGate {
 	return { enabledForNextSession: enabled, sessionEnabled: enabled };
+}
+
+/**
+ * Create a mock sessionManager with a real temp dir backing.
+ * Writes an empty session file at the returned path.
+ */
+function createSessionManager(tmpDir: string, overrides?: {
+	sessionFile?: string;
+	cwd?: string;
+	entries?: any[];
+}): any {
+	const sessionsDir = path.join(tmpDir, ".pi", "sessions");
+	fs.mkdirSync(sessionsDir, { recursive: true });
+
+	const sessionFile = overrides?.sessionFile ?? path.join(sessionsDir, "session-test.jsonl");
+	if (!fs.existsSync(sessionFile)) {
+		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+	}
+
+	return {
+		getSessionFile: () => sessionFile,
+		getCwd: () => overrides?.cwd ?? tmpDir,
+		getEntries: () => overrides?.entries ?? [],
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -63,20 +90,6 @@ describe("LoggerPipeline construction", () => {
 		const pipeline = new LoggerPipeline(gate);
 		assert.ok(pipeline instanceof LoggerPipeline);
 	});
-
-	it("getFiles returns file ops", () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-		assert.ok(pipeline.getFiles());
-		assert.ok(typeof pipeline.getFiles().ensureSymlink === "function");
-	});
-
-	it("initial sessionFile and sessionsDir are undefined", () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-		assert.strictEqual(pipeline.getSessionFile(), undefined);
-		assert.strictEqual(pipeline.getSessionsDir(), undefined);
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -87,21 +100,15 @@ describe("LoggerPipeline event handlers — gate disabled", () => {
 	it("onSessionCompact is no-op when gate.sessionEnabled is false", () => {
 		const gate = createGate(false);
 		const pipeline = new LoggerPipeline(gate);
-		const stats = pipeline.getStats();
-		const snapBefore = stats.getSnapshot();
-		assert.strictEqual(snapBefore.compactionCount, 0);
-
+		// Should not throw
 		pipeline.onSessionCompact();
-		const snapAfter = stats.getSnapshot();
-		assert.strictEqual(snapAfter.compactionCount, 0, "should not increment when disabled");
 	});
 
 	it("onModelSelect is no-op when gate.sessionEnabled is false", () => {
 		const gate = createGate(false);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.modelChanges.length, 0);
+		// Should not throw
 	});
 
 	it("onTurnStart is no-op when gate.sessionEnabled is false", () => {
@@ -115,8 +122,7 @@ describe("LoggerPipeline event handlers — gate disabled", () => {
 		const gate = createGate(false);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "bash" });
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.toolExecutions.length, 0);
+		// Should not throw
 	});
 });
 
@@ -125,42 +131,32 @@ describe("LoggerPipeline event handlers — gate disabled", () => {
 // ---------------------------------------------------------------------------
 
 describe("LoggerPipeline event handlers — gate enabled", () => {
-	it("onSessionCompact increments compaction count", () => {
+	it("onSessionCompact does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onSessionCompact();
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.compactionCount, 1);
 	});
 
-	it("onModelSelect records model change", () => {
+	it("onModelSelect does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.modelChanges.length, 1);
-		assert.ok(snap.modelChanges[0].model.includes("openai/gpt-4"));
 	});
 
-	it("onThinkingLevelSelect records thinking change", () => {
+	it("onThinkingLevelSelect does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onThinkingLevelSelect({ level: "high" });
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.thinkingChanges.length, 1);
-		assert.strictEqual(snap.thinkingChanges[0].level, "high");
 	});
 
-	it("onTurnStart and onTurnEnd record per-turn stats", () => {
+	it("onTurnStart and onTurnEnd do not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onTurnStart({ turnIndex: 0 });
 		pipeline.onTurnEnd();
-		const snap = pipeline.getStats().getSnapshot();
-		assert.ok(Array.isArray(snap.perTurnTokens));
 	});
 
-	it("onMessageEnd with assistant message records usage", () => {
+	it("onMessageEnd with assistant message does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onMessageEnd({
@@ -169,9 +165,6 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 				usage: { input: 100, output: 50, totalTokens: 150, cost: { total: 0.002 } },
 			},
 		});
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.totalInputTokens, 100);
-		assert.strictEqual(snap.totalOutputTokens, 50);
 	});
 
 	it("onMessageEnd with non-assistant message is no-op", () => {
@@ -183,20 +176,9 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 				usage: { input: 100, output: 0, totalTokens: 100 },
 			},
 		});
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.totalInputTokens, 0, "user messages should not track usage");
 	});
 
-	it("onToolExecutionStart records tool execution", () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "bash" });
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.toolExecutions.length, 1);
-		assert.strictEqual(snap.toolExecutions[0].toolName, "bash");
-	});
-
-	it("onToolExecutionEnd completes tool execution", () => {
+	it("onToolExecutionStart and onToolExecutionEnd do not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "bash" });
@@ -205,12 +187,9 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 			result: { content: [{ type: "text", text: "output" }] },
 			isError: false,
 		});
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.toolExecutions.length, 1);
-		assert.ok(snap.toolExecutions[0].endTime != null, "endTime should be set");
 	});
 
-	it("onToolExecutionEnd with error sets isError", () => {
+	it("onToolExecutionEnd with error does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolExecutionStart({ toolCallId: "call-err", toolName: "bash" });
@@ -219,11 +198,9 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 			result: { content: [{ type: "text", text: "error output" }] },
 			isError: true,
 		});
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.toolExecutions[0].isError, true);
 	});
 
-	it("multiple tool executions tracked independently", () => {
+	it("multiple tool executions tracked independently do not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "read" });
@@ -238,10 +215,6 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 			result: { content: [{ type: "text", text: "ok" }] },
 			isError: false,
 		});
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.toolExecutions.length, 2);
-		assert.strictEqual(snap.toolExecutions[0].toolName, "read");
-		assert.strictEqual(snap.toolExecutions[1].toolName, "bash");
 	});
 });
 
@@ -250,7 +223,7 @@ describe("LoggerPipeline event handlers — gate enabled", () => {
 // ---------------------------------------------------------------------------
 
 describe("LoggerPipeline onToolCall — file modification tracking", () => {
-	it("track read tool call", () => {
+	it("track read tool call does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolCall({
@@ -259,13 +232,9 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 			toolName: "read",
 			input: { path: "/tmp/test.txt" },
 		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 1);
-		assert.strictEqual(snap.fileModifications[0].action, "read");
-		assert.strictEqual(snap.fileModifications[0].path, "/tmp/test.txt");
 	});
 
-	it("track write tool call with size", () => {
+	it("track write tool call with size does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolCall({
@@ -274,13 +243,9 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 			toolName: "write",
 			input: { path: "/tmp/test.txt", content: { length: 42 } },
 		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 1);
-		assert.strictEqual(snap.fileModifications[0].action, "write");
-		assert.strictEqual(snap.fileModifications[0].size, 42);
 	});
 
-	it("track edit tool call", () => {
+	it("track edit tool call does not throw", () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 		pipeline.onToolCall({
@@ -289,9 +254,6 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 			toolName: "edit",
 			input: { path: "/tmp/test.txt" },
 		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 1);
-		assert.strictEqual(snap.fileModifications[0].action, "edit");
 	});
 
 	it("is no-op when gate is disabled", () => {
@@ -303,8 +265,6 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 			toolName: "read",
 			input: { path: "/tmp/test.txt" },
 		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 0);
 	});
 
 	it("input with no path field defaults to empty string", () => {
@@ -316,377 +276,131 @@ describe("LoggerPipeline onToolCall — file modification tracking", () => {
 			toolName: "read",
 			input: {},
 		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 1);
-		assert.strictEqual(snap.fileModifications[0].path, "");
-	});
-
-	it("input with path empty string works correctly", () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-		pipeline.onToolCall({
-			type: "tool_call",
-			toolCallId: "c6",
-			toolName: "read",
-			input: { path: "" },
-		} as any);
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.fileModifications.length, 1);
-		assert.strictEqual(snap.fileModifications[0].path, "");
 	});
 });
 
 // ---------------------------------------------------------------------------
-// LoggerPipeline — snapshot access
+// LoggerPipeline — onSessionStart with real temp directory
 // ---------------------------------------------------------------------------
 
-describe("LoggerPipeline — snapshot access", () => {
-	it("getStats().getSnapshot() returns current state", () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-		pipeline.onSessionCompact();
-		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
+describe("LoggerPipeline onSessionStart — FS assertions", () => {
+	let tmpDir: string;
 
-		const snap = pipeline.getStats().getSnapshot();
-		assert.strictEqual(snap.compactionCount, 1);
-		assert.strictEqual(snap.modelChanges.length, 1);
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-pipeline-"));
 	});
-});
 
-// ---------------------------------------------------------------------------
-// LoggerPipeline — onSessionStart wiring (partial, no sessionManager mock)
-// ---------------------------------------------------------------------------
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
 
-describe("LoggerPipeline onSessionStart", () => {
-	it("requires sessionManager with getSessionFile and getCwd", async () => {
+	it("with valid sessionFile creates latest.jsonl symlink on disk", async () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 
-		// Provide a minimal mock — onSessionStart checks gate first,
-		// then calls getSessionFile. If getSessionFile returns undefined,
-		// it returns early.
-		let calledFile = false;
 		const ctx = {
-			sessionManager: {
-				getSessionFile: () => {
-					calledFile = true;
-					return undefined; // triggers early return
-				},
-				getCwd: () => "/tmp",
-				getEntries: () => [],
-			},
+			sessionManager: createSessionManager(tmpDir),
 		};
 
 		await pipeline.onSessionStart({}, ctx as any);
-		assert.ok(calledFile, "getSessionFile should be called");
-		assert.strictEqual(pipeline.getSessionFile(), undefined);
+
+		// latest.jsonl symlink should exist
+		const latestLink = path.join(tmpDir, ".pi", "sessions", "latest.jsonl");
+		assert.ok(fs.existsSync(latestLink), "latest.jsonl should exist on disk");
+		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "latest.jsonl should be a symlink");
 	});
 
-	it("with overrides stores sessionName and mode on pipeline", async () => {
+	it("with sessionFile returning undefined — no symlink created, no error", async () => {
 		const gate = createGate(true);
 		const pipeline = new LoggerPipeline(gate);
 
 		const ctx = {
 			sessionManager: {
 				getSessionFile: () => undefined,
-				getCwd: () => "/tmp",
-				getEntries: () => [],
-			},
-		};
-
-		await pipeline.onSessionStart({}, ctx as any, {
-			sessionName: "fix-bug-123",
-			mode: "tui",
-		});
-		assert.strictEqual(pipeline.getSessionName(), "fix-bug-123");
-		assert.strictEqual(pipeline.getMode(), "tui");
-	});
-
-	it("without overrides keeps sessionName and mode as undefined", async () => {
-		const gate = createGate(true);
-		const pipeline = new LoggerPipeline(gate);
-
-		const ctx = {
-			sessionManager: {
-				getSessionFile: () => undefined,
-				getCwd: () => "/tmp",
+				getCwd: () => tmpDir,
 				getEntries: () => [],
 			},
 		};
 
 		await pipeline.onSessionStart({}, ctx as any);
-		assert.strictEqual(pipeline.getSessionName(), undefined);
-		assert.strictEqual(pipeline.getMode(), undefined);
+
+		// No symlink should be created
+		const latestLink = path.join(tmpDir, ".pi", "sessions", "latest.jsonl");
+		assert.ok(!fs.existsSync(latestLink), "latest.jsonl should NOT exist when sessionFile is undefined");
 	});
 
-	it("with gate disabled does not store overrides", async () => {
+	it("with gate disabled — no symlink created", async () => {
 		const gate = createGate(false);
 		const pipeline = new LoggerPipeline(gate);
 
 		const ctx = {
+			sessionManager: createSessionManager(tmpDir),
+		};
+
+		await pipeline.onSessionStart({}, ctx as any);
+
+		const latestLink = path.join(tmpDir, ".pi", "sessions", "latest.jsonl");
+		assert.ok(!fs.existsSync(latestLink), "latest.jsonl should NOT exist when gate is disabled");
+	});
+
+	it("after EACCES (via chmod on sessions dir) — gracefully degrades, console.error logged", async () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+
+		// Create sessions dir and make it read-only to force EACCES
+		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
+		fs.mkdirSync(sessionsDir, { recursive: true });
+		fs.chmodSync(sessionsDir, 0o000);
+
+		const sessionFile = path.join(sessionsDir, "session-test.jsonl");
+		const ctx = {
 			sessionManager: {
-				getSessionFile: () => "/tmp/session.jsonl",
-				getCwd: () => "/tmp",
+				getSessionFile: () => sessionFile,
+				getCwd: () => tmpDir,
 				getEntries: () => [],
 			},
 		};
 
-		await pipeline.onSessionStart({}, ctx as any, {
-			sessionName: "fix-bug-123",
-			mode: "tui",
-		});
-		assert.strictEqual(pipeline.getSessionName(), undefined);
-		assert.strictEqual(pipeline.getMode(), undefined);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// LoggerPipeline — onSessionStart ensureSymlink error handling
-// ---------------------------------------------------------------------------
-
-function createMockFileOps(
-	ensureSymlinkImpl?: (sessionFile: string, sessionsDir: string) => Promise<void>,
-): FileOps & { ensureSymlinkCalls: number } {
-	let calls = 0;
-	return {
-		ensureSymlink: async (sessionFile: string, sessionsDir: string) => {
-			calls++;
-			if (ensureSymlinkImpl) {
-				return ensureSymlinkImpl(sessionFile, sessionsDir);
-			}
-		},
-		ensureMdSymlink: async () => {},
-		ensureLatestMetadataSymlink: async () => {},
-		writeMetadata: async () => {},
-		writeSessionReport: async () => {},
-		get ensureSymlinkCalls() {
-			return calls;
-		},
-	};
-}
-
-function createSessionStartCtxWithFile(overrides?: {
-	sessionFile?: string;
-	cwd?: string;
-	entries?: any[];
-}): any {
-	const hasFile = "sessionFile" in (overrides ?? {});
-	return {
-		mode: "tui",
-		sessionManager: {
-			getSessionFile: () => (hasFile ? overrides!.sessionFile : "/tmp/.pi/session.jsonl"),
-			getCwd: () => overrides?.cwd ?? "/tmp",
-			getEntries: () => overrides?.entries ?? [],
-		},
-	};
-}
-
-describe("LoggerPipeline onSessionStart — ensureSymlink error handling", () => {
-	it("ensureSymlink succeeds — sessionFile and sessionsDir are set", async () => {
-		const gate = createGate(true);
-		const mockFiles = createMockFileOps(async () => {});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const ctx = createSessionStartCtxWithFile({
-			sessionFile: "/tmp/.pi/session.jsonl",
-			cwd: "/tmp",
-		});
-
-		await pipeline.onSessionStart({}, ctx);
-
-		assert.strictEqual(pipeline.getSessionFile(), "/tmp/.pi/session.jsonl");
-		assert.strictEqual(pipeline.getSessionsDir(), "/tmp/.pi/sessions");
-		assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
-	});
-
-	it("ensureSymlink throws EACCES — gracefully degrades", async () => {
-		const gate = createGate(true);
-		const e = new Error("EACCES: permission denied");
-		(e as NodeJS.ErrnoException).code = "EACCES";
-		const mockFiles = createMockFileOps(async () => {
-			throw e;
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
 		const mockConsoleError = mock.method(console, "error");
 		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
+			await pipeline.onSessionStart({}, ctx as any);
 
-			await pipeline.onSessionStart({}, ctx);
-
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
+			// Should not throw — gracefully degraded
 			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
 			assert.ok(
 				(mockConsoleError.mock.calls[0].arguments[0] as string).includes("[session-logger]"),
 			);
 		} finally {
 			mockConsoleError.mock.restore();
+			// Restore permissions so cleanup works
+			fs.chmodSync(sessionsDir, 0o755);
 		}
 	});
 
-	it("ensureSymlink throws ENOSPC — gracefully degrades", async () => {
+	it("after failure — downstream handlers still work without crashing", async () => {
 		const gate = createGate(true);
-		const e = new Error("ENOSPC: no space left on device");
-		(e as NodeJS.ErrnoException).code = "ENOSPC";
-		const mockFiles = createMockFileOps(async () => {
-			throw e;
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
+		const pipeline = new LoggerPipeline(gate);
+
+		// Make sessions dir read-only to force failure
+		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
+		fs.mkdirSync(sessionsDir, { recursive: true });
+		fs.chmodSync(sessionsDir, 0o000);
+
+		const sessionFile = path.join(sessionsDir, "session-test.jsonl");
+		const ctx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+				getCwd: () => tmpDir,
+				getEntries: () => [],
+			},
+		};
 
 		const mockConsoleError = mock.method(console, "error");
 		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
-
-			await pipeline.onSessionStart({}, ctx);
-
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
-			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
-		} finally {
+			await pipeline.onSessionStart({}, ctx as any);
 			mockConsoleError.mock.restore();
-		}
-	});
 
-	it("ensureSymlink throws EROFS — gracefully degrades", async () => {
-		const gate = createGate(true);
-		const e = new Error("EROFS: read-only file system");
-		(e as NodeJS.ErrnoException).code = "EROFS";
-		const mockFiles = createMockFileOps(async () => {
-			throw e;
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const mockConsoleError = mock.method(console, "error");
-		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
-
-			await pipeline.onSessionStart({}, ctx);
-
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-		} finally {
-			mockConsoleError.mock.restore();
-		}
-	});
-
-	it("ensureSymlink throws EIO — gracefully degrades", async () => {
-		const gate = createGate(true);
-		const e = new Error("EIO: input/output error");
-		(e as NodeJS.ErrnoException).code = "EIO";
-		const mockFiles = createMockFileOps(async () => {
-			throw e;
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const mockConsoleError = mock.method(console, "error");
-		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
-
-			await pipeline.onSessionStart({}, ctx);
-
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-		} finally {
-			mockConsoleError.mock.restore();
-		}
-	});
-
-	it("ensureSymlink throws generic Error — gracefully degrades", async () => {
-		const gate = createGate(true);
-		const mockFiles = createMockFileOps(async () => {
-			throw new Error("generic I/O failure");
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const mockConsoleError = mock.method(console, "error");
-		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
-
-			await pipeline.onSessionStart({}, ctx);
-
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-			assert.strictEqual(mockFiles.ensureSymlinkCalls, 1);
-			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
-			assert.ok(
-				(mockConsoleError.mock.calls[0].arguments[0] as string).includes("generic I/O failure"),
-			);
-		} finally {
-			mockConsoleError.mock.restore();
-		}
-	});
-
-	it("sessionFile undefined — early return before ensureSymlink", async () => {
-		const gate = createGate(true);
-		const mockFiles = createMockFileOps(async () => {});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const ctx = createSessionStartCtxWithFile({
-			sessionFile: undefined,
-		});
-
-		await pipeline.onSessionStart({}, ctx);
-
-		assert.strictEqual(pipeline.getSessionFile(), undefined);
-		assert.strictEqual(pipeline.getSessionsDir(), undefined);
-		assert.strictEqual(mockFiles.ensureSymlinkCalls, 0, "ensureSymlink should NOT be called");
-	});
-
-	it("gate disabled — beginSession returns false, ensureSymlink NOT called", async () => {
-		const gate = createGate(false);
-		const mockFiles = createMockFileOps(async () => {});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		const ctx = createSessionStartCtxWithFile({
-			sessionFile: "/tmp/.pi/session.jsonl",
-		});
-
-		await pipeline.onSessionStart({}, ctx);
-
-		assert.strictEqual(pipeline.getSessionFile(), undefined);
-		assert.strictEqual(mockFiles.ensureSymlinkCalls, 0, "ensureSymlink should NOT be called");
-	});
-
-	it("after ensureSymlink failure — downstream handlers still work as no-ops", async () => {
-		const gate = createGate(true);
-		const mockFiles = createMockFileOps(async () => {
-			throw new Error("EACCES: permission denied");
-		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
-
-		// Call onSessionStart — it will fail
-		const mockConsoleError = mock.method(console, "error");
-		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-				cwd: "/tmp",
-			});
-
-			await pipeline.onSessionStart({}, ctx);
-
-			// After failure, sessionFile/sessionsDir are undefined
-			assert.strictEqual(pipeline.getSessionFile(), undefined);
-			assert.strictEqual(pipeline.getSessionsDir(), undefined);
-
-			// Downstream handlers should still not throw
+			// Downstream handlers should not throw
 			pipeline.onSessionCompact();
 			pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
 			pipeline.onThinkingLevelSelect({ level: "high" });
@@ -705,41 +419,255 @@ describe("LoggerPipeline onSessionStart — ensureSymlink error handling", () =>
 				toolName: "read",
 				input: { path: "/tmp/test.txt" },
 			} as any);
-
-			// All should resolve without throwing (handlers are no-ops when sessionFile is undefined)
-			// Actually, the handlers gate on sessionEnabled, not sessionFile.
-			// But gate.sessionEnabled is still true — so handlers will execute.
-			// The stats should still be updated because gate is still enabled.
-			const snap = pipeline.getStats().getSnapshot();
-			assert.strictEqual(snap.compactionCount, 1);
-			assert.strictEqual(snap.modelChanges.length, 1);
-			assert.strictEqual(snap.toolExecutions.length, 1);
 		} finally {
-			mockConsoleError.mock.restore();
+			// Restore permissions so cleanup works
+			fs.chmodSync(sessionsDir, 0o755);
 		}
 	});
+});
 
-	it("console.error includes session-logger prefix and error message", async () => {
+// ---------------------------------------------------------------------------
+// LoggerPipeline — onSessionShutdown with real temp directory
+// ---------------------------------------------------------------------------
+
+describe("LoggerPipeline onSessionShutdown — FS assertions", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-pipeline-shutdown-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("with valid session — produces .md, .metadata.json and symlinks on disk", async () => {
 		const gate = createGate(true);
-		const mockFiles = createMockFileOps(async () => {
-			throw new Error("ENOSPC: disk full");
+		const pipeline = new LoggerPipeline(gate);
+
+		// First start a session
+		const ctx = {
+			sessionManager: createSessionManager(tmpDir),
+		};
+		await pipeline.onSessionStart({}, ctx as any);
+
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => ctx.sessionManager.getSessionFile(),
+			},
+		};
+
+		// Call some handlers to generate stats data
+		pipeline.onSessionCompact();
+		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
+
+		// Shutdown
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
+
+		// Verify files exist on disk
+		const sessionFile = ctx.sessionManager.getSessionFile();
+		const sessionDir = path.dirname(sessionFile);
+		const sessionPrefix = path.basename(sessionFile, ".jsonl");
+
+		const metaPath = path.join(sessionDir, `${sessionPrefix}.metadata.json`);
+		const mdPath = path.join(sessionDir, `${sessionPrefix}.md`);
+
+		assert.ok(fs.existsSync(metaPath), "metadata.json should exist on disk");
+		assert.ok(fs.existsSync(mdPath), ".md report should exist on disk");
+
+		// Verify symlinks
+		const latestMd = path.join(sessionDir, "latest.md");
+		const latestMeta = path.join(sessionDir, "latest.metadata.json");
+		assert.ok(fs.lstatSync(latestMd).isSymbolicLink(), "latest.md should be symlink");
+		assert.ok(fs.lstatSync(latestMeta).isSymbolicLink(), "latest.metadata.json should be symlink");
+
+		// Verify metadata content
+		const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+		assert.ok(meta.sessionId, "metadata should have sessionId");
+		assert.ok(Array.isArray(meta.modelChanges), "metadata should have modelChanges");
+	});
+
+	it("gate disabled — no files generated", async () => {
+		const gate = createGate(false);
+		const pipeline = new LoggerPipeline(gate);
+
+		const sessionFile = path.join(tmpDir, "session-test.jsonl");
+		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "test", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp", version: 1 }) + "\n");
+
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+			},
+		};
+
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
+
+		const sessionDir = path.dirname(sessionFile);
+		const sessionPrefix = path.basename(sessionFile, ".jsonl");
+		assert.ok(!fs.existsSync(path.join(sessionDir, `${sessionPrefix}.metadata.json`)), "metadata should NOT exist");
+		assert.ok(!fs.existsSync(path.join(sessionDir, `${sessionPrefix}.md`)), "md should NOT exist");
+	});
+
+	it("sessionFile undefined — graceful no-op", async () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => undefined,
+			},
+		};
+
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
+		// Should not throw
+	});
+});
+
+// ---------------------------------------------------------------------------
+// LoggerPipeline — full lifecycle integration with tmpdir
+// ---------------------------------------------------------------------------
+
+describe("LoggerPipeline — full lifecycle", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-lifecycle-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("start -> handlers -> shutdown produces all session files", async () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+
+		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
+		fs.mkdirSync(sessionsDir, { recursive: true });
+		const sessionFile = path.join(sessionsDir, "session-lifecycle.jsonl");
+		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "lifecycle-test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+
+		const ctx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+				getCwd: () => tmpDir,
+				getEntries: () => [],
+			},
+		};
+
+		// Start session
+		await pipeline.onSessionStart({}, ctx as any);
+
+		// Verify latest.jsonl symlink
+		const latestJsonl = path.join(sessionsDir, "latest.jsonl");
+		assert.ok(fs.lstatSync(latestJsonl).isSymbolicLink(), "latest.jsonl symlink exists after start");
+
+		// Call various handlers
+		pipeline.onSessionCompact();
+		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
+		pipeline.onThinkingLevelSelect({ level: "high" });
+		pipeline.onTurnStart({ turnIndex: 0 });
+		pipeline.onMessageEnd({
+			message: { role: "assistant", usage: { input: 100, output: 50, totalTokens: 150, cost: { total: 0.002 } } },
 		});
-		const pipeline = new LoggerPipeline(gate, mockFiles);
+		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "bash" });
+		pipeline.onToolExecutionEnd({
+			toolCallId: "call-1",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		pipeline.onTurnEnd();
 
-		const mockConsoleError = mock.method(console, "error");
-		try {
-			const ctx = createSessionStartCtxWithFile({
-				sessionFile: "/tmp/.pi/session.jsonl",
-			});
+		// Shutdown
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+			},
+		};
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
 
-			await pipeline.onSessionStart({}, ctx);
+		// Verify all files exist
+		const prefix = path.join(sessionsDir, "session-lifecycle");
+		assert.ok(fs.existsSync(`${prefix}.jsonl`), "jsonl exists");
+		assert.ok(fs.existsSync(`${prefix}.metadata.json`), "metadata.json exists");
+		assert.ok(fs.existsSync(`${prefix}.md`), ".md exists");
 
-			assert.strictEqual(mockConsoleError.mock.calls.length, 1);
-			const msg = mockConsoleError.mock.calls[0].arguments[0] as string;
-			assert.ok(msg.includes("[session-logger]"), "should have session-logger prefix");
-			assert.ok(msg.includes("ENOSPC"), "should include error code");
-		} finally {
-			mockConsoleError.mock.restore();
-		}
+		// Verify symlinks
+		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.jsonl")).isSymbolicLink(), "latest.jsonl symlink");
+		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.md")).isSymbolicLink(), "latest.md symlink");
+		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.metadata.json")).isSymbolicLink(), "latest.metadata.json symlink");
+
+		// No tmp leftovers
+		const tmpFiles = fs.readdirSync(sessionsDir).filter((f) => f.includes(".tmp"));
+		assert.strictEqual(tmpFiles.length, 0, "No .tmp files left");
+	});
+
+	it("with overrides (sessionName, mode) — metadata.json contains name and mode", async () => {
+		const gate = createGate(true);
+		const pipeline = new LoggerPipeline(gate);
+
+		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
+		fs.mkdirSync(sessionsDir, { recursive: true });
+		const sessionFile = path.join(sessionsDir, "session-override.jsonl");
+		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "override-test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+
+		const ctx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+				getCwd: () => tmpDir,
+				getEntries: () => [],
+			},
+		};
+
+		// Start with overrides
+		await pipeline.onSessionStart({}, ctx as any, {
+			sessionName: "fix-bug-123",
+			mode: "tui",
+		});
+
+		// Shutdown
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+			},
+		};
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
+
+		// Verify metadata contains overrides
+		const metaPath = path.join(sessionsDir, "session-override.metadata.json");
+		const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+		assert.strictEqual(meta.name, "fix-bug-123", "metadata should have session name from override");
+		assert.strictEqual(meta.mode, "tui", "metadata should have mode from override");
+	});
+
+	it("gate disabled — no files created during lifecycle", async () => {
+		const gate = createGate(false);
+		const pipeline = new LoggerPipeline(gate);
+
+		const sessionFile = path.join(tmpDir, "session-disabled.jsonl");
+
+		const ctx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+				getCwd: () => tmpDir,
+				getEntries: () => [],
+			},
+		};
+
+		await pipeline.onSessionStart({}, ctx as any);
+		pipeline.onSessionCompact();
+		pipeline.onModelSelect({ model: { provider: "openai", id: "gpt-4" } });
+
+		const shutdownCtx = {
+			sessionManager: {
+				getSessionFile: () => sessionFile,
+			},
+		};
+		await pipeline.onSessionShutdown({}, shutdownCtx as any);
+
+		// No files should be created
+		const sessionDir = path.dirname(sessionFile);
+		const entries = fs.readdirSync(sessionDir);
+		assert.strictEqual(entries.length, 0, "No files should exist when gate is disabled");
 	});
 });

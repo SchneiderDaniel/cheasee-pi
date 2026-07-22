@@ -10,20 +10,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { createFileOps, type FileOps } from "../files.ts";
+import { ensureSymlink, writeMetadata, writeSessionReport } from "../files.ts";
 import type { Metadata } from "../types.ts";
 
 // ---------------------------------------------------------------------------
-// createFileOps — integration tests using tmpdir
+// files.ts — integration tests using tmpdir
 // ---------------------------------------------------------------------------
 
-describe("createFileOps", () => {
+describe("files.ts module functions", () => {
 	let tmpDir: string;
-	let files: FileOps;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-files-"));
-		files = createFileOps();
 	});
 
 	afterEach(() => {
@@ -36,7 +34,7 @@ describe("createFileOps", () => {
 		const sessionFile = path.join(sessionsDir, "session-abc.jsonl");
 		fs.writeFileSync(sessionFile, "{}");
 
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(fs.existsSync(latestLink));
@@ -55,8 +53,8 @@ describe("createFileOps", () => {
 		const file2 = path.join(sessionsDir, "session-2.jsonl");
 		fs.writeFileSync(file2, "");
 
-		await files.ensureSymlink(file1, sessionsDir);
-		await files.ensureSymlink(file2, sessionsDir);
+		await ensureSymlink(sessionsDir, file1, "latest.jsonl");
+		await ensureSymlink(sessionsDir, file2, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		const target = fs.readlinkSync(latestLink);
@@ -68,7 +66,7 @@ describe("createFileOps", () => {
 		fs.mkdirSync(sessionsDir, { recursive: true });
 
 		// Non-blocking: creates dangling symlink, no throw
-		await files.ensureSymlink("/nonexistent/file.jsonl", sessionsDir);
+		await ensureSymlink(sessionsDir, "/nonexistent/file.jsonl", "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "dangling symlink created");
@@ -76,16 +74,16 @@ describe("createFileOps", () => {
 	});
 
 	// ---------------------------------------------------------------------------
-	// ensureMdSymlink tests
+	// ensureSymlink — md and metadata symlinks (all use the same function now)
 	// ---------------------------------------------------------------------------
 
-	it("ensureMdSymlink creates latest.md pointing to md file", async () => {
+	it("ensureSymlink creates latest.md pointing to md file", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 		const mdFile = path.join(sessionDir, "session-xyz.md");
 		fs.writeFileSync(mdFile, "# report");
 
-		await files.ensureMdSymlink(sessionDir, mdFile);
+		await ensureSymlink(sessionDir, mdFile, "latest.md");
 
 		const latestLink = path.join(sessionDir, "latest.md");
 		assert.ok(fs.existsSync(latestLink), "latest.md should exist");
@@ -94,7 +92,7 @@ describe("createFileOps", () => {
 		assert.ok(target.includes("session-xyz.md"), `target ${target} should point to session md`);
 	});
 
-	it("ensureMdSymlink replaces existing symlink", async () => {
+	it("ensureSymlink replaces existing latest.md symlink", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -103,8 +101,8 @@ describe("createFileOps", () => {
 		const md2 = path.join(sessionDir, "session-2.md");
 		fs.writeFileSync(md2, "two");
 
-		await files.ensureMdSymlink(sessionDir, md1);
-		await files.ensureMdSymlink(sessionDir, md2);
+		await ensureSymlink(sessionDir, md1, "latest.md");
+		await ensureSymlink(sessionDir, md2, "latest.md");
 
 		const latestLink = path.join(sessionDir, "latest.md");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink());
@@ -112,17 +110,13 @@ describe("createFileOps", () => {
 		assert.ok(target.includes("session-2.md"), `target ${target} should be second md`);
 	});
 
-	// ---------------------------------------------------------------------------
-	// ensureLatestMetadataSymlink tests
-	// ---------------------------------------------------------------------------
-
-	it("ensureLatestMetadataSymlink creates latest.metadata.json pointing to metadata file", async () => {
+	it("ensureSymlink creates latest.metadata.json pointing to metadata file", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 		const metaFile = path.join(sessionDir, "session-xyz.metadata.json");
 		fs.writeFileSync(metaFile, "{}");
 
-		await files.ensureLatestMetadataSymlink(sessionDir, metaFile);
+		await ensureSymlink(sessionDir, metaFile, "latest.metadata.json");
 
 		const latestLink = path.join(sessionDir, "latest.metadata.json");
 		assert.ok(fs.existsSync(latestLink), "latest.metadata.json should exist");
@@ -134,7 +128,7 @@ describe("createFileOps", () => {
 		);
 	});
 
-	it("ensureLatestMetadataSymlink replaces existing symlink", async () => {
+	it("ensureSymlink replaces existing latest.metadata.json symlink", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -143,8 +137,8 @@ describe("createFileOps", () => {
 		const meta2 = path.join(sessionDir, "session-2.metadata.json");
 		fs.writeFileSync(meta2, "{}");
 
-		await files.ensureLatestMetadataSymlink(sessionDir, meta1);
-		await files.ensureLatestMetadataSymlink(sessionDir, meta2);
+		await ensureSymlink(sessionDir, meta1, "latest.metadata.json");
+		await ensureSymlink(sessionDir, meta2, "latest.metadata.json");
 
 		const latestLink = path.join(sessionDir, "latest.metadata.json");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink());
@@ -165,7 +159,7 @@ describe("createFileOps", () => {
 		const sessionFile = path.join(sessionsDir, "session-abc.jsonl");
 		fs.writeFileSync(sessionFile, "{}");
 
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const tmpFiles = fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".tmp"));
 		assert.strictEqual(tmpFiles.length, 0, "No .tmp files should remain after ensureSymlink");
@@ -178,40 +172,40 @@ describe("createFileOps", () => {
 		fs.writeFileSync(sessionFile, "{}");
 
 		// First call creates
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "symlink should exist after first call");
 
 		// Second call replaces — must never produce ENOENT
 		const sessionFile2 = path.join(sessionsDir, "session-def.jsonl");
 		fs.writeFileSync(sessionFile2, "{}");
-		await files.ensureSymlink(sessionFile2, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile2, "latest.jsonl");
 		assert.ok(fs.lstatSync(latestLink).isSymbolicLink(), "symlink should exist after second call");
 		assert.ok(fs.existsSync(latestLink), "symlink target must be reachable after second call");
 	});
 
-	it("ensureMdSymlink leaves no .tmp file after completion", async () => {
+	it("ensureSymlink for latest.md leaves no .tmp file after completion", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 		const mdFile = path.join(sessionDir, "session-abc.md");
 		fs.writeFileSync(mdFile, "# report");
 
-		await files.ensureMdSymlink(sessionDir, mdFile);
+		await ensureSymlink(sessionDir, mdFile, "latest.md");
 
 		const tmpFiles = fs.readdirSync(sessionDir).filter((f) => f.endsWith(".tmp"));
-		assert.strictEqual(tmpFiles.length, 0, "No .tmp files after ensureMdSymlink");
+		assert.strictEqual(tmpFiles.length, 0, "No .tmp files after ensureSymlink");
 	});
 
-	it("ensureLatestMetadataSymlink leaves no .tmp file after completion", async () => {
+	it("ensureSymlink for latest.metadata.json leaves no .tmp file after completion", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 		const metaFile = path.join(sessionDir, "session-abc.metadata.json");
 		fs.writeFileSync(metaFile, "{}");
 
-		await files.ensureLatestMetadataSymlink(sessionDir, metaFile);
+		await ensureSymlink(sessionDir, metaFile, "latest.metadata.json");
 
 		const tmpFiles = fs.readdirSync(sessionDir).filter((f) => f.endsWith(".tmp"));
-		assert.strictEqual(tmpFiles.length, 0, "No .tmp files after ensureLatestMetadataSymlink");
+		assert.strictEqual(tmpFiles.length, 0, "No .tmp files after ensureSymlink");
 	});
 
 	// ---------------------------------------------------------------------------
@@ -228,8 +222,8 @@ describe("createFileOps", () => {
 		fs.writeFileSync(fileB, "B");
 
 		await Promise.all([
-			files.ensureSymlink(fileA, sessionsDir),
-			files.ensureSymlink(fileB, sessionsDir),
+			ensureSymlink(sessionsDir, fileA, "latest.jsonl"),
+			ensureSymlink(sessionsDir, fileB, "latest.jsonl"),
 		]);
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
@@ -246,7 +240,7 @@ describe("createFileOps", () => {
 		);
 	});
 
-	it("concurrent ensureMdSymlink calls — no dangling symlink", async () => {
+	it("concurrent ensureSymlink for latest.md calls — no dangling symlink", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -256,8 +250,8 @@ describe("createFileOps", () => {
 		fs.writeFileSync(mdB, "B");
 
 		await Promise.all([
-			files.ensureMdSymlink(sessionDir, mdA),
-			files.ensureMdSymlink(sessionDir, mdB),
+			ensureSymlink(sessionDir, mdA, "latest.md"),
+			ensureSymlink(sessionDir, mdB, "latest.md"),
 		]);
 
 		const latestLink = path.join(sessionDir, "latest.md");
@@ -268,7 +262,7 @@ describe("createFileOps", () => {
 		assert.ok(fs.existsSync(latestLink), "symlink target must be reachable");
 	});
 
-	it("concurrent ensureSymlink + ensureMdSymlink — no cross-interference", async () => {
+	it("concurrent ensureSymlink for jsonl + md — no cross-interference", async () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -278,8 +272,8 @@ describe("createFileOps", () => {
 		fs.writeFileSync(jsonlFile, "{}");
 
 		await Promise.all([
-			files.ensureSymlink(jsonlFile, sessionDir),
-			files.ensureMdSymlink(sessionDir, mdFile),
+			ensureSymlink(sessionDir, jsonlFile, "latest.jsonl"),
+			ensureSymlink(sessionDir, mdFile, "latest.md"),
 		]);
 
 		const latestJsonl = path.join(sessionDir, "latest.jsonl");
@@ -317,16 +311,17 @@ describe("createFileOps", () => {
 		fs.writeFileSync(mdFile, "# Session Report");
 
 		// Simulate session_start
-		await files.ensureSymlink(sessionFile, sessionDir);
+		await ensureSymlink(sessionDir, sessionFile, "latest.jsonl");
 
 		// Simulate session_shutdown: write metadata first, then symlink
-		await files.writeMetadata(sessionDir, sessionId, meta);
-		await files.ensureLatestMetadataSymlink(
+		await writeMetadata(sessionDir, sessionId, meta);
+		await ensureSymlink(
 			sessionDir,
 			path.join(sessionDir, `${sessionId}.metadata.json`),
+			"latest.metadata.json",
 		);
-		await files.writeSessionReport(sessionDir, sessionId, "# Session Report");
-		await files.ensureMdSymlink(sessionDir, mdFile);
+		await writeSessionReport(sessionDir, sessionId, "# Session Report");
+		await ensureSymlink(sessionDir, mdFile, "latest.md");
 
 		// Verify all files present
 		assert.ok(fs.existsSync(path.join(sessionDir, `${sessionId}.jsonl`)), "jsonl file exists");
@@ -371,8 +366,7 @@ describe("createFileOps", () => {
 			thinkingChanges: [{ time: "2025-01-01T00:00:01Z", level: "high" }],
 		};
 
-		const files = createFileOps();
-		await files.writeMetadata(sessionDir, sessionId, meta);
+		await writeMetadata(sessionDir, sessionId, meta);
 
 		const metaPath = path.join(sessionDir, `${sessionId}.metadata.json`);
 		assert.ok(fs.existsSync(metaPath), `Expected ${metaPath} to exist`);
@@ -403,7 +397,7 @@ describe("createFileOps", () => {
 			thinkingChanges: [],
 		};
 
-		await files.writeMetadata(sessionDir, sessionId, meta);
+		await writeMetadata(sessionDir, sessionId, meta);
 
 		const metaPath = path.join(sessionDir, `${sessionId}.metadata.json`);
 		const loaded: Metadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
@@ -426,7 +420,7 @@ describe("createFileOps", () => {
 			thinkingChanges: [],
 		};
 
-		await files.writeMetadata(sessionDir, sessionId, meta);
+		await writeMetadata(sessionDir, sessionId, meta);
 
 		const metaPath = path.join(sessionDir, `${sessionId}.metadata.json`);
 		const content = fs.readFileSync(metaPath, "utf-8");
@@ -448,7 +442,7 @@ describe("createFileOps", () => {
 		const sessionId = "test-session-md-456";
 		const markdown = "# Session Report\n\nHello world";
 
-		await files.writeSessionReport(sessionDir, sessionId, markdown);
+		await writeSessionReport(sessionDir, sessionId, markdown);
 
 		const mdPath = path.join(sessionDir, `${sessionId}.md`);
 		assert.ok(fs.existsSync(mdPath), `Expected ${mdPath} to exist`);
@@ -460,8 +454,8 @@ describe("createFileOps", () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
-		await files.writeSessionReport(sessionDir, "sid-1", "md1");
-		await files.writeSessionReport(sessionDir, "sid-2", "md2");
+		await writeSessionReport(sessionDir, "sid-1", "md1");
+		await writeSessionReport(sessionDir, "sid-2", "md2");
 
 		const md1Path = path.join(sessionDir, "sid-1.md");
 		const md2Path = path.join(sessionDir, "sid-2.md");
@@ -494,8 +488,8 @@ describe("createFileOps", () => {
 			thinkingChanges: [],
 		};
 
-		await files.writeMetadata(sessionDir, "sid-a", meta1);
-		await files.writeMetadata(sessionDir, "sid-b", meta2);
+		await writeMetadata(sessionDir, "sid-a", meta1);
+		await writeMetadata(sessionDir, "sid-b", meta2);
 
 		const meta1Path = path.join(sessionDir, "sid-a.metadata.json");
 		const meta2Path = path.join(sessionDir, "sid-b.metadata.json");
@@ -521,7 +515,7 @@ describe("createFileOps", () => {
 			thinkingChanges: [],
 		};
 
-		await files.writeMetadata(sessionDir, "sid-c", meta);
+		await writeMetadata(sessionDir, "sid-c", meta);
 
 		const stalePath = path.join(sessionDir, "metadata.json");
 		assert.ok(!fs.existsSync(stalePath), "metadata.json without sessionId prefix should NOT exist");
@@ -532,7 +526,7 @@ describe("createFileOps", () => {
 		fs.mkdirSync(sessionDir, { recursive: true });
 		// sessionDir basename is "sessions" — old code would create "sessions.md"
 
-		await files.writeSessionReport(sessionDir, "sid-d", "markdown content");
+		await writeSessionReport(sessionDir, "sid-d", "markdown content");
 
 		const stalePath = path.join(sessionDir, "sessions.md");
 		assert.ok(!fs.existsSync(stalePath), "sessions.md (from dir basename) should NOT exist");
@@ -552,7 +546,7 @@ describe("createFileOps", () => {
 			thinkingChanges: [],
 		};
 
-		await files.writeMetadata(sessionDir, "", meta);
+		await writeMetadata(sessionDir, "", meta);
 
 		const metaPath = path.join(sessionDir, ".metadata.json");
 		assert.ok(fs.existsSync(metaPath), "Empty sessionId should produce .metadata.json");
@@ -562,7 +556,7 @@ describe("createFileOps", () => {
 		const sessionDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionDir, { recursive: true });
 
-		await files.writeSessionReport(sessionDir, "", "empty-id");
+		await writeSessionReport(sessionDir, "", "empty-id");
 
 		const mdPath = path.join(sessionDir, ".md");
 		assert.ok(fs.existsSync(mdPath), "Empty sessionId should produce .md");
@@ -603,7 +597,7 @@ describe("createFileOps", () => {
 			],
 		};
 
-		await files.writeMetadata(sessionDir, sessionId, meta);
+		await writeMetadata(sessionDir, sessionId, meta);
 
 		const metaPath = path.join(sessionDir, `${sessionId}.metadata.json`);
 		const loaded: Metadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
@@ -611,7 +605,7 @@ describe("createFileOps", () => {
 	});
 
 	// ---------------------------------------------------------------------------
-	// ensureLatestLink creates dir if missing (non-blocking)
+	// ensureSymlink creates dir if missing
 	// ---------------------------------------------------------------------------
 
 	it("ensureSymlink creates non-existent sessionsDir", async () => {
@@ -622,7 +616,7 @@ describe("createFileOps", () => {
 		fs.writeFileSync(sessionFile, "{}");
 
 		assert.ok(!fs.existsSync(linkDir), "dir should not exist before");
-		await files.ensureSymlink(sessionFile, linkDir);
+		await ensureSymlink(linkDir, sessionFile, "latest.jsonl");
 		assert.ok(fs.existsSync(linkDir), "dir should exist after");
 
 		const latestLink = path.join(linkDir, "latest.jsonl");
@@ -630,7 +624,7 @@ describe("createFileOps", () => {
 		assert.ok(fs.existsSync(latestLink), "target should be reachable");
 	});
 
-	it("ensureMdSymlink creates non-existent sessionDir", async () => {
+	it("ensureSymlink creates non-existent dir for latest.md", async () => {
 		const targetDir = path.join(tmpDir, "target");
 		const linkDir = path.join(tmpDir, "nonexistent");
 		const mdFile = path.join(targetDir, "session.md");
@@ -638,7 +632,7 @@ describe("createFileOps", () => {
 		fs.writeFileSync(mdFile, "# test");
 
 		assert.ok(!fs.existsSync(linkDir), "dir should not exist before");
-		await files.ensureMdSymlink(linkDir, mdFile);
+		await ensureSymlink(linkDir, mdFile, "latest.md");
 		assert.ok(fs.existsSync(linkDir), "dir should exist after");
 
 		const latestLink = path.join(linkDir, "latest.md");
@@ -646,7 +640,7 @@ describe("createFileOps", () => {
 		assert.ok(fs.existsSync(latestLink), "target should be reachable");
 	});
 
-	it("ensureLatestMetadataSymlink creates non-existent dir", async () => {
+	it("ensureSymlink creates non-existent dir for latest.metadata.json", async () => {
 		const targetDir = path.join(tmpDir, "target");
 		const linkDir = path.join(tmpDir, "nonexistent");
 		const metaFile = path.join(targetDir, "session.metadata.json");
@@ -654,7 +648,7 @@ describe("createFileOps", () => {
 		fs.writeFileSync(metaFile, "{}");
 
 		assert.ok(!fs.existsSync(linkDir), "dir should not exist before");
-		await files.ensureLatestMetadataSymlink(linkDir, metaFile);
+		await ensureSymlink(linkDir, metaFile, "latest.metadata.json");
 		assert.ok(fs.existsSync(linkDir), "dir should exist after");
 
 		const latestLink = path.join(linkDir, "latest.metadata.json");
@@ -672,7 +666,7 @@ describe("createFileOps", () => {
 		const sessionFile = path.join(sessionsDir, "session-abc.jsonl");
 		fs.writeFileSync(sessionFile, "{}");
 
-		await files.ensureSymlink(sessionFile, sessionsDir);
+		await ensureSymlink(sessionsDir, sessionFile, "latest.jsonl");
 
 		const latestLink = path.join(sessionsDir, "latest.jsonl");
 		const target = fs.readlinkSync(latestLink);

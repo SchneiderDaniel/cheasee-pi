@@ -13,7 +13,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { createFileOps, type FileOps } from "../files.ts";
 import { generateMissingReports } from "../index.ts";
 
 // ---------------------------------------------------------------------------
@@ -48,13 +47,11 @@ function writeInvalidJsonl(dir: string, name: string): string {
 describe("generateMissingReports — unit", () => {
 	let tmpDir: string;
 	let sessionsDir: string;
-	let files: FileOps;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-recovery-"));
 		sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
-		files = createFileOps();
 	});
 
 	afterEach(() => {
@@ -63,7 +60,7 @@ describe("generateMissingReports — unit", () => {
 
 	it("orphan .jsonl (no .md, no .metadata.json) creates both files", async () => {
 		const jsonlPath = writeSessionJsonl(sessionsDir, "session-orphan");
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		const prefix = path.join(sessionsDir, "session-orphan");
 		assert.ok(fs.existsSync(`${prefix}.md`), ".md should be created");
@@ -84,7 +81,7 @@ describe("generateMissingReports — unit", () => {
 		// Small delay to ensure mtime would differ if overwritten
 		await new Promise((r) => setTimeout(r, 10));
 
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		// mtime unchanged — files were not overwritten
 		assert.strictEqual(fs.statSync(`${prefix}.md`).mtimeMs, mdMtime);
@@ -100,7 +97,7 @@ describe("generateMissingReports — unit", () => {
 
 		await new Promise((r) => setTimeout(r, 10));
 
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		assert.ok(fs.existsSync(`${prefix}.md`), ".md should be created");
 		// .metadata.json unchanged
@@ -116,7 +113,7 @@ describe("generateMissingReports — unit", () => {
 
 		await new Promise((r) => setTimeout(r, 10));
 
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		assert.ok(fs.existsSync(`${prefix}.metadata.json`), ".metadata.json should be created");
 		// .md unchanged
@@ -126,7 +123,7 @@ describe("generateMissingReports — unit", () => {
 	it("non-existent .jsonl -> no-op", async () => {
 		const jsonlPath = path.join(sessionsDir, "nonexistent.jsonl");
 		// Should not throw
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		// No files created
 		assert.strictEqual(fs.readdirSync(sessionsDir).length, 0);
@@ -135,7 +132,7 @@ describe("generateMissingReports — unit", () => {
 	it("unparseable .jsonl (invalid JSON) -> logs error, returns, no files created", async () => {
 		const jsonlPath = writeInvalidJsonl(sessionsDir, "session-bad");
 		// Should not throw
-		await generateMissingReports(jsonlPath, files);
+		await generateMissingReports(jsonlPath);
 
 		const prefix = path.join(sessionsDir, "session-bad");
 		assert.ok(!fs.existsSync(`${prefix}.md`), ".md should NOT be created");
@@ -150,13 +147,11 @@ describe("generateMissingReports — unit", () => {
 describe("session-logger recovery loop — integration", () => {
 	let tmpDir: string;
 	let sessionsDir: string;
-	let files: FileOps;
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-recovery-int-"));
 		sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
-		files = createFileOps();
 	});
 
 	afterEach(() => {
@@ -175,7 +170,7 @@ describe("session-logger recovery loop — integration", () => {
 
 		for (const file of jsonlFiles) {
 			const jsonlPath = path.join(sessionsDir, file);
-			await generateMissingReports(jsonlPath, files);
+			await generateMissingReports(jsonlPath);
 		}
 
 		// Verify all 6 output files exist
@@ -208,7 +203,7 @@ describe("session-logger recovery loop — integration", () => {
 			const jsonlPath = path.join(sessionsDir, file);
 			// Skip current in-progress session
 			if (currentFile && jsonlPath === currentFile) continue;
-			await generateMissingReports(jsonlPath, files);
+			await generateMissingReports(jsonlPath);
 		}
 
 		// Current session should NOT have reports
@@ -244,7 +239,7 @@ describe("session-logger recovery loop — integration", () => {
 
 		for (const file of jsonlFiles) {
 			const jsonlPath = path.join(sessionsDir, file);
-			await generateMissingReports(jsonlPath, files);
+			await generateMissingReports(jsonlPath);
 		}
 
 		// Only orphan.jsonl should get reports
@@ -255,7 +250,6 @@ describe("session-logger recovery loop — integration", () => {
 		);
 
 		// latest.jsonl was not processed — no report file was generated from it.
-		// latest.md symlink may exist as side effect from orphan processing.
 		// Verify the actual orphan.md (not latest.md symlink) has orphan session data:
 		assert.ok(fs.existsSync(path.join(sessionsDir, "orphan.md")), "orphan .md created");
 	});

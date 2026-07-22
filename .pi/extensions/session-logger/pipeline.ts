@@ -10,8 +10,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { createSessionStats } from "./stats.ts";
-import { createFileOps } from "./files.ts";
-import type { FileOps } from "./files.ts";
+import { ensureSymlink } from "./files.ts";
 import { generateMissingReports } from "./report.ts";
 import type { SessionLoggerGate } from "./types.ts";
 
@@ -24,46 +23,14 @@ import type { SessionLoggerGate } from "./types.ts";
 export class LoggerPipeline {
 	private gate: SessionLoggerGate;
 	private stats: ReturnType<typeof createSessionStats>;
-	private files: FileOps;
 	private sessionFile: string | undefined;
 	private sessionsDir: string | undefined;
 	private sessionName: string | undefined;
 	private mode: string | undefined;
 
-	constructor(gate: SessionLoggerGate, files?: FileOps) {
+	constructor(gate: SessionLoggerGate) {
 		this.gate = gate;
 		this.stats = createSessionStats();
-		this.files = files ?? createFileOps();
-	}
-
-	/** Expose stats for testing / snapshot access. */
-	getStats(): ReturnType<typeof createSessionStats> {
-		return this.stats;
-	}
-
-	/** Expose files for testing. */
-	getFiles(): FileOps {
-		return this.files;
-	}
-
-	/** Expose current session file path for testing. */
-	getSessionFile(): string | undefined {
-		return this.sessionFile;
-	}
-
-	/** Expose sessions directory for testing. */
-	getSessionsDir(): string | undefined {
-		return this.sessionsDir;
-	}
-
-	/** Expose session name for testing / override passing. */
-	getSessionName(): string | undefined {
-		return this.sessionName;
-	}
-
-	/** Expose session mode for testing / override passing. */
-	getMode(): string | undefined {
-		return this.mode;
 	}
 
 	// ── Session lifecycle ──
@@ -95,7 +62,7 @@ export class LoggerPipeline {
 
 		this.sessionsDir = path.resolve(sm.getCwd(), ".pi", "sessions");
 		try {
-			await this.files.ensureSymlink(this.sessionFile!, this.sessionsDir);
+			await ensureSymlink(this.sessionsDir, this.sessionFile!, "latest.jsonl");
 		} catch (err) {
 			console.error(`[session-logger] Failed to create session symlink: ${(err as Error).message}`);
 			this.sessionFile = undefined;
@@ -130,7 +97,6 @@ export class LoggerPipeline {
 		try {
 			await generateMissingReports(
 				sf,
-				this.files,
 				snapshot,
 				Object.keys(overrides).length > 0 ? overrides : undefined,
 			);
@@ -235,7 +201,7 @@ export class LoggerPipeline {
 
 			// Defer to next tick — don't block session start
 			Promise.resolve().then(() =>
-				generateMissingReports(jsonlPath, this.files).catch((err) => {
+				generateMissingReports(jsonlPath).catch((err) => {
 					console.error(`[session-logger] Recovery failed for ${file}: ${(err as Error).message}`);
 				}),
 			);
