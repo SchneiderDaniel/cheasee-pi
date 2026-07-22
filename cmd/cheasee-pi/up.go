@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -133,36 +134,12 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(os.Stderr, "  %s\n", val)
 		}
 		// Show full docker command for debugging
-		args := append([]string{"exec"}, envFlags...)
-		args = append(args, "-it", "--user", "agentuser", "-w","/workspaces/main", upName, "pi", "--approve")
+		args := execArgs(envFlags, upName)
 		fmt.Fprintf(os.Stderr, "\nDocker command:\n  docker %s\n", strings.Join(args, " "))
 		return nil
 	}
 
-	// Phase 4.5: Cleanup orphaned pi sessions from previous disconnects
-	// Each pi uses ~150-280 MB RSS. Orphaned processes (PPid=0 after
-	// docker exec disconnects) accumulate and fill container RAM.
-	killExistingPISessions(upName)
-
 	return execPIContainer(upName, envFlags)
-}
-
-// killExistingPISessions kills pi processes without a PTY (stdin=/dev/null).
-// These are leaked non-interactive sessions (supervisor subagents).
-// Interactive sessions (stdin=/dev/pts/*) are preserved for parallel use.
-func killExistingPISessions(name string) {
-	cmd := exec.Command("docker", "exec", name, "sh", "-c",
-		`for d in /proc/[0-9]*/cmdline; do
-			[ -r "$d" ] || continue
-			grep -aq "^pi" "$d" 2>/dev/null || continue
-			pid="$(basename "$(dirname "$d")")"
-			# Only kill if stdin is /dev/null (not an interactive session)
-			[ "$(readlink "/proc/$pid/fd/0" 2>/dev/null)" = "/dev/null" ] && kill "$pid" 2>/dev/null
-		done`,
-	)
-	if out, err := cmd.CombinedOutput(); err == nil && len(out) > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Cleaned stale pi sessions\n")
-	}
 }
 
 func containerRunning(name string) (bool, error) {
@@ -182,6 +159,20 @@ func dockerComposeUp(ctx context.Context, workdir string) error {
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
+	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY
+	settingsPath := filepath.Join(workdir, ".pi", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err == nil {
+		var s struct {
+			Docker struct {
+				Memory string `json:"memory"`
+			} `json:"docker"`
+		}
+		if json.Unmarshal(data, &s) == nil && s.Docker.Memory != "" {
+			cmd.Env = append(os.Environ(), "CHEASEEPI_MEMORY="+s.Docker.Memory)
+			fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from settings.json\n", s.Docker.Memory)
+		}
+	}
 	fmt.Fprintf(os.Stderr, "  ℹ Starting container...\n")
 	if err := cmd.Run(); err != nil {
 		return err
@@ -272,15 +263,33 @@ func extractGHToken() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func execPIContainer(name string, envFlags []string) error {
+// execArgs builds docker exec args with a stdin-EOF cleanup wrapper.
+// When docker exec disconnects (close tab, network drop), stdin
+// returns EOF → the wrapper kills pi instead of orphaning it.
+// Uses bash wait -n to handle all exit paths: normal pi exit,
+// Ctrl+C, Ctrl+D, or terminal close — no orphan detection needed.
+func execArgs(envFlags []string, name string) []string {
 	args := append([]string{"exec"}, envFlags...)
 	args = append(args,
 		"-it",
 		"--user", "agentuser",
 		"-w", "/workspaces/main",
 		name,
-		"pi", "--approve",
+		"bash", "-c",
+		// trap kills child on Ctrl+C; cat & reads stdin for EOF detection;
+		// wait -n returns when either pi or cat exits; kill the other.
+		`trap "kill $P1 $P2 2>/dev/null; exit 0" INT TERM HUP
+/usr/bin/pi --approve & P1=$!
+cat > /dev/null & P2=$!
+wait -n $P1 $P2 2>/dev/null
+kill $P1 $P2 2>/dev/null
+wait 2>/dev/null`,
 	)
+	return args
+}
+
+func execPIContainer(name string, envFlags []string) error {
+	args := execArgs(envFlags, name)
 
 	cmd := exec.Command("docker", args...)
 	cmd.Stdin = os.Stdin
