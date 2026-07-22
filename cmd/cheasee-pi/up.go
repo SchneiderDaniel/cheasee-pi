@@ -139,7 +139,30 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Phase 4.5: Cleanup orphaned pi sessions from previous disconnects
+	// Each pi uses ~150-280 MB RSS. Orphaned processes (PPid=0 after
+	// docker exec disconnects) accumulate and fill container RAM.
+	killExistingPISessions(upName)
+
 	return execPIContainer(upName, envFlags)
+}
+
+// killExistingPISessions kills pi processes without a PTY (stdin=/dev/null).
+// These are leaked non-interactive sessions (supervisor subagents).
+// Interactive sessions (stdin=/dev/pts/*) are preserved for parallel use.
+func killExistingPISessions(name string) {
+	cmd := exec.Command("docker", "exec", name, "sh", "-c",
+		`for d in /proc/[0-9]*/cmdline; do
+			[ -r "$d" ] || continue
+			grep -aq "^pi" "$d" 2>/dev/null || continue
+			pid="$(basename "$(dirname "$d")")"
+			# Only kill if stdin is /dev/null (not an interactive session)
+			[ "$(readlink "/proc/$pid/fd/0" 2>/dev/null)" = "/dev/null" ] && kill "$pid" 2>/dev/null
+		done`,
+	)
+	if out, err := cmd.CombinedOutput(); err == nil && len(out) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Cleaned stale pi sessions\n")
+	}
 }
 
 func containerRunning(name string) (bool, error) {
