@@ -19,7 +19,7 @@ import (
 // It is a constant so both the CLI and documentation stay in sync.
 // If the script path changes, update both init.go and
 // docs/installation.md in lockstep.
-const nextStepHint = "bash docker/run-pi.sh"
+const nextStepHint = "cheasee-pi start"
 
 var (
 	initAPIKey        string

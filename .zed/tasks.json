@@ -1,36 +1,25 @@
 [
 	{
-		"label": "Cheasee-Pi (start / attach)",
-		"command": "./cheasee-pi.sh",
+		"label": "Cheasee-Pi: auth add",
+		"command": "cheasee-pi auth add",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
-		"allow_concurrent_runs": true,
+		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi-start"]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
-		"label": "Cheasee-Pi --rebuild",
-		"command": "./cheasee-pi.sh --rebuild",
+		"label": "Cheasee-Pi: auth list",
+		"command": "cheasee-pi auth list",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
-		"allow_concurrent_runs": true,
+		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi-rebuild"]
-	},
-	{
-		"label": "Cheasee-Pi --configure",
-		"command": "./cheasee-pi.sh --configure",
-		"args": [],
-		"cwd": "$ZED_WORKTREE_ROOT",
-		"use_new_terminal": true,
-		"allow_concurrent_runs": true,
-		"reveal": "always",
-		"hide": "never",
-		"tags": ["cheasee-pi-configure"]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
 		"label": "DC: up",
@@ -39,17 +28,6 @@
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
-		"reveal": "always",
-		"hide": "never",
-		"tags": ["cheasee-pi", "docker-compose"]
-	},
-	{
-		"label": "DC: pi",
-		"command": "docker exec -it cheasee-pi /bin/bash -c 'cd /workspaces/main && exec pi --approve'",
-		"args": [],
-		"cwd": "$ZED_WORKTREE_ROOT",
-		"use_new_terminal": true,
-		"allow_concurrent_runs": true,
 		"reveal": "always",
 		"hide": "never",
 		"tags": ["cheasee-pi", "docker-compose"]

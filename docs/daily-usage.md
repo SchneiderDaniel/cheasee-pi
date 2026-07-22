@@ -64,13 +64,15 @@ Without `--build`, Compose reuses the cached image — start is near-instant (~2
 ### Using the convenience script
 
 ```bash
-bash docker/run-pi.sh
+cheasee-pi start
 ```
 
-`run-pi.sh` checks if the container is running, starts it if needed, then execs into it.
-The legacy `cheasee-pi.sh` at the repo root provides the same workflow.
-It also reads `~/.config/cheasee-pi/auth.json` (or the legacy `~/.pi/agent/auth.json` as fallback) and passes API keys as environment variables
-(see [Missing API keys](#missing-api-keys) in Troubleshooting).
+`cheasee-pi start` checks if the container is running, starts it if needed, reads
+`~/.config/cheasee-pi/auth.json`, injects API keys as env vars, and launches pi.
+`cheasee-pi up` works as an alias.
+
+See [Missing API keys](#missing-api-keys) in Troubleshooting if models still don't
+show up.
 
 ## Run pi
 
@@ -95,17 +97,18 @@ docker exec -it \
   cheasee-pi pi
 ```
 
-> **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use the
-> [convenience script](#using-the-convenience-script) instead.
+> **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
+> `cheasee-pi start` instead.
 
-### Using the convenience script
+### Using `cheasee-pi start`
 
 ```bash
-bash docker/run-pi.sh
+cheasee-pi start
 ```
 
-This combines start and exec into a single idempotent command — it starts the container
+`cheasee-pi start` combines start and exec into a single command — it starts the container
 if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
+`cheasee-pi up` works as an alias.
 
 ## Parallel sessions
 
@@ -157,13 +160,11 @@ short breaks and `down` when you're done for the day.
 > **Note:** `docker compose down` maps to `down` (not `stop`) to avoid name collision
 > on the next `up` — `docker compose stop` preserves the container; `down` removes it.
 
-### Using the convenience script
+### Stop the container
 
 ```bash
-bash docker/stop-pi.sh
+docker compose -f docker/docker-compose.yml down
 ```
-
-This runs `docker compose down` — the standard full teardown.
 
 ## Rebuild after Dockerfile changes
 
@@ -211,8 +212,8 @@ complains about missing credentials.
 **Cause:** Environment variables set in the host shell are not passed into the container
 unless explicitly forwarded via `docker exec -e`.
 
-**Fix:** Use the convenience script (`bash docker/run-pi.sh`) which reads API keys from
-`~/.config/cheasee-pi/auth.json` (or legacy `~/.pi/agent/auth.json`) and forwards them, or pass each key explicitly:
+**Fix:** Use `cheasee-pi start` which reads API keys from
+`~/.config/cheasee-pi/auth.json` and forwards them, or pass each key explicitly:
 
 ```bash
 docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
