@@ -18,13 +18,16 @@ nav_order: 2
 ### Linux / macOS
 
 ```bash
+# Set version (check latest at https://github.com/SchneiderDaniel/cheasee-pi/releases)
+VERSION="0.33"
+
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case "$ARCH" in x86_64) ARCH="amd64" ;; aarch64|arm64) ARCH="arm64" ;; esac
 
 # Download, extract, install
-curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/latest/download/cheasee-pi_${OS}_${ARCH}.tar.gz" \
+curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz" \
   | tar xz && sudo mv cheasee-pi /usr/local/bin/
 ```
 
@@ -36,8 +39,9 @@ curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/latest/downloa
 
 ```powershell
 # PowerShell
+$version = "0.33"
 $arch = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
-curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/latest/download/cheasee-pi_windows_$arch.zip"
+curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$version/cheasee-pi_${version}_windows_$arch.zip"
 tar -xf cheasee-pi.zip
 Move-Item cheasee-pi.exe "$env:LOCALAPPDATA\cheasee-pi\"
 # Add to PATH manually: https://gist.github.com/nex3/c395b2f8fd4b020168be
@@ -77,13 +81,11 @@ cheasee-pi auth list                # verify
 ## Run
 
 ```bash
-cheasee-pi start
+# ✓ Auth config saved to ~/.config/cheasee-pi/auth.json after init
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Starts container (builds image ~2 min first time), injects keys from `~/.config/cheasee-pi/auth.json`, opens pi TUI.
-
-{:.note}
-> `cheasee-pi up` works as an alias. Use `cheasee-pi start --api-key sk-...` to override keys for one session.
 
 Stop the container when done:
 
@@ -147,7 +149,7 @@ Then set the font in your terminal to `JetBrainsMono Nerd Font`.
 
 ### API keys not picked up
 
-Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker:
+Use `docker compose -f docker/docker-compose.yml up -d --build` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker:
 
 ```bash
 docker exec -it \
