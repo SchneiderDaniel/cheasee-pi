@@ -49,8 +49,16 @@ func runCleanE(_ *cobra.Command, _ []string) error {
 
 	// Delegate to pi-guardian --once (single sweep, kills orphans only)
 	guardianCmd := exec.Command("docker", "exec", name, "pi-guardian", "--once")
-	if out, err := guardianCmd.CombinedOutput(); err == nil && len(out) > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ %s", strings.TrimSpace(string(out)))
+	guardianOut, guardianErr := guardianCmd.CombinedOutput()
+	if guardianErr != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ pi-guardian failed: %v\n", guardianErr)
+		if len(guardianOut) > 0 {
+			fmt.Fprintf(os.Stderr, "  ✗ output: %s\n", strings.TrimSpace(string(guardianOut)))
+		}
+		return fmt.Errorf("pi-guardian --once: %w", guardianErr)
+	}
+	if len(guardianOut) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ %s", strings.TrimSpace(string(guardianOut)))
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Orphaned pi processes cleaned in container %q\n", name)
 	return nil

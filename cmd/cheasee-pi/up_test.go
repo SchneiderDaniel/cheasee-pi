@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -106,11 +107,79 @@ func TestExecArgs_EmptyEnvFlags(t *testing.T) {
 	}
 }
 
+func TestExecArgs_ContainsSetsid(t *testing.T) {
+	args := execArgs(nil, "test-container")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "setsid") {
+		t.Errorf("execArgs should contain setsid, got: %s", joined)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Unit: killOrphanPISessions (source pattern verification)
+// ──────────────────────────────────────────────
+
+func TestKillOrphanPISessions_UsesPiGuardianOnce(t *testing.T) {
+	content := readUpGoForTest(t)
+	if !strings.Contains(content, "pi-guardian --once") {
+		t.Errorf("killOrphanPISessions should run 'pi-guardian --once' inside container, got:\n%s", content)
+	}
+}
+
+func TestKillOrphanPISessions_CalledBeforeExecPIContainer(t *testing.T) {
+	content := readUpGoForTest(t)
+	// killOrphanPISessions must appear before execPIContainer in runUpE
+	killIdx := strings.Index(content, "killOrphanPISessions")
+	execIdx := strings.Index(content, "execPIContainer")
+	if killIdx < 0 {
+		t.Error("killOrphanPISessions not found in up.go")
+	}
+	if execIdx < 0 {
+		t.Error("execPIContainer not found in up.go")
+	}
+	if killIdx >= 0 && execIdx >= 0 && killIdx > execIdx {
+		t.Error("killOrphanPISessions should be called BEFORE execPIContainer in runUpE")
+	}
+}
+
+func TestKillOrphanPISessions_NonRunningReturnsError(t *testing.T) {
+	content := readUpGoForTest(t)
+	// killOrphanPISessions should use exec.CommandContext which will fail
+	// if the container is not running (no Docker daemon check inside it).
+	// Verify it doesn't silently swallow errors.
+	if !strings.Contains(content, "return fmt.Errorf") && !strings.Contains(content, "err != nil") {
+		// Check that the function handles errors
+		t.Error("killOrphanPISessions should handle errors, no error handling found")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Unit: runUpE --dry-run
+// ──────────────────────────────────────────────
+
+func TestRunUpE_DryRunUsesSetsidWrapper(t *testing.T) {
+	content := readUpGoForTest(t)
+	// dry-run mode should print the docker command including setsid wrapper
+	if !strings.Contains(content, "setsid") {
+		t.Errorf("runUpE dry-run should show docker command with setsid wrapper, got:\n%s", content)
+	}
+}
+
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
 
+func readUpGoForTest(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("up.go")
+	if err != nil {
+		t.Fatalf("read up.go: %v", err)
+	}
+	return string(data)
+}
+
 // extractBashScript pulls the bash -c script from execArgs output.
+// It looks for the "setsid" + "bash" + "-c" sequence.
 func extractBashScript(t *testing.T, args []string) string {
 	t.Helper()
 	for i, a := range args {

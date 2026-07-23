@@ -126,16 +126,47 @@ docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
 docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
 ```
 
-### Stale process cleanup
+### Orphaned process cleanup
 
-Pi processes can become orphaned if a session crashes or the network disconnects.
-These accumulate across parallel sessions. As an optional but recommended cleanup:
+When a `docker exec` session disconnects (network blip, terminal close, SSH drop, Ctrl+D),
+the pi process inside the container becomes orphaned (reparented to PID 1). These orphans
+accumulate RAM (150-280 MB each) and can exhaust container memory.
+
+The container runs **pi-guardian**, an automatic orphan reaper that:
+- Scans `/proc` every 30 seconds for orphaned pi processes
+- Sends SIGTERM with a 5-second grace period, then SIGKILL
+- Runs as the primary process (replaces tini as PID 1)
+
+#### Manual cleanup
+
+To manually trigger an immediate orphan sweep:
 
 ```bash
-docker exec cheasee-pi bash -c \
-  'for f in /tmp/pi-active-*; do
-     [ -f "$f" ] && pid=$(cat "$f") && ! kill -0 "$pid" 2>/dev/null && rm -f "$f";
-   done'
+cheasee-pi clean
+```
+
+This runs `pi-guardian --once` inside the container — kills only orphaned (PPid=1)
+pi processes, not interactive sessions.
+
+To run the cleanup directly via docker exec:
+
+```bash
+docker exec cheasee-pi pi-guardian --once
+```
+
+#### Pre-start cleanup
+
+`cheasee-pi start` automatically runs a pre-start orphan cleanup before launching
+your interactive pi session. No manual action needed.
+
+#### Verify no orphans
+
+```bash
+docker exec cheasee-pi sh -c 'for pid in /proc/*/stat; do
+  ppid=$(awk "{print \$4}" "$pid" 2>/dev/null)
+  cmdline=$(cat "${pid%/stat}/cmdline" 2>/dev/null | tr "\0" " ")
+  [ "$ppid" = "1" ] && [[ "$cmdline" == *"pi"* ]] && echo "ORPHAN: $(basename $(dirname $pid)) $cmdline"
+done'
 ```
 
 ## Stop

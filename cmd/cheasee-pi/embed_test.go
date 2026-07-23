@@ -95,3 +95,41 @@ func TestFSExtractor_RespectsContextCancellation(t *testing.T) {
 		t.Errorf("expected context canceled error, got: %v", err)
 	}
 }
+
+// TestFSExtractor_WritesPiGuardianSource verifies that FSExtractor.Extract
+// writes the embedded pi-guardian source into <destDir>/cmd/pi-guardian/.
+// The Dockerfile references cmd/pi-guardian/ which only exists in the source
+// checkout, so the CLI must ship these files for downstream docker builds
+// (e.g., the CLI install smoke test) to succeed.
+func TestFSExtractor_WritesPiGuardianSource(t *testing.T) {
+	ext := NewExtractor()
+	destDir := t.TempDir()
+
+	if err := ext.Extract(context.Background(), destDir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	expected := []string{"main.go", "main_test.go"}
+	assetFS := AssetFS()
+
+	for _, name := range expected {
+		embeddedPath := filepath.Join("embedded", "cmd", "pi-guardian", name)
+		destPath := filepath.Join(destDir, "cmd", "pi-guardian", name)
+
+		embeddedContent, err := fs.ReadFile(assetFS, embeddedPath)
+		if err != nil {
+			t.Errorf("read embedded %s: %v", embeddedPath, err)
+			continue
+		}
+
+		extractedContent, err := os.ReadFile(destPath)
+		if err != nil {
+			t.Errorf("read extracted %s: %v", destPath, err)
+			continue
+		}
+
+		if !bytes.Equal(embeddedContent, extractedContent) {
+			t.Errorf("content mismatch for %s", name)
+		}
+	}
+}

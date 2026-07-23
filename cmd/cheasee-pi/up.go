@@ -287,9 +287,10 @@ func killOrphanPISessions(ctx context.Context, name string) error {
 // execArgs builds docker exec args with a stdin-EOF cleanup wrapper.
 // When docker exec disconnects (close tab, network drop), stdin
 // returns EOF → the wrapper kills pi instead of orphaning it.
-// Uses set -m (monitor mode) for per-process process groups and
-// process-group kill via kill -- -$PGID so pi's child processes
-// (e.g. node helpers) are also cleaned up.
+// Uses setsid to create a new session so the wrapper's process
+// group is independent of docker-exec's session; set -m (monitor
+// mode) gives background jobs their own process groups so
+// kill -- -$P1 kills pi AND its children.
 func execArgs(envFlags []string, name string) []string {
 	args := append([]string{"exec"}, envFlags...)
 	args = append(args,
@@ -297,9 +298,11 @@ func execArgs(envFlags []string, name string) []string {
 		"--user", "agentuser",
 		"-w", "/workspaces/main",
 		name,
+		"setsid",
 		"bash", "-c",
-		// set -m enables monitor mode: background jobs get their own
-		// process groups, so kill -- -$P1 kills pi AND its children.
+		// setsid creates a new session so the wrapper is independent
+		// from docker-exec's session; set -m enables monitor mode so
+		// background jobs get their own process groups.
 		// trap handles signals delivered to the wrapper (INT/TERM/HUP).
 		// cat >/dev/null reads stdin for EOF detection (Ctrl+D path).
 		// wait -n returns when either pi or cat exits; kill the group.

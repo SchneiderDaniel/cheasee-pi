@@ -29,7 +29,9 @@ services:
       - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw
     mem_limit: ${CHEASEEPI_MEMORY:-2G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
-    init: false       # pi-guardian runs as PID 1 (orphan reaper + zombie reaper)
+    init: false       # pi-guardian replaces tini: PID 1 (orphan reaper + zombie reaper)
+                      # BREAKING: if you override with init: true, pi-guardian won't be
+                      # PID 1 and orphan detection must filter PPid=<tini-pid> not PPid=1
     stdin_open: true
     tty: true
     shm_size: 64m

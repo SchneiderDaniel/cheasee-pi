@@ -12,6 +12,10 @@ import (
 )
 
 //go:generate cp ../../docker/Dockerfile embedded/docker/Dockerfile
+//go:generate cp ../../docker/docker-compose.yml embedded/docker/docker-compose.yml
+//go:generate cp ../../docker/entrypoint.sh embedded/docker/entrypoint.sh
+//go:generate cp ../pi-guardian/main.go embedded/cmd/pi-guardian/main.go
+//go:generate cp ../pi-guardian/main_test.go embedded/cmd/pi-guardian/main_test.go
 //go:embed embedded
 var embeddedFS embed.FS
 

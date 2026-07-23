@@ -31,6 +31,7 @@ core.*
 cmd/cheasee-pi/cheasee-pi
 *.exe
 *.test
+/pi-guardian
 
 # Python bytecode
 __pycache__/

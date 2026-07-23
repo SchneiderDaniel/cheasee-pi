@@ -23,6 +23,16 @@ CONTAINER_NAME="cheasee-pi"
 # --- Source shared auth library ---
 source "$SCRIPT_DIR/lib/auth-env.sh"
 
+# --- Read docker resource settings from .pi/settings.json ---
+SETTINGS_DIR="$(dirname "$SCRIPT_DIR")/.pi"
+SETTINGS_JSON="$SETTINGS_DIR/settings.json"
+if [ -f "$SETTINGS_JSON" ] && command -v jq &>/dev/null; then
+    MEMORY=$(jq -r '.docker.memory // empty' "$SETTINGS_JSON")
+    [ -n "$MEMORY" ] && export CHEASEEPI_MEMORY="$MEMORY"
+    CPUS=$(jq -r '.docker.cpus // empty' "$SETTINGS_JSON")
+    [ -n "$CPUS" ] && export CHEASEEPI_CPUS="$CPUS"
+fi
+
 # --- Check if container already running ---
 if docker ps --filter name="$CONTAINER_NAME" --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
     echo "Container already running — attaching…"

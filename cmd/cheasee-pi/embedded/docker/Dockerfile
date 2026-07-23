@@ -198,9 +198,13 @@ ENV PATH=/usr/local/go/bin:${PATH}
 # ---------------------------------------------------------------
 # Layer 5g.5: pi-guardian — in-container orphan reaper
 # Compiled from source; tiny static binary (Go toolchain already present).
+# Source is provided via cmd/pi-guardian/ (repo) or built into the
+# embedded CLI (init extraction). Uses tiny stub go.mod because
+# pi-guardian's only deps are stdlib.
 # ---------------------------------------------------------------
 COPY cmd/pi-guardian/ /tmp/pi-guardian/
 RUN cd /tmp/pi-guardian && \
+    printf 'module piguardian\n\ngo 1.25.8\n' > go.mod && \
     CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/pi-guardian . && \
     rm -rf /tmp/pi-guardian && \
     pi-guardian --help >/dev/null

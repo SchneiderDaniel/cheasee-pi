@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -38,15 +39,9 @@ func TestCleanCmd_Short(t *testing.T) {
 // (exec.Command call signature test — no Docker daemon needed)
 // ──────────────────────────────────────────────
 
-// TestCleanCmd_RunCleanE_UsesPiGuardian verifies that runCleanE
-// constructs a docker exec pi-guardian --once command when the
-// container is running. Uses string matching on the exec.Command
-// that would be built. We can't intercept exec.Command without
-// a shim, so we test the logical flow by inspecting the code
-// pattern:
-//   - clean.go must contain "pi-guardian" and "--once" in the same
-//     area as the kill command
-//   - clean.go must NOT contain the old /proc loop pattern
+// TestCleanCmd_UsesPiGuardian verifies that runCleanE
+// constructs a docker exec pi-guardian --once command by reading
+// the actual source code of clean.go.
 
 func TestCleanCmd_UsesPiGuardian(t *testing.T) {
 	content := readCleanGoForTest(t)
@@ -58,13 +53,12 @@ func TestCleanCmd_UsesPiGuardian(t *testing.T) {
 	}
 }
 
-// readCleanGoForTest returns the content of clean.go for analysis.
-// In a real test environment we'd use os.ReadFile relative to the
-// test source directory.
+// readCleanGoForTest returns the content of clean.go by reading it from disk.
 func readCleanGoForTest(t *testing.T) string {
 	t.Helper()
-	// Use the exported command structure to verify the command pattern
-	// exists in the source. Since we're in the same package, we can
-	// verify by running the command and checking its RunE exists.
-	return `runCleanE func uses docker exec name pi-guardian --once`
+	data, err := os.ReadFile("clean.go")
+	if err != nil {
+		t.Fatalf("read clean.go: %v", err)
+	}
+	return string(data)
 }

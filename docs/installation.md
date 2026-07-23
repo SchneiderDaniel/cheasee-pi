@@ -19,7 +19,7 @@ nav_order: 2
 
 ```bash
 # Set version (check latest at https://github.com/SchneiderDaniel/cheasee-pi/releases)
-VERSION="0.33"
+VERSION="0.34"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -39,7 +39,7 @@ curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VE
 
 ```powershell
 # PowerShell
-$version = "0.33"
+$version = "0.34"
 $arch = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
 curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$version/cheasee-pi_${version}_windows_$arch.zip"
 tar -xf cheasee-pi.zip
@@ -86,7 +86,7 @@ cheasee-pi
 ```
 
 `cheasee-pi` starts the container (builds image ~2 min first time), injects keys
-from `~/.config/cheasee-pi/auth.json`, and opens pi TUI. `cheasee-pi start` also works.
+from `~/.config/cheasee-pi/auth.json`, and opens pi TUI.
 
 Stop the container when done:
 
