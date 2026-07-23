@@ -22,3 +22,6 @@
 {"datetime":"2026-07-22T20:10:08.854Z","question":"Ready to push tag `v0.33` and `main` to origin? This will trigger GoReleaser CI to build and publish binaries.","answer":"push"}
 {"datetime":"2026-07-23T17:51:09.417Z","question":"What change to .zed/tasks.json?","answer":"last time you said we cannot add cheasee-pi start there in zed. there was an issue with the type zed starts the termina then"}
 {"datetime":"2026-07-23T17:51:24.698Z","question":"Which tasks to add/change in .zed/tasks.json?","answer":"build_test"}
+{"datetime":"2026-07-23T18:30:57.180Z","question":"What do you mean by \"set the issue\"?","answer":"review_request_changes"}
+{"datetime":"2026-07-23T18:32:12.232Z","question":"gh blocks you from submitting a formal review on your own PR (you are the author). How proceed?","answer":"issue_comment"}
+{"datetime":"2026-07-23T18:32:34.901Z","question":"Posted review to #1321. Now \"set the issue\" — what do you want?","answer":"do nothing"}

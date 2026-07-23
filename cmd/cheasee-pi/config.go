@@ -161,6 +161,8 @@ func (r *fileRepository) Load(_ context.Context) (*Auth, error) {
 
 // Save writes the auth config to disk atomically (write to .tmp then rename).
 func (r *fileRepository) Save(_ context.Context, auth *Auth) error {
+	auth.APIKey = dedupeKey(auth.APIKey) // guard against accidental double-paste
+
 	path, err := r.configPath()
 	if err != nil {
 		return err
@@ -222,9 +224,23 @@ func (r *fileRepository) writeRawMap(raw map[string]json.RawMessage) error {
 	return atomicWrite(path, data, 0600)
 }
 
+// dedupeKey detects if a key was accidentally pasted twice (first half == second
+// half) and returns only the first half. No-op for normal keys.
+func dedupeKey(key string) string {
+	if len(key) >= 4 && len(key)%2 == 0 {
+		half := len(key) / 2
+		if key[:half] == key[half:] {
+			return key[:half]
+		}
+	}
+	return key
+}
+
 // AddProvider adds or updates a provider API key in the auth config.
 // Other providers and GitHub token fields are preserved.
 func (r *fileRepository) AddProvider(_ context.Context, provider, key string) error {
+	key = dedupeKey(key) // guard against accidental double-paste
+
 	raw, err := r.readRawMap()
 	if err != nil {
 		return err
