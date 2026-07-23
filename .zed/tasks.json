@@ -22,25 +22,69 @@
 		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
-		"label": "Cheasee-Pi: build",
-		"command": "make build",
+		"label": "Cheasee-Pi: auth remove",
+		"command": "cheasee-pi auth remove",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "build"]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
-		"label": "Cheasee-Pi: test",
-		"command": "make test",
+		"label": "Cheasee-Pi: start",
+		"command": "cheasee-pi start",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "test"]
+		"tags": ["cheasee-pi", "go-cli", "container"]
+	},
+	{
+		"label": "Cheasee-Pi: down",
+		"command": "cheasee-pi down",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "go-cli", "container"]
+	},
+	{
+		"label": "Cheasee-Pi: clean",
+		"command": "cheasee-pi clean",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "go-cli", "container"]
+	},
+	{
+		"label": "Cheasee-Pi: build (Docker)",
+		"command": "docker exec -w /workspaces/main cheasee-pi make build",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "build", "docker"]
+	},
+	{
+		"label": "Cheasee-Pi: test (Docker)",
+		"command": "docker exec -w /workspaces/main cheasee-pi make test",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "test", "docker"]
 	}
 ]
