@@ -86,7 +86,7 @@ cheasee-pi
 ```
 
 `cheasee-pi` starts the container (builds image ~2 min first time), injects keys
-from `~/.config/cheasee-pi/auth.json`, and opens pi TUI. `cheasee-pi start` also works.
+from `~/.config/cheasee-pi/auth.json`, and opens pi TUI.
 
 Stop the container when done:
 
