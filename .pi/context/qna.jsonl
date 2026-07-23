@@ -20,3 +20,5 @@
 {"datetime":"2026-07-22T18:24:33.941Z","question":"Your auth.json has a placeholder key (`ci-test-key`) instead of a real API key. What provider do you want to set up?\n\nCurrent default from `.pi/settings.json`: `opencode-go` / `deepseek-v4-flash`","answer":"opencode-go"}
 {"datetime":"2026-07-22T20:08:00.525Z","question":"Release plan: v0.33 (increment from v0.32, 1 merged PR: #1320 — feat: ICA: FileOps, test-only seam in session-logger)\n\nCreate this release?","answer":"create"}
 {"datetime":"2026-07-22T20:10:08.854Z","question":"Ready to push tag `v0.33` and `main` to origin? This will trigger GoReleaser CI to build and publish binaries.","answer":"push"}
+{"datetime":"2026-07-23T17:51:09.417Z","question":"What change to .zed/tasks.json?","answer":"last time you said we cannot add cheasee-pi start there in zed. there was an issue with the type zed starts the termina then"}
+{"datetime":"2026-07-23T17:51:24.698Z","question":"Which tasks to add/change in .zed/tasks.json?","answer":"build_test"}

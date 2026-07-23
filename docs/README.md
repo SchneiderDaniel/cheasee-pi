@@ -41,15 +41,13 @@ All components run locally. No code leaves your machine (except LLM API calls to
 ## Quick start
 
 ```bash
+cheasee-pi                # start container + inject keys + launch pi (default)
 cheasee-pi init           # interactive setup: auth, fork, clone, env
 cheasee-pi auth add       # add API key for a provider
-cheasee-pi start          # start container + inject keys + launch pi
+cheasee-pi down           # stop and remove container
 ```
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.
-
-> **Legacy wrapper:** The original `cheasee-pi.sh` script is available in the repository
-> root for those who prefer a direct shell script over the `cheasee-pi` CLI command.
 
 ## Documentation
 
@@ -80,6 +78,12 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 ### Update after dependency changes
 
 When pi, ponytail, or any container dependency updates, rebuild the image:
+
+```bash
+cheasee-pi start --build
+```
+
+Or rebuild and restart from scratch:
 
 ```bash
 docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d

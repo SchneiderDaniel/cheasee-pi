@@ -61,15 +61,17 @@ docker compose -f docker/docker-compose.yml up -d
 
 Without `--build`, Compose reuses the cached image — start is near-instant (~2s).
 
-### Using the convenience script
+### Using the CLI (auto)
 
 ```bash
-cheasee-pi start
+cheasee-pi
 ```
 
-`cheasee-pi start` checks if the container is running, starts it if needed, reads
-`~/.config/cheasee-pi/auth.json`, injects API keys as env vars, and launches pi.
-`cheasee-pi up` works as an alias. The underlying script is `docker/run-pi.sh`.
+`cheasee-pi` (no subcommand) checks if the container is running, starts it if needed,
+reads `~/.config/cheasee-pi/auth.json`, injects API keys as env vars, and launches pi.
+`cheasee-pi start` and `cheasee-pi up` work as aliases.
+
+For a shell-based alternative, see `docker/run-pi.sh`.
 
 See [Missing API keys](#missing-api-keys) in Troubleshooting if models still don't
 show up.
@@ -100,18 +102,15 @@ docker exec -it \
 > **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
 > `cheasee-pi start` instead.
 
-### Using `cheasee-pi start`
+### Using `cheasee-pi` (no subcommand)
 
 ```bash
-cheasee-pi start
+cheasee-pi
 ```
 
-`cheasee-pi start` combines start and exec into a single command — it starts the container
+`cheasee-pi` combines start and exec into a single command — it starts the container
 if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
-`cheasee-pi up` works as an alias. The underlying script is `docker/run-pi.sh`.
-
-> **Legacy wrapper:** The original `cheasee-pi.sh` script is still available in the repository
-> root for backward compatibility.
+`cheasee-pi start` and `cheasee-pi up` work as aliases.
 
 ## Parallel sessions
 
@@ -141,6 +140,15 @@ docker exec cheasee-pi bash -c \
 
 ## Stop
 
+### Using the CLI (auto)
+
+```bash
+cheasee-pi down
+```
+
+`cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container via
+`docker compose down`.
+
 ### Full teardown (removes container)
 
 ```bash
@@ -168,18 +176,6 @@ short breaks and `down` when you're done for the day.
 
 > **Note:** `docker compose down` maps to `down` (not `stop`) to avoid name collision
 > on the next `up` — `docker compose stop` preserves the container; `down` removes it.
-
-### Stop the container
-
-```bash
-docker compose -f docker/docker-compose.yml down
-```
-
-Or use the convenience script:
-
-```bash
-bash docker/stop-pi.sh
-```
 
 ## Rebuild after Dockerfile changes
 

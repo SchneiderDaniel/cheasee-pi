@@ -82,14 +82,22 @@ cheasee-pi auth list                # verify
 
 ```bash
 # ✓ Auth config saved to ~/.config/cheasee-pi/auth.json after init
-docker compose -f docker/docker-compose.yml up -d --build
+cheasee-pi
 ```
 
-Starts container (builds image ~2 min first time), injects keys from `~/.config/cheasee-pi/auth.json`, opens pi TUI.
+`cheasee-pi` starts the container (builds image ~2 min first time), injects keys
+from `~/.config/cheasee-pi/auth.json`, and opens pi TUI. `cheasee-pi start` also works.
 
 Stop the container when done:
 
 ```bash
+cheasee-pi down
+```
+
+Or use raw Docker:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
 docker compose -f docker/docker-compose.yml down
 ```
 
