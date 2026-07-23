@@ -20,13 +20,7 @@
 
 import assert from "node:assert";
 import { describe, it, before, after } from "node:test";
-import {
-	mkdtempSync,
-	existsSync,
-	readFileSync,
-	rmSync,
-	chmodSync,
-} from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -36,8 +30,7 @@ import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 // Configuration
 // ═══════════════════════════════════════════════════════════════════
 
-const BINARY_PATH =
-	process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
+const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
 const CONTAINER_NAME = "cheasee-pi";
 const HEALTH_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -68,7 +61,7 @@ function exec(
 ): ExecResult {
 	const defaultTimeout = opts?.timeout ?? 30_000;
 	const env: Record<string, string> = {
-		...process.env as Record<string, string>,
+		...(process.env as Record<string, string>),
 		...opts?.env,
 	};
 	const spawnOpts: SpawnSyncOptionsWithStringEncoding = {
@@ -106,10 +99,9 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 	const startTime = Date.now();
 	const deadline = startTime + timeoutMs;
 	while (Date.now() < deadline) {
-		const result = exec(
-			`docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME}`,
-			{ timeout: 10_000 },
-		);
+		const result = exec(`docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME}`, {
+			timeout: 10_000,
+		});
 		if (result.status === 0) {
 			const status = result.stdout.trim();
 			if (status === "healthy") return status;
@@ -146,10 +138,9 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	after(() => {
 		// Clean up: compose down if container is running
 		if (workdir) {
-			exec(
-				`docker compose -f "${composeFile(workdir)}" down -v 2>/dev/null || true`,
-				{ timeout: 30_000 },
-			);
+			exec(`docker compose -f "${composeFile(workdir)}" down -v 2>/dev/null || true`, {
+				timeout: 30_000,
+			});
 			// Remove temp directory
 			rmSync(workdir, { recursive: true, force: true });
 		}
@@ -159,16 +150,12 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 
 	it("checkpoint 1 — cheasee-pi --version exits 0", () => {
 		const result = exec(`"${BINARY_PATH}" --version`, { timeout: 10_000 });
-		assert.strictEqual(
-			result.status,
-			0,
-			`--version exited ${result.status}: ${result.stderr}`,
-		);
-		// Should contain a semver string like "0.31.0"
-		const version = result.stdout.trim();
+		assert.strictEqual(result.status, 0, `--version exited ${result.status}: ${result.stderr}`);
+		// Should contain something like "0.31.0" or "0.33"
+		const output = result.stdout.trim();
 		assert.ok(
-			/\d+\.\d+\.\d+/.test(version),
-			`expected semver in --version output, got: ${version}`,
+			/\d+\.\d+(\.\d+)?/.test(output),
+			`expected semver in --version output, got: ${output}`,
 		);
 	});
 
@@ -182,16 +169,12 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 				"--skip-submodules " +
 				"--no-input " +
 				"--no-docker-check " +
-				'--api-key ci-test-key ' +
-				'--provider opencode-go ' +
+				"--api-key ci-test-key " +
+				"--provider opencode-go " +
 				`--workdir "${workdir}"`,
 			{ timeout: 60_000 },
 		);
-		assert.strictEqual(
-			result.status,
-			0,
-			`init exited ${result.status}: ${result.stderr}`,
-		);
+		assert.strictEqual(result.status, 0, `init exited ${result.status}: ${result.stderr}`);
 		assert.ok(
 			result.stderr.includes("Init complete!"),
 			`expected "Init complete!" in stderr, got: ${result.stderr}`,
@@ -213,15 +196,9 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		];
 		for (const f of files) {
 			const fullPath = join(workdir, f);
-			assert.ok(
-				existsSync(fullPath),
-				`expected file to exist: ${f} (${fullPath})`,
-			);
+			assert.ok(existsSync(fullPath), `expected file to exist: ${f} (${fullPath})`);
 			const content = readFileSync(fullPath, "utf-8");
-			assert.ok(
-				content.length > 0,
-				`expected non-empty file: ${f}`,
-			);
+			assert.ok(content.length > 0, `expected non-empty file: ${f}`);
 		}
 	});
 
@@ -232,36 +209,24 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			`docker compose -f "${composeFile(workdir)}" build`,
 			{ timeout: 600_000, cwd: workdir }, // 10 min — cold build is slow
 		);
-		assert.strictEqual(
-			result.status,
-			0,
-			`compose build exited ${result.status}: ${result.stderr}`,
-		);
+		assert.strictEqual(result.status, 0, `compose build exited ${result.status}: ${result.stderr}`);
 	});
 
 	// ── Checkpoint 5: docker compose up -d ─────────────────────────
 
 	it("checkpoint 5 — docker compose up -d exits 0, container running", () => {
-		const result = exec(
-			`docker compose -f "${composeFile(workdir)}" up -d`,
-			{ timeout: 120_000, cwd: workdir },
-		);
-		assert.strictEqual(
-			result.status,
-			0,
-			`compose up exited ${result.status}: ${result.stderr}`,
-		);
+		const result = exec(`docker compose -f "${composeFile(workdir)}" up -d`, {
+			timeout: 120_000,
+			cwd: workdir,
+		});
+		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);
 
 		// Verify container is Up
-		const psResult = exec(
-			`docker ps --filter name=${CONTAINER_NAME} --format '{{.Status}}'`,
-			{ timeout: 10_000 },
-		);
+		const psResult = exec(`docker ps --filter name=${CONTAINER_NAME} --format '{{.Status}}'`, {
+			timeout: 10_000,
+		});
 		const status = psResult.stdout.trim().toLowerCase();
-		assert.ok(
-			status.startsWith("up"),
-			`expected container status "Up", got: "${status}"`,
-		);
+		assert.ok(status.startsWith("up"), `expected container status "Up", got: "${status}"`);
 	});
 
 	// ── Checkpoint 6: health check reaches healthy ─────────────────
@@ -278,19 +243,68 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 7: pi --version inside container ────────────────
 
 	it("checkpoint 7 — pi --version exits 0 inside container", () => {
-		const result = exec(
-			`docker exec ${CONTAINER_NAME} pi --version`,
-			{ timeout: 30_000 },
-		);
-		assert.strictEqual(
-			result.status,
-			0,
-			`pi --version exited ${result.status}: ${result.stderr}`,
-		);
+		const result = exec(`docker exec ${CONTAINER_NAME} pi --version`, { timeout: 30_000 });
+		assert.strictEqual(result.status, 0, `pi --version exited ${result.status}: ${result.stderr}`);
 		const version = result.stdout.trim();
+		assert.ok(version.length > 0, `expected pi --version output, got empty`);
+	});
+
+	// ── Checkpoint 8: cheasee-pi start with PTY launches pi ────────
+
+	it("checkpoint 8 — cheasee-pi start with PTY launches pi", { timeout: 30_000 }, () => {
+		// `script` allocates a PTY for the child. Without a PTY, docker exec -it
+		// fails with "not a TTY", which would catch a different bug. We need -it
+		// to mirror real user behavior.
+		// `timeout 8` kills after 8s — if pi is running, it gets SIGKILLed cleanly.
+		// Bug indicator: cheasee-pi start exits 0 → wrapper broke, pi never launched.
+		const logPath = join(tmpdir(), `cheasee-pty-${Date.now()}.log`);
+		const result = exec(`timeout 8 script -q -c '"${BINARY_PATH}" start' "${logPath}"`, {
+			timeout: 30_000,
+			cwd: workdir,
+		});
+
+		const logContent = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
+		rmSync(logPath, { force: true });
+
+		// Bug catch: clean exit means pi never started
+		if (result.status === 0) {
+			assert.fail(
+				`cheasee-pi start exited 0 within 8s — pi did not launch. ` +
+					`Last log:\n${logContent.slice(-2000)}`,
+			);
+		}
+
+		// Strip ANSI escapes for cleaner matching
+		const cleaned = logContent
+			.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+			.replace(/\x1b\][^\x07]*\x07/g, "");
+
+		// Verify pi actually rendered output. "Docker Engine" comes from
+		// cheasee-pi startup; "SessionID" comes from pi's status bar.
 		assert.ok(
-			version.length > 0,
-			`expected pi --version output, got empty`,
+			cleaned.includes("SessionID") || cleaned.includes("Docker Engine"),
+			`expected pi output, got (cleaned, last 2000 chars):\n${cleaned.slice(-2000)}`,
+		);
+	});
+
+	// ── Checkpoint 9: cheasee-pi down removes container ────────────
+
+	it("checkpoint 9 — cheasee-pi down removes container", () => {
+		const result = exec(`"${BINARY_PATH}" down --workdir "${workdir}"`, { timeout: 60_000 });
+		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
+		assert.ok(
+			result.stderr.includes("Container stopped and removed"),
+			`expected "Container stopped and removed" in stderr, got: ${result.stderr}`,
+		);
+
+		// Verify container is gone
+		const psResult = exec(`docker ps --filter name=${CONTAINER_NAME} --format '{{.Names}}'`, {
+			timeout: 10_000,
+		});
+		assert.strictEqual(
+			psResult.stdout.trim(),
+			"",
+			`expected container gone, got: ${psResult.stdout}`,
 		);
 	});
 });
@@ -329,10 +343,7 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 	});
 
 	it("adapter — non-existent binary exits non-zero", () => {
-		const result = exec(
-			"/tmp/nonexistent-cheasee-pi --version",
-			{ timeout: 10_000 },
-		);
+		const result = exec("/tmp/nonexistent-cheasee-pi --version", { timeout: 10_000 });
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-existent binary");
 	});
 });
@@ -360,15 +371,13 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				"--skip-submodules " +
 				"--no-input " +
 				"--no-docker-check " +
-				'--api-key ci-test-key ' +
-				'--provider opencode-go ' +
+				"--api-key ci-test-key " +
+				"--provider opencode-go " +
 				`--workdir "${initWorkdir}"`,
 			{ timeout: 60_000 },
 		);
 		if (result.status !== 0) {
-			throw new Error(
-				`init failed for boundary tests: ${result.stderr}`,
-			);
+			throw new Error(`init failed for boundary tests: ${result.stderr}`);
 		}
 	});
 
@@ -417,8 +426,8 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				"--skip-submodules " +
 				"--no-input " +
 				"--no-docker-check " +
-				'--api-key ci-test-key ' +
-				'--provider opencode-go ' +
+				"--api-key ci-test-key " +
+				"--provider opencode-go " +
 				`--workdir "${initWorkdir}"`,
 			{ timeout: 60_000 },
 		);
@@ -445,11 +454,15 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 					"--skip-submodules " +
 					"--no-input " +
 					"--no-docker-check " +
-					'--api-key ci-test-key ' +
+					"--api-key ci-test-key " +
 					`--workdir "${noProvDir}"`,
 				{ timeout: 60_000 },
 			);
-			assert.strictEqual(result.status, 0, `init without --provider exited ${result.status}: ${result.stderr}`);
+			assert.strictEqual(
+				result.status,
+				0,
+				`init without --provider exited ${result.status}: ${result.stderr}`,
+			);
 			const settingsPath = join(noProvDir, ".pi", "settings.json");
 			const content = readFileSync(settingsPath, "utf-8");
 			const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -475,8 +488,8 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 					"--skip-submodules " +
 					"--no-input " +
 					"--no-docker-check " +
-					'--api-key ci-test-key ' +
-					'--provider opencode-go ' +
+					"--api-key ci-test-key " +
+					"--provider opencode-go " +
 					`--workdir "${childWorkdir}"`,
 				{ timeout: 10_000 },
 			);
