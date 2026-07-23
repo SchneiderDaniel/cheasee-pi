@@ -120,7 +120,12 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
 	}
 
-	// Phase 4: Print env flags or exec pi
+	// Phase 4: Pre-start cleanup — kill any orphaned pi processes
+	if err := killOrphanPISessions(ctx, upName); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ Pre-start cleanup: %v (non-fatal)\n", err)
+	}
+
+	// Phase 5: Print env flags or exec pi
 	if upDryRun {
 		fmt.Fprintf(os.Stderr, "Env vars to be injected:\n")
 		for i := 0; i < len(envFlags); i += 2 {
@@ -263,11 +268,28 @@ func extractGHToken() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// killOrphanPISessions runs pi-guardian --once inside the container to
+// kill orphaned pi processes (PPid=1, cmdline contains "pi").
+func killOrphanPISessions(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "docker", "exec", name,
+		"pi-guardian", "--once",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pi-guardian --once: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	if len(out) > 0 {
+		fmt.Fprintf(os.Stderr, "  ℹ Pre-start cleanup: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // execArgs builds docker exec args with a stdin-EOF cleanup wrapper.
 // When docker exec disconnects (close tab, network drop), stdin
 // returns EOF → the wrapper kills pi instead of orphaning it.
-// Uses bash wait -n to handle all exit paths: normal pi exit,
-// Ctrl+C, Ctrl+D, or terminal close — no orphan detection needed.
+// Uses set -m (monitor mode) for per-process process groups and
+// process-group kill via kill -- -$PGID so pi's child processes
+// (e.g. node helpers) are also cleaned up.
 func execArgs(envFlags []string, name string) []string {
 	args := append([]string{"exec"}, envFlags...)
 	args = append(args,
@@ -276,13 +298,17 @@ func execArgs(envFlags []string, name string) []string {
 		"-w", "/workspaces/main",
 		name,
 		"bash", "-c",
-		// trap kills child on Ctrl+C; cat & reads stdin for EOF detection;
-		// wait -n returns when either pi or cat exits; kill the other.
-		`trap "kill $P1 $P2 2>/dev/null; exit 0" INT TERM HUP
+		// set -m enables monitor mode: background jobs get their own
+		// process groups, so kill -- -$P1 kills pi AND its children.
+		// trap handles signals delivered to the wrapper (INT/TERM/HUP).
+		// cat >/dev/null reads stdin for EOF detection (Ctrl+D path).
+		// wait -n returns when either pi or cat exits; kill the group.
+		`set -m
+trap "kill -- -$P1 -- -$P2 2>/dev/null; exit 0" INT TERM HUP
 /usr/bin/pi --approve & P1=$!
 cat > /dev/null & P2=$!
 wait -n $P1 $P2 2>/dev/null
-kill $P1 $P2 2>/dev/null
+kill -- -$P1 -- -$P2 2>/dev/null
 wait 2>/dev/null`,
 	)
 	return args

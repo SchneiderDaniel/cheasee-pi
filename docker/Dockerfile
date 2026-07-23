@@ -196,6 +196,16 @@ RUN case "$(dpkg --print-architecture)" in \
 ENV PATH=/usr/local/go/bin:${PATH}
 
 # ---------------------------------------------------------------
+# Layer 5g.5: pi-guardian — in-container orphan reaper
+# Compiled from source; tiny static binary (Go toolchain already present).
+# ---------------------------------------------------------------
+COPY cmd/pi-guardian/ /tmp/pi-guardian/
+RUN cd /tmp/pi-guardian && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/pi-guardian . && \
+    rm -rf /tmp/pi-guardian && \
+    pi-guardian --help >/dev/null
+
+# ---------------------------------------------------------------
 # Layer 5h: pi-coding-agent (last npm layer — pi version bumps
 #           don't invalidate expensive binary layers above)
 # ---------------------------------------------------------------

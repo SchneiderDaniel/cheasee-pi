@@ -75,6 +75,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/worktree-fix.sh"
 unbreak_worktrees
 
+# --- Start pi-guardian orphan reaper -----------------------------------
+# pi-guardian runs as PID 1 to detect and kill orphaned pi processes
+# left by disconnected docker exec sessions. It reaps orphans every 30s.
+PI_GUARDIAN_PID=""
+if command -v pi-guardian &>/dev/null; then
+    pi-guardian &
+    PI_GUARDIAN_PID=$!
+    echo "pi-guardian started (pid=$PI_GUARDIAN_PID)"
+fi
+
+# Trap for graceful shutdown: forward signals to pi-guardian
+cleanup_guardian() {
+    if [ -n "$PI_GUARDIAN_PID" ] && kill -0 "$PI_GUARDIAN_PID" 2>/dev/null; then
+        echo "Shutting down pi-guardian (pid=$PI_GUARDIAN_PID)…"
+        kill -TERM "$PI_GUARDIAN_PID" 2>/dev/null
+        sleep 2
+        kill -0 "$PI_GUARDIAN_PID" 2>/dev/null && kill -KILL "$PI_GUARDIAN_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup_guardian EXIT TERM INT
+
 # --- Pre-install Python venvs for web tools -------------------------
 # Copy pre-built venvs from /opt/venvs/ to .pi/ if missing.
 # This saves first-call latency in web_search and web_crawl extensions.

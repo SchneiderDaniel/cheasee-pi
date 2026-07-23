@@ -29,7 +29,7 @@ services:
       - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw
     mem_limit: ${CHEASEEPI_MEMORY:-2G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
-    init: true
+    init: false       # pi-guardian runs as PID 1 (orphan reaper + zombie reaper)
     stdin_open: true
     tty: true
     shm_size: 64m

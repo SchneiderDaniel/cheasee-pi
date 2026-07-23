@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -12,15 +13,16 @@ var cleanName string
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Kill all pi sessions inside container to free RAM",
-	Long: `Kill all pi processes inside the Cheasee-Pi Docker container.
+	Short: "Kill orphaned pi sessions inside container to free RAM",
+	Long: `Kill orphaned pi processes inside the Cheasee-Pi Docker container.
 
 Orphaned pi processes from disconnected docker exec sessions accumulate RAM.
-Run this when memory usage is high. Kills ALL pi processes — interactive
-sessions AND subagents. Use 'cheasee-pi start' to start a fresh session.
+Run this when memory usage is high. Kills only orphaned pi processes
+(PPid=1, no parent session) — interactive sessions are NOT affected.
+Use 'cheasee-pi start' to start a fresh session.
 
 Examples:
-  cheasee-pi clean               # kill all pi in default container
+  cheasee-pi clean               # kill orphaned pi in default container
   cheasee-pi clean --name mypi   # specify container name`,
 	DisableAutoGenTag: true,
 	RunE:              runCleanE,
@@ -45,17 +47,11 @@ func runCleanE(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Kill all pi processes (any stdin state, any PPid)
-	killCmd := exec.Command("docker", "exec", name, "sh", "-c",
-		`for d in /proc/[0-9]*/cmdline; do
-			[ -r "$d" ] || continue
-			grep -aq "^pi" "$d" 2>/dev/null || continue
-			kill "$(basename "$(dirname "$d")")" 2>/dev/null
-		done`,
-	)
-	if out, err := killCmd.CombinedOutput(); err == nil && len(out) > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Cleaned stale pi sessions\n")
+	// Delegate to pi-guardian --once (single sweep, kills orphans only)
+	guardianCmd := exec.Command("docker", "exec", name, "pi-guardian", "--once")
+	if out, err := guardianCmd.CombinedOutput(); err == nil && len(out) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ %s", strings.TrimSpace(string(out)))
 	}
-	fmt.Fprintf(os.Stderr, "  ✓ All pi sessions killed in container %q\n", name)
+	fmt.Fprintf(os.Stderr, "  ✓ Orphaned pi processes cleaned in container %q\n", name)
 	return nil
 }
