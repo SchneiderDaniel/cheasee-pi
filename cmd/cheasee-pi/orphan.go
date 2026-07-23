@@ -12,13 +12,13 @@ import (
 // and cmdline matching /usr/bin/pi or pi (anchored — no *pi* substring to avoid
 // false positives on python/pipewire). TOCTOU races between stat read and kill
 // are tolerated — ESRCH is silently swallowed by 2>/dev/null.
-const orphanScanBash = `for pid in /proc/*/stat; do
+const orphanScanBash = `for pid in /proc/[0-9]*/stat; do
   ppid=$(awk '{print $4}' "$pid" 2>/dev/null)
   cmdline=$(tr '\0' ' ' < "${pid%/stat}/cmdline" 2>/dev/null)
   [ "$ppid" = "1" ] && { [[ "$cmdline" == "/usr/bin/pi"* ]] || [[ "$cmdline" == "pi "* ]] || [[ "$cmdline" == "pi" ]]; } && \
     echo "killing $(basename "$(dirname "$pid")")" && \
     kill "$(basename "$(dirname "$pid")")" 2>/dev/null
-done`
+done || true`
 
 // cmdIface is the subset of *exec.Cmd used by scanOrphans.
 type cmdIface interface {
@@ -45,7 +45,7 @@ func scanOrphans(ctx context.Context, name string) (int, error) {
 		return 0, nil
 	}
 
-	execCmd := execCommand("docker", "exec", name, "sh", "-c", orphanScanBash)
+	execCmd := execCommand("docker", "exec", name, "bash", "-c", orphanScanBash)
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
 		return 0, fmt.Errorf("orphan scan: %w", err)

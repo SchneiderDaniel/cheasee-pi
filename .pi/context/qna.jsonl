@@ -25,3 +25,5 @@
 {"datetime":"2026-07-23T18:30:57.180Z","question":"What do you mean by \"set the issue\"?","answer":"review_request_changes"}
 {"datetime":"2026-07-23T18:32:12.232Z","question":"gh blocks you from submitting a formal review on your own PR (you are the author). How proceed?","answer":"issue_comment"}
 {"datetime":"2026-07-23T18:32:34.901Z","question":"Posted review to #1321. Now \"set the issue\" — what do you want?","answer":"do nothing"}
+{"datetime":"2026-07-23T19:58:57.089Z","question":"After `cheasee-pi start` exits, can you capture the exact behavior?","answer":"always_exits"}
+{"datetime":"2026-07-23T20:05:53.524Z","question":"Quick check before I dig deeper - did the earlier fix at least let `cheasee-pi auth` work? Or other subcommands?","answer":"subcmds_work"}

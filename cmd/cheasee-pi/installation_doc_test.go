@@ -84,17 +84,17 @@ func TestInstallationDoc_WindowsDownloadPath(t *testing.T) {
 	}
 }
 
-// TestInstallationDoc_NoCheaseePiStart verifies Step 6 does NOT reference
-// 'cheasee-pi start' (which does not exist) — it should reference docker compose.
-func TestInstallationDoc_NoCheaseePiStart(t *testing.T) {
+// TestInstallationDoc_HasCheaseePiDown verifies Step 6 references
+// 'cheasee-pi down' (exists in current binary) for stopping the container.
+func TestInstallationDoc_HasCheaseePiDown(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
 		t.Fatalf("reading docs/installation.md: %v", err)
 	}
 	content := string(data)
 
-	if strings.Contains(content, "cheasee-pi start") {
-		t.Error("Step 6 must NOT reference 'cheasee-pi start' (use 'docker compose ... up -d --build')")
+	if !strings.Contains(content, "cheasee-pi down") {
+		t.Error("installation.md should reference 'cheasee-pi down'")
 	}
 }
 

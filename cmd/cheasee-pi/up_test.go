@@ -11,35 +11,25 @@ import (
 // execArgs tests — Phase 1
 // ──────────────────────────────────────────────
 
-func TestExecArgs_containsHardenedBash(t *testing.T) {
+func TestExecArgs_runsPiDirectly(t *testing.T) {
 	args := execArgs(nil, "cheasee-pi")
-	script := args[len(args)-1]
+	joined := strings.Join(args, " ")
 
-	tests := []struct {
-		name string
-		want string
-	}{
-		{"enables job control", "set -m"},
-		{"uses setsid for pi", "setsid /usr/bin/pi"},
-		{"kills PGID on trap", "kill -- -$P1 -- -$P2"},
+	checks := []string{
+		"/usr/bin/pi",
+		"--approve",
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !strings.Contains(script, tt.want) {
-				t.Errorf("execArgs bash missing %q\nscript:\n%s", tt.want, script)
-			}
-		})
+	for _, want := range checks {
+		if !strings.Contains(joined, want) {
+			t.Errorf("execArgs missing %q", want)
+		}
 	}
-}
 
-func TestExecArgs_omitsOldKillPattern(t *testing.T) {
-	args := execArgs(nil, "cheasee-pi")
-	script := args[len(args)-1]
-
-	// The old pattern used bare kill $P1 $P2 (no --, no - prefix)
-	// The new pattern uses kill -- -$P1 -- -$P2
-	if strings.Contains(script, "kill $P1") && !strings.Contains(script, "kill -- -$P1") {
-		t.Errorf("execArgs still uses unadorned kill $P1")
+	// No bash wrapper — docker exec handles cleanup on disconnect
+	for _, banned := range []string{"bash -c", "setsid", "trap"} {
+		if strings.Contains(joined, banned) {
+			t.Errorf("execArgs should not have wrapper script (%s)", banned)
+		}
 	}
 }
 
@@ -53,7 +43,7 @@ func TestExecArgs_containsExpectedOrder(t *testing.T) {
 		"--user agentuser",
 		"-w /workspaces/main",
 		"cheasee-pi",
-		"bash -c",
+		"/usr/bin/pi",
 	}
 	for _, want := range checks {
 		if !strings.Contains(joined, want) {
@@ -168,8 +158,8 @@ func TestOrphanScanBash_anchoredCmdline(t *testing.T) {
 }
 
 func TestOrphanScanBash_iteratesProcStat(t *testing.T) {
-	if !strings.Contains(orphanScanBash, "/proc/*/stat") {
-		t.Error("orphanScanBash should iterate /proc/*/stat")
+	if !strings.Contains(orphanScanBash, "/proc/[0-9]*/stat") {
+		t.Error("orphanScanBash should iterate /proc/[0-9]*/stat")
 	}
 }
 
@@ -350,8 +340,8 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 	if capturedArgs[1] != "cheasee-pi" {
 		t.Errorf("expected container name, got %q", capturedArgs[1])
 	}
-	if capturedArgs[2] != "sh" || capturedArgs[3] != "-c" {
-		t.Errorf("expected sh -c, got %v", capturedArgs[2:4])
+	if capturedArgs[2] != "bash" || capturedArgs[3] != "-c" {
+		t.Errorf("expected bash -c, got %v", capturedArgs[2:4])
 	}
 	if capturedArgs[4] != orphanScanBash {
 		t.Errorf("expected orphanScanBash as script argument")

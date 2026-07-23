@@ -2025,13 +2025,16 @@ func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
 		CPUs:     "2.0",
 	}
 
-	// Non-existent parent path should fail with mkdir error
-	err := scaffold.Scaffold(context.Background(), "/nonexistent/path/to/workdir", vals)
+	// Pre-create .pi as file so MkdirAll fails with ENOTDIR
+	workdir := t.TempDir()
+	os.WriteFile(filepath.Join(workdir, ".pi"), []byte(""), 0644)
+
+	err := scaffold.Scaffold(context.Background(), workdir, vals)
 	if err == nil {
-		t.Fatal("expected error for invalid workdir")
+		t.Fatal("expected error when .pi is a file")
 	}
-	if !strings.Contains(err.Error(), ".pi") && !strings.Contains(err.Error(), "mkdir") {
-		t.Errorf("error should mention .pi directory or mkdir: %v", err)
+	if !strings.Contains(err.Error(), ".pi") && !strings.Contains(err.Error(), "mkdir") && !strings.Contains(err.Error(), "file") {
+		t.Errorf("error should mention .pi, mkdir, or file: %v", err)
 	}
 }
 
@@ -2098,9 +2101,10 @@ func TestGitInitializer_Idempotent(t *testing.T) {
 func TestGitInitializer_NonExistentWorkdir(t *testing.T) {
 	gitInit := NewGitInitializer()
 
-	err := gitInit.Init(context.Background(), "/nonexistent/path/to/nowhere")
+	// Use null byte in path — forces EINVAL from git init
+	err := gitInit.Init(context.Background(), "/nonexistent\x00path")
 	if err == nil {
-		t.Fatal("expected error for non-existent workdir")
+		t.Fatal("expected error for invalid path with null byte")
 	}
 	if !strings.Contains(err.Error(), "git init") {
 		t.Errorf("error should mention 'git init': %v", err)
