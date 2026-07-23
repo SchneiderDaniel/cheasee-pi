@@ -69,7 +69,7 @@ cheasee-pi start
 
 `cheasee-pi start` checks if the container is running, starts it if needed, reads
 `~/.config/cheasee-pi/auth.json`, injects API keys as env vars, and launches pi.
-`cheasee-pi up` works as an alias.
+`cheasee-pi up` works as an alias. The underlying script is `docker/run-pi.sh`.
 
 See [Missing API keys](#missing-api-keys) in Troubleshooting if models still don't
 show up.
@@ -108,7 +108,10 @@ cheasee-pi start
 
 `cheasee-pi start` combines start and exec into a single command — it starts the container
 if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
-`cheasee-pi up` works as an alias.
+`cheasee-pi up` works as an alias. The underlying script is `docker/run-pi.sh`.
+
+> **Legacy wrapper:** The original `cheasee-pi.sh` script is still available in the repository
+> root for backward compatibility.
 
 ## Parallel sessions
 
@@ -144,6 +147,12 @@ docker exec cheasee-pi bash -c \
 docker compose -f docker/docker-compose.yml down
 ```
 
+Or use the convenience script:
+
+```bash
+bash docker/stop-pi.sh
+```
+
 This stops and **removes** the container. On next `up -d`, the container is rebuilt
 from scratch, including `npm install` (~30-60s).
 
@@ -164,6 +173,12 @@ short breaks and `down` when you're done for the day.
 
 ```bash
 docker compose -f docker/docker-compose.yml down
+```
+
+Or use the convenience script:
+
+```bash
+bash docker/stop-pi.sh
 ```
 
 ## Rebuild after Dockerfile changes

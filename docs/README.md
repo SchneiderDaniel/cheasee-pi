@@ -48,6 +48,9 @@ cheasee-pi start          # start container + inject keys + launch pi
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.
 
+> **Legacy wrapper:** The original `cheasee-pi.sh` script is available in the repository
+> root for those who prefer a direct shell script over the `cheasee-pi` CLI command.
+
 ## Documentation
 
 Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schneiderdaniel.github.io/cheasee-pi/)**.
