@@ -109,7 +109,16 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Phase 3: Build env flags from auth.json + gh token + --api-key
+	// Phase 3: Run pre-start orphan scan (best-effort)
+	killed, err := scanOrphans(ctx, upName)
+	if err != nil {
+		return fmt.Errorf("pre-start orphan scan: %w", err)
+	}
+	if killed > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
+	}
+
+	// Phase 4: Build env flags from auth.json + gh token + --api-key
 	envFlags, err := buildEnvFlags(ctx)
 	if err != nil {
 		return fmt.Errorf("build env vars: %w", err)
@@ -120,7 +129,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
 	}
 
-	// Phase 4: Print env flags or exec pi
+	// Phase 5: Print env flags or exec pi
 	if upDryRun {
 		fmt.Fprintf(os.Stderr, "Env vars to be injected:\n")
 		for i := 0; i < len(envFlags); i += 2 {
@@ -265,9 +274,9 @@ func extractGHToken() (string, error) {
 
 // execArgs builds docker exec args with a stdin-EOF cleanup wrapper.
 // When docker exec disconnects (close tab, network drop), stdin
-// returns EOF → the wrapper kills pi instead of orphaning it.
-// Uses bash wait -n to handle all exit paths: normal pi exit,
-// Ctrl+C, Ctrl+D, or terminal close — no orphan detection needed.
+// returns EOF → the wrapper kills the entire pi process group instead
+// of orphaning it. Uses setsid so pi gets its own process group, then
+// kill -- -$P1 kills the whole group (pi and all its children).
 func execArgs(envFlags []string, name string) []string {
 	args := append([]string{"exec"}, envFlags...)
 	args = append(args,
@@ -276,13 +285,15 @@ func execArgs(envFlags []string, name string) []string {
 		"-w", "/workspaces/main",
 		name,
 		"bash", "-c",
-		// trap kills child on Ctrl+C; cat & reads stdin for EOF detection;
-		// wait -n returns when either pi or cat exits; kill the other.
-		`trap "kill $P1 $P2 2>/dev/null; exit 0" INT TERM HUP
-/usr/bin/pi --approve & P1=$!
+		// set -m enables job control so background jobs get their own PGID.
+		// setsid makes pi a new session/process-group leader (PGID = PID).
+		// kill -- -$P1 sends signal to the whole process group.
+		`set -m
+trap "kill -- -$P1 -- -$P2 2>/dev/null; exit 0" INT TERM HUP
+setsid /usr/bin/pi --approve & P1=$!
 cat > /dev/null & P2=$!
 wait -n $P1 $P2 2>/dev/null
-kill $P1 $P2 2>/dev/null
+kill -- -$P1 -- -$P2 2>/dev/null
 wait 2>/dev/null`,
 	)
 	return args

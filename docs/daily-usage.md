@@ -128,15 +128,21 @@ docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
 
 ### Stale process cleanup
 
-Pi processes can become orphaned if a session crashes or the network disconnects.
-These accumulate across parallel sessions. As an optional but recommended cleanup:
+Pi processes can become orphaned if a `docker exec` session disconnects or the
+wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each).
+
+**Cleanup command:**
 
 ```bash
-docker exec cheasee-pi bash -c \
-  'for f in /tmp/pi-active-*; do
-     [ -f "$f" ] && pid=$(cat "$f") && ! kill -0 "$pid" 2>/dev/null && rm -f "$f";
-   done'
+cheasee-pi clean
 ```
+
+This scans for processes reparented to PID 1 and kills them. It only targets
+orphans — interactive sessions are **not** affected.
+
+**Automatic pre-start cleanup:** `cheasee-pi start` / `cheasee-pi up` runs the
+same orphan scan before launching pi, so orphans are always cleaned between
+sessions.
 
 ## Stop
 

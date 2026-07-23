@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 )
@@ -12,15 +12,16 @@ var cleanName string
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Kill all pi sessions inside container to free RAM",
-	Long: `Kill all pi processes inside the Cheasee-Pi Docker container.
+	Short: "Kill orphaned pi sessions inside container to free RAM",
+	Long: `Kill orphaned pi processes inside the Cheasee-Pi Docker container.
 
-Orphaned pi processes from disconnected docker exec sessions accumulate RAM.
-Run this when memory usage is high. Kills ALL pi processes — interactive
-sessions AND subagents. Use 'cheasee-pi start' to start a fresh session.
+Pi processes orphaned by disconnected docker exec sessions accumulate RAM.
+Run this when memory usage is high. Only kills processes reparented to PID 1
+(orphans) — interactive sessions are NOT affected.
+Use 'cheasee-pi start' to start a fresh session after cleaning.
 
 Examples:
-  cheasee-pi clean               # kill all pi in default container
+  cheasee-pi clean               # kill orphaned pi in default container
   cheasee-pi clean --name mypi   # specify container name`,
 	DisableAutoGenTag: true,
 	RunE:              runCleanE,
@@ -31,31 +32,20 @@ func init() {
 	cleanCmd.Flags().StringVar(&cleanName, "name", "cheasee-pi", "Container name")
 }
 
-func runCleanE(_ *cobra.Command, _ []string) error {
-	name := cleanName
+func runCleanE(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
-	// Check container exists and is running
-	cmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
-	out, err := cmd.Output()
+	killed, err := scanOrphans(ctx, cleanName)
 	if err != nil {
-		return fmt.Errorf("docker ps: %w", err)
+		return fmt.Errorf("clean: %w", err)
 	}
-	if string(out) == "" {
-		fmt.Fprintf(os.Stderr, "  ℹ Container %q is not running\n", name)
-		return nil
+	if killed > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
+	} else {
+		fmt.Fprintf(os.Stderr, "  ℹ No orphaned pi processes found\n")
 	}
-
-	// Kill all pi processes (any stdin state, any PPid)
-	killCmd := exec.Command("docker", "exec", name, "sh", "-c",
-		`for d in /proc/[0-9]*/cmdline; do
-			[ -r "$d" ] || continue
-			grep -aq "^pi" "$d" 2>/dev/null || continue
-			kill "$(basename "$(dirname "$d")")" 2>/dev/null
-		done`,
-	)
-	if out, err := killCmd.CombinedOutput(); err == nil && len(out) > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Cleaned stale pi sessions\n")
-	}
-	fmt.Fprintf(os.Stderr, "  ✓ All pi sessions killed in container %q\n", name)
 	return nil
 }
