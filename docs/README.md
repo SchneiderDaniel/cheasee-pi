@@ -48,7 +48,7 @@ cheasee-pi auth list      # list configured providers/keys
 cheasee-pi auth remove    # remove a provider key
 cheasee-pi down           # stop and remove container
 cheasee-pi clean          # kill orphaned pi sessions (free RAM)
-cheasee-pi start --build  # rebuild container image (Dockerfile/entrypoint changes)
+cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 ```
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.

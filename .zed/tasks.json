@@ -8,7 +8,11 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "auth"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"auth"
+		]
 	},
 	{
 		"label": "Cheasee-Pi: auth list",
@@ -19,7 +23,11 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "auth"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"auth"
+		]
 	},
 	{
 		"label": "Cheasee-Pi: auth remove",
@@ -30,18 +38,11 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "auth"]
-	},
-	{
-		"label": "Cheasee-Pi: start",
-		"command": "cheasee-pi start",
-		"args": [],
-		"cwd": "$ZED_WORKTREE_ROOT",
-		"use_new_terminal": true,
-		"allow_concurrent_runs": false,
-		"reveal": "always",
-		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "container"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"auth"
+		]
 	},
 	{
 		"label": "Cheasee-Pi: down",
@@ -52,7 +53,11 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "container"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"container"
+		]
 	},
 	{
 		"label": "Cheasee-Pi: clean",
@@ -63,7 +68,11 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "container"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"container"
+		]
 	},
 	{
 		"label": "Cheasee-Pi: init",
@@ -74,17 +83,26 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "setup"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"setup"
+		]
 	},
 	{
-		"label": "Cheasee-Pi: start (--build)",
-		"command": "cheasee-pi start --build",
+		"label": "Cheasee-Pi: build",
+		"command": "cheasee-pi build",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "go-cli", "container", "build"]
+		"tags": [
+			"cheasee-pi",
+			"go-cli",
+			"container",
+			"build"
+		]
 	}
 ]
