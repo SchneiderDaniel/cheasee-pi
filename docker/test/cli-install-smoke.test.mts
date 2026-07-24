@@ -26,6 +26,18 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 
+// Redirect auth.json to a test-only location so `init` subprocesses
+// don't clobber the real ~/.config/cheasee-pi/auth.json on the host.
+const testXdgHome = mkdtempSync(join(tmpdir(), "cheasee-pi-test-xdg-"));
+process.env.XDG_CONFIG_HOME = testXdgHome;
+process.on("exit", () => {
+	try {
+		rmSync(testXdgHome, { recursive: true, force: true });
+	} catch {
+		/* best-effort */
+	}
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // Configuration
 // ═══════════════════════════════════════════════════════════════════
