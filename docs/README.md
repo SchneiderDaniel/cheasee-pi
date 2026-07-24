@@ -44,7 +44,11 @@ All components run locally. No code leaves your machine (except LLM API calls to
 cheasee-pi                # start container + inject keys + launch pi (default)
 cheasee-pi init           # interactive setup: auth, fork, clone, env
 cheasee-pi auth add       # add API key for a provider
+cheasee-pi auth list      # list configured providers/keys
+cheasee-pi auth remove    # remove a provider key
 cheasee-pi down           # stop and remove container
+cheasee-pi clean          # kill orphaned pi sessions (free RAM)
+cheasee-pi start --build  # rebuild container image (Dockerfile/entrypoint changes)
 ```
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.
@@ -75,21 +79,15 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 4. Monitor progress via TUI status bar
 5. Review results when pipeline completes
 
-### Update after dependency changes
+### Update pi
 
-When pi, ponytail, or any container dependency updates, rebuild the image:
+Pi auto-updates to the latest version on every container start (entrypoint checks npm registry). No action needed.
+
+For Dockerfile / entrypoint changes (new tools, config), rebuild:
 
 ```bash
 cheasee-pi start --build
 ```
-
-Or rebuild and restart from scratch:
-
-```bash
-docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d
-```
-
-Both rebuild the Docker image with updated packages and restart the container.
 
 ## Contributing
 

@@ -88,6 +88,8 @@ cheasee-pi
 `cheasee-pi` starts the container (builds image ~2 min first time), injects keys
 from `~/.config/cheasee-pi/auth.json`, and opens pi TUI.
 
+Pi auto-updates to the latest version on every container start. No manual update needed.
+
 Stop the container when done:
 
 ```bash

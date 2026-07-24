@@ -27,3 +27,4 @@
 {"datetime":"2026-07-23T18:32:34.901Z","question":"Posted review to #1321. Now \"set the issue\" — what do you want?","answer":"do nothing"}
 {"datetime":"2026-07-23T19:58:57.089Z","question":"After `cheasee-pi start` exits, can you capture the exact behavior?","answer":"always_exits"}
 {"datetime":"2026-07-23T20:05:53.524Z","question":"Quick check before I dig deeper - did the earlier fix at least let `cheasee-pi auth` work? Or other subcommands?","answer":"subcmds_work"}
+{"datetime":"2026-07-24T17:13:35.680Z","question":"Which missing commands should I add as zed tasks?","answer":"add_both"}

@@ -66,25 +66,25 @@
 		"tags": ["cheasee-pi", "go-cli", "container"]
 	},
 	{
-		"label": "Cheasee-Pi: build (Docker)",
-		"command": "docker exec -w /workspaces/main cheasee-pi make build",
+		"label": "Cheasee-Pi: init",
+		"command": "cheasee-pi init",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "build", "docker"]
+		"tags": ["cheasee-pi", "go-cli", "setup"]
 	},
 	{
-		"label": "Cheasee-Pi: test (Docker)",
-		"command": "docker exec -w /workspaces/main cheasee-pi make test",
+		"label": "Cheasee-Pi: start (--build)",
+		"command": "cheasee-pi start --build",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": ["cheasee-pi", "test", "docker"]
+		"tags": ["cheasee-pi", "go-cli", "container", "build"]
 	}
 ]
