@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isBashSearch, isBashFileRead, isBashSearchOrRead } from "./bash-query.ts";
+import { isBashSearch, isBashFileRead, isBashFileModify, isBashSearchOrRead } from "./bash-query.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // isBashSearch
@@ -190,6 +190,92 @@ describe("isBashFileRead", () => {
 
 	it("just spaces → false", () => {
 		assert.strictEqual(isBashFileRead("   "), false);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// isBashFileModify
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("isBashFileModify", () => {
+	it("echo with write redirect > → true", () => {
+		assert.strictEqual(isBashFileModify("echo hi > file"), true);
+	});
+
+	it("echo with append redirect >> → true", () => {
+		assert.strictEqual(isBashFileModify("echo hi >> file"), true);
+	});
+
+	it("sed command → true", () => {
+		assert.strictEqual(isBashFileModify("sed -i 's/foo/bar/g' file.ts"), true);
+	});
+
+	it("tee command → true", () => {
+		assert.strictEqual(isBashFileModify("tee f.ts"), true);
+	});
+
+	it("mv command → true", () => {
+		assert.strictEqual(isBashFileModify("mv old.ts new.ts"), true);
+	});
+
+	it("cp command → true", () => {
+		assert.strictEqual(isBashFileModify("cp a.ts b.ts"), true);
+	});
+
+	it("rm command → true", () => {
+		assert.strictEqual(isBashFileModify("rm file.ts"), true);
+	});
+
+	it("chmod command → true", () => {
+		assert.strictEqual(isBashFileModify("chmod +x script.sh"), true);
+	});
+
+	it("dd command → true", () => {
+		assert.strictEqual(isBashFileModify("dd if=/dev/zero of=file bs=1M count=1"), true);
+	});
+
+	it("known modify command with arguments → true", () => {
+		assert.strictEqual(isBashFileModify("sed -i 's/foo/bar/g' file"), true);
+	});
+
+	it("non-modifying command (ls) → false", () => {
+		assert.strictEqual(isBashFileModify("ls -la"), false);
+	});
+
+	it("non-modifying command (cat) → false", () => {
+		assert.strictEqual(isBashFileModify("cat file.ts"), false);
+	});
+
+	it("non-modifying command (echo) → false", () => {
+		assert.strictEqual(isBashFileModify("echo hello"), false);
+	});
+
+	it("non-modifying command (grep) → false", () => {
+		assert.strictEqual(isBashFileModify("grep foo"), false);
+	});
+
+	it("non-modifying command (find) → false", () => {
+		assert.strictEqual(isBashFileModify("find . -name '*.ts'"), false);
+	});
+
+	it("piped read command no redirect → false", () => {
+		assert.strictEqual(isBashFileModify("cat file | grep foo"), false);
+	});
+
+	it("piped modify command with redirect → true", () => {
+		assert.strictEqual(isBashFileModify("sed 's/foo/bar/g' file > out"), true);
+	});
+
+	it("piped command where first segment has modify command → true", () => {
+		assert.strictEqual(isBashFileModify("rm file | echo done"), true);
+	});
+
+	it("empty string → false", () => {
+		assert.strictEqual(isBashFileModify(""), false);
+	});
+
+	it("whitespace-only string → false", () => {
+		assert.strictEqual(isBashFileModify("   "), false);
 	});
 });
 

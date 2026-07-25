@@ -8,7 +8,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildRedirectMessage,
-	parseBashCmd,
 	MULTI_VERB_TOOLS,
 	shouldBlockRetry,
 	isRedundantRead,
@@ -26,7 +25,7 @@ describe("BASH_SEARCH_SIGNALS", () => {
 		assert.equal(
 			(mod as Record<string, unknown>).BASH_SEARCH_SIGNALS,
 			undefined,
-			"BASH_SEARCH_SIGNALS should be removed — use BashCommand.isSearch() with isBashSearch() from lib/bash-query.ts",
+			"BASH_SEARCH_SIGNALS should be removed — use isBashSearch() from lib/bash-query.ts",
 		);
 	});
 });
@@ -69,33 +68,6 @@ describe("MULTI_VERB_TOOLS", () => {
 		assert.equal(MULTI_VERB_TOOLS.has("cat"), false);
 		assert.equal(MULTI_VERB_TOOLS.has("echo"), false);
 		assert.equal(MULTI_VERB_TOOLS.has("ls"), false);
-	});
-});
-
-// ── parseBashCmd ──
-
-describe("parseBashCmd", () => {
-	it("parses simple command", () => {
-		const segs = parseBashCmd("cat file.ts");
-		assert.equal(segs.length, 1);
-		assert.deepEqual(segs[0].tokens, ["cat", "file.ts"]);
-	});
-
-	it("parses piped command", () => {
-		const segs = parseBashCmd("ls -la | grep foo");
-		assert.equal(segs.length, 2);
-		assert.deepEqual(segs[0].tokens, ["ls", "-la"]);
-		assert.deepEqual(segs[1].tokens, ["grep", "foo"]);
-	});
-
-	it("parses command with redirect", () => {
-		const segs = parseBashCmd("echo hi > file");
-		assert.equal(segs.length, 1);
-		assert.ok(segs[0].redirect === "write");
-	});
-
-	it("handles empty string", () => {
-		assert.deepEqual(parseBashCmd(""), []);
 	});
 });
 
@@ -248,7 +220,6 @@ describe("SEARCH_TOOLS removal", () => {
 			"function",
 			"buildRedirectMessage should be a function",
 		);
-		assert.equal(typeof m.parseBashCmd, "function", "parseBashCmd should be a function");
 		assert.equal(typeof m.getToolMeta, "function", "getToolMeta should be a function");
 		assert.equal(typeof m.shouldBlockRetry, "function", "shouldBlockRetry should be a function");
 		assert.equal(typeof m.isRedundantRead, "function", "isRedundantRead should be a function");

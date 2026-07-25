@@ -29,11 +29,11 @@ nav_order: 13
 ├── lib/
 │   ├── harness-rules.ts      # Rule definitions: cascade thresholds, pass-through tools, tool mismatches
 │   ├── harness-state.ts      # HarnessState: error tracking, cascade counter, read cache, turn tracking
-│   ├── bash-command.ts       # BashCommand: tokenize, classify, detect tool mismatches (grep/cat/heXdump)
 │   ├── load-config.ts        # Load harness config from .pi/harness-config.json
 │   ├── timed-map.ts          # Generic timed map with TTL-based eviction
 │   └── constants.ts          # Default thresholds, tool lists
-└── test/                     # Extensive test suite
+├── test/                     # Extensive test suite
+└── bash-query.ts (../../lib/) # Bash classification: isBashSearch, isBashFileRead, isBashFileModify
 ```
 
 ### Validation Pipeline
@@ -60,7 +60,7 @@ flowchart TD
 
 ### Tool Mismatch Detection
 
-The `bash-command.ts` module tokenizes the bash command and classifies it:
+The `bash-query.ts` module classifies bash commands via pure functions:
 
 | Pattern | Detected By | Redirect To |
 |---------|-------------|-------------|
