@@ -1,6 +1,13 @@
 /**
- * Tests for adapter.ts — TscWatchAdapter interface, TypeScriptWatchAdapter impl,
- * diagnosticToTscDiagnostic mapping, resolveDiagnosticFilePath, createDefaultAdapter factory.
+ * Tests for adapter.ts — diagnosticToTscDiagnostic mapping, resolveDiagnosticFilePath.
+ *
+ * The createDefaultAdapter factory and TypeScriptWatchAdapter lifecycle tests
+ * have been removed — those were waste tests for a speculative seam that has
+ * been deleted (TscWatchAdapter interface, TypeScriptWatchAdapter class,
+ * createDefaultAdapter factory).
+ *
+ * The pure mapping functions (diagnosticToTscDiagnostic, resolveDiagnosticFilePath)
+ * are preserved with all existing test cases.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/tsc-checkpoint/test/adapter.test.ts
@@ -12,10 +19,7 @@ import { describe, it } from "node:test";
 import {
 	diagnosticToTscDiagnostic,
 	resolveDiagnosticFilePath,
-	createDefaultAdapter,
 } from "../adapter.ts";
-
-import type { TscDiagnostic } from "../types.ts";
 
 import ts from "typescript";
 
@@ -194,35 +198,5 @@ describe("resolveDiagnosticFilePath", () => {
 	it("Windows absolute path returned as-is", () => {
 		const result = resolveDiagnosticFilePath("C:\\Users\\me\\src\\app.ts", "/other/dir");
 		assert.strictEqual(result, "C:\\Users\\me\\src\\app.ts");
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// createDefaultAdapter factory
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("createDefaultAdapter", () => {
-	it("returns an object satisfying TscWatchAdapter interface", () => {
-		const adapter = createDefaultAdapter();
-
-		assert.strictEqual(typeof adapter.start, "function");
-		assert.strictEqual(typeof adapter.stop, "function");
-		assert.strictEqual(typeof adapter.isRunning, "function");
-		assert.strictEqual(typeof adapter.getDiagnostics, "function");
-		assert.strictEqual(typeof adapter.onDiagnosticsChange, "function");
-	});
-
-	it("diagnosticToTscDiagnostic is exported from adapter module", () => {
-		assert.strictEqual(typeof diagnosticToTscDiagnostic, "function");
-	});
-
-	it("createDefaultAdapter returns non-running adapter", () => {
-		const adapter = createDefaultAdapter();
-		assert.strictEqual(adapter.isRunning(), false);
-	});
-
-	it("getDiagnostics returns empty array initially", () => {
-		const adapter = createDefaultAdapter();
-		assert.deepStrictEqual(adapter.getDiagnostics(), []);
 	});
 });

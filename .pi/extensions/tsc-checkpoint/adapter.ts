@@ -1,30 +1,20 @@
 /**
- * tsc-checkpoint — Adapter interface and TypeScript watch compiler implementation
+ * tsc-checkpoint — Diagnostic mapping utilities
  *
- * Defines TscWatchAdapter seam for testability and provides the real
- * TypeScriptWatchAdapter that wraps ts.createWatchProgram().
+ * Pure functions for mapping TypeScript diagnostics to the TscDiagnostic shape
+ * and resolving file paths. These are the only remaining exports from what
+ * was formerly the adapter module.
+ *
+ * The TscWatchAdapter interface, TypeScriptWatchAdapter class, and
+ * createDefaultAdapter factory have been removed — they were a speculative
+ * seam (one real implementation + one test mock) that added pass-through
+ * complexity without real polymorphism. The consolidated watcher in
+ * watcher.ts owns ts.createWatchProgram directly.
  */
 
 import ts from "typescript";
-import { resolve, dirname } from "node:path";
+import { resolve } from "node:path";
 import type { TscDiagnostic } from "./types.ts";
-
-// ═══════════════════════════════════════════════════════════════════════
-// Adapter Interface
-// ═══════════════════════════════════════════════════════════════════════
-
-export interface TscWatchAdapter {
-	/** Start watching a tsconfig. Returns true if started, false if already running. */
-	start(tsconfigPath: string): boolean;
-	/** Stop the watch process. */
-	stop(): void;
-	/** Whether the watcher is currently running. */
-	isRunning(): boolean;
-	/** Get the latest cached diagnostics. */
-	getDiagnostics(): TscDiagnostic[];
-	/** Register a callback for when diagnostics change. */
-	onDiagnosticsChange(callback: (diagnostics: TscDiagnostic[]) => void): void;
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // File Path Resolution
@@ -71,91 +61,4 @@ export function diagnosticToTscDiagnostic(
 		code: `TS${diagnostic.code}`,
 		filePath: resolveDiagnosticFilePath(file.fileName, configDir),
 	};
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Real Adapter: TypeScript Watch Compiler API
-// ═══════════════════════════════════════════════════════════════════════
-
-class TypeScriptWatchAdapter implements TscWatchAdapter {
-	private watchProgram: ts.WatchOfConfigFile<ts.BuilderProgram> | undefined;
-	private diagnostics: TscDiagnostic[] = [];
-	private running = false;
-	private listeners: Array<(diagnostics: TscDiagnostic[]) => void> = [];
-	private tsconfigDir = "";
-
-	start(tsconfigPath: string): boolean {
-		if (this.running) return false;
-		this.tsconfigDir = dirname(tsconfigPath);
-		this.diagnostics = [];
-
-		const host = ts.createWatchCompilerHost(
-			tsconfigPath,
-			{ noEmit: true },
-			ts.sys,
-			ts.createEmitAndSemanticDiagnosticsBuilderProgram,
-			(diagnostic: ts.Diagnostic) => {
-				if (diagnostic.category !== ts.DiagnosticCategory.Error) return;
-				this.handleDiagnostic(diagnostic);
-			},
-			(
-				diagnostic: ts.Diagnostic,
-				newLine: string,
-				options: ts.CompilerOptions,
-				errorCount?: number,
-			) => {
-				if (errorCount === undefined) {
-					// New compilation cycle starting — clear previous diagnostics
-					this.diagnostics = [];
-				} else {
-					// Compilation complete — notify listeners
-					this.notifyListeners();
-				}
-			},
-		);
-
-		this.watchProgram = ts.createWatchProgram(host);
-		this.running = true;
-		return true;
-	}
-
-	private handleDiagnostic(diagnostic: ts.Diagnostic): void {
-		const diag = diagnosticToTscDiagnostic(diagnostic, this.tsconfigDir);
-		if (diag) {
-			this.diagnostics.push(diag);
-		}
-	}
-
-	private notifyListeners(): void {
-		const snapshot = [...this.diagnostics];
-		for (const listener of this.listeners) {
-			listener(snapshot);
-		}
-	}
-
-	stop(): void {
-		this.watchProgram?.close();
-		this.running = false;
-		this.watchProgram = undefined;
-	}
-
-	isRunning(): boolean {
-		return this.running;
-	}
-
-	getDiagnostics(): TscDiagnostic[] {
-		return [...this.diagnostics];
-	}
-
-	onDiagnosticsChange(callback: (diagnostics: TscDiagnostic[]) => void): void {
-		this.listeners.push(callback);
-	}
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Default Adapter Factory
-// ═══════════════════════════════════════════════════════════════════════
-
-export function createDefaultAdapter(): TscWatchAdapter {
-	return new TypeScriptWatchAdapter();
 }

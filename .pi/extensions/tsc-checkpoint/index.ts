@@ -21,7 +21,6 @@ import type {
 	TscDiagnostic,
 	DiagnosticTrend,
 } from "./types.ts";
-import type { TscWatchAdapter } from "./adapter.ts";
 import {
 	diagnosticToTscDiagnostic,
 	resolveDiagnosticFilePath,
@@ -44,7 +43,6 @@ export type {
 	TscDiagnostic,
 	DiagnosticTrend,
 } from "./types.ts";
-export type { TscWatchAdapter } from "./adapter.ts";
 
 // Value re-exports
 export {
