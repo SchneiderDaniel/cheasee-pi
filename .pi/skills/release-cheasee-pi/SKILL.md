@@ -52,7 +52,7 @@ node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
 If this fails, fix the issues before proceeding. Once baseline is saved,
 re-running will only fail on NEW failures not in the snapshot.
 
-Run again after version sync (Step 6) to verify no regressions:
+Run again after version sync (Step 7) to verify no regressions:
 
 ```bash
 node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
@@ -60,7 +60,25 @@ node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
 
 ---
 
-## Step 2 — Verify Git State
+## Step 2 — Check Dependabot Alerts
+
+Block release if any open Dependabot alerts exist. Must fix before releasing.
+
+```bash
+cd /workspaces/main
+OPEN=$(gh api repos/SchneiderDaniel/cheasee-pi/dependabot/alerts --jq '[.[] | select(.state == "open")] | length')
+if [ "$OPEN" -gt 0 ]; then
+  echo "ERROR: $OPEN open Dependabot alert(s) found."
+  echo "View and fix: https://github.com/SchneiderDaniel/cheasee-pi/security/dependabot"
+  gh api repos/SchneiderDaniel/cheasee-pi/dependabot/alerts --jq '.[] | select(.state == "open") | "\(.number): \(.security_advisory.severity // "unknown") - \(.security_advisory.summary // .security_vulnerability.package.name)"'
+  exit 1
+fi
+echo "OK: no open Dependabot alerts."
+```
+
+---
+
+## Step 3 — Verify Git State
 
 ```bash
 cd /workspaces/main
@@ -97,7 +115,7 @@ SCRIPT_DIR="/workspaces/main/.pi/skills/release-cheasee-pi/scripts"
 node "$SCRIPT_DIR/process-prs.mjs" < ignore/release-data.json > ignore/release-plan.json
 ```
 
-## Step 5 — User Confirmation
+## Step 6 — User Confirmation
 
 ```bash
 node "$SCRIPT_DIR/format-plan.mjs" < ignore/release-plan.json
@@ -112,7 +130,7 @@ Exit codes:
 
 ---
 
-## Step 6 — Sync Version in All Files
+## Step 7 — Sync Version in All Files
 
 ```bash
 node "$SCRIPT_DIR/sync-version.mjs" "{newVersion}" > ignore/sync-result.json
@@ -124,7 +142,7 @@ wasn't matched and update `sync-version.mjs` regex patterns.
 
 ---
 
-## Step 7 — Commit Version Bump
+## Step 8 — Commit Version Bump
 
 ```bash
 cd /workspaces/main
@@ -134,7 +152,7 @@ git commit -m "chore: bump version to v{newVersion}"
 
 ---
 
-## Step 8 — Create Tag
+## Step 9 — Create Tag
 
 ```bash
 cd /workspaces/main
@@ -143,7 +161,7 @@ git tag -a "v{newVersion}" -m "Release v{newVersion}"
 
 ---
 
-## Step 9 — Push Tag + Main
+## Step 10 — Push Tag + Main
 
 ```bash
 cd /workspaces/main
@@ -153,7 +171,7 @@ git push origin "v{newVersion}"
 
 ---
 
-## Step 10 — Wait for GoReleaser CI
+## Step 11 — Wait for GoReleaser CI
 
 After the tag push, the GitHub Actions release workflow auto-triggers. Wait for it.
 
@@ -180,7 +198,7 @@ fi
 
 ---
 
-## Step 11 — Update Release Body
+## Step 12 — Update Release Body
 
 GoReleaser creates the release with auto-generated changelog. Replace with our categorized body.
 
@@ -195,7 +213,7 @@ gh release edit "v{newVersion}" --repo "SchneiderDaniel/cheasee-pi" --notes-file
 
 ---
 
-## Step 12 — Confirm + Clean Up
+## Step 13 — Confirm + Clean Up
 
 Print:
 
@@ -229,14 +247,15 @@ rm -f ignore/release-data.json ignore/release-plan.json ignore/sync-result.json 
 ## Quality Checklist
 
 - [ ] Step 1: `run-checks.mjs` baseline saved (exit 0 or baseline-only failures)
-- [ ] Step 2: on main, clean tree, gh authenticated
-- [ ] Step 3: last tag identified
-- [ ] Step 4: `process-prs.mjs` produced `release-plan.json` — `prCount > 0`, `tagExists = false`
-- [ ] Step 5: `format-plan.mjs` exited 0 (user confirmed)
-- [ ] Step 6: `sync-version.mjs` exited 0 (all 4 files changed)
-- [ ] Step 6: `run-checks.mjs` with baseline exits 0 (no regressions)
-- [ ] Step 7: version bump committed
-- [ ] Step 8-9: tag created and pushed
-- [ ] Step 10: GoReleaser CI completed
-- [ ] Step 11: release body updated
-- [ ] Step 12: temp files cleaned
+- [ ] Step 2: no open Dependabot alerts
+- [ ] Step 3: on main, clean tree, gh authenticated
+- [ ] Step 4: last tag identified
+- [ ] Step 5: `process-prs.mjs` produced `release-plan.json` — `prCount > 0`, `tagExists = false`
+- [ ] Step 6: `format-plan.mjs` exited 0 (user confirmed)
+- [ ] Step 7: `sync-version.mjs` exited 0 (all 4 files changed)
+- [ ] Step 7: `run-checks.mjs` with baseline exits 0 (no regressions)
+- [ ] Step 8: version bump committed
+- [ ] Step 9-10: tag created and pushed
+- [ ] Step 11: GoReleaser CI completed
+- [ ] Step 12: release body updated
+- [ ] Step 13: temp files cleaned

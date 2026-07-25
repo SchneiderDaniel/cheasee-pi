@@ -31,13 +31,19 @@
 		"@types/node": "^25.9.1",
 		"@types/shell-quote": "^1.7.5",
 		"eslint": "^10.5.0",
-		"js-yaml": "^5.2.1",
+		"js-yaml": "^5.2.2",
 		"prettier": "^3.8.3",
 		"typescript": "^6.0.3"
 	},
 	"overrides": {
-		"brace-expansion": "5.0.7",
-		"protobufjs": "7.6.5"
+		"brace-expansion": "5.0.8",
+		"protobufjs": "7.6.5",
+		"minimatch": {
+			"brace-expansion": "5.0.8"
+		},
+		"@google/genai": {
+			"protobufjs": "7.6.5"
+		}
 	},
 	"knip": {
 		"entry": [
