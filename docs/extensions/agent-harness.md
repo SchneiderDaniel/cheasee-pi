@@ -67,7 +67,6 @@ The `bash-query.ts` module classifies bash commands via pure functions:
 | `bash | grep` | `getBashSubKey()` token analysis | `ripgrep_search` |
 | `bash cat` | `getCommandName()` | `read` |
 | `bash rg` | `getCommandName()` | `ripgrep_search` |
-| `bash xxd` / `bash hexdump` | `getCommandName()` | `bash` with `xxd`? |
 | `bash find . -name` | `getCommandName()` | `ripgrep_search` or `bash ls` |
 
 ### Key Design Decisions
