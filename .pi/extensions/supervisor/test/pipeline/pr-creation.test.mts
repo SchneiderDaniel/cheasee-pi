@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig, PipelineAgentResult, PrConflictInfo } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
+import { readFileSync } from "node:fs";
 
 import { createPrOnApproval } from "../../pipeline/pr-creation.ts";
 
@@ -1559,5 +1560,98 @@ describe("createPrOnApproval()", () => {
 			assert.equal(result.prNumber, 789, "should reference existing PR");
 			assert.equal(result.wasUpdate, true, "should be marked as update");
 		});
+	});
+});
+
+// ─── Structural: verifyAhead helper extraction (Issue #1377) ──────
+
+describe("createPrOnApproval — structural: verifyAhead helper extraction", () => {
+	const source = readFileSync(".pi/extensions/supervisor/pipeline/pr-creation.ts", "utf-8");
+
+	it("contains async function verifyAhead with AheadVerdict return type", () => {
+		assert.ok(
+			source.includes("async function verifyAhead("),
+			"pr-creation.ts must contain async function verifyAhead",
+		);
+		assert.ok(
+			source.includes("Promise<AheadVerdict>"),
+			"verifyAhead must return Promise<AheadVerdict>",
+		);
+	});
+
+	it("AheadVerdict type includes 'ahead', 'not-ahead', 'fail-closed' states with reason on fail-closed", () => {
+		assert.ok(
+			source.includes('{ state: "ahead" }'),
+			"AheadVerdict must include 'ahead' state",
+		);
+		assert.ok(
+			source.includes('{ state: "not-ahead" }'),
+			"AheadVerdict must include 'not-ahead' state",
+		);
+		assert.ok(
+			source.includes('{ state: "fail-closed"; reason: string }'),
+			"AheadVerdict must include 'fail-closed' state with reason: string",
+		);
+	});
+
+	it("createPrOnApproval call site dispatches on verdict with 3 branches (ahead, not-ahead, fail-closed)", () => {
+		const lines = source.split("\n");
+		// Find the verdict dispatch in the call site
+		const verdictAwait = lines.findIndex((l) => l.includes("verdict = await verifyAhead("));
+		assert.notEqual(verdictAwait, -1, "call site must await verifyAhead");
+
+		// Check for the three dispatch branches
+		const notAheadBranch = lines.findIndex((l) => l.includes('verdict.state === "not-ahead"'));
+		const failClosedBranch = lines.findIndex((l) => l.includes('verdict.state === "fail-closed"'));
+		const aheadComment = lines.findIndex((l) => l.includes('verdict.state === "ahead"'));
+
+		assert.notEqual(notAheadBranch, -1, "call site must dispatch on 'not-ahead' verdict");
+		assert.notEqual(failClosedBranch, -1, "call site must dispatch on 'fail-closed' verdict");
+		assert.notEqual(aheadComment, -1, "call site must have comment for 'ahead' verdict");
+
+		// Verify ahead is handled as a comment (meaning proceed without return)
+		assert.ok(
+			lines.some((l) => l.includes("verdict.state === \"ahead\" — proceed")),
+			"call site must handle 'ahead' as proceed (no early return)",
+		);
+	});
+
+	it("verifyAhead signature includes pi, port, config, headBranch, worktreePath, log — does NOT accept ctx", () => {
+		// Find the function signature
+		const fnStart = source.indexOf("async function verifyAhead(");
+		assert.notEqual(fnStart, -1, "must find verifyAhead function");
+		const fnDecl = source.slice(fnStart, fnStart + 300); // Read enough to cover params
+
+		assert.ok(
+			fnDecl.includes("pi: ExtensionAPI"),
+			"verifyAhead must accept pi: ExtensionAPI",
+		);
+		assert.ok(
+			fnDecl.includes("port: GitHubPort"),
+			"verifyAhead must accept port: GitHubPort",
+		);
+		assert.ok(
+			fnDecl.includes("config: SupervisorConfig"),
+			"verifyAhead must accept config: SupervisorConfig",
+		);
+		assert.ok(
+			fnDecl.includes("headBranch: string"),
+			"verifyAhead must accept headBranch: string",
+		);
+		assert.ok(
+			fnDecl.includes("worktreePath: string"),
+			"verifyAhead must accept worktreePath: string",
+		);
+		assert.ok(
+			fnDecl.includes("log: ReturnType<typeof getDebugLogger>"),
+			"verifyAhead must accept log: ReturnType<typeof getDebugLogger>",
+		);
+		// Verify ctx is NOT in the parameter list
+		const closeParen = fnDecl.indexOf("): Promise<AheadVerdict>");
+		const paramSection = fnDecl.slice(0, closeParen);
+		assert.ok(
+			!paramSection.includes("ctx"),
+			"verifyAhead must NOT accept ctx parameter — UX is caller's responsibility",
+		);
 	});
 });
