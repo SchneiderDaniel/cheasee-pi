@@ -5,8 +5,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ExecFn } from "../../pipeline/helpers.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { gh, ghJson, ghGraphQL } from "../../github/gh-client.ts";
-import type { ProjectItemsResponse } from "../../github/types.ts";
+import { gh, ghJson } from "../../github/gh-client.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -102,56 +101,5 @@ describe("ghJson<T>() — typed JSON output parser", () => {
 		const result = await ghJson<{ id: string }>(exec, ["project", "view"]);
 		assert.ok(result !== null);
 		assert.equal(result!.id, "PVT_1");
-	});
-});
-
-// ─── Tests: ghGraphQL<T>() ────────────────────────────────────────
-
-describe("ghGraphQL<T>() — typed GraphQL wrapper", () => {
-	it("passes query arg with -f query= correctly", async () => {
-		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			{ code: 0, stdout: '{"data":{"viewer":{"login":"test"}}}', stderr: "" },
-			calls,
-		);
-		await ghGraphQL(exec, "{ viewer { login } }");
-		const args = calls[0].args;
-		assert.ok(args.includes("-f"));
-		const queryIdx = args.indexOf("-f");
-		assert.ok(queryIdx >= 0);
-		assert.equal(args[queryIdx + 1], "query={ viewer { login } }");
-	});
-
-	it("returns typed result for valid GraphQL response JSON", async () => {
-		const response = { data: { viewer: { login: "testuser" } } };
-		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result = await ghGraphQL<{ data: { viewer: { login: string } } }>(
-			exec,
-			"{ viewer { login } }",
-		);
-		assert.ok(result !== null);
-		assert.equal(result.data.viewer.login, "testuser");
-	});
-
-	it("ghGraphQL<ProjectItemsResponse>(...) return type assignment compiles without as any", async () => {
-		const response = {
-			data: {
-				viewer: {
-					projectV2: {
-						items: {
-							pageInfo: { hasNextPage: false, endCursor: null },
-							nodes: [],
-						},
-					},
-				},
-			},
-		};
-		const exec = createMockExec({ code: 0, stdout: JSON.stringify(response), stderr: "" });
-		const result: ProjectItemsResponse | null = await ghGraphQL<ProjectItemsResponse>(
-			exec,
-			"{ viewer { projectV2 { items { pageInfo { hasNextPage endCursor } nodes { id } } } } }",
-		);
-		assert.ok(result !== null);
-		assert.equal(result.data?.viewer?.projectV2?.items?.pageInfo.hasNextPage, false);
 	});
 });
