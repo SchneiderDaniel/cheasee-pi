@@ -204,6 +204,24 @@ or pass `--build` to pick up changes.
 **Build timing:** The first build takes ~2 min (Debian 12-slim + Node.js 22 + Python
 3 + pi + dependencies). Subsequent builds take ~10-30s thanks to Docker layer caching.
 
+### Full rebuild (ignore cache)
+
+When Docker layer cache is stale or you want a clean build from scratch:
+
+```bash
+# CLI
+cheasee-pi build --no-cache
+
+# Docker compose directly
+docker compose -f docker/docker-compose.yml build --no-cache
+```
+
+This ignores all cached layers and rebuilds every step. Use when:
+- Base image (`debian:12-slim`) has security updates
+- `apt` or `pip` packages need fresh versions
+- You suspect cache corruption
+- You want to verify the Dockerfile is reproducible
+
 ## Troubleshooting
 
 ### Bind-mount permission errors

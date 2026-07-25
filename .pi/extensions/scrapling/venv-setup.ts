@@ -7,6 +7,7 @@
  */
 
 import type { ExecFn } from "./types.ts";
+import { isExecFailure } from "./types.ts";
 import { ensureVenv } from "../lib/ensureVenv.ts";
 
 // ── ensureScraplingVenv ──
@@ -33,7 +34,12 @@ export async function ensureScraplingVenv(
 		verifyCommand:
 			"from scrapling.fetchers import StealthyFetcher; import markdownify; print('ok')",
 		postInstall: async (pythonPath: string) => {
-			await exec(pythonPath, ["-m", "scrapling.cli", "install"], { timeout: 120_000 });
+			const result = await exec(pythonPath, ["-m", "scrapling.cli", "install"], { timeout: 120_000 });
+			if (isExecFailure(result)) {
+				throw new Error(
+					`scrapling.cli install failed: ${(result.stderr || result.stdout).slice(0, 500)}`,
+				);
+			}
 		},
 		onUpdate,
 	});

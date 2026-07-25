@@ -17,6 +17,17 @@ import os from "node:os";
 import type { ExecFn, ExecResult } from "../types.ts";
 import { ensureScraplingVenv } from "../venv-setup.ts";
 
+// ── Helpers ──
+
+function assertEnsureVenvError(err: unknown, expectedFragment: string): void {
+	assert.ok(err instanceof Error, "error should be an Error");
+	assert.equal((err as Error).name, "EnsureVenvError", "error name should be EnsureVenvError");
+	assert.ok(
+		(err as Error).message.includes(expectedFragment),
+		`error message "${(err as Error).message}" should contain "${expectedFragment}"`,
+	);
+}
+
 // ── Simple mock factory ──
 
 interface MockHandlers {
@@ -163,5 +174,59 @@ describe("ensureScraplingVenv — adapter", () => {
 	it("(entity) signature unchanged: async (exec, cwd, onUpdate?) => Promise<string>", () => {
 		assert.equal(typeof ensureScraplingVenv, "function");
 		assert.equal(ensureScraplingVenv.length, 3); // exec, cwd, onUpdate
+	});
+
+	// ── postInstall exec failure propagation ──
+
+	it("(error) scrapling.cli install non-zero exit → EnsureVenvError with step install", async () => {
+		const { cwd, exec } = setupTest({
+			scraplingCli: { code: 1, stdout: "", stderr: "Download failure, code=1", killed: false },
+		});
+
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "Download failure, code=1");
+	});
+
+	it("(error) scrapling.cli install signal-killed → EnsureVenvError with step install", async () => {
+		const { cwd, exec } = setupTest({
+			scraplingCli: { code: 0, stdout: "", stderr: "", killed: true },
+		});
+
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "Post-install step failed");
+	});
+
+	it("(error) scrapling.cli install failure message includes stderr", async () => {
+		const { cwd, exec } = setupTest({
+			scraplingCli: { code: 1, stdout: "", stderr: "size mismatch: expected 200MB got 50MB", killed: false },
+		});
+
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "size mismatch: expected 200MB got 50MB");
+	});
+
+	it("(error) scrapling.cli install success (code 0, not killed) does NOT throw", async () => {
+		const { cwd, exec } = setupTest({
+			scraplingCli: { code: 0, stdout: "installed", stderr: "", killed: false },
+		});
+
+		await assert.doesNotReject(
+			() => ensureScraplingVenv(exec, cwd),
+		);
 	});
 });
