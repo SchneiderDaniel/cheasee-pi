@@ -167,6 +167,34 @@ describe("buildPipelineSummary — Closes #N line", () => {
 	});
 });
 
+// ─── Tests: buildPipelineSummary — header emoji/text ────────────
+
+describe("buildPipelineSummary — header emoji/text", () => {
+	it("overallStatus=success → header ## ✅ Pipeline Complete", () => {
+		const output = buildPipelineSummary(emptyResults, "success", 42, "Test", defaultConfig);
+		assert.ok(output.includes("## ✅ Pipeline Complete"), "success should show ✅ and Pipeline Complete");
+	});
+
+	it("overallStatus=success with failed PR → header ## ⚠️ Pipeline Complete (PR creation failed)", () => {
+		const prResult: PrCreationResult = { success: false, error: "GitHub API error" };
+		const output = buildPipelineSummary(emptyResults, "success", 42, "Test", defaultConfig, undefined, prResult);
+		assert.ok(
+			output.includes("## ⚠️ Pipeline Complete (PR creation failed)"),
+			"success + failed PR should show ⚠️ and PR creation failed text",
+		);
+	});
+
+	it("overallStatus=failed → header ## ❌ Pipeline Failed", () => {
+		const output = buildPipelineSummary(emptyResults, "failed", 42, "Test", defaultConfig);
+		assert.ok(output.includes("## ❌ Pipeline Failed"), "failed should show ❌ and Pipeline Failed");
+	});
+
+	it("overallStatus=stopped → header ## ⏹ Pipeline Stopped", () => {
+		const output = buildPipelineSummary(emptyResults, "stopped", 42, "Test", defaultConfig, "User interrupted");
+		assert.ok(output.includes("## ⏹ Pipeline Stopped"), "stopped should show ⏹ and Pipeline Stopped");
+	});
+});
+
 // ─── Tests: Bug #711 — error output rendering ─────────────────
 
 describe("buildPipelineSummary — error output rendering (Bug #711)", () => {
