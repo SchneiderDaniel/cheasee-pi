@@ -88,7 +88,6 @@ flowchart TD
 | `bash | grep` | `getBashSubKey()` token analysis | `ripgrep_search` |
 | `bash cat` | `getCommandName()` | `read` |
 | `bash rg` | `getCommandName()` | `ripgrep_search` |
-| `bash xxd`/`bash hexdump` | `getCommandName()` | `bash` with `xxd`? |
 | `bash find . -name` | `getCommandName()` | `ripgrep_search` / `bash ls` |
 
 ### Key Design Decisions
