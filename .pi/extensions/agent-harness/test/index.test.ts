@@ -112,13 +112,12 @@ describe("AgentHarness — bash tool mismatch", () => {
 		);
 	});
 
-	it("standalone tail -10 file → block with redirectTo read", () => {
-		const r = new AgentHarness().handleToolCall(
-			makeEvent("bash", { command: "tail -10 file" }),
-			makeCtx(),
+	it("standalone tail -10 file → passes through (tail -N is O(N) from EOF, read tool is O(file size))", () => {
+		assert.equal(
+			new AgentHarness().handleToolCall(makeEvent("bash", { command: "tail -10 file" }), makeCtx()),
+			null,
 		);
-		assert.ok(r?.block);
-		assert.equal(r?.redirectTo, "read");
+	});
 	});
 
 	it("bash cat with redirect (cat > file) does NOT block", () => {

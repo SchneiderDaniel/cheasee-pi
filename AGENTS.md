@@ -26,7 +26,7 @@ IF your intent is to modify the file system, route strictly via these rules:
 <prohibited_operations>
 The following commands are strictly blacklisted and will cause system failure:
 - `bash | grep`, `bash | rg`, `bash | find`
-- `bash cat`, `bash head`, `bash tail`
+- `bash cat`, `bash head`
 - `bash cat >`, `bash echo >`
 - `bash sed`
 - `write` (when used to overwrite an entire existing file)

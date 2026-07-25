@@ -26,7 +26,12 @@ import {
 	loadDefaultRules,
 	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
-import { hasBypassAnnotation, isBashSearch, isBashFileRead, isBashFileModify } from "../lib/bash-query.ts";
+import {
+	hasBypassAnnotation,
+	isBashSearch,
+	isBashFileRead,
+	isBashFileModify,
+} from "../lib/bash-query.ts";
 import type { ResolvedHarnessRules, ToolMeta } from "./lib/harness-rules.ts";
 
 // ── Types ──
@@ -302,7 +307,7 @@ export class AgentHarness {
 				};
 			}
 
-			// File read in bash (cat/tail) → redirect to read
+			// File read in bash (cat/less/more) → redirect to read
 			else if (isBashFileRead(bashCommand)) {
 				result = {
 					block: true,

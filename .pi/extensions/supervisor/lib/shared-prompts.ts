@@ -47,7 +47,7 @@ const AGENT_OVERRIDES: Record<string, AgentDisciplineOverrides> = {
  */
 export const TOOL_DISCIPLINE_SNIPPET = `🛠 Tool Discipline — Shared Rules
 
-- **Read files:** Use \`read(path, offset?, limit?)\` — NOT \`bash cat\`, \`bash head\`, \`bash tail\`
+- **Read files:** Use \`read(path, offset?, limit?)\` — NOT \`bash cat\`, \`bash head\`
 - **Search codebase:** Use \`ripgrep_search\` for text, \`structural_search\` for AST patterns — NOT \`bash | grep\`, \`bash | rg\`
 - **Find symbols/file overview:** Use \`ripgrep_search\` for text, \`structural_search\` for AST-based symbol queries — NOT \`bash | grep\` for class/function names
 - **Edit files:** Use \`edit\` for precise text replacement — NOT \`bash sed\`, \`write\` (full overwrite)

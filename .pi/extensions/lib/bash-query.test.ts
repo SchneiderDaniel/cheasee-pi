@@ -144,8 +144,24 @@ describe("isBashFileRead", () => {
 		assert.strictEqual(isBashFileRead("head -5 file.ts"), false);
 	});
 
-	it("tail -10 file.ts → true", () => {
-		assert.strictEqual(isBashFileRead("tail -10 file.ts"), true);
+	it("tail -10 file.ts → false (tail is not a read redirect — O(N) from EOF, read tool is O(file size))", () => {
+		assert.strictEqual(isBashFileRead("tail -10 file.ts"), false);
+	});
+
+	it("tail -f log → false (streaming follow, not a read)", () => {
+		assert.strictEqual(isBashFileRead("tail -f log"), false);
+	});
+
+	it("tail -n +1 file → false (full-file variant still not redirectable)", () => {
+		assert.strictEqual(isBashFileRead("tail -n +1 file"), false);
+	});
+
+	it("tail -c 5 file → false (byte-count tail not redirectable)", () => {
+		assert.strictEqual(isBashFileRead("tail -c 5 file"), false);
+	});
+
+	it("tail -f log | grep error → false (first segment tail, not a file-read redirect)", () => {
+		assert.strictEqual(isBashFileRead("tail -f log | grep error"), false);
 	});
 
 	it("less file.ts → true", () => {

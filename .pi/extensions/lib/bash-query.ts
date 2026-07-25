@@ -17,7 +17,20 @@
 
 // ── Constants ──
 
+/** Commands that read from a file — used for pipe-to-grep detection in isBashSearch. */
 const READ_CMDS = ["cat", "tail", "less", "more"] as const;
+
+/**
+ * Commands that should redirect to the `read` tool.
+ * Tail is excluded because `tail -N` is O(N) from EOF via seek,
+ * while the `read` tool is O(file size) — it loads the entire file.
+ * Including tail would make the harness force an expensive full-file read
+ * for what would be a cheap seek-from-end operation.
+ *
+ * ponytail: rare tail -n +1 / tail -c +1 bypass is accepted;
+ * argument-parsing for full-file tail variants adds complexity not worth the cost.
+ */
+const READ_REDIRECT_CMDS = ["cat", "less", "more"] as const;
 
 /**
  * Import the single source of truth for the bypass annotation literal.
@@ -27,6 +40,18 @@ import { BYPASS_ANNOTATION } from "../agent-harness/lib/harness-rules.ts";
 
 /** Hash token and annotation token derived from BYPASS_ANNOTATION constant. */
 const [HASH_TOKEN, ANNOTATION_TOKEN] = BYPASS_ANNOTATION.split(/\s+/);
+
+/**
+ * Commands that should redirect to the `read` tool.
+ * Tail is excluded because `tail -N` is O(N) from EOF via seek,
+ * while the `read` tool is O(file size) — it loads the entire file.
+ * Including tail would make the harness force an expensive full-file read
+ * for what would be a cheap seek-from-end operation.
+ *
+ * ponytail: rare tail -n +1 / tail -c +1 bypass is accepted;
+ * argument-parsing for full-file tail variants adds complexity not worth the cost.
+ */
+const READ_REDIRECT_CMDS = ["cat", "less", "more"] as const;
 
 /** Bash commands that modify files — triggers read cache invalidation. */
 const FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
@@ -152,8 +177,11 @@ export function isBashSearch(cmd: string): boolean {
 }
 
 /**
- * True when a bash command reads a file using cat/head/tail/less/more
+ * True when a bash command reads a file using cat/less/more
  * where the `read` tool should be used instead.
+ *
+ * Tail is excluded because `tail -N` is O(N) from EOF, while the `read` tool
+ * is O(file size) — it loads the entire file into memory before slicing.
  *
  * Matches `BashCommand.isFileRead()` semantics:
  *  - Checks FIRST pipe segment only
@@ -177,7 +205,7 @@ export function isBashFileRead(cmd: string): boolean {
 	const token = firstToken(first);
 	if (!token) return false;
 
-	return (READ_CMDS as readonly string[]).includes(token);
+	return (READ_REDIRECT_CMDS as readonly string[]).includes(token);
 }
 
 /**
