@@ -17,8 +17,9 @@ Plus deterministic read caching across turns — re-reading the same file return
 
 ## How it works
 
-Agent Harness hooks into pi's `tool_call` event and runs every call through a 7-step validation pipeline before execution:
+Agent Harness hooks into pi's `tool_call` event and runs every call through an 8-step validation pipeline before execution:
 
+0. **Force-bypass gate** — Per-call escape hatch: `input._harness.force: true` or `# bypass-harness` comment annotation skips all guards. Requires `hasUI: true` (interactive session).
 1. **Pass-through check** — Tools like `ask_user` pass through immediately (no validation overhead)
 2. **Error tracking** — Failed calls are recorded; after 2+ errors on same tool, further calls are blocked
 3. **Cache invalidation** — `write`/`edit` or file-modifying `bash` clears the read cache
@@ -48,7 +49,7 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 
 ```
 ├── index.ts                  # Entry: session_start/tool_call/turn_start hooks, AgentHarness
-├── agent-harness.ts          # AgentHarness class: handleToolCall, 7-step decision tree
+├── agent-harness.ts          # AgentHarness class: handleToolCall, 8-step decision tree (step 0 = force-bypass)
 ├── lib/
 │   ├── harness-rules.ts      # Rule definitions: cascade thresholds, pass-through tools, mismatches
 │   ├── harness-state.ts      # Error tracking, cascade counter, read cache, turn tracking
@@ -56,29 +57,31 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 │   ├── timed-map.ts          # Generic timed map with TTL-based eviction
 │   └── constants.ts          # Default thresholds, tool lists
 ├── test/                     # Extensive test suite
-└── bash-query.ts (../lib/)   # Bash classification: isBashSearch, isBashFileRead, isBashFileModify
+└── bash-query.ts (../lib/)   # Bash classification: isBashSearch, isBashFileRead, isBashFileModify, hasBypassAnnotation
 ```
 
 ### Validation Pipeline
 
 ```mermaid
 flowchart TD
-    A[tool_call event] --> B{Step 1: Pass-through?}
-    B -- ask_user, reg commands --> C[Allow]
-    B -- other tools --> D[Step 2: Error tracking]
-    D --> E[Record error count for tool]
-    E --> F{Step 3: Cache invalidation}
-    F -- write/edit --> G[Invalidate read cache for file]
-    F -- other --> H{Step 4: Error retry guard}
-    H -- 2+ consecutive errors --> I[Block: same tool, same args]
-    H -- < 2 errors --> J{Step 5: Read cache}
-    J -- same file read within 6 turns --> K[Return cached content]
-    J -- not cached --> L{Step 6: Cascade detection}
-    L -- 8+ consecutive same tool --> M[Block: cascade detected]
-    L -- below threshold --> N{Step 7: Tool mismatch}
-    N -- bash|grep --> O[Block: use ripgrep_search]
-    N -- bash cat --> P[Block: use read]
-    N -- no mismatch --> Q[Allow]
+    A[tool_call event] --> B{Step 0: Force-bypass?}
+    B -- "_harness.force OR # bypass-harness\n+ hasUI: true" --> C[Allow — record as real call]
+    B -- no bypass --> D{Step 1: Pass-through?}
+    D -- ask_user, reg commands --> C
+    D -- other tools --> E[Step 2: Error tracking]
+    E --> F[Record error count for tool]
+    F --> G{Step 3: Cache invalidation}
+    G -- write/edit --> H[Invalidate read cache for file]
+    G -- other --> I{Step 4: Error retry guard}
+    I -- 2+ consecutive errors --> J[Block: same tool, same args]
+    I -- < 2 errors --> K{Step 5: Read cache}
+    K -- same file read within 6 turns --> L[Return cached content]
+    K -- not cached --> M{Step 6: Cascade detection}
+    M -- 8+ consecutive same tool --> N[Block: cascade detected]
+    M -- below threshold --> O{Step 7: Tool mismatch}
+    O -- bash|grep --> P[Block: use ripgrep_search]
+    O -- bash cat --> Q[Block: use read]
+    O -- no mismatch --> C
 ```
 
 ### Tool Mismatch Detection
@@ -92,6 +95,7 @@ flowchart TD
 
 ### Key Design Decisions
 
+- **Force-bypass (Escape Hatch)** — Two per-call mechanisms: `input._harness.force: true` on any tool, or `# bypass-harness` comment annotation on bash commands. Both require `hasUI: true` (interactive session) to prevent automated abuse. `_harness` is consumed and stripped by the harness before the tool sees it. Force-bypassed calls count toward the cascade counter (recorded as real calls). Parsing for the bash annotation is token-aware (quoted-string immunity) and best-effort (heredocs/continuations fall through to false; use `_harness.force` for those edge cases).
 - **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags.
 - **Read caching with 6-turn TTL** — `TimedMap` stores file contents for 6 turns. Cache invalidated on write/edit to same file.
 - **Error retry guard caps at 2** — First retry reasonable (transient). Second+ consecutive same-tool same-args blocked. Counter resets on turn_start.
@@ -110,6 +114,33 @@ flowchart TD
   }
 }
 ```
+
+### Force-Bypass Details
+
+Two redundant signals for bypassing all guards on a per-call basis:
+
+| Signal | Scope | Example |
+|--------|-------|---------|
+| `_harness.force: true` | Any tool | `input: { _harness: { force: true }, command: "grep foo" }` |
+| `# bypass-harness` comment | Bash only | `command: "grep foo # bypass-harness"` |
+
+Both signals require `hasUI: true` context (interactive session). If `hasUI` is `false` or `undefined`, the bypass is silently ignored and normal guards apply.
+
+**`_harness` field contract:**
+- Namespace-prefixed (`_harness`) to avoid collision with tool schemas
+- Underscore prefix marks it as a reserved internal contract
+- Always consumed and stripped by the harness before the tool executes — tools never see it
+- Even on non-bypass paths (`force: false` or missing), `_harness` is still removed from input
+
+**`# bypass-harness` token parsing:**
+- Token-wise parser strips quoted-string literals before scanning
+- Only checks the first logical line (heredoc and `\` continuation content falls through to false)
+- Best-effort — for edge cases (heredocs, line continuations), use `_harness.force`
+
+**Cascade counter semantics:**
+- Force-bypassed calls **count as real calls** (inflate the cascade counter)
+- Blocked calls (non-bypassed) still do NOT inflate the counter (Bug 5 invariant preserved)
+- A bypassed call itself never triggers a cascade block (bypass gate runs before cascade check)
 
 ## License
 

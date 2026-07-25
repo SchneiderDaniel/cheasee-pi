@@ -67,6 +67,67 @@ function firstToken(s: string): string | undefined {
  *  - find (handled by isBashSearchOrRead)
  *  - Empty string
  */
+/**
+ * True when a bash command contains a `# bypass-harness` annotation
+ * as a standalone comment token (not inside quoted strings).
+ *
+ * Token-wise parsing: strips single-quoted, double-quoted, and backtick-quoted
+ * segments before scanning for the annotation as a standalone token.
+ * Returns false on any ambiguity (heredocs, line continuations, empty/missing).
+ *
+ * This is a best-effort parser, not a full bash parser. For edge cases
+ * (heredocs, \ continuations), use `input._harness.force` instead.
+ *
+ * @param cmd — raw bash command string (before shell evaluation)
+ * @returns true if the unquoted portion contains standalone `# bypass-harness`
+ */
+export function hasBypassAnnotation(cmd: string): boolean {
+	if (!cmd) return false;
+
+	// Only check the first logical line (before any newline) to avoid
+	// false positives from heredoc content and line continuations.
+	// Heredocs and \ continuations fall through to false per architecture.
+	const firstLine = cmd.split("\n")[0];
+	if (!firstLine) return false;
+
+	// Strip quoted segments to avoid false positives from annotation inside strings
+	let stripped = firstLine;
+
+	// Strip backtick-quoted segments: `...`
+	stripped = stripped.replace(/`[^`]*`/g, "");
+
+	// Strip double-quoted segments: "..."
+	stripped = stripped.replace(/("(?:[^"\\]|\\.)*")/g, "");
+
+	// Strip single-quoted segments: '...'
+	stripped = stripped.replace(/('(?:[^'\\]|\\.)*')/g, "");
+
+	// After stripping quotes, tokenize and look for standalone "# bypass-harness"
+	const tokens = stripped.split(/\s+/);
+	for (let i = 0; i < tokens.length; i++) {
+		if (tokens[i] === "#" && i + 1 < tokens.length && tokens[i + 1] === "bypass-harness") {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * True when a bash command is a search operation that should use
+ * `ripgrep_search` tool instead.
+ *
+ * Returns true for:
+ *  - Standalone grep/rg as first token (backtick variants included)
+ *  - Piped file→grep: file-read command (cat/head/tail/less/more) piped to grep/rg
+ *
+ * Returns false for:
+ *  - grep/rg chained with && or ;
+ *  - Non-file pipe output piped to grep (e.g., ls | grep foo)
+ *  - grep in quoted args, not first token
+ *  - find (handled by isBashSearchOrRead)
+ *  - Empty string
+ */
 export function isBashSearch(cmd: string): boolean {
 	if (!cmd) return false;
 	const lower = cmd.toLowerCase().trim();
