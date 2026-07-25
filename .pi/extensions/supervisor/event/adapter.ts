@@ -84,40 +84,6 @@ function phasePriority(phase: AgentPhase): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Push helpers (consolidated guard pattern)
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Push a text block to state, handling streaming dedup via endsWith check.
- * When text was already pushed this turn (streaming), only appends if the
- * existing content doesn't already end with the new text.
- */
-function pushTextBlock(state: AgentRunState, text: string): void {
-	if (state.textPushedThisTurn) {
-		const existing = state.textOutputLines.join("\n").trim();
-		if (existing.endsWith(text.trim())) return;
-	}
-	state.textOutputLines.push(text.trim());
-	state.textPushedThisTurn = true;
-	for (const t of text.split("\n")) {
-		if (t.trim()) pushLog(state, t);
-	}
-}
-
-/**
- * Push a thinking block to both text and thinking output lines,
- * logging each line with a 💭 prefix. Sets the thinking-pushed flag.
- */
-function pushThinkingBlock(state: AgentRunState, thinking: string): void {
-	state.textOutputLines.push(thinking.trim());
-	state.thinkingOutputLines.push(thinking.trim());
-	state.thinkingPushedThisTurn = true;
-	for (const t of thinking.split("\n")) {
-		if (t.trim()) pushLog(state, `💭 ${t}`);
-	}
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // Handlers (formerly event/handlers.ts)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -326,13 +292,13 @@ function handleMessageEnd(
 			}
 			if (thinkingParts.length > 0) {
 				if (!state.thinkingPushedThisTurn) {
-					pushThinkingBlock(state, thinkingParts.join("\n").trim());
+					pushThinkingBlock(state, thinkingParts.join("\n"));
 				}
 			}
 		}
 		const text = extractTextFromContent(msg.content);
 		if (text && text.trim()) {
-			pushTextBlock(state, text.trim());
+			pushTextBlock(state, text);
 		}
 		if (msg.usage) applyUsage(state, msg.usage);
 	} else if (msg.role === "toolResult") {
@@ -373,7 +339,7 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 	const content: unknown = msg?.content;
 
 	if (typeof content === "string" && content.trim()) {
-		pushTextBlock(state, content.trim());
+		pushTextBlock(state, content);
 	} else if (Array.isArray(content)) {
 		const textParts: string[] = [];
 		const thinkingParts: string[] = [];
