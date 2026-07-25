@@ -146,14 +146,6 @@ if [ ! -d /workspaces/main/node_modules ]; then
         || echo "Warning: npm install failed (non-fatal — pi may still work depending on which extensions are loaded)"
 fi
 
-# --- Auto-update pi to latest version ---------------------------------
-# Checks npm registry for newer pi version on every container start.
-# Fast when already up-to-date (npm checks cached latest).
-if command -v npm &>/dev/null; then
-    echo "Checking for pi updates…"
-    npm update -g @earendil-works/pi-coding-agent --no-audit --no-fund 2>/dev/null || true
-fi
-
 # --- Drop privileges and exec -------------------------------------
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)
