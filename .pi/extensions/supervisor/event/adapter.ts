@@ -17,6 +17,14 @@ import { extractTextFromContent } from "../lib/formatting.ts";
 // Types (formerly event/types.ts)
 // ═══════════════════════════════════════════════════════════════════
 
+export type NormalizedUsage = {
+	totalTokens?: number;
+	input?: number;
+	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+};
+
 export type NormalizedEvent =
 	| { kind: "tool_execution_start"; toolName: string; args?: unknown }
 	| { kind: "tool_execution_end"; toolName: string; isError?: boolean }
@@ -26,13 +34,7 @@ export type NormalizedEvent =
 	| { kind: "text_start" }
 	| {
 			kind: "text_end";
-			usage?: {
-				totalTokens?: number;
-				input?: number;
-				output?: number;
-				cacheRead?: number;
-				cacheWrite?: number;
-			};
+			usage?: NormalizedUsage;
 	  }
 	| { kind: "text_delta"; delta: string }
 	| {
@@ -43,13 +45,7 @@ export type NormalizedEvent =
 					Record<string, unknown> & { type: string; text?: string; thinking?: string }
 				>;
 				toolName?: string;
-				usage?: {
-					totalTokens?: number;
-					input?: number;
-					output?: number;
-					cacheRead?: number;
-					cacheWrite?: number;
-				};
+				usage?: NormalizedUsage;
 			};
 	  }
 	| {
@@ -58,13 +54,7 @@ export type NormalizedEvent =
 				content?: Array<
 					Record<string, unknown> & { type: string; text?: string; thinking?: string }
 				>;
-				usage?: {
-					totalTokens?: number;
-					input?: number;
-					output?: number;
-					cacheRead?: number;
-					cacheWrite?: number;
-				};
+				usage?: NormalizedUsage;
 			};
 	  }
 	| { kind: "context_info"; contextTokens: number; contextWindow: number }
@@ -290,6 +280,13 @@ function handleTextDelta(
 	return { flush: false, workingChange: false };
 }
 
+function applyUsage(state: AgentRunState, usage: NormalizedUsage): void {
+	state.tokenCount =
+		usage.totalTokens || (usage.input ?? 0) + (usage.output ?? 0) || state.tokenCount;
+	if (typeof usage.cacheRead === "number") state.cacheRead = usage.cacheRead;
+	if (typeof usage.cacheWrite === "number") state.cacheWrite = usage.cacheWrite;
+}
+
 function handleTextEnd(
 	state: AgentRunState,
 	ev: NormalizedEvent & { kind: "text_end" },
@@ -302,10 +299,7 @@ function handleTextEnd(
 		}
 		state.textPushedThisTurn = true;
 	}
-	if (ev.usage) {
-		state.tokenCount =
-			ev.usage.totalTokens || (ev.usage.input ?? 0) + (ev.usage.output ?? 0) || state.tokenCount;
-	}
+	if (ev.usage) applyUsage(state, ev.usage);
 	state.liveText = "";
 	state.phase = "idle";
 	return { flush: true, workingChange: true };
@@ -340,14 +334,7 @@ function handleMessageEnd(
 		if (text && text.trim()) {
 			pushTextBlock(state, text.trim());
 		}
-		if (msg.usage) {
-			state.tokenCount =
-				msg.usage.totalTokens ||
-				(msg.usage.input ?? 0) + (msg.usage.output ?? 0) ||
-				state.tokenCount;
-			if (typeof msg.usage.cacheRead === "number") state.cacheRead = msg.usage.cacheRead;
-			if (typeof msg.usage.cacheWrite === "number") state.cacheWrite = msg.usage.cacheWrite;
-		}
+		if (msg.usage) applyUsage(state, msg.usage);
 	} else if (msg.role === "toolResult") {
 		const resultText = extractTextFromContent(msg.content);
 		const label = msg.toolName || state.lastToolName || "tool";
@@ -381,12 +368,7 @@ function handleMessageEnd(
 
 function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }): HandlerResult {
 	const msg = ev.message;
-	if (msg?.usage) {
-		state.tokenCount =
-			msg.usage.totalTokens || (msg.usage.input ?? 0) + (msg.usage.output ?? 0) || state.tokenCount;
-		if (typeof msg.usage.cacheRead === "number") state.cacheRead = msg.usage.cacheRead;
-		if (typeof msg.usage.cacheWrite === "number") state.cacheWrite = msg.usage.cacheWrite;
-	}
+	if (msg?.usage) applyUsage(state, msg.usage);
 
 	const content: unknown = msg?.content;
 
