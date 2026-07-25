@@ -19,6 +19,15 @@
 
 const READ_CMDS = ["cat", "tail", "less", "more"] as const;
 
+/**
+ * Import the single source of truth for the bypass annotation literal.
+ * Defined in agent-harness rules module; consumed here as token parts.
+ */
+import { BYPASS_ANNOTATION } from "../agent-harness/lib/harness-rules.ts";
+
+/** Hash token and annotation token derived from BYPASS_ANNOTATION constant. */
+const [HASH_TOKEN, ANNOTATION_TOKEN] = BYPASS_ANNOTATION.split(/\s+/);
+
 /** Bash commands that modify files — triggers read cache invalidation. */
 const FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
 	"sed",
@@ -52,21 +61,6 @@ function firstToken(s: string): string | undefined {
 
 // ── Public API ──
 
-/**
- * True when a bash command is a search operation that should use
- * `ripgrep_search` tool instead.
- *
- * Returns true for:
- *  - Standalone grep/rg as first token (backtick variants included)
- *  - Piped file→grep: file-read command (cat/head/tail/less/more) piped to grep/rg
- *
- * Returns false for:
- *  - grep/rg chained with && or ;
- *  - Non-file pipe output piped to grep (e.g., ls | grep foo)
- *  - grep in quoted args, not first token
- *  - find (handled by isBashSearchOrRead)
- *  - Empty string
- */
 /**
  * True when a bash command contains a `# bypass-harness` annotation
  * as a standalone comment token (not inside quoted strings).
@@ -105,7 +99,7 @@ export function hasBypassAnnotation(cmd: string): boolean {
 	// After stripping quotes, tokenize and look for standalone "# bypass-harness"
 	const tokens = stripped.split(/\s+/);
 	for (let i = 0; i < tokens.length; i++) {
-		if (tokens[i] === "#" && i + 1 < tokens.length && tokens[i + 1] === "bypass-harness") {
+		if (tokens[i] === HASH_TOKEN && i + 1 < tokens.length && tokens[i + 1] === ANNOTATION_TOKEN) {
 			return true;
 		}
 	}
