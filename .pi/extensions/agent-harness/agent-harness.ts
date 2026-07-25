@@ -26,7 +26,7 @@ import {
 	loadDefaultRules,
 	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
-import { isBashSearch, isBashFileRead, isBashFileModify } from "../lib/bash-query.ts";
+import { hasBypassAnnotation, isBashSearch, isBashFileRead, isBashFileModify } from "../lib/bash-query.ts";
 import type { ResolvedHarnessRules, ToolMeta } from "./lib/harness-rules.ts";
 
 // ── Types ──
@@ -171,6 +171,33 @@ export class AgentHarness {
 			return null;
 		}
 
+		// Extract bash command string for classification (used by bypass gate and later guards)
+		const bashCommand = (toolName === "bash" ? (args.command ?? "") : "") as string;
+		const bashSubKey =
+			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
+
+		// ── Step 0: Force-bypass gate ──
+		// Per-call escape hatch: _harness.force: true or # bypass-harness comment annotation.
+		// Requires hasUI: true (deliberate intent — prevents headless/automated abuse).
+		// Force-bypassed calls are recorded as real calls (count toward cascade).
+		const forceField = args._harness as { force?: boolean } | undefined;
+		const forceBypass = forceField?.force === true;
+		const bypassAnnotation = toolName === "bash" && hasBypassAnnotation(bashCommand);
+
+		// Strip _harness from input to prevent leaking to tool layer (always, even if not bypassing)
+		if (args._harness !== undefined) {
+			delete (event.input as Record<string, unknown>)._harness;
+		}
+
+		if (forceBypass || bypassAnnotation) {
+			if (this.#hasUI) {
+				this.state.callCounter.record(toolName, sessionTurn, toolCallIndex, bashSubKey);
+				this.state.toolCallIndex++;
+				return null;
+			}
+			// hasUI is false → bypass rejected, fall through to normal guards
+		}
+
 		const meta = this.#getToolMeta(toolName);
 
 		// ── 1. Pass-through tools → always pass, but record for cascade reset ──
@@ -179,9 +206,6 @@ export class AgentHarness {
 			this.state.toolCallIndex++;
 			return null;
 		}
-
-		// Extract bash command string for classification
-		const bashCommand = (toolName === "bash" ? (args.command ?? "") : "") as string;
 
 		let result: ToolCallResult | null = null;
 
@@ -239,11 +263,6 @@ export class AgentHarness {
 				}
 			}
 		}
-
-		// ── Extract bash subKey for sub-command-aware cascade detection ──
-		// First 2 tokens of bash command become subKey. Empty/absent command → undefined.
-		const bashSubKey =
-			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
 
 		// ── 5. Same-tool cascade detection (skip read — cache handles redundant reads) ──
 		// Cascade check uses count + 1 BEFORE recording, accounting for current call

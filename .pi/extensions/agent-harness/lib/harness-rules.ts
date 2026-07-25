@@ -22,6 +22,14 @@ export const CACHE_TTL_TURNS = 6;
 export const CASCADE_THRESHOLD = 8;
 
 /**
+ * Force-bypass annotation for bash commands.
+ * When present as a standalone comment token (token-wise parsed, not in quoted strings),
+ * the agent-harness bypasses all guards for that call.
+ * Must be used deliberately — requires hasUI: true to activate.
+ */
+export const BYPASS_ANNOTATION = "# bypass-harness";
+
+/**
  * Resolved harness rules — the merged result of default rules + project-local config.
  * Used by AgentHarness for tool metadata lookup and cascade threshold.
  */
