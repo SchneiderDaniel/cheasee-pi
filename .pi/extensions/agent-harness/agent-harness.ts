@@ -283,7 +283,7 @@ export class AgentHarness {
 				};
 			}
 
-			// File read in bash (cat/head/tail) → redirect to read
+			// File read in bash (cat/tail) → redirect to read
 			else if (isBashFileRead(bashCommand)) {
 				result = {
 					block: true,

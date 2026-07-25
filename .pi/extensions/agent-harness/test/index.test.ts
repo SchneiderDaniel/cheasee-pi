@@ -103,13 +103,20 @@ describe("AgentHarness — bash tool mismatch", () => {
 		assert.equal(r?.redirectTo, "read");
 	});
 
-	it("standalone head/tail → block with redirectTo read", () => {
-		const h = new AgentHarness();
-		for (const cmd of ["head -5 file", "tail -10 file"]) {
-			const r = h.handleToolCall(makeEvent("bash", { command: cmd }), makeCtx());
-			assert.ok(r?.block, cmd);
-			assert.equal(r?.redirectTo, "read", cmd);
-		}
+	it("standalone head -5 file → pass through (head no longer in READ_CMDS)", () => {
+		assert.equal(
+			new AgentHarness().handleToolCall(makeEvent("bash", { command: "head -5 file" }), makeCtx()),
+			null,
+		);
+	});
+
+	it("standalone tail -10 file → block with redirectTo read", () => {
+		const r = new AgentHarness().handleToolCall(
+			makeEvent("bash", { command: "tail -10 file" }),
+			makeCtx(),
+		);
+		assert.ok(r?.block);
+		assert.equal(r?.redirectTo, "read");
 	});
 
 	it("bash cat with redirect (cat > file) does NOT block", () => {
