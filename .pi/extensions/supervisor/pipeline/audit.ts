@@ -479,11 +479,32 @@ async function runLspPreAudit(
 			}
 		}
 
+		// Compute changeAlreadyOnMain: whether the worktree HEAD is identical to
+		// the default branch HEAD (no committed or uncommitted differences).
+		// When hasModifiedFiles is false AND there are no commits on the branch,
+		// the worktree is a clean copy of main — any required changes must
+		// already be present on main.
+		let changeAlreadyOnMain = false;
+		if (!hasModifiedFiles) {
+			try {
+				const revResult = await pi.exec(
+					"git",
+					["rev-list", "--count", `${config.defaultBranch}..HEAD`],
+					{ cwd: resolvePath(worktreePath), timeout: 10_000 },
+				);
+				const commitCount = parseInt(revResult.stdout?.trim() || "0", 10);
+				changeAlreadyOnMain = commitCount === 0;
+			} catch {
+				// If git command fails, assume changes not on main (safe: don't skip)
+				changeAlreadyOnMain = false;
+			}
+		}
+
 		const decision = determineAuditGate({
 			policyName: "lsp",
 			intendedNext: "Audit",
 			result: preAuditResult,
-			context: { hasModifiedFiles, retryCount },
+			context: { hasModifiedFiles, changeAlreadyOnMain, retryCount },
 		});
 
 		if (decision.note) {

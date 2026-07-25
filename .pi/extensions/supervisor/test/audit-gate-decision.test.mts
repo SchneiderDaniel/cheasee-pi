@@ -159,10 +159,10 @@ describe("determineAuditGate — lsp policy", () => {
 			policyName: "lsp",
 			intendedNext: "Audit",
 			result: { proceed: false, note: "would block" },
-			context: { hasModifiedFiles: false, retryCount: 0 },
+			context: { hasModifiedFiles: false, changeAlreadyOnMain: true, retryCount: 0 },
 		});
 		assert.strictEqual(result.nextStatus, "Audit");
-		assert.ok(result.note.includes("no modified files") || result.note.includes("skipped"));
+		assert.ok(result.note.includes("already on main") || result.note.includes("skipped"));
 		assert.strictEqual(result.triggered, false);
 	});
 
@@ -283,10 +283,61 @@ describe("determineAuditGate — lsp policy", () => {
 			policyName: "lsp",
 			intendedNext: "Audit",
 			result: null,
-			context: { hasModifiedFiles: false, retryCount: 0 },
+			context: { hasModifiedFiles: false, changeAlreadyOnMain: true, retryCount: 0 },
 		});
 		assert.strictEqual(result.nextStatus, "Audit");
-		assert.ok(result.note.includes("no modified files") || result.note.includes("skipped"));
+		assert.ok(result.note.includes("already on main") || result.note.includes("skipped"));
 		assert.strictEqual(result.triggered, false);
+	});
+
+	// === changeAlreadyOnMain tests ===
+
+	it("!hasModifiedFiles + changeAlreadyOnMain=true → skip (changes already on main)", () => {
+		const result = determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: { proceed: false, note: "would block" },
+			context: { hasModifiedFiles: false, changeAlreadyOnMain: true, retryCount: 0 },
+		});
+		assert.strictEqual(result.nextStatus, "Audit");
+		assert.ok(result.note.includes("already on main") || result.note.includes("skipped"));
+		assert.strictEqual(result.triggered, false);
+	});
+
+	it("!hasModifiedFiles + changeAlreadyOnMain=false → do NOT skip (work genuinely missing)", () => {
+		const result = determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: { proceed: false, note: "would block" },
+			context: { hasModifiedFiles: false, changeAlreadyOnMain: false, retryCount: 0 },
+		});
+		// With changeAlreadyOnMain=false, shouldSkip returns false → we proceed to evaluate
+		// proceed=false, retry 0 → Implementation
+		assert.strictEqual(result.nextStatus, "Implementation");
+		assert.strictEqual(result.triggered, true);
+	});
+
+	it("!hasModifiedFiles + changeAlreadyOnMain undefined (backwards compat) → do NOT skip", () => {
+		// Existing callers that don't pass changeAlreadyOnMain get the new behavior:
+		// hasModifiedFiles=false alone no longer triggers skip
+		const result = determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: { proceed: false, note: "would block" },
+			context: { hasModifiedFiles: false, retryCount: 0 },
+		});
+		assert.strictEqual(result.nextStatus, "Implementation");
+		assert.strictEqual(result.triggered, true);
+	});
+
+	it("hasModifiedFiles=true + changeAlreadyOnMain=true → do NOT skip (modified files present)", () => {
+		const result = determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: { proceed: true, note: "all clean" },
+			context: { hasModifiedFiles: true, changeAlreadyOnMain: true, retryCount: 0 },
+		});
+		assert.strictEqual(result.nextStatus, "Audit");
+		assert.strictEqual(result.triggered, true);
 	});
 });

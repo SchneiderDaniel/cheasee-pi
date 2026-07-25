@@ -20,6 +20,14 @@ import type { GitHubPort } from "../github/ports.ts";
 import { createGitHubPort } from "../github/ports.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 
+import {
+	classifyEmptyWorktree,
+	buildResolvedByComment,
+	buildLeaveOpenForPrComment,
+} from "./empty-worktree-policy.ts";
+import type { EmptyWorktreeSignals } from "./empty-worktree-policy.ts";
+import type { ClosingPrRef } from "../github/ports.ts";
+
 import { executeAgent } from "./execute-agent.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
 import {
@@ -64,6 +72,7 @@ import {
 	shouldSkipResearcher,
 	inferForwardStatus,
 	hasBranchCommits,
+	gitCherryContains,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
 	type GateRejected,
@@ -774,38 +783,154 @@ export async function handleSupervisorCommand(
 				stopReason: nsStop,
 			});
 
-			// Bug #643: Pre-condition check before auditor — if developer produced
-			// no commits (branch is empty ahead of base), skip auditor and stop pipeline.
-			// This prevents the auditor from wasting tokens on an empty worktree.
+			// Bug #1343: 3-way empty worktree classification.
+			// When developer produced no commits, determine if we should:
+			//   1. Loop back to Implementation (changes absent on main)
+			//   2. Close with named resolution (changes already on main)
+			//   3. Leave open for PR review (open PR exists for this issue)
 			if (agentName === "developer" && nextStatus === "Audit" && worktreePath && result.success) {
+				const execFn = (cmd: string, args: string[], opts?: Record<string, unknown>) =>
+					pi.exec(cmd, args, opts);
+				const baseBranch = config.defaultBranch || "main";
+				const headBranch = worktreeBranch || config.branchPrefix! + issueNum;
+
 				const hasCommits = await hasBranchCommits(
-					(cmd: string, args: string[], opts?: Record<string, unknown>) => pi.exec(cmd, args, opts),
+					execFn,
 					worktreePath,
-					worktreeBranch || config.branchPrefix! + issueNum,
-					config.defaultBranch || "main",
+					headBranch,
+					baseBranch,
 				);
+
 				if (!hasCommits) {
-					stopReason = "Developer produced no commits — skipping auditor";
-					ctx.ui.notify("Developer produced no changes. Pipeline stopping.", "warning");
-					getDebugLogger().warn("handler", "No commits from developer", {
-						worktreeBranch,
-						config: config.defaultBranch,
+					getDebugLogger().info("handler", "No commits from developer — classifying empty worktree", {
+						worktreeBranch: headBranch,
+						defaultBranch: baseBranch,
 					});
-					// Close issue on GitHub: no changes needed (already resolved)
+
+					// Fetch signals for empty worktree classification
+					// 1. changeOnMain: use gitCherryContains to detect if changes are
+					//    already upstream (primary), fall back to git diff --quiet for
+					//    clean-worktree detection (secondary).
+					let changeOnMain = false;
 					try {
-						await port.postIssueComment(
-							issueNum,
-							config.repo,
-							"## Issue Already Resolved\n\nDeveloper produced no changes — the codebase already reflects the required state. Closing.",
+						// Primary: gitCherryContains checks if worktree HEAD commits are
+						// equivalent to changes already applied on the default branch.
+						// In the hasCommits=false case (no unique commits), this returns
+						// false (empty output) — we fall through to the secondary check.
+						changeOnMain = await gitCherryContains(
+							execFn,
+							worktreePath,
+							baseBranch,
+							"HEAD",
 						);
-						await port.closeIssue(issueNum, config.repo);
-						ctx.ui.notify(`Issue #${issueNum} closed — already resolved`, "info");
-					} catch (closeErr: unknown) {
-						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
-						ctx.ui.notify(`Failed to close issue: ${closeMsg}`, "warning");
-						collector?.push("handler", "warn", `Failed to close issue #${issueNum}: ${closeMsg}`);
+						// Fallback: if gitCherryContains returned false (incl. empty),
+						// use git diff --quiet to check if the worktree is clean.
+						// A clean worktree with no unique commits means the developer
+						// saw no work to do — changes are already on main.
+						if (!changeOnMain) {
+							const diffResult = await execFn(
+								"git",
+								["diff", "--quiet"],
+								{ cwd: worktreePath, timeout: 10_000 },
+							);
+							changeOnMain = diffResult.code === 0;
+						}
+					} catch {
+						// If git commands fail, assume changes not on main (safe: loop back)
+						changeOnMain = false;
 					}
-					break;
+
+					// 2. openPrs: check for PRs referencing this issue
+					let openPrs: ClosingPrRef[] = [];
+					try {
+						openPrs = await port.getClosingPrsForIssue(issueNum, config.repo);
+					} catch (prErr: unknown) {
+						const prMsg = prErr instanceof Error ? prErr.message : String(prErr);
+						getDebugLogger().warn("handler", `getClosingPrsForIssue failed: ${prMsg}`);
+						// Fail-open: on API error, force changeOnMain=false so we loop
+						// (case 1) instead of closing (case 2) — matching the test plan.
+						changeOnMain = false;
+					}
+
+					// 3. Classify and dispatch
+					const signals: EmptyWorktreeSignals = { hasCommits: false, changeOnMain, openPrs };
+					const action = classifyEmptyWorktree(signals);
+
+					getDebugLogger().info("handler", "Empty worktree classification", {
+						signals: { hasCommits: false, changeOnMain, openPrCount: openPrs.length },
+						actionKind: action?.kind,
+					});
+
+					if (!action) {
+						// classifier returned null — shouldn't happen with hasCommits=false
+						// but fall through to auditor as safe default
+						getDebugLogger().warn("handler", "Empty worktree classifier returned null — proceeding to auditor");
+					} else if (action.kind === "loop") {
+						// Case 1: No commits, changes absent on main → loop back to Implementation
+						stopReason = action.reason;
+						ctx.ui.notify(
+							`Developer produced no commits and changes not on main. Looping back to Implementation: ${action.reason}`,
+							"warning",
+						);
+						getDebugLogger().warn("handler", "Empty worktree — looping to Implementation", {
+							reason: action.reason,
+						});
+						// Don't close issue, don't post comment — just stop the pipeline so it
+						// can be restarted with fresh developer dispatch
+						break;
+					} else if (action.kind === "close") {
+						// Case 2: No commits, changes already on main → close with named resolution
+						// Fetch the actual resolving commit SHA from the default branch.
+						// This ensures the close comment names the real commit, not a placeholder.
+						stopReason = `Changes already on main — closing issue`;
+						const resolvedBy = await fetchResolvedByInfo(
+							execFn, worktreePath, baseBranch, port, issueNum, config.repo,
+						);
+						ctx.ui.notify(
+							"Required changes already present on main. Closing issue.",
+							"info",
+						);
+						getDebugLogger().info("handler", "Empty worktree — closing with resolution", {
+							resolvedBy,
+						});
+						try {
+							const commentBody = buildResolvedByComment(resolvedBy);
+							await port.postIssueComment(issueNum, config.repo, commentBody);
+							await port.closeIssue(issueNum, config.repo);
+							ctx.ui.notify(`Issue #${issueNum} closed — already resolved on main`, "info");
+						} catch (closeErr: unknown) {
+							const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
+							ctx.ui.notify(`Failed to close issue: ${closeMsg}`, "warning");
+							collector?.push("handler", "warn", `Failed to close issue #${issueNum}: ${closeMsg}`);
+						}
+						break;
+					} else if (action.kind === "leaveOpenForPr") {
+						// Case 3: No commits, open PR exists → leave open for PR review
+						stopReason = `Open PR #${action.prNumber} targets this issue — leaving open`;
+						ctx.ui.notify(
+							`Open PR #${action.prNumber} (${action.branch}) targets this issue — leaving open.`,
+							"info",
+						);
+						getDebugLogger().info("handler", "Empty worktree — leaving open for PR", {
+							prNumber: action.prNumber,
+							branch: action.branch,
+						});
+						try {
+							const commentBody = buildLeaveOpenForPrComment(action.prNumber, action.branch);
+							await port.postIssueComment(issueNum, config.repo, commentBody);
+							// Do NOT close the issue
+							ctx.ui.notify(
+								`Posted comment linking PR #${action.prNumber} on issue #${issueNum}`,
+								"info",
+							);
+						} catch (commentErr: unknown) {
+							const commentMsg =
+								commentErr instanceof Error ? commentErr.message : String(commentErr);
+							ctx.ui.notify(`Failed to post comment: ${commentMsg}`, "warning");
+							collector?.push("handler", "warn", `Failed to post PR link comment: ${commentMsg}`);
+						}
+						break;
+					}
 				}
 			}
 
@@ -1110,6 +1235,74 @@ export async function handleSupervisorCommand(
 			resetDebugLogger();
 		}
 	}
+}
+
+// ─── Resolved-By Info Fetcher ─────────────────────────────────────
+// Fetches the resolving commit SHA and PR number for the default branch.
+// Called when case 2 (close with named resolution) is triggered.
+// Uses git log for the latest commit SHA and the port to find merged PRs.
+// Fail-soft: returns placeholder values if git/API calls fail.
+
+async function fetchResolvedByInfo(
+	execFn: (
+		cmd: string,
+		args: string[],
+		opts?: Record<string, unknown>,
+	) => Promise<{ code: number; stdout: string; stderr: string }>,
+	worktreePath: string,
+	baseBranch: string,
+	port: GitHubPort,
+	issueNum: number,
+	repo: string,
+): Promise<{ sha: string; prNumber: number; source: string }> {
+	let sha = "";
+	let prNumber = 0;
+	let source = "main-branch";
+
+	// 1. Get the latest commit SHA from the default branch
+	try {
+		const shaResult = await execFn(
+			"git",
+			["log", "-1", baseBranch, "--format=%H"],
+			{ cwd: worktreePath, timeout: 10_000 },
+		);
+		if (shaResult.code === 0 && shaResult.stdout?.trim()) {
+			sha = shaResult.stdout.trim();
+		}
+	} catch {
+		// Non-fatal — proceed with empty sha
+	}
+
+	// 2. Try to find a merged PR that references this issue for the PR number
+	try {
+		const refs = await port.getClosingPrsForIssue(issueNum, repo);
+		// Look for a closing-keyword PR (likely merged/main PR, not branch-head)
+		const closingRef = refs.find((r) => r.source === "closing-keyword");
+		if (closingRef) {
+			prNumber = closingRef.number;
+			source = closingRef.source;
+			if (closingRef.sha) {
+				sha = closingRef.sha;
+			}
+		} else if (refs.length > 0) {
+			// Fall back to first PR ref
+			prNumber = refs[0].number;
+			source = refs[0].source;
+			if (refs[0].sha) {
+				sha = refs[0].sha;
+			}
+		}
+	} catch {
+		// Non-fatal — proceed with commit SHA only
+	}
+
+	// Use the actual commit SHA from git log as the authoritative value
+	// (overrides any SHA from the PR which might be a merge commit)
+	if (!sha) {
+		sha = "main";
+	}
+
+	return { sha, prNumber, source };
 }
 
 // ─── Post-Pipeline Operations ──────────────────────────────────────

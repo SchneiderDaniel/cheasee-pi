@@ -479,6 +479,67 @@ export async function hasBranchCommits(
 	}
 }
 
+/**
+ * Check whether commits in a range have already been applied upstream.
+ * Uses `git cherry` to detect equivalent changes.
+ *
+ * `git cherry` output prefixes each commit with:
+ *   - `-` (space + hyphen) — already applied upstream
+ *   - `+` (space + plus) — not yet applied upstream
+ *
+ * All `-` prefixed → returns true (changes already upstream)
+ * Any `+` prefixed → returns false (changes not yet upstream)
+ * Empty output (no commits in range) → returns false (nothing to compare)
+ *
+ * Fail-safe: returns true (assumes changes present) if the git command
+ * fails or throws, matching the pattern from hasBranchCommits.
+ *
+ * @param execFn - Function to execute shell commands
+ * @param worktreePath - Path to the worktree
+ * @param baseBranch - Base branch to compare against (e.g. "main")
+ * @param range - Range to check (e.g. "HEAD~3..HEAD" or a branch name)
+ * @returns true if all commits in range are already applied upstream
+ */
+export async function gitCherryContains(
+	execFn: (
+		cmd: string,
+		args: string[],
+		opts?: Record<string, unknown>,
+	) => Promise<{ code: number; stdout: string; stderr: string }>,
+	worktreePath: string,
+	baseBranch: string,
+	range: string,
+): Promise<boolean> {
+	try {
+		const result = await execFn("git", ["cherry", baseBranch, range], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		if (result.code !== 0) {
+			// Command failed — fail-safe: assume changes are present
+			return true;
+		}
+		const stdout = result.stdout?.trim() || "";
+		if (!stdout) {
+			// Empty output — no commits in range, nothing to compare
+			return false;
+		}
+		// Each line starts with "- " (applied) or "+ " (not applied)
+		const lines = stdout.split("\n").filter((l) => l.trim().length > 0);
+		for (const line of lines) {
+			if (line.startsWith("+ ")) {
+				// Found a commit not yet applied upstream
+				return false;
+			}
+		}
+		// All entries are "- " prefixed — changes already upstream
+		return true;
+	} catch {
+		// Exception — fail-safe: assume changes are present
+		return true;
+	}
+}
+
 // ─── Audit Score Tracking ─────────────────────────────────────────
 
 export interface AuditScoreInfo {
