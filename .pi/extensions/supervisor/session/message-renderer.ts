@@ -259,7 +259,7 @@ export function createMessageRenderer(pi: ExtensionAPI, cwd?: string) {
 				}
 				const err = rawDetails.errorCount ?? 0;
 				if (err > 0) {
-					statsParts.push(`${err} ${err === 1 ? "err" : "err"}`);
+					statsParts.push(`${err} err`);
 				}
 				if (rawDetails.compacted) {
 					statsParts.push("⚠ compacted");

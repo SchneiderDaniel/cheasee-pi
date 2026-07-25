@@ -1000,6 +1000,91 @@ describe("tool call result — stats line formatting (formatTokensInt)", () => {
 	});
 });
 
+// ── errorCount stats segment ──────────────────────────────────
+
+describe("errorCount stats segment", () => {
+	before(() => {
+		initTheme();
+	});
+
+	it("errorCount: 1 → stats line contains '1 err'", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			toolName: "bash",
+			args: "ls",
+			isError: false,
+			errorCount: 1,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("err"));
+		assert.ok(statsLine, `expected err in stats, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("1 err"), `expected "1 err", got: ${statsLine}`);
+	});
+
+	it("errorCount: 5 → stats line contains '5 err'", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			toolName: "bash",
+			args: "ls",
+			isError: false,
+			errorCount: 5,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		const statsLine = lines.find((l) => l.includes("err"));
+		assert.ok(statsLine, `expected err in stats, got: ${JSON.stringify(lines)}`);
+		assert.ok(statsLine!.includes("5 err"), `expected "5 err", got: ${statsLine}`);
+	});
+
+	it("errorCount: 0 → no err segment in stats line", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			toolName: "bash",
+			args: "ls",
+			isError: false,
+			errorCount: 0,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		const hasErr = lines.some((l) => l.includes("err") && !l.includes("error"));
+		assert.equal(hasErr, false, "should NOT have err segment when errorCount is 0");
+	});
+
+	it("errorCount: undefined → no err segment (?? 0 fallback)", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			toolName: "bash",
+			args: "ls",
+			isError: false,
+			errorCount: undefined,
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		const hasErr = lines.some((l) => l.includes("err") && !l.includes("error"));
+		assert.equal(hasErr, false, "should NOT have err segment when errorCount is undefined");
+	});
+
+	it("errorCount absent from details → no err segment", () => {
+		const pi = {} as any;
+		const renderer = createMessageRenderer(pi);
+		const message = makeToolCallMessage({
+			toolName: "bash",
+			args: "ls",
+			isError: false,
+			// errorCount not set
+		});
+		const c = renderer(message, {}, mockTheme) as Container;
+		const lines = renderAndStrip(c);
+		const hasErr = lines.some((l) => l.includes("err") && !l.includes("error"));
+		assert.equal(hasErr, false, "should NOT have err segment when errorCount is absent");
+	});
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // Phase 8: eventType discriminator — new dispatch path
 // ═══════════════════════════════════════════════════════════════════
