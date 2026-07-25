@@ -861,4 +861,102 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"collector receives warn about bare text fallback",
 		);
 	});
+
+	it("Extraction bare-text fallback: test-designer wraps in ## Test Plan heading", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "test-designer",
+			textOnly: "",
+			textOutput: "Test Plan:\n- Scenario A\n- Scenario B",
+			thinkingOutput: undefined,
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"test-designer",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call via bare-text fallback");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Test Plan"), "body has injected ## Test Plan heading");
+		assert.ok(body.includes("- Scenario A"), "body preserves original content");
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("bare text fallback")),
+			"collector receives warn about bare text fallback",
+		);
+	});
+
+	it("Extraction bare-text fallback: researcher wraps in ## Research Findings heading", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "researcher",
+			textOnly: "",
+			textOutput: "Research indicates that the system performs well under load.",
+			thinkingOutput: undefined,
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call via bare-text fallback");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Research Findings"), "body has injected ## Research Findings heading");
+		assert.ok(body.includes("Research indicates"), "body preserves original content");
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("bare text fallback")),
+			"collector receives warn about bare text fallback",
+		);
+	});
 });
