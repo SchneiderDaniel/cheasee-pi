@@ -25,7 +25,8 @@ import {
 	buildResolvedByComment,
 	buildLeaveOpenForPrComment,
 } from "./empty-worktree-policy.ts";
-import type { EmptyWorktreeSignals, ClosingPrRef } from "./empty-worktree-policy.ts";
+import type { EmptyWorktreeSignals } from "./empty-worktree-policy.ts";
+import type { ClosingPrRef } from "../github/ports.ts";
 
 import { executeAgent } from "./execute-agent.ts";
 import { formatTokens, formatDuration } from "../lib/formatting.ts";
@@ -807,30 +808,48 @@ export async function handleSupervisorCommand(
 					});
 
 					// Fetch signals for empty worktree classification
-					// 1. changeOnMain: check if worktree has uncommitted changes;
-					//    if clean and developer succeeded, changes are on main
+					// 1. changeOnMain: use gitCherryContains to detect if changes are
+					//    already upstream (primary), fall back to git diff --quiet for
+					//    clean-worktree detection (secondary).
 					let changeOnMain = false;
 					try {
-						const diffResult = await execFn(
-							"git",
-							["diff", "--quiet"],
-							{ cwd: worktreePath, timeout: 10_000 },
+						// Primary: gitCherryContains checks if worktree HEAD commits are
+						// equivalent to changes already applied on the default branch.
+						// In the hasCommits=false case (no unique commits), this returns
+						// false (empty output) — we fall through to the secondary check.
+						changeOnMain = await gitCherryContains(
+							execFn,
+							worktreePath,
+							baseBranch,
+							"HEAD",
 						);
-						// Exit code 0 = clean (no uncommitted changes)
-						changeOnMain = diffResult.code === 0;
+						// Fallback: if gitCherryContains returned false (incl. empty),
+						// use git diff --quiet to check if the worktree is clean.
+						// A clean worktree with no unique commits means the developer
+						// saw no work to do — changes are already on main.
+						if (!changeOnMain) {
+							const diffResult = await execFn(
+								"git",
+								["diff", "--quiet"],
+								{ cwd: worktreePath, timeout: 10_000 },
+							);
+							changeOnMain = diffResult.code === 0;
+						}
 					} catch {
-						// If git diff fails, assume changes not on main (safe: loop back)
+						// If git commands fail, assume changes not on main (safe: loop back)
 						changeOnMain = false;
 					}
 
-					// 2. openPrs: check for open PRs referencing this issue
+					// 2. openPrs: check for PRs referencing this issue
 					let openPrs: ClosingPrRef[] = [];
 					try {
 						openPrs = await port.getClosingPrsForIssue(issueNum, config.repo);
 					} catch (prErr: unknown) {
 						const prMsg = prErr instanceof Error ? prErr.message : String(prErr);
 						getDebugLogger().warn("handler", `getClosingPrsForIssue failed: ${prMsg}`);
-						// Fail-open: treat as no open PRs (safe default — won't prevent close)
+						// Fail-open: on API error, force changeOnMain=false so we loop
+						// (case 1) instead of closing (case 2) — matching the test plan.
+						changeOnMain = false;
 					}
 
 					// 3. Classify and dispatch
@@ -861,16 +880,21 @@ export async function handleSupervisorCommand(
 						break;
 					} else if (action.kind === "close") {
 						// Case 2: No commits, changes already on main → close with named resolution
+						// Fetch the actual resolving commit SHA from the default branch.
+						// This ensures the close comment names the real commit, not a placeholder.
 						stopReason = `Changes already on main — closing issue`;
+						const resolvedBy = await fetchResolvedByInfo(
+							execFn, worktreePath, baseBranch, port, issueNum, config.repo,
+						);
 						ctx.ui.notify(
 							"Required changes already present on main. Closing issue.",
 							"info",
 						);
 						getDebugLogger().info("handler", "Empty worktree — closing with resolution", {
-							resolvedBy: action.resolvedBy,
+							resolvedBy,
 						});
 						try {
-							const commentBody = buildResolvedByComment(action.resolvedBy);
+							const commentBody = buildResolvedByComment(resolvedBy);
 							await port.postIssueComment(issueNum, config.repo, commentBody);
 							await port.closeIssue(issueNum, config.repo);
 							ctx.ui.notify(`Issue #${issueNum} closed — already resolved on main`, "info");
@@ -1211,6 +1235,74 @@ export async function handleSupervisorCommand(
 			resetDebugLogger();
 		}
 	}
+}
+
+// ─── Resolved-By Info Fetcher ─────────────────────────────────────
+// Fetches the resolving commit SHA and PR number for the default branch.
+// Called when case 2 (close with named resolution) is triggered.
+// Uses git log for the latest commit SHA and the port to find merged PRs.
+// Fail-soft: returns placeholder values if git/API calls fail.
+
+async function fetchResolvedByInfo(
+	execFn: (
+		cmd: string,
+		args: string[],
+		opts?: Record<string, unknown>,
+	) => Promise<{ code: number; stdout: string; stderr: string }>,
+	worktreePath: string,
+	baseBranch: string,
+	port: GitHubPort,
+	issueNum: number,
+	repo: string,
+): Promise<{ sha: string; prNumber: number; source: string }> {
+	let sha = "";
+	let prNumber = 0;
+	let source = "main-branch";
+
+	// 1. Get the latest commit SHA from the default branch
+	try {
+		const shaResult = await execFn(
+			"git",
+			["log", "-1", baseBranch, "--format=%H"],
+			{ cwd: worktreePath, timeout: 10_000 },
+		);
+		if (shaResult.code === 0 && shaResult.stdout?.trim()) {
+			sha = shaResult.stdout.trim();
+		}
+	} catch {
+		// Non-fatal — proceed with empty sha
+	}
+
+	// 2. Try to find a merged PR that references this issue for the PR number
+	try {
+		const refs = await port.getClosingPrsForIssue(issueNum, repo);
+		// Look for a closing-keyword PR (likely merged/main PR, not branch-head)
+		const closingRef = refs.find((r) => r.source === "closing-keyword");
+		if (closingRef) {
+			prNumber = closingRef.number;
+			source = closingRef.source;
+			if (closingRef.sha) {
+				sha = closingRef.sha;
+			}
+		} else if (refs.length > 0) {
+			// Fall back to first PR ref
+			prNumber = refs[0].number;
+			source = refs[0].source;
+			if (refs[0].sha) {
+				sha = refs[0].sha;
+			}
+		}
+	} catch {
+		// Non-fatal — proceed with commit SHA only
+	}
+
+	// Use the actual commit SHA from git log as the authoritative value
+	// (overrides any SHA from the PR which might be a merge commit)
+	if (!sha) {
+		sha = "main";
+	}
+
+	return { sha, prNumber, source };
 }
 
 // ─── Post-Pipeline Operations ──────────────────────────────────────

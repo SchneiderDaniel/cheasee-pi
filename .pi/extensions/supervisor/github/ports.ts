@@ -22,6 +22,8 @@ export interface ClosingPrRef {
 	source: "closing-keyword" | "branch-head";
 	/** Branch name of the PR head (for open PRs). */
 	branch: string;
+	/** PR state: 'open', 'closed' (not merged), or 'merged'. */
+	state: "open" | "closed" | "merged";
 }
 
 // ─── GitHub Port ─────────────────────────────────────────────────

@@ -89,7 +89,7 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: true,
-			openPrs: [{ number: 42, sha: "abc123", source: "closing-keyword", branch: "fix-branch" }],
+			openPrs: [{ number: 42, sha: "abc123", source: "closing-keyword", branch: "fix-branch", state: "open" }],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.ok(result, "should return an action");
@@ -104,7 +104,7 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: false,
-			openPrs: [{ number: 99, sha: "def456", source: "branch-head", branch: "other-branch" }],
+			openPrs: [{ number: 99, sha: "def456", source: "branch-head", branch: "other-branch", state: "open" }],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.ok(result, "should return an action");
@@ -120,8 +120,8 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 			hasCommits: false,
 			changeOnMain: false,
 			openPrs: [
-				{ number: 1, sha: "aaa", source: "closing-keyword", branch: "pr1" },
-				{ number: 2, sha: "bbb", source: "branch-head", branch: "pr2" },
+				{ number: 1, sha: "aaa", source: "closing-keyword", branch: "pr1", state: "open" },
+				{ number: 2, sha: "bbb", source: "branch-head", branch: "pr2", state: "open" },
 			],
 		};
 		const result = classifyEmptyWorktree(signals);
@@ -140,6 +140,7 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 				sha: "8078920",
 				source: "closing-keyword",
 				branch: "fix-1289-delete-gh-superseded-modules",
+				state: "open",
 			}],
 		};
 		const result = classifyEmptyWorktree(signals);
@@ -165,10 +166,21 @@ describe("classifyEmptyWorktree — edge cases", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: true,
 			changeOnMain: true,
-			openPrs: [{ number: 1, sha: "a", source: "closing-keyword", branch: "b" }],
+			openPrs: [{ number: 1, sha: "a", source: "closing-keyword", branch: "b", state: "open" }],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.equal(result, null, "should return null when hasCommits is true");
+	});
+
+	it("merged PR does not trigger leaveOpenForPr → falls through to close", () => {
+		const signals: EmptyWorktreeSignals = {
+			hasCommits: false,
+			changeOnMain: true,
+			openPrs: [{ number: 1341, sha: "8078920", source: "closing-keyword", branch: "main", state: "merged" }],
+		};
+		const result = classifyEmptyWorktree(signals);
+		assert.ok(result, "should return an action");
+		assert.equal(result.kind, "close", "merged PR should not prevent close");
 	});
 });
 

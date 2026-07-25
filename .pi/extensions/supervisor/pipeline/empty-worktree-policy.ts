@@ -9,16 +9,7 @@
 
 // ─── Types ───────────────────────────────────────────────────────
 
-/** A reference to a pull request that targets or resolves this issue. */
-export interface ClosingPrRef {
-	number: number;
-	/** Commit SHA (merge commit for merged PRs, head SHA for open PRs). */
-	sha: string;
-	/** How this PR was found: via closing keyword on the issue, or by matching branch head. */
-	source: "closing-keyword" | "branch-head";
-	/** Branch name of the PR head (for open PRs). */
-	branch: string;
-}
+import type { ClosingPrRef } from "../github/ports.ts";
 
 /** Signals pre-fetched by the handler for the classifier. */
 export interface EmptyWorktreeSignals {
@@ -26,7 +17,7 @@ export interface EmptyWorktreeSignals {
 	hasCommits: boolean;
 	/** Whether the issue's required changes are already present on the default branch. */
 	changeOnMain: boolean;
-	/** Open PRs referencing or targeting this issue. */
+	/** PRs referencing or targeting this issue (includes open and merged). */
 	openPrs: ClosingPrRef[];
 }
 
@@ -64,12 +55,13 @@ export function classifyEmptyWorktree(
 	}
 
 	// Case 3: Open PR exists — leave open for PR review to drive state
-	if (openPrs.length > 0) {
-		const pr = openPrs[0]!;
+	// Only consider OPEN PRs (not merged or closed ones).
+	const openPrOnly = openPrs.find((p) => p.state === "open") || openPrs.find((p) => !p.state);
+	if (openPrOnly) {
 		return {
 			kind: "leaveOpenForPr",
-			prNumber: pr.number,
-			branch: pr.branch,
+			prNumber: openPrOnly.number,
+			branch: openPrOnly.branch,
 		};
 	}
 
