@@ -4,7 +4,7 @@
  * A generic key-value store with configurable TTL (turn-based and/or time-based),
  * max-entries eviction, and decay support for array values.
  *
- * Replaces manual Map boilerplate in ReadCache, ErrorTracker, and CallCounter
+ * Replaces manual Map boilerplate in read-cache, error-tracker, and call-counter slices
  * within harness-state.ts by extracting a reusable building block.
  *
  * ### Usage
@@ -20,7 +20,7 @@
  *
  * ### Decay
  *
- * For array-valued maps (ErrorTracker), `decay()` removes 1 oldest element
+ * For array-valued maps (error-tracker slice), `decay()` removes 1 oldest element
  * from each per-key array, supporting turn-boundary auto-recovery.
  *
  * For non-array values it is a no-op.
@@ -129,7 +129,7 @@ export class TimedMap<K, V> {
 
 	/**
 	 * Remove 1 oldest element from each key's array value.
-	 * Used by ErrorTracker at turn boundaries.
+	 * Used by error-tracker slice at turn boundaries.
 	 *
 	 * For non-array values this is a no-op — the entry is left untouched.
 	 * Empty arrays are preserved; the caller (wrapper) should clean them up
