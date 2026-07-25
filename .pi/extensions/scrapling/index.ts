@@ -102,7 +102,7 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 		parameters: Type.Object({
 			url: Type.String({
 				description: "URL to crawl (e.g. https://example.com)",
-				pattern: "^https?://",
+				pattern: "^(https?|HTTPS?)://",
 			}),
 			maxPages: Type.Optional(
 				Type.Number({
