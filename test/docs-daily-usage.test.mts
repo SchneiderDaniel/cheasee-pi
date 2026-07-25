@@ -121,8 +121,10 @@ describe("docs/daily-usage.md", () => {
 
 		it("mentions docker compose build or --build", () => {
 			const content = readDoc();
-			assert.ok(content.includes("docker compose build") || content.includes("--build"),
-				"Missing docker compose build or --build");
+			assert.ok(
+				content.includes("docker compose build") || content.includes("--build"),
+				"Missing docker compose build or --build",
+			);
 		});
 	});
 
@@ -132,16 +134,13 @@ describe("docs/daily-usage.md", () => {
 			const content = readDoc();
 			assert.ok(
 				/multiple.*terminal|independent.*process|same.*container/im.test(content),
-				"Missing parallel sessions explanation"
+				"Missing parallel sessions explanation",
 			);
 		});
 
 		it("mentions stale-process cleanup", () => {
 			const content = readDoc();
-			assert.ok(
-				/stale|cleanup|orphan/im.test(content),
-				"Missing stale-process cleanup mention"
-			);
+			assert.ok(/stale|cleanup|orphan/im.test(content), "Missing stale-process cleanup mention");
 		});
 	});
 
@@ -154,10 +153,6 @@ describe("docs/daily-usage.md", () => {
 		it("references docker/stop-pi.sh", () => {
 			assert.ok(readDoc().includes("stop-pi.sh"), "Missing stop-pi.sh reference");
 		});
-
-		it("references cheasee-pi.sh as legacy alternative", () => {
-			assert.ok(readDoc().includes("cheasee-pi.sh"), "Missing cheasee-pi.sh legacy reference");
-		});
 	});
 
 	// --- Phase 6: README integration ---
@@ -166,24 +161,13 @@ describe("docs/daily-usage.md", () => {
 			const readme = readFileSync(README_PATH, "utf-8");
 			assert.ok(
 				/docker compose.*up|docker compose.*down|docker exec/im.test(readme),
-				"README missing Docker commands"
+				"README missing Docker commands",
 			);
 		});
 
 		it("README links to daily-usage doc", () => {
 			const readme = readFileSync(README_PATH, "utf-8");
-			assert.ok(
-				/daily[-\s]usage/im.test(readme),
-				"README missing link to daily-usage doc"
-			);
-		});
-
-		it("README mentions cheasee-pi.sh as legacy alternative", () => {
-			const readme = readFileSync(README_PATH, "utf-8");
-			assert.ok(
-				readme.includes("cheasee-pi.sh"),
-				"README missing cheasee-pi.sh mention"
-			);
+			assert.ok(/daily[-\s]usage/im.test(readme), "README missing link to daily-usage doc");
 		});
 	});
 
@@ -197,11 +181,11 @@ describe("docs/daily-usage.md", () => {
 			if (attachMentioned) {
 				// If it's mentioned, it must be in a negative context
 				const lines = content.split("\n");
-				const attachLines = lines.filter(l => /docker attach/i.test(l));
+				const attachLines = lines.filter((l) => /docker attach/i.test(l));
 				for (const line of attachLines) {
 					assert.ok(
 						/not|don't|never|avoid|instead/im.test(line),
-						`Line mentions docker attach without negative context: "${line.trim()}"`
+						`Line mentions docker attach without negative context: "${line.trim()}"`,
 					);
 				}
 			}
@@ -209,17 +193,14 @@ describe("docs/daily-usage.md", () => {
 
 		it("documents HOST_UID and HOST_GID passthrough", () => {
 			const content = readDoc();
-			assert.ok(
-				/HOST_UID|HOST_GID/im.test(content),
-				"Missing HOST_UID/HOST_GID documentation"
-			);
+			assert.ok(/HOST_UID|HOST_GID/im.test(content), "Missing HOST_UID/HOST_GID documentation");
 		});
 
 		it("shows -e KEY=$KEY pattern for API key passthrough", () => {
 			const content = readDoc();
 			assert.ok(
 				/-e\s+\w*_KEY|-e\s+\w*_API_KEY|env/im.test(content),
-				"Missing env passthrough documentation"
+				"Missing env passthrough documentation",
 			);
 		});
 
@@ -227,7 +208,7 @@ describe("docs/daily-usage.md", () => {
 			const content = readDoc();
 			assert.ok(
 				content.includes("docker compose stop"),
-				"Missing docker compose stop mention (vs down distinction)"
+				"Missing docker compose stop mention (vs down distinction)",
 			);
 		});
 	});

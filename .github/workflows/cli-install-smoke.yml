@@ -15,19 +15,16 @@ name: CLI Install Smoke Test
 on:
   pull_request:
     paths:
+      - "cmd/cheasee-pi/**"
+      - "go.mod"
+      - "go.sum"
       - "docker/Dockerfile"
-      - "cmd/cheasee-pi/embedded/**"
-      - "cmd/cheasee-pi/init*.go"
-      - "cmd/cheasee-pi/embed.go"
-      - "cmd/cheasee-pi/template.go"
-      - "cmd/cheasee-pi/git_init.go"
-      - "cmd/cheasee-pi/up.go"
-      - "cmd/cheasee-pi/up_test.go"
-      - "cmd/cheasee-pi/orphan.go"
       - "docker/docker-compose.yml"
       - "docker/entrypoint.sh"
       - "docker/run-pi.sh"
       - "docker/stop-pi.sh"
+      - "docker/lib/**"
+      - "docker/test/cli-install-smoke.test.mts"
       - ".github/workflows/cli-install-smoke.yml"
   workflow_dispatch:
 

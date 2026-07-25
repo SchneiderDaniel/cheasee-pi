@@ -17,14 +17,7 @@
 
 import assert from "node:assert";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import {
-	mkdtempSync,
-	mkdirSync,
-	writeFileSync,
-	readFileSync,
-	rmSync,
-	existsSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -46,6 +39,44 @@ const COMPOSE_FILE = resolve(__dirname, "../docker-compose.yml");
  * invocations to the trace file and responds to `ps` based on the
  * state file.
  */
+function createMockCheaseePi(mockDir: string): void {
+	const content = [
+		"#!/bin/bash",
+		"# Mock cheasee-pi — returns provider→envvar mapping",
+		'case "${1:-}" in',
+		"    auth)",
+		'        case "${2:-}" in',
+		"            envvars)",
+		'                echo "anthropic=ANTHROPIC_API_KEY"',
+		'                echo "cerebras=CEREBRAS_API_KEY"',
+		'                echo "claude=ANTHROPIC_API_KEY"',
+		'                echo "deepseek=DEEPSEEK_API_KEY"',
+		'                echo "fireworks=FIREWORKS_API_KEY"',
+		'                echo "gemini=GEMINI_API_KEY"',
+		'                echo "google=GEMINI_API_KEY"',
+		'                echo "groq=GROQ_API_KEY"',
+		'                echo "mistral=MISTRAL_API_KEY"',
+		'                echo "openai=OPENAI_API_KEY"',
+		'                echo "opencode=OPENCODE_API_KEY"',
+		'                echo "opencode-go=OPENCODE_API_KEY"',
+		'                echo "openrouter=OPENROUTER_API_KEY"',
+		'                echo "together=TOGETHER_API_KEY"',
+		'                echo "xai=XAI_API_KEY"',
+		"                ;;",
+		"            *)",
+		"                exit 0",
+		"                ;;",
+		"        esac",
+		"        ;;",
+		"    *)",
+		"        exit 0",
+		"        ;;",
+		"esac",
+		"",
+	].join("\n");
+	writeFileSync(join(mockDir, "cheasee-pi"), content, { mode: 0o755 });
+}
+
 function createMockDocker(mockDir: string, traceFile: string, stateFile: string): void {
 	const content = [
 		"#!/bin/bash",
@@ -74,7 +105,11 @@ function createMockDocker(mockDir: string, traceFile: string, stateFile: string)
  * provider→key mapping. Writes to either the XDG path (default)
  * or the legacy path.
  */
-function createAuthJson(homeDir: string, entries: Record<string, { key: string }>, opts?: { legacy?: boolean }): void {
+function createAuthJson(
+	homeDir: string,
+	entries: Record<string, { key: string }>,
+	opts?: { legacy?: boolean },
+): void {
 	const subPath = opts?.legacy ? [".pi", "agent"] : [".config", "cheasee-pi"];
 	const authDir = join(homeDir, ...subPath);
 	mkdirSync(authDir, { recursive: true });
@@ -104,6 +139,7 @@ function createFixture(): Fixture {
 	const stateFile = join(tmpDir, "container-state");
 
 	createMockDocker(mockDir, traceFile, stateFile);
+	createMockCheaseePi(mockDir);
 
 	return { tmpDir, mockDir, traceFile, stateFile, homeDir };
 }
@@ -133,7 +169,7 @@ function runScript(
 	},
 ): { stdout: string; stderr: string; status: number } {
 	const env: Record<string, string> = {
-		...process.env as Record<string, string>,
+		...(process.env as Record<string, string>),
 		PATH: `${opts.mockDir}:${process.env.PATH ?? ""}`,
 		HOME: opts.homeDir,
 		...opts.extraEnv,
@@ -276,10 +312,7 @@ describe("Phase 1 — run-pi.sh", () => {
 
 		assert.ok(execLine!.includes("-it"), "exec should have -it flag");
 		assert.ok(execLine!.includes("--user agentuser"), "exec should have --user agentuser");
-		assert.ok(
-			execLine!.includes("-w /workspaces/main"),
-			"exec should have -w /workspaces/main",
-		);
+		assert.ok(execLine!.includes("-w /workspaces/main"), "exec should have -w /workspaces/main");
 		assert.ok(execLine!.includes("cheasee-pi"), "exec should target cheasee-pi container");
 		assert.ok(execLine!.includes(" pi"), "exec command should end with pi");
 	});
@@ -376,14 +409,8 @@ describe("Phase 1b — run-pi.sh env var passthrough", () => {
 		const execLine = trace.find((l) => l.startsWith("docker exec"));
 
 		assert.ok(execLine, "expected docker exec call");
-		assert.ok(
-			execLine!.includes("-e OPENCODE_API_KEY=oc-key-123"),
-			"should pass OPENCODE_API_KEY",
-		);
-		assert.ok(
-			execLine!.includes("-e OPENAI_API_KEY=oa-key-456"),
-			"should pass OPENAI_API_KEY",
-		);
+		assert.ok(execLine!.includes("-e OPENCODE_API_KEY=oc-key-123"), "should pass OPENCODE_API_KEY");
+		assert.ok(execLine!.includes("-e OPENAI_API_KEY=oa-key-456"), "should pass OPENAI_API_KEY");
 	});
 
 	it("passes GH_TOKEN from env to docker exec", () => {
@@ -419,9 +446,13 @@ describe("Phase 1b — run-pi.sh env var passthrough", () => {
 
 	it("adapter — falls back to legacy ~/.pi/agent/auth.json when XDG path absent", () => {
 		// Write auth.json to legacy path only
-		createAuthJson(fix.homeDir, {
-			opencode: { key: "legacy-key-789" },
-		}, { legacy: true });
+		createAuthJson(
+			fix.homeDir,
+			{
+				opencode: { key: "legacy-key-789" },
+			},
+			{ legacy: true },
+		);
 
 		const result = runScript(RUN_SCRIPT, {
 			mockDir: fix.mockDir,
@@ -445,9 +476,13 @@ describe("Phase 1b — run-pi.sh env var passthrough", () => {
 			openai: { key: "xdg-key" },
 		});
 		// Write legacy path with different key
-		createAuthJson(fix.homeDir, {
-			opencode: { key: "legacy-key" },
-		}, { legacy: true });
+		createAuthJson(
+			fix.homeDir,
+			{
+				opencode: { key: "legacy-key" },
+			},
+			{ legacy: true },
+		);
 
 		const result = runScript(RUN_SCRIPT, {
 			mockDir: fix.mockDir,

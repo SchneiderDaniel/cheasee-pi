@@ -85,7 +85,11 @@ describe("tryRebaseOntoBase()", () => {
 
 		assert.ok(execCalls[1].args.includes("rebase"), "second call should be git rebase");
 		assert.equal(execCalls[1].args[1], "--autostash", "rebase should use --autostash");
-		assert.equal(execCalls[1].args[2], `${REMOTE}/${DEFAULT_BRANCH}`, "rebase should use remote/branch");
+		assert.equal(
+			execCalls[1].args[2],
+			`${REMOTE}/${DEFAULT_BRANCH}`,
+			"rebase should use remote/branch",
+		);
 		assert.equal(execCalls[1].opts.cwd, WORKTREE_PATH, "rebase should use worktree cwd");
 		assert.equal(execCalls[1].opts.timeout, 60000, "rebase should have 60s timeout");
 	});
@@ -134,7 +138,10 @@ describe("tryRebaseOntoBase()", () => {
 
 		assert.ok(!result.success, "should fail when all fetch retries exhausted");
 		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
-		assert.ok(result.message.toLowerCase().includes("fetch failed"), "message should mention fetch failure");
+		assert.ok(
+			result.message.toLowerCase().includes("fetch failed"),
+			"message should mention fetch failure",
+		);
 		assert.ok(result.message.includes("3"), "message should mention retry count");
 
 		// Verify 3 fetch calls, no rebase call
@@ -144,17 +151,17 @@ describe("tryRebaseOntoBase()", () => {
 		}
 	});
 
-	it("Rebase conflict detected: rebase fails → diff --diff-filter=U returns files → rebase --abort called → returns conflictFiles", async () => {
+	it("Rebase conflict detected: rebase fails → merge fallback also fails → returns conflictFiles", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				// 1. git fetch — succeeds
 				{ code: 0, stdout: "fetch ok", stderr: "" },
-				// 2. git rebase --autostash — FAILS (conflict)
 				{ code: 1, stdout: "", stderr: "rebase failed: conflict" },
-				// 3. git diff --name-only --diff-filter=U — returns conflicted files
 				{ code: 0, stdout: "src/a.ts\nsrc/b.ts\n", stderr: "" },
-				// 4. git rebase --abort — succeeds
+				{ code: 0, stdout: "", stderr: "" },
+				// 5. git merge --no-edit origin/main — also fails
+				{ code: 1, stdout: "", stderr: "merge failed: conflict" },
+				// 6. git merge --abort — succeeds
 				{ code: 0, stdout: "", stderr: "" },
 			],
 			execCalls,
@@ -163,11 +170,18 @@ describe("tryRebaseOntoBase()", () => {
 		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
 
 		assert.ok(!result.success, "should fail on conflict");
-		assert.deepEqual(result.conflictFiles, ["src/a.ts", "src/b.ts"], "should return conflicted files");
-		assert.ok(result.message.includes("Rebase conflicts"), "message should mention rebase conflicts");
+		assert.deepEqual(
+			result.conflictFiles,
+			["src/a.ts", "src/b.ts"],
+			"should return conflicted files",
+		);
+		assert.ok(
+			result.message.includes("Rebase conflicts"),
+			"message should mention rebase conflicts",
+		);
 
-		// Verify call order: fetch → rebase → diff → abort
-		assert.equal(execCalls.length, 4, "should have 4 exec calls");
+		// Verify call order: fetch → rebase → diff → abort → merge → merge --abort
+		assert.equal(execCalls.length, 6, "should have 6 exec calls");
 		assert.equal(execCalls[0].args[0], "fetch");
 		assert.equal(execCalls[1].args[0], "rebase");
 		assert.equal(execCalls[2].args[0], "diff");
@@ -175,6 +189,10 @@ describe("tryRebaseOntoBase()", () => {
 		assert.equal(execCalls[2].args[2], "--diff-filter=U");
 		assert.equal(execCalls[3].args[0], "rebase");
 		assert.equal(execCalls[3].args[1], "--abort");
+		assert.equal(execCalls[4].args[0], "merge");
+		assert.equal(execCalls[4].args[1], "--no-edit");
+		assert.equal(execCalls[5].args[0], "merge");
+		assert.equal(execCalls[5].args[1], "--abort");
 	});
 
 	it("Abort called even when rebase throws (non-git error): catches, runs abort", async () => {
@@ -246,6 +264,9 @@ describe("tryRebaseOntoBase()", () => {
 				// diff output has empty/whitespace lines
 				{ code: 0, stdout: "src/a.ts\n   \n\nsrc/b.ts\n", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
+				// merge also fails
+				{ code: 1, stdout: "", stderr: "merge conflict" },
+				{ code: 0, stdout: "", stderr: "" },
 			],
 			execCalls,
 		);
@@ -253,7 +274,11 @@ describe("tryRebaseOntoBase()", () => {
 		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
 
 		assert.ok(!result.success, "should fail");
-		assert.deepEqual(result.conflictFiles, ["src/a.ts", "src/b.ts"], "should filter whitespace-only lines");
+		assert.deepEqual(
+			result.conflictFiles,
+			["src/a.ts", "src/b.ts"],
+			"should filter whitespace-only lines",
+		);
 	});
 
 	it("No conflicts but rebase fails for other reason (e.g., dirty index without autostash edge): detected, abort called, returns failure", async () => {
@@ -275,7 +300,10 @@ describe("tryRebaseOntoBase()", () => {
 
 		assert.ok(!result.success, "should fail");
 		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
-		assert.ok(result.message.includes("no conflict files"), "message should indicate no conflicts detected");
+		assert.ok(
+			result.message.includes("no conflict files"),
+			"message should indicate no conflicts detected",
+		);
 
 		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
 		assert.equal(abortCalls.length, 1, "rebase --abort should be called");
@@ -285,9 +313,21 @@ describe("tryRebaseOntoBase()", () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 1, stdout: "", stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'" },
-				{ code: 1, stdout: "", stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'" },
-				{ code: 1, stdout: "", stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'" },
+				{
+					code: 1,
+					stdout: "",
+					stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'",
+				},
+				{
+					code: 1,
+					stdout: "",
+					stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'",
+				},
+				{
+					code: 1,
+					stdout: "",
+					stderr: "fatal: unable to access 'https://github.com/owner/repo.git/'",
+				},
 			],
 			execCalls,
 		);
@@ -340,7 +380,11 @@ describe("tryRebaseOntoBase()", () => {
 				execCalls.push({ cmd, args: args || [], opts: opts || {} });
 				callCount++;
 				if (callCount <= 2) {
-					return Promise.resolve({ code: callCount === 1 ? 0 : 1, stdout: "", stderr: callCount === 2 ? "conflict" : "" });
+					return Promise.resolve({
+						code: callCount === 1 ? 0 : 1,
+						stdout: "",
+						stderr: callCount === 2 ? "conflict" : "",
+					});
 				}
 				if (callCount === 3) {
 					// diff throws
@@ -357,5 +401,39 @@ describe("tryRebaseOntoBase()", () => {
 		// abort should still be called
 		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
 		assert.equal(abortCalls.length, 1, "rebase --abort should still be called");
+	});
+
+	it("Rebase conflict: merge fallback succeeds → returns success with no conflictFiles", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "rebase failed: conflict" },
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				// 5. git merge --no-edit origin/main — succeeds (auto-resolved)
+				{ code: 0, stdout: "merge ok", stderr: "" },
+			],
+			execCalls,
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(result.success, "should succeed when merge fallback resolves");
+		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
+		assert.ok(
+			result.message.includes("merge fallback succeeded"),
+			"message should mention merge fallback",
+		);
+
+		// Verify call order: fetch → rebase → diff → abort → merge
+		assert.equal(execCalls.length, 5, "should have 5 exec calls");
+		assert.equal(execCalls[0].args[0], "fetch");
+		assert.equal(execCalls[1].args[0], "rebase");
+		assert.equal(execCalls[2].args[0], "diff");
+		assert.equal(execCalls[3].args[0], "rebase");
+		assert.equal(execCalls[3].args[1], "--abort");
+		assert.equal(execCalls[4].args[0], "merge");
+		assert.equal(execCalls[4].args[1], "--no-edit");
 	});
 });

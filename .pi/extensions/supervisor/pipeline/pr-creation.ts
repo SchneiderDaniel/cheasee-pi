@@ -28,6 +28,68 @@ const MAX_PR_CREATE_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 1000;
 
 /**
+ * Verdict returned by verifyAhead helper.
+ * - "ahead": head branch has commits beyond base — proceed with push
+ * - "not-ahead": head is up-to-date or behind base — skip push
+ * - "fail-closed": local fallback also failed — skip push with reason
+ */
+type AheadVerdict =
+	| { state: "ahead" }
+	| { state: "not-ahead" }
+	| { state: "fail-closed"; reason: string };
+
+/**
+ * Verify that headBranch has commits ahead of defaultBranch.
+ * Uses port.compareBranches as primary check, with a local git
+ * fetch + merge-base --is-ancestor fallback if the port call fails.
+ *
+ * Does NOT own UX — returns a verdict for the caller to act on.
+ */
+async function verifyAhead(
+	pi: ExtensionAPI,
+	port: GitHubPort,
+	config: SupervisorConfig,
+	headBranch: string,
+	worktreePath: string,
+	log: ReturnType<typeof getDebugLogger>,
+): Promise<AheadVerdict> {
+	try {
+		const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
+		if (aheadCount === 0) {
+			log.warn("pr-creation", `No commits between ${config.defaultBranch} and ${headBranch} — skipping push and PR`);
+			return { state: "not-ahead" };
+		}
+		log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
+		return { state: "ahead" };
+	} catch (compareErr: unknown) {
+		const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
+		log.warn("pr-creation", `compareBranches failed: ${compareMsg} — using local fallback`);
+		try {
+			await pi.exec("git", ["fetch", config.remote!, headBranch], {
+				cwd: worktreePath,
+				timeout: 30000,
+			});
+			const mergeBase = await pi.exec(
+				"git",
+				["merge-base", "--is-ancestor", config.defaultBranch!, headBranch],
+				{ cwd: worktreePath, timeout: 15000 },
+			);
+			// merge-base --is-ancestor exits 0 if defaultBranch is ancestor of headBranch
+			if (mergeBase.code !== 0) {
+				log.warn("pr-creation", `Local check: ${headBranch} is not ahead of ${config.defaultBranch} — skipping PR`);
+				return { state: "not-ahead" };
+			}
+			log.info("pr-creation", "Local check passed — head is ahead of base");
+			return { state: "ahead" };
+		} catch (fallbackErr: unknown) {
+			const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+			log.error("pr-creation", `Local ahead check failed: ${fallbackMsg} — skipping push (fail-closed)`);
+			return { state: "fail-closed", reason: fallbackMsg };
+		}
+	}
+}
+
+/**
  * Create a pull request after auditor approves and transitions to Done.
  * Pushes branch, builds body, creates PR. Returns structured result so
  * the handler can detect failure and adjust pipeline completion status.
@@ -82,70 +144,29 @@ export async function createPrOnApproval(
 	// Fallback: if port.compareBranches fails (network error), use local git
 	// fetch + merge-base --is-ancestor to determine whether to push.
 	let skipPush = false;
-	if (worktreePath) {
-		if (port) {
-			try {
-				const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
-				if (aheadCount === 0) {
-					log.warn(
-						"pr-creation",
-						`No commits between ${config.defaultBranch} and ${headBranch} — skipping push and PR`,
-					);
-					ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
-					return {
-						success: false,
-						error: "Already implemented on base branch — no new changes to PR",
-						source: "pr-creation",
-						pushSkipped: true,
-					};
-				}
-				log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
-			} catch (compareErr: unknown) {
-				// Local fallback: fetch + merge-base --is-ancestor
-				const compareMsg = compareErr instanceof Error ? compareErr.message : String(compareErr);
-				log.warn("pr-creation", `compareBranches failed: ${compareMsg} — using local fallback`);
-
-				try {
-					await pi.exec("git", ["fetch", config.remote!, headBranch], {
-						cwd: worktreePath,
-						timeout: 30000,
-					});
-					const mergeBase = await pi.exec(
-						"git",
-						["merge-base", "--is-ancestor", config.defaultBranch!, headBranch],
-						{ cwd: worktreePath, timeout: 15000 },
-					);
-					// merge-base --is-ancestor exits 0 if defaultBranch is ancestor of headBranch
-					if (mergeBase.code !== 0) {
-						log.warn(
-							"pr-creation",
-							`Local check: ${headBranch} is not ahead of ${config.defaultBranch} — skipping PR`,
-						);
-						ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
-						return {
-							success: false,
-							error: "Already implemented on base branch — no new changes to PR",
-							source: "pr-creation",
-							pushSkipped: true,
-						};
-					}
-					log.info("pr-creation", "Local check passed — head is ahead of base");
-				} catch (fallbackErr: unknown) {
-					// Local fallback also failed — fail closed, skip push
-					const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-					log.error("pr-creation", `Local ahead check failed: ${fallbackMsg} — skipping push (fail-closed)`);
-					ctx.ui.notify(`Cannot verify branch state — skipping push: ${fallbackMsg}`, "error");
-					return {
-						success: false,
-						error: `Cannot verify branch state: ${fallbackMsg}`,
-						source: "pr-creation",
-						pushSkipped: true,
-					};
-				}
-			}
-		} else {
-			log.warn("pr-creation", "Port not available — cannot verify ahead count, proceeding with push");
+	if (worktreePath && port) {
+		const verdict = await verifyAhead(pi, port, config, headBranch, worktreePath, log);
+		if (verdict.state === "not-ahead") {
+			ctx.ui.notify("Already implemented on base branch — no PR needed", "info");
+			return {
+				success: false,
+				error: "Already implemented on base branch — no new changes to PR",
+				source: "pr-creation",
+				pushSkipped: true,
+			};
 		}
+		if (verdict.state === "fail-closed") {
+			ctx.ui.notify(`Cannot verify branch state — skipping push: ${verdict.reason}`, "error");
+			return {
+				success: false,
+				error: `Cannot verify branch state: ${verdict.reason}`,
+				source: "pr-creation",
+				pushSkipped: true,
+			};
+		}
+		// verdict.state === "ahead" — proceed
+	} else if (worktreePath) {
+		log.warn("pr-creation", "Port not available — cannot verify ahead count, proceeding with push");
 	}
 
 	// ─── Phase 2.5: Rebase onto latest base branch ─────────────────

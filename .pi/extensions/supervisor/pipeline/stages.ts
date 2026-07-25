@@ -40,6 +40,20 @@ import type { OsvScanResult } from "../checks/osv-scanner.ts";
 
 export const MAX_PIPELINE_LOOPS = 20;
 
+// Bare-text fallback rules: maps agent names to the heading and regexes
+// used when the agent output contains no JSON or structured heading.
+type BareTextRule = {
+	agent: string;
+	heading: string;
+	prefix: RegExp;
+	word: RegExp;
+};
+const BARE_TEXT_RULES: readonly BareTextRule[] = [
+	{ agent: "architect",     heading: "## Architecture",     prefix: /^Architecture[^a-zA-Z]/, word: /\bArchitecture\b/i },
+	{ agent: "test-designer", heading: "## Test Plan",        prefix: /^Test\s*Plan[^a-zA-Z]/, word: /\bTest\s*Plan\b/i },
+	{ agent: "researcher",    heading: "## Research Findings", prefix: /^Research[^a-zA-Z]/,    word: /\bResearch\b/i },
+];
+
 // ─── Stage State ──────────────────────────────────────────────────
 
 /** Mutable state tracked across pipeline loop iterations. */
@@ -759,18 +773,9 @@ export async function handlePostAgentSuccess(
 			const rawOutput = result.textOutput || result.output || "";
 			let wrapped: string | null = null;
 
-			if (agentName === "architect") {
-				if (/^Architecture[^a-zA-Z]/.test(rawOutput) || /\bArchitecture\b/i.test(rawOutput)) {
-					wrapped = `## Architecture\n\n${rawOutput.trim().slice(0, 2000)}`;
-				}
-			} else if (agentName === "test-designer") {
-				if (/^Test\s*Plan[^a-zA-Z]/.test(rawOutput) || /\bTest\s*Plan\b/i.test(rawOutput)) {
-					wrapped = `## Test Plan\n\n${rawOutput.trim().slice(0, 2000)}`;
-				}
-			} else if (agentName === "researcher") {
-				if (/^Research[^a-zA-Z]/.test(rawOutput) || /\bResearch\b/i.test(rawOutput)) {
-					wrapped = `## Research Findings\n\n${rawOutput.trim().slice(0, 2000)}`;
-				}
+			const rule = BARE_TEXT_RULES.find(r => r.agent === agentName);
+			if (rule && (rule.prefix.test(rawOutput) || rule.word.test(rawOutput))) {
+				wrapped = `${rule.heading}\n\n${rawOutput.trim().slice(0, 2000)}`;
 			}
 
 			if (wrapped) {
