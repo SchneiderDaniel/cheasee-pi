@@ -8,11 +8,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"auth"
-		]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
 		"label": "Cheasee-Pi: auth list",
@@ -23,11 +19,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"auth"
-		]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
 		"label": "Cheasee-Pi: auth remove",
@@ -38,11 +30,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"auth"
-		]
+		"tags": ["cheasee-pi", "go-cli", "auth"]
 	},
 	{
 		"label": "Cheasee-Pi: down",
@@ -53,11 +41,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"container"
-		]
+		"tags": ["cheasee-pi", "go-cli", "container"]
 	},
 	{
 		"label": "Cheasee-Pi: clean",
@@ -68,11 +52,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"container"
-		]
+		"tags": ["cheasee-pi", "go-cli", "container"]
 	},
 	{
 		"label": "Cheasee-Pi: init",
@@ -83,11 +63,7 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"setup"
-		]
+		"tags": ["cheasee-pi", "go-cli", "setup"]
 	},
 	{
 		"label": "Cheasee-Pi: build",
@@ -98,11 +74,17 @@
 		"allow_concurrent_runs": false,
 		"reveal": "always",
 		"hide": "never",
-		"tags": [
-			"cheasee-pi",
-			"go-cli",
-			"container",
-			"build"
-		]
+		"tags": ["cheasee-pi", "go-cli", "container", "build"]
+	},
+	{
+		"label": "Cheasee-Pi: rebuild (no cache)",
+		"command": "cheasee-pi build --no-cache",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "go-cli", "container", "build", "rebuild"]
 	}
 ]
