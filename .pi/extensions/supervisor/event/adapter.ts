@@ -9,7 +9,7 @@
 
 import type { AgentRunState, AgentPhase } from "../config/types.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { pushLog } from "../agent/state-helpers.ts";
+import { pushLog, pushTextBlock, pushThinkingBlock } from "../agent/state-helpers.ts";
 import { renderToolCallText } from "../lib/render-helpers.ts";
 import { extractTextFromContent } from "../lib/formatting.ts";
 
@@ -294,43 +294,15 @@ function handleMessageEnd(
 							? block.thinking
 							: JSON.stringify(block.thinking).slice(0, 500);
 					thinkingParts.push(thinkingText);
-					// pushLog only if not already pushed by streaming handlers
-					if (!state.thinkingPushedThisTurn) {
-						for (const t of thinkingText.split("\n")) {
-							if (t.trim()) pushLog(state, `💭 ${t.slice(0, 500)}`);
-						}
-					}
 				}
 			}
 			if (thinkingParts.length > 0) {
-				if (!state.thinkingPushedThisTurn) {
-					// Push to textOutputLines so textOnly captures thinking content.
-					// Models with thinking:high emit structured JSON in thinking blocks,
-					// not text blocks. Without this, textOnly misses the JSON and falls
-					// through to textOutput (full instrumented log) extraction.
-					state.textOutputLines.push(thinkingParts.join("\n").trim());
-					state.thinkingOutputLines.push(thinkingParts.join("\n").trim());
-					state.thinkingPushedThisTurn = true;
-				}
+				pushThinkingBlock(state, thinkingParts.join("\n").trim());
 			}
 		}
 		const text = extractTextFromContent(msg.content);
 		if (text && text.trim()) {
-			if (!state.textPushedThisTurn) {
-				// No streaming text was pushed — push full content
-				state.textOutputLines.push(text.trim());
-				state.textPushedThisTurn = true;
-				for (const t of text.split("\n")) {
-					if (t.trim()) pushLog(state, t);
-				}
-			} else {
-				// Text was pushed via streaming. Only add to textOutputLines
-				// if message_end provides additional content not yet captured.
-				const existingText = state.textOutputLines.join("\n").trim();
-				if (!existingText.endsWith(text.trim())) {
-					state.textOutputLines.push(text.trim());
-				}
-			}
+			pushTextBlock(state, text);
 		}
 		if (msg.usage) {
 			state.tokenCount =
@@ -383,20 +355,7 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 	const content: unknown = msg?.content;
 
 	if (typeof content === "string" && content.trim()) {
-		if (!state.textPushedThisTurn) {
-			state.textOutputLines.push(content.trim());
-			state.textPushedThisTurn = true;
-			for (const t of content.split("\n")) {
-				if (t.trim()) pushLog(state, t);
-			}
-		} else {
-			// Text was pushed via streaming. Only add if done provides
-			// additional content not yet captured. Same pattern as handleMessageEnd.
-			const existingText = state.textOutputLines.join("\n").trim();
-			if (!existingText.endsWith(content.trim())) {
-				state.textOutputLines.push(content.trim());
-			}
-		}
+		pushTextBlock(state, content);
 	} else if (Array.isArray(content)) {
 		const textParts: string[] = [];
 		const thinkingParts: string[] = [];
@@ -413,36 +372,13 @@ function handleDone(state: AgentRunState, ev: NormalizedEvent & { kind: "done" }
 		if (textParts.length > 0) {
 			const allText = textParts.join("\n").trim();
 			if (allText) {
-				if (!state.textPushedThisTurn) {
-					state.textOutputLines.push(allText);
-					state.textPushedThisTurn = true;
-					for (const t of allText.split("\n")) {
-						if (t.trim()) pushLog(state, t);
-					}
-				} else {
-					// Text was pushed via streaming. Only add if done provides
-					// additional content not yet captured. Same pattern as handleMessageEnd.
-					const existingText = state.textOutputLines.join("\n").trim();
-					if (!existingText.endsWith(allText)) {
-						state.textOutputLines.push(allText);
-					}
-				}
+				pushTextBlock(state, allText);
 			}
 		}
 		if (thinkingParts.length > 0) {
 			const allThinking = thinkingParts.join("\n").trim();
 			if (allThinking) {
-				if (!state.thinkingPushedThisTurn) {
-					// Push to textOutputLines so textOnly captures thinking content.
-					// Same rationale as handleMessageEnd: thinking:high models emit JSON
-					// in thinking blocks, not text blocks.
-					state.textOutputLines.push(allThinking);
-					state.thinkingOutputLines.push(allThinking);
-					state.thinkingPushedThisTurn = true;
-					for (const t of allThinking.split("\n")) {
-						if (t.trim()) pushLog(state, `💭 ${t}`);
-					}
-				}
+				pushThinkingBlock(state, allThinking);
 			}
 		}
 	}
