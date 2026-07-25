@@ -699,3 +699,145 @@ describe("factory injection — cross-test isolation", () => {
 		assert.deepEqual(identity, ["A"], "factory A should not be invoked after reset");
 	});
 });
+
+// ══════════════════════════════════════════════════════════════════════
+//  Phase 5: Cancellation during semaphore lock wait
+// ══════════════════════════════════════════════════════════════════════
+
+describe("cancellation — abort signal during acquireCrawlLock wait", () => {
+	afterEach(() => {
+		resetCrawlFactory();
+		crawlCalls = [];
+		cannedResult = { success: true, results: [], totalTokens: 0 };
+	});
+
+	it("(entity) abort signal during semaphore wait — p3 rejects with AbortError", async () => {
+		let resolve1!: () => void;
+		let resolve2!: () => void;
+		const gate1 = new Promise<void>((r) => { resolve1 = r; });
+		const gate2 = new Promise<void>((r) => { resolve2 = r; });
+
+		let callCount = 0;
+		setCrawlFactory(async () => {
+			callCount++;
+			if (callCount === 1) await gate1;
+			if (callCount === 2) await gate2;
+			return { success: true, results: [], totalTokens: 0 };
+		});
+
+		// Fill both semaphore slots — p1, p2 acquire lock then block in factory
+		const p1 = tool.execute("id1", { url: "https://example.com/1" }, undefined, undefined, { cwd: "/tmp" });
+		const p2 = tool.execute("id2", { url: "https://example.com/2" }, undefined, undefined, { cwd: "/tmp" });
+
+		// Wait for both to acquire lock and reach the factory
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(callCount, 2, "both factory slots should be occupied");
+
+		// 3rd call with abort signal — queues in acquireCrawlLock while loop
+		const controller = new AbortController();
+		const p3 = tool.execute("id3", { url: "https://example.com/3" }, controller.signal, undefined, { cwd: "/tmp" });
+
+		// Give p3 time to enter the while loop
+		await new Promise((r) => setTimeout(r, 100));
+
+		// Abort while waiting
+		controller.abort();
+
+		// p3 should reject with AbortError within 1 poll interval (~1s)
+		await assert.rejects(p3, { name: "AbortError" }, "abort during lock wait should throw AbortError");
+
+		// Clean up: release gates so p1, p2 can complete
+		resolve1();
+		resolve2();
+		await Promise.allSettled([p1, p2]);
+	});
+
+	it("(entity) after abort, semaphore count not corrupted — subsequent call still waits", async () => {
+		let resolve1!: () => void;
+		let resolve2!: () => void;
+		const gate1 = new Promise<void>((r) => { resolve1 = r; });
+		const gate2 = new Promise<void>((r) => { resolve2 = r; });
+
+		let callCount = 0;
+		// Only gate p1 (callCount=1) and p2 (callCount=2); p4 passes through
+		setCrawlFactory(async () => {
+			callCount++;
+			if (callCount === 1) await gate1;
+			if (callCount === 2) await gate2;
+			return { success: true, results: [], totalTokens: 0 };
+		});
+
+		// Fill both slots
+		const p1 = tool.execute("id1", { url: "https://example.com/1" }, undefined, undefined, { cwd: "/tmp" });
+		const p2 = tool.execute("id2", { url: "https://example.com/2" }, undefined, undefined, { cwd: "/tmp" });
+
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(callCount, 2, "both slots should be occupied");
+
+		// 3rd call with abort signal
+		const controller1 = new AbortController();
+		const p3 = tool.execute("id3", { url: "https://example.com/3" }, controller1.signal, undefined, { cwd: "/tmp" });
+
+		await new Promise((r) => setTimeout(r, 100));
+		controller1.abort();
+		await assert.rejects(p3, { name: "AbortError" }, "p3 should abort");
+
+		// 4th call with fresh signal — should wait because slots still occupied (p1, p2 blocked)
+		const controller2 = new AbortController();
+		const p4 = tool.execute("id4", { url: "https://example.com/4" }, controller2.signal, undefined, { cwd: "/tmp" });
+
+		// Verify p4 is waiting (not reached factory yet)
+		await new Promise((r) => setTimeout(r, 150));
+		assert.equal(callCount, 2, "p4 should still be waiting for a slot");
+
+		// Release blocked factories so p1, p2 complete
+		resolve1();
+		resolve2();
+		await Promise.allSettled([p1, p2]);
+
+		// Now p4 should acquire and complete (within 1 polling interval)
+		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("p4 did not complete within 3s")), 3000));
+		await Promise.race([p4, timeout]);
+		assert.equal(callCount, 3, "p4 should have reached factory after slots freed");
+	});
+
+	it("(entity) after abort then release — remaining calls drain, no lock leak", async () => {
+		let resolve1!: () => void;
+		let resolve2!: () => void;
+		const gate1 = new Promise<void>((r) => { resolve1 = r; });
+		const gate2 = new Promise<void>((r) => { resolve2 = r; });
+
+		let callCount = 0;
+		setCrawlFactory(async () => {
+			callCount++;
+			if (callCount === 1) await gate1;
+			if (callCount === 2) await gate2;
+			return { success: true, results: [], totalTokens: 0 };
+		});
+
+		// Fill both slots
+		const p1 = tool.execute("id1", { url: "https://example.com/1" }, undefined, undefined, { cwd: "/tmp" });
+		const p2 = tool.execute("id2", { url: "https://example.com/2" }, undefined, undefined, { cwd: "/tmp" });
+
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(callCount, 2, "both slots occupied");
+
+		// 3rd call with abort
+		const controller = new AbortController();
+		const p3 = tool.execute("id3", { url: "https://example.com/3" }, controller.signal, undefined, { cwd: "/tmp" });
+		await new Promise((r) => setTimeout(r, 100));
+		controller.abort();
+		await assert.rejects(p3, { name: "AbortError" }, "p3 aborted");
+
+		// Release the blocked factories
+		resolve1();
+		resolve2();
+		await Promise.allSettled([p1, p2]);
+
+		// Fresh call should acquire — no lock leak
+		const fresh = tool.execute("id5", { url: "https://example.com/5" }, undefined, undefined, { cwd: "/tmp" });
+		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000));
+		await Promise.race([fresh, timeout]);
+		assert.equal(callCount, 3, "fresh call should reach factory");
+	});
+});

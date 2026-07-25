@@ -498,4 +498,125 @@ describe("Concurrency semaphore", () => {
 		assert.ok(r1.content[0].text.includes("Sequential"), "first result should contain snippet");
 		assert.ok(r2.content[0].text.includes("Sequential"), "second result should contain snippet");
 	});
+
+		it("(entity) cancellation during search lock wait — abort signal throws AbortError", async () => {
+		// MAX_CONCURRENT_SEARCHES = 5, so we need 5 searches in-flight to fill the semaphore.
+		// Gated exec: bash calls block on a deferred promise for the first 5 calls.
+		let openBashGate!: () => void;
+		const bashGate = new Promise<void>((r) => { openBashGate = r; });
+		let bashCallCount = 0;
+
+		const gatedExec: ExecFn = async (cmd: string, args: string[]) => {
+			if (cmd === "bash") {
+				bashCallCount++;
+				await bashGate;
+				return {
+					code: 0,
+					stdout: `SEARCH_OK
+${JSON.stringify({ ok: true, results: [] })}
+SEARCH_DONE`,
+					stderr: "",
+				};
+			}
+			// python verify check — pass for quick path
+			if (args[0] === "-c") {
+				return { code: 0, stdout: "ok", stderr: "" };
+			}
+			// pip install — succeed
+			if (cmd.includes("python3") && args[0] === "-m" && args[1] === "pip") {
+				return { code: 0, stdout: "", stderr: "" };
+			}
+			return { code: 0, stdout: "", stderr: "" };
+		};
+
+		const tool = registerWebSearch(gatedExec);
+
+		// Fill 5 semaphore slots
+		const cwds = Array.from({ length: 5 }, (_, i) => tmp(`cancel-fill-${i}`));
+		const fillPromises = cwds.map((cwd, i) =>
+			tool.execute(`fill-${i}`, { query: `fill-${i}` }, undefined, undefined, { cwd }),
+		);
+
+		// Wait for all 5 to reach bash
+		await new Promise((r) => setTimeout(r, 500));
+		assert.equal(bashCallCount, 5, "all 5 semaphore slots should be occupied by bash calls");
+
+		// 6th call with abort signal — queues in acquireSearchLock while loop
+		const controller = new AbortController();
+		const p6 = tool.execute("id6", { query: "cancel-6th" }, controller.signal, undefined, {
+			cwd: tmp("cancel-6th"),
+		});
+
+		// Give p6 time to enter the while loop
+		await new Promise((r) => setTimeout(r, 250));
+
+		// Abort while waiting
+		controller.abort();
+
+		// p6 should reject with AbortError within 1 poll interval (~200ms for search)
+		await assert.rejects(p6, { name: "AbortError" }, "abort during search lock wait should throw AbortError");
+
+		// Clean up: release bash gate so fill searches complete
+		openBashGate();
+		await Promise.allSettled(fillPromises);
+	});
+
+	it("(entity) after abort during search lock wait, fresh calls still work — no semaphore corruption", async () => {
+		let openBashGate!: () => void;
+		const bashGate = new Promise<void>((r) => { openBashGate = r; });
+		let bashCallCount = 0;
+
+		const gatedExec: ExecFn = async (cmd: string, args: string[]) => {
+			if (cmd === "bash") {
+				bashCallCount++;
+				await bashGate;
+				return {
+					code: 0,
+					stdout: `SEARCH_OK
+${JSON.stringify({ ok: true, results: [] })}
+SEARCH_DONE`,
+					stderr: "",
+				};
+			}
+			if (args[0] === "-c") {
+				return { code: 0, stdout: "ok", stderr: "" };
+			}
+			if (cmd.includes("python3") && args[0] === "-m" && args[1] === "pip") {
+				return { code: 0, stdout: "", stderr: "" };
+			}
+			return { code: 0, stdout: "", stderr: "" };
+		};
+
+		const tool = registerWebSearch(gatedExec);
+
+		// Fill 5 semaphore slots
+		const cwds = Array.from({ length: 5 }, (_, i) => tmp(`corrupt-fill-${i}`));
+		const fillPromises = cwds.map((cwd, i) =>
+			tool.execute(`fill-${i}`, { query: `corrupt-q-${i}` }, undefined, undefined, { cwd }),
+		);
+
+		await new Promise((r) => setTimeout(r, 500));
+		assert.equal(bashCallCount, 5, "all 5 slots occupied");
+
+		// 6th call with abort signal
+		const controller = new AbortController();
+		const p6 = tool.execute("id6", { query: "corrupt-abort-6th" }, controller.signal, undefined, {
+			cwd: tmp("corrupt-6th"),
+		});
+		await new Promise((r) => setTimeout(r, 250));
+		controller.abort();
+		await assert.rejects(p6, { name: "AbortError" }, "p6 aborted");
+
+		// Release bash gate so fill searches complete, freeing all 5 slots
+		openBashGate();
+		await Promise.allSettled(fillPromises);
+
+		// Fresh call should acquire immediately (no corruption)
+		const fresh = tool.execute("fresh", { query: "fresh-after-abort" }, undefined, undefined, {
+			cwd: tmp("fresh-after-abort"),
+		});
+		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000));
+		await Promise.race([fresh, timeout]);
+		assert.ok(bashCallCount >= 6, "fresh call should reach bash after slots freed");
+	});
 });
