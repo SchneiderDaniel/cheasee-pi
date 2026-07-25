@@ -52,11 +52,11 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 ├── lib/
 │   ├── harness-rules.ts      # Rule definitions: cascade thresholds, pass-through tools, mismatches
 │   ├── harness-state.ts      # Error tracking, cascade counter, read cache, turn tracking
-│   ├── bash-command.ts       # Tokenize, classify, detect tool mismatches (grep/cat/hexdump)
 │   ├── load-config.ts        # Load harness config from .pi/harness-config.json
 │   ├── timed-map.ts          # Generic timed map with TTL-based eviction
 │   └── constants.ts          # Default thresholds, tool lists
-└── test/                     # Extensive test suite
+├── test/                     # Extensive test suite
+└── bash-query.ts (../lib/)   # Bash classification: isBashSearch, isBashFileRead, isBashFileModify
 ```
 
 ### Validation Pipeline

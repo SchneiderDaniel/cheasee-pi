@@ -1,23 +1,17 @@
 /**
  * harness-rules.ts — Shared tool-call detection rules, constants, and helpers.
  *
- * Bash command parsing and detection are provided by the BashCommand class
- * or the parseBashCmd function (both importable from this module or directly
- * from bash-command.ts).
+ * Bash command classification lives in `bash-query.ts` (pure functions).
+ * This module owns harness-specific rules: thresholds, tool metadata,
+ * redirect messages, and retry/cache helpers.
  *
  * This module exports:
  *  - Constants: CACHE_TTL_TURNS, CASCADE_THRESHOLD, MULTI_VERB_TOOLS, TOOL_META, etc.
  *  - Types: ToolMeta
  *  - Helpers: buildRedirectMessage, getToolMeta, isRedundantRead, etc.
- *  - Re-exports: BashCommand, BashSegment, parseBashCmd from bash-command.ts
  *
  * Zero pi dependencies — domain layer only.
  */
-
-// ── Re-export bash-command.ts symbols for direct use ──
-
-export { BashCommand, parseBashCmd } from "./bash-command.ts";
-export type { BashSegment } from "./bash-command.ts";
 
 // ── Constants ──
 

@@ -1,8 +1,8 @@
 /**
  * bash-query.ts — Pure detection functions for bash command classification.
  *
- * Extracted from agent-harness BashCommand class and session-advice
- * inline detectors to eliminate cross-extension direct imports.
+ * Inlines bash-command classification into a single pure module
+ * (was extracted from agent-harness BashCommand class).
  *
  * Layer: domain — zero dependencies (no pi runtime, no agent-harness).
  * Pure functions with no I/O.
@@ -18,6 +18,17 @@
 // ── Constants ──
 
 const READ_CMDS = ["cat", "head", "tail", "less", "more"] as const;
+
+/** Bash commands that modify files — triggers read cache invalidation. */
+const FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
+	"sed",
+	"tee",
+	"mv",
+	"cp",
+	"rm",
+	"chmod",
+	"dd",
+]);
 
 // ── Internal helpers ──
 
@@ -112,6 +123,32 @@ export function isBashFileRead(cmd: string): boolean {
 	if (!token) return false;
 
 	return (READ_CMDS as readonly string[]).includes(token);
+}
+
+/**
+ * True when a bash command modifies files (triggers cache invalidation).
+ *
+ * Matches `BashCommand.isFileModify()` semantics:
+ *  - Redirect operators (>, >>) anywhere in the command → modify
+ *  - Known file-modifying commands (sed, tee, mv, cp, rm, chmod, dd)
+ *    as first token in first pipe segment → modify
+ *  - Empty/whitespace-only string → false
+ */
+export function isBashFileModify(cmd: string): boolean {
+	if (!cmd) return false;
+	const lower = cmd.toLowerCase();
+	if (!lower) return false;
+
+	// Redirect operators (>, >>) always modify files
+	if (lower.includes(">")) return true;
+
+	const first = firstSegment(lower);
+	if (!first) return false;
+
+	const token = firstToken(first);
+	if (!token) return false;
+
+	return FILE_MODIFY_SIGNALS.includes(token);
 }
 
 /**

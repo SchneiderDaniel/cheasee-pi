@@ -21,12 +21,12 @@
 import { createHarnessState } from "./lib/harness-state.ts";
 import type { HarnessState } from "./lib/harness-state.ts";
 import {
-	BashCommand,
 	buildRedirectMessage,
 	MULTI_VERB_TOOLS,
 	loadDefaultRules,
 	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
+import { isBashSearch, isBashFileRead, isBashFileModify } from "../lib/bash-query.ts";
 import type { ResolvedHarnessRules, ToolMeta } from "./lib/harness-rules.ts";
 
 // ── Types ──
@@ -180,12 +180,10 @@ export class AgentHarness {
 			return null;
 		}
 
+		// Extract bash command string for classification
+		const bashCommand = (toolName === "bash" ? (args.command ?? "") : "") as string;
+
 		let result: ToolCallResult | null = null;
-		// Parse bash command once if tool is bash (reused across guards)
-		const bashCmd =
-			toolName === "bash" && (args.command ?? "")
-				? new BashCommand((args.command ?? "") as string)
-				: undefined;
 
 		// ── 2. Error tracking ──
 		if (event.isError) {
@@ -197,10 +195,8 @@ export class AgentHarness {
 		// File-modifying tool calls invalidate the read cache
 		if (toolName === "write" || toolName === "edit") {
 			this.state.readCache.clear();
-		} else if (bashCmd) {
-			if (bashCmd.isFileModify()) {
-				this.state.readCache.clear();
-			}
+		} else if (bashCommand && isBashFileModify(bashCommand)) {
+			this.state.readCache.clear();
 		}
 
 		// ── 3/4. Error retry & read cache blocking ──
@@ -277,9 +273,9 @@ export class AgentHarness {
 		}
 
 		// ── 6. Tool mismatch detection (bash only) ──
-		if (!result && bashCmd) {
+		if (!result && bashCommand) {
 			// Search in bash (grep/rg) → redirect to ripgrep_search
-			if (bashCmd.isSearch()) {
+			if (isBashSearch(bashCommand)) {
 				result = {
 					block: true,
 					reason: buildRedirectMessage("ripgrep_search"),
@@ -288,7 +284,7 @@ export class AgentHarness {
 			}
 
 			// File read in bash (cat/head/tail) → redirect to read
-			else if (bashCmd.isFileRead()) {
+			else if (isBashFileRead(bashCommand)) {
 				result = {
 					block: true,
 					reason: buildRedirectMessage("read"),
