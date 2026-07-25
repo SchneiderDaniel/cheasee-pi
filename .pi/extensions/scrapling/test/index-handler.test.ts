@@ -10,6 +10,8 @@ import { describe, it, afterEach } from "node:test";
 import type { CrawlResult, CrawledPage } from "../types.ts";
 import { setCrawlFactory, resetCrawlFactory } from "../index.ts";
 import webCrawlExtension from "../index.ts";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 
 // ── Register tool once ──
 
@@ -386,6 +388,105 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 
 		assert.equal(crawlCalls.length, 1, "factory should be called");
 		assert.equal(crawlCalls[0].url, "HTTP://EXAMPLE.COM");
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  Schema-level TypeBox validation (entity layer)
+// ══════════════════════════════════════════════════════════════════════
+//
+// These tests exercise Value.Check on the url parameter schema directly,
+// unlike the handler tests which bypass schema validation by calling
+// tool.execute() with raw params.
+//
+// Known limitation: mixed case like "Http://" does NOT match the pattern
+// ^(https?|HTTPS?)://. This is an accepted trade-off — the pattern covers
+// extremes (all-lowercase, all-uppercase) while remaining JSON Schema
+// compliant. Mixed-case URLs still pass validateUrl() per WHATWG scheme
+// normalization.
+
+describe("schema — TypeBox Value.Check path", () => {
+	// ── The URL schema used by the tool registration ──
+	const urlSchema = Type.String({
+		description: "URL to crawl (e.g. https://example.com)",
+		pattern: "^(https?|HTTPS?)://",
+	});
+
+	// ── Happy path: URLs that should pass ──
+
+	it("(entity) schema accepts http://example.com", () => {
+		assert.equal(Value.Check(urlSchema, "http://example.com"), true);
+	});
+
+	it("(entity) schema accepts https://example.com", () => {
+		assert.equal(Value.Check(urlSchema, "https://example.com"), true);
+	});
+
+	it("(entity) schema accepts HTTP://EXAMPLE.COM (all-uppercase scheme)", () => {
+		assert.equal(Value.Check(urlSchema, "HTTP://EXAMPLE.COM"), true);
+	});
+
+	it("(entity) schema accepts HTTPS://example.com (all-uppercase scheme)", () => {
+		assert.equal(Value.Check(urlSchema, "HTTPS://example.com"), true);
+	});
+
+	it("(entity) schema accepts http://localhost", () => {
+		assert.equal(Value.Check(urlSchema, "http://localhost"), true);
+	});
+
+	it("(entity) schema accepts http://127.0.0.1", () => {
+		assert.equal(Value.Check(urlSchema, "http://127.0.0.1"), true);
+	});
+
+	it("(entity) schema accepts http://example.com/path?query=1#frag", () => {
+		assert.equal(Value.Check(urlSchema, "http://example.com/path?query=1#frag"), true);
+	});
+
+	it("(entity) schema accepts http://example.com:8080", () => {
+		assert.equal(Value.Check(urlSchema, "http://example.com:8080"), true);
+	});
+
+	// ── Error path: URLs that should be rejected ──
+
+	it("(entity) schema rejects ftp://example.com", () => {
+		assert.equal(Value.Check(urlSchema, "ftp://example.com"), false);
+	});
+
+	it("(entity) schema rejects file:///etc/passwd", () => {
+		assert.equal(Value.Check(urlSchema, "file:///etc/passwd"), false);
+	});
+
+	it("(entity) schema rejects data://text/html,Hello", () => {
+		assert.equal(Value.Check(urlSchema, "data://text/html,Hello"), false);
+	});
+
+	it("(entity) schema rejects javascript:alert(1)", () => {
+		assert.equal(Value.Check(urlSchema, "javascript:alert(1)"), false);
+	});
+
+	it("(entity) schema rejects not-a-url", () => {
+		assert.equal(Value.Check(urlSchema, "not-a-url"), false);
+	});
+
+	it("(entity) schema rejects ://example.com (missing scheme)", () => {
+		assert.equal(Value.Check(urlSchema, "://example.com"), false);
+	});
+
+	it("(entity) schema rejects empty string", () => {
+		assert.equal(Value.Check(urlSchema, ""), false);
+	});
+
+	// ── Known-limitation: mixed case not covered by pattern ──
+	// These are accepted by validateUrl() (per WHATWG scheme normalization)
+	// but rejected by the schema pattern. Accepted trade-off documented in
+	// architecture.
+
+	it("(entity) schema rejects Http://example.com (mixed case — known limitation)", () => {
+		assert.equal(Value.Check(urlSchema, "Http://example.com"), false);
+	});
+
+	it("(entity) schema rejects hTTP://example.com (mixed case — known limitation)", () => {
+		assert.equal(Value.Check(urlSchema, "hTTP://example.com"), false);
 	});
 });
 

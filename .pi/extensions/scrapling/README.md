@@ -100,7 +100,7 @@ flowchart TD
 - **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/`. If Chromium errors, `rm -rf` and retry — auto-recreates.
 - **maxPages cap at 10** — Hard upper bound prevents runaway crawling. Default 1.
 - **maxTokens truncation** — Content truncated with notice. 0 = no limit.
-- **URL validation via `new URL()`** — Rejects invalid URLs early. No protocol restriction.
+- **URL validation via `new URL()`** — Rejects invalid URLs early. Only http/https schemes allowed.
 
 ### Output Format
 

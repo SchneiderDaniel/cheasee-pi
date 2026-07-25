@@ -393,7 +393,7 @@ describe("validateUrl helper — protocol allowlist", () => {
 });
 
 describe("tool parameters schema — TypeBox pattern", () => {
-	it("(entity) url parameter has pattern: '^https?://'", () => {
+	it("(entity) url parameter has pattern: '^(https?|HTTPS?)://'", () => {
 		const registered: Array<any> = [];
 		const mockPi = {
 			registerTool: (t: any) => registered.push(t),
@@ -402,7 +402,7 @@ describe("tool parameters schema — TypeBox pattern", () => {
 		webCrawlExtension(mockPi as any);
 		const tool = registered[0];
 		const urlSchema = tool.parameters.properties.url;
-		assert.equal(urlSchema.pattern, "^https?://");
+		assert.equal(urlSchema.pattern, "^(https?|HTTPS?)://");
 	});
 });
 
