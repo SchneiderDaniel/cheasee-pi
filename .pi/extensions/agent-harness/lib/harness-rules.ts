@@ -57,7 +57,7 @@ export function loadDefaultRules(): ResolvedHarnessRules {
  */
 export const REDIRECT_GUIDANCE: Record<string, { forbidden: string; tool: string }> = {
 	read: {
-		forbidden: "'cat', 'head', or 'tail' in bash",
+		forbidden: "'cat' or 'head' in bash",
 		tool: "read",
 	},
 	ripgrep_search: {
