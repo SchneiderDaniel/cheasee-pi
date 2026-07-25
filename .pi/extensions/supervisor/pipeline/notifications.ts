@@ -151,31 +151,32 @@ export function sendPipelineError(
 ): void {
 	ctx.ui.notify(`Supervisor error: ${msg}`, "error");
 
+	const overallStatus: "failed" = "failed";
+	const summaryMarkdown = buildPipelineSummary(
+		agentResults,
+		overallStatus,
+		issueNum,
+		issueTitle,
+		config,
+		undefined,
+		undefined,
+		gateFailureHistory,
+		packageSafetyResult,
+		msg,
+	);
+
+	pi.sendMessage({
+		customType: "supervisor-summary",
+		content: summaryMarkdown,
+		display: true,
+	});
+
 	if (agentResults.length > 0) {
-		const overallStatus: "failed" = "failed";
-		const summaryMarkdown = buildPipelineSummary(
-			agentResults,
-			overallStatus,
-			issueNum,
-			issueTitle,
-			config,
-			undefined,
-			undefined,
-			gateFailureHistory,
-			packageSafetyResult,
-		);
-
-		pi.sendMessage({
-			customType: "supervisor-summary",
-			content: summaryMarkdown,
-			display: true,
-		});
-
 		ctx.ui.setStatus("supervisor", ctx.ui.theme.fg("error", buildFailedStatusLine(agentResults)));
+	}
 
-		if (config?.bellOnComplete) {
-			process.stdout.write("\x07");
-		}
+	if (config?.bellOnComplete) {
+		process.stdout.write("\x07");
 	}
 	// Always clear supervisor status on error — avoids stale error text in footer
 	ctx.ui.setStatus("supervisor", undefined);

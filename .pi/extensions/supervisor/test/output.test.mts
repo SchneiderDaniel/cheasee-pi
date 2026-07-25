@@ -717,3 +717,147 @@ describe("buildPipelineSummary — failed tool call rendering", () => {
 		assert.ok(output.includes("· 1 failed"), "failed count present");
 	});
 });
+
+// ─── Tests: buildPipelineSummary — errorMsg in failed branch ────────
+
+describe("buildPipelineSummary — errorMsg in failed branch", () => {
+	const makeAgent = (
+		name: string,
+		status: PipelineAgentResult["status"],
+		tokens: number,
+		duration: number,
+		tools: number,
+	): PipelineAgentResult => ({
+		agentName: name,
+		status,
+		tokenCount: tokens,
+		durationMs: duration,
+		toolCount: tools,
+	});
+
+	const successAgent = (): PipelineAgentResult => makeAgent("developer", "SUCCESS", 5000, 30000, 10);
+	const failedAgent = (): PipelineAgentResult =>
+		makeAgent("auditor", "FAILED", 0, 5000, 0);
+
+	it("failed without FAILED agent — errorMsg produces **Error:** line before manual intervention", () => {
+		const output = buildPipelineSummary(
+			[successAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"Something went wrong in dispatch",
+		);
+		assert.ok(output.includes("**Error:** Something went wrong in dispatch"), "should include error message");
+		assert.ok(output.includes("**Manual intervention required.**"), "should include manual intervention");
+		// Error line should appear before manual intervention
+		const errorIdx = output.indexOf("**Error:**");
+		const manualIdx = output.indexOf("**Manual intervention required.**");
+		assert.ok(errorIdx >= 0 && manualIdx >= 0 && errorIdx < manualIdx, "Error line before manual intervention");
+	});
+
+	it("failed WITH FAILED agent + errorMsg — both Stopped at and Error appear", () => {
+		const output = buildPipelineSummary(
+			[successAgent(), failedAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"Mid-dispatch exception",
+		);
+		assert.ok(output.includes("**Stopped at:** auditor"), "should include Stopped at for failed agent");
+		assert.ok(output.includes("**Error:** Mid-dispatch exception"), "should include error message");
+		// Stopped at should come before Error
+		const stoppedIdx = output.indexOf("**Stopped at:**");
+		const errorIdx = output.indexOf("**Error:**");
+		assert.ok(stoppedIdx >= 0 && errorIdx >= 0 && stoppedIdx < errorIdx, "Stopped at before Error");
+	});
+
+	it("errorMsg omitted (backward compat) — no Error line", () => {
+		const output = buildPipelineSummary(
+			[successAgent(), failedAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+		);
+		assert.ok(!output.includes("**Error:**"), "should not include Error line when errorMsg omitted");
+		assert.ok(output.includes("**Stopped at:** auditor"), "Stopped at still present");
+	});
+
+	it("errorMsg truncated at 80 chars", () => {
+		const longMsg = "x".repeat(100);
+		const output = buildPipelineSummary(
+			[successAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			longMsg,
+		);
+		assert.ok(output.includes("x".repeat(80) + "..."), "should truncate at 80 chars");
+		assert.ok(!output.includes("x".repeat(81)), "chars beyond 80 should not appear");
+	});
+
+	it("errorMsg exactly 80 chars — not truncated", () => {
+		const exactly80 = "a".repeat(80);
+		const output = buildPipelineSummary(
+			[successAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			exactly80,
+		);
+		assert.ok(output.includes(exactly80), "80-char message should not be truncated");
+	});
+
+	it("errorMsg empty string — no Error line", () => {
+		const output = buildPipelineSummary(
+			[successAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"",
+		);
+		assert.ok(!output.includes("**Error:**"), "should not render Error line for empty string");
+	});
+
+	it("errorMsg with newlines — first line visible in Error line", () => {
+		const multiLineMsg = "First line error\nSecond line\nThird line";
+		const output = buildPipelineSummary(
+			[successAgent()],
+			"failed",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			multiLineMsg,
+		);
+		assert.ok(output.includes("**Error:** First line error"), "first line of multiline error should appear");
+	});
+});

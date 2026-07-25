@@ -395,12 +395,48 @@ describe("buildFailedStatusLine — extracted helper", () => {
 		);
 	});
 
-	it("sendPipelineError with empty agent results → no status set (existing behavior preserved)", async () => {
+	it("sendPipelineError with empty agent results → supervisor-summary still sent with (none) row and errorMsg", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
-		sendPipelineError(pi, ctx, [], 42, "Test issue", mockConfig as any, "Error message");
-		// sendPipelineError with empty results should not call setStatus with Failed text
+		sendPipelineError(pi, ctx, [], 42, "Test issue", mockConfig as any, "Dispatch error");
+		// Summary should be sent even with empty results
+		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
+		assert.ok(summaryMsg, "should send supervisor-summary even with empty agent results");
+		assert.ok(summaryMsg!.content.includes("(none)"), "should show (none) row for empty results");
+		assert.ok(summaryMsg!.content.includes("**Error:** Dispatch error"), "should include error message");
+		// Should not set failed status with empty agent results
 		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
 		assert.ok(!failedStatus, "should NOT set failed status with empty agent results");
+	});
+});
+
+// ─── Tests: sendPipelineError — errorMsg forwarding to summary ────
+
+describe("sendPipelineError — errorMsg in summary", () => {
+	it("non-empty agentResults → errorMsg appears in summary content", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const results: PipelineAgentResult[] = [
+			{ agentName: "developer", status: "SUCCESS", durationMs: 1000, tokenCount: 500, toolCount: 10 },
+		];
+		sendPipelineError(pi, ctx, results, 42, "Test issue", mockConfig as any, "Something broke");
+		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
+		assert.ok(summaryMsg, "should send summary message");
+		assert.ok(
+			summaryMsg!.content.includes("**Error:** Something broke"),
+			"error message should appear in summary content",
+		);
+	});
+
+	it("empty agentResults → errorMsg still appears in summary", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		sendPipelineError(pi, ctx, [], 42, "Test issue", mockConfig as any, "Pre-dispatch failure");
+		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
+		assert.ok(summaryMsg, "should send summary message with empty results");
+		assert.ok(
+			summaryMsg!.content.includes("**Error:** Pre-dispatch failure"),
+			"error message should appear even with empty results",
+		);
 	});
 });

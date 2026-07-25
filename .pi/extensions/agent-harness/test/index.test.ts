@@ -118,7 +118,6 @@ describe("AgentHarness — bash tool mismatch", () => {
 			null,
 		);
 	});
-	});
 
 	it("bash cat with redirect (cat > file) does NOT block", () => {
 		for (const cmd of [

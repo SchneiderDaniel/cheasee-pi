@@ -43,6 +43,7 @@ export function buildPipelineSummary(
 	prCreationResult?: PrCreationResult,
 	gateFailureHistory?: string[],
 	packageSafetyResult?: PackageSafetyAuditResult | null,
+	errorMsg?: string,
 ): string {
 	const lines: string[] = [];
 
@@ -161,6 +162,11 @@ export function buildPipelineSummary(
 		if (failedAgent) {
 			lines.push("");
 			lines.push(`**Stopped at:** ${failedAgent.agentName} — agent failed`);
+		}
+		if (errorMsg !== undefined && errorMsg !== "") {
+			const truncated = errorMsg.length > 80 ? errorMsg.slice(0, 80) + "..." : errorMsg;
+			lines.push("");
+			lines.push(`**Error:** ${truncated}`);
 		}
 		lines.push("**Manual intervention required.**");
 	}
