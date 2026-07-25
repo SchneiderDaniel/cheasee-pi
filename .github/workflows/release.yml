@@ -6,6 +6,7 @@ on:
       - "cmd/cheasee-pi/**"
       - "go.mod"
       - "go.sum"
+      - ".goreleaser.yml"
       - ".github/workflows/release.yml"
   push:
     tags:

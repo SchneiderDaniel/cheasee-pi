@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - ".pi/extensions/**"
+      - ".pi/settings.json"
       - "test/extensions-load.test.mts"
       - "package.json"
       - "package-lock.json"
