@@ -5,7 +5,14 @@
 import { Octokit } from "@octokit/rest";
 import { graphql } from "@octokit/graphql";
 import type { DebugLogger } from "../lib/debug.ts";
-import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo, GhTimelineNode, ProjectFieldValueNode } from "../config/types.ts";
+import type {
+	ProjectField,
+	ProjectItem,
+	DepsResult,
+	PrConflictInfo,
+	GhTimelineNode,
+	ProjectFieldValueNode,
+} from "../config/types.ts";
 import type { RawIssueData, GitHubPort } from "./ports.ts";
 import { parseDepsTimeline, extractProjectItemFields } from "./parsers.ts";
 
@@ -169,7 +176,7 @@ export class OctokitClient implements GitHubPort {
 	private log: DebugLogger;
 
 	constructor(token: string, debugLogger: DebugLogger) {
-		this.octokit = new Octokit({ auth: token });
+		this.octokit = new Octokit({ auth: token, headers: { "X-GitHub-Api-Version": "2026-03-10" } });
 		this._graphql = graphql.defaults({
 			headers: { authorization: `token ${token}` },
 		});
@@ -177,7 +184,7 @@ export class OctokitClient implements GitHubPort {
 	}
 
 	setToken(token: string): void {
-		this.octokit = new Octokit({ auth: token });
+		this.octokit = new Octokit({ auth: token, headers: { "X-GitHub-Api-Version": "2026-03-10" } });
 		this._graphql = graphql.defaults({
 			headers: { authorization: `token ${token}` },
 		});
@@ -413,9 +420,7 @@ export class OctokitClient implements GitHubPort {
 			if (!page) break;
 
 			for (const n of page.nodes || []) {
-				const { status, fieldValues } = extractProjectItemFields(
-					n?.fieldValues?.nodes,
-				);
+				const { status, fieldValues } = extractProjectItemFields(n?.fieldValues?.nodes);
 				allItems.push({
 					id: n.id,
 					status,
