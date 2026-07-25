@@ -11,6 +11,17 @@ import type {
 import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 import { formatDuration, formatTokens } from "../lib/formatting.ts";
 
+// ─── Status display mapping ──────────────────────────────────────────
+
+type EffectiveStatus = "success" | "pr-failed" | "failed" | "stopped";
+
+const STATUS_MAP: Record<EffectiveStatus, { emoji: string; text: string }> = {
+	success: { emoji: "✅", text: "Pipeline Complete" },
+	"pr-failed": { emoji: "⚠️", text: "Pipeline Complete (PR creation failed)" },
+	failed: { emoji: "❌", text: "Pipeline Failed" },
+	stopped: { emoji: "⏹", text: "Pipeline Stopped" },
+};
+
 // ─── validateAgentResult ────────────────────────────────────────────
 
 /**
@@ -51,22 +62,7 @@ export function buildPipelineSummary(
 	const isPrFailed = prCreationResult && !prCreationResult.success;
 	const effectiveStatus = isPrFailed && overallStatus === "success" ? "pr-failed" : overallStatus;
 
-	const headerEmoji =
-		effectiveStatus === "success"
-			? "✅"
-			: effectiveStatus === "pr-failed"
-				? "⚠️"
-				: effectiveStatus === "failed"
-					? "❌"
-					: "⏹";
-	const headerText =
-		effectiveStatus === "success"
-			? "Pipeline Complete"
-			: effectiveStatus === "pr-failed"
-				? "Pipeline Complete (PR creation failed)"
-				: effectiveStatus === "failed"
-					? "Pipeline Failed"
-					: "Pipeline Stopped";
+	const { emoji: headerEmoji, text: headerText } = STATUS_MAP[effectiveStatus];
 	lines.push(`## ${headerEmoji} ${headerText} — Issue #${issueNum}`);
 	lines.push("");
 
@@ -148,7 +144,9 @@ export function buildPipelineSummary(
 		const blocked = packageSafetyResult.results.filter((r) => r.blocked);
 		lines.push("");
 		if (blocked.length > 0) {
-			lines.push(`**Package safety:** ${packageSafetyResult.results.length} checked, ${blocked.length} blocked — see auditor review`);
+			lines.push(
+				`**Package safety:** ${packageSafetyResult.results.length} checked, ${blocked.length} blocked — see auditor review`,
+			);
 		} else if (packageSafetyResult.status === "error") {
 			lines.push(`**Package safety:** error — ${packageSafetyResult.message || "check failed"}`);
 		} else {
