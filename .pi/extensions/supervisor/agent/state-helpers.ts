@@ -30,6 +30,46 @@ export function pushLog(state: AgentRunState, entry: string): void {
 }
 
 /**
+ * Push a text block to state.textOutputLines with dedup.
+ * If textPushedThisTurn is already set and the existing output endsWith
+ * the incoming text, it's a no-op (dedup from streaming). Otherwise
+ * appends to textOutputLines and pushLogs each non-empty line.
+ */
+export function pushTextBlock(state: AgentRunState, text: string): void {
+	const trimmed = text.trim();
+	if (!trimmed) return;
+
+	if (state.textPushedThisTurn) {
+		const existing = state.textOutputLines.join("\n").trim();
+		if (existing.endsWith(trimmed)) return;
+	}
+
+	state.textOutputLines.push(trimmed);
+	state.textPushedThisTurn = true;
+	for (const t of text.split("\n")) {
+		if (t.trim()) pushLog(state, t);
+	}
+}
+
+/**
+ * Push a thinking block to both textOutputLines and thinkingOutputLines.
+ * No endsWith dedup — thinking blocks always push if not already pushed.
+ * Each non-empty line is pushLogged with \u{1F4AD} prefix.
+ */
+export function pushThinkingBlock(state: AgentRunState, thinking: string): void {
+	const trimmed = thinking.trim();
+	if (!trimmed) return;
+	if (state.thinkingPushedThisTurn) return;
+
+	state.textOutputLines.push(trimmed);
+	state.thinkingOutputLines.push(trimmed);
+	state.thinkingPushedThisTurn = true;
+	for (const t of thinking.split("\n")) {
+		if (t.trim()) pushLog(state, `\u{1F4AD} ${t}`);
+	}
+}
+
+/**
  * Create an AgentRunState with default values.
  * Called by runAgentInProcess and runAgentSubprocess for consistent state creation.
  * Budget params default to 0 (unlimited) for backward compatibility.
