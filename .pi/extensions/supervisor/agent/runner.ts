@@ -6,17 +6,14 @@
 // Subprocess lifecycle lives in this file (event processing via
 // jsonLineToNormalizedEvent + processNormalizedEvent from adapter).
 
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { resolveTools, resolveExtensionPaths, resolveSkillPaths } from "../lib/extensions.ts";
-import {
-	formatDuration,
-	extractSummaryLine,
-} from "../lib/formatting.ts";
+import { formatDuration, extractSummaryLine } from "../lib/formatting.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import {
 	jsonLineToNormalizedEvent,
@@ -97,8 +94,6 @@ export async function runAgent(
 		);
 	}
 }
-
-
 
 // ─── buildSubprocessArgs: assemble CLI args for pi --mode json ──────
 // Extracted from runAgentSubprocess for reuse in executeAgent.
@@ -227,6 +222,30 @@ export async function runAgentSubprocess(
 		startedAt,
 	});
 
+	// Guard: validate effectiveCwd exists before spawn.
+	// Node's spawn returns misleading ENOENT when cwd doesn't exist
+	// (same error code as missing binary). Check explicitly.
+	if (!existsSync(effectiveCwd)) {
+		const spawnError = `cwd does not exist: ${effectiveCwd}`;
+		log.error("agent-runner", spawnError, { agentName: agent.config.name });
+		ctx.ui.setWidget(widgetId, undefined);
+		ctx.ui.setWorkingMessage(undefined);
+		ctx.ui.setStatus("supervisor", undefined);
+		return Promise.resolve({
+			output: spawnError,
+			success: false,
+			agentName: agent.config.name,
+			toolCount: 0,
+			failedToolCount: undefined,
+			tokenCount: 0,
+			durationMs: Date.now() - startedAt,
+			textOutput: "",
+			textOnly: "",
+			summaryLine: `Worktree missing: ${effectiveCwd}`,
+			errorOutput: spawnError,
+		});
+	}
+
 	return new Promise((resolve) => {
 		const child = spawn("/usr/bin/pi", args, {
 			cwd: effectiveCwd,
@@ -299,7 +318,15 @@ export async function runAgentSubprocess(
 				}
 				// Forward key events as supervisor chat messages
 				if (pi) {
-					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText, effectiveCwd);
+					forwardNormalizedEventToChat(
+						normalized,
+						state,
+						pi,
+						agentName,
+						pending,
+						preThinkingText,
+						effectiveCwd,
+					);
 				}
 				// Budget exceeded — kill subprocess to prevent further turns
 				if (state.budgetExceeded && !childExited) {
@@ -375,7 +402,12 @@ export async function runAgentSubprocess(
 			const thinkingOutput =
 				state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
 
-			const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
+			const summaryLine = extractSummaryLine(
+				textOutput,
+				success,
+				agentName,
+				new Set(state.toolCalls),
+			);
 			const filteredStderr = filterStderr(stderr);
 
 			ctx.ui.setWidget(widgetId, undefined);
