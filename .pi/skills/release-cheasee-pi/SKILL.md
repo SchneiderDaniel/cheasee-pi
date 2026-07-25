@@ -52,7 +52,7 @@ node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
 If this fails, fix the issues before proceeding. Once baseline is saved,
 re-running will only fail on NEW failures not in the snapshot.
 
-Run again after version sync (Step 7) to verify no regressions:
+Run again after version sync (Step 8) to verify no regressions:
 
 ```bash
 node "$SCRIPT_DIR/run-checks.mjs" ignore/check-baseline.json
@@ -78,7 +78,26 @@ echo "OK: no open Dependabot alerts."
 
 ---
 
-## Step 3 — Verify Git State
+## Step 3 — Verify CI Checks
+
+Check that all GitHub Actions workflows on main are green before releasing.
+
+```bash
+cd /workspaces/main
+REPO="SchneiderDaniel/cheasee-pi"
+FAILED=$(gh run list --repo "$REPO" --branch main --limit 5 --json name,conclusion --jq '[.[] | select(.conclusion != "success")] | length')
+if [ "$FAILED" -gt 0 ]; then
+  echo "ERROR: $FAILED recent workflow run(s) on main not successful."
+  echo "Check: https://github.com/$REPO/actions?query=branch%3Amain"
+  gh run list --repo "$REPO" --branch main --limit 5 --json name,conclusion --jq '.[] | "\(.name): \(.conclusion)"'
+  exit 1
+fi
+echo "OK: last 5 workflow runs on main all green."
+```
+
+---
+
+## Step 4 — Verify Git State
 
 ```bash
 cd /workspaces/main
@@ -89,7 +108,7 @@ gh auth status                                # must be authenticated
 
 ---
 
-## Step 3 — Fetch Last Tag
+## Step 5 — Fetch Last Tag
 
 ```bash
 cd /workspaces/main && git fetch --tags origin
@@ -99,7 +118,7 @@ echo "Last tag: $LAST_TAG"
 
 ---
 
-## Step 4 — Fetch + Process PRs (automated)
+## Step 6 — Fetch + Process PRs (automated)
 
 Run the two data scripts. This replaces manual PR-by-PR fetching and LLM categorization.
 
@@ -115,7 +134,7 @@ SCRIPT_DIR="/workspaces/main/.pi/skills/release-cheasee-pi/scripts"
 node "$SCRIPT_DIR/process-prs.mjs" < ignore/release-data.json > ignore/release-plan.json
 ```
 
-## Step 6 — User Confirmation
+## Step 7 — User Confirmation
 
 ```bash
 node "$SCRIPT_DIR/format-plan.mjs" < ignore/release-plan.json
@@ -130,7 +149,7 @@ Exit codes:
 
 ---
 
-## Step 7 — Sync Version in All Files
+## Step 8 — Sync Version in All Files
 
 ```bash
 node "$SCRIPT_DIR/sync-version.mjs" "{newVersion}" > ignore/sync-result.json
@@ -142,7 +161,7 @@ wasn't matched and update `sync-version.mjs` regex patterns.
 
 ---
 
-## Step 8 — Commit Version Bump
+## Step 9 — Commit Version Bump
 
 ```bash
 cd /workspaces/main
@@ -152,7 +171,7 @@ git commit -m "chore: bump version to v{newVersion}"
 
 ---
 
-## Step 9 — Create Tag
+## Step 10 — Create Tag
 
 ```bash
 cd /workspaces/main
@@ -161,7 +180,7 @@ git tag -a "v{newVersion}" -m "Release v{newVersion}"
 
 ---
 
-## Step 10 — Push Tag + Main
+## Step 11 — Push Tag + Main
 
 ```bash
 cd /workspaces/main
@@ -171,7 +190,7 @@ git push origin "v{newVersion}"
 
 ---
 
-## Step 11 — Wait for GoReleaser CI
+## Step 12 — Wait for GoReleaser CI
 
 After the tag push, the GitHub Actions release workflow auto-triggers. Wait for it.
 
@@ -198,7 +217,7 @@ fi
 
 ---
 
-## Step 12 — Update Release Body
+## Step 13 — Update Release Body
 
 GoReleaser creates the release with auto-generated changelog. Replace with our categorized body.
 
@@ -213,7 +232,7 @@ gh release edit "v{newVersion}" --repo "SchneiderDaniel/cheasee-pi" --notes-file
 
 ---
 
-## Step 13 — Confirm + Clean Up
+## Step 14 — Confirm + Clean Up
 
 Print:
 
@@ -248,14 +267,15 @@ rm -f ignore/release-data.json ignore/release-plan.json ignore/sync-result.json 
 
 - [ ] Step 1: `run-checks.mjs` baseline saved (exit 0 or baseline-only failures)
 - [ ] Step 2: no open Dependabot alerts
-- [ ] Step 3: on main, clean tree, gh authenticated
-- [ ] Step 4: last tag identified
-- [ ] Step 5: `process-prs.mjs` produced `release-plan.json` — `prCount > 0`, `tagExists = false`
-- [ ] Step 6: `format-plan.mjs` exited 0 (user confirmed)
-- [ ] Step 7: `sync-version.mjs` exited 0 (all 4 files changed)
-- [ ] Step 7: `run-checks.mjs` with baseline exits 0 (no regressions)
-- [ ] Step 8: version bump committed
-- [ ] Step 9-10: tag created and pushed
-- [ ] Step 11: GoReleaser CI completed
-- [ ] Step 12: release body updated
-- [ ] Step 13: temp files cleaned
+- [ ] Step 3: last 5 CI workflow runs on main are green
+- [ ] Step 4: on main, clean tree, gh authenticated
+- [ ] Step 5: last tag identified
+- [ ] Step 6: `process-prs.mjs` produced `release-plan.json` — `prCount > 0`, `tagExists = false`
+- [ ] Step 7: `format-plan.mjs` exited 0 (user confirmed)
+- [ ] Step 8: `sync-version.mjs` exited 0 (all 4 files changed)
+- [ ] Step 8: `run-checks.mjs` with baseline exits 0 (no regressions)
+- [ ] Step 9: version bump committed
+- [ ] Step 10-11: tag created and pushed
+- [ ] Step 12: GoReleaser CI completed
+- [ ] Step 13: release body updated
+- [ ] Step 14: temp files cleaned

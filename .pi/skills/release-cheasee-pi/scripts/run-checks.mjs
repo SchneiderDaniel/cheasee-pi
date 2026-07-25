@@ -28,15 +28,21 @@ if (snapshotPath) {
 
 const ROOT = execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
 const CHECKS = [
-	{ name: "TypeScript (tsc)", cmd: "npm run tsc:extensions", cwd: ROOT },
-	{ name: "Node tests", cmd: "npm test", cwd: ROOT },
-	{ name: "Go build", cmd: "go build ./cmd/cheasee-pi/", cwd: ROOT },
-	{ name: "Go vet", cmd: "go vet ./cmd/cheasee-pi/...", cwd: ROOT },
-	{ name: "Go tests", cmd: "go test ./cmd/cheasee-pi/...", cwd: ROOT },
+	{ name: "TypeScript (tsc)", cmd: "npm run tsc:extensions", cwd: ROOT, timeout: 120_000 },
+	{
+		name: "Node tests",
+		cmd: "find . \\( -path './node_modules' -o -path './.git' -o -path './.pi/git' \\) -prune -o -type f \\( -name '*.test.ts' -o -name '*.test.mts' -o -name '*.test.mjs' -o -name '*.test.js' \\) -print0 | xargs -0 node --experimental-strip-types --test --test-concurrency=1",
+		cwd: ROOT,
+		timeout: 300_000,
+	},
+	{ name: "Go build", cmd: "go build ./cmd/cheasee-pi/", cwd: ROOT, timeout: 120_000 },
+	{ name: "Go vet", cmd: "go vet ./cmd/cheasee-pi/...", cwd: ROOT, timeout: 120_000 },
+	{ name: "Go tests", cmd: "go test ./cmd/cheasee-pi/...", cwd: ROOT, timeout: 120_000 },
 	{
 		name: "GoReleaser config",
 		cmd: `node -e "try { require('js-yaml').load(require('fs').readFileSync('.goreleaser.yml','utf8')); console.log('valid YAML') } catch(e) { console.error(e.message); process.exit(1) }"`,
 		cwd: ROOT,
+		timeout: 30_000,
 	},
 ];
 
@@ -45,7 +51,12 @@ let newFailures = [];
 
 for (const check of CHECKS) {
 	try {
-		execSync(check.cmd, { cwd: check.cwd, stdio: "pipe", encoding: "utf8", timeout: 120_000 });
+		execSync(check.cmd, {
+			cwd: check.cwd,
+			stdio: "pipe",
+			encoding: "utf8",
+			timeout: check.timeout,
+		});
 		console.log(`✓ ${check.name}`);
 	} catch (e) {
 		const name = check.name;
