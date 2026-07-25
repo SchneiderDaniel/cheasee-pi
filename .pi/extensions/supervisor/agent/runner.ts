@@ -63,7 +63,7 @@ export async function runAgent(
 			console.warn(
 				"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
 			);
-			return await runAgentSubprocess(
+			return runAgentSubprocess(
 				agent,
 				task,
 				ctx,
@@ -78,10 +78,9 @@ export async function runAgent(
 		return result;
 	} catch (err: unknown) {
 		console.warn(
-			"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
+			"[supervisor] In-process runner threw, falling back to subprocess",
 		);
-		// Use `return await` to catch synchronous throws from subprocess runner
-		return await runAgentSubprocess(
+		return runAgentSubprocess(
 			agent,
 			task,
 			ctx,
@@ -107,12 +106,12 @@ export async function runAgent(
 
 const SAFE_TASK_CHARS = 1_200_000;
 
-function buildSubprocessArgs(
+export function buildSubprocessArgs(
 	agent: ParsedAgent,
 	task: string,
 	effectiveCwd: string,
 	sessionPath?: string,
-): string[] {
+): { args: string[]; tools: string; skillPaths: string[]; toolSpillDir?: string } {
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
 	const model = agent.config.model || "";
@@ -121,10 +120,12 @@ function buildSubprocessArgs(
 	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	// If task is large, write to temp file and use @file to bypass ARG_MAX
+	let toolSpillDir: string | undefined;
 	const taskArg =
 		task.length > SAFE_TASK_CHARS
 			? (() => {
 					const tmpDir = mkdtempSync(join(tmpdir(), "pi-task-"));
+					toolSpillDir = tmpDir;
 					const taskFile = join(tmpDir, "task.txt");
 					writeFileSync(taskFile, task, "utf-8");
 					return `@${taskFile}`;
@@ -153,7 +154,7 @@ function buildSubprocessArgs(
 	if (sessionPath) {
 		args.push("--session", sessionPath);
 	}
-	return args;
+	return { args, tools, skillPaths, toolSpillDir };
 }
 
 // ─── runAgentSubprocess (Fallback) ─────────────────────────────────
@@ -173,14 +174,38 @@ export async function runAgentSubprocess(
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
 	// Pass worktree path to worktree-sandbox extension for path confinement
 	const sandboxEnv = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
+	const agentName = agent.config.name;
+	const widgetId = `agent-${agentName}`;
+	const startedAt = Date.now();
 
-	const args = buildSubprocessArgs(agent, task, effectiveCwd, sessionPath);
+	// ── Guard: build subprocess args (may throw from resolvers/mkdtempSync) ──
+	let buildResult: { args: string[]; tools: string; skillPaths: string[]; toolSpillDir?: string };
+	try {
+		buildResult = buildSubprocessArgs(agent, task, effectiveCwd, sessionPath);
+	} catch (err: unknown) {
+		const errMsg = err instanceof Error ? err.message : String(err);
+		log.error("agent-runner", `Subprocess setup failed: ${errMsg}`, { agentName });
+		ctx.ui.setWidget(widgetId, undefined);
+		ctx.ui.setWorkingMessage(undefined);
+		ctx.ui.setStatus("supervisor", undefined);
+		return Promise.resolve({
+			output: errMsg,
+			success: false,
+			agentName,
+			toolCount: 0,
+			failedToolCount: undefined,
+			tokenCount: 0,
+			durationMs: Date.now() - startedAt,
+			textOutput: "",
+			textOnly: "",
+			summaryLine: `Subprocess setup failed: ${errMsg}`,
+			errorOutput: errMsg,
+			budgetExceeded: undefined,
+		});
+	}
+
+	const { args, tools, skillPaths } = buildResult;
 	const model = agent.config.model || "";
-
-	// Recompute for logging (also computed inside buildSubprocessArgs)
-	const rawTools = agent.config.tools || "read,bash,write,edit";
-	const tools = resolveTools(rawTools, agent.config.extensions, effectiveCwd);
-	const skillPaths = resolveSkillPaths(agent.config.skills, effectiveCwd);
 
 	// Warn if task is large enough to risk ARG_MAX (Linux default: 2MB)
 	const ARG_MAX_WARN_THRESHOLD = 1_000_000; // 1MB
@@ -188,16 +213,16 @@ export async function runAgentSubprocess(
 	if (totalArgChars > ARG_MAX_WARN_THRESHOLD) {
 		log.warn(
 			"agent-runner",
-			`Subprocess args large (${totalArgChars} chars) — risk of ARG_MAX overflow for ${agent.config.name}`,
+			`Subprocess args large (${totalArgChars} chars) — risk of ARG_MAX overflow for ${agentName}`,
 		);
 		getErrorCollector().push(
 			"runner",
 			"warn",
-			`Large subprocess args: ${totalArgChars} chars for ${agent.config.name}`,
+			`Large subprocess args: ${totalArgChars} chars for ${agentName}`,
 		);
 	}
 
-	log.info("agent-runner", `runAgentSubprocess: ${agent.config.name}`, {
+	log.info("agent-runner", `runAgentSubprocess: ${agentName}`, {
 		effectiveCwd,
 		model,
 		timeoutMs,
@@ -207,12 +232,8 @@ export async function runAgentSubprocess(
 		argChars: totalArgChars,
 	});
 
-	const widgetId = `agent-${agent.config.name}`;
-	const agentName = agent.config.name;
 	ctx.ui.notify(`Running agent: ${agentName}...`, "info");
 	ctx.ui.setStatus("supervisor", `Running ${agentName}...`);
-
-	const startedAt = Date.now();
 
 	const thinkingLevel = agent.config.thinking?.trim() || undefined;
 	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
@@ -227,14 +248,14 @@ export async function runAgentSubprocess(
 	// (same error code as missing binary). Check explicitly.
 	if (!existsSync(effectiveCwd)) {
 		const spawnError = `cwd does not exist: ${effectiveCwd}`;
-		log.error("agent-runner", spawnError, { agentName: agent.config.name });
+		log.error("agent-runner", spawnError, { agentName });
 		ctx.ui.setWidget(widgetId, undefined);
 		ctx.ui.setWorkingMessage(undefined);
 		ctx.ui.setStatus("supervisor", undefined);
 		return Promise.resolve({
 			output: spawnError,
 			success: false,
-			agentName: agent.config.name,
+			agentName,
 			toolCount: 0,
 			failedToolCount: undefined,
 			tokenCount: 0,
@@ -243,6 +264,7 @@ export async function runAgentSubprocess(
 			textOnly: "",
 			summaryLine: `Worktree missing: ${effectiveCwd}`,
 			errorOutput: spawnError,
+			budgetExceeded: undefined,
 		});
 	}
 
@@ -446,7 +468,7 @@ export async function runAgentSubprocess(
 
 		child.on("error", (err) => {
 			const spawnError = `Subprocess spawn error: ${err.message}`;
-			log.error("agent-runner", spawnError, { agentName: agent.config.name });
+			log.error("agent-runner", spawnError, { agentName });
 			if (flushTimer) {
 				clearTimeout(flushTimer);
 				flushTimer = null;
@@ -458,7 +480,7 @@ export async function runAgentSubprocess(
 			resolve({
 				output: `Failed to start pi: ${err.message}`,
 				success: false,
-				agentName: agent.config.name,
+				agentName,
 				toolCount: 0,
 				failedToolCount: undefined,
 				tokenCount: 0,

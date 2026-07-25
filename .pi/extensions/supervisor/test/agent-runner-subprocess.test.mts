@@ -1081,4 +1081,225 @@ if (hasMockModule) {
 			}
 		});
 	});
+
+	describe("buildSubprocessArgs — return struct", () => {
+		it("returns { args, tools, skillPaths } with correct types", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const result = buildSubprocessArgs(mockAgent as any, "test task", "/tmp");
+			assert.ok(Array.isArray(result.args));
+			assert.equal(typeof result.tools, "string");
+			assert.ok(Array.isArray(result.skillPaths));
+			assert.equal(result.toolSpillDir, undefined);
+		});
+
+		it("args array includes expected CLI flags", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const result = buildSubprocessArgs(mockAgent as any, "test task", "/tmp");
+			assert.ok(result.args.includes("--mode"), "should have --mode");
+			assert.ok(result.args.includes("json"), "should have json");
+			assert.ok(result.args.includes("--system-prompt"), "should have --system-prompt");
+			assert.ok(result.args.includes("--tools"), "should have --tools");
+			assert.ok(result.args.includes("--no-extensions"), "should have --no-extensions");
+			assert.ok(result.args.includes("--no-skills"), "should have --no-skills");
+			assert.ok(result.args.includes("--no-context-files"), "should have --no-context-files");
+		});
+
+		it("tools string matches resolved tools from agent config", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const result = buildSubprocessArgs(mockAgent as any, "test task", "/tmp");
+			assert.ok(result.tools.includes("read"), "tools should contain read");
+			assert.ok(result.tools.includes("bash"), "tools should contain bash");
+		});
+
+		it("toolSpillDir is present when task > SAFE_TASK_CHARS (1,200,000)", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const largeTask = "x".repeat(1_200_001);
+			const result = buildSubprocessArgs(mockAgent as any, largeTask, "/tmp");
+			assert.ok(
+				result.toolSpillDir !== undefined,
+				"toolSpillDir should be present for large task",
+			);
+			assert.ok(
+				typeof result.toolSpillDir === "string" && result.toolSpillDir.length > 0,
+				"toolSpillDir should be a non-empty string",
+			);
+		});
+
+		it("toolSpillDir is undefined when task ≤ SAFE_TASK_CHARS", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const result = buildSubprocessArgs(mockAgent as any, "small task", "/tmp");
+			assert.equal(result.toolSpillDir, undefined);
+		});
+
+		it("args with model includes --model flag", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const result = buildSubprocessArgs(mockAgent as any, "test task", "/tmp");
+			assert.ok(result.args.includes("--model"), "should have --model");
+			assert.ok(
+				result.args.includes("anthropic/claude-sonnet-4-20250514"),
+				"should include model name",
+			);
+		});
+
+		it("args without model omits --model flag", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const noModelAgent = {
+				config: {
+					name: "no-model-agent",
+					tools: "read",
+					model: "",
+					extensions: "",
+					skills: "",
+					thinking: "",
+				},
+				systemPrompt: "You are a test.",
+			};
+			const result = buildSubprocessArgs(noModelAgent as any, "test task", "/tmp");
+			assert.ok(!result.args.includes("--model"), "should not have --model when empty");
+		});
+	});
+
+	describe("runAgentSubprocess — safe fallback (guarded pre-Promise block)", () => {
+		it("sync throw from resolveSkillPaths (missing skill) returns {success: false}", async () => {
+			resetMock();
+			const badSkillAgent = {
+				config: {
+					name: "bad-skill-agent",
+					tools: "read",
+					model: "anthropic/claude-sonnet-4-20250514",
+					extensions: "",
+					skills: "nonexistent-skill",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const result = await runAgentSubprocess(
+				badSkillAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+			);
+
+			assert.equal(result.success, false);
+			assert.ok(
+				result.summaryLine.includes("Subprocess setup failed") ||
+					result.summaryLine.includes("not found"),
+				`summaryLine should indicate failure: ${result.summaryLine}`,
+			);
+			assert.equal(result.agentName, "bad-skill-agent");
+			assert.equal(result.toolCount, 0);
+			assert.equal(result.tokenCount, 0);
+		});
+
+		it("existsSync(effectiveCwd) guard still returns {success: false} (regression)", async () => {
+			resetMock();
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const result = await runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				"/nonexistent-path-12345",
+			);
+
+			assert.equal(result.success, false);
+			assert.ok(
+				result.summaryLine.includes("Worktree missing"),
+				`summaryLine should mention worktree missing: ${result.summaryLine}`,
+			);
+			assert.equal(result.agentName, "test-agent");
+		});
+
+		it("runAgentSubprocess never rejects for any input (bad skill, bad cwd)", async () => {
+			resetMock();
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+
+			// Bad skill
+			const badSkillAgent = {
+				config: {
+					name: "bad-skill-agent",
+					tools: "read",
+					model: "anthropic/claude-sonnet-4-20250514",
+					extensions: "",
+					skills: "nonexistent-skill",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+
+			const result = await runAgentSubprocess(
+				badSkillAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+			);
+			assert.equal(result.success, false);
+			assert.equal(result.agentName, "bad-skill-agent");
+		});
+
+		it("normal subprocess happy path still resolves with success: true (regression)", async () => {
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Completed." },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+			);
+			emitMockEvents();
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+		});
+
+		it("sync throw produces AgentRunResult with all expected fields", async () => {
+			resetMock();
+			const badSkillAgent = {
+				config: {
+					name: "bad-skill-agent",
+					tools: "read",
+					model: "anthropic/claude-sonnet-4-20250514",
+					extensions: "",
+					skills: "nonexistent-skill",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const result = await runAgentSubprocess(
+				badSkillAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+			);
+
+			// Verify all AgentRunResult fields are present
+			assert.equal(typeof result.success, "boolean");
+			assert.equal(typeof result.agentName, "string");
+			assert.equal(typeof result.toolCount, "number");
+			assert.equal(typeof result.tokenCount, "number");
+			assert.equal(typeof result.durationMs, "number");
+			assert.equal(typeof result.textOutput, "string");
+			assert.equal(typeof result.textOnly, "string");
+			assert.equal(typeof result.summaryLine, "string");
+			assert.equal(typeof result.errorOutput, "string");
+			assert.equal(typeof result.output, "string");
+			assert.ok("budgetExceeded" in result);
+		});
+	});
 }
