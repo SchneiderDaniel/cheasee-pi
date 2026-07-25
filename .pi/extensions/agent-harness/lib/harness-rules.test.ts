@@ -280,3 +280,60 @@ describe("SEARCH_TOOLS removal", () => {
 		assert.equal(typeof m.isRedundantRead, "function", "isRedundantRead should be a function");
 	});
 });
+
+// ── isCodeFilePath removal (#1279) ──
+
+describe("isCodeFilePath removal", () => {
+	it("(#1279) isCodeFilePath is undefined after removal (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal(
+			(mod as Record<string, unknown>).isCodeFilePath,
+			undefined,
+			"isCodeFilePath should be removed — dead export with no callers",
+		);
+	});
+
+	it("(#1279) CODE_EXTENSIONS is undefined after removal (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal(
+			(mod as Record<string, unknown>).CODE_EXTENSIONS,
+			undefined,
+			"CODE_EXTENSIONS should be removed — only referenced by isCodeFilePath",
+		);
+	});
+
+	it("(#1279) No isCodeFilePath reference remains in source (ripgrep assertion)", async () => {
+		const mod = await import("./harness-rules.ts");
+		// Verify no property named isCodeFilePath exists on the module
+		assert.equal(
+			Object.prototype.hasOwnProperty.call(mod, "isCodeFilePath"),
+			false,
+			"isCodeFilePath should not be a property of the module",
+		);
+	});
+
+	it("(#1279) All other exports are still present (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		const m = mod as Record<string, unknown>;
+
+		// Constants
+		assert.equal(typeof m.CACHE_TTL_TURNS, "number", "CACHE_TTL_TURNS should be a number");
+		assert.equal(m.CASCADE_THRESHOLD, 8, "CASCADE_THRESHOLD should be 8");
+		assert.ok(m.MULTI_VERB_TOOLS instanceof Set, "MULTI_VERB_TOOLS should be a Set");
+		assert.ok(typeof m.TOOL_META === "object" && m.TOOL_META !== null, "TOOL_META should be an object");
+
+		// Exports
+		assert.equal(typeof m.REDIRECT_GUIDANCE, "object", "REDIRECT_GUIDANCE should be an object");
+
+		// Functions
+		assert.equal(typeof m.loadDefaultRules, "function", "loadDefaultRules should be a function");
+		assert.equal(typeof m.buildRedirectMessage, "function", "buildRedirectMessage should be a function");
+		assert.equal(typeof m.getToolMeta, "function", "getToolMeta should be a function");
+		assert.equal(typeof m.shouldBlockRetry, "function", "shouldBlockRetry should be a function");
+		assert.equal(typeof m.isRedundantRead, "function", "isRedundantRead should be a function");
+
+		// Removal assertions
+		assert.equal(m.isCodeFilePath, undefined, "isCodeFilePath should be undefined");
+		assert.equal(m.CODE_EXTENSIONS, undefined, "CODE_EXTENSIONS should be undefined");
+	});
+});

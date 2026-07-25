@@ -15,9 +15,6 @@
 
 // ── Constants ──
 
-/** Code file extensions (lowercase). */
-const CODE_EXTENSIONS = new Set([".ts", ".js", ".tsx", ".jsx", ".py", ".rs", ".go"]);
-
 /** TTL for read cache: number of turns before a cached entry expires. */
 export const CACHE_TTL_TURNS = 6;
 
@@ -154,18 +151,6 @@ export function isRedundantRead(prevPath: string, currentPath: string, turnDiff:
 	if (!prevPath || !currentPath) return false;
 	if (prevPath !== currentPath) return false;
 	return turnDiff < CACHE_TTL_TURNS;
-}
-
-/**
- * Check if a file path corresponds to a code file (has recognized extension).
- */
-export function isCodeFilePath(path: string): boolean {
-	if (!path) return false;
-	const lower = path.toLowerCase();
-	for (const ext of CODE_EXTENSIONS) {
-		if (lower.endsWith(ext)) return true;
-	}
-	return false;
 }
 
 
