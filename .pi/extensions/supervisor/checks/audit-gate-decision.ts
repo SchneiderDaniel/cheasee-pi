@@ -70,9 +70,20 @@ const POLICIES: Record<string, PolicyEntry> = {
 		runnerModule: "../../lsp-auditor",
 		runnerFn: "runPreAudit",
 		shouldSkip: (ctx: PolicyContext): boolean => {
-			return ctx.hasModifiedFiles === false;
+			// Skip LSP only when no modified files AND changes are already on main.
+			// If no modified files but changes are NOT on main, the work is genuinely
+			// missing — LSP should run so it can flag the gap.
+			if (ctx.hasModifiedFiles === false && ctx.changeAlreadyOnMain === true) {
+				return true;
+			}
+			return false;
 		},
-		getSkipNote: () => "LSP audit skipped: no modified files",
+		getSkipNote: (ctx: PolicyContext): string => {
+			if (ctx.hasModifiedFiles === false && ctx.changeAlreadyOnMain === true) {
+				return "LSP audit skipped: no modified files, changes already on main";
+			}
+			return "LSP audit skipped: no modified files";
+		},
 		nullResultNote: "",
 		evaluate: (result: unknown, ctx: PolicyContext): AuditGateDecision => {
 			const r = result as { proceed: boolean; note: string };

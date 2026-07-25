@@ -11,6 +11,19 @@ import { join } from "node:path";
 import { OctokitClient } from "./octokit-client.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
+// ─── Closing PR Reference ───────────────────────────────────────
+
+/** A reference to a pull request that targets or resolves this issue. */
+export interface ClosingPrRef {
+	number: number;
+	/** Commit SHA (merge commit for merged PRs, head SHA for open PRs). */
+	sha: string;
+	/** How this PR was found: via closing keyword on the issue, or by matching branch head. */
+	source: "closing-keyword" | "branch-head";
+	/** Branch name of the PR head (for open PRs). */
+	branch: string;
+}
+
 // ─── GitHub Port ─────────────────────────────────────────────────
 
 export interface GitHubPort {
@@ -68,6 +81,13 @@ export interface GitHubPort {
 
 	/** Check if an issue is blocked by unresolved dependencies. */
 	checkBlockedByDependencies(issueNum: number, repo: string): Promise<DepsResult>;
+
+	/**
+	 * Get PRs referencing this issue via closing keywords ("Closes #N").
+	 * Returns an empty array if no closing PRs are found.
+	 * Fail-open: returns empty array on error (does not throw).
+	 */
+	getClosingPrsForIssue(issueNum: number, repo: string): Promise<ClosingPrRef[]>;
 
 	/** Update the auth token for long-running sessions. */
 	setToken(token: string): void;

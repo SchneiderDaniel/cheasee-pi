@@ -7,8 +7,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createMockGitHubPort, type PortCall } from "./mock-github-port.ts";
 
-describe("createMockGitHubPort — 8-method contract", () => {
-	it("returns an object with all 8 methods", () => {
+describe("createMockGitHubPort — port method contract", () => {
+	it("returns an object with all port methods", () => {
 		const port = createMockGitHubPort();
 		assert.equal(typeof port.postIssueComment, "function");
 		assert.equal(typeof port.getProjectFields, "function");
@@ -18,8 +18,8 @@ describe("createMockGitHubPort — 8-method contract", () => {
 		assert.equal(typeof port.checkBlockedByDependencies, "function");
 		assert.equal(typeof port.createPullRequest, "function");
 		assert.equal(typeof port.listPullRequestsForBranch, "function");
-		// No methods beyond the 8
-		assert.equal(Object.keys(port).length, 8);
+		assert.equal(typeof port.getClosingPrsForIssue, "function");
+		assert.equal(typeof port.setToken, "function");
 	});
 
 	it("postIssueComment returns void by default", async () => {

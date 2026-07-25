@@ -5,7 +5,7 @@
 // When trackCalls array is provided, every method invocation is
 // recorded for assertion — including custom implementations.
 
-import type { GitHubPort } from "../../github/ports.ts";
+import type { GitHubPort, ClosingPrRef } from "../../github/ports.ts";
 import type { RawIssueData } from "../../lib/issue-filter.ts";
 import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../../config/types.ts";
 
@@ -52,6 +52,10 @@ export interface MockGitHubPortOptions {
 		issueNum: number,
 		repo: string,
 	) => Promise<DepsResult>;
+	getClosingPrsForIssue?: (
+		issueNum: number,
+		repo: string,
+	) => Promise<ClosingPrRef[]>;
 	setToken?: (token: string) => void;
 }
 
@@ -91,6 +95,7 @@ export function createMockGitHubPort(
 		getProjectId: "",
 		setItemStatusField: undefined as void,
 		checkBlockedByDependencies: { blocked: false, blockers: [] } as DepsResult,
+	getClosingPrsForIssue: [] as ClosingPrRef[],
 	};
 
 	return {
@@ -197,6 +202,14 @@ export function createMockGitHubPort(
 						record("checkBlockedByDependencies", [issueNum, repo]);
 						return defaults.checkBlockedByDependencies;
 					}) as GitHubPort["checkBlockedByDependencies"],
+
+		getClosingPrsForIssue:
+			opts?.getClosingPrsForIssue
+				? wrap("getClosingPrsForIssue", opts.getClosingPrsForIssue)
+				: (async (issueNum: number, repo: string) => {
+						record("getClosingPrsForIssue", [issueNum, repo]);
+						return defaults.getClosingPrsForIssue;
+					}) as GitHubPort["getClosingPrsForIssue"],
 
 		setToken: opts?.setToken ?? ((_token: string) => {}),
 	};

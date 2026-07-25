@@ -13,7 +13,7 @@ import type {
 	GhTimelineNode,
 	ProjectFieldValueNode,
 } from "../config/types.ts";
-import type { RawIssueData, GitHubPort } from "./ports.ts";
+import type { RawIssueData, GitHubPort, ClosingPrRef } from "./ports.ts";
 import { parseDepsTimeline, extractProjectItemFields } from "./parsers.ts";
 
 // ─── Hard safety limit (migrated from comment.ts) ────────────────
@@ -471,6 +471,61 @@ export class OctokitClient implements GitHubPort {
 
 		const nodes = resp?.repository?.issue?.timelineItems?.nodes;
 		return parseDepsTimeline(nodes);
+	}
+
+	async getClosingPrsForIssue(issueNum: number, repo: string): Promise<ClosingPrRef[]> {
+		const [owner, name] = repo.split("/");
+		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+
+		this.log.debug("octokit", `getClosingPrsForIssue #${issueNum}`);
+
+		try {
+			// Use search API to find open PRs referencing this issue with closing keywords
+			// Search for "fixes #N", "closes #N", "resolves #N" in the issue
+			const resp = await this.octokit.search.issuesAndPullRequests({
+				q: `repo:${owner}/${name} "#${issueNum}" type:pr is:open`,
+				sort: "updated",
+				order: "desc",
+				per_page: 5,
+			});
+
+			const refs: ClosingPrRef[] = [];
+			for (const item of resp.data.items) {
+				if (!item.number) continue;
+
+				// Get detailed PR info to find head branch and merge commit
+				try {
+					const prResp = await this.octokit.pulls.get({
+						owner,
+						repo: name,
+						pull_number: item.number,
+					});
+					const pr = prResp.data;
+					const sha = pr.merge_commit_sha || (pr.head as { sha?: string })?.sha || "";
+					const branch = (pr.head as { ref?: string })?.ref || "";
+
+					// Determine source: check if PR body contains closing keywords
+					const body = pr.body || "";
+					const closingPattern = new RegExp(
+						`(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\\s*#${issueNum}\\b`,
+						"i",
+					);
+					const source = closingPattern.test(body) ? "closing-keyword" : "branch-head";
+
+					refs.push({ number: item.number, sha, source, branch });
+				} catch {
+					// If we can't get PR details, still include with empty sha/branch
+					refs.push({ number: item.number, sha: "", source: "branch-head", branch: "" });
+				}
+			}
+
+			return refs;
+		} catch (err: unknown) {
+			// Fail-open: log warning and return empty array
+			const msg = err instanceof Error ? err.message : String(err);
+			this.log.warn("octokit", `getClosingPrsForIssue failed: ${msg}`);
+			return [];
+		}
 	}
 
 	// ─── GraphQL helper ─────────────────────────────────────────
