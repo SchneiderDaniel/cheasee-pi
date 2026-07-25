@@ -98,7 +98,10 @@ export async function tryRebaseOntoBase(
 			timeout: 10_000,
 		});
 		const conflictFiles: string[] = diffResult.stdout
-			? diffResult.stdout.trim().split("\n").filter((s) => s.trim().length > 0)
+			? diffResult.stdout
+					.trim()
+					.split("\n")
+					.filter((s) => s.trim().length > 0)
 			: [];
 
 		if (conflictFiles.length > 0) {
@@ -110,6 +113,40 @@ export async function tryRebaseOntoBase(
 				})
 				.catch(() => {});
 			log.info("rebase", "Rebase aborted after conflicts");
+
+			// ─── Fallback: try merge ──────────────────────────────────
+			// Rebase fails when origin/main touched same file in overlapping
+			// lines (per-commit patch application). Merge's 3-way combine is
+			// more tolerant of same-file changes in non-overlapping regions.
+			// If merge also fails, fall through to original conflict result.
+			log.info("rebase", "Trying merge fallback after rebase conflict");
+			try {
+				const mergeResult = await pi.exec(
+					"git",
+					["merge", "--no-edit", `${remote}/${defaultBranch}`],
+					{ cwd: worktreePath, timeout: 60_000 },
+				);
+				if (mergeResult.code === 0) {
+					log.info("rebase", "Merge fallback succeeded after rebase conflict");
+					return {
+						success: true,
+						conflictFiles: [],
+						message: "Rebase conflicted, merge fallback succeeded.",
+					};
+				}
+			} catch (mergeErr: unknown) {
+				const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+				log.warn("rebase", `Merge fallback also failed: ${msg}`);
+			}
+
+			// Merge also failed — abort merge, return original conflict result
+			await pi
+				.exec("git", ["merge", "--abort"], {
+					cwd: worktreePath,
+					timeout: 10_000,
+				})
+				.catch(() => {});
+			log.info("rebase", "Merge fallback also failed — aborted");
 			return {
 				success: false,
 				conflictFiles,
