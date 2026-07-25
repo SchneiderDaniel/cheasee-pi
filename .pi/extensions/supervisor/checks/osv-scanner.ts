@@ -296,6 +296,16 @@ export function bucketBySeverity(findings: OsvFinding[]): OsvScanResult["counts"
 	return counts;
 }
 
+// ─── Severity Label Lookup ────────────────────────────────────────
+
+/** Presentation labels for severity levels with emoji indicators. */
+const SEV_LABELS: Record<string, string> = {
+	CRITICAL: "🔴 Critical",
+	HIGH: "🟠 High",
+	MEDIUM: "🟡 Medium",
+	LOW: "🟢 Low",
+} as const;
+
 // ─── Pure Function: buildVulnContext ───────────────────────────────
 
 /**
@@ -344,11 +354,7 @@ export function buildVulnContext(result: OsvScanResult): string {
 		const sevFindings = result.findings.filter((f) => f.severity === sev);
 		if (sevFindings.length === 0) continue;
 
-		const sevLabel = sev === "CRITICAL" ? "🔴 Critical" :
-			sev === "HIGH" ? "🟠 High" :
-			sev === "MEDIUM" ? "🟡 Medium" :
-			sev === "LOW" ? "🟢 Low" :
-			"⚪ Unknown";
+		const sevLabel = SEV_LABELS[sev] ?? "⚪ Unknown";
 
 		lines.push(`### ${sevLabel}`);
 		lines.push("");
