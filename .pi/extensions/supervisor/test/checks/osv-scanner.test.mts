@@ -428,6 +428,30 @@ describe("buildVulnContext()", () => {
 		assert.ok(ctx.includes("C/C++"));
 		assert.ok(ctx.includes("less reliable"));
 	});
+
+	it("UNKNOWN severity finding renders as ⚪ Unknown via ?? fallback", () => {
+		const findings: OsvFinding[] = [
+			{
+				id: "GHSA-unknown-1111-1111",
+				aliases: ["CVE-2024-9999"],
+				severity: "UNKNOWN",
+				packageName: "some-package",
+				packageVersion: "1.0.0",
+				ecosystem: "npm",
+				sourceFile: "/worktrees/test/package-lock.json",
+				summary: "Unspecified vulnerability",
+				isCcCommitMatch: false,
+			},
+		];
+		const result: OsvScanResult = {
+			status: "vulns_found",
+			findings,
+			counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 1 },
+			ccFindingsFlagged: false,
+		};
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("⚪ Unknown"), `Expected ⚪ Unknown in context, got: ${ctx}`);
+	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════
