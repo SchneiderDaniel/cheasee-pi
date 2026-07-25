@@ -21,6 +21,8 @@ var KnownModels = map[string][]string{
 	"openrouter":  {"anthropic/claude-sonnet-4-20250514", "openai/gpt-4o"},
 	"xai":         {"grok-2", "grok-3"},
 	"fireworks":   {"accounts/fireworks/models/llama-v3p3-70b-instruct"},
+	"together":     {},
+	"cerebras":     {},
 }
 
 // ProviderNames returns sorted list of known provider names.
@@ -126,9 +128,10 @@ func (w *SettingsWriter) updateAgentSettings(provider string) error {
 	return atomicWrite(path, out, 0644)
 }
 
-// providerToEnvVar maps provider name to its canonical env var.
-// Mirrors the shell script mapping in docker/lib/auth-env.sh.
-func providerToEnvVar(provider string) string {
+// ProviderToEnvVar maps provider name to its canonical env var.
+// Canonical source for the provider→envvar mapping. The shell derivation
+// in auth-env.sh is generated from this function.
+func ProviderToEnvVar(provider string) string {
 	switch {
 	case provider == "opencode-go" || provider == "opencode":
 		return "OPENCODE_API_KEY"
@@ -157,4 +160,26 @@ func providerToEnvVar(provider string) string {
 	default:
 		return ""
 	}
+}
+
+// ProviderEnvAliases returns the complete mapping of provider names
+// (including documented aliases) to their canonical env var names.
+//
+// Derived from ProviderNames() (which iterates KnownModels) and documented
+// aliases, with each value resolved through ProviderToEnvVar so that adding
+// a new provider requires editing only ProviderToEnvVar (and KnownModels if
+// model lists matter).
+func ProviderEnvAliases() map[string]string {
+	m := make(map[string]string, len(KnownModels)+3)
+	for _, name := range ProviderNames() {
+		m[name] = ProviderToEnvVar(name)
+	}
+	for alias, canonical := range map[string]string{
+		"claude":   "anthropic",
+		"google":   "gemini",
+		"opencode": "opencode-go",
+	} {
+		m[alias] = ProviderToEnvVar(canonical)
+	}
+	return m
 }

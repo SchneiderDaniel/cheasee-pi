@@ -51,6 +51,7 @@ type mockRepository struct {
 	loadErr        error
 	loadAuth       *Auth
 	path           string
+	providers      map[string]string // returned by ListProviders
 }
 
 func (m *mockRepository) Load(_ context.Context) (*Auth, error) {
@@ -92,6 +93,9 @@ func (m *mockRepository) RemoveProvider(_ context.Context, provider string) erro
 }
 
 func (m *mockRepository) ListProviders(_ context.Context) (map[string]string, error) {
+	if m.providers != nil {
+		return m.providers, nil
+	}
 	return nil, nil
 }
 

@@ -377,3 +377,119 @@ func indexOf(slice []string, val string) int {
 	}
 	return -1
 }
+
+// ──────────────────────────────────────────────
+// buildEnvFlags tests — Phase 3: Alias resolution
+// ──────────────────────────────────────────────
+
+func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
+	saved := newRepository
+	newRepository = func() Repository {
+		return &mockRepository{
+			providers: map[string]string{
+				"claude": "sk-ant-xxx",
+			},
+		}
+	}
+	defer func() { newRepository = saved }()
+
+	flags, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+
+	hasAnthropic := false
+	for i, f := range flags {
+		if f == "-e" && i+1 < len(flags) && flags[i+1] == "ANTHROPIC_API_KEY=sk-ant-xxx" {
+			hasAnthropic = true
+			break
+		}
+	}
+	if !hasAnthropic {
+		t.Errorf("buildEnvFlags with claude alias should produce ANTHROPIC_API_KEY=sk-ant-xxx, got %v", flags)
+	}
+}
+
+func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
+	saved := newRepository
+	newRepository = func() Repository {
+		return &mockRepository{
+			providers: map[string]string{
+				"google": "xxx",
+			},
+		}
+	}
+	defer func() { newRepository = saved }()
+
+	flags, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+
+	hasGemini := false
+	for i, f := range flags {
+		if f == "-e" && i+1 < len(flags) && flags[i+1] == "GEMINI_API_KEY=xxx" {
+			hasGemini = true
+			break
+		}
+	}
+	if !hasGemini {
+		t.Errorf("buildEnvFlags with google alias should produce GEMINI_API_KEY=xxx, got %v", flags)
+	}
+}
+
+func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
+	saved := newRepository
+	newRepository = func() Repository {
+		return &mockRepository{
+			providers: map[string]string{
+				"opencode": "xxx",
+			},
+		}
+	}
+	defer func() { newRepository = saved }()
+
+	flags, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+
+	hasOpenCode := false
+	for i, f := range flags {
+		if f == "-e" && i+1 < len(flags) && flags[i+1] == "OPENCODE_API_KEY=xxx" {
+			hasOpenCode = true
+			break
+		}
+	}
+	if !hasOpenCode {
+		t.Errorf("buildEnvFlags with opencode alias should produce OPENCODE_API_KEY=xxx, got %v", flags)
+	}
+}
+
+func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
+	saved := newRepository
+	newRepository = func() Repository {
+		return &mockRepository{
+			providers: map[string]string{
+				"xai": "xxx",
+			},
+		}
+	}
+	defer func() { newRepository = saved }()
+
+	flags, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+
+	hasXai := false
+	for i, f := range flags {
+		if f == "-e" && i+1 < len(flags) && flags[i+1] == "XAI_API_KEY=xxx" {
+			hasXai = true
+			break
+		}
+	}
+	if !hasXai {
+		t.Errorf("buildEnvFlags with xai should produce XAI_API_KEY=xxx, got %v", flags)
+	}
+}

@@ -52,6 +52,11 @@ func init() {
 	upCmd.Flags().BoolVar(&upDryRun, "dry-run", false, "Print env vars that would be passed, then exit")
 }
 
+// newRepository is the Repository constructor, overridable in tests.
+var newRepository = func() Repository {
+	return NewRepository()
+}
+
 // allKnownEnvVars is the complete set of pi provider env vars.
 var allKnownEnvVars = []string{
 	"OPENAI_API_KEY",
@@ -194,14 +199,14 @@ func buildEnvFlags(ctx context.Context) ([]string, error) {
 	var envFlags []string
 
 	// 1. Provider keys from auth.json
-	repo := NewRepository()
+	repo := newRepository()
 	providers, err := repo.ListProviders(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read auth.json: %w", err)
 	}
 
 	for provider, key := range providers {
-		envVar := providerToEnvVar(provider)
+		envVar := ProviderToEnvVar(provider)
 		if envVar != "" {
 			envFlags = append(envFlags, "-e", fmt.Sprintf("%s=%s", envVar, key))
 		} else {

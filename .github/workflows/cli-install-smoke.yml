@@ -28,7 +28,6 @@ on:
       - "docker/entrypoint.sh"
       - "docker/run-pi.sh"
       - "docker/stop-pi.sh"
-      - "docker/lib/auth-env.sh"
       - ".github/workflows/cli-install-smoke.yml"
   workflow_dispatch:
 
