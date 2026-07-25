@@ -192,6 +192,18 @@ export function installFooter(
 							);
 							const memMaxRaw = readFileSync("/sys/fs/cgroup/memory.max", "utf-8").trim();
 							const memMax = memMaxRaw === "max" ? 0 : parseInt(memMaxRaw, 10);
+							// Subtract reclaimable page cache to match docker stats
+							let memUsage = memCur;
+							try {
+								const memStat = readFileSync("/sys/fs/cgroup/memory.stat", "utf-8");
+								const m = memStat.match(/^inactive_file (\d+)/m);
+								if (m) {
+									const inact = parseInt(m[1]!, 10);
+									memUsage = Math.max(0, memCur - inact);
+								}
+							} catch {
+								/* keep memUsage = memCur */
+							}
 
 							if (prevUsage > 0 && prevTime > 0 && now - prevTime >= 500 && curUsage >= prevUsage) {
 								const deltaCpu = curUsage - prevUsage;
@@ -199,7 +211,7 @@ export function installFooter(
 									100,
 									deltaCpu / (now - prevTime) / footerConfig.allocatedCpus / 10,
 								);
-								const memPct = memMax > 0 ? Math.round((memCur / memMax) * 100) : 0;
+								const memPct = memMax > 0 ? Math.round((memUsage / memMax) * 100) : 0;
 								footerConfig.containerDisplay.value = `\u{1F40B} CPU ${formatCpuPct(cpuPct)}\u00b7RAM ${memPct}%`;
 							}
 
