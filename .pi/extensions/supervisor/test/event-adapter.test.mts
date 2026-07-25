@@ -749,6 +749,65 @@ describe("processNormalizedEvent", () => {
 			"thinking block content should be in textOutputLines",
 		);
 	});
+
+	// ── Phase 4: done handler with array content (push helper extraction) ──
+
+	it("done with array content (text + thinking) pushes both and sets both flags", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{
+				kind: "done",
+				message: {
+					content: [
+						{ type: "text", text: "## Result\nAll good" },
+						{ type: "thinking", thinking: "deep reasoning" },
+					],
+				},
+			},
+			state,
+		);
+		const textOnly = state.textOutputLines.join("\n").trim();
+		assert.ok(textOnly.includes("## Result"), "text block content should be in textOutputLines");
+		assert.ok(
+			textOnly.includes("deep reasoning"),
+			"thinking block content should be in textOutputLines",
+		);
+		const thinkingOnly = state.thinkingOutputLines.join("\n").trim();
+		assert.ok(
+			thinkingOnly.includes("deep reasoning"),
+			"thinking block content should be in thinkingOutputLines",
+		);
+		assert.equal(state.textPushedThisTurn, true, "textPushedThisTurn should be true");
+		assert.equal(state.thinkingPushedThisTurn, true, "thinkingPushedThisTurn should be true");
+	});
+
+	it("done with only thinking block (no text) pushes thinking to both output lines", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{
+				kind: "done",
+				message: {
+					content: [
+						{ type: "thinking", thinking: "only thinking content here" },
+					],
+				},
+			},
+			state,
+		);
+		const textOnly = state.textOutputLines.join("\n").trim();
+		assert.ok(
+			textOnly.includes("only thinking content here"),
+			"thinking-only content should be in textOutputLines",
+		);
+		const thinkingOnly = state.thinkingOutputLines.join("\n").trim();
+		assert.ok(
+			thinkingOnly.includes("only thinking content here"),
+			"thinking-only content should be in thinkingOutputLines",
+		);
+		assert.equal(state.thinkingPushedThisTurn, true, "thinkingPushedThisTurn should be true");
+		// textPushedThisTurn should remain false since only thinking content was pushed
+		assert.equal(state.textPushedThisTurn, false, "textPushedThisTurn should be false (no text block)");
+	});
 });
 
 // ─── filterStderr — stderr noise filter (Phase 1) ──────────────────

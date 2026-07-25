@@ -129,8 +129,9 @@ function mapCvssToSeverity(cvssScore: string): OsvFinding["severity"] | null {
 	if (cvssMatch) {
 		// Parse the vector for severity components (C/I/A)
 		const impactHigh = (cvssScore.match(/C:[HALN]/)?.[0] || "").includes("H");
-		const impactCritical = (cvssScore.match(/C:[HALN]/)?.[0] || "").includes("H") && 
-		                       (cvssScore.match(/A:[HALN]/)?.[0] || "").includes("H");
+		const impactCritical =
+			(cvssScore.match(/C:[HALN]/)?.[0] || "").includes("H") &&
+			(cvssScore.match(/A:[HALN]/)?.[0] || "").includes("H");
 		if (impactCritical) return "HIGH";
 		if (impactHigh) return "MEDIUM";
 		return "LOW";
@@ -299,11 +300,12 @@ export function bucketBySeverity(findings: OsvFinding[]): OsvScanResult["counts"
 // ─── Severity Label Lookup ────────────────────────────────────────
 
 /** Presentation labels for severity levels with emoji indicators. */
-const SEV_LABELS: Record<string, string> = {
+const SEV_LABELS: Record<OsvFinding["severity"], string> = {
 	CRITICAL: "🔴 Critical",
 	HIGH: "🟠 High",
 	MEDIUM: "🟡 Medium",
 	LOW: "🟢 Low",
+	UNKNOWN: "⚪ Unknown",
 } as const;
 
 // ─── Pure Function: buildVulnContext ───────────────────────────────
@@ -331,9 +333,7 @@ export function buildVulnContext(result: OsvScanResult): string {
 
 	// vulns_found
 	const lines: string[] = [];
-	lines.push(
-		`**OSV Vulnerability Scan:** ${result.findings.length} vulnerability(ies) found`,
-	);
+	lines.push(`**OSV Vulnerability Scan:** ${result.findings.length} vulnerability(ies) found`);
 	lines.push("");
 
 	const c = result.counts;
@@ -354,17 +354,13 @@ export function buildVulnContext(result: OsvScanResult): string {
 		const sevFindings = result.findings.filter((f) => f.severity === sev);
 		if (sevFindings.length === 0) continue;
 
-		const sevLabel = SEV_LABELS[sev] ?? "⚪ Unknown";
+		const sevLabel = SEV_LABELS[sev];
 
 		lines.push(`### ${sevLabel}`);
 		lines.push("");
 		for (const finding of sevFindings) {
-			const aliasStr = finding.aliases.length > 0
-				? ` (${finding.aliases.join(", ")})`
-				: "";
-			lines.push(
-				`- **${finding.id}**${aliasStr} — ${finding.summary || "No summary"}`,
-			);
+			const aliasStr = finding.aliases.length > 0 ? ` (${finding.aliases.join(", ")})` : "";
+			lines.push(`- **${finding.id}**${aliasStr} — ${finding.summary || "No summary"}`);
 			lines.push(
 				`  - Package: \`${finding.packageName}@${finding.packageVersion}\` (${finding.ecosystem})`,
 			);
@@ -377,11 +373,15 @@ export function buildVulnContext(result: OsvScanResult): string {
 	}
 
 	if (result.ccFindingsFlagged) {
-		lines.push("> **Note:** Some findings are C/C++ commit-level heuristic matches. These may be less reliable than lockfile-based findings.");
+		lines.push(
+			"> **Note:** Some findings are C/C++ commit-level heuristic matches. These may be less reliable than lockfile-based findings.",
+		);
 		lines.push("");
 	}
 
-	lines.push(`Found in ${result.findings.map((f) => f.sourceFile).filter((v, i, a) => a.indexOf(v) === i).length} source file(s).`);
+	lines.push(
+		`Found in ${result.findings.map((f) => f.sourceFile).filter((v, i, a) => a.indexOf(v) === i).length} source file(s).`,
+	);
 
 	return lines.join("\n");
 }
@@ -423,11 +423,7 @@ export async function runVulnScan(
 	const timeoutMs = (opts.timeoutSec ?? 60) * 1000;
 
 	// Build args: scan source --recursive --format json <worktreePath>
-	const args: string[] = [
-		"scan", "source",
-		"--recursive",
-		"--format", "json",
-	];
+	const args: string[] = ["scan", "source", "--recursive", "--format", "json"];
 
 	// Optional config file
 	if (opts.configPath) {

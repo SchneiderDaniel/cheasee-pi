@@ -455,6 +455,66 @@ describe("buildVulnContext()", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Phase 3b: Severity label lookup
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("buildVulnContext() — severity labels", () => {
+	it("CRITICAL finding renders 🔴 Critical", () => {
+		const result = parseOsvJson(VULNS_JSON);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("🔴 Critical"), "CRITICAL should render with 🔴 Critical");
+	});
+
+	it("HIGH finding renders 🟠 High", () => {
+		const result = parseOsvJson(VULNS_JSON);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("🟠 High"), "HIGH should render with 🟠 High");
+	});
+
+	it("MEDIUM finding renders 🟡 Medium", () => {
+		const result = parseOsvJson(VULNS_JSON);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("🟡 Medium"), "MEDIUM should render with 🟡 Medium");
+	});
+
+	it("LOW finding renders 🟢 Low", () => {
+		const result = parseOsvJson(VULNS_JSON);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("🟢 Low"), "LOW should render with 🟢 Low");
+	});
+
+	it("UNKNOWN severity falls through to ⚪ Unknown", () => {
+		// Create a result with an UNKNOWN finding
+		const unknownJson = JSON.stringify({
+			results: [{
+				source: { path: "/worktrees/test/package-lock.json", type: "lockfile" },
+				packages: [{
+					package: { name: "test-pkg", version: "1.0.0", ecosystem: "npm" },
+					vulnerabilities: [{
+						id: "GHSA-uuuu-uuuu-uuuu",
+						aliases: [],
+						summary: "Unknown severity vuln",
+					}],
+					groups: [{ ids: ["GHSA-uuuu-uuuu-uuuu"] }],
+				}],
+			}],
+		});
+		const result = parseOsvJson(unknownJson);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("⚪ Unknown"), "UNKNOWN should render with ⚪ Unknown");
+	});
+
+	it("all severity labels appear in a mixed-severity output", () => {
+		const result = parseOsvJson(VULNS_JSON);
+		const ctx = buildVulnContext(result);
+		assert.ok(ctx.includes("🔴 Critical"));
+		assert.ok(ctx.includes("🟠 High"));
+		assert.ok(ctx.includes("🟡 Medium"));
+		assert.ok(ctx.includes("🟢 Low"));
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Phase 4: Exec orchestration — runVulnScan
 // ═══════════════════════════════════════════════════════════════════════
 
