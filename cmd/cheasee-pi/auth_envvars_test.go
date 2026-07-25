@@ -195,6 +195,20 @@ func TestProviderEnvAliases_knownEntriesHaveDistinctEnvVars(t *testing.T) {
 	}
 }
 
+func TestProviderEnvAliases_aliasesMatchProviderToEnvVar(t *testing.T) {
+	// Cross-check: every entry in ProviderEnvAliases must match
+	// ProviderToEnvVar for the same provider.  This ensures that
+	// adding a new provider to ProviderToEnvVar automatically gets
+	// reflected in the alias map without a second edit.
+	aliases := ProviderEnvAliases()
+	for provider, envVar := range aliases {
+		want := ProviderToEnvVar(provider)
+		if envVar != want {
+			t.Errorf("ProviderEnvAliases[%q] = %q, but ProviderToEnvVar(%q) = %q — maps have diverged", provider, envVar, provider, want)
+		}
+	}
+}
+
 // ──────────────────────────────────────────────
 // Phase 2: Application — auth envvars subcommand
 // ──────────────────────────────────────────────

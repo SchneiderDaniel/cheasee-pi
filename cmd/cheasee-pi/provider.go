@@ -21,6 +21,8 @@ var KnownModels = map[string][]string{
 	"openrouter":  {"anthropic/claude-sonnet-4-20250514", "openai/gpt-4o"},
 	"xai":         {"grok-2", "grok-3"},
 	"fireworks":   {"accounts/fireworks/models/llama-v3p3-70b-instruct"},
+	"together":     {},
+	"cerebras":     {},
 }
 
 // ProviderNames returns sorted list of known provider names.
@@ -160,34 +162,24 @@ func ProviderToEnvVar(provider string) string {
 	}
 }
 
-// providerToEnvVar is the unexported alias for ProviderToEnvVar, kept for
-// callers in the same package that still reference the old name.
-func providerToEnvVar(provider string) string {
-	return ProviderToEnvVar(provider)
-}
-
 // ProviderEnvAliases returns the complete mapping of provider names
 // (including documented aliases) to their canonical env var names.
-// This is the single source of truth for the provider→envvar mapping
-// used by both Go and shell paths.
+//
+// Derived from ProviderNames() (which iterates KnownModels) and documented
+// aliases, with each value resolved through ProviderToEnvVar so that adding
+// a new provider requires editing only ProviderToEnvVar (and KnownModels if
+// model lists matter).
 func ProviderEnvAliases() map[string]string {
-	return map[string]string{
-		// Known providers (from KnownModels)
-		"opencode-go": "OPENCODE_API_KEY",
-		"openai":      "OPENAI_API_KEY",
-		"anthropic":   "ANTHROPIC_API_KEY",
-		"deepseek":    "DEEPSEEK_API_KEY",
-		"gemini":      "GEMINI_API_KEY",
-		"groq":        "GROQ_API_KEY",
-		"mistral":     "MISTRAL_API_KEY",
-		"openrouter":  "OPENROUTER_API_KEY",
-		"xai":         "XAI_API_KEY",
-		"fireworks":   "FIREWORKS_API_KEY",
-		"together":    "TOGETHER_API_KEY",
-		"cerebras":    "CEREBRAS_API_KEY",
-		// Documented aliases
-		"claude":  "ANTHROPIC_API_KEY",
-		"google":  "GEMINI_API_KEY",
-		"opencode": "OPENCODE_API_KEY",
+	m := make(map[string]string, len(KnownModels)+3)
+	for _, name := range ProviderNames() {
+		m[name] = ProviderToEnvVar(name)
 	}
+	for alias, canonical := range map[string]string{
+		"claude":   "anthropic",
+		"google":   "gemini",
+		"opencode": "opencode-go",
+	} {
+		m[alias] = ProviderToEnvVar(canonical)
+	}
+	return m
 }
