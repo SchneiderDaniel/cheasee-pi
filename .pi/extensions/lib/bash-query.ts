@@ -41,18 +41,6 @@ import { BYPASS_ANNOTATION } from "../agent-harness/lib/harness-rules.ts";
 /** Hash token and annotation token derived from BYPASS_ANNOTATION constant. */
 const [HASH_TOKEN, ANNOTATION_TOKEN] = BYPASS_ANNOTATION.split(/\s+/);
 
-/**
- * Commands that should redirect to the `read` tool.
- * Tail is excluded because `tail -N` is O(N) from EOF via seek,
- * while the `read` tool is O(file size) — it loads the entire file.
- * Including tail would make the harness force an expensive full-file read
- * for what would be a cheap seek-from-end operation.
- *
- * ponytail: rare tail -n +1 / tail -c +1 bypass is accepted;
- * argument-parsing for full-file tail variants adds complexity not worth the cost.
- */
-const READ_REDIRECT_CMDS = ["cat", "less", "more"] as const;
-
 /** Bash commands that modify files — triggers read cache invalidation. */
 const FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
 	"sed",

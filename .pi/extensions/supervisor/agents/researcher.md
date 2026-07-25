@@ -3,7 +3,7 @@ name: researcher
 description: Searches the public web for best practices, recent library versions, and common pitfalls related to an issue topic, then posts a structured findings comment
 tools: read, bash, structural_search, ripgrep_search, web_search
 model: opencode-go/deepseek-v4-flash
-thinking: medium
+thinking: high
 extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,web-search,rtk"
 ---
 
