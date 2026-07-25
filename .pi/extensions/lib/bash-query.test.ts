@@ -36,8 +36,8 @@ describe("isBashSearch", () => {
 		assert.strictEqual(isBashSearch("cat file | grep foo"), true);
 	});
 
-	it("piped file→rg: head -n 5 file | rg pattern → true", () => {
-		assert.strictEqual(isBashSearch("head -n 5 file | rg pattern"), true);
+	it("piped file→rg: head -n 5 file | rg pattern → false (head no longer in READ_CMDS)", () => {
+		assert.strictEqual(isBashSearch("head -n 5 file | rg pattern"), false);
 	});
 
 	it("piped file→rg: cat file | rg foo → true", () => {
@@ -140,8 +140,8 @@ describe("isBashFileRead", () => {
 		assert.strictEqual(isBashFileRead("cat file.ts"), true);
 	});
 
-	it("head -5 file.ts → true", () => {
-		assert.strictEqual(isBashFileRead("head -5 file.ts"), true);
+	it("head -5 file.ts → false (head no longer in READ_CMDS)", () => {
+		assert.strictEqual(isBashFileRead("head -5 file.ts"), false);
 	});
 
 	it("tail -10 file.ts → true", () => {
@@ -328,8 +328,8 @@ describe("isBashSearchOrRead", () => {
 		assert.strictEqual(isBashSearchOrRead("tail -f log | grep error"), true);
 	});
 
-	it("head -5 file.ts → true (read)", () => {
-		assert.strictEqual(isBashSearchOrRead("head -5 file.ts"), true);
+	it("head -5 file.ts → false (head no longer in READ_CMDS)", () => {
+		assert.strictEqual(isBashSearchOrRead("head -5 file.ts"), false);
 	});
 
 	it("less file.ts → true (read)", () => {

@@ -17,7 +17,7 @@
 
 // ── Constants ──
 
-const READ_CMDS = ["cat", "head", "tail", "less", "more"] as const;
+const READ_CMDS = ["cat", "tail", "less", "more"] as const;
 
 /** Bash commands that modify files — triggers read cache invalidation. */
 const FILE_MODIFY_SIGNALS: readonly string[] = Object.freeze([
