@@ -5,11 +5,16 @@
  * Factory pattern: createHarnessState() produces isolated instance per session.
  * No globals, no singletons.
  *
- * All three state components now delegate storage to TimedMap<K,V>,
+ * All three state components delegate storage to TimedMap<K,V>,
  * removing ~60 lines of duplicated Map boilerplate.
  *
  * Used by:
  *  - agent-harness extension handlers (pi.on("tool_call"))
+ *
+ * Exports HarnessState (the only outward contract) plus value-type interfaces
+ * ReadCacheEntry, ErrorEntry, ConsecutiveInfo.  The readCache/errorTracker/
+ * callCounter fields are inline anonymous object types — no standalone
+ * ReadCache/ErrorTracker/CallCounter interfaces.
  */
 
 // ── Types ──
@@ -32,62 +37,56 @@ export interface ConsecutiveInfo {
 	sinceTurn: number;
 }
 
-export interface ReadCache {
-	/** Get cached entry. Returns null on miss or TTL expiry. */
-	get(key: string, currentTurn: number): ReadCacheEntry | null;
-	/** Set cached entry with current turn and timestamp. */
-	set(key: string, turn: number): void;
-	/** Clear all cache entries. */
-	clear(): void;
-}
-
-export interface ErrorTracker {
-	/** Push a new error for a tool. Evicts oldest if over MAX_ERRORS_PER_TOOL. */
-	push(toolName: string, entry: ErrorEntry): void;
-	/** Get last N errors for a tool (up to MAX_ERRORS_PER_TOOL). */
-	getLastErrors(toolName: string): ErrorEntry[];
-	/** Clear all error entries. */
-	clear(): void;
-	/**
-	 * Decay errors: remove 1 oldest error entry per tool.
-	 * Called at each turn boundary alongside callCounter.turnBoundaryReset().
-	 * Enables auto-recovery: after 2 turns without errors, a tool with 2 errors
-	 * decays to 0 and is unblocked.
-	 */
-	decay(): void;
-}
-
-export interface CallCounter {
-	/**
-	 * Record a tool call. Resets consecutive count if composite key changes.
-	 * Composite key = toolName:subKey (when subKey provided) or just toolName.
-	 * Different subKey within same tool resets the counter.
-	 *
-	 * @param toolName - name of the tool being called
-	 * @param sessionTurn - current session turn number (for sinceTurn tracking)
-	 * @param _toolCallIndex - current tool call index (unused internally, for API symmetry)
-	 * @param subKey - optional sub-key for sub-command-aware cascade
-	 */
-	record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void;
-	/**
-	 * Get consecutive call info for a composite key.
-	 * Returns count 0 if composite key doesn't match the last recorded key.
-	 */
-	getConsecutive(toolName: string, subKey?: string): ConsecutiveInfo;
-	/** Reset all counters. */
-	reset(): void;
-	/**
-	 * Reset consecutive count on turn boundary.
-	 * Clears lastKey so the next record() starts a fresh consecutive chain.
-	 * Does NOT affect toolCallIndex (cache TTL) — only resets cascade state.
-	 */
-	turnBoundaryReset(): void;
-}
-
 export interface HarnessState {
-	readCache: ReadCache;
-	errorTracker: ErrorTracker;
-	callCounter: CallCounter;
+	readCache: {
+		/** Get cached entry. Returns null on miss or TTL expiry. */
+		get(key: string, currentTurn: number): ReadCacheEntry | null;
+		/** Set cached entry with current turn and timestamp. */
+		set(key: string, turn: number): void;
+		/** Clear all cache entries. */
+		clear(): void;
+	};
+	errorTracker: {
+		/** Push a new error for a tool. Evicts oldest if over MAX_ERRORS_PER_TOOL. */
+		push(toolName: string, entry: ErrorEntry): void;
+		/** Get last N errors for a tool (up to MAX_ERRORS_PER_TOOL). */
+		getLastErrors(toolName: string): ErrorEntry[];
+		/** Clear all error entries. */
+		clear(): void;
+		/**
+		 * Decay errors: remove 1 oldest error entry per tool.
+		 * Called at each turn boundary alongside callCounter.turnBoundaryReset().
+		 * Enables auto-recovery: after 2 turns without errors, a tool with 2 errors
+		 * decays to 0 and is unblocked.
+		 */
+		decay(): void;
+	};
+	callCounter: {
+		/**
+		 * Record a tool call. Resets consecutive count if composite key changes.
+		 * Composite key = toolName:subKey (when subKey provided) or just toolName.
+		 * Different subKey within same tool resets the counter.
+		 *
+		 * @param toolName - name of the tool being called
+		 * @param sessionTurn - current session turn number (for sinceTurn tracking)
+		 * @param _toolCallIndex - current tool call index (unused internally, for API symmetry)
+		 * @param subKey - optional sub-key for sub-command-aware cascade
+		 */
+		record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void;
+		/**
+		 * Get consecutive call info for a composite key.
+		 * Returns count 0 if composite key doesn't match the last recorded key.
+		 */
+		getConsecutive(toolName: string, subKey?: string): ConsecutiveInfo;
+		/** Reset all counters. */
+		reset(): void;
+		/**
+		 * Reset consecutive count on turn boundary.
+		 * Clears lastKey so the next record() starts a fresh consecutive chain.
+		 * Does NOT affect toolCallIndex (cache TTL) — only resets cascade state.
+		 */
+		turnBoundaryReset(): void;
+	};
 	/**
 	 * Tool call index for cache TTL and error tracking.
 	 * Incremented on each tool_call event handled by the extension.
@@ -125,7 +124,7 @@ export function createHarnessState(): HarnessState {
 		ttlMs: CACHE_TTL_MS,
 	});
 
-	const readCache: ReadCache = {
+	const readCache = {
 		get(key: string, currentTurn: number): ReadCacheEntry | null {
 			return cacheMap.get(key, currentTurn);
 		},
@@ -150,7 +149,7 @@ export function createHarnessState(): HarnessState {
 
 	const errorMap = new TimedMap<string, ErrorEntry[]>();
 
-	const errorTracker: ErrorTracker = {
+	const errorTracker = {
 		push(toolName: string, entry: ErrorEntry): void {
 			let errors = errorMap.get(toolName);
 			if (!errors) {
@@ -199,7 +198,7 @@ export function createHarnessState(): HarnessState {
 		return subKey !== undefined ? `${toolName}\x00${subKey}` : toolName;
 	}
 
-	const callCounter: CallCounter = {
+	const callCounter = {
 		record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void {
 			const key = makeKey(toolName, subKey);
 			if (key === lastKey) {

@@ -1,5 +1,5 @@
 // ─── gh CLI wrappers — typed versions ─────────────────────────────
-// Low-level gh/ghJson/ghGraphQL with typed generic returns.
+// Low-level gh/ghJson with typed generic returns.
 // Replaces raw `Promise<any>` returns from the old github.ts.
 
 import type { ExecFn } from "../pipeline/helpers.ts";
@@ -84,26 +84,3 @@ export async function ghJson<T = unknown>(
 	return JSON.parse(output) as T;
 }
 
-// ─── ghGraphQL<T>() — typed GraphQL wrapper ───────────────────────
-
-export async function ghGraphQL<T = unknown>(
-	exec: ExecFn,
-	query: string,
-	opts?: { signal?: AbortSignal; timeout?: number },
-): Promise<T | null> {
-	const log = getDebugLogger();
-	const queryPreview = query.replace(/\s+/g, " ").slice(0, 120);
-	log.debug("gh-client", `ghGraphQL: ${queryPreview}...`);
-	const result = await gh(
-		exec,
-		["api", "graphql", "--header", "Accept: application/vnd.github+json", "-f", `query=${query}`],
-		opts,
-	);
-	if (!result) {
-		log.warn("gh-client", "ghGraphQL returned empty result");
-		return null;
-	}
-	const parsed = JSON.parse(result) as T;
-	log.debug("gh-client", `ghGraphQL OK — response len: ${result.length}`);
-	return parsed;
-}
