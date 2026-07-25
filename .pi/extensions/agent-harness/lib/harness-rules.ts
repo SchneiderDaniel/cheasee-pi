@@ -45,6 +45,23 @@ export function loadDefaultRules(): ResolvedHarnessRules {
 }
 
 /**
+ * Redirect guidance for tool misuse — maps misused tool name to
+ * the forbidden CLI verbs and the dedicated pi tool to use instead.
+ *
+ * Keep in sync with actual bash-query classification in ../bash-query.ts.
+ */
+export const REDIRECT_GUIDANCE: Record<string, { forbidden: string; tool: string }> = {
+	read: {
+		forbidden: "'cat', 'head', or 'tail' in bash",
+		tool: "read",
+	},
+	ripgrep_search: {
+		forbidden: "'grep' or 'rg' in bash",
+		tool: "ripgrep_search",
+	},
+};
+
+/**
  * Multi-verb CLIs where first 2 tokens form the sub-key
  * (e.g., "git status" vs "git diff").
  * Single-verb commands use only the first token.
@@ -94,24 +111,29 @@ export function getToolMeta(toolName: string): ToolMeta {
 
 /**
  * Build a structured redirect message for the LLM.
- * Returns a [SYSTEM OVERRIDE] block with forbidden action and required JSON schema.
+ * Returns a [SYSTEM OVERRIDE] block with forbidden action and tool name.
+ *
+ * When `schemaExample` is provided, it is appended as an "Example call:" line.
+ * Without it, no schema example line is included (default).
+ *
+ * @param toolName — the pi tool to redirect to
+ * @param schemaExample — optional example call string (e.g., '{ "path": "/path/to/file" }')
+ * @returns formatted redirect message, or "" for unknown tools
  */
-export function buildRedirectMessage(toolName: string): string {
-	if (toolName === "ripgrep_search") {
-		return [
-			`[SYSTEM OVERRIDE] Action Blocked. Do not use 'grep' or 'rg' in bash.`,
-			`You MUST use the dedicated 'ripgrep_search' tool.`,
-			`Required JSON Schema: { "query": "your_search_pattern", "directory": "./target_dir" }`,
-		].join("\n");
+export function buildRedirectMessage(toolName: string, schemaExample?: string): string {
+	const guidance = REDIRECT_GUIDANCE[toolName];
+	if (!guidance) return "";
+
+	const lines = [
+		`[SYSTEM OVERRIDE] Action Blocked. Do not use ${guidance.forbidden}.`,
+		`You MUST use the dedicated '${guidance.tool}' tool.`,
+	];
+
+	if (schemaExample) {
+		lines.push(`Example call: ${schemaExample}`);
 	}
-	if (toolName === "read") {
-		return [
-			`[SYSTEM OVERRIDE] Action Blocked. Do not use 'cat', 'head', or 'tail' in bash.`,
-			`You MUST use the dedicated 'read' tool.`,
-			`Required JSON Schema: { "path": "./file.ts", "offset?": 0, "limit?": 100 }`,
-		].join("\n");
-	}
-	return "";
+
+	return lines.join("\n");
 }
 
 /**
