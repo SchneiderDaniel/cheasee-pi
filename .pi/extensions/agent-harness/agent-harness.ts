@@ -105,6 +105,18 @@ export function getBashSubKey(command: string): string | undefined {
 	return subKeyTokens[0];
 }
 
+// ── Batch advice table for same-tool cascade suggestions ──
+
+const BATCH_ADVICE: Record<string, string | ((cmd: string) => string)> = {
+	bash: (cmd: string) =>
+		cmd.includes("&&")
+			? "Reduce per-turn call count — commands already use && for batching"
+			: "Combine bash calls with && or use a script file",
+	read: "Batch reads — read larger portions in one call",
+};
+
+const defaultAdvice = (t: string) => `Batch ${t} calls to reduce turns`;
+
 // ── AgentHarness Class ──
 
 /**
@@ -280,14 +292,9 @@ export class AgentHarness {
 			const effectiveCount = consecutive.count + 1;
 			if (effectiveCount >= cascadeThreshold) {
 				const commandStr = (args.command ?? "") as string;
+				const entry = BATCH_ADVICE[toolName];
 				const suggestion =
-					toolName === "bash"
-						? commandStr.includes("&&")
-							? "Reduce per-turn call count — commands already use && for batching"
-							: "Combine bash calls with && or use a script file"
-						: toolName === "read"
-							? "Batch reads — read larger portions in one call"
-							: `Batch ${toolName} calls to reduce turns`;
+					typeof entry === "function" ? entry(commandStr) : (entry ?? defaultAdvice(toolName));
 
 				result = {
 					block: true,

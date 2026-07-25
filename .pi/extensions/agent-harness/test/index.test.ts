@@ -377,6 +377,16 @@ describe("AgentHarness — cascade suggestion text", () => {
 		const results = callNTimes(new AgentHarness(), "write", 8, { path: "f.ts", content: "" });
 		assert.ok(results[7]?.reason.includes("Batch write calls"));
 	});
+
+	it("unknown tool gets default batch advice", () => {
+		const results = callNTimes(new AgentHarness(), "editor", 8, { path: "f.ts", content: "" });
+		assert.ok(results[7]?.reason.includes("Batch editor calls to reduce turns"));
+	});
+
+	it("bash cascade with empty command suggests combined bash calls", () => {
+		const results = callNTimes(new AgentHarness(), "bash", 8, { command: "" });
+		assert.ok(results[7]?.reason.includes("Combine bash calls with && or use a script file"));
+	});
 });
 
 // ── Turn boundary cascade reset ──
@@ -1281,7 +1291,11 @@ describe("AgentHarness — force bypass gate", () => {
 			_harness: { force: false },
 		});
 		new AgentHarness().handleToolCall(event, makeCtxWithUI(true));
-		assert.equal((event.input as any)._harness, undefined, "_harness removed even when force:false");
+		assert.equal(
+			(event.input as any)._harness,
+			undefined,
+			"_harness removed even when force:false",
+		);
 	});
 });
 
