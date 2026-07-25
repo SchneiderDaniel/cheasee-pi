@@ -803,38 +803,37 @@ export async function handlePostAgentSuccess(
 			}
 		}
 
-		// Validate test-designer output must contain "## Test Plan" heading.
-		// Prevents agent from posting architecture review / risk flag instead of a test plan.
-		// This catches cases where the LLM confuses its role or the heading extraction picks
-		// a wrong section heading due to prefix-matching in earlier extraction logic.
-		// Instead of dropping the comment entirely (losing the test plan), inject the
-		// heading so the issue still gets visible output. Warn for debugging.
-		if (commentBody && agentName === "test-designer" && !commentBody.includes("## Test Plan")) {
-			collector?.push(
-				"stages",
-				"warn",
-				`test-designer commentBody missing "## Test Plan" heading. ` +
-					`Injecting heading. commentBody starts with: ${JSON.stringify(commentBody.slice(0, 80))}. ` +
-					`Source: ${extractionSource}`,
-			);
-			// ponytail: inject heading instead of dropping comment. The model may have
-			// output a valid test plan without the heading; heading is pipeline formatting.
-			commentBody = "## Test Plan\n\n" + commentBody;
-		}
-
-		// Validate architect output must contain "## Architecture" heading.
-		// Prevents agent from posting empty or wrong-headed content.
-		// Instead of dropping the comment entirely, inject the heading.
-		if (commentBody && agentName === "architect" && !commentBody.includes("## Architecture")) {
-			collector?.push(
-				"stages",
-				"warn",
-				`architect commentBody missing "## Architecture" heading. ` +
-					`Injecting heading. commentBody starts with: ${JSON.stringify(commentBody.slice(0, 80))}. ` +
-					`Source: ${extractionSource}`,
-			);
-			// ponytail: inject heading instead of dropping comment.
-			commentBody = "## Architecture\n\n" + commentBody;
+		// Validate agent output must contain the expected heading.
+		// Table-driven dispatch replaces per-role if blocks that drifted apart.
+		// Each entry defines the required heading and the action to take when
+		// it's missing: "inject" (prepend the heading and post) or "skip"
+		// (null out commentBody, letting the graceful degradation path handle it).
+		const HEADING_RULES: Record<string, { heading: string; onMissing: "inject" | "skip" }> = {
+			"test-designer": { heading: "## Test Plan", onMissing: "inject" },
+			architect: { heading: "## Architecture", onMissing: "inject" },
+			researcher: { heading: "## Research Findings", onMissing: "skip" },
+		};
+		const rule = HEADING_RULES[agentName];
+		if (commentBody && rule && !commentBody.includes(rule.heading)) {
+			if (rule.onMissing === "inject") {
+				collector?.push(
+					"stages",
+					"warn",
+					`${agentName} commentBody missing "${rule.heading}" heading. ` +
+						`Injecting heading. commentBody starts with: ${JSON.stringify(commentBody.slice(0, 80))}. ` +
+						`Source: ${extractionSource}`,
+				);
+				commentBody = `${rule.heading}\n\n${commentBody}`;
+			} else {
+				collector?.push(
+					"stages",
+					"warn",
+					`${agentName} commentBody missing "${rule.heading}" heading. ` +
+						`commentBody starts with: ${JSON.stringify(commentBody.slice(0, 80))}. ` +
+						`Skipping post. Source: ${extractionSource}`,
+				);
+				commentBody = null;
+			}
 		}
 
 		// Defense-in-depth: strip trailing broken ```json code fences from any agent comment.
@@ -862,22 +861,6 @@ export async function handlePostAgentSuccess(
 					commentBody = null;
 				}
 			}
-		}
-
-		// Validate research findings output must contain "## Research Findings" heading.
-		if (
-			commentBody &&
-			agentName === "researcher" &&
-			!commentBody.includes("## Research Findings")
-		) {
-			collector?.push(
-				"stages",
-				"warn",
-				`researcher commentBody missing "## Research Findings" heading. ` +
-					`commentBody starts with: ${JSON.stringify(commentBody.slice(0, 80))}. ` +
-					`Skipping post. Source: ${extractionSource}`,
-			);
-			commentBody = null;
 		}
 
 		// When researcher budget was exceeded, compose a single combined comment

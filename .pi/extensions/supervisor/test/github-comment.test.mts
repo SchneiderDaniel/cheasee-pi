@@ -950,7 +950,10 @@ describe("handlePostAgentSuccess — comment posting", () => {
 
 		assert.equal(capturedBodies.length, 1, "one comment body captured");
 		const body = capturedBodies[0] || "";
-		assert.ok(body.includes("## Research Findings"), "body has injected ## Research Findings heading");
+		assert.ok(
+			body.includes("## Research Findings"),
+			"body has injected ## Research Findings heading",
+		);
 		assert.ok(body.includes("Research indicates"), "body preserves original content");
 
 		const warns = collector.flush("stages");
@@ -958,5 +961,345 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			warns.some((w) => w.message.includes("bare text fallback")),
 			"collector receives warn about bare text fallback",
 		);
+	});
+	// ── Phase 7: Heading validation — table-driven dispatch ─────
+	it("Researcher missing ## Research Findings heading → heading check nullifies commentBody, graceful degradation fallback posted", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "researcher",
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "researcher",
+				commentBody: "# Research Notes\nSome findings without the required heading",
+				summary: "Research complete",
+			}),
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// A gh call fires — but for the graceful degradation fallback, not the original content
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call (graceful degradation fallback)");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		// Body is the graceful degradation fallback, NOT the original content
+		assert.ok(
+			body.includes("No relevant results found"),
+			"body contains graceful degradation message",
+		);
+		// Original content was nullified by heading check — NOT posted
+		assert.ok(!body.includes("Research Notes"), "original missing-heading content NOT posted");
+
+		// Collector has warn about missing heading with Skipping post
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("Skipping post")),
+			"warn message says Skipping post",
+		);
+		assert.ok(
+			warns.some((w) => w.message.includes("Research Findings")),
+			"warn message mentions ## Research Findings heading",
+		);
+	});
+
+	it("Architect heading already present → no injection, no heading warn", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "architect",
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "architect",
+				commentBody: "## Architecture\n- Component diagram\n- Data flow",
+				summary: "Architecture defined",
+			}),
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"architect",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// Comment posted normally
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Architecture"), "body contains ## Architecture heading");
+		assert.ok(body.includes("Component diagram"), "body preserves original content");
+
+		// No heading-related warn
+		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
+
+		// Info notification for posted comment
+		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
+		assert.ok(
+			infoNotifications.some((n) => n.msg.includes("Posted architect comment")),
+			"info notification for posted comment",
+		);
+	});
+
+	it("Test-designer heading already present → no injection, no heading warn", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "test-designer",
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "test-designer",
+				commentBody: "## Test Plan\n- Test case 1\n- Test case 2",
+				summary: "Test design complete",
+			}),
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"test-designer",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// Comment posted normally
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Test Plan"), "body contains ## Test Plan heading");
+		assert.ok(body.includes("Test case 1"), "body preserves original content");
+
+		// No heading-related warn
+		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
+
+		// Info notification for posted comment
+		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
+		assert.ok(
+			infoNotifications.some((n) => n.msg.includes("Posted test-designer comment")),
+			"info notification for posted comment",
+		);
+	});
+
+	it("Researcher heading already present → no skip, no heading warn", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "researcher",
+			textOutput: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "researcher",
+				commentBody: "## Research Findings\n- Finding 1\n- Finding 2",
+				summary: "Research complete",
+			}),
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// Comment posted normally
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(body.includes("## Research Findings"), "body contains ## Research Findings heading");
+		assert.ok(body.includes("Finding 1"), "body preserves original content");
+
+		// No heading-related warn
+		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
+
+		// Info notification for posted comment
+		const infoNotifications = captured.notifications.filter((n) => n.type === "info");
+		assert.ok(
+			infoNotifications.some((n) => n.msg.includes("Posted researcher comment")),
+			"info notification for posted comment",
+		);
+	});
+
+	it("commentBody null with test-designer → no heading validation, no heading warn", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		// No output at all → commentBody stays null → heading checks don't fire
+		const result = makeResult({
+			agentName: "test-designer",
+			textOutput: "",
+			textOnly: "",
+			thinkingOutput: undefined,
+		});
+		// Ensure bare-text fallback also yields nothing — no matching keywords
+		result.output = "irrelevant content";
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"test-designer",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		// No gh call (no comment to post)
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 0, "no gh issue comment call (commentBody null)");
+
+		// No heading-related warn
+		const warns = collector.flush("stages");
+		const headingWarns = warns.filter((w) => w.message.includes("heading"));
+		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
+
+		// There IS a general "no commentBody found" warn
+		assert.ok(
+			warns.some((w) => w.message.includes("no commentBody found")),
+			"generic warn about missing commentBody",
+		);
+	});
+
+	it("agentName not covered by heading rules (developer) → no heading validation code runs", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "developer",
+			textOutput: "IMPLEMENTATION_COMPLETE",
+		});
+
+		// Register git responses for commitAndPush
+		setMockResponses({
+			"git add -A": makeExecResult({ code: 0 }),
+			"git diff --cached --quiet": makeExecResult({ code: 1 }),
+			"git commit -m feat(#42): Test issue": makeExecResult({ code: 0, stdout: "committed" }),
+			"git push origin feature-branch": makeExecResult({ code: 0 }),
+		});
+
+		const port = createMockPortForTest(pi);
+		// Developer goes through commit+push path, not comment-posting path —
+		// heading validation is entirely skipped
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"developer",
+			42,
+			mockConfig,
+			filteredData,
+			"/repo/worktree",
+			"feature-branch",
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "commitAndPush succeeded — pipeline continues");
+
+		// No heading-related warns (heading code never ran)
+		const warns = collector.flush("stages");
+		const headingWarns = warns.filter((w) => w.message.includes("heading"));
+		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
+
+		// Git calls happen (commit+push path)
+		const gitCalls = captured.execCalls.filter((c) => c.cmd === "git");
+		assert.ok(gitCalls.length >= 3, "git operations executed");
 	});
 });
