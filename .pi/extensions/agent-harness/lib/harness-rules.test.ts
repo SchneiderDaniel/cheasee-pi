@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildRedirectMessage,
+	REDIRECT_GUIDANCE,
 	MULTI_VERB_TOOLS,
 	shouldBlockRetry,
 	isRedundantRead,
@@ -33,24 +34,75 @@ describe("BASH_SEARCH_SIGNALS", () => {
 // ── buildRedirectMessage ──
 
 describe("buildRedirectMessage", () => {
-	it("returns system override format for ripgrep_search", () => {
+	it("returns system override format for ripgrep_search (no schemaExample)", () => {
 		const msg = buildRedirectMessage("ripgrep_search");
 		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
 		assert.ok(msg.includes("grep"));
 		assert.ok(msg.includes("ripgrep_search"));
-		assert.ok(msg.includes("JSON Schema"));
+		assert.ok(!msg.includes("Example call"), "should NOT contain Example call line by default");
 	});
 
-	it("returns system override format for read", () => {
+	it("returns system override format for read (no schemaExample)", () => {
 		const msg = buildRedirectMessage("read");
 		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
 		assert.ok(msg.includes("cat"));
 		assert.ok(msg.includes("read"));
-		assert.ok(msg.includes("JSON Schema"));
+		assert.ok(!msg.includes("Example call"), "should NOT contain Example call line by default");
 	});
 
-	it("returns empty string for unknown tool", () => {
+	it("includes schemaExample line when provided for read", () => {
+		const msg = buildRedirectMessage("read", '{ "path": "/path/to/file" }');
+		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
+		assert.ok(msg.includes("Example call:"));
+		assert.ok(msg.includes("/path/to/file"));
+	});
+
+	it("includes schemaExample line when provided for ripgrep_search", () => {
+		const msg = buildRedirectMessage("ripgrep_search", '{ "query": "pattern" }');
+		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
+		assert.ok(msg.includes("Example call:"));
+		assert.ok(msg.includes("pattern"));
+	});
+
+	it("returns empty string for unknown tool regardless of schemaExample", () => {
 		assert.equal(buildRedirectMessage("unknown_tool"), "");
+		assert.equal(buildRedirectMessage("unknown_tool", "any example"), "");
+	});
+
+	it("handles empty string schemaExample without trailing empty line", () => {
+		const msg = buildRedirectMessage("read", "");
+		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
+		assert.ok(!msg.includes("Example call:"), "empty schemaExample should not add Example call line");
+		// Should not end with newline or extra whitespace
+		assert.equal(msg.trim(), msg);
+	});
+});
+
+// ── REDIRECT_GUIDANCE ──
+
+describe("REDIRECT_GUIDANCE", () => {
+	it("is a non-null object with read and ripgrep_search keys", () => {
+		assert.ok(REDIRECT_GUIDANCE !== null && typeof REDIRECT_GUIDANCE === "object");
+		assert.ok("read" in REDIRECT_GUIDANCE);
+		assert.ok("ripgrep_search" in REDIRECT_GUIDANCE);
+	});
+
+	it("read entry has shape { forbidden, tool } with tool === 'read'", () => {
+		const entry = REDIRECT_GUIDANCE["read"];
+		assert.ok(typeof entry?.forbidden === "string");
+		assert.ok(typeof entry?.tool === "string");
+		assert.equal(entry.tool, "read");
+	});
+
+	it("ripgrep_search entry has shape { forbidden, tool } with tool === 'ripgrep_search'", () => {
+		const entry = REDIRECT_GUIDANCE["ripgrep_search"];
+		assert.ok(typeof entry?.forbidden === "string");
+		assert.ok(typeof entry?.tool === "string");
+		assert.equal(entry.tool, "ripgrep_search");
+	});
+
+	it("unknown key returns undefined", () => {
+		assert.equal(REDIRECT_GUIDANCE["unknown"], undefined);
 	});
 });
 
@@ -212,6 +264,9 @@ describe("SEARCH_TOOLS removal", () => {
 			typeof m.TOOL_META === "object" && m.TOOL_META !== null,
 			"TOOL_META should be an object",
 		);
+
+		// Exports
+		assert.equal(typeof m.REDIRECT_GUIDANCE, "object", "REDIRECT_GUIDANCE should be an object");
 
 		// Functions
 		assert.equal(typeof m.loadDefaultRules, "function", "loadDefaultRules should be a function");
