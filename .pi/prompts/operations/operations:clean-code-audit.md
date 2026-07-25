@@ -148,7 +148,21 @@ count += 1;   // comment deleted; the code already states "increment counter"
 
 ### 4 — Create sub-issues
 
-Per candidate, create a separate GitHub issue:
+Per candidate, create a **proper GitHub sub-issue** linked to the umbrella — not a standalone issue with a cross-reference comment. GitHub's sub-issue relationship is set at create time with `--parent`; it cannot be added by a comment later.
+
+Create the umbrella issue first (Step 3) and **capture its issue number** (printed in `gh issue create` output). Then create each sub-issue anchored to that parent:
+
+```
+gh issue create \
+  --title "CLEAN: <candidate short title>" \
+  --label clean-code[,<submodule-name>] \
+  --body-file <body-file> \
+  --parent <umbrella-number>
+```
+
+The `--parent <number>` flag is the **only** mechanism that produces a real sub-issue in GitHub's issue hierarchy. Cross-reference comments and body mentions do **not** create the parent-child link — issues filed that way are independent issues that merely mention each other, which is exactly the bug we are fixing here.
+
+Sub-issue fields:
 - **Title:** `CLEAN: <candidate short title>`
 - **Body:**
   ````
@@ -176,12 +190,12 @@ Per candidate, create a separate GitHub issue:
   - [ ] Teammate would approve as net improvement
   ````
 - **Labels:** same as umbrella (`clean-code` + submodule name)
+- The body opens with `Part of **Clean Code Audit: <target-name>** (#N)` (informational only; the real parent link is set by `--parent`, not this line).
 
-### 5 — Link, board, complete
+### 5 — Board, complete
 
-1. Comment on umbrella with table linking all sub-issues
-2. Add all issues to project board with status `Research` (use `gh project item-edit` or GraphQL)
-3. Print all issue URLs
+1. Add umbrella and all sub-issues to project board with status `Research` (use `gh project item-edit` or GraphQL). The parent-child hierarchy is already rendered in the GitHub UI via `--parent`; **do not** also post a comment table — that duplicates the native sub-issue list.
+2. Print all issue URLs
 
 > Clean code audit filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Apply with `/supervisor <number>` on any candidate.
 

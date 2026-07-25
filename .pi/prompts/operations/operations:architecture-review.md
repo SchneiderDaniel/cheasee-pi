@@ -120,18 +120,31 @@ flowchart LR
 
 ### 4 — Create sub-issues
 
-Per candidate, create separate GitHub issue:
+Per candidate, create a **proper GitHub sub-issue** linked to the umbrella — not a standalone issue with a cross-reference comment. GitHub's sub-issue relationship is set at create time with `--parent`; it cannot be added by a comment later.
+
+Create the umbrella issue first (Step 3) and **capture its issue number** (printed in `gh issue create` output). Then create each sub-issue anchored to that parent:
+
+```
+gh issue create \
+  --title "ICA: <candidate short title>" \
+  --label architecture[,<submodule-name>] \
+  --body-file <body-file> \
+  --parent <umbrella-number>
+```
+
+The `--parent <number>` flag is the **only** mechanism that produces a real sub-issue in GitHub's issue hierarchy. Cross-reference comments and body mentions do **not** create the parent-child link — issues filed that way are independent issues that merely mention each other, which is exactly the bug we are fixing here.
+
+Sub-issue fields:
 - **Title:** `ICA: <candidate short title>`
-- **Body:** `Part of **Architecture Review: <target-name>** (#N)` + full card from umbrella plus:
+- **Body:** opens with `Part of **Architecture Review: <target-name>** (#N)` (informational only; the real parent link is set by `--parent`, not this line) + full card from umbrella plus:
   - **Dependency category** (see below)
   - **Testing strategy** — what old tests become waste, what new tests look like
 - **Labels:** same as umbrella (`architecture` + submodule name)
 
-### 5 — Link, board, complete
+### 5 — Board, complete
 
-1. Comment on umbrella with table linking all sub-issues
-2. Add all issues to project board with status `Research` (use `gh project item-edit` or GraphQL)
-3. Print all issue URLs
+1. Add umbrella and all sub-issues to project board with status `Research` (use `gh project item-edit` or GraphQL). The parent-child hierarchy is already rendered in the GitHub UI via `--parent`; **do not** also post a comment table — that duplicates the native sub-issue list.
+2. Print all issue URLs
 
 > Architecture review filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Use `/issue-refinement <number>` on any candidate, then `/supervisor <number>` to implement.
 
