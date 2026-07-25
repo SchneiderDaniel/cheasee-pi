@@ -13,8 +13,7 @@ EMBEDDED_FILES := \
 	$(EMBEDDED_DOCKER_DIR)/docker-compose.yml \
 	$(EMBEDDED_DOCKER_DIR)/entrypoint.sh \
 	$(EMBEDDED_DOCKER_DIR)/run-pi.sh \
-	$(EMBEDDED_DOCKER_DIR)/stop-pi.sh \
-	$(EMBEDDED_DOCKER_DIR)/lib/auth-env.sh
+	$(EMBEDDED_DOCKER_DIR)/stop-pi.sh
 
 .PHONY: embed check-embed
 
@@ -35,15 +34,12 @@ $(EMBEDDED_DOCKER_DIR)/run-pi.sh: docker/run-pi.sh | $(EMBEDDED_DOCKER_DIR)
 $(EMBEDDED_DOCKER_DIR)/stop-pi.sh: docker/stop-pi.sh | $(EMBEDDED_DOCKER_DIR)
 	cp $< $@
 
-$(EMBEDDED_DOCKER_DIR)/lib/auth-env.sh: docker/lib/auth-env.sh | $(EMBEDDED_DOCKER_DIR)
-	cp $< $@
-
 $(EMBEDDED_DOCKER_DIR):
 	mkdir -p $(EMBEDDED_DOCKER_DIR)/lib
 
 check-embed:
 	@echo "Checking embedded files match docker/ source..."
-	@for f in Dockerfile docker-compose.yml entrypoint.sh run-pi.sh stop-pi.sh lib/auth-env.sh; do \
+	@for f in Dockerfile docker-compose.yml entrypoint.sh run-pi.sh stop-pi.sh; do \
 		if ! cmp -s docker/$$f $(EMBEDDED_DOCKER_DIR)/$$f; then \
 			echo "ERROR: $(EMBEDDED_DOCKER_DIR)/$$f differs from docker/$$f"; \
 			echo "Run 'make embed' to sync."; \

@@ -5,6 +5,10 @@
 # Shared library sourced by both cheasee-pi.sh and docker/run-pi.sh
 # so that the auth.json→env mapping lives in exactly one place.
 #
+# The provider→envvar mapping is derived from the canonical Go source
+# via `cheasee-pi auth envvars`.  The shell no longer maintains a
+# separate case block.
+#
 # Usage:
 #   source docker/lib/auth-env.sh
 #   AUTH_JSON=$(resolve_auth_json)
@@ -12,7 +16,7 @@
 #
 # Exports:
 #   resolve_auth_json  — echoes path of first existing auth.json
-#   provider_to_envvar — echoes the env var name for a provider
+#   ENV_MAP            — associative array provider→envvar (built once)
 # ------------------------------------------------------------------
 
 # ─────────────────────────────────────────────────────────────────
@@ -38,23 +42,20 @@ resolve_auth_json() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# provider_to_envvar — map a provider name to its env var name
+# ENV_MAP — associative array mapping provider name to env var name
 #
-# Usage:
-#   envvar=$(provider_to_envvar "opencode-go")   # → OPENCODE_API_KEY
-#
-# Returns empty string for unknown providers.
+# Built once from the canonical Go source via `cheasee-pi auth envvars`.
+# Falls back to empty map if cheasee-pi is not on PATH (emits a warning).
 # ─────────────────────────────────────────────────────────────────
-provider_to_envvar() {
-    case "$1" in
-        opencode-go|opencode)  echo "OPENCODE_API_KEY" ;;
-        openai*)               echo "OPENAI_API_KEY" ;;
-        anthropic*|claude*)    echo "ANTHROPIC_API_KEY" ;;
-        deepseek*)             echo "DEEPSEEK_API_KEY" ;;
-        gemini*|google*)       echo "GEMINI_API_KEY" ;;
-        groq*)                 echo "GROQ_API_KEY" ;;
-        mistral*)              echo "MISTRAL_API_KEY" ;;
-        openrouter*)           echo "OPENROUTER_API_KEY" ;;
-        *)                     echo "" ;;
-    esac
-}
+declare -A ENV_MAP
+if command -v cheasee-pi &>/dev/null; then
+    # Read the mapping from the canonical source. Each line is
+    # provider=ENV_VAR.  No secret values cross this boundary.
+    while IFS='=' read -r provider envvar; do
+        [ -z "$provider" ] && continue
+        ENV_MAP["$provider"]="$envvar"
+    done < <(cheasee-pi auth envvars 2>/dev/null || true)
+fi
+if [ ${#ENV_MAP[@]} -eq 0 ]; then
+    echo "cheasee-pi: WARNING: provider env var mapping is empty (cheasee-pi auth envvars returned nothing)." >&2
+fi

@@ -52,9 +52,9 @@ if [ -n "$AUTH_JSON" ] && [ -f "$AUTH_JSON" ] && command -v jq &>/dev/null; then
         if ! jq -e ".\"$provider\" | type == \"object\"" "$AUTH_JSON" >/dev/null 2>&1; then
             continue
         fi
-        key=$(jq -r ".\"$provider\".key // empty" "$AUTH_JSON")
+        key=$(jq -r "\.\"$provider\".key // empty" "$AUTH_JSON")
         if [ -n "$key" ]; then
-            var=$(provider_to_envvar "$provider")
+            var="${ENV_MAP[$provider]:-}"
             if [ -n "$var" ]; then
                 DOCKER_ENV="$DOCKER_ENV -e $var=$key"
             fi

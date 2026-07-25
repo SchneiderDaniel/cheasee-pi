@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
@@ -61,9 +62,34 @@ var authListCmd = &cobra.Command{
 	RunE:  runAuthListE,
 }
 
+var authEnvvarsFormat string
+
+var authEnvvarsCmd = &cobra.Command{
+	Use:   "envvars",
+	Short: "Print provider→envvar mapping",
+	Long: `Print the provider-to-environment-variable mapping.
+
+Shell format (default) prints one PROVIDER=ENV_VAR per line suitable
+for sourcing into bash as an associative array:
+
+  cheasee-pi auth envvars
+  # opencode-go=OPENCODE_API_KEY
+  # openai=OPENAI_API_KEY
+  # ...
+
+JSON format prints the same mapping as a JSON object:
+
+  cheasee-pi auth envvars --format json
+
+This is the canonical mapping. The shell auth-env.sh derives its
+provider_to_envvar from this subcommand. No API key values are emitted.`,
+	Args: cobra.NoArgs,
+	RunE: runAuthEnvvarsE,
+}
+
 func init() {
 	rootCmd.AddCommand(authCmd)
-	authCmd.AddCommand(authAddCmd, authRemoveCmd, authListCmd)
+	authCmd.AddCommand(authAddCmd, authRemoveCmd, authListCmd, authEnvvarsCmd)
 
 	authAddCmd.Flags().StringVar(&authAddWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
 	authAddCmd.Flags().BoolVar(&authAddNoInput, "no-input", false, "Skip model selection prompt")
@@ -71,6 +97,8 @@ func init() {
 	authRemoveCmd.Flags().StringVar(&authRemoveWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
 
 	authListCmd.Flags().StringVar(&authListWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
+
+	authEnvvarsCmd.Flags().StringVar(&authEnvvarsFormat, "format", "shell", "Output format: shell or json")
 }
 
 // resolveWorkdir returns the workdir from flag or CWD.
@@ -296,6 +324,55 @@ func promptModel(provider string, models []string) (string, error) {
 	}
 
 	return selected, nil
+}
+
+// ──────────────────────────────────────────────
+// auth envvars — emit canonical provider→envvar mapping
+// ──────────────────────────────────────────────
+
+// runAuthEnvvarsE handles cheasee-pi auth envvars.
+func runAuthEnvvarsE(cmd *cobra.Command, _ []string) error {
+	aliases := ProviderEnvAliases()
+
+	switch authEnvvarsFormat {
+	case "shell":
+		return emitShellMapping(cmd, aliases)
+	case "json":
+		return emitJSONMapping(cmd, aliases)
+	default:
+		return fmt.Errorf("unknown format %q; use 'shell' or 'json'", authEnvvarsFormat)
+	}
+}
+
+func emitShellMapping(cmd *cobra.Command, aliases map[string]string) error {
+	providers := make([]string, 0, len(aliases))
+	for p := range aliases {
+		providers = append(providers, p)
+	}
+	sort.Strings(providers)
+
+	for _, p := range providers {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", p, aliases[p])
+	}
+	return nil
+}
+
+func emitJSONMapping(cmd *cobra.Command, aliases map[string]string) error {
+	// Sort keys for deterministic output
+	providers := make([]string, 0, len(aliases))
+	for p := range aliases {
+		providers = append(providers, p)
+	}
+	sort.Strings(providers)
+
+	ordered := make(map[string]string, len(aliases))
+	for _, p := range providers {
+		ordered[p] = aliases[p]
+	}
+
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetIndent("", "  ")
+	return enc.Encode(ordered)
 }
 
 // maskKey shows first 4 and last 4 chars of a key for display.

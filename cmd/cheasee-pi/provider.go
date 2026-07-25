@@ -126,9 +126,10 @@ func (w *SettingsWriter) updateAgentSettings(provider string) error {
 	return atomicWrite(path, out, 0644)
 }
 
-// providerToEnvVar maps provider name to its canonical env var.
-// Mirrors the shell script mapping in docker/lib/auth-env.sh.
-func providerToEnvVar(provider string) string {
+// ProviderToEnvVar maps provider name to its canonical env var.
+// Canonical source for the provider→envvar mapping. The shell derivation
+// in auth-env.sh is generated from this function.
+func ProviderToEnvVar(provider string) string {
 	switch {
 	case provider == "opencode-go" || provider == "opencode":
 		return "OPENCODE_API_KEY"
@@ -156,5 +157,37 @@ func providerToEnvVar(provider string) string {
 		return "CEREBRAS_API_KEY"
 	default:
 		return ""
+	}
+}
+
+// providerToEnvVar is the unexported alias for ProviderToEnvVar, kept for
+// callers in the same package that still reference the old name.
+func providerToEnvVar(provider string) string {
+	return ProviderToEnvVar(provider)
+}
+
+// ProviderEnvAliases returns the complete mapping of provider names
+// (including documented aliases) to their canonical env var names.
+// This is the single source of truth for the provider→envvar mapping
+// used by both Go and shell paths.
+func ProviderEnvAliases() map[string]string {
+	return map[string]string{
+		// Known providers (from KnownModels)
+		"opencode-go": "OPENCODE_API_KEY",
+		"openai":      "OPENAI_API_KEY",
+		"anthropic":   "ANTHROPIC_API_KEY",
+		"deepseek":    "DEEPSEEK_API_KEY",
+		"gemini":      "GEMINI_API_KEY",
+		"groq":        "GROQ_API_KEY",
+		"mistral":     "MISTRAL_API_KEY",
+		"openrouter":  "OPENROUTER_API_KEY",
+		"xai":         "XAI_API_KEY",
+		"fireworks":   "FIREWORKS_API_KEY",
+		"together":    "TOGETHER_API_KEY",
+		"cerebras":    "CEREBRAS_API_KEY",
+		// Documented aliases
+		"claude":  "ANTHROPIC_API_KEY",
+		"google":  "GEMINI_API_KEY",
+		"opencode": "OPENCODE_API_KEY",
 	}
 }
