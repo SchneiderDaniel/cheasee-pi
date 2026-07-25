@@ -27,8 +27,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 let activeSearches = 0;
 const MAX_CONCURRENT_SEARCHES = 5;
 
-async function acquireSearchLock(): Promise<void> {
+async function acquireSearchLock(signal?: AbortSignal): Promise<void> {
 	while (activeSearches >= MAX_CONCURRENT_SEARCHES) {
+		signal?.throwIfAborted();
 		await new Promise((resolve) => setTimeout(resolve, 200));
 	}
 	activeSearches++;
@@ -88,7 +89,7 @@ export default function webSearch(pi: ExtensionAPI): void {
 			});
 
 			// Acquire concurrency semaphore before starting venv setup/search
-			await acquireSearchLock();
+			await acquireSearchLock(signal);
 			try {
 				const cwd = _ctx.cwd;
 

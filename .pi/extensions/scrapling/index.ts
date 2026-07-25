@@ -20,8 +20,9 @@ import { ensureScraplingVenv } from "./venv-setup.ts";
 let activeCrawls = 0;
 const MAX_CONCURRENT_CRAWLS = 2;
 
-async function acquireCrawlLock(): Promise<void> {
+async function acquireCrawlLock(signal?: AbortSignal): Promise<void> {
 	while (activeCrawls >= MAX_CONCURRENT_CRAWLS) {
+		signal?.throwIfAborted();
 		await new Promise((resolve) => setTimeout(resolve, 1000));
 	}
 	activeCrawls++;
@@ -117,7 +118,7 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-			await acquireCrawlLock();
+			await acquireCrawlLock(signal);
 
 			try {
 				const maxPages = Math.min(Math.max(1, params.maxPages ?? 1), 10);
