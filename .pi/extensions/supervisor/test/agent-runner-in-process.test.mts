@@ -96,6 +96,15 @@ if (hasMockModule) {
 			createAgentSession: (opts: any) => createMockSession(),
 			SessionManager: createMockSessionManager(),
 			SettingsManager: createMockSettingsManager(),
+			createBashToolDefinition: (_cwd: string) => ({}),
+			createReadToolDefinition: (_cwd: string) => ({}),
+			createWriteToolDefinition: (_cwd: string) => ({}),
+			createEditToolDefinition: (_cwd: string) => ({}),
+			createGrepToolDefinition: (_cwd: string) => ({}),
+			createFindToolDefinition: (_cwd: string) => ({}),
+			createLsToolDefinition: (_cwd: string) => ({}),
+			initTheme: () => {},
+			getMarkdownTheme: () => ({}),
 		},
 	});
 }
@@ -396,6 +405,61 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		);
 
 		assert.ok(result !== undefined, "should return a result with all args");
+	});
+
+	describe("runAgent — fallback safety (sync throw containment)", () => {
+		before(() => resetMocks());
+
+		it("in-process throws → fallback called, returns result without rejecting", async () => {
+			resetMocks();
+
+			const { runAgent } = await import("../agent/runner.ts");
+			const result = await runAgent(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				1, // very short timeout → in-process throws → fallback
+			);
+
+			assert.ok(
+				result !== undefined,
+				"should return a result even on fallback",
+			);
+			assert.equal(typeof result.success, "boolean");
+		});
+
+		it("fallback handles sync throw from resolveSkillPaths (unresolvable skill)", async () => {
+			resetMocks();
+			// Make in-process runner throw so the fallback is triggered
+			currentSessionConfig = {
+				shouldReject: true,
+				rejectError: new Error("In-process failed, triggering fallback"),
+			};
+
+			const badSkillAgent = {
+				config: {
+					name: "bad-skill-agent",
+					tools: "read",
+					model: "anthropic/claude-sonnet-4-20250514",
+					extensions: "",
+					skills: "nonexistent-skill",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+
+			const { runAgent } = await import("../agent/runner.ts");
+			const result = await runAgent(
+				badSkillAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+			);
+
+			assert.equal(result.success, false);
+			assert.equal(result.agentName, "bad-skill-agent");
+			assert.equal(result.toolCount, 0);
+		});
 	});
 });
 
