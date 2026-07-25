@@ -1,61 +1,44 @@
 /**
- * tsc-checkpoint — DiagnosticsWatcher: lifecycle, trend computation, listener registration
+ * tsc-checkpoint — Consolidated tsc-binding watcher
  *
- * Wraps a TscWatchAdapter to provide cached diagnostics, trend tracking,
- * and diagnostic change notifications. The default constructor creates a
- * real TypeScriptWatchAdapter via createDefaultAdapter(); a mock adapter
- * can be injected for testing.
+ * Thin watcher that owns ts.createWatchProgram directly (no adapter delegation),
+ * feeds error counts into TrendTracker for trend analysis, and caches diagnostics
+ * between /check calls.
+ *
+ * This is the single file that replaces the former DiagnosticsWatcher → adapter
+ * chain. The TscWatchAdapter interface, TypeScriptWatchAdapter class, and
+ * createDefaultAdapter factory have been removed — they were a speculative seam
+ * (one real implementation + one test mock) that added pass-through complexity
+ * without real polymorphism.
  */
 
+import ts from "typescript";
 import { existsSync } from "node:fs";
-import type { TscDiagnostic, TscWatchOptions, DiagnosticTrend } from "./types.ts";
-import type { TscWatchAdapter } from "./adapter.ts";
-import { createDefaultAdapter } from "./adapter.ts";
-
-// ponytail: 50 entries keeps recent trend context without unbounded memory growth.
-// Increase if per-session trend analysis needs deeper history.
-const MAX_TREND_HISTORY = 50;
+import { dirname } from "node:path";
+import type { TscDiagnostic, DiagnosticTrend } from "./types.ts";
+import { diagnosticToTscDiagnostic } from "./adapter.ts";
+import { TrendTracker } from "./trend.ts";
 
 export class DiagnosticsWatcher {
-	private adapter: TscWatchAdapter;
+	private watchProgram: ts.WatchOfConfigFile<ts.BuilderProgram> | undefined;
 	private cachedDiagnostics: TscDiagnostic[] = [];
 	private running = false;
-	private trendHistory: number[] = [];
+	private trendTracker = new TrendTracker();
 	private diagnosticListeners: Array<(d: TscDiagnostic[]) => void> = [];
 	private tsconfigPath: string;
-	private watchOptions: TscWatchOptions;
+	private tsconfigDir: string;
 
-	constructor(tsconfigPath: string, watchOptions?: TscWatchOptions, adapter?: TscWatchAdapter) {
+	constructor(tsconfigPath: string) {
 		this.tsconfigPath = tsconfigPath;
-		this.watchOptions = watchOptions ?? {};
-		this.adapter = adapter ?? createDefaultAdapter();
-
-		// Forward adapter diagnostic events
-		this.adapter.onDiagnosticsChange((diags: TscDiagnostic[]) => {
-			this.cachedDiagnostics = diags;
-			const errorCount = diags.filter((d) => d.severity === "Error").length;
-			this.trendHistory.push(errorCount);
-			// ponytail: bounded array prevents unbounded memory leak.
-			// MAX_TREND_HISTORY = 50 supports trend analysis without excessive retention.
-			if (this.trendHistory.length > MAX_TREND_HISTORY) {
-				this.trendHistory.shift();
-			}
-			for (const listener of this.diagnosticListeners) {
-				listener(diags);
-			}
-		});
+		this.tsconfigDir = dirname(tsconfigPath);
 	}
 
 	get tsconfigPathValue(): string {
 		return this.tsconfigPath;
 	}
 
-	get watchOptionsValue(): TscWatchOptions {
-		return { ...this.watchOptions };
-	}
-
 	/**
-	 * Start the watcher. Returns true if started, false if already running.
+	 * Start the watch compiler. Returns true if started, false if already running.
 	 * Throws if tsconfig does not exist.
 	 */
 	start(): boolean {
@@ -63,16 +46,56 @@ export class DiagnosticsWatcher {
 		if (!existsSync(this.tsconfigPath)) {
 			throw new Error(`tsconfig not found: ${this.tsconfigPath}`);
 		}
-		const started = this.adapter.start(this.tsconfigPath);
-		this.running = started;
-		return started;
+
+		this.cachedDiagnostics = [];
+		this.trendTracker = new TrendTracker();
+
+		const host = ts.createWatchCompilerHost(
+			this.tsconfigPath,
+			{ noEmit: true },
+			ts.sys,
+			ts.createEmitAndSemanticDiagnosticsBuilderProgram,
+			(diagnostic: ts.Diagnostic) => {
+				if (diagnostic.category !== ts.DiagnosticCategory.Error) return;
+				const diag = diagnosticToTscDiagnostic(diagnostic, this.tsconfigDir);
+				if (diag) {
+					this.cachedDiagnostics.push(diag);
+				}
+			},
+			(
+				_diagnostic: ts.Diagnostic,
+				_newLine: string,
+				_options: ts.CompilerOptions,
+				errorCount?: number,
+			) => {
+				if (errorCount === undefined) {
+					// New compilation cycle starting — clear previous diagnostics
+					// Reference: TypeScript watch.ts — errorCount is undefined only
+					// during the onWatchStatusChange callback for "new compilation
+					// cycle starting" signal.
+					this.cachedDiagnostics = [];
+				} else {
+					// Compilation complete — update trend and notify listeners
+					const errCount = this.cachedDiagnostics.filter(
+						(d) => d.severity === "Error",
+					).length;
+					this.trendTracker.push(errCount);
+					this.notifyListeners();
+				}
+			},
+		);
+
+		this.watchProgram = ts.createWatchProgram(host);
+		this.running = true;
+		return true;
 	}
 
 	/** Stop the watcher. No-op if not running. */
 	stop(): void {
 		if (!this.running) return;
-		this.adapter.stop();
+		this.watchProgram?.close();
 		this.running = false;
+		this.watchProgram = undefined;
 	}
 
 	/** Whether the watcher is currently running. */
@@ -82,7 +105,7 @@ export class DiagnosticsWatcher {
 
 	/** Get the latest cached diagnostics. */
 	getDiagnostics(): TscDiagnostic[] {
-		return this.cachedDiagnostics;
+		return [...this.cachedDiagnostics];
 	}
 
 	/** Register a callback for when diagnostics change. */
@@ -92,18 +115,27 @@ export class DiagnosticsWatcher {
 
 	/**
 	 * Get the diagnostic trend between the last two checks.
-	 * Returns undefined if fewer than 2 data points exist.
+	 * Delegates to TrendTracker — pure computation, no I/O.
 	 */
 	getTrend(): DiagnosticTrend | undefined {
-		if (this.trendHistory.length < 2) return undefined;
-		const current = this.trendHistory[this.trendHistory.length - 1]!;
-		const previous = this.trendHistory[this.trendHistory.length - 2]!;
-		const delta = current - previous;
-		return {
-			current,
-			previous,
-			direction: delta < 0 ? "improved" : delta > 0 ? "regressed" : "stable",
-			delta: Math.abs(delta),
-		};
+		return this.trendTracker.getTrend();
+	}
+
+	/**
+	 * Test-only: inject diagnostics without starting the watch program.
+	 * Simulates the effect of a completed compilation cycle for unit tests.
+	 */
+	_injectDiagnostics(diagnostics: TscDiagnostic[]): void {
+		this.cachedDiagnostics = diagnostics;
+		const errorCount = diagnostics.filter((d) => d.severity === "Error").length;
+		this.trendTracker.push(errorCount);
+		this.notifyListeners();
+	}
+
+	private notifyListeners(): void {
+		const snapshot = [...this.cachedDiagnostics];
+		for (const listener of this.diagnosticListeners) {
+			listener(snapshot);
+		}
 	}
 }
