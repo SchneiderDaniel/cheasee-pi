@@ -14,45 +14,35 @@ import (
 	"github.com/cli/oauth/device"
 )
 
-// defaultMocks returns a set of working mock implementations for all new ports.
+// defaultMocks returns a set of working mock implementations for all ports.
 // Tests can override specific mocks as needed.
-func defaultMocks() (
-	*mockAuthenticator,
-	*mockGitHubClient,
-	*mockCloner,
-	*mockExtractor,
-	*mockEnvRenderer,
-	*mockWorkingDirProbe,
-	*mockUIDResolver,
-	*mockGitIdentity,
-	*mockSettingsScaffold,
-	*mockGitInitializer,
-) {
-	auth := &mockAuthenticator{}
-	gh := &mockGitHubClient{
-		getUserFunc: func(ctx context.Context, token string) (string, error) {
-			return "testuser", nil
+func defaultMocks() InitPorts {
+	return InitPorts{
+		Auth: &mockAuthenticator{},
+		GitHub: &mockGitHubClient{
+			getUserFunc: func(ctx context.Context, token string) (string, error) {
+				return "testuser", nil
+			},
+			createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
+				return "testuser/cheasee-pi", nil
+			},
+			waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
+				return nil
+			},
 		},
-		createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-			return "testuser/cheasee-pi", nil
+		Cloner:    &mockCloner{},
+		Extractor: &mockExtractor{},
+		Env:       &mockEnvRenderer{},
+		Probe: &mockWorkingDirProbe{
+			inspectFunc: func(path string) (WorkdirState, error) {
+				return WorkdirEmpty, nil
+			},
 		},
-		waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
-			return nil
-		},
+		UID:      &mockUIDResolver{},
+		GitID:    &mockGitIdentity{},
+		Scaffold: &mockSettingsScaffold{},
+		GitInit:  &mockGitInitializer{},
 	}
-	clone := &mockCloner{}
-	ext := &mockExtractor{}
-	env := &mockEnvRenderer{}
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
-	uid := &mockUIDResolver{}
-	gitID := &mockGitIdentity{}
-	scaffold := &mockSettingsScaffold{}
-	gitInit := &mockGitInitializer{}
-	return auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit
 }
 
 // ──────────────────────────────────────────────
@@ -68,10 +58,20 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -92,10 +92,20 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -117,10 +127,20 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -142,10 +162,20 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, _, _, probe, _, _, _, _ := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, nil, nil, probe, nil, nil, nil, nil, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error when Docker CheckResult.Err is set")
 	}
@@ -158,10 +188,21 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", true, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  true,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -182,10 +223,21 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -206,10 +258,21 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 		},
 	}
 	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -226,10 +289,21 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err := runInit(ctx, mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(ctx, InitDeps{
+		Ports:          ports,
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -440,11 +514,21 @@ func TestRunInit_FullFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
@@ -486,8 +570,27 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, workdir,
-		nil, nil, nil, ext, env, probe, &mockUIDResolver{}, &mockGitIdentity{}, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports: InitPorts{
+			Docker:    mockDocker,
+			Cfg:       mockCfg,
+			Extractor: ext,
+			Env:       env,
+			Probe:     probe,
+			UID:       &mockUIDResolver{},
+			GitID:     &mockGitIdentity{},
+			Scaffold:  scaffold,
+			GitInit:   gitInit,
+		},
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -532,10 +635,12 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	// Use a mock authenticator that respects cancelled context
-	mockAuth := &mockAuthenticator{
+	// Override auth with one that respects cancelled context
+	ports.Auth = &mockAuthenticator{
 		requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
 			return nil, ctx.Err()
 		},
@@ -544,8 +649,16 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	// Cancel right after docker check
 	cancel()
 
-	err := runInit(ctx, mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		mockAuth, nil, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(ctx, InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -560,10 +673,12 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	// Override GitHub client to return fork-already-exists
-	mockGH := &mockGitHubClient{
+	ports.GitHub = &mockGitHubClient{
 		getUserFunc: func(ctx context.Context, token string) (string, error) {
 			return "testuser", nil
 		},
@@ -574,11 +689,18 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 			return nil
 		},
 	}
-	mockAuth := &mockAuthenticator{}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -593,9 +715,11 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	mockGH := &mockGitHubClient{
+	ports.GitHub = &mockGitHubClient{
 		getUserFunc: func(ctx context.Context, token string) (string, error) {
 			return "testuser", nil
 		},
@@ -603,11 +727,18 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 			return "", fmt.Errorf("forbidden")
 		},
 	}
-	mockAuth := &mockAuthenticator{}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
@@ -1191,10 +1322,21 @@ func TestInit_SuccessMessage(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
-	err = runInit(context.Background(), mockDocker, mockCfg, "sk-abc123", false, true, SourceForkInput{Mode: ModePromptFork}, t.TempDir(),
-		nil, nil, nil, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err = runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		APIKey:         "sk-abc123",
+		NoDockerCheck:  false,
+		NoGitHub:       true,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork},
+		Workdir:        t.TempDir(),
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1679,11 +1821,21 @@ func TestRunInit_SkipFork(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeSkipFork}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModeSkipFork},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
@@ -1717,11 +1869,22 @@ func TestRunInit_ForkURL(t *testing.T) {
 		},
 	}
 
-	auth, gh, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Cloner = clone
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
@@ -1768,11 +1931,24 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 	}
 
 	mockAuth := &mockAuthenticator{}
-	_, _, _, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Auth = mockAuth
+	ports.GitHub = mockGH
+	ports.Cloner = clone
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}, workdir,
-		mockAuth, mockGH, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
@@ -1789,11 +1965,21 @@ func TestRunInit_ForkURLInvalid(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil), mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err == nil {
 		t.Fatal("expected error for invalid fork URL")
 	}
@@ -1811,11 +1997,21 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(true, nil, "Configure API keys"), mockInputFn("", nil), false, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        false,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil, "Configure API keys"),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("post-clone confirm flow failed: %v", err)
 	}
@@ -1829,11 +2025,21 @@ func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, mockConfirmFn(false, nil), mockInputFn("", nil), false, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        false,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(false, nil),
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("expected nil error (clean exit) when confirm is declined: %v", err)
 	}
@@ -1848,12 +2054,21 @@ func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
-	auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit := defaultMocks()
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	// If confirm were called with false, we'd error (but it won't be called)
 	workdir := t.TempDir()
-	err := runInit(context.Background(), mockDocker, mockCfg, "", false, false, SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}, workdir,
-		auth, gh, clone, ext, env, probe, uid, gitID, scaffold, gitInit, nil, mockInputFn("", nil), true, nil, false, nil)
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		InputFn:        mockInputFn("", nil),
+	})
 	if err != nil {
 		t.Fatalf("post-clone confirm with noInput=true failed: %v", err)
 	}

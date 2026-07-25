@@ -52,6 +52,86 @@ type SourceForkInput struct {
 	ForkURL    string
 }
 
+// InitPorts bundles the 12 injected port interfaces used by runInit.
+type InitPorts struct {
+	Docker    Checker
+	Cfg       Repository
+	Auth      Authenticator
+	GitHub    GitHubClient
+	Cloner    Cloner
+	Extractor Extractor
+	Env       EnvRenderer
+	Probe     WorkingDirProbe
+	UID       UIDResolver
+	GitID     GitIdentity
+	Scaffold  SettingsScaffold
+	GitInit   GitInitializer
+}
+
+// InitDeps bundles all dependencies, flags, and callbacks for runInit.
+type InitDeps struct {
+	Ports            InitPorts
+	APIKey           string
+	NoDockerCheck    bool
+	NoGitHub         bool
+	NoInput          bool
+	SkipSubmodules   bool
+	SourceFork       SourceForkInput
+	Workdir          string
+	SubmoduleURLs    map[string]string
+	ConfirmFn        func(string) (bool, error)
+	InputFn          func(title, placeholder string) (string, error)
+	SubmodulePromptFn func([]Submodule) (map[string]string, error)
+}
+
+// Validate checks that all required dependencies for the active path are non-nil.
+func (d InitDeps) Validate() error {
+	var missing []string
+	if d.Ports.Cfg == nil {
+		missing = append(missing, "Ports.Cfg")
+	}
+	if d.Ports.Probe == nil {
+		missing = append(missing, "Ports.Probe")
+	}
+	if d.Ports.Extractor == nil {
+		missing = append(missing, "Ports.Extractor")
+	}
+	if d.Ports.Env == nil {
+		missing = append(missing, "Ports.Env")
+	}
+	if d.Ports.UID == nil {
+		missing = append(missing, "Ports.UID")
+	}
+	if d.Ports.GitID == nil {
+		missing = append(missing, "Ports.GitID")
+	}
+	if d.Ports.Scaffold == nil {
+		missing = append(missing, "Ports.Scaffold")
+	}
+	if !d.NoDockerCheck && d.Ports.Docker == nil {
+		missing = append(missing, "Ports.Docker")
+	}
+	if !d.NoGitHub {
+		if d.Ports.Auth == nil {
+			missing = append(missing, "Ports.Auth")
+		}
+		if d.Ports.GitHub == nil {
+			missing = append(missing, "Ports.GitHub")
+		}
+		if d.Ports.Cloner == nil {
+			missing = append(missing, "Ports.Cloner")
+		}
+	} else {
+		if d.Ports.GitInit == nil {
+			missing = append(missing, "Ports.GitInit")
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("init: missing required deps: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize cheasee-pi configuration",
@@ -155,70 +235,49 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	return runInit(
-		ctx,
-		dockerChecker,
-		configRepo,
-		initAPIKey,
-		initNoDockerCheck,
-		initNoGitHub,
-		sourceForkInput,
-		workdir,
-		authenticator,
-		gitHubClient,
-		cloner,
-		extractor,
-		envRenderer,
-		workdirProbe,
-		uidResolver,
-		gitIdentity,
-		scaffold,
-		gitInit,
-		confirmFn,
-		inputFn,
-		initNoInput,
-		submoduleURLs,
-		initSkipSubmodules,
-		promptSubmoduleURLs,
-	)
+	return runInit(ctx, InitDeps{
+		Ports: InitPorts{
+			Docker:    dockerChecker,
+			Cfg:       configRepo,
+			Auth:      authenticator,
+			GitHub:    gitHubClient,
+			Cloner:    cloner,
+			Extractor: extractor,
+			Env:       envRenderer,
+			Probe:     workdirProbe,
+			UID:       uidResolver,
+			GitID:     gitIdentity,
+			Scaffold:  scaffold,
+			GitInit:   gitInit,
+		},
+		APIKey:           initAPIKey,
+		NoDockerCheck:    initNoDockerCheck,
+		NoGitHub:         initNoGitHub,
+		NoInput:          initNoInput,
+		SkipSubmodules:   initSkipSubmodules,
+		SourceFork:       sourceForkInput,
+		Workdir:          workdir,
+		SubmoduleURLs:    submoduleURLs,
+		ConfirmFn:        confirmFn,
+		InputFn:          inputFn,
+		SubmodulePromptFn: promptSubmoduleURLs,
+	})
 }
 
 // runInit is the orchestrator that sequences all init phases.
-func runInit(
-	ctx context.Context,
-	docker Checker,
-	cfg Repository,
-	apiKey string,
-	noDockerCheck bool,
-	noGitHub bool,
-	sourceForkInput SourceForkInput,
-	workdir string,
-	authenticator Authenticator,
-	gitHubClient GitHubClient,
-	cloner Cloner,
-	extractor Extractor,
-	envRenderer EnvRenderer,
-	workdirProbe WorkingDirProbe,
-	uidResolver UIDResolver,
-	gitIdentity GitIdentity,
-	scaffold SettingsScaffold,
-	gitInit GitInitializer,
-	confirmFn func(string) (bool, error),
-	inputFn func(title, placeholder string) (string, error),
-	noInput bool,
-	submoduleURLs map[string]string,
-	skipSubmodules bool,
-	promptFn func([]Submodule) (map[string]string, error),
-) error {
+func runInit(ctx context.Context, deps InitDeps) error {
+	if err := deps.Validate(); err != nil {
+		return err
+	}
 	// Phase 1: Docker check (unless --no-docker-check)
-	if !noDockerCheck {
-		if err := runInitDockerCheck(ctx, docker); err != nil {
+	if !deps.NoDockerCheck {
+		if err := runInitDockerCheck(ctx, deps.Ports.Docker); err != nil {
 			return err
 		}
 	}
 
 	// Phase 2: Probe existing working directory
-	proceed, err := runInitProbe(ctx, workdirProbe, workdir, confirmFn, noInput)
+	proceed, err := runInitProbe(ctx, deps.Ports.Probe, deps.Workdir, deps.ConfirmFn, deps.NoInput)
 	if err != nil {
 		return err
 	}
@@ -229,34 +288,34 @@ func runInit(
 
 	// Phase 3-8: Authentication and repository setup
 	var auth *Auth
-	if noGitHub {
+	if deps.NoGitHub {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", initProvider)
-		auth, err = runInitLegacy(ctx, cfg, apiKey, initProvider)
+		auth, err = runInitLegacy(ctx, deps.Ports.Cfg, deps.APIKey, initProvider)
 		if err != nil {
 			return err
 		}
-		auth.RepoPath = workdir
+		auth.RepoPath = deps.Workdir
 	} else {
 		// Phase 3: GitHub OAuth device flow
-		token, user, err := runInitAuth(ctx, authenticator)
+		token, user, err := runInitAuth(ctx, deps.Ports.Auth)
 		if err != nil {
 			if errors.Is(err, device.ErrUnsupported) {
 				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
 				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
-				auth, err = runInitLegacy(ctx, cfg, apiKey, initProvider)
+				auth, err = runInitLegacy(ctx, deps.Ports.Cfg, deps.APIKey, initProvider)
 				if err != nil {
 					return err
 				}
-				auth.RepoPath = workdir
+				auth.RepoPath = deps.Workdir
 			} else {
 				return fmt.Errorf("GitHub authentication failed: %w", err)
 			}
 		} else {
 			// Phase 4: Get authenticated user identity
 			if user == "" {
-				u, err := gitHubClient.GetAuthenticatedUser(ctx, token)
+				u, err := deps.Ports.GitHub.GetAuthenticatedUser(ctx, token)
 				if err != nil {
 					return fmt.Errorf("get GitHub user: %w", err)
 				}
@@ -264,18 +323,18 @@ func runInit(
 			}
 
 			// Phase 4.5: Resolve source repo
-			resolvedSourceRepo, err := runInitPromptSource(sourceForkInput)
+			resolvedSourceRepo, err := runInitPromptSource(deps.SourceFork)
 			if err != nil {
 				return fmt.Errorf("source repo prompt: %w", err)
 			}
 
 			// Determine clone URL and whether to fork
 			var cloneURL string
-			switch sourceForkInput.Mode {
+			switch deps.SourceFork.Mode {
 			case ModeUseForkURL:
 				// Use user-supplied fork URL directly — skip fork and wait
-				cloneURL = sourceForkInput.ForkURL
-				if err := runInitCloneSubmodule(ctx, cloner, token, cloneURL, workdir); err != nil {
+				cloneURL = deps.SourceFork.ForkURL
+				if err := runInitCloneSubmodule(ctx, deps.Ports.Cloner, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 
@@ -287,8 +346,8 @@ func runInit(
 
 				// Ask if user wants their own fork
 				createFork := true
-				if !noInput {
-					ok, err := confirmFn(fmt.Sprintf("Create your own fork of %s/%s?", sourceOwner, sourceRepoName))
+				if !deps.NoInput {
+					ok, err := deps.ConfirmFn(fmt.Sprintf("Create your own fork of %s/%s?", sourceOwner, sourceRepoName))
 					if err != nil {
 						return err
 					}
@@ -299,7 +358,7 @@ func runInit(
 					forkOwner := user
 					forkRepo := sourceRepoName
 
-					_, err = gitHubClient.CreateFork(ctx, token, sourceOwner, sourceRepoName)
+					_, err = deps.Ports.GitHub.CreateFork(ctx, token, sourceOwner, sourceRepoName)
 					if err != nil {
 						// 422 "fork already exists" is not a fatal error
 						if strings.Contains(err.Error(), "fork already exists") {
@@ -310,7 +369,7 @@ func runInit(
 					}
 
 					// Phase 6: Wait for fork to be ready
-					if err := gitHubClient.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
+					if err := deps.Ports.GitHub.WaitForkReady(ctx, token, forkOwner, forkRepo); err != nil {
 						return fmt.Errorf("wait for fork ready: %w", err)
 					}
 
@@ -321,14 +380,14 @@ func runInit(
 					cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", sourceOwner, sourceRepoName)
 				}
 
-				if err := runInitCloneSubmodule(ctx, cloner, token, cloneURL, workdir); err != nil {
+				if err := runInitCloneSubmodule(ctx, deps.Ports.Cloner, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 			}
 
 			// Post-clone confirm (skip when noInput is true or fork+clone was skipped)
-			if sourceForkInput.Mode != ModeSkipFork && !noInput {
-				ok, err := confirmFn(fmt.Sprintf("Forked/Cloned %s to %s. Continue? [Y/n]", cloneURL, workdir))
+			if deps.SourceFork.Mode != ModeSkipFork && !deps.NoInput {
+				ok, err := deps.ConfirmFn(fmt.Sprintf("Forked/Cloned %s to %s. Continue? [Y/n]", cloneURL, deps.Workdir))
 				if err != nil {
 					return err
 				}
@@ -339,8 +398,8 @@ func runInit(
 			}
 
 			// Configure submodules for non-skip modes
-			if sourceForkInput.Mode != ModeSkipFork {
-				if err := runInitSubmodule(ctx, cloner, workdir, submoduleURLs, skipSubmodules, promptFn, noInput, confirmFn, inputFn); err != nil {
+			if deps.SourceFork.Mode != ModeSkipFork {
+				if err := runInitSubmodule(ctx, deps.Ports.Cloner, deps.Workdir, deps.SubmoduleURLs, deps.SkipSubmodules, deps.SubmodulePromptFn, deps.NoInput, deps.ConfirmFn, deps.InputFn); err != nil {
 					return fmt.Errorf("submodule config: %w", err)
 				}
 			}
@@ -348,42 +407,42 @@ func runInit(
 			auth = &Auth{
 				GitHubToken: token,
 				GitHubUser:  user,
-				RepoPath:    workdir,
+				RepoPath:    deps.Workdir,
 			}
 		}
 	}
 
 	// Phase 9: Extract embedded compose files (always)
-	if err := runInitExtract(ctx, extractor, workdir); err != nil {
+	if err := runInitExtract(ctx, deps.Ports.Extractor, deps.Workdir); err != nil {
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
 	// Phase 10: Generate docker/.env (always)
-	if err := runInitEnv(ctx, envRenderer, uidResolver, gitIdentity, workdir, confirmFn); err != nil {
+	if err := runInitEnv(ctx, deps.Ports.Env, deps.Ports.UID, deps.Ports.GitID, deps.Workdir, deps.ConfirmFn); err != nil {
 		return fmt.Errorf("env generation: %w", err)
 	}
 
 	// Phase 11: Scaffold workspace — git init (no-github only) + .pi/settings.json (always)
-	if noGitHub {
-		if err := runInitGitInit(ctx, gitInit, workdir); err != nil {
+	if deps.NoGitHub {
+		if err := runInitGitInit(ctx, deps.Ports.GitInit, deps.Workdir); err != nil {
 			return fmt.Errorf("git init: %w", err)
 		}
 	}
-	if err := runInitScaffold(ctx, scaffold, gitIdentity, confirmFn, workdir); err != nil {
+	if err := runInitScaffold(ctx, deps.Ports.Scaffold, deps.Ports.GitID, deps.ConfirmFn, deps.Workdir); err != nil {
 		return fmt.Errorf("settings scaffold: %w", err)
 	}
 
 	// Phase 12: Save auth config
-	if err := cfg.Save(ctx, auth); err != nil {
+	if err := deps.Ports.Cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
 
-	path, _ := cfg.Path()
+	path, _ := deps.Ports.Cfg.Path()
 	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
 
 	// Phase 13: API key setup for pi providers (interactive only)
-	if !noInput {
-		if err := runInitAPIKeys(ctx, cfg, workdir, confirmFn); err != nil {
+	if !deps.NoInput {
+		if err := runInitAPIKeys(ctx, deps.Ports.Cfg, deps.Workdir, deps.ConfirmFn); err != nil {
 			return fmt.Errorf("API key setup: %w", err)
 		}
 	}
@@ -392,7 +451,6 @@ func runInit(
 	fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
 	return nil
 }
-
 // runInitDockerCheck verifies Docker Engine is installed and running.
 func runInitDockerCheck(ctx context.Context, docker Checker) error {
 	result, err := docker.Check(ctx)
