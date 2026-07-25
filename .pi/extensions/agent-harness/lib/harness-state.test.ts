@@ -1,7 +1,7 @@
 /**
  * Tests for harness-state.ts — integration-scoped factory tests.
  *
- * Shallow ReadCache/ErrorTracker/CallCounter unit tests removed (covered by
+ * Shallow per-interface unit tests removed (covered by
  * .pi/lib/timed-map.test.ts for generic TimedMap behavior and by AgentHarness
  * integration tests for specialized wrapper behavior).
  *
