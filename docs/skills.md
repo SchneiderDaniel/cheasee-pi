@@ -26,41 +26,7 @@ Skills differ from extensions in that they are **prompt-based instruction sets**
 
 ## Available skills
 
-### extension-dead-code-hunter
-
-Systematic dead code detection for pi extensions. Picks random extension, analyzes for unused exports, unreachable paths, dead branches, orphaned utilities, and other dead code patterns. Validates with deterministic proof and creates GitHub issues.
-
-- **Skills:** Export analysis, reachability analysis, branch coverage, orphan detection
-- **Output:** GitHub issue with `<ext>` label
-
-### extension-bug-hunter
-
-Systematic bug hunting for pi extensions. Analyzes code using best-practice bug hunting techniques — boundary analysis, type safety, error paths, concurrency, input validation, security. Validates findings with reproducible proof.
-
-- **Skills:** Boundary analysis, type safety audit, error path tracing, concurrency review, input validation, security review
-- **Search strategy:** Three-strike proof
-
-### extension-spec
-
-Designs pi extensions — new or refactoring — with full PRD, TypeScript best practices, anti-pattern audit, and migration plan.
-
-- **Skills:** PRD generation, TypeScript audit, migration planning
-- **Use cases:** Creating new extensions, refactoring existing ones
-
-### extension-duplicate-code-hunter
-
-Systematic duplicate code detection for pi extensions. Analyzes for exact clones (Type 1), renamed clones (Type 2), near-miss (Type 3), and semantic clones (Type 4). Uses jscpd for token-based scanning.
-
-- **Skills:** Clone type classification, jscpd integration, three-way-match proof
-- **Output:** GitHub issue with clone evidence
-
-### extension-reinvention-issue-hunter
-
-Systematic detection of pi built-in API reimplementations in extensions. Picks random extension, cross-references custom code against live pi documentation, finds where extensions reinvent built-in features (dialogs, file-queue, truncation, state management, rendering, bash execution, etc.). Creates GitHub issues with migration steps and LOC reduction estimates.
-
-- **Skills:** Live doc analysis, cross-reference, API catalog building
-- **Detection:** Custom UI dialogs, file mutation queue, truncation utilities, state management, tool rendering, bash execution, keybinding handling
-- **Output:** GitHub issue per confirmed finding with migration snippet
+<!-- extension-dead-code-hunter, extension-bug-hunter, extension-spec, extension-duplicate-code-hunter, extension-reinvention-issue-hunter are internal harness-dev skills -->
 
 ### external-issue
 
@@ -110,3 +76,5 @@ Or use the dedicated command if available:
 ## Creating skills
 
 Skills are Markdown files in `.pi/skills/<name>/SKILL.md` with YAML frontmatter. They can reference tools, reference files, and define structured workflows.
+
+> **Note:** Harness-dev skills (`extension-bug-hunter`, `extension-dead-code-hunter`, `extension-duplicate-code-hunter`, `extension-reinvention-issue-hunter`, `extension-spec`, `rebuild-cheasee-pi`, `release-cheasee-pi`) are internal — not included in the public build.

@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own page with **Why** (benefit) and **How** (walkthrough).
+This page lists all Cheasee-Pi extensions. Each has its own page with **Why** (benefit) and **How** (walkthrough).
 
 ## File manifest
 
@@ -32,7 +32,7 @@ This page lists all 18 extensions in the Cheasee-Pi monorepo. Each has its own p
 | `.pi/extensions/ponytail/` | [Ponytail](extensions/ponytail) |
 | `.pi/extensions/piignore/` | [PiIgnore](extensions/piignore) |
 | `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
-| `.pi/extensions/check-extensions/` | [Check Extensions](extensions/check-extensions) |
+| *(internal-only)* | [Check Extensions](extensions/check-extensions) — harness-dev, not in public build |
 | `.pi/extensions/worktree-sandbox/` | [Worktree Sandbox](extensions/worktree-sandbox) |
 | `.pi/extensions/rtk/` | [RTK](extensions/rtk) |
 | `.pi/extensions/lib/` | Shared library (not an extension) — `extension-state.ts`, `bash-query.ts`, `ensureVenv.ts` |
@@ -53,4 +53,4 @@ Selected extensions are published as npm packages under the `@cheasee-pi` scope.
 
 **Package structure:** Each published extension has its own `package.json` with `keywords: ["pi-package"]` and a `pi` manifest pointing to its entry file.
 
-Use `/package-extension` in Pi's editor to package an extension for npm — see [Prompts](prompts) for details.
+> `/package-extension` prompt is internal (harness-dev only, not in public build).

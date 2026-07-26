@@ -26,12 +26,10 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 | **pr-review** | `/pr-review` | Automated PR security/quality checks, validates against Cheasee-Pi philosophy, formats structured review comment. |
 | **quiz-master** | `/quiz-master` | List open PRs across repo + submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%. |
 | **model-select** | `/model-select <objective>` | Research + recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives: cost-optimized, performance-optimized, balanced. |
-| **package-extension** | `/package-extension` | Package selected extension from monorepo as individual npm pi-package. Sets up package.json with pi manifest, guides through publishing. Lists extensions, discovers imports, creates README, shows `npm publish` commands. |
 | **architecture-review** | `/architecture-review` | Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors. |
-| **changelog-check** | `/changelog-check` | Analyze pi CHANGELOG.md for breaking changes affecting extensions. Generates migration report. |
-| **extension-validation** | `/extension-validation <path>` | Validate extension structure, imports, hooks against pi extension API. |
-| **release-cheasee-pi** | `/skill:release-cheasee-pi` | Create GitHub release: determine version from feature count since last tag, fetch/categorize merged PRs, run tests, create tag. |
 | **writing-voice** | `/writing-voice` | Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. |
+
+> **Harness-dev prompts** (internal): `changelog-check`, `extension-validation`, `package-extension` — only needed when maintaining Cheasee-Pi extensions.
 
 ## Template organization
 
@@ -46,11 +44,8 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 │   └── quiz-master.md
 ├── operations/
 │   ├── model-select.md
-│   ├── package-extension.md
 │   ├── architecture-review.md
-│   ├── changelog-check.md
-│   ├── extension-validation.md
-│   └── (moved to .pi/skills/release-cheasee-pi/)
+│   └── (changelog-check, extension-validation, package-extension — internal, not in public build)
 └── misc/
     └── writing-voice.md
 ```

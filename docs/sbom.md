@@ -79,7 +79,7 @@ nav_order: 10
 | `format-on-save` | DX | Auto Prettier + ESLint after write/edit |
 | `piignore` | Safety | Path blocking via `.piignore` |
 | `tsc-checkpoint` | DX | TypeScript type checking |
-| `check-extensions` | DX | Extension compatibility audit |
+| `check-extensions` | DX (internal) | Extension compatibility audit |
 | `worktree-sandbox` | Safety | Worktree path enforcement |
 | `rtk` | Core tool | Token-saving bash rewrite via `rtk` binary (60-90% less output) |
 | `lsp-auditor` | Pipeline | LSP diagnostics pre-audit |

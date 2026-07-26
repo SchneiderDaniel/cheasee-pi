@@ -9,13 +9,13 @@ nav_order: 16
 
 {: .no_toc }
 
-[📄 README](../../.pi/extensions/check-extensions/README.md)
+<!-- README ref: internal path, not published -->
 
-**Why.** Pi releases can break extensions silently — removed APIs, renamed hooks, deprecated signatures. Check Extensions automates auditing all `.pi/extensions/` against pi's CHANGELOG, detects breakage, and generates migration snippets.
+**Why.** Pi releases can break extensions silently — removed APIs, renamed hooks, deprecated signatures. Check Extensions automates auditing all extensions against pi's CHANGELOG, detects breakage, and generates migration snippets.
 
 **How it works.** Triggered via `/check-extensions` (trust-gated). Pipeline runs: parses pi's CHANGELOG.md from node_modules for breaking change entries → walks `.pi/extensions/` and scans each extension with ast-grep AST analysis → cross-references extension API usage against changelog entries → scores each compatibility issue by severity (removed > renamed > deprecated) → sends structured findings to the in-session LLM for evaluation. The LLM decides which findings warrant GitHub issues and creates them.
 
-**Location:** `.pi/extensions/check-extensions/`
+**Location:** Internal (harness-dev only)
 
 ---
 
