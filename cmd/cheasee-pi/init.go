@@ -52,7 +52,7 @@ type SourceForkInput struct {
 	ForkURL    string
 }
 
-// InitPorts bundles the 12 injected port interfaces used by runInit.
+// InitPorts bundles the injected port interfaces used by runInit.
 type InitPorts struct {
 	Docker    Checker
 	Cfg       Repository
@@ -66,6 +66,7 @@ type InitPorts struct {
 	GitID     GitIdentity
 	Scaffold  SettingsScaffold
 	GitInit   GitInitializer
+	Remover   InitRemover
 }
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
@@ -235,6 +236,8 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	initRemover := NewInitRemover()
+
 	return runInit(ctx, InitDeps{
 		Ports: InitPorts{
 			Docker:    dockerChecker,
@@ -249,6 +252,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 			GitID:     gitIdentity,
 			Scaffold:  scaffold,
 			GitInit:   gitInit,
+			Remover:   initRemover,
 		},
 		APIKey:           initAPIKey,
 		NoDockerCheck:    initNoDockerCheck,
@@ -394,6 +398,13 @@ func runInit(ctx context.Context, deps InitDeps) error {
 				if !ok {
 					fmt.Fprintln(os.Stderr, "Init cancelled.")
 					return nil
+				}
+			}
+
+			// Post-clone cleanup: remove files listed in .initremove
+			if deps.SourceFork.Mode != ModeSkipFork && deps.Ports.Remover != nil {
+				if err := deps.Ports.Remover.Remove(deps.Workdir); err != nil {
+					return fmt.Errorf("post-clone cleanup: %w", err)
 				}
 			}
 

@@ -42,6 +42,7 @@ func defaultMocks() InitPorts {
 		GitID:    &mockGitIdentity{},
 		Scaffold: &mockSettingsScaffold{},
 		GitInit:  &mockGitInitializer{},
+		Remover:  &mockInitRemover{},
 	}
 }
 
@@ -2359,4 +2360,388 @@ func TestExtract_SkipsPiSubtree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workdir, "pi")); err == nil {
 		t.Error("pi/ should not be extracted to workspace")
 	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 5: InitRemover adapter tests
+// ──────────────────────────────────────────────
+
+func TestInitRemove_NoFile(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+
+	if err := r.Remove(workdir); err != nil {
+		t.Fatalf("Remove with no .initremove should return nil: %v", err)
+	}
+}
+
+func TestInitRemove_OnlyComments(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), []byte("# comment\n\n  # another\n"), 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+
+	if err := r.Remove(workdir); err != nil {
+		t.Fatalf("Remove with only comments should return nil: %v", err)
+	}
+}
+
+func TestInitRemove_SingleFile(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("test.md")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	target := filepath.Join(workdir, "test.md")
+	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+		t.Fatalf("write test.md: %v", err)
+	}
+
+	// Capture stderr
+	stderr := captureStderr(t, func() {
+		if err := r.Remove(workdir); err != nil {
+			t.Fatalf("Remove failed: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("test.md should be removed")
+	}
+	if !strings.Contains(stderr, "  ✓ Removed test.md") {
+		t.Errorf("expected removal log line, got: %s", stderr)
+	}
+}
+
+func TestInitRemove_Directory(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte(".github/")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	dir := filepath.Join(workdir, ".github")
+	if err := os.MkdirAll(filepath.Join(dir, "workflows"), 0755); err != nil {
+		t.Fatalf("create .github dir: %v", err)
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := r.Remove(workdir); err != nil {
+			t.Fatalf("Remove failed: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error(".github/ should be removed")
+	}
+	if !strings.Contains(stderr, "  ✓ Removed .github") {
+		t.Errorf("expected removal log line, got: %s", stderr)
+	}
+}
+
+func TestInitRemove_MultiplePatterns(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("a.md\nb.md")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "a.md"), []byte("a"), 0644); err != nil {
+		t.Fatalf("write a.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "b.md"), []byte("b"), 0644); err != nil {
+		t.Fatalf("write b.md: %v", err)
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := r.Remove(workdir); err != nil {
+			t.Fatalf("Remove failed: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(filepath.Join(workdir, "a.md")); !os.IsNotExist(err) {
+		t.Error("a.md should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(workdir, "b.md")); !os.IsNotExist(err) {
+		t.Error("b.md should be removed")
+	}
+	if !strings.Contains(stderr, "  ✓ Removed a.md") {
+		t.Errorf("expected a.md removal log line, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "  ✓ Removed b.md") {
+		t.Errorf("expected b.md removal log line, got: %s", stderr)
+	}
+}
+
+func TestInitRemove_GitmodulesProtected(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte(".gitmodules")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, ".gitmodules"), []byte("[submodule \"test\"]\n\tpath = test\n\turl = https://github.com/x/test.git"), 0644); err != nil {
+		t.Fatalf("write .gitmodules: %v", err)
+	}
+
+	if err := r.Remove(workdir); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workdir, ".gitmodules")); os.IsNotExist(err) {
+		t.Error(".gitmodules should be preserved")
+	}
+}
+
+func TestInitRemove_NonExistentPattern(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("nonexistent.md")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+
+	// Should not error — pattern with zero matches is silently skipped
+	if err := r.Remove(workdir); err != nil {
+		t.Fatalf("Remove with non-existent pattern should return nil: %v", err)
+	}
+}
+
+func TestInitRemove_InvalidGlob(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("unmatched[brackets")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+
+	err := r.Remove(workdir)
+	if err == nil {
+		t.Fatal("expected error for invalid glob syntax")
+	}
+	if !strings.Contains(err.Error(), "invalid glob pattern") {
+		t.Errorf("error should mention invalid glob: %v", err)
+	}
+}
+
+func TestInitRemove_DeepGlob(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("**/node_modules/")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	subdir := filepath.Join(workdir, "a", "b", "node_modules")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatalf("create nested node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subdir, "pkg"), []byte("lib"), 0644); err != nil {
+		t.Fatalf("write pkg: %v", err)
+	}
+
+	stderr := captureStderr(t, func() {
+		if err := r.Remove(workdir); err != nil {
+			t.Fatalf("Remove failed: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(subdir); !os.IsNotExist(err) {
+		t.Error("nested node_modules/ should be removed")
+	}
+	if !strings.Contains(stderr, "  ✓ Removed a/b/node_modules") {
+		t.Errorf("expected removal log line, got: %s", stderr)
+	}
+}
+
+func TestInitRemove_TrailingWhitespaceStripped(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	content := []byte("test.md   ")
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "test.md"), []byte("data"), 0644); err != nil {
+		t.Fatalf("write test.md: %v", err)
+	}
+
+	if err := r.Remove(workdir); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workdir, "test.md")); !os.IsNotExist(err) {
+		t.Error("test.md should be removed")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 6: Orchestrator tests for InitRemover
+// ──────────────────────────────────────────────
+
+func TestRunInit_RemoverCalled(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	removerCalled := false
+	var calledWith string
+	remover := &mockInitRemover{
+		removeFunc: func(workdir string) error {
+			removerCalled = true
+			calledWith = workdir
+			return nil
+		},
+	}
+
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Remover = remover
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
+	if err != nil {
+		t.Fatalf("full flow with remover failed: %v", err)
+	}
+	if !removerCalled {
+		t.Error("Remover.Remove should be called")
+	}
+	if calledWith != workdir {
+		t.Errorf("expected workdir %q, got %q", workdir, calledWith)
+	}
+}
+
+func TestRunInit_RemoverNil(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Remover = nil // explicitly nil
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
+	if err != nil {
+		t.Fatalf("flow with nil remover should work: %v", err)
+	}
+}
+
+func TestRunInit_RemoverError(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	remover := &mockInitRemover{
+		removeFunc: func(workdir string) error {
+			return fmt.Errorf("permission denied: test.md")
+		},
+	}
+
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Remover = remover
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
+	if err == nil {
+		t.Fatal("expected error when remover fails")
+	}
+	if !strings.Contains(err.Error(), "post-clone cleanup") {
+		t.Errorf("error should wrap with phase prefix: %v", err)
+	}
+}
+
+func TestRunInit_RemoverSkipFork(t *testing.T) {
+	mockDocker := &mockDockerChecker{
+		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
+	}
+	mockCfg := &mockRepository{}
+
+	removerCalled := false
+	remover := &mockInitRemover{
+		removeFunc: func(workdir string) error {
+			removerCalled = true
+			return nil
+		},
+	}
+
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
+	ports.Remover = remover
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), InitDeps{
+		Ports:          ports,
+		NoDockerCheck:  false,
+		NoGitHub:       false,
+		NoInput:        true,
+		SourceFork:     SourceForkInput{Mode: ModeSkipFork},
+		Workdir:        workdir,
+		ConfirmFn:      mockConfirmFn(true, nil),
+		InputFn:        mockInputFn("", nil),
+	})
+	if err != nil {
+		t.Fatalf("skip-fork flow failed: %v", err)
+	}
+	if removerCalled {
+		t.Error("Remover.Remove should NOT be called in skip-fork mode (no clone)")
+	}
+}
+
+// captureStderr runs fn and returns any output written to stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+
+	out := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		out <- buf.String()
+	}()
+
+	fn()
+
+	os.Stderr = orig
+	w.Close()
+	return <-out
 }
