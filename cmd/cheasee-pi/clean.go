@@ -13,18 +13,18 @@ var cleanName string
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Kill orphaned pi sessions and prune dangling images",
+	Short: "Kill orphaned pi sessions and prune Docker garbage (dangling images + build cache)",
 	Long: `Kill orphaned pi processes inside the Cheasee-Pi Docker container and
-prune dangling Docker images from old builds.
+prune dangling Docker images and build cache from old rebuilds.
 
 Pi processes orphaned by disconnected docker exec sessions accumulate RAM.
 Run this when memory usage is high. Only kills processes reparented to PID 1
 (orphans) — interactive sessions are NOT affected.
-Dangling images (from rebuilds) are pruned keeping the tagged in-use image.
+Dangling images and build cache (intermediate layers) are pruned.
 Use 'cheasee-pi start' to start a fresh session after cleaning.
 
 Examples:
-  cheasee-pi clean               # kill orphaned pi + prune dangling images
+  cheasee-pi clean               # kill orphaned pi + prune Docker garbage
   cheasee-pi clean --name mypi   # specify container name`,
 	DisableAutoGenTag: true,
 	RunE:              runCleanE,
@@ -38,7 +38,6 @@ func init() {
 // pruneDanglingImages removes all dangling (<none>:<none>) Docker images.
 // Tagged/in-use images are never affected.
 func pruneDanglingImages() {
-	// Check if any dangling images exist first
 	ls := exec.Command("docker", "images", "--filter", "dangling=true", "-q")
 	out, err := ls.Output()
 	if err != nil || len(out) == 0 {
@@ -68,5 +67,15 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 	}
 
 	pruneDanglingImages()
+
+	// Build cache accumulates quickly with repeated rebuilds.
+	// Run unconditionally — it's fast when empty.
+	cmd2 := exec.Command("docker", "buildx", "prune", "-f")
+	if err := cmd2.Run(); err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+	}
+
 	return nil
 }
+
+
