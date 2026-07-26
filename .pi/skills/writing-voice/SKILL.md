@@ -1,6 +1,7 @@
 ---
 name: writing-voice
 description: "Writing style guide for project documentation. Apply before any writing summaries, docs, READMEs, guides, or any user-facing text."
+disable-model-invocation: true
 ---
 
 # Writing Voice Skill
