@@ -25,7 +25,6 @@ All components run locally. No code leaves your machine (except LLM API calls to
 | **Web Search** | DuckDuckGo search via ddgs Python lib |
 | **Context Info** | Rich TUI status bar (branch, model, tokens, TPS, cache) |
 | **Session Logger** | Session logging to JSONL with Markdown reports |
-| **Session Advice** | Post-session pattern analysis + feedback loop |
 | **Agent Harness** | Runtime tool call validation (blocks dangerous patterns) |
 | **Caveman Protocol** | Token-efficient communication |
 | **Ponytail** | Lazy senior dev mode — YAGNI, stdlib-first, minimal code |
@@ -33,7 +32,6 @@ All components run locally. No code leaves your machine (except LLM API calls to
 | **Format on Save** | Auto Prettier + ESLint after write/edit |
 | **PiIgnore** | Path blocking via `.piignore` patterns |
 | **TSC Checkpoint** | `/check` command: `tsc --noEmit` |
-| **Check Extensions** | Extension compatibility audit |
 | **Worktree Sandbox** | Worktree path enforcement |
 | **RTK** | Token-saving bash rewrite — 60-90% less output per command |
 | **LSP Auditor** | LSP diagnostics pre-audit for pipeline |
@@ -73,10 +71,10 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
 | [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage) | Docker workflow, parallel sessions, troubleshooting |
 | [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
-| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 19 extensions, agent definitions, published packages |
-| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 5 reusable skill definitions |
+| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 18 extensions, agent definitions, published packages |
+| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 20 skill definitions (10 auto-loaded, 10 manual) |
 | [Methodology](https://schneiderdaniel.github.io/cheasee-pi/methodology) | Kanban pipeline, security, token efficiency, daily use |
-| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | 11 prompt templates |
+| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | Internal-only prompts (all Cheasee-Pi prompts converted to skills) |
 | [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
 | [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses |
 

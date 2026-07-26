@@ -66,8 +66,7 @@ Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitiv
 | Format on Save | Prettier + ESLint | No formatting or linting |
 | TSC Checkpoint | TypeScript compiler | Skipped with message |
 | Session Logger | Report generation | No reports written |
-| Session Advice | Advice generation + lesson injection | Disabled |
-| Check Extensions | Extension audit | Disabled |
+| Check Extensions | Extension audit | Disabled (internal) |
 | Ask User | Q&A history persistence | History not written to disk |
 | Supervisor CI gating | GitHub check run polling | CI gate skipped (branch may not exist) |
 | Supervisor dead-code gate | knip execution | Dead code check skipped |

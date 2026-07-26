@@ -32,7 +32,6 @@ This page lists all Cheasee-Pi extensions. Each has its own page with **Why** (b
 | `.pi/extensions/ponytail/` | [Ponytail](extensions/ponytail) |
 | `.pi/extensions/piignore/` | [PiIgnore](extensions/piignore) |
 | `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
-| *(internal-only)* | [Check Extensions](extensions/check-extensions) — harness-dev, not in public build |
 | `.pi/extensions/worktree-sandbox/` | [Worktree Sandbox](extensions/worktree-sandbox) |
 | `.pi/extensions/rtk/` | [RTK](extensions/rtk) |
 | `.pi/extensions/lib/` | Shared library (not an extension) — `extension-state.ts`, `bash-query.ts`, `ensureVenv.ts` |
@@ -53,4 +52,4 @@ Selected extensions are published as npm packages under the `@cheasee-pi` scope.
 
 **Package structure:** Each published extension has its own `package.json` with `keywords: ["pi-package"]` and a `pi` manifest pointing to its entry file.
 
-> `/package-extension` prompt is internal (harness-dev only, not in public build).
+> Internal-only extensions: check-extensions (harness-dev), not in public build.

@@ -1,7 +1,6 @@
 ---
 name: supervisor-render
 description: >
-disable-model-invocation: true
   Renders the supervisor's chat messages with the REAL pi TUI — live theme
   proxy, Box, Markdown, actual ANSI render lines — so output is the bytes pi
   would draw, never hypothetical. Covers both synthetic fixtures (one per
@@ -11,6 +10,7 @@ disable-model-invocation: true
   to see, discuss, or iterate on what the supervisor's chat actually looks
   like. Triggers: "render supervisor", "supervisor render", "show supervisor
   output", "validate supervisor rendering", "supervisor workflow", "/supervisor-render".
+disable-model-invocation: true
 ---
 
 # Supervisor Render Skill
