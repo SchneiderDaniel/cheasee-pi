@@ -8,7 +8,9 @@ nav_order: 6
 
 {: .no_toc }
 
-Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/prompts/` organized by category.
+All prompts were converted to skills with `disable-model-invocation: true`. They no longer live in `.pi/prompts/` but in `.pi/skills/`, invocable via `/skill:<name>`. Agent does NOT load them automatically — manual invocation only.
+
+> Only harness-dev prompts remain in `../private-pi/prompts/` (not installed in public builds).
 
 ## Table of contents
 {: .no_toc .text-delta }
@@ -18,34 +20,12 @@ Prompt templates are invocable via `/name` in Pi's editor. Files stored in `.pi/
 
 ---
 
-| Template | Usage | What it does |
-|----------|-------|--------------|
-| **issue-cutter** | `/issue-cutter <number>` | Split epic into ordered, testable sub-issues with layer labels. Auto-links children to parent via GraphQL. |
-| **issue-refinement** | `/issue-refinement <number>` | Grill issue against codebase, Socratic interview via `ask_user` (≥3 MC options), replace body with concrete ACs. |
-| **handover** | `/handover` | Write handover doc summarizing conversation. Saves to `ignore/` with datetime prefix. |
-| **pr-review** | `/pr-review` | Automated PR security/quality checks, validates against Cheasee-Pi philosophy, formats structured review comment. |
-| **quiz-master** | `/quiz-master` | List open PRs across repo + submodules, quiz reviewer on diff with MC questions, auto-merge if score ≥80%. |
-| **model-select** | `/model-select <objective>` | Research + recommend models per agent role. Crawls providers, benchmarks, pricing. Three objectives: cost-optimized, performance-optimized, balanced. |
-| **architecture-review** | `/architecture-review` | Audit codebase architecture against Clean Architecture + PEAA principles. Identifies violations, proposes refactors. |
-| **writing-voice** | `/writing-voice` | Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. |
-
-> **Harness-dev prompts** (internal): `changelog-check`, `extension-validation`, `package-extension` — only needed when maintaining Cheasee-Pi extensions.
+All Cheasee-Pi prompts became skills. See [Skills](skills) for details.
 
 ## Template organization
 
 ```
-.pi/prompts/
-├── requirement/
-│   ├── issue-cutter.md
-│   └── issue-refinement.md
-├── development/
-│   ├── handover.md
-│   ├── pr-review.md
-│   └── quiz-master.md
-├── operations/
-│   ├── model-select.md
-│   ├── architecture-review.md
-│   └── (changelog-check, extension-validation, package-extension — internal, not in public build)
-└── misc/
-    └── writing-voice.md
+.pi/prompts/ — empty (all converted to skills)
+
+Internal prompts (not in public build): changelog-check, extension-validation, package-extension
 ```

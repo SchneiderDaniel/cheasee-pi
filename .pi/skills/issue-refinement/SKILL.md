@@ -1,6 +1,7 @@
 ---
+name: issue-refinement
 description: Refine a GitHub issue by conducting a one-question-at-a-time Socratic interview, challenging the issue against the codebase, then replacing vague requirements with concrete acceptance criteria.
-argument-hint: "<issue-number>"
+disable-model-invocation: true
 ---
 
 # Issue Refinement — One-Question-at-a-Time Socratic Interview
@@ -72,7 +73,7 @@ Every vague answer gets a follow-up until it becomes concrete and testable.
 
 Read the conversation history. Determine your state:
 
-- **INITIAL**: First invocation of `/issue-refinement` in this conversation. → Go to PHASE 0: INVESTIGATE.
+- **INITIAL**: First invocation of `/skill:issue-refinement` in this conversation. → Go to PHASE 0: INVESTIGATE.
 - **INTERVIEWING**: Investigation done, interview in progress. → Go to PHASE 1: INTERVIEW.
 - **FRONTEND_INTERVIEWING**: Core interview done, but `frontend_flag` is `true` and frontend refinement questions remain. → Go to PHASE 1.5: FRONTEND REFINEMENT.
 - **COMPLETE**: All topics covered, understanding reached. → Go to PHASE 2: WRITE & UPDATE (write the refined issue and update GitHub in one shot, no approval).
@@ -448,7 +449,7 @@ options:
   - label: "Other (type your answer)"                      value: "other"
 ```
 
-- If user selects **"cut"** → immediately load and follow `.pi/prompts/issue-cutter.md` for issue #$1.
+- If user selects **"cut"** → immediately load and follow `.pi/skills/issue-cutter/SKILL.md` for issue #$1.
 - If user selects **"done"** or **"other"** → acknowledge and end.
 
 ---

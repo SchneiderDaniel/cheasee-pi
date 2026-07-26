@@ -1,6 +1,7 @@
 ---
-description: Review external contributor PR with automated checks + human review
-argument-hint: "<PR-number>"
+name: pr-review
+description: Review external contributor PR with automated checks + human review.
+disable-model-invocation: true
 ---
 
 # PR Review

@@ -55,7 +55,7 @@ read references/voice-{lang}.md
 ```
 
 Extract rules and apply them.
-If not found: write in neutral/default style. Optionally suggest creating voice file via `@.pi/prompts/misc/misc:writing-voice`.
+If not found: write in neutral/default style. Optionally suggest creating voice file via `/skill:voice-trainer`.
 
 ### Step 3 — Apply Rules When Writing
 
@@ -75,7 +75,7 @@ Before finalizing, verify the output against each dimension in the voice file. I
 
 ## Creating New Voice Files
 
-Use `@.pi/prompts/misc/misc:writing-voice` to analyze writing samples and generate new voice files.
+Use `/skill:voice-trainer` to analyze writing samples and generate new voice files.
 
 The prompt:
 1. Collects sample text (paste, URL, or file)
@@ -108,4 +108,4 @@ ls references/
 2. **If voice file missing for language**, write neutral style, note absence
 3. **Zero-content rule** from source analysis does not apply here — this skill **consumes** voice files, not creates them
 4. **Do not modify voice files** during consumption. Voice files are read-only reference
-5. **New voice files** created via `@.pi/prompts/misc/misc:writing-voice` only
+5. **New voice files** created via `/skill:voice-trainer` only

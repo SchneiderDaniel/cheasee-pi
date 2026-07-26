@@ -1,6 +1,7 @@
 ---
+name: issue-cutter
 description: Split a GitHub epic into smaller, ordered, independently testable sub-issues and create them on GitHub as children of the parent epic.
-argument-hint: "<issue-number>"
+disable-model-invocation: true
 ---
 
 # Issue Cutter

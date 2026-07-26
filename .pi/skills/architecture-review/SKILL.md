@@ -1,5 +1,7 @@
 ---
+name: architecture-review
 description: Analyze codebase architectural friction — shallow modules, leaky seams, low locality. File umbrella GitHub issue with Mermaid diagrams plus sub-issues per candidate with dependency categories and testing strategy.
+disable-model-invocation: true
 ---
 
 # Architecture Review — Surface & Deepen Shallow Modules
@@ -11,7 +13,7 @@ Requires: `gh` CLI authenticated.
 ## Usage
 
 ```
-/architecture-review <target>
+/skill:architecture-review <target>
 ```
 
 | Target              | What it analyzes                                |
@@ -26,7 +28,7 @@ Requires: `gh` CLI authenticated.
 
 Extract target from message:
 
-- `/architecture-review <target>` → use directly
+- `/skill:architecture-review <target>` → use directly
 - Natural language: parse "of X", "in X", "for X", or single word matching submodule name or valid path
 - If nothing matches, treat as `root`
 
@@ -146,7 +148,7 @@ Sub-issue fields:
 1. Add umbrella and all sub-issues to project board with status `Research` (use `gh project item-edit` or GraphQL). The parent-child hierarchy is already rendered in the GitHub UI via `--parent`; **do not** also post a comment table — that duplicates the native sub-issue list.
 2. Print all issue URLs
 
-> Architecture review filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Use `/issue-refinement <number>` on any candidate, then `/supervisor <number>` to implement.
+> Architecture review filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Use `/skill:issue-refinement <number>` on any candidate, then `/supervisor <number>` to implement.
 
 ## Dependency categories
 
@@ -197,4 +199,3 @@ Use these terms exactly in every suggestion. No substitutions.
 ## Tone
 
 Lean editorial. No hedging, no throat-clearing, no "it's worth noting". Sentence → bullet if possible. Bullet → cut if possible.
-```

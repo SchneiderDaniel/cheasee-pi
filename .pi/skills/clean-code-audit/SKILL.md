@@ -1,5 +1,7 @@
 ---
+name: clean-code-audit
 description: Scan target code for two grounded violations — oversized files/functions (SonarQube S104, Clean Code) and "what" comments that restate the code. File umbrella GitHub issue with audit candidates plus per-candidate sub-issues with before/after diff and cited source.
+disable-model-invocation: true
 ---
 
 # Clean Code Audit — File Size & Self-Documenting Code
@@ -11,7 +13,7 @@ Requires: `gh` CLI authenticated.
 ## Usage
 
 ```
-/clean-code-audit <target>
+/skill:clean-code-audit <target>
 ```
 
 | Target              | What it analyzes                                |
@@ -26,7 +28,7 @@ Requires: `gh` CLI authenticated.
 
 Extract target from message:
 
-- `/clean-code-audit <target>` → use directly
+- `/skill:clean-code-audit <target>` → use directly
 - Natural language: parse "of X", "in X", "for X", or single word matching submodule name or valid path
 - If nothing matches, treat as `root`
 
@@ -160,8 +162,6 @@ gh issue create \
   --parent <umbrella-number>
 ```
 
-The `--parent <number>` flag is the **only** mechanism that produces a real sub-issue in GitHub's issue hierarchy. Cross-reference comments and body mentions do **not** create the parent-child link — issues filed that way are independent issues that merely mention each other, which is exactly the bug we are fixing here.
-
 Sub-issue fields:
 - **Title:** `CLEAN: <candidate short title>`
 - **Body:**
@@ -169,7 +169,7 @@ Sub-issue fields:
   Part of **Clean Code Audit: <target-name>** (#N)
 
   **Rule:** Rule 1 (file size) / Rule 2 (self-documenting code)
-  **Source authority:** <cite — e.g. SonarQube S104 default 1000 lines; Clean Code ch. 4 "Explain yourself in code">
+  **Source authority:** <cite>
   **Evidence:** <tool output>
 
   **Before:**
@@ -186,15 +186,14 @@ Sub-issue fields:
   - [ ] All tests pass without modification
   - [ ] Build succeeds with no new warnings
   - [ ] Linter/formatter passes
-  - [ ] Error behaviour preserved (for splits: re-exports keep call sites stable)
+  - [ ] Error behaviour preserved
   - [ ] Teammate would approve as net improvement
   ````
 - **Labels:** same as umbrella (`clean-code` + submodule name)
-- The body opens with `Part of **Clean Code Audit: <target-name>** (#N)` (informational only; the real parent link is set by `--parent`, not this line).
 
 ### 5 — Board, complete
 
-1. Add umbrella and all sub-issues to project board with status `Research` (use `gh project item-edit` or GraphQL). The parent-child hierarchy is already rendered in the GitHub UI via `--parent`; **do not** also post a comment table — that duplicates the native sub-issue list.
+1. Add umbrella and all sub-issues to project board with status `Research`.
 2. Print all issue URLs
 
 > Clean code audit filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Apply with `/supervisor <number>` on any candidate.
@@ -207,7 +206,7 @@ A source file that grows beyond a few hundred lines signals that more than one r
 
 ### Rule 2 — Self-Documenting Code
 
-Robert C. Martin states the principle directly in _Clean Code_ ch. 4: "Comments do not make up for bad code. We should be explaining ourselves in code." [3] The reader's three questions — _what_, _how_, _why_ — map to three answers: naming/types/signatures answer _what_, structure answers _how_, comments answer _why_ only [6]. A comment that answers _what_ is a signal that the code does not yet speak for itself; refactor it away rather than annotating it.
+Robert C. Martin states the principle directly in _Clean Code_ ch. 4: "Comments do not make up for bad code. We should be explaining ourselves in code." [3]
 
 ## Refactor Patterns
 
@@ -215,74 +214,31 @@ Robert C. Martin states the principle directly in _Clean Code_ ch. 4: "Comments 
 
 When a file crosses a threshold, proceed as follows:
 
-1. Identify cohesive clusters — UI vs logic vs types vs config vs tests.
-2. Extract each cluster into a named sub-module (`helpers.ts`, `types.ts`, `logic.ts`).
+1. Identify cohesive clusters.
+2. Extract each cluster into a named sub-module.
 3. Re-export the public API from an `index.ts` / `__init__.py` so existing callers continue to work.
-4. Run the test suite after every extraction; revert any extraction that turns a test red.
-
-When a function crosses a threshold, extract a named helper from its largest cohesive span, then verify the call site reads as English at the extraction point.
+4. Run the test suite after every extraction.
 
 ### Rule 2 — comment refactor
 
-When a "what" comment is found, do not delete it silently. Apply the following sequence:
+When a "what" comment is found:
 
-1. **Extract** the block it describes into a function whose name states the intent (the comment becomes a call site that reads as a sentence).
-2. **Rename** cryptic locals (`d` → `daysSinceLastLogin`) so intent surfaces without a comment.
+1. **Extract** the block into a function whose name states the intent.
+2. **Rename** cryptic locals so intent surfaces without a comment.
 3. **Delete** the comment once the code communicates the same information on its own.
-4. **Verify** the code now reads without the comment; if not, return to step 1 and extract further.
-
-If the block is too tangled to express intent through naming alone, extract first and only then delete the comment — fix the code, not the annotation [3].
 
 ## Exemptions
 
-The size rule does not apply to files that are not authored by hand: auto-generated output (lockfiles, protobuf bindings, schema dumps, build artifacts), vendored third-party code under `vendor/` / `node_modules/` / `third_party/`, and test fixture data files where bulk is the point.
-
-The comment rule does not apply to: docstrings and JSDoc on public APIs (they document the contract, not the mechanism); marker comments (`TODO`, `FIXME`, `HACK`, `XXX`) and `ponytail:` markers (they record deferred decisions, i.e. _why_); legal headers and license blocks; regex explanations where the pattern is inherently opaque to a human reader.
+The size rule does not apply to auto-generated output, vendored third-party code, test fixture data. The comment rule does not apply to: docstrings on public APIs; marker comments (TODO, FIXME, HACK, XXX); legal headers; regex explanations.
 
 ## Sources
 
-The thresholds and patterns are drawn from the following sources, each cited so the rule can be re-evaluated as practice changes. Every sub-issue names the source that grounds its specific threshold.
-
-- [1] SonarSource, "S104: Files should not have too many lines", _SonarQube Server Documentation_. Default threshold 1000 lines; the built-in Sonar Way quality gate fails on any new issue introduced on new code. <https://docs.sonarsource.com/sonarqube-server/user-guide/code-metrics/metrics-definition>
-- [2] Steve McConnell, _Code Complete_, 2nd ed. (Microsoft Press, 2004), ch. 7 "How Long Can a Routine Be?" and ch. 27 "Layout and Style". Routines beyond 200 lines correlate with lower correctness; file size should permit an author to hold the whole structure in view.
-- [3] Robert C. Martin, _Clean Code: A Handbook of Agile Software Craftsmanship_ (Prentice Hall, 2008), ch. 3 "Functions" (functions should be small, ideally 4–20 lines, never exceeding ~100) and ch. 4 "Comments" ("Don't comment bad code — write it"; "Explain yourself in code").
-- [4] Linus Torvalds et al., _Linux Kernel Coding Style_, §1 Indentation (> 3 levels = refactor) and §2 Breaking long lines and strings (80-column limit; functions should fit on one screen). <https://www.kernel.org/doc/html/latest/process/coding-style.html>
-- [5] Google, _Google Java Style Guide_ §3.4 (100-column limit); _Google TypeScript Style Guide_ (column limit 80, raised to 100 with configuration). <https://google.github.io/styleguide/javaguide.html>
-- [6] Wouter, "Self-documenting is a myth, and how to make your code self-documenting", _DEV Community_, 2019. Articulates the what / how / why division that underpins Rule 2. <https://dev.to/woubuc/self-documenting-is-a-myth-and-how-to-make-your-code-self-documenting-3h2n>
-- [7] Microsoft, "Code metrics — Maintainability Index range and meaning", _Visual Studio Documentation_. The maintainability index ranges 0–100; a green rating (20–100) corresponds to highly maintainable code, a quantitative complement to the line-count heuristic. <https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning>
-
-## Common Rationalisations
-
-| Rationalisation | Reality |
-|---|---|
-| "It's working, no need to touch it" | Working code above 1000 lines is hard to hold in view; the next change costs more than the split does now. |
-| "The comment explains it for juniors" | A junior reads the comment and the code, then trusts the comment when they diverge. A well-named function teaches the junior and stays correct. |
-| "Fewer lines is always simpler" | A 1-line nested ternary is not simpler than a 5-line if/else. The audit flags _size_, not _line count_; comprehension speed is the metric. |
-| "The original author must have had a reason" | Maybe. Check `git blame` — apply Chesterton's Fence. But accumulated size and restating comments are usually residue of iteration under pressure, not design. |
-| "We'll split it when we touch it next" | Scope creep. File a sub-issue now so the split is visible at planning time, not discovered mid-feature. |
-| "Types make it self-documenting" | Types document structure, not intent. A `user.role === 'admin'` check with a `// check if admin` comment needs a `isAdmin(user)` predicate, not a type annotation. |
-
-## Red Flags
-
-- A split that changes any call site reachable from outside the file (re-exports must keep the public surface stable).
-- A comment deletion on side-effecting code where the comment hid a non-obvious ordering constraint — re-read for "why" before deleting.
-- Refactoring code outside the scope of the audit without being asked.
-- Batching a file split and a comment refactor into one commit; each sub-issue is its own reviewable change.
-- Flagging a generated or vendored file because `wc -l` returned a large number — check the header and the path first.
-
-## Verification
-
-After completing an audit pass:
-
-- [ ] Every candidate cites a source authority and tool output
-- [ ] Every sub-issue's before/after preserves behaviour identically (Rule 1 splits via re-export; Rule 2 deletes comment only)
-- [ ] All existing tests pass without modification after the refactor is applied
-- [ ] Build succeeds with no new warnings
-- [ ] Linter/formatter passes
-- [ ] Each sub-issue is a reviewable, incremental change
-- [ ] No generated or vendored file was flagged
-- [ ] A teammate or review agent would approve each change as a net improvement
+- [1] SonarSource, S104
+- [2] Steve McConnell, _Code Complete_, 2nd ed.
+- [3] Robert C. Martin, _Clean Code_, ch. 3-4
+- [4] Linux Kernel Coding Style, §1-2
+- [5] Google Java/TypeScript Style Guide
 
 ## Tone
 
-Lean editorial. No hedging, no throat-clearing. Sentence → bullet if possible. Bullet → cut if possible. Every audit recommendation cites the specific rule, the specific source, and the exact tool output that evidences it.
+Lean editorial. No hedging, no throat-clearing. Sentence → bullet if possible. Bullet → cut if possible.

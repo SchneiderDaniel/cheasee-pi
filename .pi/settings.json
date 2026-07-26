@@ -16,14 +16,7 @@
 			"source": "https://github.com/DietrichGebert/ponytail"
 		}
 	],
-	"prompts": [
-		"prompts",
-		"prompts/operations",
-		"prompts/development",
-		"prompts/requirement",
-		"prompts/misc",
-		"../private-pi/prompts"
-	],
+	"prompts": ["../private-pi/prompts"],
 	"quietStartup": true,
 	"sessionDir": ".pi/sessions",
 	"skills": [".pi/skills", "../private-pi/skills"],

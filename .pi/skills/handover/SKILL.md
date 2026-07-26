@@ -1,6 +1,10 @@
 ---
-description: Create a handover document in ignore/ from one agent to antoher. Should be used when the context window is displayed as red in the statusline (dump zone reached)
+name: handover
+description: Create a handover document in ignore/ from one agent to another. Should be used when the context window is displayed as red in the statusline (dump zone reached).
+disable-model-invocation: true
 ---
+
+# Handover
 
 Write a concise handover document summarising the current conversation including the task so a fresh agent can continue the work. Save it to folder ignore and give it a name with <datetime>\_<topic>.md
 

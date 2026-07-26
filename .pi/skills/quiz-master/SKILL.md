@@ -1,5 +1,7 @@
 ---
+name: quiz-master
 description: List open PRs across the main repo and all submodules, quiz the reviewer on diff content with multiple-choice questions, and auto-merge if they score at least 80%.
+disable-model-invocation: true
 ---
 
 # Quiz Master — PR Review Comprehension
