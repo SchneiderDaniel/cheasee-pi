@@ -81,14 +81,6 @@ Research and recommend coding models per agent role (architect, developer, test-
 - **Output:** Per-agent recommendation table with cost projections
 - **Invocation:** `/skill:model-select`
 
-### pr-review
-
-Review external contributor PRs with 12 automated checks (secrets scan, dependency audit, philosophy alignment, pi docs compliance) plus human checklist.
-
-- **Skills:** Security scanning, linting, dependency analysis
-- **Output:** Formatted review comment
-- **Invocation:** `/skill:pr-review <number>`
-
 ### quiz-master
 
 Quiz reviewer on PR diff with 3-5 multiple-choice questions. Auto-merges if score ≥ 80%.
@@ -156,4 +148,4 @@ Skills are Markdown files in `.pi/skills/<name>/SKILL.md` with YAML frontmatter.
 
 **Control autoloading:** Add `disable-model-invocation: true` to frontmatter to hide the skill from the agent. It will only be invocable manually via `/skill:name`. Use this for complex workflow skills that should not clutter the system prompt.
 
-> **Note:** Harness-dev skills (`extension-bug-hunter`, `extension-dead-code-hunter`, `extension-duplicate-code-hunter`, `extension-reinvention-issue-hunter`, `extension-spec`, `rebuild-cheasee-pi`, `release-cheasee-pi`, `supervisor-render`) are internal — not included in the public build. Customer skills with `disable-model-invocation: true` (`architecture-review`, `clean-code-audit`, `code-simplification`, `handover`, `issue-cutter`, `issue-refinement`, `model-select`, `pr-review`, `quiz-master`, `voice-trainer`) are visible in docs but hidden from the agent.
+> **Note:** Harness-dev skills (`extension-bug-hunter`, `extension-dead-code-hunter`, `extension-duplicate-code-hunter`, `extension-reinvention-issue-hunter`, `extension-spec`, `rebuild-cheasee-pi`, `release-cheasee-pi`, `supervisor-render`, `pr-review`) are internal — not included in the public build. Customer skills with `disable-model-invocation: true` (`architecture-review`, `clean-code-audit`, `code-simplification`, `handover`, `issue-cutter`, `issue-refinement`, `model-select`, `quiz-master`, `voice-trainer`) are visible in docs but hidden from the agent.
