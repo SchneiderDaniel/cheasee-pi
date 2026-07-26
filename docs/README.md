@@ -38,17 +38,25 @@ All components run locally. No code leaves your machine (except LLM API calls to
 
 ## Quick start
 
+### Install in one line
+
+```bash
+curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scripts/install.sh | bash
+```
+
+Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee-pi/releases).
+
 ### Using the CLI (auto)
 
 ```bash
-cheasee-pi                # start container + inject keys + launch pi (default)
 cheasee-pi init           # interactive setup: auth, fork, clone, env
+cheasee-pi                # start container + inject keys + launch pi (default)
+cheasee-pi down           # stop and remove container
+cheasee-pi clean          # kill orphaned pi sessions + prune Docker garbage
+cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 cheasee-pi auth add       # add API key for a provider
 cheasee-pi auth list      # list configured providers/keys
 cheasee-pi auth remove    # remove a provider key
-cheasee-pi down           # stop and remove container
-cheasee-pi clean          # kill orphaned pi sessions (free RAM)
-cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 ```
 
 ### Using Docker directly

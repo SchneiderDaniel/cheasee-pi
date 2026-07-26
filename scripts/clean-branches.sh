@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # Delete all remote branches on SchneiderDaniel/cheasee-pi except main
 # Usage: ./scripts/clean-branches.sh [--dry-run]
@@ -9,7 +9,8 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=true
 fi
 
-branches=$(gh api repos/SchneiderDaniel/cheasee-pi/branches --paginate --jq '.[].name' | grep -v '^main$')
+# grep exits 1 when no match — don't let that kill the script
+branches=$(gh api repos/SchneiderDaniel/cheasee-pi/branches --paginate --jq '.[].name' | grep -v '^main$' || true)
 
 if [[ -z "$branches" ]]; then
   echo "No branches to clean (only main exists)."
@@ -21,10 +22,14 @@ while IFS= read -r branch; do
   if $DRY_RUN; then
     echo "[DRY-RUN] would delete: $branch"
   else
-    gh api -X DELETE "repos/SchneiderDaniel/cheasee-pi/git/refs/heads/$branch" --silent
-    echo "✓ deleted: $branch"
+    if gh api -X DELETE "repos/SchneiderDaniel/cheasee-pi/git/refs/heads/$branch" --silent 2>/dev/null; then
+      echo "✓ deleted: $branch"
+    else
+      echo "✗ failed: $branch" >&2
+    fi
   fi
   ((count++))
 done <<< "$branches"
 
-echo "Done. $count branches deleted."
+echo "Done. $count branches processed."
+
