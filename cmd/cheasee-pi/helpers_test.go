@@ -369,6 +369,25 @@ func (m *mockGitInitializer) Init(ctx context.Context, workdir string) error {
 }
 
 // ──────────────────────────────────────────────
+// Mock: InitRemover
+// ──────────────────────────────────────────────
+
+type mockInitRemover struct {
+	removeFunc func(workdir string) error
+	called     bool
+	calledWith string
+}
+
+func (m *mockInitRemover) Remove(workdir string) error {
+	m.called = true
+	m.calledWith = workdir
+	if m.removeFunc != nil {
+		return m.removeFunc(workdir)
+	}
+	return nil
+}
+
+// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
@@ -386,4 +405,5 @@ var (
 	_ GitIdentity      = (*mockGitIdentity)(nil)
 	_ SettingsScaffold = (*mockSettingsScaffold)(nil)
 	_ GitInitializer   = (*mockGitInitializer)(nil)
+	_ InitRemover      = (*mockInitRemover)(nil)
 )
