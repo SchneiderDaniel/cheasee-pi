@@ -167,9 +167,26 @@ func containerRunning(name string) (bool, error) {
 
 func dockerComposeUp(ctx context.Context, workdir string) error {
 	composeDir := filepath.Join(workdir, "docker")
+	composeFile := filepath.Join(composeDir, "docker-compose.yml")
+
+	// Build with a per-build cache-busting stamp so the pi-coding-agent
+	// layer always re-resolves @latest (Docker caches RUN layers on the
+	// command text + ARG values; an unchanging ARG means a stale pi).
+	stamp := fmt.Sprintf("%d", time.Now().Unix())
+	build := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFile,
+		"build", "--build-arg", "PI_BUILD_STAMP="+stamp,
+	)
+	build.Stdout = os.Stderr
+	build.Stderr = os.Stderr
+	fmt.Fprintf(os.Stderr, "  ℹ Building container image...\n")
+	if err := build.Run(); err != nil {
+		return err
+	}
+
 	cmd := exec.CommandContext(ctx, "docker", "compose",
-		"-f", filepath.Join(composeDir, "docker-compose.yml"),
-		"up", "-d", "--build", "--remove-orphans",
+		"-f", composeFile,
+		"up", "-d", "--remove-orphans",
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

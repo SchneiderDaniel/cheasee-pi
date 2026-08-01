@@ -200,9 +200,15 @@ ENV PATH=/usr/local/go/bin:${PATH}
 #           don't invalidate expensive binary layers above)
 # ---------------------------------------------------------------
 ARG PI_VERSION=latest
+# Cache-busting stamp: any change to this ARG invalidates the npm layer,
+# so @latest is re-resolved on every build instead of reusing a stale layer.
+# Set it to a per-build value (e.g. $(date +%s)) via `docker compose build
+# --build-arg PI_BUILD_STAMP=$(date +%s)`.
+ARG PI_BUILD_STAMP
 RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
     && npm cache clean --force \
-    && rm -rf /tmp/*
+    && rm -rf /tmp/* \
+    && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
 
 # ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
