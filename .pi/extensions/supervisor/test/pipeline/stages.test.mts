@@ -1,5 +1,5 @@
-// ─── Tests: pipeline/stages.ts — pure + async functions ─────────
-// Covers all exported functions in stages.ts with mock dependencies.
+// ─── Tests: pipeline/stages/index.ts — pure + async functions ────
+// Covers all exported functions in the stages/ barrel with mock dependencies.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -35,7 +35,7 @@ import {
 	applyGateFailureContext,
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
-} from "../../pipeline/stages.ts";
+} from "../../pipeline/stages/index.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────
 

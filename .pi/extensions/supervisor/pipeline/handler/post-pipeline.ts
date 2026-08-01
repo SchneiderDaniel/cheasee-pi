@@ -14,7 +14,7 @@ import type {
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
-import { isDoneStatus } from "../stages.ts";
+import { isDoneStatus } from "../stages/index.ts";
 import { handlePostPipelineMerge } from "../merge.ts";
 import { cleanupWorktree } from "../worktree.ts";
 import { deleteCheckpointFile } from "../state-checkpoint.ts";

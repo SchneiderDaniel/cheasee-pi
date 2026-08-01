@@ -20,7 +20,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../config/types.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
-import { handlePostAgentSuccess } from "../pipeline/stages.ts";
+import { handlePostAgentSuccess } from "../pipeline/stages/index.ts";
 import { createMockGitHubPort } from "./helper/mock-github-port.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import {

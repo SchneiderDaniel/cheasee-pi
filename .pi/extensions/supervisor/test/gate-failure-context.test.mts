@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStageState, applyGateFailureContext } from "../pipeline/stages.ts";
-import type { StageState } from "../pipeline/stages.ts";
+import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
+import type { StageState } from "../pipeline/stages/index.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -116,15 +116,16 @@ describe("applyGateFailureContext (Phase 2, Issue #787)", () => {
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — gate failure context capture (Phase 4, Issue #787)", () => {
-	it("handler source contains applyGateFailureContext import from stages.ts", () => {
+	it("handler source contains applyGateFailureContext import from stages/index.ts", () => {
 		const src = readHandlerSource();
-		// Issue #1395 split: agent-loop.ts lives in the handler/ subdirectory,
-		// so the stages import uses "../stages.ts" instead of "./stages.ts".
-		const stagesImport = 'from "../stages.ts"';
+		// Issue #1395 split: agent-loop.ts lives in the handler/ subdirectory;
+		// issue #1397 split turned stages.ts into the stages/ directory, so the
+		// import is "../stages/index.ts" (barrel) instead of "../stages.ts".
+		const stagesImport = '} from "../stages/index.ts"';
 		const importSection = src.substring(0, src.indexOf(stagesImport) + stagesImport.length + 1);
 		assert.ok(
 			importSection.includes("applyGateFailureContext"),
-			"applyGateFailureContext imported from stages.ts",
+			"applyGateFailureContext imported from stages/index.ts",
 		);
 	});
 
