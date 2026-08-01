@@ -25,6 +25,7 @@ on:
       - "docker/stop-pi.sh"
       - "docker/lib/**"
       - "docker/test/cli-install-smoke.test.mts"
+      - ".pi/extensions/**"
       - ".github/workflows/cli-install-smoke.yml"
   workflow_dispatch:
 

@@ -40,7 +40,12 @@ function createMockCtx(opts: { hasUI?: boolean; trusted?: boolean } = {}): {
 
 function createMockPi(
 	opts: {
-		/** Throw on the first pi.events.emit call (simulates a mid-pipeline throw). */
+		/** Throw on the first non-null pi.events.emit call (the mid-pipeline
+		 * issue-data payload emit). The finally's null emit must never throw:
+		 * without a GH token createGitHubPort throws first, making the null
+		 * emit the FIRST emit — and a throw in `finally` escapes try/catch
+		 * (masking the original error). Payload-null exemption keeps the test
+		 * deterministic with or without a token. */
 		throwOnFirstEmit?: boolean;
 		/** exec mock: return this for every call, or throw. */
 		execResult?: { code: number; stdout: string; stderr: string } | Error;
@@ -67,7 +72,7 @@ function createMockPi(
 		},
 		events: {
 			emit: (_name: string, payload: unknown) => {
-				if (opts.throwOnFirstEmit && !emitThrown) {
+				if (opts.throwOnFirstEmit && !emitThrown && payload !== null) {
 					emitThrown = true;
 					throw new Error("mock emit failure");
 				}
