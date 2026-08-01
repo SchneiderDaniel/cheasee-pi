@@ -12,6 +12,8 @@
 import { describe, it, mock, before } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 // ─── Import real child_process to preserve non-mocked exports ─────
 // We need the real spawnSync for pi-coding-agent dependency.
@@ -1157,11 +1159,75 @@ if (hasMockModule) {
 			const result = buildSubprocessArgs(noModelAgent as any, "test task", "/tmp");
 			assert.ok(!result.args.includes("--model"), "should not have --model when empty");
 		});
+
+		it("missing skill with cwd lacking settings → no throw, skillPaths [], no --skill flag", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const badSkillAgent = {
+				config: {
+					name: "bad-skill-agent",
+					tools: "read",
+					model: "",
+					extensions: "",
+					skills: "definitely-missing-skill-xyz",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+			const result = buildSubprocessArgs(badSkillAgent as any, "test task", "/tmp");
+			assert.deepEqual(result.skillPaths, []);
+			assert.ok(!result.args.includes("--skill"), "no --skill flag for missing skill");
+			assert.ok(result.args.includes("--no-skills"), "--no-skills still present");
+		});
+
+		it("mixed resolvable + missing skill → only resolvable --skill emitted", async () => {
+			const { buildSubprocessArgs } = await import("../agent/runner.ts");
+			const mixedAgent = {
+				config: {
+					name: "mixed-agent",
+					tools: "read",
+					model: "",
+					extensions: "",
+					skills: "extension-spec, definitely-missing-skill-xyz",
+					thinking: "",
+				},
+				systemPrompt: "You are a test agent.",
+			};
+			const result = buildSubprocessArgs(mixedAgent as any, "test task", process.cwd());
+			const skillFlags = result.args.filter((a) => a === "--skill");
+			const hasPrivatePi = existsSync(
+				join(process.cwd(), "private-pi", "skills", "extension-spec", "SKILL.md"),
+			);
+			if (hasPrivatePi) {
+				assert.equal(result.skillPaths.length, 1);
+				assert.ok(
+					result.skillPaths[0]!.endsWith("extension-spec/SKILL.md"),
+					`got ${result.skillPaths[0]}`,
+				);
+				assert.equal(skillFlags.length, 1, "exactly one --skill flag");
+				assert.ok(result.args.includes("--no-skills"), "--no-skills still present");
+			} else {
+				// Submodule absent → both skills fail open
+				assert.deepEqual(result.skillPaths, []);
+				assert.equal(skillFlags.length, 0);
+			}
+		});
 	});
 
 	describe("runAgentSubprocess — safe fallback (guarded pre-Promise block)", () => {
-		it("sync throw from resolveSkillPaths (missing skill) returns {success: false}", async () => {
+		it("missing skill does not throw — subprocess runs with skill skipped (fail-open)", async () => {
 			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Completed." },
+					}),
+					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
 			const badSkillAgent = {
 				config: {
 					name: "bad-skill-agent",
@@ -1175,22 +1241,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const result = await runAgentSubprocess(
-				badSkillAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			emitMockEvents();
+			const result = await resultPromise;
 
-			assert.equal(result.success, false);
-			assert.ok(
-				result.summaryLine.includes("Subprocess setup failed") ||
-					result.summaryLine.includes("not found"),
-				`summaryLine should indicate failure: ${result.summaryLine}`,
-			);
+			assert.equal(result.success, true);
 			assert.equal(result.agentName, "bad-skill-agent");
-			assert.equal(result.toolCount, 0);
-			assert.equal(result.tokenCount, 0);
 		});
 
 		it("existsSync(effectiveCwd) guard still returns {success: false} (regression)", async () => {
@@ -1213,10 +1269,32 @@ if (hasMockModule) {
 		});
 
 		it("runAgentSubprocess never rejects for any input (bad skill, bad cwd)", async () => {
-			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 
-			// Bad skill
+			// Bad cwd — guarded before spawn, resolves without rejection
+			const badCwdResult = await runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				"/nonexistent-path-12345",
+			);
+			assert.equal(badCwdResult.success, false);
+			assert.equal(badCwdResult.agentName, "test-agent");
+
+			// Bad skill — fail-open: agent runs without the missing skill
+			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Done." },
+					}),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
 			const badSkillAgent = {
 				config: {
 					name: "bad-skill-agent",
@@ -1229,13 +1307,10 @@ if (hasMockModule) {
 				systemPrompt: "You are a test agent.",
 			};
 
-			const result = await runAgentSubprocess(
-				badSkillAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
-			assert.equal(result.success, false);
+			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			emitMockEvents();
+			const result = await resultPromise;
+			assert.equal(result.success, true);
 			assert.equal(result.agentName, "bad-skill-agent");
 		});
 
@@ -1266,8 +1341,19 @@ if (hasMockModule) {
 			assert.equal(result.success, true);
 		});
 
-		it("sync throw produces AgentRunResult with all expected fields", async () => {
+		it("fail-open missing skill still produces AgentRunResult with all expected fields", async () => {
 			resetMock();
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({
+						type: "message_update",
+						delta: { type: "text_delta", text_delta: "Finished." },
+					}),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: null,
+			};
 			const badSkillAgent = {
 				config: {
 					name: "bad-skill-agent",
@@ -1281,12 +1367,9 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const result = await runAgentSubprocess(
-				badSkillAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			emitMockEvents();
+			const result = await resultPromise;
 
 			// Verify all AgentRunResult fields are present
 			assert.equal(typeof result.success, "boolean");

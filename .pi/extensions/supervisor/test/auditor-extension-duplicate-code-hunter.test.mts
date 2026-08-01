@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -136,7 +136,17 @@ describe("resolveSkillPaths regression (Phase 3)", () => {
 		assert.deepEqual(resolveSkillPaths("   "), []);
 	});
 
-	it("resolveSkillPaths('nonexistent-skill-xyz') throws (regression)", () => {
-		assert.throws(() => resolveSkillPaths("nonexistent-skill-xyz"), /nonexistent-skill-xyz/);
+	it("resolveSkillPaths('nonexistent-skill-xyz') does not throw — warns and skips (regression)", () => {
+		const warnSpy = mock.method(console, "warn");
+		try {
+			const result = resolveSkillPaths("nonexistent-skill-xyz");
+			assert.deepEqual(result, []);
+		} finally {
+			warnSpy.mock.restore();
+		}
+		assert.ok(warnSpy.mock.calls.length >= 1, "should warn for missing skill");
+		assert.ok(
+			String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"),
+		);
 	});
 });

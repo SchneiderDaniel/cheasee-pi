@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -104,6 +105,50 @@ export function loadConfig(): SupervisorConfig {
 		submodules,
 		agentTimeoutsMin,
 	};
+}
+
+// ─── Skill roots ──────────────────────────────────────────────────────
+
+/**
+ * Read the `skills` array from `.pi/settings.json` and return absolute
+ * skill-root paths in declared order.
+ *
+ * - Pattern-prefixed entries (`!foo`, `+foo`, `-foo`) are SDK override
+ *   patterns over auto-discovered skills, not roots — filtered out.
+ * - Non-string / empty entries are ignored.
+ * - Base dir rule: `../`-prefixed entries resolve against the settings dir
+ *   (`<cwd>/.pi`), everything else against `cwd`. This makes both
+ *   `.pi/skills` and `../private-pi/skills` land where the CLI loads them
+ *   (`<repo>/.pi/skills` and `<repo>/private-pi/skills`).
+ * - Fail-open: missing/unreadable settings or missing `skills` key → `[]`
+ *   (worktrees stripped of submodule roots by init.go are the expected
+ *   state, not an anomaly).
+ */
+export function loadSkillsRoots(cwd: string): string[] {
+	const settingsPath = resolvePath(cwd, ".pi/settings.json");
+	let settings: Record<string, unknown> | null;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		settings = (typeof parsed === "object" && parsed !== null ? parsed : null) as Record<
+			string,
+			unknown
+		> | null;
+	} catch {
+		return [];
+	}
+	const entries = settings?.skills;
+	if (!Array.isArray(entries)) return [];
+
+	const settingsDir = resolvePath(cwd, ".pi");
+	const roots: string[] = [];
+	for (const entry of entries) {
+		if (typeof entry !== "string") continue;
+		const trimmed = entry.trim();
+		if (!trimmed || /^[!+-]/.test(trimmed)) continue;
+		const base = trimmed.startsWith("..") ? settingsDir : cwd;
+		roots.push(resolvePath(base, trimmed));
+	}
+	return roots;
 }
 
 // ─── Timeout validation ──────────────────────────────────────────────

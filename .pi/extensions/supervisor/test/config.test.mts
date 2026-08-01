@@ -1,9 +1,12 @@
 // ─── Tests: config.ts — Phase 1 config validation ──────────────────
 // Pure function tests — no infra needed.
 
-import { describe, it } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { validateAgentTimeouts } from "../config/config.ts";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, isAbsolute } from "node:path";
+import { validateAgentTimeouts, loadSkillsRoots } from "../config/config.ts";
 
 // ─── validateAgentTimeouts ────────────────────────────────────────
 
@@ -181,5 +184,76 @@ describe("loadConfig — config shape", () => {
 			typeof 1.0 === "number" && !isNaN(1.0) && 1.0 >= 0 && 1.0 <= 1,
 			"1.0 should be valid",
 		);
+	});
+});
+
+// ─── loadSkillsRoots — settings-driven skill roots ────────────────
+
+describe("loadSkillsRoots", () => {
+	let tmp: string;
+
+	afterEach(() => {
+		if (tmp) rmSync(tmp, { recursive: true, force: true });
+		tmp = "";
+	});
+
+	/** Write `.pi/settings.json` in a fresh temp dir; settingsJson null → no file. */
+	function makeFixture(settingsJson: string | null): string {
+		tmp = mkdtempSync(join(tmpdir(), "pi-skills-"));
+		if (settingsJson !== null) {
+			mkdirSync(join(tmp, ".pi"), { recursive: true });
+			writeFileSync(join(tmp, ".pi", "settings.json"), settingsJson);
+		}
+		return tmp;
+	}
+
+	it("adapter: plain entries resolve against cwd, ../ entries against settings dir", () => {
+		const dir = makeFixture(JSON.stringify({ skills: [".pi/skills", "../private-pi/skills"] }));
+		assert.deepEqual(loadSkillsRoots(dir), [
+			join(dir, ".pi", "skills"),
+			join(dir, "private-pi", "skills"),
+		]);
+	});
+
+	it("adapter: missing settings.json → [] (fail-open, no throw)", () => {
+		const dir = makeFixture(null);
+		assert.deepEqual(loadSkillsRoots(dir), []);
+	});
+
+	it("adapter: invalid JSON → [] (fail-open, no throw)", () => {
+		const dir = makeFixture("{ not json");
+		assert.deepEqual(loadSkillsRoots(dir), []);
+	});
+
+	it("entity: missing skills key or empty array → []", () => {
+		assert.deepEqual(loadSkillsRoots(makeFixture(JSON.stringify({ prompts: [] }))), []);
+		assert.deepEqual(loadSkillsRoots(makeFixture(JSON.stringify({ skills: [] }))), []);
+	});
+
+	it("entity: pattern-prefixed entries (!/+/−) filtered out, plain kept", () => {
+		const dir = makeFixture(
+			JSON.stringify({ skills: ["!foo", "+bar", "-baz", ".pi/skills"] }),
+		);
+		assert.deepEqual(loadSkillsRoots(dir), [join(dir, ".pi", "skills")]);
+	});
+
+	it("entity: non-string entries filtered out", () => {
+		const dir = makeFixture(
+			JSON.stringify({ skills: [".pi/skills", 42, null, true, "../private-pi/skills"] }),
+		);
+		assert.deepEqual(loadSkillsRoots(dir), [
+			join(dir, ".pi", "skills"),
+			join(dir, "private-pi", "skills"),
+		]);
+	});
+
+	it("entity: every root is absolute; order matches declared order", () => {
+		const dir = makeFixture(JSON.stringify({ skills: ["../a", ".pi/skills", "../b"] }));
+		const roots = loadSkillsRoots(dir);
+		assert.equal(roots.length, 3);
+		for (const r of roots) assert.ok(isAbsolute(r), `${r} should be absolute`);
+		assert.equal(roots[0], join(dir, "a"));
+		assert.equal(roots[1], join(dir, ".pi", "skills"));
+		assert.equal(roots[2], join(dir, "b"));
 	});
 });
