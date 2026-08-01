@@ -10,7 +10,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -32,17 +32,20 @@ const MODIFIED_MD_FILES = [
 	".pi/extensions/supervisor/agents/auditor.md",
 	".pi/extensions/supervisor/agents/developer.md",
 	".pi/extensions/supervisor/agents/test-designer.md",
-	".pi/prompts/operations/operations:architecture-review.md",
+	".pi/skills/architecture-review/SKILL.md",
 ];
 
-const MODIFIED_TEST_FILES = [
-	".pi/extensions/agent-harness/lib/harness-rules.test.ts",
-	".pi/extensions/agent-harness/test/index.test.ts",
-	".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts",
-	".pi/extensions/supervisor/test/shared-prompts.test.mts",
-	".pi/extensions/supervisor/test/supervisor-extensions.test.mts",
-	".pi/extensions/check-extensions/test/check-extensions.test.mts",
-];
+// Live scan of .pi/skills/<name>/SKILL.md so future prompt→skill migrations
+// do not break this guard again (broke twice: ced0750, #1433). Depth-1 only:
+// ponytail-* aliases may chain outside the repo on a clean checkout, so skip
+// unresolvable paths rather than fail on them.
+function listSkillFiles(): string[] {
+	const skillsDir = join(ROOT, ".pi/skills");
+	return readdirSync(skillsDir, { withFileTypes: true })
+		.filter((e) => e.isDirectory() || e.isSymbolicLink())
+		.map((e) => join(skillsDir, e.name, "SKILL.md"))
+		.filter((p) => existsSync(p));
+}
 
 describe("ranked_map extension removal", () => {
 	// ─── Phase 1: Directory removal ───────────────────────────────────
@@ -142,6 +145,13 @@ describe("ranked_map extension removal", () => {
 				assert.ok(!content.includes("ranked_map"), `${relPath} still references 'ranked_map'`);
 			});
 		}
+
+		it("all skill files do not mention 'ranked_map'", () => {
+			for (const absPath of listSkillFiles()) {
+				const content = readFileSync(absPath, "utf-8");
+				assert.ok(!content.includes("ranked_map"), `${absPath} still references 'ranked_map'`);
+			}
+		});
 	});
 
 	// ─── Phase 6: Verify key replacements are correct ──────────────────
