@@ -9,16 +9,12 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// InitRemover handles post-clone cleanup by reading .initremove
+// initRemover handles post-clone cleanup by reading .initremove
 // and deleting listed files/directories.
-type InitRemover interface {
-	Remove(workdir string) error
-}
-
 type initRemover struct{}
 
-// NewInitRemover creates a new InitRemover adapter.
-func NewInitRemover() InitRemover {
+// NewInitRemover creates a new initRemover adapter.
+func NewInitRemover() *initRemover {
 	return &initRemover{}
 }
 
