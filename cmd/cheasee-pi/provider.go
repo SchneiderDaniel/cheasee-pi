@@ -162,6 +162,36 @@ func ProviderToEnvVar(provider string) string {
 	}
 }
 
+// ProviderPassthroughNames are env var names not bound to a provider that
+// buildEnvFlags passes through from the current process environment when set.
+// Adding a provider in KnownModels flows through ProviderEnvAliases to
+// buildEnvFlags automatically — do not hard-code provider env names here.
+var ProviderPassthroughNames = []string{"GH_TOKEN", "CLOUDFLARE_ACCOUNT_ID"}
+
+// AllEnvVarNames returns the env var names buildEnvFlags probes via os.Getenv:
+// the distinct non-empty ProviderEnvAliases() values plus ProviderPassthroughNames.
+// ProviderEnvAliases() repeats values across aliases (claude/anthropic →
+// ANTHROPIC_API_KEY) and returns "" for unknown providers, so values are
+// deduped and empties filtered.
+func AllEnvVarNames() []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, envVar := range ProviderEnvAliases() {
+		if envVar != "" && !seen[envVar] {
+			seen[envVar] = true
+			names = append(names, envVar)
+		}
+	}
+	for _, envVar := range ProviderPassthroughNames {
+		if !seen[envVar] {
+			seen[envVar] = true
+			names = append(names, envVar)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // ProviderEnvAliases returns the complete mapping of provider names
 // (including documented aliases) to their canonical env var names.
 //

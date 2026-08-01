@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,32 +59,6 @@ var newRepository = func() *fileRepository {
 	return &fileRepository{}
 }
 
-// allKnownEnvVars is the complete set of pi provider env vars.
-var allKnownEnvVars = []string{
-	"OPENAI_API_KEY",
-	"ANTHROPIC_API_KEY",
-	"OPENCODE_API_KEY",
-	"DEEPSEEK_API_KEY",
-	"GEMINI_API_KEY",
-	"ANT_LING_API_KEY",
-	"AZURE_OPENAI_API_KEY",
-	"NVIDIA_API_KEY",
-	"GROQ_API_KEY",
-	"CEREBRAS_API_KEY",
-	"XAI_API_KEY",
-	"FIREWORKS_API_KEY",
-	"TOGETHER_API_KEY",
-	"OPENROUTER_API_KEY",
-	"AI_GATEWAY_API_KEY",
-	"MISTRAL_API_KEY",
-	"MINIMAX_API_KEY",
-	"MOONSHOT_API_KEY",
-	"KIMI_API_KEY",
-	"CLOUDFLARE_API_KEY",
-	"CLOUDFLARE_ACCOUNT_ID",
-	"GH_TOKEN",
-}
-
 func runUpE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -122,37 +98,30 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
 	}
 
-	// Phase 4: Build env flags from auth.json + gh token + --api-key
-	envFlags, err := buildEnvFlags(ctx)
+	// Phase 4: Build env map from auth.json + gh token + --api-key
+	envMap, err := buildEnvFlags(ctx)
 	if err != nil {
 		return fmt.Errorf("build env vars: %w", err)
 	}
 
-	if len(envFlags) == 0 {
+	if len(envMap) == 0 {
 		fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
 	}
 
-	// Phase 5: Print env flags or exec pi
+	// Phase 5: Print env vars or exec pi
 	if upDryRun {
 		fmt.Fprintf(os.Stderr, "Env vars to be injected:\n")
-		for i := 0; i < len(envFlags); i += 2 {
-			if envFlags[i] != "-e" || i+1 >= len(envFlags) {
-				continue
-			}
-			val := envFlags[i+1]
-			if idx := strings.IndexByte(val, '='); idx > 0 && idx < len(val)-4 {
-				val = val[:idx+1] + val[idx+1:idx+5] + "..." + val[len(val)-4:]
-			}
-			fmt.Fprintf(os.Stderr, "  %s\n", val)
+		for _, envVar := range slices.Sorted(maps.Keys(envMap)) {
+			fmt.Fprintf(os.Stderr, "  %s=%s\n", envVar, redactEnvValue(envMap[envVar]))
 		}
 		// Show full docker command for debugging
-		args := execArgs(envFlags, upName)
+		args := execArgs(envMap, upName)
 		fmt.Fprintf(os.Stderr, "\nDocker command:\n  docker %s\n", strings.Join(args, " "))
 		return nil
 	}
 
-	return execPIContainer(upName, envFlags)
+	return execPIContainer(upName, envMap)
 }
 
 func containerRunning(name string) (bool, error) {
@@ -211,8 +180,13 @@ func dockerComposeUp(ctx context.Context, workdir string) error {
 	return nil
 }
 
-func buildEnvFlags(ctx context.Context) ([]string, error) {
-	var envFlags []string
+// buildEnvFlags collects the env vars to inject into the container: provider
+// keys from auth.json resolved through ProviderToEnvVar, the --api-key
+// override, and passthrough env vars from the current process. Provider names
+// flow in sorted order so alias collisions (claude + anthropic →
+// ANTHROPIC_API_KEY) resolve deterministically (last write wins).
+func buildEnvFlags(ctx context.Context) (map[string]string, error) {
+	envMap := make(map[string]string)
 
 	// 1. Provider keys from auth.json
 	repo := newRepository()
@@ -221,67 +195,48 @@ func buildEnvFlags(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("read auth.json: %w", err)
 	}
 
-	for provider, key := range providers {
+	for _, provider := range slices.Sorted(maps.Keys(providers)) {
+		key := providers[provider]
 		envVar := ProviderToEnvVar(provider)
-		if envVar != "" {
-			envFlags = append(envFlags, "-e", fmt.Sprintf("%s=%s", envVar, key))
-		} else {
+		if envVar == "" {
 			// Unknown provider — pass as-is
-			envFlags = append(envFlags, "-e", fmt.Sprintf("%s=%s", strings.ToUpper(provider)+"_API_KEY", key))
+			envVar = strings.ToUpper(provider) + "_API_KEY"
 		}
+		envMap[envVar] = key
 	}
 
 	// 2. --api-key flag overrides OPENCODE_API_KEY
 	if upAPIKey != "" {
-		envFlags = stripEnvVar(envFlags, "OPENCODE_API_KEY")
-		envFlags = append(envFlags, "-e", fmt.Sprintf("OPENCODE_API_KEY=%s", upAPIKey))
+		envMap["OPENCODE_API_KEY"] = upAPIKey
 	}
 
-	// 3. Passthrough known env vars from current process
-	envMap := make(map[string]bool)
-	for i := 0; i < len(envFlags); i += 2 {
-		if envFlags[i] != "-e" || i+1 >= len(envFlags) {
-			continue
-		}
-		parts := strings.SplitN(envFlags[i+1], "=", 2)
-		if len(parts) == 2 {
-			envMap[parts[0]] = true
-		}
-	}
-
-	for _, envVar := range allKnownEnvVars {
-		if envMap[envVar] {
+	// 3. Passthrough known env vars from current process (auth.json wins)
+	for _, envVar := range AllEnvVarNames() {
+		if _, ok := envMap[envVar]; ok {
 			continue
 		}
 		if val := os.Getenv(envVar); val != "" {
-			envFlags = append(envFlags, "-e", fmt.Sprintf("%s=%s", envVar, val))
+			envMap[envVar] = val
 		}
 	}
 
 	// 4. Extract gh token if not already in env
 	if os.Getenv("GH_TOKEN") == "" {
-		token, err := extractGHToken()
-		if err == nil && token != "" {
-			envFlags = append(envFlags, "-e", fmt.Sprintf("GH_TOKEN=%s", token))
+		if token, err := extractGHToken(); err == nil && token != "" {
+			envMap["GH_TOKEN"] = token
 		}
 	}
 
-	return envFlags, nil
+	return envMap, nil
 }
 
-func stripEnvVar(flags []string, key string) []string {
-	out := make([]string, 0, len(flags))
-	for i := 0; i < len(flags); i++ {
-		if flags[i] == "-e" && i+1 < len(flags) {
-			parts := strings.SplitN(flags[i+1], "=", 2)
-			if len(parts) == 2 && parts[0] == key {
-				i++
-				continue
-			}
-		}
-		out = append(out, flags[i])
+// redactEnvValue shortens a secret for dry-run output: values longer than
+// 8 chars show the first and last 4 chars; shorter values print in full.
+func redactEnvValue(v string) string {
+	if len(v) > 8 {
+		return v[:4] + "..." + v[len(v)-4:]
 	}
-	return out
+	return v
 }
 
 func extractGHToken() (string, error) {
@@ -296,8 +251,13 @@ func extractGHToken() (string, error) {
 // execArgs builds docker exec args that run pi directly.
 // On disconnect, docker exec sends SIGKILL to the container's pid 1,
 // which propagates to pi and all its children — no wrapper needed.
-func execArgs(envFlags []string, name string) []string {
-	args := append([]string{"exec"}, envFlags...)
+func execArgs(env map[string]string, name string) []string {
+	// Sorted keys keep the -e flag order deterministic (Go map iteration
+	// order is randomized by spec).
+	args := []string{"exec"}
+	for _, envVar := range slices.Sorted(maps.Keys(env)) {
+		args = append(args, "-e", envVar+"="+env[envVar])
+	}
 	args = append(args,
 		"-it",
 		"--user", "agentuser",
@@ -308,8 +268,8 @@ func execArgs(envFlags []string, name string) []string {
 	return args
 }
 
-func execPIContainer(name string, envFlags []string) error {
-	args := execArgs(envFlags, name)
+func execPIContainer(name string, env map[string]string) error {
+	args := execArgs(env, name)
 
 	cmd := exec.Command("docker", args...)
 	cmd.Stdin = os.Stdin

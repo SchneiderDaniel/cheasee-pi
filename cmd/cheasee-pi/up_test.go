@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -54,8 +58,8 @@ func TestExecArgs_containsExpectedOrder(t *testing.T) {
 }
 
 func TestExecArgs_envFlagsInCorrectPosition(t *testing.T) {
-	envFlags := []string{"-e", "FOO=bar", "-e", "BAZ=qux"}
-	args := execArgs(envFlags, "cheasee-pi")
+	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
+	args := execArgs(env, "cheasee-pi")
 
 	execIdx := indexOf(args, "exec")
 	nameIdx := indexOf(args, "cheasee-pi")
@@ -68,23 +72,13 @@ func TestExecArgs_envFlagsInCorrectPosition(t *testing.T) {
 		t.Errorf("-e flag at %d after container name at %d", envEIdx, nameIdx)
 	}
 
-	hasFoo := false
-	hasBaz := false
-	for i, a := range args {
-		if a == "-e" && i+1 < len(args) {
-			if args[i+1] == "FOO=bar" {
-				hasFoo = true
-			}
-			if args[i+1] == "BAZ=qux" {
-				hasBaz = true
-			}
+	// pairs flattened verbatim, sorted by key (BAZ < FOO)
+	want := []string{"BAZ=qux", "FOO=bar"}
+	for i := 0; i < len(want); i++ {
+		idx := envEIdx + 2*i
+		if args[idx] != "-e" || args[idx+1] != want[i] {
+			t.Errorf("args[%d:%d] = %v, want [-e %s]", idx, idx+2, args[idx:idx+2], want[i])
 		}
-	}
-	if !hasFoo {
-		t.Error("execArgs missing env FOO=bar")
-	}
-	if !hasBaz {
-		t.Error("execArgs missing env BAZ=qux")
 	}
 }
 
@@ -96,14 +90,19 @@ func TestExecArgs_emptyEnvFlags(t *testing.T) {
 	if args[0] != "exec" {
 		t.Errorf("expected first arg exec, got %q", args[0])
 	}
+	for _, a := range args {
+		if a == "-e" {
+			t.Errorf("empty env map should emit no -e flags, got %v", args)
+		}
+	}
 }
 
 func TestExecArgs_manyEnvFlags(t *testing.T) {
-	var envFlags []string
+	env := make(map[string]string)
 	for i := 0; i < 20; i++ {
-		envFlags = append(envFlags, "-e", fmt.Sprintf("KEY_%d=val_%d", i, i))
+		env[fmt.Sprintf("KEY_%02d", i)] = fmt.Sprintf("val_%d", i)
 	}
-	args := execArgs(envFlags, "cheasee-pi")
+	args := execArgs(env, "cheasee-pi")
 
 	namePos := -1
 	for i, a := range args {
@@ -116,20 +115,37 @@ func TestExecArgs_manyEnvFlags(t *testing.T) {
 		t.Fatal("container name not found")
 	}
 
-	for i := 0; i < len(envFlags); i += 2 {
-		if envFlags[i] != "-e" {
-			continue
+	// -e count == 2×len(map), each pair verbatim and before the container name
+	// (1×"exec" + 2n env flags + "-it --user agentuser -w /workspaces/main")
+	if namePos != 6+2*len(env) {
+		t.Fatalf("expected %d args before container name, got %d: %v", 6+2*len(env), namePos, args)
+	}
+	for i, k := range slices.Sorted(maps.Keys(env)) {
+		idx := 1 + 2*i
+		if args[idx] != "-e" || args[idx+1] != k+"="+env[k] {
+			t.Errorf("args[%d:%d] = %v, want [-e %s]", idx, idx+2, args[idx:idx+2], k+"="+env[k])
 		}
-		found := false
-		for j := 0; j < namePos; j++ {
-			if args[j] == envFlags[i] && j+1 < namePos && args[j+1] == envFlags[i+1] {
-				found = true
-				break
-			}
+	}
+}
+
+func TestExecArgs_sortedFlattenIsDeterministic(t *testing.T) {
+	env := make(map[string]string)
+	for i := 0; i < 25; i++ {
+		env[fmt.Sprintf("KEY_%02d", i)] = fmt.Sprintf("val_%d", i)
+	}
+	first := execArgs(env, "cheasee-pi")
+	for i := 0; i < 10; i++ {
+		if got := execArgs(env, "cheasee-pi"); !slices.Equal(got, first) {
+			t.Fatalf("execArgs not deterministic on iteration %d:\n first: %v\n got:   %v", i, first, got)
 		}
-		if !found {
-			t.Errorf("env flag %s=%s not found before container name", envFlags[i], envFlags[i+1])
-		}
+	}
+}
+
+func TestExecArgs_valuesSurviveUnescaped(t *testing.T) {
+	env := map[string]string{"WEIRD": "a=b c$d"}
+	args := execArgs(env, "cheasee-pi")
+	if !slices.Contains(args, "WEIRD=a=b c$d") {
+		t.Errorf("value with spaces/$/= must survive as a single argv element: %v", args)
 	}
 }
 
@@ -398,101 +414,366 @@ func indexOf(slice []string, val string) int {
 }
 
 // ──────────────────────────────────────────────
-// buildEnvFlags tests — Phase 3: Alias resolution
+// buildEnvFlags tests — map shape + passthrough
 // ──────────────────────────────────────────────
 
+// pinPassthroughEnv makes buildEnvFlags hermetic: fresh XDG_CONFIG_HOME,
+// every passthrough env name cleared, and PATH pointing at a failing gh
+// binary so GH_TOKEN extraction can't leak the host's real token into the map.
+func pinPassthroughEnv(t *testing.T) string {
+	t.Helper()
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	for _, name := range AllEnvVarNames() {
+		t.Setenv(name, "")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	return xdg
+}
+
+func TestBuildEnvFlags_happyPath(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "openai", "sk-openai-1"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+	if err := cfg.AddProvider(context.Background(), "anthropic", "sk-ant-1"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+
+	want := map[string]string{
+		"OPENAI_API_KEY":    "sk-openai-1",
+		"ANTHROPIC_API_KEY": "sk-ant-1",
+	}
+	if !maps.Equal(env, want) {
+		t.Errorf("buildEnvFlags = %v, want %v", env, want)
+	}
+}
+
 func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
 	if err := cfg.AddProvider(context.Background(), "claude", "sk-ant-xxx"); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
-	flags, err := buildEnvFlags(context.Background())
+	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-
-	hasAnthropic := false
-	for i, f := range flags {
-		if f == "-e" && i+1 < len(flags) && flags[i+1] == "ANTHROPIC_API_KEY=sk-ant-xxx" {
-			hasAnthropic = true
-			break
-		}
-	}
-	if !hasAnthropic {
-		t.Errorf("buildEnvFlags with claude alias should produce ANTHROPIC_API_KEY=sk-ant-xxx, got %v", flags)
+	if got := env["ANTHROPIC_API_KEY"]; got != "sk-ant-xxx" {
+		t.Errorf("claude alias should map to ANTHROPIC_API_KEY, got %v", env)
 	}
 }
 
 func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
 	if err := cfg.AddProvider(context.Background(), "google", "xxx"); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
-	flags, err := buildEnvFlags(context.Background())
+	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-
-	hasGemini := false
-	for i, f := range flags {
-		if f == "-e" && i+1 < len(flags) && flags[i+1] == "GEMINI_API_KEY=xxx" {
-			hasGemini = true
-			break
-		}
-	}
-	if !hasGemini {
-		t.Errorf("buildEnvFlags with google alias should produce GEMINI_API_KEY=xxx, got %v", flags)
+	if got := env["GEMINI_API_KEY"]; got != "xxx" {
+		t.Errorf("google alias should map to GEMINI_API_KEY, got %v", env)
 	}
 }
 
 func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
 	if err := cfg.AddProvider(context.Background(), "opencode", "xxx"); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
-	flags, err := buildEnvFlags(context.Background())
+	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-
-	hasOpenCode := false
-	for i, f := range flags {
-		if f == "-e" && i+1 < len(flags) && flags[i+1] == "OPENCODE_API_KEY=xxx" {
-			hasOpenCode = true
-			break
-		}
-	}
-	if !hasOpenCode {
-		t.Errorf("buildEnvFlags with opencode alias should produce OPENCODE_API_KEY=xxx, got %v", flags)
+	if got := env["OPENCODE_API_KEY"]; got != "xxx" {
+		t.Errorf("opencode alias should map to OPENCODE_API_KEY, got %v", env)
 	}
 }
 
 func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
 	if err := cfg.AddProvider(context.Background(), "xai", "xxx"); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
-	flags, err := buildEnvFlags(context.Background())
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if got := env["XAI_API_KEY"]; got != "xxx" {
+		t.Errorf("xai should map to XAI_API_KEY, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_aliasDupesCollapseToOneKey(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "anthropic", "sk-ant-anth"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+	if err := cfg.AddProvider(context.Background(), "claude", "sk-ant-claude"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if len(env) != 1 {
+		t.Fatalf("expected exactly one ANTHROPIC_API_KEY entry, got %v", env)
+	}
+	// Sorted provider iteration assigns claude last, so claude's key wins.
+	if got := env["ANTHROPIC_API_KEY"]; got != "sk-ant-claude" {
+		t.Errorf("expected claude key to win deterministic last-write, got %q", got)
+	}
+}
+
+func TestBuildEnvFlags_unknownProviderPassthrough(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "mystery", "k123"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if got := env["MYSTERY_API_KEY"]; got != "k123" {
+		t.Errorf("unknown provider should emit MYSTERY_API_KEY, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_emptyAuthNoEnvs(t *testing.T) {
+	pinPassthroughEnv(t)
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if env == nil {
+		t.Fatal("expected non-nil empty map")
+	}
+	if len(env) != 0 {
+		t.Errorf("expected empty map, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_invalidAuthReturnsWrappedError(t *testing.T) {
+	xdg := pinPassthroughEnv(t)
+	// auth.json as a directory: os.ReadFile fails, ListProviders errors.
+	if err := os.MkdirAll(filepath.Join(xdg, "cheasee-pi", "auth.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := buildEnvFlags(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "read auth.json") {
+		t.Fatalf("expected wrapped error containing 'read auth.json', got %v", err)
+	}
+}
+
+func TestBuildEnvFlags_passthroughEnvVars(t *testing.T) {
+	pinPassthroughEnv(t)
+	t.Setenv("GH_TOKEN", "gho_x")
+	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "acct-123")
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if env["GH_TOKEN"] != "gho_x" {
+		t.Errorf("GH_TOKEN not passed through, got %v", env)
+	}
+	if env["CLOUDFLARE_ACCOUNT_ID"] != "acct-123" {
+		t.Errorf("CLOUDFLARE_ACCOUNT_ID not passed through, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_authWinsOverProcessEnv(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "openai", "from-auth"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+	t.Setenv("OPENAI_API_KEY", "from-process")
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if env["OPENAI_API_KEY"] != "from-auth" {
+		t.Errorf("auth.json value should win over process env, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_apiKeyOverride(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "opencode-go", "from-auth"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
+	}
+	t.Setenv("OPENCODE_API_KEY", "from-process")
+
+	saved := upAPIKey
+	upAPIKey = "session-key"
+	defer func() { upAPIKey = saved }()
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if env["OPENCODE_API_KEY"] != "session-key" {
+		t.Errorf("--api-key should override auth.json and process env, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_apiKeyInjectedWithoutProvider(t *testing.T) {
+	pinPassthroughEnv(t)
+
+	saved := upAPIKey
+	upAPIKey = "session-key"
+	defer func() { upAPIKey = saved }()
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if env["OPENCODE_API_KEY"] != "session-key" {
+		t.Errorf("--api-key should inject OPENCODE_API_KEY with no opencode provider, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_ghTokenExtractionFailureSwallowed(t *testing.T) {
+	pinPassthroughEnv(t) // PATH points at a failing gh; GH_TOKEN is empty.
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if _, ok := env["GH_TOKEN"]; ok {
+		t.Errorf("failing gh binary should not produce GH_TOKEN, got %v", env)
+	}
+}
+
+func TestBuildEnvFlags_ignoresUnlistedEnvVars(t *testing.T) {
+	pinPassthroughEnv(t)
+	t.Setenv("SOME_UNRELATED_VAR", "should-not-appear")
+
+	env, err := buildEnvFlags(context.Background())
+	if err != nil {
+		t.Fatalf("buildEnvFlags: %v", err)
+	}
+	if _, ok := env["SOME_UNRELATED_VAR"]; ok {
+		t.Errorf("unlisted env var should not be passed through: %v", env)
+	}
+}
+
+func TestBuildEnvFlags_allProvidersAgreeWithProviderEnvAliases(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	for _, name := range ProviderNames() {
+		if err := cfg.AddProvider(context.Background(), name, "k-"+name); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+	}
+
+	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
 
-	hasXai := false
-	for i, f := range flags {
-		if f == "-e" && i+1 < len(flags) && flags[i+1] == "XAI_API_KEY=xxx" {
-			hasXai = true
-			break
+	want := make(map[string]string)
+	for _, name := range ProviderNames() {
+		if envVar := ProviderToEnvVar(name); envVar != "" {
+			want[envVar] = "k-" + name
 		}
 	}
-	if !hasXai {
-		t.Errorf("buildEnvFlags with xai should produce XAI_API_KEY=xxx, got %v", flags)
+	if !maps.Equal(env, want) {
+		t.Errorf("emitted env keys != distinct ProviderEnvAliases values:\ngot  %v\nwant %v", env, want)
+	}
+}
+
+func TestAllEnvVarNames_distinctNonEmptyUnion(t *testing.T) {
+	names := AllEnvVarNames()
+	if len(names) == 0 {
+		t.Fatal("AllEnvVarNames returned empty")
+	}
+	if !slices.IsSorted(names) {
+		t.Errorf("AllEnvVarNames not sorted: %v", names)
+	}
+
+	seen := make(map[string]bool)
+	for _, n := range names {
+		if n == "" {
+			t.Error("AllEnvVarNames contains an empty name")
+		}
+		if seen[n] {
+			t.Errorf("AllEnvVarNames contains duplicate %q", n)
+		}
+		seen[n] = true
+	}
+
+	aliasVals := make(map[string]bool)
+	for _, v := range ProviderEnvAliases() {
+		if v != "" {
+			aliasVals[v] = true
+		}
+	}
+	for v := range aliasVals {
+		if !seen[v] {
+			t.Errorf("AllEnvVarNames missing provider env var %q", v)
+		}
+	}
+	for _, n := range ProviderPassthroughNames {
+		if !seen[n] {
+			t.Errorf("AllEnvVarNames missing passthrough env var %q", n)
+		}
+	}
+}
+
+func TestProviderPassthroughNames_nonProviderOnly(t *testing.T) {
+	want := []string{"GH_TOKEN", "CLOUDFLARE_ACCOUNT_ID"}
+	if !slices.Equal(ProviderPassthroughNames, want) {
+		t.Errorf("ProviderPassthroughNames = %v, want %v", ProviderPassthroughNames, want)
+	}
+
+	aliasVals := make(map[string]bool)
+	for _, v := range ProviderEnvAliases() {
+		aliasVals[v] = true
+	}
+	for _, n := range ProviderPassthroughNames {
+		if aliasVals[n] {
+			t.Errorf("passthrough name %q duplicates a provider env var", n)
+		}
+	}
+}
+
+func TestRedactEnvValue(t *testing.T) {
+	if got := redactEnvValue("0123456789abc"); got != "0123...9abc" {
+		t.Errorf("long value should be first4...last4, got %q", got)
+	}
+	if got := redactEnvValue("12345678"); got != "12345678" {
+		t.Errorf("8-char value should print in full, got %q", got)
+	}
+	if got := redactEnvValue(""); got != "" {
+		t.Errorf("empty value should print in full, got %q", got)
 	}
 }
