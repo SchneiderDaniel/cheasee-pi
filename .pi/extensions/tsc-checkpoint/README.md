@@ -85,7 +85,7 @@ Wraps TypeScript watch compiler API in an incremental diagnostic cache:
 ├── adapter.ts    # TscWatchAdapter: createDefaultAdapter, diagnosticToTscDiagnostic, resolveFilePath
 ├── checkpoint.ts # runTscCheckpoint: orchestrated checkpoint for supervisor pipeline
 ├── format.ts     # formatDiagnostics, formatDiagnosticsJson
-├── types.ts      # TscDiagnostic, TscWatchOptions, DiagnosticTrend, TscCheckpointResult
+├── types.ts      # TscDiagnostic, DiagnosticTrend, TscCheckpointResult
 └── test/         # Watcher + formatter tests
 ```
 
