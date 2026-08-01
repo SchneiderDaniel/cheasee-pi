@@ -14,6 +14,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import { createDefaultFooterConfig } from "../footer-state.ts";
 
 describe("processStartTime (module-scoped constant)", () => {
 	it("module loads without error (dynamic import side-effect)", async () => {
@@ -40,24 +41,7 @@ describe("processStartTime (module-scoped constant)", () => {
 			welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -84,7 +68,7 @@ describe("processStartTime (module-scoped constant)", () => {
 			model: { id: "test-model" },
 		};
 
-		installFooter(ctx as any, config as any, footerConfig as any);
+		installFooter(ctx as any, config as any, footerConfig);
 
 		assert.ok(footerComponent, "footer component should be created");
 		const result = footerComponent!.render(80);
@@ -108,24 +92,7 @@ describe("processStartTime (module-scoped constant)", () => {
 			welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -152,7 +119,7 @@ describe("processStartTime (module-scoped constant)", () => {
 			model: { id: "test-model" },
 		};
 
-		installFooter(ctx as any, config as any, footerConfig as any);
+		installFooter(ctx as any, config as any, footerConfig);
 
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
