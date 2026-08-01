@@ -231,11 +231,11 @@ describe("Bug 1 — SupervisorMessageDetails interface update", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 5: Source-structure — pipeline/handler.ts (Bug 1 — call site)
+// Phase 5: Source-structure — pipeline/handler/agent-loop.ts (Bug 1 — call site)
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Bug 1 — Pipeline handler passes result data through agentResults", () => {
-	const source = readFileSync(".pi/extensions/supervisor/pipeline/handler.ts", "utf-8");
+	const source = readFileSync(".pi/extensions/supervisor/pipeline/handler/agent-loop.ts", "utf-8");
 
 	it("5.1: handler passes result data via buildAgentResultEntry and executeAgent", () => {
 		// Handler no longer calls sendAgentResultMessage directly — executeAgent

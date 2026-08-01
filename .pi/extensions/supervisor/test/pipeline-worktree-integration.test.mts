@@ -21,10 +21,21 @@ import { execSync } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const PIPELINE_TS = resolve(__dirname, "../pipeline/handler.ts");
+// Issue #1395 split: handler.ts became a re-export shim. Worktree creation
+// lives in handler/preflight.ts, the agent loop in handler/agent-loop.ts,
+// and the post-loop cleanup in handler/post-pipeline.ts.
+const PREFLIGHT_TS = resolve(__dirname, "../pipeline/handler/preflight.ts");
+const AGENT_LOOP_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const POST_PIPELINE_TS = resolve(__dirname, "../pipeline/handler/post-pipeline.ts");
 
-function readPipelineSource(): string {
-	return readFileSync(PIPELINE_TS, "utf-8");
+function readPreflightSource(): string {
+	return readFileSync(PREFLIGHT_TS, "utf-8");
+}
+function readAgentLoopSource(): string {
+	return readFileSync(AGENT_LOOP_TS, "utf-8");
+}
+function readPostPipelineSource(): string {
+	return readFileSync(POST_PIPELINE_TS, "utf-8");
 }
 
 function run(cmd: string, cwd: string): string {
@@ -36,42 +47,42 @@ function run(cmd: string, cwd: string): string {
 // ---------------------------------------------------------------------------
 
 describe("pipeline-worktree integration — lifecycle order", () => {
-	it("worktree creation comment appears before build task comment", () => {
-		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Create worktree before loop");
-		const buildTaskIdx = src.indexOf("// Build task");
-		assert.ok(lifecycleIdx >= 0, "Worktree creation comment");
-		assert.ok(buildTaskIdx >= 0, "Build task comment");
-		assert.ok(lifecycleIdx < buildTaskIdx, "Worktree creation before build task");
+	it("worktree creation comment lives in preflight, build task comment in agent loop", () => {
+		const preflightSrc = readPreflightSource();
+		const loopSrc = readAgentLoopSource();
+		assert.ok(preflightSrc.includes("// Create worktree before loop"), "Worktree creation comment");
+		assert.ok(loopSrc.includes("// Build task"), "Build task comment");
 	});
 
-	it("buildAgentTask call appears after worktree creation section", () => {
-		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Create worktree before loop");
-		const btIdx = src.indexOf("const task = buildAgentTask(");
-		assert.ok(lifecycleIdx < btIdx, "Worktree creation before buildAgentTask call");
+	it("buildAgentTask call appears in agent loop, after the preflight worktree section", () => {
+		const preflightSrc = readPreflightSource();
+		const loopSrc = readAgentLoopSource();
+		assert.ok(preflightSrc.includes("// Create worktree before loop"), "Worktree creation section");
+		assert.ok(loopSrc.includes("const task = buildAgentTask("), "buildAgentTask call exists");
 	});
 
-	it("worktreePath and worktreeBranch declared at handler scope", () => {
-		const src = readPipelineSource();
-		const handlerStart = src.indexOf("let worktreePath");
-		const branchDecl = src.indexOf("let worktreeBranch");
-		assert.ok(handlerStart >= 0, "worktreePath variable declared");
-		assert.ok(branchDecl >= 0, "worktreeBranch variable declared");
+	it("worktreePath and worktreeBranch destructured from RunContext before the loop", () => {
+		const src = readAgentLoopSource();
+		const destructureIdx = src.indexOf("worktreePath,");
+		const branchDecl = src.indexOf("worktreeBranch,");
+		const loopIdx = src.indexOf("for (let i = 0; i < MAX_PIPELINE_LOOPS");
+		assert.ok(destructureIdx >= 0, "worktreePath destructured from RunContext");
+		assert.ok(branchDecl >= 0, "worktreeBranch destructured from RunContext");
+		assert.ok(destructureIdx < loopIdx, "worktreePath declared before the loop");
+		assert.ok(branchDecl < loopIdx, "worktreeBranch declared before the loop");
 	});
 
 	it("worktreePath passed directly as argument to executeAgent", () => {
-		const src = readPipelineSource();
+		const src = readAgentLoopSource();
 		const executeIdx = src.indexOf("await executeAgent(");
 		const worktreeIdx = src.indexOf("worktreePath,", executeIdx);
 		assert.ok(worktreeIdx > executeIdx, "worktreePath passed as argument to executeAgent");
 	});
 
 	it("worktreeBranch generated via generateBranchName", () => {
-		const src = readPipelineSource();
+		const src = readPreflightSource();
 		const lifecycleIdx = src.indexOf("// Create worktree before loop");
-		const btIdx = src.indexOf("// Build task");
-		const section = src.substring(lifecycleIdx, btIdx);
+		const section = src.substring(lifecycleIdx);
 		assert.ok(
 			section.includes("worktreeBranch = generateBranchName"),
 			"worktreeBranch assigned from generateBranchName",
@@ -92,12 +103,9 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 
 describe("pipeline-worktree integration — error handling", () => {
 	it("worktree creation has error handling", () => {
-		const src = readPipelineSource();
-		const lifecycleIdx = src.indexOf("// Worktree creation (once per pipeline run)");
-		const buildTaskIdx = src.indexOf("// Build task");
-		const section = src.substring(lifecycleIdx, buildTaskIdx);
+		const src = readPreflightSource();
 		// The worktree creation section wraps createWorktree (which has its own error handling)
-		assert.ok(section.includes("await createWorktree"), "createWorktree called");
+		assert.ok(src.includes("await createWorktree"), "createWorktree called");
 	});
 
 	it("commitAndPush failure is warned not thrown", () => {
@@ -111,7 +119,7 @@ describe("pipeline-worktree integration — error handling", () => {
 	});
 
 	it("worktree cleanup called in handler (error handling inside cleanupWorktree)", () => {
-		const src = readPipelineSource();
+		const src = readPostPipelineSource();
 		const cleanupIdx = src.indexOf("// 2. Worktree cleanup (after merge is complete)");
 		assert.ok(cleanupIdx >= 0, "Worktree cleanup section exists");
 		const section = src.substring(cleanupIdx);

@@ -61,12 +61,33 @@ describe("DebugLogger — consumer imports", () => {
 		assert.ok(hasImport, "audit.ts must import DebugLogger from config/types.ts");
 	});
 
-	it("pipeline/handler.ts imports DebugLogger from config/types.ts", () => {
-		const handlerPath = resolve(__dirname, "..", "pipeline", "handler.ts");
-		const handlerSource = readFileSync(handlerPath, "utf-8");
-		const hasImport =
-			handlerSource.includes("DebugLogger") && handlerSource.includes('../config/types.ts"');
-		assert.ok(hasImport, "handler.ts imports DebugLogger through types.ts barrel");
+	it("pipeline/handler package does not redefine DebugLogger (issue #1395 split)", () => {
+		// Issue #1395 split: the handler megahandler moved to the
+		// handler/{index,preflight,agent-loop,post-pipeline,shared}.ts package.
+		// None of the split files may redefine the DebugLogger interface —
+		// they consume the canonical getDebugLogger from lib/debug.ts.
+		const packageFiles = [
+			"index.ts",
+			"preflight.ts",
+			"agent-loop.ts",
+			"post-pipeline.ts",
+			"shared.ts",
+		];
+		for (const file of packageFiles) {
+			const src = readFileSync(resolve(__dirname, "..", "pipeline", "handler", file), "utf-8");
+			assert.ok(
+				!src.includes("interface DebugLogger"),
+				`handler/${file} must not redefine the DebugLogger interface`,
+			);
+		}
+		const loopSrc = readFileSync(
+			resolve(__dirname, "..", "pipeline", "handler", "agent-loop.ts"),
+			"utf-8",
+		);
+		assert.ok(
+			loopSrc.includes('from "../../lib/debug.ts"'),
+			"handler package imports getDebugLogger from lib/debug.ts",
+		);
 	});
 
 	it("agent/runner.ts imports DebugLogger from config/types.ts", () => {

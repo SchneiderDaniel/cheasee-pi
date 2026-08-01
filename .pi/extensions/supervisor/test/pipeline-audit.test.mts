@@ -21,7 +21,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const AUDIT_TS = resolve(__dirname, "../pipeline/audit.ts");
-const PIPELINE_TS = resolve(__dirname, "../pipeline/handler.ts");
+// Issue #1395 split: the pipeline loop moved to handler/agent-loop.ts; the
+// worktree imports moved to handler/preflight.ts.
+const PIPELINE_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const PREFLIGHT_TS = resolve(__dirname, "../pipeline/handler/preflight.ts");
 const AUDIT_GATE_DECISION_TS = resolve(__dirname, "../checks/audit-gate-decision.ts");
 const TSC_CHECKPOINT_INDEX_TS = resolve(__dirname, "../../tsc-checkpoint/index.ts");
 
@@ -214,15 +217,18 @@ describe("pipeline.ts — worktreePath passed to runTscAndLspAudit (Phase 3)", (
 		assert.ok(argCount >= 7, "runTscAndLspAudit should have at least 8 args (7 commas)");
 	});
 
-	it("worktreePath in scope at pre-transition hooks site (declared before hooks block)", () => {
+	it("worktreePath in scope at pre-transition hooks site (destructured from RunContext before hooks block)", () => {
 		const src = readPipelineSource();
-		// Verify worktreePath declared at handler scope
-		const declIdx = src.indexOf("let worktreePath: string | undefined;");
-		assert.ok(declIdx >= 0, "worktreePath declared at handler scope");
+		// Issue #1395 split: worktreePath is no longer a bare `let` at handler
+		// scope — it is destructured from RunContext at the top of runAgentLoop.
+		// Assert the destructure (which declares worktreePath) precedes the
+		// pre-transition hooks block.
+		const declIdx = src.indexOf("worktreePath,");
+		assert.ok(declIdx >= 0, "worktreePath destructured from RunContext at agent-loop scope");
 
 		// Verify declaration comes before pre-transition hooks block
 		const hooksIdx = src.indexOf("// Pre-transition hooks");
-		assert.ok(declIdx < hooksIdx, "worktreePath declared before hooks block");
+		assert.ok(declIdx < hooksIdx, "worktreePath destructured before hooks block");
 	});
 });
 
@@ -271,15 +277,15 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 
 	it("path resolution uses resolvePath via createWorktree import", () => {
 		const auditSrc = readAuditSource();
-		const pipelineSrc = readPipelineSource();
+		const preflightSrc = readFileSync(PREFLIGHT_TS, "utf-8");
 
-		// handler.ts imports worktree utilities which use resolvePath internally
-		const pipelinePathPattern = "createWorktree, installWorktreeDeps, cleanupWorktree";
+		// handler/preflight.ts imports worktree utilities which use resolvePath internally
+		const pipelinePathPattern = "createWorktree, installWorktreeDeps";
 		const auditPathPattern = "resolvePath(";
 
 		assert.ok(
-			pipelineSrc.includes(pipelinePathPattern),
-			"pipeline/handler.ts imports worktree utilities from worktree.ts",
+			preflightSrc.includes(pipelinePathPattern),
+			"pipeline/handler/preflight.ts imports worktree utilities from worktree.ts",
 		);
 
 		// Verify pipeline-audit.ts uses resolvePath with worktreeBase
