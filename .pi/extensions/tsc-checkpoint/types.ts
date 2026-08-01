@@ -9,11 +9,6 @@ import type { TscDiagnostic } from "../lib/tsc-types.ts";
 
 export type { TscDiagnostic };
 
-export interface TscWatchOptions {
-	/** Polling interval in ms (reserved for future polling mode) */
-	pollInterval?: number;
-}
-
 export interface DiagnosticTrend {
 	current: number;
 	previous: number;
