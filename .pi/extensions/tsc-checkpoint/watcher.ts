@@ -24,7 +24,6 @@ export class DiagnosticsWatcher {
 	private cachedDiagnostics: TscDiagnostic[] = [];
 	private running = false;
 	private trendTracker = new TrendTracker();
-	private diagnosticListeners: Array<(d: TscDiagnostic[]) => void> = [];
 	private tsconfigPath: string;
 	private tsconfigDir: string;
 
@@ -75,12 +74,11 @@ export class DiagnosticsWatcher {
 					// cycle starting" signal.
 					this.cachedDiagnostics = [];
 				} else {
-					// Compilation complete — update trend and notify listeners
+					// Compilation complete — update trend
 					const errCount = this.cachedDiagnostics.filter(
 						(d) => d.severity === "Error",
 					).length;
 					this.trendTracker.push(errCount);
-					this.notifyListeners();
 				}
 			},
 		);
@@ -108,11 +106,6 @@ export class DiagnosticsWatcher {
 		return [...this.cachedDiagnostics];
 	}
 
-	/** Register a callback for when diagnostics change. */
-	onDiagnosticsChange(listener: (d: TscDiagnostic[]) => void): void {
-		this.diagnosticListeners.push(listener);
-	}
-
 	/**
 	 * Get the diagnostic trend between the last two checks.
 	 * Delegates to TrendTracker — pure computation, no I/O.
@@ -129,13 +122,5 @@ export class DiagnosticsWatcher {
 		this.cachedDiagnostics = diagnostics;
 		const errorCount = diagnostics.filter((d) => d.severity === "Error").length;
 		this.trendTracker.push(errorCount);
-		this.notifyListeners();
-	}
-
-	private notifyListeners(): void {
-		const snapshot = [...this.cachedDiagnostics];
-		for (const listener of this.diagnosticListeners) {
-			listener(snapshot);
-		}
 	}
 }

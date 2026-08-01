@@ -96,42 +96,6 @@ describe("DiagnosticsWatcher (_injectDiagnostics)", () => {
 		assert.notStrictEqual(result, diags);
 	});
 
-	it("onDiagnosticsChange listener fires after _injectDiagnostics", () => {
-		const w = new DiagnosticsWatcher("/fake/tsconfig.json");
-		let fired = false;
-		let received: TscDiagnostic[] | undefined;
-		w.onDiagnosticsChange((d) => {
-			fired = true;
-			received = d;
-		});
-
-		const diags: TscDiagnostic[] = [
-			{
-				file: "a.ts",
-				line: 1,
-				column: 1,
-				severity: "Error",
-				message: "err",
-				code: "TS1000",
-				filePath: "/a.ts",
-			},
-		];
-		w._injectDiagnostics(diags);
-
-		assert.strictEqual(fired, true);
-		assert.strictEqual(received!.length, 1);
-	});
-
-	it("multiple onDiagnosticsChange listeners all fire", () => {
-		const w = new DiagnosticsWatcher("/fake/tsconfig.json");
-		let count = 0;
-		w.onDiagnosticsChange(() => count++);
-		w.onDiagnosticsChange(() => count++);
-
-		w._injectDiagnostics([]);
-		assert.strictEqual(count, 2);
-	});
-
 	it("_injectDiagnostics updates trend via error count", () => {
 		const w = new DiagnosticsWatcher("/fake/tsconfig.json");
 
