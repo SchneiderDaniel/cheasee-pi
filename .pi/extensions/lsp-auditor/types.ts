@@ -47,7 +47,7 @@ export interface PreAuditResult {
 /**
  * LspRuntime port interface — abstracts Node I/O and vscode-jsonrpc.
  *
- * Production: created by createDefaultRuntime() in lsp-client.ts
+ * Production: created by createDefaultRuntime() in lsp-client/runtime.ts
  * Test: created by createMockRuntime() in lsp-client.test.mts
  *
  * This is the injection seam that eliminates the need for
