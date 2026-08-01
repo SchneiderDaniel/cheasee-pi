@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,6 +170,28 @@ func TestOSUIDResolver_ReturnsValidValues(t *testing.T) {
 	}
 }
 
+func TestOSUIDResolver_FallbackChain(t *testing.T) {
+	// The fallback chain only runs when os/user.Current() fails, which is not
+	// observable in-process on CI (cgo-backed user lookup succeeds, and
+	// Current() caches its first result). Guard with a skip.
+	if _, err := user.Current(); err == nil {
+		t.Skip("os/user.Current succeeds — fallback path unreachable in-process")
+	}
+
+	t.Setenv("UID", "1234")
+	t.Setenv("GID", "5678")
+	uid, gid, err := (&osUIDResolver{}).Current()
+	if err != nil {
+		t.Fatalf("Current() failed: %v", err)
+	}
+	if uid != "1234" {
+		t.Errorf("expected UID fallback '1234', got %q", uid)
+	}
+	if gid != "5678" {
+		t.Errorf("expected GID fallback '5678', got %q", gid)
+	}
+}
+
 // ──────────────────────────────────────────────
 // WorkingDirProbe adapter tests
 // ──────────────────────────────────────────────
@@ -284,17 +308,65 @@ func TestEnvValues_Validate(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
-// GitIdentity adapter test
+// GitIdentity adapter tests
 // ──────────────────────────────────────────────
 
+// writeGitConfig writes a global git config file and points git at it
+// hermetically (GIT_CONFIG_GLOBAL, git >= 2.32; system config disabled).
+func writeGitConfig(t *testing.T, content string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, []byte(content), 0644); err != nil {
+		t.Fatalf("write gitconfig: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+}
+
 func TestOSGitIdentity_Lookup(t *testing.T) {
-	// This test relies on git config being available on the system.
-	// It's a lightweight smoke test.
+	writeGitConfig(t, "[user]\n\tname = Test User\n\temail = test@example.com\n")
+
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
 	if err != nil {
-		// git binary might not exist, that's OK — the adapter handles it
-		t.Logf("Git lookup (non-fatal if git not configured): name=%q email=%q err=%v", name, email, err)
+		t.Fatalf("Lookup failed: %v", err)
 	}
-	// No assertion on values — depends on test environment
+	if name != "Test User" {
+		t.Errorf("expected name 'Test User', got %q", name)
+	}
+	if email != "test@example.com" {
+		t.Errorf("expected email 'test@example.com', got %q", email)
+	}
+}
+
+func TestOSGitIdentity_NameOnly(t *testing.T) {
+	writeGitConfig(t, "[user]\n\tname = Test User\n")
+
+	id := &osGitIdentity{}
+	name, email, err := id.Lookup()
+	if err != nil {
+		t.Fatalf("Lookup failed: %v", err)
+	}
+	if name != "Test User" {
+		t.Errorf("expected name 'Test User', got %q", name)
+	}
+	if email != "" {
+		t.Errorf("expected empty email when unset, got %q", email)
+	}
+}
+
+func TestOSGitIdentity_NoConfig(t *testing.T) {
+	writeGitConfig(t, "")
+
+	id := &osGitIdentity{}
+	name, email, err := id.Lookup()
+	if err != nil {
+		t.Fatalf("Lookup failed: %v", err)
+	}
+	if name != "" || email != "" {
+		t.Errorf("expected empty name/email for empty config, got %q/%q", name, email)
+	}
 }

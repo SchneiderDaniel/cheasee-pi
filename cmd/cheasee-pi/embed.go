@@ -23,15 +23,6 @@ func AssetFS() fs.FS {
 }
 
 // ──────────────────────────────────────────────
-// Port: Extractor
-// ──────────────────────────────────────────────
-
-// Extractor writes embedded asset files to a destination directory.
-type Extractor interface {
-	Extract(ctx context.Context, destDir string) error
-}
-
-// ──────────────────────────────────────────────
 // Adapter: FSExtractor
 // ──────────────────────────────────────────────
 
@@ -40,8 +31,8 @@ type FSExtractor struct {
 	prefix string // walk root within FS; nested source-tree structure determines destination subtree
 }
 
-// NewExtractor creates an Extractor that reads from the embedded FS.
-func NewExtractor() Extractor {
+// NewExtractor creates an extractor that reads from the embedded FS.
+func NewExtractor() *FSExtractor {
 	return &FSExtractor{
 		source: embeddedFS,
 		prefix: "embedded",

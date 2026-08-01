@@ -37,34 +37,7 @@ func (v EnvValues) Validate() error {
 }
 
 // ──────────────────────────────────────────────
-// Port: EnvRenderer
-// ──────────────────────────────────────────────
-
-// EnvRenderer writes a docker/.env file.
-type EnvRenderer interface {
-	Render(ctx context.Context, dest string, vals EnvValues) error
-}
-
-// ──────────────────────────────────────────────
-// Port: UIDResolver
-// ──────────────────────────────────────────────
-
-// UIDResolver resolves the current user's UID and GID.
-type UIDResolver interface {
-	Current() (uid, gid string, err error)
-}
-
-// ──────────────────────────────────────────────
-// Port: GitIdentity
-// ──────────────────────────────────────────────
-
-// GitIdentity resolves the git user.name and user.email.
-type GitIdentity interface {
-	Lookup() (name, email string, err error)
-}
-
-// ──────────────────────────────────────────────
-// Port: WorkingDirProbe
+// WorkdirState
 // ──────────────────────────────────────────────
 
 // WorkdirState represents the state of a working directory.
@@ -97,11 +70,6 @@ func (s WorkdirState) IsComplete() bool {
 	return s == WorkdirComplete
 }
 
-// WorkingDirProbe inspects a working directory for existing setup markers.
-type WorkingDirProbe interface {
-	Inspect(path string) (WorkdirState, error)
-}
-
 // ──────────────────────────────────────────────
 // Adapter: flatEnvRenderer
 // ──────────────────────────────────────────────
@@ -109,7 +77,7 @@ type WorkingDirProbe interface {
 type flatEnvRenderer struct{}
 
 // NewEnvRenderer creates an env renderer that writes flat KEY=VALUE lines.
-func NewEnvRenderer() EnvRenderer {
+func NewEnvRenderer() *flatEnvRenderer {
 	return &flatEnvRenderer{}
 }
 
@@ -155,7 +123,7 @@ type osUIDResolver struct{}
 
 // NewUIDResolver creates a UID resolver that tries os/user.Current first,
 // then falls back to $UID/$GID env vars, then id -u / id -g.
-func NewUIDResolver() UIDResolver {
+func NewUIDResolver() *osUIDResolver {
 	return &osUIDResolver{}
 }
 
@@ -192,7 +160,7 @@ func (r *osUIDResolver) Current() (uid, gid string, err error) {
 type osGitIdentity struct{}
 
 // NewGitIdentity creates a git identity resolver that shells out to git config.
-func NewGitIdentity() GitIdentity {
+func NewGitIdentity() *osGitIdentity {
 	return &osGitIdentity{}
 }
 
@@ -219,7 +187,7 @@ func (id *osGitIdentity) Lookup() (name, email string, err error) {
 type osWorkingDirProbe struct{}
 
 // NewWorkingDirProbe creates a probe that checks the filesystem for markers.
-func NewWorkingDirProbe() WorkingDirProbe {
+func NewWorkingDirProbe() *osWorkingDirProbe {
 	return &osWorkingDirProbe{}
 }
 
@@ -260,18 +228,6 @@ type TemplateSettingsValues struct {
 }
 
 // ──────────────────────────────────────────────
-// Port: SettingsScaffold
-// ──────────────────────────────────────────────
-
-// SettingsScaffold writes a .pi/settings.json file from an embedded template,
-// substituting provider, git identity, and docker resource values.
-// It is idempotent: calling Scaffold on a directory where .pi/settings.json
-// already exists returns nil (no error, no overwrite).
-type SettingsScaffold interface {
-	Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error
-}
-
-// ──────────────────────────────────────────────
 // Adapter: templateSettingsRenderer
 // ──────────────────────────────────────────────
 
@@ -280,9 +236,9 @@ type templateSettingsRenderer struct {
 	templatePath string
 }
 
-// NewSettingsScaffold creates a SettingsScaffold that renders the embedded
+// NewSettingsScaffold creates a settings scaffold that renders the embedded
 // pi/settings.json template using text/template substitution.
-func NewSettingsScaffold() SettingsScaffold {
+func NewSettingsScaffold() *templateSettingsRenderer {
 	return &templateSettingsRenderer{
 		source:       embeddedFS,
 		templatePath: "embedded/pi/settings.json",

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // TestFSExtractor_WritesDockerSubtree verifies that FSExtractor.Extract writes
@@ -75,6 +76,38 @@ func TestFSExtractor_WritesDockerSubtree(t *testing.T) {
 			t.Errorf("content mismatch for %s: embedded %d bytes, extracted %d bytes",
 				name, len(embeddedContent), len(extractedContent))
 		}
+	}
+}
+
+// TestFSExtractor_MapFSWalk verifies the WalkDir+Copy logic hermetically by
+// injecting an in-memory FS: nested tree extracted byte-identical, pi/
+// subtree skipped, parent dirs created.
+func TestFSExtractor_MapFSWalk(t *testing.T) {
+	fsys := fstest.MapFS{
+		"embedded/docker/docker-compose.yml": &fstest.MapFile{Data: []byte("version: '3'\n")},
+		"embedded/docker/Dockerfile":         &fstest.MapFile{Data: []byte("FROM alpine\n")},
+		"embedded/docker/sub/run.sh":         &fstest.MapFile{Data: []byte("#!/bin/sh\n")},
+		"embedded/pi/settings.json":          &fstest.MapFile{Data: []byte("{}")},
+	}
+	ext := &FSExtractor{source: fsys, prefix: "embedded"}
+	destDir := t.TempDir()
+
+	if err := ext.Extract(context.Background(), destDir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// Nested tree extracted byte-identical with parent dirs created.
+	got, err := os.ReadFile(filepath.Join(destDir, "docker", "sub", "run.sh"))
+	if err != nil {
+		t.Fatalf("read extracted docker/sub/run.sh: %v", err)
+	}
+	if string(got) != "#!/bin/sh\n" {
+		t.Errorf("content mismatch for docker/sub/run.sh: %q", got)
+	}
+
+	// pi/ subtree skipped (consumed by scaffold, not extracted).
+	if _, err := os.Stat(filepath.Join(destDir, "pi")); !os.IsNotExist(err) {
+		t.Error("pi/ subtree should not be extracted to workspace")
 	}
 }
 

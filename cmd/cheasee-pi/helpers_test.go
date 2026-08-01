@@ -124,81 +124,6 @@ func (m *mockSubmoduleOps) AddSubmodule(ctx context.Context, repoPath, name, url
 }
 
 // ──────────────────────────────────────────────
-// Mock: Extractor
-// ──────────────────────────────────────────────
-
-type mockExtractor struct {
-	extractFunc func(ctx context.Context, destDir string) error
-}
-
-func (m *mockExtractor) Extract(ctx context.Context, destDir string) error {
-	if m.extractFunc != nil {
-		return m.extractFunc(ctx, destDir)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
-// Mock: EnvRenderer
-// ──────────────────────────────────────────────
-
-type mockEnvRenderer struct {
-	renderFunc func(ctx context.Context, dest string, vals EnvValues) error
-}
-
-func (m *mockEnvRenderer) Render(ctx context.Context, dest string, vals EnvValues) error {
-	if m.renderFunc != nil {
-		return m.renderFunc(ctx, dest, vals)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
-// Mock: WorkingDirProbe
-// ──────────────────────────────────────────────
-
-type mockWorkingDirProbe struct {
-	inspectFunc func(path string) (WorkdirState, error)
-}
-
-func (m *mockWorkingDirProbe) Inspect(path string) (WorkdirState, error) {
-	if m.inspectFunc != nil {
-		return m.inspectFunc(path)
-	}
-	return WorkdirEmpty, nil
-}
-
-// ──────────────────────────────────────────────
-// Mock: UIDResolver
-// ──────────────────────────────────────────────
-
-type mockUIDResolver struct {
-	currentFunc func() (uid, gid string, err error)
-}
-
-func (m *mockUIDResolver) Current() (uid, gid string, err error) {
-	if m.currentFunc != nil {
-		return m.currentFunc()
-	}
-	return "1000", "1000", nil
-}
-
-// ──────────────────────────────────────────────
-// Mock: GitIdentity
-// ──────────────────────────────────────────────
-
-type mockGitIdentity struct {
-	lookupFunc func() (name, email string, err error)
-}
-
-func (m *mockGitIdentity) Lookup() (name, email string, err error) {
-	if m.lookupFunc != nil {
-		return m.lookupFunc()
-	}
-	return "Test User", "test@example.com", nil
-}
-
-// ──────────────────────────────────────────────
 // Mock: ConfirmFn
 // ──────────────────────────────────────────────
 
@@ -229,52 +154,11 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 }
 
 // ──────────────────────────────────────────────
-// Mock: SettingsScaffold
-// ──────────────────────────────────────────────
-
-type mockSettingsScaffold struct {
-	scaffoldFunc func(ctx context.Context, workdir string, vals TemplateSettingsValues) error
-}
-
-func (m *mockSettingsScaffold) Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error {
-	if m.scaffoldFunc != nil {
-		return m.scaffoldFunc(ctx, workdir, vals)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
-// Mock: InitRemover
-// ──────────────────────────────────────────────
-
-type mockInitRemover struct {
-	removeFunc func(workdir string) error
-	called     bool
-	calledWith string
-}
-
-func (m *mockInitRemover) Remove(workdir string) error {
-	m.called = true
-	m.calledWith = workdir
-	if m.removeFunc != nil {
-		return m.removeFunc(workdir)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
 var (
-	_ Authenticator    = (*mockAuthenticator)(nil)
-	_ GitHubClient     = (*mockGitHubClient)(nil)
-	_ submoduleOps     = (*mockSubmoduleOps)(nil)
-	_ Extractor        = (*mockExtractor)(nil)
-	_ EnvRenderer      = (*mockEnvRenderer)(nil)
-	_ WorkingDirProbe  = (*mockWorkingDirProbe)(nil)
-	_ UIDResolver      = (*mockUIDResolver)(nil)
-	_ GitIdentity      = (*mockGitIdentity)(nil)
-	_ SettingsScaffold = (*mockSettingsScaffold)(nil)
-	_ InitRemover      = (*mockInitRemover)(nil)
+	_ Authenticator = (*mockAuthenticator)(nil)
+	_ GitHubClient  = (*mockGitHubClient)(nil)
+	_ submoduleOps  = (*mockSubmoduleOps)(nil)
 )
