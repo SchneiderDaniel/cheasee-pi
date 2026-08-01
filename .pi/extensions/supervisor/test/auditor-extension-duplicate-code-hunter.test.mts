@@ -1,7 +1,7 @@
 /**
  * Tests for extension-duplicate-code-hunter skill added to auditor agent.
  *
- * Phase 1: Skills frontmatter — verify `skills: extension-duplicate-code-hunter` in YAML
+ * Phase 1: Skills frontmatter — verify private-pi skills removed from auditor
  * Phase 2: 4e Code Quality methodology instructions — verify detection references
  * Phase 3: Regression — existing resolveSkillPaths behavior unchanged
  *
@@ -49,66 +49,25 @@ function getFrontmatterField(content: string, field: string): string | undefined
 // ─── Phase 1: Skills frontmatter ──────────────────────────────────
 
 describe("auditor.md — skills frontmatter (Phase 1)", () => {
-	it("contains 'skills' field in YAML frontmatter", () => {
+	it("has no 'skills' field (private-pi skills removed)", () => {
 		const content = readAuditorMd();
-		const skillsVal = getFrontmatterField(content, "skills");
-		assert.ok(skillsVal !== undefined, "YAML frontmatter should contain 'skills' field");
-	});
-
-	it("skills field value includes 'extension-duplicate-code-hunter'", () => {
-		const content = readAuditorMd();
-		const skillsVal = getFrontmatterField(content, "skills");
-		assert.ok(skillsVal, "skills field must exist");
-		assert.ok(
-			skillsVal!.includes("extension-duplicate-code-hunter"),
-			`skills value '${skillsVal}' should include 'extension-duplicate-code-hunter'`,
+		assert.strictEqual(
+			getFrontmatterField(content, "skills"),
+			undefined,
+			"frontmatter must not reference private-pi skills",
 		);
-	});
-
-	it("skills line appears between 'extensions:' and closing '---'", () => {
-		const content = readAuditorMd();
-		const lines = getFrontmatterLines(content);
-		const extIdx = lines.findIndex((l) => l.startsWith("extensions:"));
-		const skillsIdx = lines.findIndex((l) => l.startsWith("skills:"));
-		assert.ok(extIdx >= 0, "extensions field must exist");
-		assert.ok(skillsIdx >= 0, "skills field must exist");
-		assert.ok(
-			skillsIdx > extIdx,
-			`skills line (index ${skillsIdx}) should appear after extensions line (index ${extIdx})`,
-		);
-	});
-
-	it("skills value contains both skills", () => {
-		const content = readAuditorMd();
-		const skillsVal = getFrontmatterField(content, "skills");
-		assert.ok(skillsVal, "skills field must exist");
-		// Normalize: strip quotes and whitespace
-		const normalized = skillsVal!.replace(/["']/g, "").trim();
-		assert.ok(
-			normalized.includes("extension-duplicate-code-hunter") &&
-				normalized.includes("extension-dead-code-hunter"),
-			`skills value '${normalized}' should contain both 'extension-duplicate-code-hunter' and 'extension-dead-code-hunter'`,
-		);
-	});
-
-	it("frontmatter has at least 8 lines (skills line added)", () => {
-		const content = readAuditorMd();
-		const lines = getFrontmatterLines(content);
-		// auditor.md frontmatter now has: name, description, tools, model, thinking, extensions, skills = 7 fields
-		assert.ok(lines.length >= 7, `Frontmatter should have at least 7 lines, got ${lines.length}`);
 	});
 });
 
 // ─── Phase 2: 4e Code Quality methodology instructions ────────────
 
 describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
-	it("skills frontmatter includes 'extension-duplicate-code-hunter' skill", () => {
+	it("frontmatter has no skills field referencing private-pi skills", () => {
 		const content = readAuditorMd();
-		const skillsVal = getFrontmatterField(content, "skills");
-		assert.ok(skillsVal, "skills field must exist");
-		assert.ok(
-			skillsVal!.includes("extension-duplicate-code-hunter"),
-			"skills field should include 'extension-duplicate-code-hunter'",
+		assert.strictEqual(
+			getFrontmatterField(content, "skills"),
+			undefined,
+			"frontmatter must not reference private-pi skills",
 		);
 	});
 
@@ -129,16 +88,6 @@ describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
 		assert.ok(
 			reviewTable.includes("duplication") || reviewTable.includes("duplicate"),
 			"Code Quality dimension should reference duplication",
-		);
-	});
-
-	it("auditor invokes extension-duplicate-code-hunter skill via skills mechanism", () => {
-		const content = readAuditorMd();
-		const skillsVal = getFrontmatterField(content, "skills");
-		assert.ok(skillsVal, "skills field must exist");
-		assert.ok(
-			skillsVal!.includes("extension-dead-code-hunter"),
-			"skills field should also include 'extension-dead-code-hunter'",
 		);
 	});
 

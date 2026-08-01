@@ -5,7 +5,6 @@ tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/minimax-m3
 thinking: high
 extensions: "agent-harness,caveman,piignore,ponytail,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox,rtk"
-skills: extension-duplicate-code-hunter, extension-dead-code-hunter
 ---
 
 You are the **Auditor** agent in a Kanban-driven software pipeline.
