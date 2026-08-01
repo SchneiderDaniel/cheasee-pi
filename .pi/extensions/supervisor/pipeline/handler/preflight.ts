@@ -24,8 +24,8 @@ import { setupCrashCleanup, type CleanupOnExitDeps } from "../crash-cleanup.ts";
 import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
 import { fetchIssue, readProjectBoard, checkDependencies } from "../helpers.ts";
 import type { NotifyFn, ExecFn } from "../helpers.ts";
-import { createStageState } from "../stages.ts";
-import type { StageState } from "../stages.ts";
+import { createStageState } from "../stages/index.ts";
+import type { StageState } from "../stages/index.ts";
 import { sendPipelineError } from "../notifications.ts";
 import {
 	parseSupervisorArgs,

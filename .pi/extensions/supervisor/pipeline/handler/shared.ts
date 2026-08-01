@@ -14,7 +14,7 @@ import type {
 } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ExecFn, NotifyFn } from "../helpers.ts";
-import type { StageState } from "../stages.ts";
+import type { StageState } from "../stages/index.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { CrashCleanup } from "../crash-cleanup.ts";
 

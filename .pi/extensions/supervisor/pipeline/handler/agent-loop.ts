@@ -50,7 +50,7 @@ import {
 	buildDeadCodeContext,
 	buildVulnContext,
 	type GateRejected,
-} from "../stages.ts";
+} from "../stages/index.ts";
 import { fetchFreshIssueData, loadAgentFile as loadAgentFileHelper } from "../helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { fetchResolvedByInfo, type RunContext } from "./shared.ts";
