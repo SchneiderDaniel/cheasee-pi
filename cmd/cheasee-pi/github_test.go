@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -212,5 +215,283 @@ func TestParseGitHubURL_Empty(t *testing.T) {
 	owner, repo := ParseGitHubURL("")
 	if owner != "" || repo != "" {
 		t.Errorf("expected empty/empty, got %s/%s", owner, repo)
+	}
+}
+
+// ──────────────────────────────────────────────
+// gitCloneWorktree / gitAddSubmodule / redactToken (runner-seam) tests
+// ──────────────────────────────────────────────
+
+func TestRedactToken_ReplacesOccurrences(t *testing.T) {
+	got := redactToken("fatal: https://oauth2:gho_secret@github.com/a/b.git\nremote: gho_secret", "gho_secret")
+	if strings.Contains(got, "gho_secret") {
+		t.Errorf("token should be redacted: %q", got)
+	}
+	if !strings.Contains(got, "***") {
+		t.Errorf("redaction marker missing: %q", got)
+	}
+}
+
+func TestRedactToken_EmptyTokenNoOp(t *testing.T) {
+	text := "no token here"
+	if got := redactToken(text, ""); got != text {
+		t.Errorf("empty token should no-op, got %q", got)
+	}
+}
+
+func TestGitCloneWorktree_InvalidURL(t *testing.T) {
+	saved := runCommandContext
+	called := false
+	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+		called = true
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitCloneWorktree(context.Background(), "gho_token", "not-a-url", t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+	if !strings.Contains(err.Error(), "invalid repo URL") {
+		t.Errorf("error should mention invalid repo URL: %v", err)
+	}
+	if called {
+		t.Error("seam should not be called for invalid URL")
+	}
+}
+
+func TestGitCloneWorktree_HappyPath(t *testing.T) {
+	var calls [][]string
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		calls = append(calls, arg)
+		if arg[0] == "clone" {
+			return &mockCmd{}
+		}
+		if len(arg) > 2 && arg[2] == "symbolic-ref" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("refs/remotes/origin/master"), nil }}
+		}
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = saved }()
+
+	workdir := filepath.Join(t.TempDir(), "repo")
+	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", workdir)
+	if err != nil {
+		t.Fatalf("gitCloneWorktree failed: %v", err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 seam calls, got %d: %v", len(calls), calls)
+	}
+	// bare clone: git clone --bare <authURL> <parent>/.bare
+	clone := calls[0]
+	if strings.Join(clone[:2], " ") != "clone --bare" {
+		t.Errorf("expected clone --bare, got %v", clone)
+	}
+	if clone[2] != "https://oauth2:gho_token@github.com/owner/repo.git" {
+		t.Errorf("expected tokenized URL, got %q", clone[2])
+	}
+	if !strings.HasSuffix(clone[3], "/.bare") {
+		t.Errorf("expected .bare dest, got %q", clone[3])
+	}
+	// worktree add: git --git-dir <bare> worktree add --detach <workdir> master
+	wt := calls[2]
+	if strings.Join(wt[2:5], " ") != "worktree add --detach" {
+		t.Errorf("expected worktree add --detach, got %v", wt)
+	}
+	if wt[5] != workdir || wt[6] != "master" {
+		t.Errorf("expected worktree add %s master, got %v", workdir, wt)
+	}
+}
+
+func TestGitCloneWorktree_DefaultBranchFallback(t *testing.T) {
+	var worktreeArgs []string
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		if len(arg) > 2 && arg[2] == "symbolic-ref" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("HEAD not found") }}
+		}
+		if arg[0] == "clone" {
+			return &mockCmd{}
+		}
+		worktreeArgs = arg
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
+	if err != nil {
+		t.Fatalf("gitCloneWorktree failed: %v", err)
+	}
+	if len(worktreeArgs) == 0 || worktreeArgs[len(worktreeArgs)-1] != "main" {
+		t.Errorf("expected fallback branch 'main', got %v", worktreeArgs)
+	}
+}
+
+func TestGitCloneWorktree_BareCloneError(t *testing.T) {
+	const token = "gho_secret_token"
+	// Output echoes the token as git would when echoing the URL.
+	output := []byte("fatal: unable to access 'https://oauth2:" + token + "@github.com/owner/repo.git/': Could not resolve host")
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+		return &mockCmd{combinedFn: func() ([]byte, error) { return output, fmt.Errorf("exit status 128") }}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitCloneWorktree(context.Background(), token, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "bare clone failed") {
+		t.Errorf("error should mention bare clone failed: %v", err)
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Errorf("token must be redacted from error: %v", err)
+	}
+}
+
+func TestGitCloneWorktree_WorktreeAddError(t *testing.T) {
+	saved := runCommandContext
+	step := 0
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		step++
+		if step == 1 { // bare clone
+			return &mockCmd{}
+		}
+		if len(arg) > 2 && arg[2] == "symbolic-ref" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("refs/remotes/origin/main"), nil }}
+		}
+		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("fatal: worktree error"), fmt.Errorf("exit status 128") }}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "worktree add failed") {
+		t.Errorf("error should mention worktree add failed: %v", err)
+	}
+}
+
+func TestGitAddSubmodule_CapturesArgsAndDir(t *testing.T) {
+	var capturedArgs []string
+	var captured *mockCmd
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		capturedArgs = arg
+		captured = &mockCmd{}
+		return captured
+	}
+	defer func() { runCommandContext = saved }()
+
+	repoPath := t.TempDir()
+	if err := gitAddSubmodule(context.Background(), repoPath, "flask_blogs", "https://github.com/user/flask_blogs"); err != nil {
+		t.Fatalf("gitAddSubmodule failed: %v", err)
+	}
+	want := strings.Join([]string{"submodule", "add", "https://github.com/user/flask_blogs", "flask_blogs"}, " ")
+	if strings.Join(capturedArgs, " ") != want {
+		t.Errorf("expected (%s), got %v", want, capturedArgs)
+	}
+	if captured.dir != repoPath {
+		t.Errorf("expected Dir=%q, got %q", repoPath, captured.dir)
+	}
+}
+
+func TestGitAddSubmodule_ErrorWrapsOutput(t *testing.T) {
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+		return &mockCmd{combinedFn: func() ([]byte, error) {
+			return []byte("fatal: path 'x' is already tracked"), fmt.Errorf("exit status 128")
+		}}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitAddSubmodule(context.Background(), t.TempDir(), "x", "https://github.com/a/b.git")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "git submodule add") {
+		t.Errorf("error should mention git submodule add: %v", err)
+	}
+	if !strings.Contains(err.Error(), "already tracked") {
+		t.Errorf("error should include output: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// go-git backed ops (no git binary needed for error paths)
+// ──────────────────────────────────────────────
+
+func TestGitListSubmodules_NotARepo(t *testing.T) {
+	_, err := (gitSubmoduleOps{}).ListSubmodules(context.Background(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for non-repo dir")
+	}
+	if !strings.Contains(err.Error(), "open repo") {
+		t.Errorf("error should mention open repo: %v", err)
+	}
+}
+
+func TestGitSetSubmoduleURL_NotARepo(t *testing.T) {
+	err := (gitSubmoduleOps{}).SetSubmoduleURL(context.Background(), t.TempDir(), "x", "https://a/b.git")
+	if err == nil {
+		t.Fatal("expected error for non-repo dir")
+	}
+	if !strings.Contains(err.Error(), "open repo") {
+		t.Errorf("error should mention open repo: %v", err)
+	}
+}
+
+func TestGitInitAndUpdateSubmodules_NotARepo(t *testing.T) {
+	err := (gitSubmoduleOps{}).InitAndUpdateSubmodules(context.Background(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for non-repo dir")
+	}
+	if !strings.Contains(err.Error(), "open repo") {
+		t.Errorf("error should mention open repo: %v", err)
+	}
+}
+
+func TestGitClone_LocalBareRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	src := t.TempDir()
+	runGit := func(args ...string) error {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = src
+		return cmd.Run()
+	}
+	if err := runGit("init", "-q"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "file.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := runGit("add", "file.txt"); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := runGit("-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-q", "-m", "init"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// Bogus token: go-git BasicAuth is ignored for local paths, clone succeeds.
+	dest := filepath.Join(t.TempDir(), "clone")
+	if err := gitClone(context.Background(), "gho_bogus_token", src, dest); err != nil {
+		t.Fatalf("gitClone failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "file.txt")); err != nil {
+		t.Errorf("expected cloned file: %v", err)
+	}
+}
+
+func TestGitClone_UnreadableSource(t *testing.T) {
+	err := gitClone(context.Background(), "gho_token", filepath.Join(t.TempDir(), "nonexistent"), filepath.Join(t.TempDir(), "clone"))
+	if err == nil {
+		t.Fatal("expected error for unreadable source")
+	}
+	if !strings.Contains(err.Error(), "clone failed") {
+		t.Errorf("error should mention clone failed: %v", err)
 	}
 }

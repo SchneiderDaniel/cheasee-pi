@@ -142,7 +142,7 @@ func runAuthAddE(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save to auth.json
-	repo := NewRepository()
+	repo := &fileRepository{}
 	if err := repo.AddProvider(ctx, provider, key); err != nil {
 		return fmt.Errorf("save provider key: %w", err)
 	}
@@ -180,7 +180,7 @@ func runAuthRemoveE(cmd *cobra.Command, args []string) error {
 
 	provider := args[0]
 
-	repo := NewRepository()
+	repo := &fileRepository{}
 	if err := repo.RemoveProvider(ctx, provider); err != nil {
 		return fmt.Errorf("remove provider: %w", err)
 	}
@@ -200,7 +200,7 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
-	repo := NewRepository()
+	repo := &fileRepository{}
 	providers, err := repo.ListProviders(ctx)
 	if err != nil {
 		return fmt.Errorf("list providers: %w", err)

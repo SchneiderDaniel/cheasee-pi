@@ -13,7 +13,7 @@ func TestConfigSave_Load(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: "sk-abc123"}
 
 	ctx := context.Background()
@@ -34,7 +34,7 @@ func TestConfigSave_CreatesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: "sk-abc123"}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
@@ -56,7 +56,7 @@ func TestConfigSave_ValidJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: "sk-abc123"}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
@@ -86,7 +86,7 @@ func TestConfigSave_AtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: "sk-abc123"}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
@@ -108,7 +108,7 @@ func TestConfigLoad_FileNotExists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	loaded, err := cfg.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load of non-existent file should return empty Auth, got error: %v", err)
@@ -130,7 +130,7 @@ func TestConfigLoad_InvalidJSON(t *testing.T) {
 	os.MkdirAll(filepath.Dir(path), 0700)
 	os.WriteFile(path, []byte("{invalid json}"), 0600)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	_, err := cfg.Load(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -145,7 +145,7 @@ func TestConfigLoad_PathIsDirectory(t *testing.T) {
 	path := filepath.Join(dir, "cheasee-pi", "auth.json")
 	os.MkdirAll(path, 0700)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	_, err := cfg.Load(context.Background())
 	if err == nil {
 		t.Fatal("expected error when auth.json is a directory")
@@ -156,7 +156,7 @@ func TestConfigPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	path, err := cfg.Path()
 	if err != nil {
 		t.Fatalf("Path() failed: %v", err)
@@ -172,7 +172,7 @@ func TestConfigSave_EmptyAPIKey(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: ""}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
@@ -192,7 +192,7 @@ func TestConfigSave_SpecialChars(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	specialKey := `sk-"quoted"-with\backslash and ünicode`
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{APIKey: specialKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {

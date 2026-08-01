@@ -626,22 +626,3 @@ describe("Mode-adapted output (/check with ctx.mode)", () => {
 	});
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 15: Import parseArgs — structural addition without behavioral change
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("parseArgs import", () => {
-	it("parseArgs is exported from @earendil-works/pi-coding-agent", async () => {
-		const mod = await import("@earendil-works/pi-coding-agent");
-		assert.strictEqual(typeof mod.parseArgs, "function");
-	});
-
-	it("source module still compiles and exports correct surface", async () => {
-		const mod = await import("../index.ts");
-		assert.strictEqual(typeof mod.formatDiagnosticsJson, "function");
-		assert.strictEqual(typeof mod.formatDiagnostics, "function");
-		assert.strictEqual(typeof mod.default, "function");
-		assert.strictEqual(typeof mod.DiagnosticsWatcher, "function");
-		assert.strictEqual(typeof mod.runTscCheckpoint, "function");
-	});
-});

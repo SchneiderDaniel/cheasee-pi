@@ -2,9 +2,9 @@
  * Tests for FooterConfig consolidation — verifying the new interface
  * and installFooter signature work correctly.
  *
- * These test the interface shape and behavior. The FooterConfig interface
- * is replicated inline to avoid transitive type imports.
- * The installFooter function is imported from the real footer.ts.
+ * These test the interface shape and behavior. The FooterConfig interface is
+ * imported from the canonical types.ts (compile-time enforced); the
+ * installFooter function is imported from the real footer.ts.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/context-info/test/footer-config.test.mts
@@ -14,9 +14,13 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { formatCacheHitRate } from "../formatting.ts";
 import { installFooter } from "../footer.ts";
+import { createDefaultFooterConfig } from "../footer-state.ts";
+import type { FooterConfig } from "../types.ts";
 
 // ---------------------------------------------------------------------------
-// Inline FooterConfig interface (matches .pi/extensions/context-info/types.ts)
+// Inline helper interfaces — TpsSample/ThresholdEntry/ContextStatusBarConfig
+// are structurally identical to types.ts (kept local per test plan).
+// FooterConfig is NOT duplicated here — imported from types.ts instead.
 // ---------------------------------------------------------------------------
 
 interface TpsSample {
@@ -37,52 +41,13 @@ interface ContextStatusBarConfig {
 	welcomeTimeoutMs: number;
 }
 
-interface FooterConfig {
-	worktreeName: string | null;
-	thinkingLevel: string;
-	tpsSamples: TpsSample[];
-	lastComputedTps: { value: number | null };
-	lastContextWindow: { value: number | undefined };
-	toolCallCount: { value: number };
-	cacheRead: number | undefined;
-	cacheWrite: number | undefined;
-	// ── New fields (Improvements #1, #2, #4) ───────────────
-	cacheHitRate: number | undefined;
-	sessionName: string | undefined;
-	trustStatus: "trusted" | "untrusted" | undefined;
-	sessionId: string;
-
-	// ── Container resource monitoring ────────────────────────
-	prevCpuUsage: number;
-	prevCpuTime: number;
-	allocatedCpus: number;
-	containerDisplay: { value: string };
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("FooterConfig", () => {
 	it("can be created with default values matching the interface", () => {
-		const config: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const config = createDefaultFooterConfig();
 
 		assert.strictEqual(config.worktreeName, null);
 		assert.strictEqual(config.thinkingLevel, "");
@@ -95,27 +60,13 @@ describe("FooterConfig", () => {
 		assert.strictEqual(config.cacheHitRate, undefined);
 		assert.strictEqual(config.sessionName, undefined);
 		assert.strictEqual(config.trustStatus, undefined);
+		assert.strictEqual(config.issueNumber.value, undefined);
+		assert.strictEqual(config.issueRepo.value, undefined);
+		assert.strictEqual(config.issueTitle.value, undefined);
 	});
 
 	it("value wrappers allow mutation through shared reference", () => {
-		const config: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const config = createDefaultFooterConfig();
 
 		// Simulate passing footerConfig by reference and mutating
 		const ref = config;
@@ -144,24 +95,7 @@ describe("FooterConfig", () => {
 	});
 
 	it("tpsSamples array mutations are visible through reference", () => {
-		const config: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const config = createDefaultFooterConfig();
 
 		const ref = config;
 		ref.tpsSamples.push({ time: 1000, cumulativeTokens: 50 });
@@ -185,6 +119,9 @@ describe("FooterConfig", () => {
 			sessionName: "my-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			issueNumber: { value: 862 },
+			issueRepo: { value: "owner/repo" },
+			issueTitle: { value: "Refactor footer" },
 			prevCpuUsage: 0,
 			prevCpuTime: 0,
 			allocatedCpus: 4,
@@ -198,6 +135,9 @@ describe("FooterConfig", () => {
 		assert.strictEqual(config.cacheHitRate, 71);
 		assert.strictEqual(config.sessionName, "my-session");
 		assert.strictEqual(config.trustStatus, "trusted");
+		assert.strictEqual(config.issueNumber.value, 862);
+		assert.strictEqual(config.issueRepo.value, "owner/repo");
+		assert.strictEqual(config.issueTitle.value, "Refactor footer");
 	});
 });
 
@@ -258,24 +198,7 @@ describe("installFooter — mode guard", () => {
 			welcomeTimeoutMs: 0,
 			};
 
-			const footerConfig: FooterConfig = {
-				worktreeName: null,
-				thinkingLevel: "",
-				tpsSamples: [],
-				lastComputedTps: { value: null },
-				lastContextWindow: { value: undefined },
-				toolCallCount: { value: 0 },
-				cacheRead: undefined,
-				cacheWrite: undefined,
-				cacheHitRate: undefined,
-				sessionName: undefined,
-				trustStatus: undefined,
-				sessionId: "",
-				prevCpuUsage: 0,
-				prevCpuTime: 0,
-				allocatedCpus: 4,
-				containerDisplay: { value: "" },
-			};
+			const footerConfig = createDefaultFooterConfig();
 
 			let setFooterArg: unknown = undefined;
 			const ctx = {
@@ -309,24 +232,7 @@ describe("installFooter — mode guard", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let setFooterArg: unknown = undefined;
 		const ctx = {
@@ -358,24 +264,7 @@ describe("installFooter — mode guard", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let setFooterArg: unknown = undefined;
 		const ctx = {
@@ -413,24 +302,7 @@ describe("installFooter with FooterConfig", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let setFooterArg: unknown = undefined;
 		const ctx = {
@@ -459,24 +331,7 @@ describe("installFooter with FooterConfig", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let setFooterArg: unknown = undefined;
 		const ctx = {
@@ -496,24 +351,7 @@ describe("installFooter with FooterConfig", () => {
 	});
 
 	it("calls setFooter with undefined when config is null", () => {
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let setFooterArg: unknown = undefined;
 		const ctx = {
@@ -562,6 +400,9 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: "test-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			issueNumber: { value: undefined },
+			issueRepo: { value: undefined },
+			issueTitle: { value: undefined },
 			prevCpuUsage: 0,
 			prevCpuTime: 0,
 			allocatedCpus: 4,
@@ -615,24 +456,8 @@ describe("installFooter with FooterConfig", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "low",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.thinkingLevel = "low";
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -691,24 +516,10 @@ describe("footer — CH display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: 76288,
-			cacheWrite: 1024,
-			cacheHitRate: 99,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.cacheRead = 76288;
+		footerConfig.cacheWrite = 1024;
+		footerConfig.cacheHitRate = 99;
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -751,24 +562,10 @@ describe("footer — CH display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: 76288,
-			cacheWrite: 1024,
-			cacheHitRate: 99,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.cacheRead = 76288;
+		footerConfig.cacheWrite = 1024;
+		footerConfig.cacheHitRate = 99;
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -811,24 +608,7 @@ describe("footer — CH display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -880,24 +660,8 @@ describe("footer — session name display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: "my-session",
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.sessionName = "my-session";
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -926,7 +690,7 @@ describe("footer — session name display", () => {
 
 		installFooter(ctx as any, config, footerConfig as any);
 		// Need to set sessionId for render to have content in addition to sessionName
-		(footerConfig as any).sessionId = "abc-123";
+		footerConfig.sessionId = "abc-123";
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
 		assert.ok(
@@ -945,24 +709,7 @@ describe("footer — session name display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -990,7 +737,7 @@ describe("footer — session name display", () => {
 		};
 
 		installFooter(ctx as any, config, footerConfig as any);
-		(footerConfig as any).sessionId = "abc-123";
+		footerConfig.sessionId = "abc-123";
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
 		assert.ok(
@@ -1009,24 +756,7 @@ describe("footer — session name display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -1054,7 +784,7 @@ describe("footer — session name display", () => {
 		};
 
 		installFooter(ctx as any, config, footerConfig as any);
-		(footerConfig as any).sessionId = "";
+		footerConfig.sessionId = "";
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
 		// Row3 always shows trust indicator (❓ when undefined)
@@ -1077,24 +807,8 @@ describe("footer — trust status display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: "trusted",
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.trustStatus = "trusted";
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -1137,24 +851,8 @@ describe("footer — trust status display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: "untrusted",
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
+		footerConfig.trustStatus = "untrusted";
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
@@ -1197,24 +895,7 @@ describe("footer — trust status display", () => {
 		welcomeTimeoutMs: 0,
 		};
 
-		const footerConfig: FooterConfig = {
-			worktreeName: null,
-			thinkingLevel: "",
-			tpsSamples: [],
-			lastComputedTps: { value: null },
-			lastContextWindow: { value: undefined },
-			toolCallCount: { value: 0 },
-			cacheRead: undefined,
-			cacheWrite: undefined,
-			cacheHitRate: undefined,
-			sessionName: undefined,
-			trustStatus: undefined,
-			sessionId: "",
-			prevCpuUsage: 0,
-			prevCpuTime: 0,
-			allocatedCpus: 4,
-			containerDisplay: { value: "" },
-		};
+		const footerConfig = createDefaultFooterConfig();
 
 		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
 		const ctx = {
