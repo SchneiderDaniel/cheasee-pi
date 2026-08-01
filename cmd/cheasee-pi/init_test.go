@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,8 +15,9 @@ import (
 	"github.com/cli/oauth/device"
 )
 
-// defaultMocks returns a set of working mock implementations for all ports.
-// Tests can override specific mocks as needed.
+// defaultMocks returns a set of working mock implementations for the genuine
+// seam ports (network/external-service boundaries). In-process adapters
+// (probe, extract, env, scaffold, remover, uid, git identity) are real.
 func defaultMocks() InitPorts {
 	return InitPorts{
 		Auth: &mockAuthenticator{},
@@ -30,20 +32,41 @@ func defaultMocks() InitPorts {
 				return nil
 			},
 		},
-		Cloner:    &mockCloner{},
-		Extractor: &mockExtractor{},
-		Env:       &mockEnvRenderer{},
-		Probe: &mockWorkingDirProbe{
-			inspectFunc: func(path string) (WorkdirState, error) {
-				return WorkdirEmpty, nil
-			},
-		},
-		UID:      &mockUIDResolver{},
-		GitID:    &mockGitIdentity{},
-		Scaffold: &mockSettingsScaffold{},
+		Cloner:   &mockCloner{},
 		GitInit:  &mockGitInitializer{},
-		Remover:  &mockInitRemover{},
 	}
+}
+
+// setGitIdentity points git config lookups at a hermetic temp config file
+// containing user.name/user.email, so real osGitIdentity lookups are
+// deterministic and never fall through to interactive prompts. Serialized
+// (no t.Parallel) because t.Setenv is process-wide.
+func setGitIdentity(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[user]\n\tname = Test User\n\temail = test@example.com\n"), 0644); err != nil {
+		t.Fatalf("write gitconfig: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+}
+
+// unsetGitIdentity points git config lookups at an empty file (no identity),
+// the deterministic no-identity state for fallback tests.
+func unsetGitIdentity(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, nil, 0644); err != nil {
+		t.Fatalf("write gitconfig: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
 }
 
 // ──────────────────────────────────────────────
@@ -183,6 +206,7 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 }
 
 func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{
 			Installed: false,
@@ -216,6 +240,7 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 }
 
 func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{
 			Installed: true,
@@ -251,6 +276,7 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 }
 
 func TestInitUseCase_ConfigSaveError(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{
 			Installed: true,
@@ -318,107 +344,120 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestInitProbe_Empty(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
+	called := false
+	confirm := func(title string) (bool, error) {
+		called = true
+		return true, nil
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
+	proceed, err := runInitProbe(context.Background(), t.TempDir(), confirm, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !proceed {
 		t.Error("expected to proceed for empty dir")
 	}
+	if called {
+		t.Error("confirmFn should not be called for an empty dir")
+	}
 }
 
-func TestInitProbe_Complete_UserAccepts(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirComplete, nil
-		},
+func TestInitProbe_NoInputProceeds(t *testing.T) {
+	// Non-interactive mode proceeds even with existing setup markers.
+	called := false
+	confirm := func(title string) (bool, error) {
+		called = true
+		return true, nil
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+
+	proceed, err := runInitProbe(context.Background(), dir, confirm, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !proceed {
-		t.Error("expected to proceed when user accepts")
+		t.Error("expected to proceed when noInput is true")
+	}
+	if called {
+		t.Error("confirmFn should not be called when noInput is true")
 	}
 }
 
-func TestInitProbe_Complete_UserDeclines(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirComplete, nil
+func TestInitProbe_PromptsAndAccepts(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(dir string)
+		wantTitle string
+	}{
+		{
+			name:  "repo only",
+			setup: func(dir string) { os.MkdirAll(filepath.Join(dir, ".git"), 0755) },
+			wantTitle: "Git repository detected but no docker-compose.yml. Re-apply configuration?",
+		},
+		{
+			name:  "compose only",
+			setup: func(dir string) { os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644) },
+			wantTitle: "Docker compose files detected but no git repository. Re-apply configuration?",
+		},
+		{
+			name: "complete",
+			setup: func(dir string) {
+				os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+				os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+			},
+			wantTitle: "Existing cheasee-pi setup detected. Re-apply configuration?",
 		},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil), false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if proceed {
-		t.Error("expected not to proceed when user declines")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.setup(dir)
+
+			var gotTitle string
+			confirm := func(title string) (bool, error) {
+				gotTitle = title
+				return true, nil
+			}
+			proceed, err := runInitProbe(context.Background(), dir, confirm, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !proceed {
+				t.Error("expected to proceed when user accepts")
+			}
+			if gotTitle != tt.wantTitle {
+				t.Errorf("expected confirm title %q, got %q", tt.wantTitle, gotTitle)
+			}
+		})
 	}
 }
 
-func TestInitProbe_HasRepo_UserAccepts(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirHasRepo, nil
-		},
+func TestInitProbe_UserDeclines(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(dir string)
+	}{
+		{name: "repo only", setup: func(dir string) { os.MkdirAll(filepath.Join(dir, ".git"), 0755) }},
+		{name: "compose only", setup: func(dir string) { os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644) }},
+		{name: "complete", setup: func(dir string) {
+			os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+			os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+		}},
 	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !proceed {
-		t.Error("expected to proceed when user accepts")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.setup(dir)
 
-func TestInitProbe_HasCompose_UserAccepts(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirHasCompose, nil
-		},
-	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !proceed {
-		t.Error("expected to proceed when user accepts")
-	}
-}
-
-func TestInitProbe_HasRepo_UserDeclines(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirHasRepo, nil
-		},
-	}
-	proceed, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(false, nil), false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if proceed {
-		t.Error("expected not to proceed when user declines")
-	}
-}
-
-func TestInitProbe_Error(t *testing.T) {
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, fmt.Errorf("permission denied")
-		},
-	}
-	_, err := runInitProbe(context.Background(), probe, t.TempDir(), mockConfirmFn(true, nil), false)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "permission denied") {
-		t.Errorf("expected permission denied: %v", err)
+			proceed, err := runInitProbe(context.Background(), dir, mockConfirmFn(false, nil), false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if proceed {
+				t.Error("expected not to proceed when user declines")
+			}
+		})
 	}
 }
 
@@ -511,6 +550,7 @@ func TestRunInitAuth_RequestCodeError(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_FullFlow(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -539,50 +579,21 @@ func TestRunInit_FullFlow(t *testing.T) {
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
-	// --no-github flag: extract + env + save all run after auth
+	// --no-github flag: extract + env + save all run after auth, with the
+	// real in-process adapters (probe, extract, env render, scaffold).
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
 
-	extractCalled := false
-	ext := &mockExtractor{
-		extractFunc: func(ctx context.Context, destDir string) error {
-			extractCalled = true
-			return nil
-		},
-	}
-
-	renderCalled := false
-	env := &mockEnvRenderer{
-		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
-			renderCalled = true
-			return nil
-		},
-	}
-
-	scaffold := &mockSettingsScaffold{}
-	gitInit := &mockGitInitializer{}
-
-	probe := &mockWorkingDirProbe{
-		inspectFunc: func(path string) (WorkdirState, error) {
-			return WorkdirEmpty, nil
-		},
-	}
+	ports := defaultMocks()
+	ports.Docker = mockDocker
+	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
-		Ports: InitPorts{
-			Docker:    mockDocker,
-			Cfg:       mockCfg,
-			Extractor: ext,
-			Env:       env,
-			Probe:     probe,
-			UID:       &mockUIDResolver{},
-			GitID:     &mockGitIdentity{},
-			Scaffold:  scaffold,
-			GitInit:   gitInit,
-		},
+		Ports:          ports,
 		APIKey:         "sk-abc123",
 		NoDockerCheck:  false,
 		NoGitHub:       true,
@@ -595,11 +606,18 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
-	if !extractCalled {
-		t.Error("Extract should be called on legacy path")
+	// Real extractor ran: compose files present.
+	if _, err := os.Stat(filepath.Join(workdir, "docker", "docker-compose.yml")); err != nil {
+		t.Errorf("extract should have run (docker/docker-compose.yml missing): %v", err)
 	}
-	if !renderCalled {
-		t.Error("Env render should be called on legacy path")
+	// Real env renderer ran: docker/.env present with host uid/gid and git identity.
+	envVals := readEnvFile(t, workdir)
+	if envVals["HOST_UID"] == "" || envVals["HOST_GIT_NAME"] != "Test User" {
+		t.Errorf("expected .env with HOST_UID and git identity, got: %v", envVals)
+	}
+	// Real scaffold ran: .pi/settings.json present.
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); err != nil {
+		t.Errorf("scaffold should have run (.pi/settings.json missing): %v", err)
 	}
 	if !mockCfg.saved {
 		t.Error("Save should be called on legacy path")
@@ -670,6 +688,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_ForkAlreadyExists(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -1153,72 +1172,32 @@ func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInitExtract_Success(t *testing.T) {
-	extractedDir := ""
-	mockExt := &mockExtractor{
-		extractFunc: func(ctx context.Context, destDir string) error {
-			extractedDir = destDir
-			return nil
-		},
-	}
-
 	dir := t.TempDir()
-	err := runInitExtract(context.Background(), mockExt, dir)
-	if err != nil {
+	if err := runInitExtract(context.Background(), dir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if extractedDir != dir {
-		t.Errorf("expected extract dir %q, got %q", dir, extractedDir)
-	}
-}
-
-func TestRunInitExtract_Fails(t *testing.T) {
-	mockExt := &mockExtractor{
-		extractFunc: func(ctx context.Context, destDir string) error {
-			return fmt.Errorf("disk full")
-		},
-	}
-
-	err := runInitExtract(context.Background(), mockExt, t.TempDir())
-	if err == nil {
-		t.Fatal("expected error")
+	for _, name := range []string{"docker-compose.yml", "Dockerfile", "entrypoint.sh"} {
+		if _, err := os.Stat(filepath.Join(dir, "docker", name)); err != nil {
+			t.Errorf("expected extracted docker/%s: %v", name, err)
+		}
 	}
 }
 
 func TestRunInitExtract_LogMessage(t *testing.T) {
-	// Capture stderr to verify the log message includes /docker suffix
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stderr = w
-	defer func() {
-		w.Close()
-		os.Stderr = oldStderr
-	}()
-
-	mockExt := &mockExtractor{}
+	// Capture stderr to verify the log message includes the /docker suffix.
 	dir := t.TempDir()
-	if err := runInitExtract(context.Background(), mockExt, dir); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	stderr := captureStderr(t, func() {
+		if err := runInitExtract(context.Background(), dir); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 
-	w.Close()
-	os.Stderr = oldStderr
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("read stderr: %v", err)
-	}
-	output := buf.String()
-
-	// Should contain the /docker suffix on the workdir path
 	expectedSuffix := dir + "/docker"
-	if !strings.Contains(output, expectedSuffix) {
-		t.Errorf("log message should contain %q, got: %s", expectedSuffix, output)
+	if !strings.Contains(stderr, expectedSuffix) {
+		t.Errorf("log message should contain %q, got: %s", expectedSuffix, stderr)
 	}
-	if !strings.Contains(output, "Compose files extracted to") {
-		t.Errorf("log message should mention extraction, got: %s", output)
+	if !strings.Contains(stderr, "Compose files extracted to") {
+		t.Errorf("log message should mention extraction, got: %s", stderr)
 	}
 }
 
@@ -1226,77 +1205,213 @@ func TestRunInitExtract_LogMessage(t *testing.T) {
 // Env generation tests
 // ──────────────────────────────────────────────
 
-func TestRunInitEnv_Success(t *testing.T) {
-	mockEnv := &mockEnvRenderer{
-		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
-			if vals.HostUID != "1000" {
-				t.Errorf("expected uid 1000, got %q", vals.HostUID)
-			}
-			return nil
-		},
-	}
-
-	workdir := t.TempDir()
-	err := runInitEnv(context.Background(), mockEnv, &mockUIDResolver{}, &mockGitIdentity{}, workdir, mockConfirmFn(false, nil))
+// readEnvFile reads docker/.env and returns its KEY=VALUE lines as a map.
+func readEnvFile(t *testing.T, workdir string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(workdir, "docker", ".env"))
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("read docker/.env: %v", err)
 	}
+	vals := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			vals[k] = strings.Trim(v, "\"")
+		}
+	}
+	return vals
 }
 
-func TestRunInitEnv_UIDFallback(t *testing.T) {
-	mockEnv := &mockEnvRenderer{}
-	uidResolver := &mockUIDResolver{
-		currentFunc: func() (uid, gid string, err error) {
-			return "", "", fmt.Errorf("no user")
-		},
+func TestRunInitEnv_Success(t *testing.T) {
+	setGitIdentity(t)
+
+	workdir := t.TempDir()
+	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err := runInitEnv(context.Background(), mockEnv, uidResolver, &mockGitIdentity{}, t.TempDir(), mockConfirmFn(false, nil))
-	if err == nil {
-		t.Fatal("expected error when UID resolution fails")
+	vals := readEnvFile(t, workdir)
+	if vals["HOST_UID"] == "" {
+		t.Error("expected non-empty HOST_UID")
+	}
+	if vals["HOST_GID"] == "" {
+		t.Error("expected non-empty HOST_GID")
+	}
+	if vals["HOST_GIT_NAME"] != "Test User" {
+		t.Errorf("expected HOST_GIT_NAME 'Test User', got %q", vals["HOST_GIT_NAME"])
+	}
+	if vals["HOST_GIT_EMAIL"] != "test@example.com" {
+		t.Errorf("expected HOST_GIT_EMAIL 'test@example.com', got %q", vals["HOST_GIT_EMAIL"])
 	}
 }
 
 func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
-	gitIdentity := &mockGitIdentity{
-		lookupFunc: func() (name, email string, err error) {
-			return "", "", nil // empty identity, not an error
-		},
-	}
+	// Empty git config + declined identity prompt → defaults written.
+	unsetGitIdentity(t)
 
-	var renderCalled bool
-	mockEnv := &mockEnvRenderer{
-		renderFunc: func(ctx context.Context, dest string, vals EnvValues) error {
-			renderCalled = true
-			if vals.GitName == "" {
-				t.Error("expected non-empty GitName")
-			}
-			if vals.GitEmail == "" {
-				t.Error("expected non-empty GitEmail")
-			}
-			return nil
-		},
-	}
-
-	err := runInitEnv(context.Background(), mockEnv, &mockUIDResolver{}, gitIdentity, t.TempDir(), mockConfirmFn(false, nil))
-	if err != nil {
+	workdir := t.TempDir()
+	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !renderCalled {
-		t.Error("Render should have been called")
+
+	vals := readEnvFile(t, workdir)
+	if vals["HOST_GIT_NAME"] != "Cheasee-Pi" {
+		t.Errorf("expected default HOST_GIT_NAME 'Cheasee-Pi', got %q", vals["HOST_GIT_NAME"])
+	}
+	if vals["HOST_GIT_EMAIL"] != "cheasee-pi@localhost" {
+		t.Errorf("expected default HOST_GIT_EMAIL 'cheasee-pi@localhost', got %q", vals["HOST_GIT_EMAIL"])
+	}
+	if vals["HOST_UID"] == "" {
+		t.Error("expected non-empty HOST_UID")
 	}
 }
 
-func TestRunInitEnv_AllFallbacksFail(t *testing.T) {
-	uidResolver := &mockUIDResolver{
-		currentFunc: func() (uid, gid string, err error) {
-			return "", "", fmt.Errorf("all methods failed")
-		},
+// ──────────────────────────────────────────────
+// Scaffold phase tests (real templateSettingsRenderer)
+// ──────────────────────────────────────────────
+
+// readSettingsFile reads .pi/settings.json and returns it as a map.
+func readSettingsFile(t *testing.T, workdir string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("read .pi/settings.json: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+	return raw
+}
+
+func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
+	setGitIdentity(t)
+	oldProvider := initProvider
+	initProvider = "opencode-go"
+	defer func() { initProvider = oldProvider }()
+
+	workdir := t.TempDir()
+	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
+		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	err := runInitEnv(context.Background(), &mockEnvRenderer{}, uidResolver, &mockGitIdentity{}, t.TempDir(), mockConfirmFn(false, nil))
-	if err == nil {
-		t.Fatal("expected error when all UID fallbacks fail")
+	raw := readSettingsFile(t, workdir)
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
+	}
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "Test User" {
+		t.Errorf("expected gitIdentity.name 'Test User', got %v", gitID["name"])
+	}
+	if gitID["email"] != "test@example.com" {
+		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
+	}
+}
+
+func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
+	unsetGitIdentity(t)
+	oldProvider := initProvider
+	initProvider = "opencode-go"
+	defer func() { initProvider = oldProvider }()
+
+	workdir := t.TempDir()
+	// Declined identity prompt → default name/email written.
+	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
+		t.Fatalf("scaffold failed: %v", err)
+	}
+
+	raw := readSettingsFile(t, workdir)
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "Cheasee-Pi" {
+		t.Errorf("expected default gitIdentity.name 'Cheasee-Pi', got %v", gitID["name"])
+	}
+	if gitID["email"] != "cheasee-pi@localhost" {
+		t.Errorf("expected default gitIdentity.email 'cheasee-pi@localhost', got %v", gitID["email"])
+	}
+}
+
+// ──────────────────────────────────────────────
+// InitDeps.Validate tests
+// ──────────────────────────────────────────────
+
+func TestInitDeps_Validate(t *testing.T) {
+	all := defaultMocks()
+	all.Cfg = &mockRepository{}
+	all.Docker = &mockDockerChecker{}
+	tests := []struct {
+		name    string
+		ports   func() InitPorts
+		deps    InitDeps
+		wantErr []string // substrings the error must mention; empty = no error
+	}{
+		{
+			name:  "all present",
+			ports: func() InitPorts { return all },
+		},
+		{
+			name:  "missing cfg",
+			ports: func() InitPorts { p := all; p.Cfg = nil; return p },
+			wantErr: []string{"Ports.Cfg"},
+		},
+		{
+			name:  "missing docker when check enabled",
+			ports: func() InitPorts { p := all; p.Docker = nil; return p },
+			deps:    InitDeps{NoDockerCheck: false},
+			wantErr: []string{"Ports.Docker"},
+		},
+		{
+			name:  "missing docker allowed with no-docker-check",
+			ports: func() InitPorts { p := all; p.Docker = nil; return p },
+			deps:    InitDeps{NoDockerCheck: true},
+		},
+		{
+			name:  "missing auth/github/cloner on github path",
+			ports: func() InitPorts { p := all; p.Auth = nil; p.GitHub = nil; p.Cloner = nil; return p },
+			deps:    InitDeps{NoGitHub: false},
+			wantErr: []string{"Ports.Auth", "Ports.GitHub", "Ports.Cloner"},
+		},
+		{
+			name:  "missing gitinit on no-github path",
+			ports: func() InitPorts { p := all; p.GitInit = nil; return p },
+			deps:    InitDeps{NoGitHub: true},
+			wantErr: []string{"Ports.GitInit"},
+		},
+		{
+			name:  "missing gitinit allowed on github path",
+			ports: func() InitPorts { p := all; p.GitInit = nil; return p },
+			deps:    InitDeps{NoGitHub: false},
+		},
+		{
+			name:  "missing auth allowed on no-github path",
+			ports: func() InitPorts { p := all; p.Auth = nil; return p },
+			deps:    InitDeps{NoGitHub: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := tt.deps
+			deps.Ports = tt.ports()
+			err := deps.Validate()
+			if len(tt.wantErr) == 0 {
+				if err != nil {
+					t.Errorf("expected nil error, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error mentioning %v", tt.wantErr)
+			}
+			for _, want := range tt.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error should mention %q: %v", want, err)
+				}
+			}
+		})
 	}
 }
 
@@ -1305,6 +1420,7 @@ func TestRunInitEnv_AllFallbacksFail(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestInit_SuccessMessage(t *testing.T) {
+	setGitIdentity(t)
 	// Capture stderr to verify the success message
 	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
@@ -1818,6 +1934,7 @@ func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_SkipFork(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -1846,6 +1963,7 @@ func TestRunInit_SkipFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURL(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -1901,6 +2019,7 @@ func TestRunInit_ForkURL(t *testing.T) {
 }
 
 func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -1994,6 +2113,7 @@ func TestRunInit_ForkURLInvalid(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -2051,6 +2171,7 @@ func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
 
 func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	// With noInput=true, the post-clone confirm should be skipped
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
@@ -2574,32 +2695,58 @@ func TestInitRemove_TrailingWhitespaceStripped(t *testing.T) {
 	}
 }
 
+func TestInitRemove_InitremoveIsDirectory(t *testing.T) {
+	r := &initRemover{}
+	workdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workdir, ".initremove"), 0755); err != nil {
+		t.Fatalf("create .initremove dir: %v", err)
+	}
+
+	err := r.Remove(workdir)
+	if err == nil {
+		t.Fatal("expected error when .initremove is a directory")
+	}
+	if !strings.Contains(err.Error(), "read .initremove") {
+		t.Errorf("error should wrap 'read .initremove': %v", err)
+	}
+}
+
 // ──────────────────────────────────────────────
 // Phase 6: Orchestrator tests for InitRemover
 // ──────────────────────────────────────────────
 
+// seedCloneFixture pre-seeds a workdir with a .git marker (so the clone
+// refusal check passes and clone is skipped), a .initremove manifest listing
+// test.md and .github/, both present on disk, and a README.md control file
+// that is not listed and must survive cleanup.
+func seedCloneFixture(t *testing.T, workdir string) {
+	t.Helper()
+	os.MkdirAll(filepath.Join(workdir, ".git"), 0755)
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), []byte("test.md\n.github/\n"), 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "test.md"), []byte("data"), 0644); err != nil {
+		t.Fatalf("write test.md: %v", err)
+	}
+	os.MkdirAll(filepath.Join(workdir, ".github", "workflows"), 0755)
+	if err := os.WriteFile(filepath.Join(workdir, "README.md"), []byte("# repo\n"), 0644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+}
+
 func TestRunInit_RemoverCalled(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
 
-	removerCalled := false
-	var calledWith string
-	remover := &mockInitRemover{
-		removeFunc: func(workdir string) error {
-			removerCalled = true
-			calledWith = workdir
-			return nil
-		},
-	}
-
 	ports := defaultMocks()
 	ports.Docker = mockDocker
 	ports.Cfg = mockCfg
-	ports.Remover = remover
 
 	workdir := t.TempDir()
+	seedCloneFixture(t, workdir)
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
 		NoDockerCheck:  false,
@@ -2613,38 +2760,14 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("full flow with remover failed: %v", err)
 	}
-	if !removerCalled {
-		t.Error("Remover.Remove should be called")
+	if _, err := os.Stat(filepath.Join(workdir, "test.md")); !os.IsNotExist(err) {
+		t.Error("test.md should be removed by post-clone cleanup")
 	}
-	if calledWith != workdir {
-		t.Errorf("expected workdir %q, got %q", workdir, calledWith)
+	if _, err := os.Stat(filepath.Join(workdir, ".github")); !os.IsNotExist(err) {
+		t.Error(".github/ should be removed by post-clone cleanup")
 	}
-}
-
-func TestRunInit_RemoverNil(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
-
-	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
-	ports.Remover = nil // explicitly nil
-
-	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
-	if err != nil {
-		t.Fatalf("flow with nil remover should work: %v", err)
+	if _, err := os.Stat(filepath.Join(workdir, "README.md")); err != nil {
+		t.Errorf("README.md (not listed in .initremove) should survive: %v", err)
 	}
 }
 
@@ -2654,18 +2777,15 @@ func TestRunInit_RemoverError(t *testing.T) {
 	}
 	mockCfg := &mockRepository{}
 
-	remover := &mockInitRemover{
-		removeFunc: func(workdir string) error {
-			return fmt.Errorf("permission denied: test.md")
-		},
-	}
-
 	ports := defaultMocks()
 	ports.Docker = mockDocker
 	ports.Cfg = mockCfg
-	ports.Remover = remover
 
 	workdir := t.TempDir()
+	os.MkdirAll(filepath.Join(workdir, ".git"), 0755)
+	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), []byte("unmatched[brackets\n"), 0644); err != nil {
+		t.Fatalf("write .initremove: %v", err)
+	}
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
 		NoDockerCheck:  false,
@@ -2685,25 +2805,18 @@ func TestRunInit_RemoverError(t *testing.T) {
 }
 
 func TestRunInit_RemoverSkipFork(t *testing.T) {
+	setGitIdentity(t)
 	mockDocker := &mockDockerChecker{
 		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
 	}
 	mockCfg := &mockRepository{}
 
-	removerCalled := false
-	remover := &mockInitRemover{
-		removeFunc: func(workdir string) error {
-			removerCalled = true
-			return nil
-		},
-	}
-
 	ports := defaultMocks()
 	ports.Docker = mockDocker
 	ports.Cfg = mockCfg
-	ports.Remover = remover
 
 	workdir := t.TempDir()
+	seedCloneFixture(t, workdir)
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
 		NoDockerCheck:  false,
@@ -2717,8 +2830,11 @@ func TestRunInit_RemoverSkipFork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
-	if removerCalled {
-		t.Error("Remover.Remove should NOT be called in skip-fork mode (no clone)")
+	if _, err := os.Stat(filepath.Join(workdir, "test.md")); err != nil {
+		t.Errorf("test.md should survive in skip-fork mode (no clone, no cleanup): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".github")); err != nil {
+		t.Errorf(".github/ should survive in skip-fork mode: %v", err)
 	}
 }
 

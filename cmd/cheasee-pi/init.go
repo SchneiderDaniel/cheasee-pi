@@ -53,20 +53,15 @@ type SourceForkInput struct {
 }
 
 // InitPorts bundles the injected port interfaces used by runInit.
+// Only genuine seams (network/external-service boundaries) keep interfaces;
+// in-process stdlib adapters are called directly by the phase functions.
 type InitPorts struct {
-	Docker    Checker
-	Cfg       Repository
-	Auth      Authenticator
-	GitHub    GitHubClient
-	Cloner    Cloner
-	Extractor Extractor
-	Env       EnvRenderer
-	Probe     WorkingDirProbe
-	UID       UIDResolver
-	GitID     GitIdentity
-	Scaffold  SettingsScaffold
-	GitInit   GitInitializer
-	Remover   InitRemover
+	Docker  Checker
+	Cfg     Repository
+	Auth    Authenticator
+	GitHub  GitHubClient
+	Cloner  Cloner
+	GitInit GitInitializer
 }
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
@@ -90,24 +85,6 @@ func (d InitDeps) Validate() error {
 	var missing []string
 	if d.Ports.Cfg == nil {
 		missing = append(missing, "Ports.Cfg")
-	}
-	if d.Ports.Probe == nil {
-		missing = append(missing, "Ports.Probe")
-	}
-	if d.Ports.Extractor == nil {
-		missing = append(missing, "Ports.Extractor")
-	}
-	if d.Ports.Env == nil {
-		missing = append(missing, "Ports.Env")
-	}
-	if d.Ports.UID == nil {
-		missing = append(missing, "Ports.UID")
-	}
-	if d.Ports.GitID == nil {
-		missing = append(missing, "Ports.GitID")
-	}
-	if d.Ports.Scaffold == nil {
-		missing = append(missing, "Ports.Scaffold")
 	}
 	if !d.NoDockerCheck && d.Ports.Docker == nil {
 		missing = append(missing, "Ports.Docker")
@@ -205,12 +182,6 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 	authenticator := NewAuthenticator(initClientID)
 	gitHubClient := NewGitHubClient()
 	cloner := NewCloner()
-	extractor := NewExtractor()
-	envRenderer := NewEnvRenderer()
-	workdirProbe := NewWorkingDirProbe()
-	uidResolver := NewUIDResolver()
-	gitIdentity := NewGitIdentity()
-	scaffold := NewSettingsScaffold()
 	gitInit := NewGitInitializer()
 	confirmFn := promptConfirm
 	inputFn := promptInput
@@ -236,23 +207,14 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	initRemover := NewInitRemover()
-
 	return runInit(ctx, InitDeps{
 		Ports: InitPorts{
-			Docker:    dockerChecker,
-			Cfg:       configRepo,
-			Auth:      authenticator,
-			GitHub:    gitHubClient,
-			Cloner:    cloner,
-			Extractor: extractor,
-			Env:       envRenderer,
-			Probe:     workdirProbe,
-			UID:       uidResolver,
-			GitID:     gitIdentity,
-			Scaffold:  scaffold,
-			GitInit:   gitInit,
-			Remover:   initRemover,
+			Docker:  dockerChecker,
+			Cfg:     configRepo,
+			Auth:    authenticator,
+			GitHub:  gitHubClient,
+			Cloner:  cloner,
+			GitInit: gitInit,
 		},
 		APIKey:           initAPIKey,
 		NoDockerCheck:    initNoDockerCheck,
@@ -281,7 +243,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 
 	// Phase 2: Probe existing working directory
-	proceed, err := runInitProbe(ctx, deps.Ports.Probe, deps.Workdir, deps.ConfirmFn, deps.NoInput)
+	proceed, err := runInitProbe(ctx, deps.Workdir, deps.ConfirmFn, deps.NoInput)
 	if err != nil {
 		return err
 	}
@@ -402,8 +364,8 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			}
 
 			// Post-clone cleanup: remove files listed in .initremove
-			if deps.SourceFork.Mode != ModeSkipFork && deps.Ports.Remover != nil {
-				if err := deps.Ports.Remover.Remove(deps.Workdir); err != nil {
+			if deps.SourceFork.Mode != ModeSkipFork {
+				if err := NewInitRemover().Remove(deps.Workdir); err != nil {
 					return fmt.Errorf("post-clone cleanup: %w", err)
 				}
 			}
@@ -424,12 +386,12 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 
 	// Phase 9: Extract embedded compose files (always)
-	if err := runInitExtract(ctx, deps.Ports.Extractor, deps.Workdir); err != nil {
+	if err := runInitExtract(ctx, deps.Workdir); err != nil {
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
 	// Phase 10: Generate docker/.env (always)
-	if err := runInitEnv(ctx, deps.Ports.Env, deps.Ports.UID, deps.Ports.GitID, deps.Workdir, deps.ConfirmFn); err != nil {
+	if err := runInitEnv(ctx, deps.Workdir, deps.ConfirmFn); err != nil {
 		return fmt.Errorf("env generation: %w", err)
 	}
 
@@ -439,7 +401,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			return fmt.Errorf("git init: %w", err)
 		}
 	}
-	if err := runInitScaffold(ctx, deps.Ports.Scaffold, deps.Ports.GitID, deps.ConfirmFn, deps.Workdir); err != nil {
+	if err := runInitScaffold(ctx, deps.Workdir, deps.ConfirmFn); err != nil {
 		return fmt.Errorf("settings scaffold: %w", err)
 	}
 
@@ -483,8 +445,8 @@ func runInitDockerCheck(ctx context.Context, docker Checker) error {
 
 // runInitProbe checks for existing setup and prompts the user.
 // If noInput is true, skips the confirm prompt and proceeds.
-func runInitProbe(ctx context.Context, probe WorkingDirProbe, workdir string, confirmFn func(string) (bool, error), noInput bool) (bool, error) {
-	state, err := probe.Inspect(workdir)
+func runInitProbe(ctx context.Context, workdir string, confirmFn func(string) (bool, error), noInput bool) (bool, error) {
+	state, err := NewWorkingDirProbe().Inspect(workdir)
 	if err != nil {
 		return false, fmt.Errorf("check working directory: %w", err)
 	}
@@ -850,9 +812,9 @@ func removeSubmoduleSettings(workdir string) error {
 }
 
 // runInitExtract extracts embedded compose files to the working directory.
-func runInitExtract(ctx context.Context, extractor Extractor, workdir string) error {
+func runInitExtract(ctx context.Context, workdir string) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Extracting compose files...\n")
-	if err := extractor.Extract(ctx, workdir); err != nil {
+	if err := NewExtractor().Extract(ctx, workdir); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Compose files extracted to %s/docker\n", workdir)
@@ -860,15 +822,15 @@ func runInitExtract(ctx context.Context, extractor Extractor, workdir string) er
 }
 
 // runInitEnv generates docker/.env with host UID/GID and git identity.
-func runInitEnv(ctx context.Context, envRenderer EnvRenderer, uidResolver UIDResolver, gitIdentity GitIdentity, workdir string, confirmFn func(string) (bool, error)) error {
+func runInitEnv(ctx context.Context, workdir string, confirmFn func(string) (bool, error)) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Generating docker/.env...\n")
 
-	uid, gid, err := uidResolver.Current()
+	uid, gid, err := NewUIDResolver().Current()
 	if err != nil {
 		return fmt.Errorf("resolve user UID/GID: %w", err)
 	}
 
-	gitName, gitEmail, err := gitIdentity.Lookup()
+	gitName, gitEmail, err := NewGitIdentity().Lookup()
 	if err != nil {
 		// Git identity not found — not fatal, use defaults
 		gitName = ""
@@ -910,7 +872,7 @@ func runInitEnv(ctx context.Context, envRenderer EnvRenderer, uidResolver UIDRes
 	}
 
 	envPath := filepath.Join(workdir, "docker", ".env")
-	if err := envRenderer.Render(ctx, envPath, vals); err != nil {
+	if err := NewEnvRenderer().Render(ctx, envPath, vals); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ docker/.env generated at %s\n", envPath)
@@ -974,14 +936,12 @@ func runInitGitInit(ctx context.Context, gitInit GitInitializer, workdir string)
 // It resolves git identity from the system (same fallback chain as runInitEnv).
 func runInitScaffold(
 	ctx context.Context,
-	scaffold SettingsScaffold,
-	gitIdentity GitIdentity,
-	confirmFn func(string) (bool, error),
 	workdir string,
+	confirmFn func(string) (bool, error),
 ) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Creating .pi/settings.json...\n")
 
-	gitName, gitEmail, _ := gitIdentity.Lookup()
+	gitName, gitEmail, _ := NewGitIdentity().Lookup()
 	if gitName == "" || gitEmail == "" {
 		ok, err := confirmFn("No git identity found. Configure git user.name and user.email for .pi/settings.json?")
 		if err != nil {
@@ -1016,7 +976,7 @@ func runInitScaffold(
 		CPUs:     "2.0",
 	}
 
-	if err := scaffold.Scaffold(ctx, workdir, vals); err != nil {
+	if err := NewSettingsScaffold().Scaffold(ctx, workdir, vals); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ .pi/settings.json created\n")
