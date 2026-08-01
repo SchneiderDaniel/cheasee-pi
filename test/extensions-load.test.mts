@@ -14,7 +14,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 
 const EXTENSIONS_DIR = resolve(import.meta.dirname, "..", ".pi/extensions");
 
@@ -133,23 +133,32 @@ describe("Phase 2: Integration — pi startup with extension loading", () => {
 
 		const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>(
 			(resolvePromise, reject) => {
-				const child = execFile(
-					piBin,
-					["--print", "hello"],
-					{
-						cwd: resolve(import.meta.dirname, ".."),
-						timeout: 30_000,
-						maxBuffer: 1024 * 1024,
-						env: { ...process.env },
-					},
-					(err, stdout, stderr) => {
-						if (err && !err.killed) {
-							// Process may exit non-zero for many reasons (no API key, etc.)
-							// We still examine stderr for extension errors.
-						}
-						resolvePromise({ stdout, stderr });
-					},
-				);
+				// Use spawn (not execFile): under execFile, a pi child whose
+				// startup fails with an extension load error stalls in its event
+				// loop, the 30s timeout SIGTERMs it, and the "Failed to load
+				// extension" line is never captured — the test silently passes
+				// on a broken extension. spawn exits promptly with the full
+				// stderr (verified: 1.2s to exit 1 with the error line).
+				const child = spawn(piBin, ["--print", "hello"], {
+					cwd: resolve(import.meta.dirname, ".."),
+					env: { ...process.env },
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+				let stdout = "";
+				let stderr = "";
+				child.stdout.on("data", (d: Buffer) => (stdout += d));
+				child.stderr.on("data", (d: Buffer) => (stderr += d));
+				const killer = setTimeout(() => {
+					child.kill("SIGKILL");
+				}, 30_000);
+				child.on("error", (err) => {
+					clearTimeout(killer);
+					reject(err);
+				});
+				child.on("exit", () => {
+					clearTimeout(killer);
+					resolvePromise({ stdout, stderr });
+				});
 			},
 		);
 
