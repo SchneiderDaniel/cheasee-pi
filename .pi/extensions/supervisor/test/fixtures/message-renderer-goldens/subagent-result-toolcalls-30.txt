@@ -1,0 +1,40 @@
+ [38;5;143m✓[39m [38;5;188mdev-agent[39m — [38;5;143mSUCCESS[39m                                                          
+ [38;5;241m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[39m           
+ [38;5;241mCompleted task[39m                                                                 
+
+ [38;5;241m── Tools ──[39m                                                                    
+ [38;5;188m  ripgrep_search: {"query":"pattern-0","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-1","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-2","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-3","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-4","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-5","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-6","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-7","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-8","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-9","directory":"src"}[39m                      
+ [38;5;188m  ripgrep_search: {"query":"pattern-10","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-11","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-12","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-13","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-14","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-15","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-16","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-17","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-18","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-19","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-20","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-21","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-22","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-23","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-24","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-25","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-26","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-27","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-28","directory":"src"}[39m                     
+ [38;5;188m  ripgrep_search: {"query":"pattern-29","directory":"src"}[39m                     
+
+ [38;5;241m── Output Preview ──[39m                                                           
+ out                                                                            
+
+ [38;5;241m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[39m           
