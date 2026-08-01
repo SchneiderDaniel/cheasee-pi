@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -57,8 +56,7 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !buildNoDockerCheck {
-		checker := NewChecker(5 * time.Second)
-		if err := runInitDockerCheck(ctx, checker); err != nil {
+		if err := runInitDockerCheck(ctx); err != nil {
 			return err
 		}
 	}

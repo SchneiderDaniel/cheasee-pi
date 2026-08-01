@@ -85,7 +85,7 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Auth config
-	repo := NewRepository()
+	repo := &fileRepository{}
 	authPath, err := repo.Path()
 	if err == nil {
 		if _, err := os.Stat(authPath); err == nil {

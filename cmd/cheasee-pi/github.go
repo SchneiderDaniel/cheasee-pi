@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,11 +42,11 @@ type Submodule struct {
 	URL  string
 }
 
-// Cloner handles git clone and submodule operations.
-type Cloner interface {
-	Clone(ctx context.Context, token, repoURL, destPath string) error
-	// CloneWorktree clones bare and creates a worktree at workdir.
-	CloneWorktree(ctx context.Context, token, repoURL, workdir string) error
+// submoduleOps performs submodule operations on a local git checkout.
+// The go-git backed ops run directly against the working tree; AddSubmodule
+// shells out to git. Kept as a narrow parameter so runInit orchestration
+// tests can inject a fake — there is no second production adapter.
+type submoduleOps interface {
 	// ListSubmodules returns all submodules defined in .gitmodules.
 	ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error)
 	// SetSubmoduleURL rewrites the URL for a named submodule in .gitmodules
@@ -232,17 +231,11 @@ func (c *httpGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 }
 
 // ──────────────────────────────────────────────
-// Cloner: goGitCloner
+// Clone/submodule ops: free funcs + gitSubmoduleOps (no port)
 // ──────────────────────────────────────────────
 
-type goGitCloner struct{}
-
-// NewCloner creates a git cloner backed by go-git.
-func NewCloner() Cloner {
-	return &goGitCloner{}
-}
-
-func (cl *goGitCloner) Clone(ctx context.Context, token, repoURL, destPath string) error {
+// gitClone clones a repo with go-git using HTTPS BasicAuth token auth.
+func gitClone(ctx context.Context, token, repoURL, destPath string) error {
 	auth := &goGitHTTP.BasicAuth{
 		Username: "",     // Must be empty for GitHub token auth
 		Password: token,
@@ -258,8 +251,8 @@ func (cl *goGitCloner) Clone(ctx context.Context, token, repoURL, destPath strin
 	return nil
 }
 
-// CloneWorktree clones bare and creates a worktree.
-func (cl *goGitCloner) CloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
+// gitCloneWorktree clones bare and creates a worktree.
+func gitCloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
 	sourceOwner, sourceRepoName := ParseGitHubURL(repoURL)
 	if sourceOwner == "" || sourceRepoName == "" {
 		return fmt.Errorf("invalid repo URL: %s", repoURL)
@@ -277,14 +270,14 @@ func (cl *goGitCloner) CloneWorktree(ctx context.Context, token, repoURL, workdi
 	}
 
 	// Clone bare
-	cmd := exec.CommandContext(ctx, "git", "clone", "--bare", authRepoURL, bareDir)
+	cmd := runCommandContext(ctx, "git", "clone", "--bare", authRepoURL, bareDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bare clone failed: %w\n%s", err, string(out))
+		return fmt.Errorf("bare clone failed: %w\n%s", err, redactToken(string(out), token))
 	}
 
 	// Detect default branch
 	defaultBranch := "main"
-	branchCmd := exec.CommandContext(ctx, "git", "--git-dir", bareDir, "symbolic-ref", "refs/remotes/origin/HEAD")
+	branchCmd := runCommandContext(ctx, "git", "--git-dir", bareDir, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if out, err := branchCmd.Output(); err == nil {
 		ref := strings.TrimSpace(string(out))
 		if parts := strings.Split(ref, "/"); len(parts) > 0 {
@@ -295,16 +288,39 @@ func (cl *goGitCloner) CloneWorktree(ctx context.Context, token, repoURL, workdi
 	}
 
 	// Create worktree
-	wtCmd := exec.CommandContext(ctx, "git", "--git-dir", bareDir, "worktree", "add", "--detach", workdir, defaultBranch)
+	wtCmd := runCommandContext(ctx, "git", "--git-dir", bareDir, "worktree", "add", "--detach", workdir, defaultBranch)
 	if out, err := wtCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("worktree add failed: %w\n%s", err, string(out))
+		return fmt.Errorf("worktree add failed: %w\n%s", err, redactToken(string(out), token))
 	}
 
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned (bare + worktree) to %s\n", workdir)
 	return nil
 }
 
-func (cl *goGitCloner) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+// redactToken replaces occurrences of token in text with "***" so CLI error
+// output never echoes the credential. No-op for an empty token.
+func redactToken(text, token string) string {
+	if token == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, token, "***")
+}
+
+// gitAddSubmodule runs git submodule add for a new submodule.
+func gitAddSubmodule(ctx context.Context, repoPath, name, url string) error {
+	cmd := runCommandContext(ctx, "git", "submodule", "add", url, name)
+	cmd.SetDir(repoPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git submodule add %s %s: %w\nOutput: %s", url, name, err, string(output))
+	}
+	return nil
+}
+
+// gitSubmoduleOps implements submoduleOps backed by go-git.
+type gitSubmoduleOps struct{}
+
+func (gitSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("open repo: %w", err)
@@ -332,7 +348,7 @@ func (cl *goGitCloner) ListSubmodules(ctx context.Context, repoPath string) ([]S
 	return result, nil
 }
 
-func (cl *goGitCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
+func (gitSubmoduleOps) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("open repo: %w", err)
@@ -382,7 +398,7 @@ func (cl *goGitCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newU
 	return nil
 }
 
-func (cl *goGitCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
+func (gitSubmoduleOps) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return fmt.Errorf("open repo: %w", err)
@@ -412,14 +428,8 @@ func (cl *goGitCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath str
 	return nil
 }
 
-func (cl *goGitCloner) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
-	cmd := exec.CommandContext(ctx, "git", "submodule", "add", url, name)
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git submodule add %s %s: %w\nOutput: %s", url, name, err, string(output))
-	}
-	return nil
+func (gitSubmoduleOps) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
+	return gitAddSubmodule(ctx, repoPath, name, url)
 }
 
 // ParseGitHubURL parses "owner/repo" from various GitHub URL formats.

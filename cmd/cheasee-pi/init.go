@@ -53,25 +53,24 @@ type SourceForkInput struct {
 }
 
 // InitPorts bundles the injected port interfaces used by runInit.
+// The docker/git CLI seams (dockerCheck, gitInit, gitCloneWorktree) and the
+// auth config (fileRepository) are package-level now and need no injection.
 type InitPorts struct {
-	Docker    Checker
-	Cfg       Repository
 	Auth      Authenticator
 	GitHub    GitHubClient
-	Cloner    Cloner
 	Extractor Extractor
 	Env       EnvRenderer
 	Probe     WorkingDirProbe
 	UID       UIDResolver
 	GitID     GitIdentity
 	Scaffold  SettingsScaffold
-	GitInit   GitInitializer
 	Remover   InitRemover
 }
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
 type InitDeps struct {
 	Ports            InitPorts
+	SubmoduleOps     submoduleOps // go-git submodule ops; nil → gitSubmoduleOps
 	APIKey           string
 	NoDockerCheck    bool
 	NoGitHub         bool
@@ -88,9 +87,6 @@ type InitDeps struct {
 // Validate checks that all required dependencies for the active path are non-nil.
 func (d InitDeps) Validate() error {
 	var missing []string
-	if d.Ports.Cfg == nil {
-		missing = append(missing, "Ports.Cfg")
-	}
 	if d.Ports.Probe == nil {
 		missing = append(missing, "Ports.Probe")
 	}
@@ -109,22 +105,12 @@ func (d InitDeps) Validate() error {
 	if d.Ports.Scaffold == nil {
 		missing = append(missing, "Ports.Scaffold")
 	}
-	if !d.NoDockerCheck && d.Ports.Docker == nil {
-		missing = append(missing, "Ports.Docker")
-	}
 	if !d.NoGitHub {
 		if d.Ports.Auth == nil {
 			missing = append(missing, "Ports.Auth")
 		}
 		if d.Ports.GitHub == nil {
 			missing = append(missing, "Ports.GitHub")
-		}
-		if d.Ports.Cloner == nil {
-			missing = append(missing, "Ports.Cloner")
-		}
-	} else {
-		if d.Ports.GitInit == nil {
-			missing = append(missing, "Ports.GitInit")
 		}
 	}
 	if len(missing) > 0 {
@@ -198,20 +184,15 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("parse submodule URLs: %w", err)
 	}
 
-	dockerChecker := NewChecker(5 * time.Second)
-	configRepo := NewRepository()
-
-	// Wire up new ports
+	// Wire up remaining ports (docker/git CLI and auth config are package-level)
 	authenticator := NewAuthenticator(initClientID)
 	gitHubClient := NewGitHubClient()
-	cloner := NewCloner()
 	extractor := NewExtractor()
 	envRenderer := NewEnvRenderer()
 	workdirProbe := NewWorkingDirProbe()
 	uidResolver := NewUIDResolver()
 	gitIdentity := NewGitIdentity()
 	scaffold := NewSettingsScaffold()
-	gitInit := NewGitInitializer()
 	confirmFn := promptConfirm
 	inputFn := promptInput
 
@@ -240,18 +221,14 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 
 	return runInit(ctx, InitDeps{
 		Ports: InitPorts{
-			Docker:    dockerChecker,
-			Cfg:       configRepo,
 			Auth:      authenticator,
 			GitHub:    gitHubClient,
-			Cloner:    cloner,
 			Extractor: extractor,
 			Env:       envRenderer,
 			Probe:     workdirProbe,
 			UID:       uidResolver,
 			GitID:     gitIdentity,
 			Scaffold:  scaffold,
-			GitInit:   gitInit,
 			Remover:   initRemover,
 		},
 		APIKey:           initAPIKey,
@@ -275,7 +252,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 	// Phase 1: Docker check (unless --no-docker-check)
 	if !deps.NoDockerCheck {
-		if err := runInitDockerCheck(ctx, deps.Ports.Docker); err != nil {
+		if err := runInitDockerCheck(ctx); err != nil {
 			return err
 		}
 	}
@@ -290,13 +267,16 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		return nil
 	}
 
+	// Auth config is file I/O under the OS user config dir — no port.
+	cfg := &fileRepository{}
+
 	// Phase 3-8: Authentication and repository setup
 	var auth *Auth
 	if deps.NoGitHub {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", initProvider)
-		auth, err = runInitLegacy(ctx, deps.Ports.Cfg, deps.APIKey, initProvider)
+		auth, err = runInitLegacy(ctx, cfg, deps.APIKey, initProvider)
 		if err != nil {
 			return err
 		}
@@ -308,7 +288,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			if errors.Is(err, device.ErrUnsupported) {
 				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
 				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
-				auth, err = runInitLegacy(ctx, deps.Ports.Cfg, deps.APIKey, initProvider)
+				auth, err = runInitLegacy(ctx, cfg, deps.APIKey, initProvider)
 				if err != nil {
 					return err
 				}
@@ -338,7 +318,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			case ModeUseForkURL:
 				// Use user-supplied fork URL directly — skip fork and wait
 				cloneURL = deps.SourceFork.ForkURL
-				if err := runInitCloneSubmodule(ctx, deps.Ports.Cloner, token, cloneURL, deps.Workdir); err != nil {
+				if err := runInitCloneSubmodule(ctx, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 
@@ -384,7 +364,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 					cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", sourceOwner, sourceRepoName)
 				}
 
-				if err := runInitCloneSubmodule(ctx, deps.Ports.Cloner, token, cloneURL, deps.Workdir); err != nil {
+				if err := runInitCloneSubmodule(ctx, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 			}
@@ -410,7 +390,11 @@ func runInit(ctx context.Context, deps InitDeps) error {
 
 			// Configure submodules for non-skip modes
 			if deps.SourceFork.Mode != ModeSkipFork {
-				if err := runInitSubmodule(ctx, deps.Ports.Cloner, deps.Workdir, deps.SubmoduleURLs, deps.SkipSubmodules, deps.SubmodulePromptFn, deps.NoInput, deps.ConfirmFn, deps.InputFn); err != nil {
+				ops := deps.SubmoduleOps
+				if ops == nil {
+					ops = gitSubmoduleOps{}
+				}
+				if err := runInitSubmodule(ctx, ops, deps.Workdir, deps.SubmoduleURLs, deps.SkipSubmodules, deps.SubmodulePromptFn, deps.NoInput, deps.ConfirmFn, deps.InputFn); err != nil {
 					return fmt.Errorf("submodule config: %w", err)
 				}
 			}
@@ -435,7 +419,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 
 	// Phase 11: Scaffold workspace — git init (no-github only) + .pi/settings.json (always)
 	if deps.NoGitHub {
-		if err := runInitGitInit(ctx, deps.Ports.GitInit, deps.Workdir); err != nil {
+		if err := runInitGitInit(ctx, deps.Workdir); err != nil {
 			return fmt.Errorf("git init: %w", err)
 		}
 	}
@@ -444,16 +428,16 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 
 	// Phase 12: Save auth config
-	if err := deps.Ports.Cfg.Save(ctx, auth); err != nil {
+	if err := cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
 
-	path, _ := deps.Ports.Cfg.Path()
+	path, _ := cfg.Path()
 	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
 
 	// Phase 13: API key setup for pi providers (interactive only)
 	if !deps.NoInput {
-		if err := runInitAPIKeys(ctx, deps.Ports.Cfg, deps.Workdir, deps.ConfirmFn); err != nil {
+		if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
 			return fmt.Errorf("API key setup: %w", err)
 		}
 	}
@@ -463,8 +447,8 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	return nil
 }
 // runInitDockerCheck verifies Docker Engine is installed and running.
-func runInitDockerCheck(ctx context.Context, docker Checker) error {
-	result, err := docker.Check(ctx)
+func runInitDockerCheck(ctx context.Context) error {
+	result, err := dockerCheck(ctx, dockerCheckTimeout)
 	if err != nil {
 		return fmt.Errorf("docker check failed: %w", err)
 	}
@@ -553,7 +537,7 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 // Called after the main init flow (GitHub auth + scaffold), only in interactive mode.
 // Each provider key is saved to auth.json. Last provider added becomes default in
 // workspace settings. Skips if Docker Engine check failed or workspace has no .pi dir.
-func runInitAPIKeys(ctx context.Context, cfg Repository, workdir string, confirmFn func(string) (bool, error)) error {
+func runInitAPIKeys(ctx context.Context, cfg *fileRepository, workdir string, confirmFn func(string) (bool, error)) error {
 	ok, err := confirmFn("Configure API keys for pi providers?")
 	if err != nil {
 		return err
@@ -624,7 +608,7 @@ func runInitAPIKeys(ctx context.Context, cfg Repository, workdir string, confirm
 
 // runInitLegacy is an auth-only helper that returns an *Auth with the API key.
 // It does NOT save, extract, or render — the orchestrator handles those.
-func runInitLegacy(ctx context.Context, cfg Repository, apiKey string, provider string) (*Auth, error) {
+func runInitLegacy(ctx context.Context, cfg *fileRepository, apiKey string, provider string) (*Auth, error) {
 	if apiKey == "" {
 		key, err := promptAPIKey()
 		if err != nil {
@@ -641,7 +625,7 @@ func runInitLegacy(ctx context.Context, cfg Repository, apiKey string, provider 
 // Non-interactive flow (noInput=true or confirmFn nil): reads .gitmodules, applies CLI overrides.
 func runInitSubmodule(
 	ctx context.Context,
-	cloner Cloner,
+	ops submoduleOps,
 	workdir string,
 	urlOverrides map[string]string,
 	skipAll bool,
@@ -711,13 +695,13 @@ func runInitSubmodule(
 			}
 
 			fmt.Fprintf(os.Stderr, "  ℹ Adding submodule %s → %s\n", name, url)
-			if err := cloner.AddSubmodule(ctx, workdir, name, url); err != nil {
+			if err := ops.AddSubmodule(ctx, workdir, name, url); err != nil {
 				return fmt.Errorf("add submodule %q: %w", name, err)
 			}
 		}
 
 		if count > 0 {
-			if err := cloner.InitAndUpdateSubmodules(ctx, workdir); err != nil {
+			if err := ops.InitAndUpdateSubmodules(ctx, workdir); err != nil {
 				return fmt.Errorf("update submodules: %w", err)
 			}
 		}
@@ -729,7 +713,7 @@ func runInitSubmodule(
 	// Non-interactive flow: read from .gitmodules, apply overrides
 	fmt.Fprintf(os.Stderr, "  ℹ Configuring submodules...\n")
 
-	submodules, err := cloner.ListSubmodules(ctx, workdir)
+	submodules, err := ops.ListSubmodules(ctx, workdir)
 	if err != nil {
 		return fmt.Errorf("list submodules: %w", err)
 	}
@@ -757,13 +741,13 @@ func runInitSubmodule(
 	// Apply URL changes
 	for name, url := range overrides {
 		fmt.Fprintf(os.Stderr, "  ℹ Setting submodule %q URL to %s\n", name, url)
-		if err := cloner.SetSubmoduleURL(ctx, workdir, name, url); err != nil {
+		if err := ops.SetSubmoduleURL(ctx, workdir, name, url); err != nil {
 			return fmt.Errorf("set submodule %q URL: %w", name, err)
 		}
 	}
 
 	// Init and update all submodules
-	if err := cloner.InitAndUpdateSubmodules(ctx, workdir); err != nil {
+	if err := ops.InitAndUpdateSubmodules(ctx, workdir); err != nil {
 		return fmt.Errorf("update submodules: %w", err)
 	}
 
@@ -961,9 +945,9 @@ func promptGitIdentity() (name, email string, err error) {
 
 // runInitGitInit initializes a git repository in the working directory.
 // This is only called on the --no-github path (clone creates .git otherwise).
-func runInitGitInit(ctx context.Context, gitInit GitInitializer, workdir string) error {
+func runInitGitInit(ctx context.Context, workdir string) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Initializing git repository...\n")
-	if err := gitInit.Init(ctx, workdir); err != nil {
+	if err := gitInit(ctx, workdir); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Git repository initialized\n")
@@ -1066,7 +1050,7 @@ func runInitPromptSource(sfi SourceForkInput) (string, error) {
 }
 
 // runInitCloneSubmodule clones a repo and configures its submodule.
-func runInitCloneSubmodule(ctx context.Context, cloner Cloner, token, cloneURL, workdir string) error {
+func runInitCloneSubmodule(ctx context.Context, token, cloneURL, workdir string) error {
 	sourceOwner, sourceRepoName := ParseGitHubURL(cloneURL)
 	if sourceOwner == "" || sourceRepoName == "" {
 		return fmt.Errorf("invalid clone URL: %s", cloneURL)
@@ -1086,7 +1070,7 @@ func runInitCloneSubmodule(ctx context.Context, cloner Cloner, token, cloneURL, 
 		}
 	}
 
-	if err := cloner.CloneWorktree(ctx, token, cloneURL, workdir); err != nil {
+	if err := gitCloneWorktree(ctx, token, cloneURL, workdir); err != nil {
 		return fmt.Errorf("clone fork: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned %s/%s to %s\n", sourceOwner, sourceRepoName, workdir)

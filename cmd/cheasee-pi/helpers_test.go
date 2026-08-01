@@ -2,102 +2,11 @@ package main
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 )
-
-// ──────────────────────────────────────────────
-// Mock: Docker
-// ──────────────────────────────────────────────
-
-// mockDockerChecker simulates Docker check results without real Docker.
-type mockDockerChecker struct {
-	result *CheckResult
-	err    error
-}
-
-func (m *mockDockerChecker) Check(_ context.Context) (*CheckResult, error) {
-	return m.result, m.err
-}
-
-// mockCheckerCtx wraps a Checker but returns context.Canceled when context is done.
-type mockCheckerCtx struct {
-	orig Checker
-}
-
-func (m *mockCheckerCtx) Check(ctx context.Context) (*CheckResult, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-		return m.orig.Check(ctx)
-	}
-}
-
-// ──────────────────────────────────────────────
-// Mock: Repository
-// ──────────────────────────────────────────────
-
-// mockRepository implements Repository for testing.
-type mockRepository struct {
-	saved          bool
-	savedKey       string
-	savedProvider  string
-	savedAuth      *Auth
-	saveErr        error
-	loadErr        error
-	loadAuth       *Auth
-	path           string
-	providers      map[string]string // returned by ListProviders
-}
-
-func (m *mockRepository) Load(_ context.Context) (*Auth, error) {
-	if m.loadErr != nil {
-		return nil, m.loadErr
-	}
-	if m.loadAuth != nil {
-		return m.loadAuth, nil
-	}
-	return &Auth{}, nil
-}
-
-func (m *mockRepository) Save(_ context.Context, auth *Auth) error {
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-	m.saved = true
-	m.savedKey = auth.APIKey
-	m.savedProvider = auth.Provider
-	m.savedAuth = auth
-	return nil
-}
-
-func (m *mockRepository) Path() (string, error) {
-	if m.path != "" {
-		return m.path, nil
-	}
-	return "/mock/path/auth.json", nil
-}
-
-func (m *mockRepository) AddProvider(_ context.Context, provider, key string) error {
-	m.savedProvider = provider
-	m.savedKey = key
-	return nil
-}
-
-func (m *mockRepository) RemoveProvider(_ context.Context, provider string) error {
-	return nil
-}
-
-func (m *mockRepository) ListProviders(_ context.Context) (map[string]string, error) {
-	if m.providers != nil {
-		return m.providers, nil
-	}
-	return nil, nil
-}
 
 // ──────────────────────────────────────────────
 // Mock: Authenticator
@@ -160,44 +69,26 @@ func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 }
 
 // ──────────────────────────────────────────────
-// Mock: Cloner
+// Mock: submoduleOps (go-git submodule ops)
 // ──────────────────────────────────────────────
 
-type mockCloner struct {
-	cloneFunc                func(ctx context.Context, token, repoURL, destPath string) error
-	cloneWorktreeFunc        func(ctx context.Context, token, repoURL, workdir string) error
-	listSubmodulesFunc       func(ctx context.Context, repoPath string) ([]Submodule, error)
-	setSubmoduleURLFunc      func(ctx context.Context, repoPath, name, newURL string) error
-	initAndUpdateSubmodFunc  func(ctx context.Context, repoPath string) error
-	addSubmoduleFunc         func(ctx context.Context, repoPath, name, url string) error
+type mockSubmoduleOps struct {
+	listSubmodulesFunc      func(ctx context.Context, repoPath string) ([]Submodule, error)
+	setSubmoduleURLFunc     func(ctx context.Context, repoPath, name, newURL string) error
+	initAndUpdateSubmodFunc func(ctx context.Context, repoPath string) error
+	addSubmoduleFunc        func(ctx context.Context, repoPath, name, url string) error
 
 	// Tracking fields for test assertions
-	listSubmodulesCalled    bool
-	setSubmoduleURLCalled   bool
-	setSubmoduleURLName     string
-	setSubmoduleURLURL      string
-	setSubmoduleURLCalls    []struct{ Name, URL string }
-	initAndUpdateCalled     bool
-	addSubmoduleCalls       []struct{ Name, URL string }
+	listSubmodulesCalled  bool
+	setSubmoduleURLCalled bool
+	setSubmoduleURLName   string
+	setSubmoduleURLURL    string
+	setSubmoduleURLCalls  []struct{ Name, URL string }
+	initAndUpdateCalled   bool
+	addSubmoduleCalls     []struct{ Name, URL string }
 }
 
-func (m *mockCloner) Clone(ctx context.Context, token, repoURL, destPath string) error {
-	if m.cloneFunc != nil {
-		return m.cloneFunc(ctx, token, repoURL, destPath)
-	}
-	return nil
-}
-
-func (m *mockCloner) CloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
-	if m.cloneWorktreeFunc != nil {
-		return m.cloneWorktreeFunc(ctx, token, repoURL, workdir)
-	}
-	// Create the workdir so tests that check for it pass
-	os.MkdirAll(workdir, 0755)
-	return nil
-}
-
-func (m *mockCloner) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+func (m *mockSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
 	m.listSubmodulesCalled = true
 	if m.listSubmodulesFunc != nil {
 		return m.listSubmodulesFunc(ctx, repoPath)
@@ -205,7 +96,7 @@ func (m *mockCloner) ListSubmodules(ctx context.Context, repoPath string) ([]Sub
 	return nil, nil
 }
 
-func (m *mockCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
+func (m *mockSubmoduleOps) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
 	m.setSubmoduleURLCalled = true
 	m.setSubmoduleURLName = name
 	m.setSubmoduleURLURL = newURL
@@ -216,7 +107,7 @@ func (m *mockCloner) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL
 	return nil
 }
 
-func (m *mockCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
+func (m *mockSubmoduleOps) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
 	m.initAndUpdateCalled = true
 	if m.initAndUpdateSubmodFunc != nil {
 		return m.initAndUpdateSubmodFunc(ctx, repoPath)
@@ -224,7 +115,7 @@ func (m *mockCloner) InitAndUpdateSubmodules(ctx context.Context, repoPath strin
 	return nil
 }
 
-func (m *mockCloner) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
+func (m *mockSubmoduleOps) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
 	m.addSubmoduleCalls = append(m.addSubmoduleCalls, struct{ Name, URL string }{name, url})
 	if m.addSubmoduleFunc != nil {
 		return m.addSubmoduleFunc(ctx, repoPath, name, url)
@@ -246,7 +137,6 @@ func (m *mockExtractor) Extract(ctx context.Context, destDir string) error {
 	}
 	return nil
 }
-
 
 // ──────────────────────────────────────────────
 // Mock: EnvRenderer
@@ -354,21 +244,6 @@ func (m *mockSettingsScaffold) Scaffold(ctx context.Context, workdir string, val
 }
 
 // ──────────────────────────────────────────────
-// Mock: GitInitializer
-// ──────────────────────────────────────────────
-
-type mockGitInitializer struct {
-	initFunc func(ctx context.Context, workdir string) error
-}
-
-func (m *mockGitInitializer) Init(ctx context.Context, workdir string) error {
-	if m.initFunc != nil {
-		return m.initFunc(ctx, workdir)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
 // Mock: InitRemover
 // ──────────────────────────────────────────────
 
@@ -392,18 +267,14 @@ func (m *mockInitRemover) Remove(workdir string) error {
 // ──────────────────────────────────────────────
 
 var (
-	_ Checker          = (*mockDockerChecker)(nil)
-	_ Checker          = (*mockCheckerCtx)(nil)
-	_ Repository       = (*mockRepository)(nil)
 	_ Authenticator    = (*mockAuthenticator)(nil)
 	_ GitHubClient     = (*mockGitHubClient)(nil)
-	_ Cloner           = (*mockCloner)(nil)
+	_ submoduleOps     = (*mockSubmoduleOps)(nil)
 	_ Extractor        = (*mockExtractor)(nil)
 	_ EnvRenderer      = (*mockEnvRenderer)(nil)
 	_ WorkingDirProbe  = (*mockWorkingDirProbe)(nil)
 	_ UIDResolver      = (*mockUIDResolver)(nil)
 	_ GitIdentity      = (*mockGitIdentity)(nil)
 	_ SettingsScaffold = (*mockSettingsScaffold)(nil)
-	_ GitInitializer   = (*mockGitInitializer)(nil)
 	_ InitRemover      = (*mockInitRemover)(nil)
 )
