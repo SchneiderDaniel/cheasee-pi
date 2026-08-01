@@ -15,24 +15,6 @@ import { StringEnum } from "@earendil-works/pi-ai";
 /** Mode of questioning: multiple-choice or free-text. */
 export type Mode = "choice" | "freetext";
 
-// ---------------------------------------------------------------------------
-// Tool result details types for structured Q&A responses
-// ---------------------------------------------------------------------------
-
-/** Structured details for Q&A tool responses with format discriminator. */
-export interface ToolResultDetailsQna {
-	format: "qna-result-v1";
-	entries: QnaEntry[];
-	count: number;
-	untrusted?: true;
-}
-
-/** Full tool result envelope with structured Q&A details. */
-export type QnaToolResult = {
-	content: Array<{ type: "text"; text: string }>;
-	details: ToolResultDetailsQna;
-};
-
 /** A single option in a choice question. */
 export interface OptionItem {
 	label: string;
