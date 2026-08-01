@@ -53,16 +53,30 @@ function findSetStatusCalls(filePath: string): StatusCall[] {
 }
 
 /**
- * Check that a file properly clears status after setting it.
- * For every setStatus("supervisor", "text") call, there must be a
- * setStatus("supervisor", undefined) call later in the same function scope.
+ * Check that a file (or ordered list of files) properly clears status
+ * after setting it. For every setStatus("supervisor", "text") call, there
+ * must be a setStatus("supervisor", undefined) call later in the stream.
  *
  * This is a heuristic check: we verify that for every non-undefined setStatus
- * call, there is at least one undefined setStatus call after it.
+ * call, there is at least one undefined setStatus call after it. Files are
+ * concatenated in the order given so the terminal clear (which lives in
+ * post-pipeline.ts for the handler package) counts for sets in earlier files.
  */
-function checkStatusCleanup(filePath: string): string[] {
-	const calls = findSetStatusCalls(filePath);
+function checkStatusCleanup(filePaths: string[]): string[] {
 	const errors: string[] = [];
+	let lineOffset = 0;
+
+	const calls: StatusCall[] = [];
+	for (const filePath of filePaths) {
+		const fileCalls = findSetStatusCalls(filePath).map((c) => ({
+			...c,
+			line: c.line + lineOffset,
+		}));
+		calls.push(...fileCalls);
+		// Line offset tracks position across concatenated files so ordering
+		// is comparable across the whole stream.
+		lineOffset += readFileSync(filePath, "utf-8").split("\n").length;
+	}
 
 	// Separate into set (non-undefined) and clear (undefined) calls
 	const setCalls = calls.filter((c) => c.arg !== "undefined");
@@ -85,23 +99,34 @@ function checkStatusCleanup(filePath: string): string[] {
 // Tests
 // ---------------------------------------------------------------------------
 
-const FILES_TO_CHECK = [
+// Issue #1395 split: the handler megahandler moved to the handler package.
+// preflight.ts sets "Reading project board..." etc., agent-loop.ts sets the
+// per-iteration "Status: ...", and post-pipeline.ts clears on completion —
+// so the package is scanned as one ordered stream.
+const FILES_TO_CHECK: Array<string | string[]> = [
 	"pipeline/audit.ts",
 	"pipeline/merge.ts",
 	"pipeline/notifications.ts",
-	"pipeline/handler.ts",
+	[
+		"pipeline/handler/index.ts",
+		"pipeline/handler/preflight.ts",
+		"pipeline/handler/agent-loop.ts",
+		"pipeline/handler/post-pipeline.ts",
+		"pipeline/handler/shared.ts",
+	],
 ];
 
 for (const file of FILES_TO_CHECK) {
-	const filePath = join(__dirname, "../", file);
+	const paths = Array.isArray(file) ? file : [file];
+	const label = Array.isArray(file) ? `pipeline/handler package (${file.length} files)` : file;
 
-	describe(`supervisor status cleanup — ${file}`, () => {
+	describe(`supervisor status cleanup — ${label}`, () => {
 		it("every setStatus('supervisor', text) has a matching clear (setStatus with undefined) after it", () => {
-			const errors = checkStatusCleanup(filePath);
+			const errors = checkStatusCleanup(paths.map((p) => join(__dirname, "../", p)));
 			assert.equal(
 				errors.length,
 				0,
-				`Found ${errors.length} status(es) without cleanup in ${file}:\n` +
+				`Found ${errors.length} status(es) without cleanup in ${label}:\n` +
 					errors.join("\n") +
 					"\n\nEach setStatus('supervisor', 'text') must be followed by setStatus('supervisor', undefined) in a finally block.",
 			);

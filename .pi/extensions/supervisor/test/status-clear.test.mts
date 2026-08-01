@@ -26,7 +26,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FILES_TO_CHECK = [
 	"agent/agent-session-runner.ts",
 	"agent/runner.ts",
-	"pipeline/handler.ts",
+	// Issue #1395 split: handler.ts became a re-export shim; the status calls
+	// live in the handler package.
+	"pipeline/handler/index.ts",
+	"pipeline/handler/preflight.ts",
+	"pipeline/handler/agent-loop.ts",
+	"pipeline/handler/post-pipeline.ts",
+	"pipeline/handler/shared.ts",
 	"pipeline/notifications.ts",
 ];
 

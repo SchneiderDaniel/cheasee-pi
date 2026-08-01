@@ -8,6 +8,11 @@
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/supervisor-pipeline.test.mts
+ *
+ * Issue #1395 split: handler.ts became a re-export shim. Worktree creation
+ * lives in handler/preflight.ts, the agent loop in handler/agent-loop.ts,
+ * and the cleanup in handler/post-pipeline.ts — each describe reads the
+ * file that owns the behavior it asserts.
  */
 
 import assert from "node:assert";
@@ -19,29 +24,40 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const HANDLER_TS = resolve(__dirname, "../pipeline/handler.ts");
+const PREFLIGHT_TS = resolve(__dirname, "../pipeline/handler/preflight.ts");
+const AGENT_LOOP_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const POST_PIPELINE_TS = resolve(__dirname, "../pipeline/handler/post-pipeline.ts");
 
-function readHandlerSource(): string {
-	return readFileSync(HANDLER_TS, "utf-8");
+function readPreflightSource(): string {
+	return readFileSync(PREFLIGHT_TS, "utf-8");
+}
+function readAgentLoopSource(): string {
+	return readFileSync(AGENT_LOOP_TS, "utf-8");
+}
+function readPostPipelineSource(): string {
+	return readFileSync(POST_PIPELINE_TS, "utf-8");
 }
 
 // ---------------------------------------------------------------------------
-// Worktree creation before agent dispatch
+// Worktree creation before agent dispatch (preflight.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — worktree creation before loop", () => {
-	it("worktree created before for loop", () => {
-		const src = readHandlerSource();
-		const loopIdx = src.indexOf("for (let i = 0; i < MAX_PIPELINE_LOOPS");
-		const beforeLoop = src.substring(0, loopIdx);
+	it("worktree created in preflight, before the agent loop", () => {
+		const preflightSrc = readPreflightSource();
 		assert.ok(
-			beforeLoop.includes("createWorktree"),
-			"createWorktree called before the pipeline loop",
+			preflightSrc.includes("createWorktree"),
+			"createWorktree called in preflight (before the pipeline loop)",
+		);
+		const loopSrc = readAgentLoopSource();
+		assert.ok(
+			loopSrc.includes("for (let i = 0; i < MAX_PIPELINE_LOOPS"),
+			"pipeline loop lives in agent-loop.ts",
 		);
 	});
 
 	it("generateBranchName called before worktree creation", () => {
-		const src = readHandlerSource();
+		const src = readPreflightSource();
 		const genIdx = src.indexOf("generateBranchName");
 		const wtIdx = src.indexOf("createWorktree");
 		assert.ok(genIdx >= 0, "generateBranchName call exists");
@@ -50,19 +66,19 @@ describe("pipeline handler — worktree creation before loop", () => {
 	});
 
 	it("worktreePath assigned only once", () => {
-		const src = readHandlerSource();
+		const src = readPreflightSource();
 		const matches = src.match(/worktreePath\s*=\s*createResult\.value/g);
 		assert.ok(matches && matches.length === 1, "worktreePath assigned exactly once");
 	});
 });
 
 // ---------------------------------------------------------------------------
-// buildAgentTask receives resolved worktreePath
+// buildAgentTask receives resolved worktreePath (agent-loop.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — worktreePath passed to buildAgentTask", () => {
 	it("buildAgentTask call receives worktreePath argument", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const btIdx = src.indexOf("const task = buildAgentTask(");
 		const btSection = src.substring(btIdx, src.indexOf(");", btIdx) + 10);
 		assert.ok(
@@ -72,7 +88,7 @@ describe("pipeline handler — worktreePath passed to buildAgentTask", () => {
 	});
 
 	it("buildAgentTask call receives worktreeBranch argument", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const btIdx = src.indexOf("const task = buildAgentTask(");
 		const btSection = src.substring(btIdx, src.indexOf(");", btIdx) + 10);
 		assert.ok(
@@ -83,18 +99,18 @@ describe("pipeline handler — worktreePath passed to buildAgentTask", () => {
 });
 
 // ---------------------------------------------------------------------------
-// agentCwd for developer and auditor
+// agentCwd for developer and auditor (agent-loop.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — agentCwd for all agents", () => {
 	it("agentCwd uses worktreePath directly", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const idx = src.indexOf("cwdOverride: worktreePath");
 		assert.ok(idx >= 0, "agentCwd uses worktreePath directly");
 	});
 
 	it("agentCwd passed to executeAgent", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const idx = src.indexOf("executeAgent(");
 		const endIdx = src.indexOf(");", idx);
 		const callSection = src.substring(idx, endIdx + 2);
@@ -103,12 +119,12 @@ describe("pipeline handler — agentCwd for all agents", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Worktree cleanup at end of pipeline
+// Worktree cleanup at end of pipeline (post-pipeline.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — worktree cleanup", () => {
 	it("cleanup guarded by worktreePath check", () => {
-		const src = readHandlerSource();
+		const src = readPostPipelineSource();
 		assert.ok(
 			src.includes("if (worktreePath && worktreeBranch)"),
 			"Cleanup guarded by worktreePath",
@@ -116,12 +132,12 @@ describe("pipeline handler — worktree cleanup", () => {
 	});
 
 	it("cleanup calls cleanupWorktree", () => {
-		const src = readHandlerSource();
+		const src = readPostPipelineSource();
 		assert.ok(src.includes("cleanupWorktree"), "cleanupWorktree called");
 	});
 
 	it("cleanup at end of handler after try/catch", () => {
-		const src = readHandlerSource();
+		const src = readPostPipelineSource();
 		const cleanupIdx = src.lastIndexOf("cleanupWorktree");
 		const catchEnd = src.lastIndexOf("}");
 		assert.ok(cleanupIdx > 0 && cleanupIdx < catchEnd, "cleanup near end of file");
@@ -129,12 +145,12 @@ describe("pipeline handler — worktree cleanup", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent retry logic
+// Agent retry logic (agent-loop.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — agent retry logic", () => {
 	it("validateAgentResult called after both initial and retry runAgent", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const matches = src.match(/validateAgentResult\(result\)/g);
 		assert.strictEqual(
 			matches ? matches.length : 0,
@@ -144,7 +160,7 @@ describe("pipeline handler — agent retry logic", () => {
 	});
 
 	it("retry block checks budgetExceeded first", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const budgetIdx = src.indexOf("result.budgetExceeded");
 		const usedRetryIdx = src.indexOf("usedRetry = true;");
 		assert.ok(budgetIdx >= 0, "budgetExceeded check exists");
@@ -152,7 +168,7 @@ describe("pipeline handler — agent retry logic", () => {
 	});
 
 	it("retry logic runs on !result.success", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		// Find the executeAgent call which contains retry logic
 		const executeIdx = src.indexOf("executeAgent");
 		assert.ok(executeIdx >= 0, "executeAgent helper used");
@@ -160,23 +176,23 @@ describe("pipeline handler — agent retry logic", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Post-processing after agent success
+// Post-processing after agent success (agent-loop.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — post-agent-success processing", () => {
 	it("handlePostAgentSuccess called when result.success", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		assert.ok(src.includes("handlePostAgentSuccess"), "post-agent-success handler called");
 	});
 });
 
 // ---------------------------------------------------------------------------
-// Researcher budget-exceeded guard (no duplicate comments)
+// Researcher budget-exceeded guard (no duplicate comments) (agent-loop.ts)
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — researcher budget-exceeded guard (no duplicate comments)", () => {
 	it("budget-exceeded researcher block has !result.success guard to skip when handlePostAgentSuccess posted combined message", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		// The SECOND "if (result.budgetExceeded)" is the pipeline degradation block
 		// (the first is in the retry gate block)
 		const firstIdx = src.indexOf("if (result.budgetExceeded)");
@@ -200,7 +216,7 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 	});
 
 	it("status transition still fires for researcher budget-exceeded regardless of success", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		// Pipeline degradation budget-exceeded block (second occurrence)
 		const firstIdx = src.indexOf("if (result.budgetExceeded)");
 		const mainIdx = src.indexOf("if (result.budgetExceeded)", firstIdx + 1);
@@ -213,7 +229,7 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 	});
 
 	it("non-researcher budget-exceeded agent stops pipeline with stopReason (existing behavior preserved)", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		// Pipeline degradation budget-exceeded block (second occurrence)
 		const firstIdx = src.indexOf("if (result.budgetExceeded)");
 		const mainIdx = src.indexOf("if (result.budgetExceeded)", firstIdx + 1);
@@ -231,7 +247,7 @@ describe("pipeline handler — researcher budget-exceeded guard (no duplicate co
 	});
 
 	it("budgetExceeded=false does not enter the budget-exceeded block (existing behavior preserved)", () => {
-		const src = readHandlerSource();
+		const src = readAgentLoopSource();
 		const count = (src.match(/if \(result\.budgetExceeded\)/g) || []).length;
 		assert.equal(count, 2, "budgetExceeded check appears twice (retry gate + pipeline control)");
 	});

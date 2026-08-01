@@ -18,7 +18,7 @@ import type { StageState } from "../pipeline/stages.ts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const HANDLER_TS = resolve(__dirname, "../pipeline/handler.ts");
+const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
 
 function readHandlerSource(): string {
 	return readFileSync(HANDLER_TS, "utf-8");
@@ -118,7 +118,10 @@ describe("applyGateFailureContext (Phase 2, Issue #787)", () => {
 describe("pipeline handler — gate failure context capture (Phase 4, Issue #787)", () => {
 	it("handler source contains applyGateFailureContext import from stages.ts", () => {
 		const src = readHandlerSource();
-		const importSection = src.substring(0, src.indexOf('} from "./stages.ts"') + 18);
+		// Issue #1395 split: agent-loop.ts lives in the handler/ subdirectory,
+		// so the stages import uses "../stages.ts" instead of "./stages.ts".
+		const stagesImport = 'from "../stages.ts"';
+		const importSection = src.substring(0, src.indexOf(stagesImport) + stagesImport.length + 1);
 		assert.ok(
 			importSection.includes("applyGateFailureContext"),
 			"applyGateFailureContext imported from stages.ts",
