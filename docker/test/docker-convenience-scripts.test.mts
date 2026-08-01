@@ -77,6 +77,24 @@ function createMockCheaseePi(mockDir: string): void {
 	writeFileSync(join(mockDir, "cheasee-pi"), content, { mode: 0o755 });
 }
 
+/**
+ * Create a fail-mode mock `docker` in the given directory that logs
+ * invocations to the trace file and exits 127 (POSIX command-not-found)
+ * — a host-independent simulation of "docker not found" that shadows
+ * any real docker binary regardless of where it lives.
+ */
+function createFailMockDocker(failDir: string, traceFile: string): void {
+	const content = [
+		"#!/bin/bash",
+		"# Fail-mode mock docker — simulates command not found (exit 127)",
+		`echo "docker $*" >> "${traceFile}"`,
+		'echo "docker: command not found" >&2',
+		"exit 127",
+		"",
+	].join("\n");
+	writeFileSync(join(failDir, "docker"), content, { mode: 0o755 });
+}
+
 function createMockDocker(mockDir: string, traceFile: string, stateFile: string): void {
 	const content = [
 		"#!/bin/bash",
@@ -119,6 +137,7 @@ function createAuthJson(
 interface Fixture {
 	tmpDir: string;
 	mockDir: string;
+	failMockDir: string;
 	traceFile: string;
 	stateFile: string;
 	homeDir: string;
@@ -131,8 +150,10 @@ interface Fixture {
 function createFixture(): Fixture {
 	const tmpDir = mkdtempSync(join(tmpdir(), "docker-conv-"));
 	const mockDir = join(tmpDir, "mock");
+	const failMockDir = join(tmpDir, "fail-mock");
 	const homeDir = join(tmpDir, "home");
 	mkdirSync(mockDir, { recursive: true });
+	mkdirSync(failMockDir, { recursive: true });
 	mkdirSync(homeDir, { recursive: true });
 
 	const traceFile = join(tmpDir, "trace.log");
@@ -140,8 +161,9 @@ function createFixture(): Fixture {
 
 	createMockDocker(mockDir, traceFile, stateFile);
 	createMockCheaseePi(mockDir);
+	createFailMockDocker(failMockDir, traceFile);
 
-	return { tmpDir, mockDir, traceFile, stateFile, homeDir };
+	return { tmpDir, mockDir, failMockDir, traceFile, stateFile, homeDir };
 }
 
 /**
@@ -366,14 +388,33 @@ describe("Phase 1 — run-pi.sh", () => {
 	});
 
 	it("adapter — docker not found: exits non-zero (via set -e)", () => {
-		// Remove mock dir from PATH entirely — docker won't be found
+		// Fail-mode mock docker (exit 127) shadows any real binary in
+		// /usr/bin or /bin — host-independent "docker not found" simulation.
 		const result = runScript(RUN_SCRIPT, {
 			mockDir: fix.mockDir,
 			homeDir: fix.homeDir,
-			extraEnv: { PATH: "/usr/bin:/bin" }, // no mock docker in path
+			extraEnv: {
+				PATH: `${fix.failMockDir}:${fix.mockDir}:${process.env.PATH ?? ""}`,
+			},
 		});
 
-		assert.notStrictEqual(result.status, 0, "expected non-zero exit when docker not found");
+		// POSIX command-not-found status — rejects wrong-reason exits
+		// (0 real-docker-found, 1 degraded dirname/source, 126 cwd-execution).
+		assert.strictEqual(result.status, 127, "expected exit 127 when docker not found");
+
+		// Fail mock reached at the docker ps probe — on-target proof that
+		// the docker invocation, not an unrelated line, ended the script.
+		const trace = readTrace(fix.traceFile);
+		assert.ok(
+			trace.some((l) => l.startsWith("docker ")),
+			"expected fail-mode docker invocation in trace",
+		);
+
+		// Surfaces from `docker compose up -d` (its stderr is not suppressed)
+		assert.ok(
+			result.stderr.includes("docker: command not found"),
+			`expected "docker: command not found" in stderr, got: ${result.stderr}`,
+		);
 	});
 });
 
@@ -535,13 +576,31 @@ describe("Phase 2 — stop-pi.sh", () => {
 	});
 
 	it("adapter — docker compose not found: exits non-zero (via set -e)", () => {
+		// Fail-mode mock docker (exit 127) shadows any real binary in
+		// /usr/bin or /bin — host-independent "docker not found" simulation.
 		const result = runScript(STOP_SCRIPT, {
 			mockDir: fix.mockDir,
 			homeDir: fix.homeDir,
-			extraEnv: { PATH: "/usr/bin:/bin" }, // no mock docker in path
+			extraEnv: {
+				PATH: `${fix.failMockDir}:${fix.mockDir}:${process.env.PATH ?? ""}`,
+			},
 		});
 
-		assert.notStrictEqual(result.status, 0, "expected non-zero exit when docker not found");
+		// POSIX command-not-found status — rejects wrong-reason exits
+		// (0 real-docker-found, 1 degraded dirname/source, 126 cwd-execution).
+		assert.strictEqual(result.status, 127, "expected exit 127 when docker not found");
+
+		// Fail mock reached at the `docker compose down` invocation.
+		const trace = readTrace(fix.traceFile);
+		assert.ok(
+			trace.some((l) => l.startsWith("docker compose down")),
+			"expected fail-mode docker invocation in trace",
+		);
+
+		assert.ok(
+			result.stderr.includes("docker: command not found"),
+			`expected "docker: command not found" in stderr, got: ${result.stderr}`,
+		);
 	});
 
 	it("adapter — emits stopping message to stdout", () => {
