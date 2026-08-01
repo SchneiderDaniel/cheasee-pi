@@ -15,7 +15,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { parseArgs } from "@earendil-works/pi-coding-agent";
 
 import type {
 	TscDiagnostic,
@@ -28,11 +27,6 @@ import {
 import { DiagnosticsWatcher } from "./watcher.ts";
 import { formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
 import { runTscCheckpoint } from "./checkpoint.ts";
-
-// ── parseArgs: structural import, not yet used in handler ──────────
-// Phase 15: import exists for structural completeness. Will be used in
-// a follow-up to parse /check command arguments.
-void parseArgs;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Backward-Compatible Re-exports
