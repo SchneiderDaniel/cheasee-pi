@@ -20,12 +20,14 @@ interface ExecCall {
 
 /**
  * Create a mock ExtensionAPI with controllable exec responses.
- * If a result.code !== 0, pi.exec rejects (simulating command failure).
- * Otherwise resolves with the result.
+ * By default (reject mode) a non-zero result makes pi.exec reject
+ * (simulating a throw) — real pi.exec resolves {code, stdout, stderr}
+ * even on non-zero, so collision tests pass `resolveOnError: true`.
  */
 function createMockPi(
 	results: Array<{ code: number; stdout: string; stderr: string }>,
 	calls?: ExecCall[],
+	options?: { resolveOnError?: boolean },
 ): ExtensionAPI {
 	const callLog = calls || [];
 	let idx = 0;
@@ -33,7 +35,7 @@ function createMockPi(
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
 			callLog.push({ cmd, args: args || [], opts: opts || {} });
 			const result = results[idx++];
-			if (!result || result.code !== 0) {
+			if (!result || (result.code !== 0 && !options?.resolveOnError)) {
 				const errMsg = result?.stderr || result?.stdout || `Command failed: ${cmd}`;
 				return Promise.reject(new Error(errMsg));
 			}
@@ -49,6 +51,13 @@ function createMockPi(
 const WORKTREE_PATH = "/worktrees/wt-42";
 const DEFAULT_BRANCH = "main";
 const REMOTE = "origin";
+
+/** Exact git 2.39.5 stderr for the untracked-file checkout collision (issue #1438 fixture). */
+const ISSUE_COLLISION_STDERR = `error: The following untracked working tree files would be overwritten by checkout:
+\treport/jscpd-report.json
+Please move or remove them before you switch branches.
+Aborting
+error: could not detach HEAD`;
 
 afterEach(() => {
 	mock.restoreAll();
@@ -230,6 +239,10 @@ describe("tryRebaseOntoBase()", () => {
 
 		assert.ok(!result.success, "should fail when rebase throws");
 		assert.deepEqual(result.conflictFiles, [], "should have no conflict files (diff skipped)");
+		assert.ok(
+			result.message.includes("rebase crashed"),
+			"message should surface the thrown error text",
+		);
 
 		// Verify abort was called
 		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
@@ -287,7 +300,7 @@ describe("tryRebaseOntoBase()", () => {
 			[
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				// rebase fails (non-conflict)
-				{ code: 1, stdout: "", stderr: "rebase failed: could not apply" },
+				{ code: 1, stdout: "", stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists." },
 				// diff --diff-filter=U returns no files
 				{ code: 0, stdout: "", stderr: "" },
 				// abort
@@ -301,12 +314,42 @@ describe("tryRebaseOntoBase()", () => {
 		assert.ok(!result.success, "should fail");
 		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
 		assert.ok(
-			result.message.includes("no conflict files"),
-			"message should indicate no conflicts detected",
+			result.message.includes("index.lock"),
+			"message should surface the real rebase stderr, not a generic fallback",
+		);
+		assert.ok(
+			!result.message.includes("no conflict files"),
+			"message should not use the misleading generic fallback when stderr is available",
 		);
 
 		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
 		assert.equal(abortCalls.length, 1, "rebase --abort should be called");
+	});
+
+	it("Failure message truncates long rebase stderr to ~500 chars for UI notify", async () => {
+		const execCalls: ExecCall[] = [];
+		const longStderr = "fatal: could not unpack object".padEnd(1200, ".");
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// rebase fails with long non-collision stderr
+				{ code: 1, stdout: "", stderr: longStderr },
+				// diff --diff-filter=U returns no files
+				{ code: 0, stdout: "", stderr: "" },
+				// abort
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail");
+		assert.ok(result.message.length <= 520, "message should be bounded (~500 chars)");
+		assert.ok(
+			result.message.includes(longStderr.slice(0, 80)),
+			"message should contain the stderr prefix",
+		);
 	});
 
 	it("Fetch fails: message is user-notify-level (not a shell escape)", async () => {
@@ -435,5 +478,295 @@ describe("tryRebaseOntoBase()", () => {
 		assert.equal(execCalls[3].args[1], "--abort");
 		assert.equal(execCalls[4].args[0], "merge");
 		assert.equal(execCalls[4].args[1], "--no-edit");
+	});
+
+	it("Untracked collision: detects colliding paths, scoped clean, retry rebase succeeds", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// rebase fails with the exact issue stderr (checkout-block, not a conflict)
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				// ls-files --others --exclude-standard
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				// ls-tree -r --name-only origin/main
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				// clean -fd -- report/jscpd-report.json
+				{ code: 0, stdout: "", stderr: "" },
+				// rebase retry — succeeds
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(result.success, "should succeed after cleanup + retry");
+		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
+		assert.equal(
+			result.message,
+			"Rebase succeeded after removing 1 untracked artifact(s) blocking checkout: report/jscpd-report.json",
+			"success message should name the removed artifact",
+		);
+		assert.ok(
+			!result.message.includes("no conflict files"),
+			"must not fall into the misleading generic message",
+		);
+
+		// call order: fetch → rebase → ls-files → ls-tree → clean → rebase retry
+		assert.deepEqual(
+			execCalls.map((c) => c.args[0]),
+			["fetch", "rebase", "ls-files", "ls-tree", "clean", "rebase"],
+			"call order should be fetch, rebase, ls-files, ls-tree, clean, rebase retry",
+		);
+		// clean args exactly scoped — never a bare `git clean -fd`
+		assert.deepEqual(execCalls[4].args, ["clean", "-fd", "--", "report/jscpd-report.json"]);
+		assert.equal(execCalls[4].opts.cwd, WORKTREE_PATH, "clean should run in worktree cwd");
+	});
+
+	it("Untracked collision: non-colliding untracked files are never cleaned", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				// ls-files lists colliding AND non-colliding untracked files
+				{
+					code: 0,
+					stdout: "report/jscpd-report.json\nscratch/notes.txt\n",
+					stderr: "",
+				},
+				// ls-tree only tracks the colliding path
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(result.success, "should succeed");
+		assert.deepEqual(
+			execCalls[4].args,
+			["clean", "-fd", "--", "report/jscpd-report.json"],
+			"clean should receive ONLY the intersection path, not scratch/notes.txt",
+		);
+	});
+
+	it("Untracked collision: multiple collisions cleaned, success message lists both", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				{
+					code: 0,
+					stdout: "report/jscpd-report.json\ndist/bundle.js\n",
+					stderr: "",
+				},
+				{
+					code: 0,
+					stdout: "report/jscpd-report.json\ndist/bundle.js\n",
+					stderr: "",
+				},
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(result.success, "should succeed");
+		assert.deepEqual(
+			execCalls[4].args,
+			["clean", "-fd", "--", "report/jscpd-report.json", "dist/bundle.js"],
+			"clean should receive both colliding paths",
+		);
+		assert.equal(
+			result.message,
+			"Rebase succeeded after removing 2 untracked artifact(s) blocking checkout: report/jscpd-report.json, dist/bundle.js",
+			"message should list both artifacts with correct count",
+		);
+	});
+
+	it("Untracked collision pattern but nothing untracked: no clean, no retry, falls through to diff/abort", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				// ls-files finds nothing untracked
+				{ code: 0, stdout: "", stderr: "" },
+				// ls-tree still lists the path
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				// diff --diff-filter=U empty
+				{ code: 0, stdout: "", stderr: "" },
+				// abort
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail");
+		assert.ok(
+			result.message.includes("untracked working tree files would be overwritten"),
+			"failure message should be stderr-backed",
+		);
+		const cleanCalls = execCalls.filter((c) => c.args[0] === "clean");
+		assert.equal(cleanCalls.length, 0, "no clean call when nothing untracked");
+		const rebaseCalls = execCalls.filter(
+			(c) => c.args[0] === "rebase" && c.args[1] !== "--abort",
+		);
+		assert.equal(rebaseCalls.length, 1, "no retry when nothing untracked");
+	});
+
+	it("Untracked collision: clean succeeds but retry rebase fails → exactly one retry, falls through", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				// rebase retry fails for a DIFFERENT reason
+				{ code: 1, stdout: "", stderr: "fatal: could not apply patch" },
+				// diff --diff-filter=U empty
+				{ code: 0, stdout: "", stderr: "" },
+				// abort
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail when retry also fails");
+		assert.deepEqual(result.conflictFiles, [], "should have no conflict files");
+		assert.ok(
+			result.message.includes("could not apply patch"),
+			"message should surface the retry failure stderr",
+		);
+		const rebaseCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] !== "--abort");
+		assert.equal(rebaseCalls.length, 2, "rebase should be invoked exactly twice (one retry)");
+		// falls through to diff → abort
+		assert.equal(execCalls[6].args[0], "diff");
+		assert.equal(execCalls[7].args[0], "rebase");
+		assert.equal(execCalls[7].args[1], "--abort");
+	});
+
+	it("Untracked collision: ls-files exec rejects → fail-closed, no clean, no retry", async () => {
+		const execCalls: ExecCall[] = [];
+		let callCount = 0;
+		const pi: ExtensionAPI = {
+			exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
+				execCalls.push({ cmd, args: args || [], opts: opts || {} });
+				callCount++;
+				if (callCount === 1) {
+					return Promise.resolve({ code: 0, stdout: "fetch ok", stderr: "" });
+				}
+				if (callCount === 2) {
+					return Promise.resolve({ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR });
+				}
+				if (callCount === 3) {
+					return Promise.reject(new Error("ls-files failed: fatal"));
+				}
+				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+			}) as ExtensionAPI["exec"],
+			registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
+			sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
+		} as ExtensionAPI;
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail closed");
+		assert.deepEqual(result.conflictFiles, [], "no partial success");
+		assert.ok(
+			result.message.includes("untracked working tree files would be overwritten"),
+			"message should be backed by the rebase stderr",
+		);
+		const cleanCalls = execCalls.filter((c) => c.args[0] === "clean");
+		assert.equal(cleanCalls.length, 0, "no clean call when detection failed");
+		const rebaseCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] !== "--abort");
+		assert.equal(rebaseCalls.length, 1, "no retry when detection failed");
+	});
+
+	it("Untracked collision: ls-tree exec rejects → fail-closed, no clean, no retry", async () => {
+		const execCalls: ExecCall[] = [];
+		let callCount = 0;
+		const pi: ExtensionAPI = {
+			exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
+				execCalls.push({ cmd, args: args || [], opts: opts || {} });
+				callCount++;
+				if (callCount === 1) {
+					return Promise.resolve({ code: 0, stdout: "fetch ok", stderr: "" });
+				}
+				if (callCount === 2) {
+					return Promise.resolve({ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR });
+				}
+				if (callCount === 3) {
+					return Promise.resolve({ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" });
+				}
+				if (callCount === 4) {
+					return Promise.reject(new Error("ls-tree failed: fatal"));
+				}
+				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+			}) as ExtensionAPI["exec"],
+			registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
+			sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
+		} as ExtensionAPI;
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail closed");
+		assert.ok(
+			result.message.includes("untracked working tree files would be overwritten"),
+			"message should be backed by the rebase stderr",
+		);
+		const cleanCalls = execCalls.filter((c) => c.args[0] === "clean");
+		assert.equal(cleanCalls.length, 0, "no clean call when detection failed");
+	});
+
+	it("Untracked collision: clean exec fails (code≠0) → no retry, falls through to diff/abort", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				// clean fails
+				{ code: 1, stdout: "", stderr: "fatal: clean failed" },
+				// diff empty
+				{ code: 0, stdout: "", stderr: "" },
+				// abort
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(!result.success, "should fail");
+		assert.ok(
+			result.message.includes("untracked working tree files would be overwritten"),
+			"message should be stderr-backed",
+		);
+		const rebaseCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] !== "--abort");
+		assert.equal(rebaseCalls.length, 1, "no retry when clean failed (state unknown)");
+		// falls through to diff → abort
+		assert.equal(execCalls[5].args[0], "diff");
+		assert.equal(execCalls[6].args[0], "rebase");
+		assert.equal(execCalls[6].args[1], "--abort");
 	});
 });
