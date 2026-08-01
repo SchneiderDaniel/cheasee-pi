@@ -88,28 +88,8 @@ func (a *Auth) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Repository persists and loads Auth config.
-type Repository interface {
-	Load(ctx context.Context) (*Auth, error)
-	Save(ctx context.Context, auth *Auth) error
-	Path() (string, error)
-	// AddProvider adds or updates a provider API key in the auth config.
-	// Other providers and GitHub token are preserved.
-	AddProvider(ctx context.Context, provider, key string) error
-	// RemoveProvider deletes a provider entry from the auth config.
-	RemoveProvider(ctx context.Context, provider string) error
-	// ListProviders returns all configured provider API keys.
-	ListProviders(ctx context.Context) (map[string]string, error)
-}
-
-// fileRepository implements Repository using a JSON file on disk.
+// fileRepository persists and loads Auth config as a JSON file on disk.
 type fileRepository struct{}
-
-// NewRepository creates a file-based Repository that stores auth.json
-// under the OS user config directory (e.g. ~/.config/cheasee-pi/ on Linux).
-func NewRepository() Repository {
-	return &fileRepository{}
-}
 
 func (r *fileRepository) configPath() (string, error) {
 	userConfigDir, err := os.UserConfigDir()

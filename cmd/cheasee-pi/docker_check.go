@@ -10,11 +10,6 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// Checker checks Docker Engine availability and version.
-type Checker interface {
-	Check(ctx context.Context) (*CheckResult, error)
-}
-
 // CheckResult contains Docker Engine status information.
 type CheckResult struct {
 	Installed bool
@@ -23,21 +18,27 @@ type CheckResult struct {
 	Err       error
 }
 
-// execChecker implements Checker by shelling out to the docker CLI.
-type execChecker struct {
-	timeout time.Duration
+// dockerCheckTimeout is the per-command timeout applied to docker info/version.
+const dockerCheckTimeout = 5 * time.Second
+
+// lookPath is exec.LookPath wrapped for test substitution (the "docker binary
+// present?" branch sits outside the runCommand seam).
+var lookPath = func(file string) (string, error) {
+	return exec.LookPath(file)
 }
 
-// NewChecker creates a Checker with the given per-command timeout.
-func NewChecker(timeout time.Duration) Checker {
-	return &execChecker{timeout: timeout}
-}
-
-func (c *execChecker) Check(ctx context.Context) (*CheckResult, error) {
+// dockerCheck verifies Docker Engine availability and version.
+func dockerCheck(ctx context.Context, timeout time.Duration) (*CheckResult, error) {
 	res := &CheckResult{}
 
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	// 1. Check if docker binary exists.
-	if _, err := exec.LookPath("docker"); err != nil {
+	if _, err := lookPath("docker"); err != nil {
 		res.Installed = false
 		res.Running = false
 		res.Err = fmt.Errorf("docker not found: %w", err)
@@ -46,10 +47,10 @@ func (c *execChecker) Check(ctx context.Context) (*CheckResult, error) {
 	res.Installed = true
 
 	// 2. Check if Docker daemon is responsive.
-	infoCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	infoCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	infoCmd := exec.CommandContext(infoCtx, "docker", "info")
+	infoCmd := runCommandContext(infoCtx, "docker", "info")
 	if err := infoCmd.Run(); err != nil {
 		res.Running = false
 		res.Err = fmt.Errorf("Docker daemon not running: %w", err)
@@ -58,10 +59,10 @@ func (c *execChecker) Check(ctx context.Context) (*CheckResult, error) {
 	res.Running = true
 
 	// 3. Get Docker Engine version.
-	verCtx, cancel2 := context.WithTimeout(ctx, c.timeout)
+	verCtx, cancel2 := context.WithTimeout(ctx, timeout)
 	defer cancel2()
 
-	verCmd := exec.CommandContext(verCtx, "docker", "version", "--format", "{{.Server.Version}}")
+	verCmd := runCommandContext(verCtx, "docker", "version", "--format", "{{.Server.Version}}")
 	output, err := verCmd.Output()
 	if err != nil {
 		res.Err = fmt.Errorf("failed to get Docker Engine version: %w", err)

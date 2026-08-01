@@ -52,9 +52,9 @@ func init() {
 	upCmd.Flags().BoolVar(&upDryRun, "dry-run", false, "Print env vars that would be passed, then exit")
 }
 
-// newRepository is the Repository constructor, overridable in tests.
-var newRepository = func() Repository {
-	return NewRepository()
+// newRepository is the auth config constructor, overridable in tests.
+var newRepository = func() *fileRepository {
+	return &fileRepository{}
 }
 
 // allKnownEnvVars is the complete set of pi provider env vars.
@@ -96,8 +96,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 
 	// Phase 1: Docker check
 	if !upNoDockerCheck {
-		checker := NewChecker(5 * time.Second)
-		if err := runInitDockerCheck(ctx, checker); err != nil {
+		if err := runInitDockerCheck(ctx); err != nil {
 			return err
 		}
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -182,6 +183,12 @@ func TestOrphanScanBash_echoesKilledPIDs(t *testing.T) {
 type mockCmd struct {
 	outputFn   func() ([]byte, error)
 	combinedFn func() ([]byte, error)
+	runFn      func() error
+	// Captured Set* config, for callers that configure the command
+	dir    string
+	env    []string
+	stdout interface{ Write([]byte) (int, error) }
+	stderr interface{ Write([]byte) (int, error) }
 }
 
 func (m *mockCmd) Output() ([]byte, error) {
@@ -197,6 +204,18 @@ func (m *mockCmd) CombinedOutput() ([]byte, error) {
 	}
 	return nil, nil
 }
+
+func (m *mockCmd) Run() error {
+	if m.runFn != nil {
+		return m.runFn()
+	}
+	return nil
+}
+
+func (m *mockCmd) SetDir(d string)       { m.dir = d }
+func (m *mockCmd) SetEnv(e []string)     { m.env = e }
+func (m *mockCmd) SetStdout(w io.Writer) { m.stdout = w }
+func (m *mockCmd) SetStderr(w io.Writer) { m.stderr = w }
 
 func TestScanOrphans_containerNotRunning(t *testing.T) {
 	saved := execCommand
@@ -383,15 +402,11 @@ func indexOf(slice []string, val string) int {
 // ──────────────────────────────────────────────
 
 func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
-	saved := newRepository
-	newRepository = func() Repository {
-		return &mockRepository{
-			providers: map[string]string{
-				"claude": "sk-ant-xxx",
-			},
-		}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "claude", "sk-ant-xxx"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
 	}
-	defer func() { newRepository = saved }()
 
 	flags, err := buildEnvFlags(context.Background())
 	if err != nil {
@@ -411,15 +426,11 @@ func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
 }
 
 func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
-	saved := newRepository
-	newRepository = func() Repository {
-		return &mockRepository{
-			providers: map[string]string{
-				"google": "xxx",
-			},
-		}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "google", "xxx"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
 	}
-	defer func() { newRepository = saved }()
 
 	flags, err := buildEnvFlags(context.Background())
 	if err != nil {
@@ -439,15 +450,11 @@ func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
 }
 
 func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
-	saved := newRepository
-	newRepository = func() Repository {
-		return &mockRepository{
-			providers: map[string]string{
-				"opencode": "xxx",
-			},
-		}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "opencode", "xxx"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
 	}
-	defer func() { newRepository = saved }()
 
 	flags, err := buildEnvFlags(context.Background())
 	if err != nil {
@@ -467,15 +474,11 @@ func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
 }
 
 func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
-	saved := newRepository
-	newRepository = func() Repository {
-		return &mockRepository{
-			providers: map[string]string{
-				"xai": "xxx",
-			},
-		}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &fileRepository{}
+	if err := cfg.AddProvider(context.Background(), "xai", "xxx"); err != nil {
+		t.Fatalf("seed auth.json: %v", err)
 	}
-	defer func() { newRepository = saved }()
 
 	flags, err := buildEnvFlags(context.Background())
 	if err != nil {

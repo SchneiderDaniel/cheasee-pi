@@ -30,7 +30,6 @@ func defaultMocks() InitPorts {
 				return nil
 			},
 		},
-		Cloner:    &mockCloner{},
 		Extractor: &mockExtractor{},
 		Env:       &mockEnvRenderer{},
 		Probe: &mockWorkingDirProbe{
@@ -41,27 +40,83 @@ func defaultMocks() InitPorts {
 		UID:      &mockUIDResolver{},
 		GitID:    &mockGitIdentity{},
 		Scaffold: &mockSettingsScaffold{},
-		GitInit:  &mockGitInitializer{},
 		Remover:  &mockInitRemover{},
 	}
 }
 
 // ──────────────────────────────────────────────
-// Phase 1: Docker check tests (legacy, preserved)
+// Seam stubs for docker/git CLI tests
+// ──────────────────────────────────────────────
+
+// stubDockerLookPath makes the docker binary appear installed until test end.
+func stubDockerLookPath(t *testing.T) {
+	t.Helper()
+	saved := lookPath
+	lookPath = func(_ string) (string, error) { return "/usr/bin/docker", nil }
+	t.Cleanup(func() { lookPath = saved })
+}
+
+// stubDockerCheck stubs the docker seams. daemonErr, when non-nil, makes
+// `docker info` fail; version is the docker version output (versionErr wins
+// over version when set).
+func stubDockerCheck(t *testing.T, daemonErr error, version string, versionErr error) {
+	t.Helper()
+	stubDockerLookPath(t)
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		if len(arg) > 0 && arg[0] == "version" {
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				if versionErr != nil {
+					return nil, versionErr
+				}
+				return []byte(version), nil
+			}}
+		}
+		return &mockCmd{runFn: func() error { return daemonErr }}
+	}
+	t.Cleanup(func() { runCommandContext = saved })
+}
+
+// redirectConfigDir points the auth config dir at a fresh temp dir so no test
+// touches the real $HOME/.config.
+func redirectConfigDir(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
+// authJSONExists reports whether auth.json was written to the config dir.
+func authJSONExists(t *testing.T) bool {
+	t.Helper()
+	cfg := &fileRepository{}
+	p, err := cfg.Path()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+// loadAuthJSON reads the saved auth.json back via fileRepository.
+func loadAuthJSON(t *testing.T) *Auth {
+	t.Helper()
+	cfg := &fileRepository{}
+	auth, err := cfg.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load auth.json: %v", err)
+	}
+	return auth
+}
+
+// ──────────────────────────────────────────────
+// Phase 1: Docker check tests
 // ──────────────────────────────────────────────
 
 func TestInitUseCase_DockerNotInstalled(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: false,
-			Running:   false,
-			Err:       fmt.Errorf("docker not found"),
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	saved := lookPath
+	lookPath = func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") }
+	defer func() { lookPath = saved }()
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -79,23 +134,15 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 	if !strings.Contains(err.Error(), "Docker is not installed") {
 		t.Errorf("error should mention Docker is not installed: %v", err)
 	}
-	if mockCfg.saved {
+	if authJSONExists(t) {
 		t.Error("Save should not be called when Docker check fails")
 	}
 }
 
 func TestInitUseCase_DockerNotRunning(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: true,
-			Running:   false,
-			Err:       fmt.Errorf("Docker daemon not running"),
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, fmt.Errorf("Cannot connect to the Docker daemon"), "", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -113,24 +160,15 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 	if !strings.Contains(err.Error(), "not running") {
 		t.Errorf("error should mention Docker not running: %v", err)
 	}
-	if mockCfg.saved {
+	if authJSONExists(t) {
 		t.Error("Save should not be called when Docker check fails")
 	}
 }
 
 func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: true,
-			Running:   true,
-			Version:   "23.0.0",
-			Err:       fmt.Errorf("Docker Engine 23.0.0 is too old, need >= 24.0.0"),
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "23.0.0", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -148,24 +186,15 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 	if !strings.Contains(err.Error(), "Docker") {
 		t.Errorf("error should mention Docker: %v", err)
 	}
-	if mockCfg.saved {
+	if authJSONExists(t) {
 		t.Error("Save should not be called when Docker check fails")
 	}
 }
 
 func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: true,
-			Running:   true,
-			Version:   "24.0.9",
-			Err:       fmt.Errorf("version check failed"),
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "", fmt.Errorf("version check failed"))
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -178,20 +207,16 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 		InputFn:        mockInputFn("", nil),
 	})
 	if err == nil {
-		t.Fatal("expected error when Docker CheckResult.Err is set")
+		t.Fatal("expected error when Docker version fetch fails")
+	}
+	if !strings.Contains(err.Error(), "Docker version check") {
+		t.Errorf("error should mention Docker version check: %v", err)
 	}
 }
 
 func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: false,
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -207,26 +232,18 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called when --no-docker-check is set")
 	}
-	if mockCfg.savedKey != "sk-abc123" {
-		t.Errorf("expected saved key 'sk-abc123', got %q", mockCfg.savedKey)
+	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
+		t.Errorf("expected saved key 'sk-abc123', got %q", got)
 	}
 }
 
 func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: true,
-			Running:   true,
-			Version:   "24.0.9",
-		},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -242,26 +259,25 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called on happy path")
 	}
-	if mockCfg.savedKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", mockCfg.savedKey)
+	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
+		t.Errorf("expected API key 'sk-abc123', got %q", got)
 	}
 }
 
 func TestInitUseCase_ConfigSaveError(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{
-			Installed: true,
-			Running:   true,
-			Version:   "24.0.9",
-		},
-	}
-	mockCfg := &mockRepository{saveErr: fmt.Errorf("disk full")}
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
+
+	// Block the config dir path with a regular file so MkdirAll fails
+	// deterministically (real file I/O, no mock error injection).
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "cheasee-pi"), []byte("block"), 0644); err != nil {
+		t.Fatalf("block config dir: %v", err)
+	}
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -277,22 +293,18 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
-	if !strings.Contains(err.Error(), "disk full") {
-		t.Errorf("error should propagate Save error: %v", err)
+	if !strings.Contains(err.Error(), "save auth config") {
+		t.Errorf("error should wrap with 'save auth config': %v", err)
 	}
 }
 
 func TestInitUseCase_ContextCancelled(t *testing.T) {
+	redirectConfigDir(t)
+	stubDockerLookPath(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancelled
 
-	mockDocker := &mockCheckerCtx{orig: &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}}
-	mockCfg := &mockRepository{}
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err := runInit(ctx, InitDeps{
 		Ports:          ports,
@@ -511,17 +523,14 @@ func TestRunInitAuth_RequestCodeError(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_FullFlow(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -533,17 +542,15 @@ func TestRunInit_FullFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called after full flow")
 	}
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
 	// --no-github flag: extract + env + save all run after auth
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	extractCalled := false
 	ext := &mockExtractor{
@@ -562,7 +569,6 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 
 	scaffold := &mockSettingsScaffold{}
-	gitInit := &mockGitInitializer{}
 
 	probe := &mockWorkingDirProbe{
 		inspectFunc: func(path string) (WorkdirState, error) {
@@ -573,15 +579,12 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports: InitPorts{
-			Docker:    mockDocker,
-			Cfg:       mockCfg,
 			Extractor: ext,
 			Env:       env,
 			Probe:     probe,
 			UID:       &mockUIDResolver{},
 			GitID:     &mockGitIdentity{},
 			Scaffold:  scaffold,
-			GitInit:   gitInit,
 		},
 		APIKey:         "sk-abc123",
 		NoDockerCheck:  false,
@@ -601,20 +604,21 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	if !renderCalled {
 		t.Error("Env render should be called on legacy path")
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called on legacy path")
 	}
-	if mockCfg.savedKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", mockCfg.savedKey)
+	auth := loadAuthJSON(t)
+	if auth.APIKey != "sk-abc123" {
+		t.Errorf("expected API key 'sk-abc123', got %q", auth.APIKey)
 	}
-	if mockCfg.savedAuth == nil || mockCfg.savedAuth.RepoPath != workdir {
-		t.Errorf("expected RepoPath %q, got %q", workdir, mockCfg.savedAuth.RepoPath)
+	if auth.RepoPath != workdir {
+		t.Errorf("expected RepoPath %q, got %q", workdir, auth.RepoPath)
 	}
 }
 
 func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
 	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
-	auth, err := runInitLegacy(context.Background(), &mockRepository{}, "sk-legacy-key", "opencode-go")
+	auth, err := runInitLegacy(context.Background(), &fileRepository{}, "sk-legacy-key", "opencode-go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -632,13 +636,9 @@ func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
 func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	redirectConfigDir(t)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	// Override auth with one that respects cancelled context
 	ports.Auth = &mockAuthenticator{
@@ -670,13 +670,9 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_ForkAlreadyExists(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	// Override GitHub client to return fork-already-exists
 	ports.GitHub = &mockGitHubClient{
@@ -694,6 +690,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -712,13 +709,9 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_ForkNon422Error(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	ports.GitHub = &mockGitHubClient{
 		getUserFunc: func(ctx context.Context, token string) (string, error) {
@@ -824,7 +817,7 @@ func TestParseSubmoduleURLs_EmptyInput(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInitSubmodule_SkipAll(t *testing.T) {
-	mc := &mockCloner{}
+	mc := &mockSubmoduleOps{}
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -841,7 +834,7 @@ func TestRunInitSubmodule_SkipAll(t *testing.T) {
 }
 
 func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -866,7 +859,7 @@ func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
 }
 
 func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -891,7 +884,7 @@ func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -923,7 +916,7 @@ func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -951,7 +944,7 @@ func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -979,7 +972,7 @@ func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -1008,7 +1001,7 @@ func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
 }
 
 func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return nil, fmt.Errorf("repo not found")
 		},
@@ -1024,7 +1017,7 @@ func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -1049,7 +1042,7 @@ func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -1070,7 +1063,7 @@ func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptError(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -1095,7 +1088,7 @@ func TestRunInitSubmodule_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return nil, ctx.Err()
 		},
@@ -1108,7 +1101,7 @@ func TestRunInitSubmodule_ContextCancelled(t *testing.T) {
 }
 
 func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{}, nil
 		},
@@ -1127,7 +1120,7 @@ func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
-	mc := &mockCloner{
+	mc := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{
 				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
@@ -1319,13 +1312,9 @@ func TestInit_SuccessMessage(t *testing.T) {
 		os.Stderr = oldStderr
 	}()
 
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	redirectConfigDir(t)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	err = runInit(context.Background(), InitDeps{
 		Ports:          ports,
@@ -1514,7 +1503,7 @@ func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{
 		APIKey:   "sk-jq-test",
 		Provider: "opencode-go",
@@ -1579,7 +1568,7 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{
 		APIKey:      "sk-abc",
 		Provider:    "opencode-go",
@@ -1647,7 +1636,7 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 	oldContent := `{"api_key": "sk-old-key"}`
 	os.WriteFile(oldPath, []byte(oldContent), 0600)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth, err := cfg.Load(context.Background())
 	if err != nil {
 		t.Fatalf("Load of old format failed: %v", err)
@@ -1664,7 +1653,7 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	cfg := NewRepository()
+	cfg := &fileRepository{}
 	auth := &Auth{
 		APIKey:      "sk-abc",
 		GitHubToken: "gho_token",
@@ -1818,13 +1807,9 @@ func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_SkipFork(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
@@ -1840,27 +1825,17 @@ func TestRunInit_SkipFork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called after skip-fork flow")
 	}
 }
 
 func TestRunInit_ForkURL(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
-	cloneCalled := false
 	submoduleInited := false
-	clone := &mockCloner{
-		cloneWorktreeFunc: func(ctx context.Context, token, repoURL, workdir string) error {
-			cloneCalled = true
-			if repoURL != "https://github.com/user/existing-fork.git" {
-				t.Errorf("expected clone URL 'https://github.com/user/existing-fork.git', got %q", repoURL)
-			}
-			return nil
-		},
+	ops := &mockSubmoduleOps{
 		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]Submodule, error) {
 			return []Submodule{{Name: "pi", URL: "https://github.com/SchneiderDaniel/pi.git"}}, nil
 		},
@@ -1870,14 +1845,27 @@ func TestRunInit_ForkURL(t *testing.T) {
 		},
 	}
 
+	// Capture the CloneWorktree seam args (git clone --bare <authURL> <dir>)
+	var cloneURL string
+	savedRun := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		if len(arg) > 0 && arg[0] == "clone" {
+			cloneURL = arg[2]
+			return &mockCmd{}
+		}
+		if len(arg) > 0 && arg[0] == "version" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
+		}
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = savedRun }()
+
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
-	ports.Cloner = clone
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   ops,
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -1889,22 +1877,23 @@ func TestRunInit_ForkURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
-	if !cloneCalled {
-		t.Error("Clone should be called with fork URL")
+	if cloneURL == "" {
+		t.Error("CloneWorktree should be called with fork URL")
+	}
+	if cloneURL != "https://oauth2:gho_test_token@github.com/user/existing-fork.git" {
+		t.Errorf("expected tokenized clone URL, got %q", cloneURL)
 	}
 	if !submoduleInited {
 		t.Error("Submodule init should be called with fork URL")
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called after fork-url flow")
 	}
 }
 
 func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	forkCalled := false
 	waitForkCalled := false
@@ -1922,26 +1911,15 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 		},
 	}
 
-	clone := &mockCloner{
-		cloneFunc: func(ctx context.Context, token, repoURL, destPath string) error {
-			return nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, newURL string) error {
-			return nil
-		},
-	}
-
 	mockAuth := &mockAuthenticator{}
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 	ports.Auth = mockAuth
 	ports.GitHub = mockGH
-	ports.Cloner = clone
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -1962,13 +1940,9 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURLInvalid(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
@@ -1994,17 +1968,14 @@ func TestRunInit_ForkURLInvalid(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        false,
@@ -2016,19 +1987,15 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post-clone confirm flow failed: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called when confirm is accepted")
 	}
 }
 
 func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
@@ -2044,25 +2011,22 @@ func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error (clean exit) when confirm is declined: %v", err)
 	}
-	if mockCfg.saved {
+	if authJSONExists(t) {
 		t.Error("Save should NOT be called when confirm is declined")
 	}
 }
 
 func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	// With noInput=true, the post-clone confirm should be skipped
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 
 	// If confirm were called with false, we'd error (but it won't be called)
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -2073,7 +2037,7 @@ func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post-clone confirm with noInput=true failed: %v", err)
 	}
-	if !mockCfg.saved {
+	if !authJSONExists(t) {
 		t.Error("Save should be called when noInput skips prompt")
 	}
 }
@@ -2279,46 +2243,42 @@ func TestSettingsScaffold_ContextCancelled(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestGitInitializer_Init(t *testing.T) {
-	gitInit := NewGitInitializer()
 	workdir := t.TempDir()
 
-	if err := gitInit.Init(context.Background(), workdir); err != nil {
-		t.Fatalf("Init failed: %v", err)
+	if err := gitInit(context.Background(), workdir); err != nil {
+		t.Fatalf("gitInit failed: %v", err)
 	}
 
 	// .git directory should exist
 	gitDir := filepath.Join(workdir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		t.Error("expected .git directory to exist after Init")
+		t.Error("expected .git directory to exist after gitInit")
 	}
 }
 
 func TestGitInitializer_Idempotent(t *testing.T) {
-	gitInit := NewGitInitializer()
 	workdir := t.TempDir()
 
 	// First call: create .git
-	if err := gitInit.Init(context.Background(), workdir); err != nil {
-		t.Fatalf("first Init failed: %v", err)
+	if err := gitInit(context.Background(), workdir); err != nil {
+		t.Fatalf("first gitInit failed: %v", err)
 	}
 
 	// Second call: should no-op
-	if err := gitInit.Init(context.Background(), workdir); err != nil {
-		t.Fatalf("second Init should not error: %v", err)
+	if err := gitInit(context.Background(), workdir); err != nil {
+		t.Fatalf("second gitInit should not error: %v", err)
 	}
 
 	// .git still exists
 	gitDir := filepath.Join(workdir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		t.Error("expected .git directory to exist after idempotent Init")
+		t.Error("expected .git directory to exist after idempotent gitInit")
 	}
 }
 
 func TestGitInitializer_NonExistentWorkdir(t *testing.T) {
-	gitInit := NewGitInitializer()
-
 	// Use null byte in path — forces EINVAL from git init
-	err := gitInit.Init(context.Background(), "/nonexistent\x00path")
+	err := gitInit(context.Background(), "/nonexistent\x00path")
 	if err == nil {
 		t.Fatal("expected error for invalid path with null byte")
 	}
@@ -2328,13 +2288,20 @@ func TestGitInitializer_NonExistentWorkdir(t *testing.T) {
 }
 
 func TestGitInitializer_ContextCancelled(t *testing.T) {
-	gitInit := NewGitInitializer()
 	workdir := t.TempDir()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancelled
 
-	err := gitInit.Init(ctx, workdir)
+	// Seam must not be touched for a pre-cancelled ctx.
+	saved := runCommandContext
+	runCommandContext = func(ctx context.Context, name string, arg ...string) runner {
+		t.Errorf("runCommandContext should not be invoked with cancelled ctx")
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitInit(ctx, workdir)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -2579,10 +2546,8 @@ func TestInitRemove_TrailingWhitespaceStripped(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_RemoverCalled(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	removerCalled := false
 	var calledWith string
@@ -2595,13 +2560,12 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 	}
 
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 	ports.Remover = remover
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -2622,19 +2586,16 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 }
 
 func TestRunInit_RemoverNil(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 	ports.Remover = nil // explicitly nil
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
+		SubmoduleOps:   &mockSubmoduleOps{},
 		NoDockerCheck:  false,
 		NoGitHub:       false,
 		NoInput:        true,
@@ -2649,10 +2610,8 @@ func TestRunInit_RemoverNil(t *testing.T) {
 }
 
 func TestRunInit_RemoverError(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	remover := &mockInitRemover{
 		removeFunc: func(workdir string) error {
@@ -2661,8 +2620,6 @@ func TestRunInit_RemoverError(t *testing.T) {
 	}
 
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 	ports.Remover = remover
 
 	workdir := t.TempDir()
@@ -2685,10 +2642,8 @@ func TestRunInit_RemoverError(t *testing.T) {
 }
 
 func TestRunInit_RemoverSkipFork(t *testing.T) {
-	mockDocker := &mockDockerChecker{
-		result: &CheckResult{Installed: true, Running: true, Version: "24.0.9"},
-	}
-	mockCfg := &mockRepository{}
+	redirectConfigDir(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
 
 	removerCalled := false
 	remover := &mockInitRemover{
@@ -2699,8 +2654,6 @@ func TestRunInit_RemoverSkipFork(t *testing.T) {
 	}
 
 	ports := defaultMocks()
-	ports.Docker = mockDocker
-	ports.Cfg = mockCfg
 	ports.Remover = remover
 
 	workdir := t.TempDir()
@@ -2744,4 +2697,46 @@ func captureStderr(t *testing.T, fn func()) string {
 	os.Stderr = orig
 	w.Close()
 	return <-out
+}
+// ──────────────────────────────────────────────
+// gitInit seam tests (runner-level)
+// ──────────────────────────────────────────────
+
+func TestGitInit_SeamArgsCaptured(t *testing.T) {
+	var captured []string
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+		captured = arg
+		return &mockCmd{}
+	}
+	defer func() { runCommandContext = saved }()
+
+	workdir := t.TempDir()
+	if err := gitInit(context.Background(), workdir); err != nil {
+		t.Fatalf("gitInit failed: %v", err)
+	}
+	if strings.Join(captured, " ") != "init "+workdir {
+		t.Errorf("expected (git, init, workdir), got %v", captured)
+	}
+}
+
+func TestGitInit_ErrorWrapsOutput(t *testing.T) {
+	saved := runCommandContext
+	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+		return &mockCmd{combinedFn: func() ([]byte, error) {
+			return []byte("fatal: Invalid path"), fmt.Errorf("exit status 128")
+		}}
+	}
+	defer func() { runCommandContext = saved }()
+
+	err := gitInit(context.Background(), t.TempDir())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "git init") {
+		t.Errorf("error should mention git init: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Invalid path") {
+		t.Errorf("error should include command output: %v", err)
+	}
 }
