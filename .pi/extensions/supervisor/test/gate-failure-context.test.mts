@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStageState, applyGateFailureContext } from "../pipeline/stages.ts";
-import type { StageState } from "../pipeline/stages.ts";
+import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
+import type { StageState } from "../pipeline/stages/index.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -116,12 +116,12 @@ describe("applyGateFailureContext (Phase 2, Issue #787)", () => {
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — gate failure context capture (Phase 4, Issue #787)", () => {
-	it("handler source contains applyGateFailureContext import from stages.ts", () => {
+	it("handler source contains applyGateFailureContext import from stages/index.ts", () => {
 		const src = readHandlerSource();
-		const importSection = src.substring(0, src.indexOf('} from "./stages.ts"') + 18);
+		const importSection = src.substring(0, src.indexOf('} from "./stages/index.ts"') + 26);
 		assert.ok(
 			importSection.includes("applyGateFailureContext"),
-			"applyGateFailureContext imported from stages.ts",
+			"applyGateFailureContext imported from stages/index.ts",
 		);
 	});
 

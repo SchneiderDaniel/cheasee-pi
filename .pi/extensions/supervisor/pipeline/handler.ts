@@ -78,7 +78,7 @@ import {
 	type GateRejected,
 	buildDeadCodeContext,
 	buildVulnContext,
-} from "./stages.ts";
+} from "./stages/index.ts";
 import {
 	fetchIssue,
 	readProjectBoard,

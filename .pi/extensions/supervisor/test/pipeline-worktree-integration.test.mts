@@ -79,7 +79,7 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 	});
 
 	it("commitAndPush uses worktreePath as second argument", () => {
-		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages.ts"), "utf-8");
+		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages/git-ops.ts"), "utf-8");
 		const commitIdx = stagesSrc.indexOf("await commitAndPush(");
 		const worktreeIdx = stagesSrc.indexOf("worktreePath,", commitIdx);
 		assert.ok(worktreeIdx > commitIdx, "commitAndPush receives worktreePath");
@@ -101,7 +101,7 @@ describe("pipeline-worktree integration — error handling", () => {
 	});
 
 	it("commitAndPush failure is warned not thrown", () => {
-		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages.ts"), "utf-8");
+		const stagesSrc = readFileSync(join(__dirname, "../pipeline/stages/git-ops.ts"), "utf-8");
 		const caIdx = stagesSrc.indexOf("await commitAndPush(");
 		const commitSection = stagesSrc.substring(caIdx, caIdx + 200);
 		assert.ok(
