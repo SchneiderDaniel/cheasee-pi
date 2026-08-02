@@ -14,6 +14,74 @@ const MAX_FETCH_RETRIES = 3;
 const FETCH_RETRY_DELAYS_MS = [3000, 5000, 10000];
 
 /**
+ * Rebase stderr marker for the untracked-file checkout collision:
+ * "error: The following untracked working tree files would be overwritten by checkout:".
+ * A checkout-block, not a merge conflict — `git diff --diff-filter=U` stays empty.
+ */
+const UNTRACKED_COLLISION_PATTERN =
+	"untracked working tree files would be overwritten by checkout";
+
+/** Max chars of rebase stderr included in a user-facing message. */
+const MAX_STDERR_IN_MESSAGE = 500;
+
+/** Trim and bound rebase stderr for user-facing failure messages. */
+function stderrExcerpt(stderr: string): string {
+	const trimmed = stderr.trim();
+	return trimmed.length > MAX_STDERR_IN_MESSAGE
+		? `${trimmed.slice(0, MAX_STDERR_IN_MESSAGE)}…`
+		: trimmed;
+}
+
+/** Split newline-separated command output, dropping empty/whitespace lines. */
+function splitLines(output: string): string[] {
+	return output ? output.trim().split("\n").filter((s) => s.trim().length > 0) : [];
+}
+
+/**
+ * Untracked (non-ignored) files in the worktree that collide with paths
+ * tracked at the base ref — these block `git checkout` during rebase.
+ */
+async function findUntrackedCollisions(
+	worktreePath: string,
+	baseRef: string,
+	pi: ExtensionAPI,
+): Promise<string[]> {
+	const untrackedResult = await pi.exec(
+		"git",
+		["ls-files", "--others", "--exclude-standard"],
+		{ cwd: worktreePath, timeout: 10_000 },
+	);
+	const baseTreeResult = await pi.exec(
+		"git",
+		["ls-tree", "-r", "--name-only", baseRef],
+		{ cwd: worktreePath, timeout: 10_000 },
+	);
+	if (untrackedResult.code !== 0 || baseTreeResult.code !== 0) {
+		throw new Error(
+			untrackedResult.stderr || baseTreeResult.stderr || "untracked-collision detection failed",
+		);
+	}
+	const untracked = splitLines(untrackedResult.stdout);
+	const basePaths = new Set(splitLines(baseTreeResult.stdout));
+	return untracked.filter((p) => basePaths.has(p));
+}
+
+/** Scoped clean of exactly the given untracked paths (never bare `git clean -fd`). */
+async function removeUntrackedPaths(
+	worktreePath: string,
+	paths: string[],
+	pi: ExtensionAPI,
+): Promise<void> {
+	const cleanResult = await pi.exec("git", ["clean", "-fd", "--", ...paths], {
+		cwd: worktreePath,
+		timeout: 10_000,
+	});
+	if (cleanResult.code !== 0) {
+		throw new Error(cleanResult.stderr || cleanResult.stdout || "git clean failed");
+	}
+}
+
+/**
  * Attempt to rebase the worktree branch onto the latest remote base branch.
  * Fetches the remote base branch first, then rebases with --autostash.
  * On conflict, detects conflicted files, aborts the rebase, and returns
@@ -69,26 +137,88 @@ export async function tryRebaseOntoBase(
 	}
 
 	// ─── Phase 2: Rebase onto fetched base branch ─────────────────
-	try {
-		const rebaseResult = await pi.exec(
-			"git",
-			["rebase", "--autostash", `${remote}/${defaultBranch}`],
-			{
-				cwd: worktreePath,
-				timeout: 60_000,
-			},
-		);
-		if (rebaseResult.code === 0) {
-			log.info("rebase", "Rebase succeeded — no conflicts");
-			return { success: true, conflictFiles: [], message: "Rebase succeeded with no conflicts." };
+	// Captured on every failure path (resolve-fail and reject) so the
+	// real git cause survives into the user-facing message.
+	let rebaseFailureStderr = "";
+	const runRebase = async (): Promise<boolean> => {
+		try {
+			const rebaseResult = await pi.exec(
+				"git",
+				["rebase", "--autostash", `${remote}/${defaultBranch}`],
+				{
+					cwd: worktreePath,
+					timeout: 60_000,
+				},
+			);
+			if (rebaseResult.code === 0) {
+				log.info("rebase", "Rebase succeeded — no conflicts");
+				return true;
+			}
+			rebaseFailureStderr = (rebaseResult.stderr || rebaseResult.stdout || "").trim();
+			log.warn("rebase", `Rebase failed: ${rebaseFailureStderr.slice(0, 300)}`);
+			return false;
+		} catch (rebaseErr: unknown) {
+			const msg = rebaseErr instanceof Error ? rebaseErr.message : String(rebaseErr);
+			rebaseFailureStderr = msg;
+			log.warn("rebase", `Rebase threw: ${msg}`);
+			return false;
+		}
+	};
+
+	if (await runRebase()) {
+		return { success: true, conflictFiles: [], message: "Rebase succeeded with no conflicts." };
+	}
+
+	// ─── Phase 2.5: Untracked-file collision recovery ─────────────
+	// --autostash does not stash untracked files, so an artifact at a
+	// path the base branch newly tracks blocks checkout ("untracked
+	// working tree files would be overwritten by checkout") without
+	// producing merge conflicts. Remove ONLY the colliding paths and
+	// retry the rebase once.
+	if (rebaseFailureStderr.includes(UNTRACKED_COLLISION_PATTERN)) {
+		log.warn("rebase", "Untracked-file checkout collision detected — attempting scoped cleanup");
+		let collisions: string[];
+		try {
+			collisions = await findUntrackedCollisions(
+				worktreePath,
+				`${remote}/${defaultBranch}`,
+				pi,
+			);
+		} catch (detectErr: unknown) {
+			const msg = detectErr instanceof Error ? detectErr.message : String(detectErr);
+			log.error("rebase", `Untracked-collision detection failed: ${msg}`);
+			return {
+				success: false,
+				conflictFiles: [],
+				message: `Rebase failed: ${stderrExcerpt(rebaseFailureStderr)}`,
+			};
 		}
 
-		// Rebase failed — check for conflicts
-		const msg = (rebaseResult.stderr || rebaseResult.stdout || "").slice(0, 300);
-		log.warn("rebase", `Rebase failed: ${msg}`);
-	} catch (rebaseErr: unknown) {
-		const msg = rebaseErr instanceof Error ? rebaseErr.message : String(rebaseErr);
-		log.warn("rebase", `Rebase threw: ${msg}`);
+		if (collisions.length > 0) {
+			let cleaned = true;
+			try {
+				await removeUntrackedPaths(worktreePath, collisions, pi);
+			} catch (cleanErr: unknown) {
+				cleaned = false;
+				const msg = cleanErr instanceof Error ? cleanErr.message : String(cleanErr);
+				log.error("rebase", `Scoped clean of untracked collisions failed: ${msg}`);
+			}
+			if (cleaned && (await runRebase())) {
+				log.info(
+					"rebase",
+					`Rebase succeeded after removing ${collisions.length} untracked artifact(s) blocking checkout`,
+				);
+				return {
+					success: true,
+					conflictFiles: [],
+					message: `Rebase succeeded after removing ${collisions.length} untracked artifact(s) blocking checkout: ${collisions.join(", ")}`,
+				};
+			}
+			log.warn(
+				"rebase",
+				"Rebase retry failed after cleanup — falling through to conflict detection",
+			);
+		}
 	}
 
 	// Detect conflicts via unmerged paths
@@ -97,12 +227,7 @@ export async function tryRebaseOntoBase(
 			cwd: worktreePath,
 			timeout: 10_000,
 		});
-		const conflictFiles: string[] = diffResult.stdout
-			? diffResult.stdout
-					.trim()
-					.split("\n")
-					.filter((s) => s.trim().length > 0)
-			: [];
+		const conflictFiles = splitLines(diffResult.stdout);
 
 		if (conflictFiles.length > 0) {
 			log.warn("rebase", `Conflicts in ${conflictFiles.length} files`, { conflictFiles });
@@ -161,7 +286,9 @@ export async function tryRebaseOntoBase(
 				timeout: 10_000,
 			})
 			.catch(() => {});
-		const msg = `Rebase failed (no conflict files detected)`;
+		const msg = rebaseFailureStderr
+			? `Rebase failed: ${stderrExcerpt(rebaseFailureStderr)}`
+			: "Rebase failed (no conflict files detected)";
 		log.warn("rebase", msg);
 		return { success: false, conflictFiles: [], message: msg };
 	} catch (diffErr: unknown) {
@@ -176,6 +303,10 @@ export async function tryRebaseOntoBase(
 				timeout: 10_000,
 			})
 			.catch(() => {});
-		return { success: false, conflictFiles: [], message: `Rebase failed: ${msg}` };
+		return {
+			success: false,
+			conflictFiles: [],
+			message: `Rebase failed: ${stderrExcerpt(rebaseFailureStderr || msg)}`,
+		};
 	}
 }
