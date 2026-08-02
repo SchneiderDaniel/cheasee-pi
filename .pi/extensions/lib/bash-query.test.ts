@@ -9,7 +9,9 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isBashSearch, isBashFileRead, isBashFileModify, isBashSearchOrRead } from "./bash-query.ts";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { isBashSearch, isBashFileRead, isBashFileModify } from "./bash-query.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // isBashSearch
@@ -64,7 +66,7 @@ describe("isBashSearch", () => {
 		assert.strictEqual(isBashSearch("gh issue create --body 'uses grep'"), false);
 	});
 
-	it("find → false (excluded; handled by isBashSearchOrRead)", () => {
+	it("find → false (not a search, stays pass-through)", () => {
 		assert.strictEqual(isBashSearch("find . -name '*.ts'"), false);
 	});
 
@@ -296,71 +298,72 @@ describe("isBashFileModify", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// isBashSearchOrRead
+// dead code removal — isBashSearchOrRead
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("isBashSearchOrRead", () => {
-	it("grep foo → true (search)", () => {
-		assert.strictEqual(isBashSearchOrRead("grep foo"), true);
+describe("dead code removal — isBashSearchOrRead", () => {
+	const bashQueryPath = resolve(import.meta.dirname, "./bash-query.ts");
+	const testPath = resolve(import.meta.dirname, "./bash-query.test.ts");
+	const harnessPath = resolve(import.meta.dirname, "../agent-harness/agent-harness.ts");
+
+	it("bash-query.ts no longer exports isBashSearchOrRead", () => {
+		const content = readFileSync(bashQueryPath, "utf-8");
+		assert.ok(
+			!content.includes("isBashSearchOrRead"),
+			"Expected isBashSearchOrRead (function + JSDoc) to be removed from bash-query.ts",
+		);
 	});
 
-	it("cat file.ts → true (read)", () => {
-		assert.strictEqual(isBashSearchOrRead("cat file.ts"), true);
+	it("bash-query.ts no longer claims a detectTurnInefficiency consumer", () => {
+		const content = readFileSync(bashQueryPath, "utf-8");
+		assert.ok(
+			!content.includes("detectTurnInefficiency"),
+			"Expected false detectTurnInefficiency consumer claim to be purged",
+		);
 	});
 
-	it('find . -name "*.ts" → true (find included in composite)', () => {
-		assert.strictEqual(isBashSearchOrRead("find . -name '*.ts'"), true);
+	it("bash-query.ts module header no longer lists isBashSearchOrRead as subsumed path", () => {
+		const content = readFileSync(bashQueryPath, "utf-8");
+		assert.ok(
+			!content.includes("isBashSearchOrRead() — turn-inefficiency classification"),
+			"Expected subsumed-path bullet #3 to be dropped from module docstring",
+		);
 	});
 
-	it("ls | grep foo → false (non-file pipe)", () => {
-		assert.strictEqual(isBashSearchOrRead("ls | grep foo"), false);
+	it("isBashSearch JSDoc no longer defers find to isBashSearchOrRead", () => {
+		const content = readFileSync(bashQueryPath, "utf-8");
+		assert.ok(
+			!content.includes("handled by isBashSearchOrRead"),
+			"Expected dangling 'handled by isBashSearchOrRead' JSDoc note to be reworded",
+		);
 	});
 
-	it("npm test → false (no search/read/find)", () => {
-		assert.strictEqual(isBashSearchOrRead("npm test"), false);
+	it("bash-query.test.ts no longer references isBashSearchOrRead (import, find-test comment, describe block)", () => {
+		const content = readFileSync(testPath, "utf-8");
+		// This verification block's own title/strings mention the token, so a
+		// whole-file token check would match itself. Check only the portion of
+		// the file preceding the verification banner — the import line, the stale
+		// find-test comment, and the old describe block all lived there.
+		const preVerification = content.slice(0, content.indexOf("// dead code removal"));
+		assert.ok(
+			!preVerification.includes("isBashSearchOrRead"),
+			"Expected import, stale find-test comment, and old describe block to be removed",
+		);
 	});
 
-	it("empty string → false", () => {
-		assert.strictEqual(isBashSearchOrRead(""), false);
+	it("agent-harness.ts never references isBashSearchOrRead (no wiring alternative)", () => {
+		const content = readFileSync(harnessPath, "utf-8");
+		assert.ok(
+			!content.includes("isBashSearchOrRead"),
+			"Expected no isBashSearchOrRead reference in agent-harness.ts",
+		);
 	});
 
-	it("cd src && find . → false (&& chained find)", () => {
-		assert.strictEqual(isBashSearchOrRead("cd src && find ."), false);
-	});
-
-	it("rg pattern → true (search)", () => {
-		assert.strictEqual(isBashSearchOrRead("rg pattern"), true);
-	});
-
-	it("piped file→grep: cat file | grep foo → true", () => {
-		assert.strictEqual(isBashSearchOrRead("cat file | grep foo"), true);
-	});
-
-	it("piped file→grep variant spacing: cat file |  grep foo → true (cross-check)", () => {
-		assert.strictEqual(isBashSearchOrRead("cat file |  grep foo"), true);
-	});
-
-	it("tail -f log | grep error → true (piped read→grep)", () => {
-		assert.strictEqual(isBashSearchOrRead("tail -f log | grep error"), true);
-	});
-
-	it("head -5 file.ts → false (head no longer in READ_CMDS)", () => {
-		assert.strictEqual(isBashSearchOrRead("head -5 file.ts"), false);
-	});
-
-	it("less file.ts → true (read)", () => {
-		assert.strictEqual(isBashSearchOrRead("less file.ts"), true);
-	});
-
-	it("more file.ts → true (read)", () => {
-		assert.strictEqual(isBashSearchOrRead("more file.ts"), true);
-	});
-
-	it("backtick grep → true", () => {
-		assert.strictEqual(isBashSearchOrRead("`grep foo`"), true);
-	});
-
-	it("cat with redirect → false (write, not read)", () => {
-		assert.strictEqual(isBashSearchOrRead("cat > /tmp/foo"), false);
+	it("bash-query.test.ts still imports the surviving exports", () => {
+		const content = readFileSync(testPath, "utf-8");
+		assert.ok(
+			content.includes("isBashSearch, isBashFileRead, isBashFileModify"),
+			"Expected import line to still reference isBashSearch, isBashFileRead, isBashFileModify",
+		);
 	});
 });
