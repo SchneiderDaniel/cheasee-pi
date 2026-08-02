@@ -197,34 +197,51 @@ describe("pipeline handler — gate failure context capture (Phase 4, Issue #787
 // ---------------------------------------------------------------------------
 // Phase 5: Regression — existing pre-transition hooks and paths unchanged
 // ---------------------------------------------------------------------------
+// Issue #1407: audit.ts split into pipeline/audit/*. Section strings live in
+// pre-gates.ts, gate decisions in tsc-gate.ts/lsp-gate.ts, and the
+// Implementation/Audit rule in aggregate.ts (orchestrator pushes failures).
 
 describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue #787)", () => {
+	const PRE_GATES = resolve(__dirname, "../pipeline/audit/pre-gates.ts");
+	const AGGREGATE = resolve(__dirname, "../pipeline/audit/aggregate.ts");
+	const TSC_GATE = resolve(__dirname, "../pipeline/audit/tsc-gate.ts");
+	const LSP_GATE = resolve(__dirname, "../pipeline/audit/lsp-gate.ts");
+	const INDEX = resolve(__dirname, "../pipeline/audit/index.ts");
+
 	it("CI gating still returns nextStatus Implementation on failure and adds to gateFailures", async () => {
-		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
+		const preGatesSrc = readFileSync(PRE_GATES, "utf-8");
+		const aggregateSrc = readFileSync(AGGREGATE, "utf-8");
+		const indexSrc = readFileSync(INDEX, "utf-8");
+		assert.ok(preGatesSrc.includes("--- CI Gate ---"), "CI Gate section in pre-gates.ts");
 		assert.ok(
-			src.includes('nextStatus: "Implementation"') && src.includes("--- CI Gate ---"),
-			"CI failure path still returns Implementation with CI Gate section in gateFailures",
+			aggregateSrc.includes('nextStatus: "Implementation"'),
+			"Implementation decision in aggregate.ts",
 		);
+		assert.ok(indexSrc.includes("gateFailures.push"), "orchestrator pushes gate failures");
 	});
 
 	it("Dead code gate appends failure to gateFailures (no issue comment)", () => {
-		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
+		const preGatesSrc = readFileSync(PRE_GATES, "utf-8");
+		const aggregateSrc = readFileSync(AGGREGATE, "utf-8");
+		const indexSrc = readFileSync(INDEX, "utf-8");
 		assert.ok(
-			src.includes("gateFailures.push(`--- Dead Code Gate ---"),
-			"Dead code gate pushes to gateFailures",
+			preGatesSrc.includes("--- Dead Code Gate ---"),
+			"Dead code gate section in pre-gates.ts",
 		);
+		assert.ok(indexSrc.includes("gateFailures.push"), "orchestrator pushes gate failures");
 		assert.ok(
-			!src.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
+			!preGatesSrc.includes("## 🔴 Dead Code Gate — Implementation Rejected") &&
+				!aggregateSrc.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
 			"Dead code gate no longer posts a separate issue comment",
 		);
 		assert.ok(
-			src.includes('nextStatus: "Implementation"') && src.includes("note: `"),
+			aggregateSrc.includes('nextStatus: "Implementation"') && aggregateSrc.includes("note: `"),
 			"Dead code gate still returns Implementation with note for developer context",
 		);
 	});
 
 	it("TSC checkpoint still returns { nextStatus, note } on failure", () => {
-		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
+		const src = readFileSync(TSC_GATE, "utf-8");
 		assert.ok(
 			src.includes("nextStatus: tscDecision.nextStatus") && src.includes("note: tscDecision.note"),
 			"TSC checkpoint returns nextStatus and note",
@@ -232,7 +249,7 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 	});
 
 	it("LSP pre-audit still returns { nextStatus, note } on failure", () => {
-		const src = readFileSync(resolve(__dirname, "../pipeline/audit.ts"), "utf-8");
+		const src = readFileSync(LSP_GATE, "utf-8");
 		assert.ok(
 			src.includes("return { nextStatus: decision.nextStatus, note: decision.note }"),
 			"LSP pre-audit returns nextStatus and note",

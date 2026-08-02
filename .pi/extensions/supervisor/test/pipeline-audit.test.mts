@@ -1,11 +1,16 @@
 /**
- * Tests for pipeline-audit.ts — worktreePath plumbing fix (Issue #284)
+ * Tests for pipeline/audit/index.ts — worktreePath plumbing fix (Issue #284)
  *
- * Phase 1: `worktreePath` parameter plumbing in `pipeline-audit.ts`
+ * Phase 1: `worktreePath` parameter plumbing in the audit orchestrator
  * Phase 2: `getRunGate` returns typed runner via dynamic import
  * Phase 3: `worktreePath` passed from `pipeline.ts` call site
  * Phase 4: Path construction consistency (resolvePath not string concat)
  * Phase 6: Non-standard `worktreeBase` config compatibility
+ * Phase 7: TSC checkpoint try/catch error boundary (lives in tsc-gate.ts)
+ *
+ * Issue #1407: audit.ts was split into pipeline/audit/*; signature and
+ * checkpoint assertions point at the orchestrator (index.ts), LSP assertions
+ * at lsp-gate.ts, TSC error-boundary assertions at tsc-gate.ts.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/pipeline-audit.test.mts
@@ -20,7 +25,9 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const AUDIT_TS = resolve(__dirname, "../pipeline/audit.ts");
+const AUDIT_TS = resolve(__dirname, "../pipeline/audit/index.ts");
+const LSP_GATE_TS = resolve(__dirname, "../pipeline/audit/lsp-gate.ts");
+const TSC_GATE_TS = resolve(__dirname, "../pipeline/audit/tsc-gate.ts");
 // Issue #1395 split: the pipeline loop moved to handler/agent-loop.ts; the
 // worktree imports moved to handler/preflight.ts.
 const PIPELINE_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
@@ -30,6 +37,14 @@ const TSC_CHECKPOINT_INDEX_TS = resolve(__dirname, "../../tsc-checkpoint/index.t
 
 function readAuditSource(): string {
 	return readFileSync(AUDIT_TS, "utf-8");
+}
+
+function readLspGateSource(): string {
+	return readFileSync(LSP_GATE_TS, "utf-8");
+}
+
+function readTscGateSource(): string {
+	return readFileSync(TSC_GATE_TS, "utf-8");
 }
 
 function readPipelineSource(): string {
@@ -44,7 +59,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	it("runTscAndLspAudit accepts worktreePath as 6th param (between filteredData and pi)", () => {
 		const src = readAuditSource();
 		const fnIdx = src.indexOf("export async function runTscAndLspAudit(");
-		const fnEnd = src.indexOf("): Promise<{ nextStatus: string; note: string }>", fnIdx);
+		const fnEnd = src.indexOf("): Promise<{", fnIdx);
 		const signature = src.substring(fnIdx, fnEnd);
 		// Verify worktreePath is a parameter
 		assert.ok(
@@ -63,7 +78,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	});
 
 	it("runTscCheckpointFn called with worktreePath not pi", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		// Check that runTscCheckpointFn is called with worktreePath only
 		const tscCallIdx = src.indexOf("runTscCheckpointFn(worktreePath");
 		assert.ok(tscCallIdx >= 0, "runTscCheckpointFn(worktreePath) call exists");
@@ -81,7 +96,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	});
 
 	it("runLspPreAudit signature: single worktreePath param replaces branch and wt", () => {
-		const src = readAuditSource();
+		const src = readLspGateSource();
 		const fnIdx = src.indexOf("async function runLspPreAudit(");
 		const fnEnd = src.indexOf("): Promise<{ nextStatus: string; note: string }>", fnIdx);
 		const signature = src.substring(fnIdx, fnEnd);
@@ -96,7 +111,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	});
 
 	it("runLspPreAudit passes worktreePath to pi.exec cwd", () => {
-		const src = readAuditSource();
+		const src = readLspGateSource();
 		// Find the pi.exec("git diff") call
 		const execIdx = src.indexOf('pi.exec("git"');
 		assert.ok(execIdx >= 0, "pi.exec git diff call exists");
@@ -106,7 +121,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	});
 
 	it("runLspPreAudit no longer recomputes path via generateBranchName", () => {
-		const src = readAuditSource();
+		const src = readLspGateSource();
 		// Within runLspPreAudit function body, no generateBranchName call
 		const fnIdx = src.indexOf("async function runLspPreAudit(");
 		const fnBody = src.substring(fnIdx);
@@ -236,15 +251,15 @@ describe("pipeline.ts — worktreePath passed to runTscAndLspAudit (Phase 3)", (
 // Phase 4: Path construction consistency (resolvePath not string concat)
 // ===========================================================================
 
-describe("pipeline-audit.ts — resolvePath used in runLspPreAudit (Phase 4)", () => {
-	it("resolvePath imported in pipeline-audit.ts", () => {
-		const src = readAuditSource();
+describe("pipeline/audit/lsp-gate.ts — resolvePath used in runLspPreAudit (Phase 4)", () => {
+	it("resolvePath imported in lsp-gate.ts", () => {
+		const src = readLspGateSource();
 		const importSection = src.substring(0, src.indexOf("export async function"));
-		assert.ok(importSection.includes("resolve"), "resolvePath imported in pipeline-audit.ts");
+		assert.ok(importSection.includes("resolve"), "resolvePath imported in lsp-gate.ts");
 	});
 
 	it("resolvePath used where string concat was in runLspPreAudit", () => {
-		const src = readAuditSource();
+		const src = readLspGateSource();
 		const fnIdx = src.indexOf("async function runLspPreAudit(");
 		const nextFnIdx = src.indexOf("\nexport", fnIdx);
 		const fnBody = nextFnIdx >= 0 ? src.substring(fnIdx, nextFnIdx) : src.substring(fnIdx);
@@ -276,7 +291,7 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 	});
 
 	it("path resolution uses resolvePath via createWorktree import", () => {
-		const auditSrc = readAuditSource();
+		const lspGateSrc = readLspGateSource();
 		const preflightSrc = readFileSync(PREFLIGHT_TS, "utf-8");
 
 		// handler/preflight.ts imports worktree utilities which use resolvePath internally
@@ -288,8 +303,8 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 			"pipeline/handler/preflight.ts imports worktree utilities from worktree.ts",
 		);
 
-		// Verify pipeline-audit.ts uses resolvePath with worktreeBase
-		assert.ok(auditSrc.includes(auditPathPattern), "pipeline-audit.ts uses resolvePath");
+		// Verify lsp-gate.ts uses resolvePath (path resolution moved there in #1407)
+		assert.ok(lspGateSrc.includes(auditPathPattern), "lsp-gate.ts uses resolvePath");
 	});
 });
 
@@ -297,24 +312,20 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 // Phase 7: TSC checkpoint try/catch error boundary (Issue #788)
 // ===========================================================================
 
-describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7)", () => {
+describe("pipeline/audit/tsc-gate.ts — TSC checkpoint try/catch error boundary (Phase 7)", () => {
 	it("tscResult declared with let outside try block (visible after catch)", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		// Verify let-declared tscResult before try block, not const inside it
 		const letDecl = "let tscResult: TscCheckpointResult | null = null;";
 		assert.ok(src.includes(letDecl), "tscResult should be declared with let outside try block");
-		// Verify it appears before the try block in Step 5
-		const step5Idx = src.indexOf("// Step 5: TSC checkpoint (Tier 2)");
-		const tryIdx = src.indexOf("try {", step5Idx);
-		const declIdx = src.indexOf(letDecl, step5Idx);
-		assert.ok(
-			declIdx > step5Idx && declIdx < tryIdx,
-			"let tscResult should appear between Step 5 comment and try block",
-		);
+		// Verify it appears before the try block
+		const tryIdx = src.indexOf("try {", src.indexOf(letDecl));
+		const declIdx = src.indexOf(letDecl);
+		assert.ok(declIdx >= 0 && declIdx < tryIdx, "let tscResult should appear before the try block");
 	});
 
 	it("runTscCheckpointFn call wrapped in try block", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const callIdx = src.indexOf("runTscCheckpointFn(worktreePath)");
 		assert.ok(callIdx >= 0, "runTscCheckpointFn(worktreePath) call exists");
 		// try block should contain the call
@@ -323,7 +334,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 	});
 
 	it("catch block calls ctx.ui.notify with warning level", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const catchBlock = src.substring(
 			src.indexOf("catch (tscErr: unknown)"),
 			src.indexOf("catch (tscErr: unknown)") + 400,
@@ -339,7 +350,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 	});
 
 	it("catch block calls getDebugLogger().warn with pipeline-audit module", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const catchBlock = src.substring(
 			src.indexOf("catch (tscErr: unknown)"),
 			src.indexOf("catch (tscErr: unknown)") + 400,
@@ -351,7 +362,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 	});
 
 	it("catch block calls collector?.push with pipeline-audit module and warn level", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const catchBlock = src.substring(
 			src.indexOf("catch (tscErr: unknown)"),
 			src.indexOf("catch (tscErr: unknown)") + 500,
@@ -365,7 +376,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 	});
 
 	it("determineAuditGate call is outside the catch block (no early return)", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const catchIdx = src.indexOf("catch (tscErr: unknown)");
 		assert.ok(catchIdx >= 0, "catch (tscErr: unknown) block exists");
 		const decisionIdx = src.indexOf("const tscDecision = determineAuditGate({");
@@ -375,7 +386,7 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 	});
 
 	it("determineAuditGate and if/else are not wrapped inside try/catch", () => {
-		const src = readAuditSource();
+		const src = readTscGateSource();
 		const decisionIdx = src.indexOf("const tscDecision = determineAuditGate({");
 		assert.ok(decisionIdx >= 0, "determineAuditGate call exists");
 		// Find the catch block closing brace before the decision line
@@ -396,40 +407,39 @@ describe("pipeline-audit.ts — TSC checkpoint try/catch error boundary (Phase 7
 // Phase 5: State checkpoint integration (pipeline state checkpoint for crash recovery)
 // ===========================================================================
 
-describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
+describe("pipeline/audit/index.ts — state checkpoint integration (Phase 5)", () => {
 	it("imports writeCheckpointFile from state-checkpoint", () => {
 		const src = readAuditSource();
 		const importSection = src.substring(0, src.indexOf("export async function"));
 		assert.ok(
-			importSection.includes('import { writeCheckpointFile } from "./state-checkpoint.ts"'),
+			importSection.includes(
+				'import { writeCheckpointFile, type CheckpointName } from "../state-checkpoint.ts"',
+			),
 			"should import writeCheckpointFile from state-checkpoint",
 		);
 	});
 
-	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before getRunGate('tsc')", () => {
+	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before the TSC gate runs", () => {
 		const src = readAuditSource();
-		// Find the pre-tsc checkpoint write block
-		const preTscIdx = src.indexOf('checkpoint: "pre-tsc"');
+		// Find the pre-tsc checkpoint write (writeAuditCheckpoint helper)
+		const preTscIdx = src.indexOf('"pre-tsc"');
 		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint write");
 
-		// The pre-tsc checkpoint should appear before getRunGate("tsc") call
-		const getRunGateIdx = src.indexOf('await getRunGate("tsc")');
-		assert.ok(getRunGateIdx >= 0, 'should have getRunGate("tsc") call');
+		// The pre-tsc checkpoint should appear before the TSC gate invocation
+		// (getRunGate lives in tsc-gate.ts since the #1407 split)
+		const tscGateIdx = src.indexOf("await runTscGate(");
+		assert.ok(tscGateIdx >= 0, 'should have runTscGate("tsc") invocation');
 
-		// Extract section from pre-tsc checkpoint to getRunGate
-		const section = src.substring(preTscIdx, getRunGateIdx);
-		// The checkpoint write block should be followed by getRunGate
-		assert.ok(section.includes('checkpoint: "pre-tsc"'), "pre-tsc checkpoint block exists");
-		// Verify ordering: pre-tsc checkpoint comes BEFORE getRunGate("tsc")
+		// Verify ordering: pre-tsc checkpoint comes BEFORE the TSC gate runs
 		assert.ok(
-			preTscIdx < getRunGateIdx,
-			'pre-tsc checkpoint should be written before getRunGate("tsc") is called',
+			preTscIdx < tscGateIdx,
+			"pre-tsc checkpoint should be written before the TSC gate is invoked",
 		);
 	});
 
 	it("calls writeCheckpointFile with checkpoint 'pre-lsp' before runLspPreAudit()", () => {
 		const src = readAuditSource();
-		const preLspIdx = src.indexOf('checkpoint: "pre-lsp"');
+		const preLspIdx = src.indexOf('"pre-lsp"');
 		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint write");
 
 		const runLspIdx = src.indexOf("await runLspPreAudit(issueNum");
@@ -443,7 +453,7 @@ describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
 
 	it("writeCheckpointFile('pre-tsc') passes correct state shape", () => {
 		const src = readAuditSource();
-		const preTscIdx = src.indexOf('checkpoint: "pre-tsc"');
+		const preTscIdx = src.indexOf('"pre-tsc"');
 		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint");
 
 		// Find the writeCheckpointFile call containing pre-tsc
@@ -471,7 +481,7 @@ describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
 
 	it("writeCheckpointFile('pre-lsp') passes correct state shape", () => {
 		const src = readAuditSource();
-		const preLspIdx = src.indexOf('checkpoint: "pre-lsp"');
+		const preLspIdx = src.indexOf('"pre-lsp"');
 		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint");
 
 		const callStart = src.lastIndexOf("writeCheckpointFile(ctx.cwd,", preLspIdx);
@@ -492,12 +502,16 @@ describe("pipeline-audit.ts — state checkpoint integration (Phase 5)", () => {
 
 	it("writeCheckpointFile calls use ctx.cwd consistently", () => {
 		const src = readAuditSource();
+		// writeCheckpointFile is called once in the writeAuditCheckpoint helper,
+		// which the orchestrator invokes twice (pre-tsc, pre-lsp)
 		const matches = src.match(/writeCheckpointFile\(ctx\.cwd,/g);
 		assert.equal(
 			matches?.length ?? 0,
-			2,
-			"should have exactly 2 writeCheckpointFile calls with ctx.cwd",
+			1,
+			"should have exactly 1 writeCheckpointFile call (in writeAuditCheckpoint)",
 		);
+		assert.ok(src.includes('"pre-tsc"'), "pre-tsc checkpoint invocation exists");
+		assert.ok(src.includes('"pre-lsp"'), "pre-lsp checkpoint invocation exists");
 	});
 	it("no old resolvePath(worktreePath, '..') pattern remains", () => {
 		const src = readAuditSource();

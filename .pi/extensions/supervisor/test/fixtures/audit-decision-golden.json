@@ -1,0 +1,230 @@
+[
+	{
+		"nextStatus": "Audit",
+		"note": "LSP audit passed: no diagnostics",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Audit",
+		"note": ""
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- CI Gate ---\n2 check(s) failed: build, lint",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- Dead Code Gate ---\nDEAD_CODE_FOUND: 1 finding(s) found (4 lines)",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- OSV Vulnerability Gate ---\n2 critical vulnerability(ies) in production dependencies",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- TypeScript Checkpoint ---\nTSC checkpoint: 3 type error(s) found — fix before proceeding.\n...",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- LSP Pre-Audit ---\nLSP audit failed: 1 blocking diagnostic",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- CI Gate ---\n2 check(s) failed: build, lint\n\n--- Dead Code Gate ---\nDEAD_CODE_FOUND: 1 finding(s) found (4 lines)\n\n--- OSV Vulnerability Gate ---\n2 critical vulnerability(ies) in production dependencies\n\n--- TypeScript Checkpoint ---\nTSC checkpoint: 3 type error(s) found — fix before proceeding.\n...\n\n--- LSP Pre-Audit ---\nLSP audit failed: 1 blocking diagnostic",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	},
+	{
+		"nextStatus": "Implementation",
+		"note": "The following gates blocked the transition from Implementation to Audit:\n\n--- CI Gate ---\n2 check(s) failed: build, lint",
+		"duplicateCodeResult": {
+			"status": "clean",
+			"clones": [],
+			"totalDuplicateLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"deadCodeResult": {
+			"status": "clean",
+			"findings": [],
+			"totalDeadLines": 0,
+			"changedFilesScanned": ["src/main.ts"]
+		},
+		"vulnResult": {
+			"status": "clean",
+			"findings": [],
+			"counts": {
+				"critical": 0,
+				"high": 0,
+				"medium": 0,
+				"low": 0,
+				"unknown": 0
+			},
+			"ccFindingsFlagged": false
+		}
+	}
+]

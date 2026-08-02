@@ -27,7 +27,7 @@ import {
 	evaluateAuditScoreGate,
 } from "../../config/workflow.ts";
 import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../../agent/output.ts";
-import { runTscAndLspAudit } from "../audit.ts";
+import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
 import { writeCheckpointFile } from "../state-checkpoint.ts";
 import { createPrOnApproval } from "../pr-creation.ts";

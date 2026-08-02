@@ -52,13 +52,16 @@ describe("DebugLogger — tsc compilation", () => {
 // ─── Consumer source verification ──────────────────────────────────
 
 describe("DebugLogger — consumer imports", () => {
-	it("pipeline/audit.ts imports DebugLogger from config/types.ts", () => {
-		const auditPath = resolve(__dirname, "..", "pipeline", "audit.ts");
+	it("pipeline/audit/index.ts imports SupervisorConfig from config/types.ts", () => {
+		const auditPath = resolve(__dirname, "..", "pipeline", "audit", "index.ts");
 		const auditSource = readFileSync(auditPath, "utf-8");
+		// Issue #1407 split: index.ts consumes SupervisorConfig directly; the
+		// DebugLogger type is only consumed via getDebugLogger() (lib/debug.ts),
+		// so the trimmed import line is the one that must stay canonical.
 		const hasImport = auditSource.includes(
-			'import type { SupervisorConfig, DebugLogger } from "../config/types.ts"',
+			'import type { SupervisorConfig } from "../../config/types.ts"',
 		);
-		assert.ok(hasImport, "audit.ts must import DebugLogger from config/types.ts");
+		assert.ok(hasImport, "audit/index.ts must import SupervisorConfig from config/types.ts");
 	});
 
 	it("pipeline/handler package does not redefine DebugLogger (issue #1395 split)", () => {
