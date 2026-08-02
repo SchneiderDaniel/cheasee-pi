@@ -1,0 +1,29 @@
+{
+  "sessionId": "test-session-001",
+  "timestamp": "2025-06-01T10:00:00Z",
+  "cwd": "/tmp/project",
+  "version": "1.0",
+  "entryCount": 7,
+  "tokens": {
+    "input": 6,
+    "output": 6,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "total": 12
+  },
+  "cost": 125.4578,
+  "modelChanges": [],
+  "thinkingChanges": [],
+  "compactions": 0,
+  "toolStats": {},
+  "fileModifications": [],
+  "perTurnTokens": [
+    {
+      "turnIndex": 0,
+      "tokens": 12,
+      "cost": 125.4578,
+      "toolCount": 0,
+      "errorCount": 0
+    }
+  ]
+}

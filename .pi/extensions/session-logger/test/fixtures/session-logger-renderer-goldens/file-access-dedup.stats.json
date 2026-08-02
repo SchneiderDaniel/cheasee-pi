@@ -1,0 +1,51 @@
+{
+  "sessionId": "test-session-001",
+  "timestamp": "2025-06-01T10:00:00Z",
+  "cwd": "/tmp/project",
+  "version": "1.0",
+  "entryCount": 2,
+  "tokens": {
+    "input": 100,
+    "output": 50,
+    "cacheRead": 10,
+    "cacheWrite": 5,
+    "total": 165
+  },
+  "cost": 0.001,
+  "modelChanges": [],
+  "thinkingChanges": [],
+  "compactions": 0,
+  "toolStats": {},
+  "fileModifications": [
+    {
+      "action": "read",
+      "path": "a.ts",
+      "timestamp": "2025-06-01T10:02:00Z"
+    },
+    {
+      "action": "read",
+      "path": "a.ts",
+      "timestamp": "2025-06-01T10:02:00Z"
+    },
+    {
+      "action": "write",
+      "path": "b.ts",
+      "timestamp": "2025-06-01T10:02:00Z",
+      "size": 1
+    },
+    {
+      "action": "read",
+      "path": "a.ts",
+      "timestamp": "2025-06-01T10:02:00Z"
+    }
+  ],
+  "perTurnTokens": [
+    {
+      "turnIndex": 0,
+      "tokens": 165,
+      "cost": 0.001,
+      "toolCount": 0,
+      "errorCount": 0
+    }
+  ]
+}
