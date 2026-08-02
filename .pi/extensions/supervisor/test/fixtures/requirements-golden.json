@@ -1,0 +1,158 @@
+[
+  {
+    "id": "empty-all",
+    "gaps": []
+  },
+  {
+    "id": "all-checks-firing",
+    "gaps": [
+      {
+        "check": "checklist-keyword-coverage",
+        "severity": "warning",
+        "detail": "Checklist item \"Build X-5000 controller\" — no keywords matched in changed files. Keywords checked: Build, X-5000, controller"
+      },
+      {
+        "check": "test-file-parity",
+        "severity": "warning",
+        "detail": "Source file \"src/uncovered.ts\" has no corresponding test file. Expected one of: test/uncovered.test.ts, test/uncovered.test.mts, test/uncovered.spec.ts, test/uncovered.ts"
+      },
+      {
+        "check": "old-reference-cleanup",
+        "severity": "warning",
+        "detail": "Deleted/renamed file \"src/old-module.ts\" still referenced in 1 file(s): src/remaining.ts"
+      },
+      {
+        "check": "old-reference-cleanup",
+        "severity": "warning",
+        "detail": "Deleted/renamed file \"src/other-old.ts\" still referenced in 1 file(s): src/remaining.ts"
+      },
+      {
+        "check": "title-diff-direction",
+        "severity": "info",
+        "detail": "Issue title suggests \"additions\" but diff has net deletions (+1A, -2D). Verify this is intentional."
+      }
+    ]
+  },
+  {
+    "id": "diff-fail-stderr",
+    "gaps": [
+      {
+        "check": "diff",
+        "severity": "warning",
+        "detail": "git diff failed: fatal: not a git repository"
+      }
+    ]
+  },
+  {
+    "id": "diff-fail-empty-stderr",
+    "gaps": [
+      {
+        "check": "diff",
+        "severity": "warning",
+        "detail": "git diff failed: unknown error"
+      }
+    ]
+  },
+  {
+    "id": "diff-throw",
+    "gaps": [
+      {
+        "check": "diff",
+        "severity": "warning",
+        "detail": "git diff failed: boom"
+      }
+    ]
+  },
+  {
+    "id": "rename-oldpath",
+    "gaps": [
+      {
+        "check": "old-reference-cleanup",
+        "severity": "warning",
+        "detail": "Deleted/renamed file \"src/old-name.ts\" still referenced in 1 file(s): src/remaining.ts"
+      }
+    ]
+  },
+  {
+    "id": "deleted-file",
+    "gaps": [
+      {
+        "check": "old-reference-cleanup",
+        "severity": "warning",
+        "detail": "Deleted/renamed file \"docs/deleted-guide.md\" still referenced in 1 file(s): src/remaining-file.ts"
+      }
+    ]
+  },
+  {
+    "id": "grep-found-no-gap",
+    "gaps": []
+  },
+  {
+    "id": "excluded-headings",
+    "gaps": [
+      {
+        "check": "checklist-keyword-coverage",
+        "severity": "warning",
+        "detail": "Checklist item \"Build feature\" — no keywords matched in changed files. Keywords checked: Build, feature"
+      }
+    ]
+  },
+  {
+    "id": "ambiguous-title",
+    "gaps": []
+  },
+  {
+    "id": "title-mismatch-add",
+    "gaps": [
+      {
+        "check": "title-diff-direction",
+        "severity": "info",
+        "detail": "Issue title suggests \"additions\" but diff has net deletions (+1A, -2D). Verify this is intentional."
+      }
+    ]
+  },
+  {
+    "id": "title-mismatch-remove",
+    "gaps": [
+      {
+        "check": "title-diff-direction",
+        "severity": "info",
+        "detail": "Issue title suggests \"deletions\" but diff has net additions (+2A, -1D). Verify this is intentional."
+      }
+    ]
+  },
+  {
+    "id": "colon-prefix-title",
+    "gaps": [
+      {
+        "check": "title-diff-direction",
+        "severity": "info",
+        "detail": "Issue title suggests \"additions\" but diff has net deletions (+1A, -2D). Verify this is intentional."
+      }
+    ]
+  },
+  {
+    "id": "non-string-body",
+    "gaps": [
+      {
+        "check": "checklist-keyword-coverage",
+        "severity": "warning",
+        "detail": "Checklist keyword check failed: body.trim is not a function"
+      }
+    ]
+  },
+  {
+    "id": "non-string-title",
+    "gaps": [
+      {
+        "check": "title-diff-direction",
+        "severity": "warning",
+        "detail": "Title-diff direction check failed: title.trim is not a function"
+      }
+    ]
+  },
+  {
+    "id": "only-m-diff",
+    "gaps": []
+  }
+]

@@ -509,7 +509,16 @@ Each step specifies:
 │   ├── duplicate-code.ts   # jscpd integration
 │   ├── dead-code.ts        # knip integration
 │   ├── package-safety.ts   # npm package age verification
-│   ├── requirements-traceability.ts
+│   ├── requirements-traceability.ts   # shim → requirements/
+│   ├── requirements/                  # split traceability gate modules
+│   │   ├── index.ts                   # runRequirementsTraceability orchestrator
+│   │   ├── types.ts                   # shared gap/issue contracts
+│   │   ├── parse.ts                   # issue body checklist parsing
+│   │   ├── title.ts                   # title verb + diff direction
+│   │   ├── diff.ts                    # git diff acquisition/parsing
+│   │   ├── coverage.ts                # checklist keyword coverage
+│   │   ├── parity.ts                  # test file parity
+│   │   └── cleanup.ts                 # old reference cleanup
 │   └── audit-gate-decision.ts
 ├── session/                # Session management, result types
 ├── subagent/               # Sub-agent dispatch utilities
