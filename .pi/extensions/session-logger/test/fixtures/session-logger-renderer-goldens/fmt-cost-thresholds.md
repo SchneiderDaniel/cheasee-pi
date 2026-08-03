@@ -5,7 +5,7 @@
 | **Session** | `test-session-001` |
 | **Start** | `2025-06-01T10:00:00Z` |
 | **CWD** | `/tmp/project` |
-| **Version** | 1.0 |
+| **Version** | 3 |
 | **Entries** | 7 |
 
 

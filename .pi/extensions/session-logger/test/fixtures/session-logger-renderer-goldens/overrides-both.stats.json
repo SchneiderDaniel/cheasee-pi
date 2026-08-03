@@ -2,7 +2,7 @@
   "sessionId": "test-session-001",
   "timestamp": "2025-06-01T10:00:00Z",
   "cwd": "/tmp/project",
-  "version": "1.0",
+  "version": 3,
   "entryCount": 4,
   "tokens": {
     "input": 100,
