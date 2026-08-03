@@ -100,6 +100,9 @@ func (r *fileRepository) configPath() (string, error) {
 }
 
 // atomicWrite writes data to path atomically via .tmp + rename.
+// The temp file is fsynced before the rename and the parent dir after, so a
+// crash cannot leave a 0-byte or partial file behind. Dir sync is best-effort
+// (ENOTSUP/Windows) and ignored.
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -109,7 +112,26 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	if err := os.WriteFile(tmpPath, data, perm); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	// fsync the temp file so the rename never publishes a partial write.
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	// Best-effort parent-dir sync so the rename itself is durable; ignored
+	// on platforms/filesystems that reject directory fsync.
+	if d, err := os.Open(dir); err == nil {
+		d.Sync() //nolint:errcheck
+		d.Close()
+	}
+	return nil
 }
 
 // Path returns the full path to the auth config file.

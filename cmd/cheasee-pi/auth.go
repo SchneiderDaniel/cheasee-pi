@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"charm.land/huh/v2"
@@ -221,16 +220,10 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 	// Also show workspace default if available
 	workdir, err := resolveWorkdir(authListWorkdir)
 	if err == nil {
-		settingsPath := filepath.Join(workdir, ".pi", "settings.json")
-		if data, err := os.ReadFile(settingsPath); err == nil {
-			var settings map[string]any
-			if json.Unmarshal(data, &settings) == nil {
-				if dp, ok := settings["defaultProvider"].(string); ok && dp != "" {
-					fmt.Fprintf(os.Stderr, "\nDefault provider (from .pi/settings.json): %s\n", dp)
-					if dm, ok := settings["defaultModel"].(string); ok && dm != "" {
-						fmt.Fprintf(os.Stderr, "Default model: %s\n", dm)
-					}
-				}
+		if settings, err := LoadSettings(workdir); err == nil && settings.DefaultProvider != "" {
+			fmt.Fprintf(os.Stderr, "\nDefault provider (from .pi/settings.json): %s\n", settings.DefaultProvider)
+			if settings.DefaultModel != "" {
+				fmt.Fprintf(os.Stderr, "Default model: %s\n", settings.DefaultModel)
 			}
 		}
 	}

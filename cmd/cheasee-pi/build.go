@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -68,19 +67,7 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 	)
 
 	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY build arg
-	settingsPath := filepath.Join(workdir, ".pi", "settings.json")
-	data, err := os.ReadFile(settingsPath)
-	if err == nil {
-		var s struct {
-			Docker struct {
-				Memory string `json:"memory"`
-			} `json:"docker"`
-		}
-		if json.Unmarshal(data, &s) == nil && s.Docker.Memory != "" {
-			buildCmd.Env = append(os.Environ(), "CHEASEEPI_MEMORY="+s.Docker.Memory)
-			fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from settings.json\n", s.Docker.Memory)
-		}
-	}
+	applyMemoryLimit(buildCmd, workdir)
 
 	if buildNoCache {
 		buildCmd.Args = append(buildCmd.Args, "--no-cache")

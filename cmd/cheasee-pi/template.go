@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -272,27 +273,14 @@ func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string,
 		return fmt.Errorf("parse settings template: %w", err)
 	}
 
-	// Ensure .pi directory exists.
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("create .pi directory: %w", err)
-	}
-
-	// Atomic write: write to .tmp then rename.
-	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return fmt.Errorf("create temporary settings file: %w", err)
-	}
-	defer os.Remove(tmpPath)
-
-	if err := tmpl.Execute(f, vals); err != nil {
-		f.Close()
+	// Render to buffer, then write atomically (atomicWrite creates dirs and
+	// fsyncs; no inline tmp/Rename/Remove dance needed).
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, vals); err != nil {
 		return fmt.Errorf("execute settings template: %w", err)
 	}
-	f.Close()
-
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("rename settings file: %w", err)
+	if err := atomicWrite(destPath, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("write settings file: %w", err)
 	}
 
 	return nil

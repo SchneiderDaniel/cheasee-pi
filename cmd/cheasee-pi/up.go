@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -159,19 +158,7 @@ func dockerComposeUp(ctx context.Context, workdir string) error {
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY
-	settingsPath := filepath.Join(workdir, ".pi", "settings.json")
-	data, err := os.ReadFile(settingsPath)
-	if err == nil {
-		var s struct {
-			Docker struct {
-				Memory string `json:"memory"`
-			} `json:"docker"`
-		}
-		if json.Unmarshal(data, &s) == nil && s.Docker.Memory != "" {
-			cmd.Env = append(os.Environ(), "CHEASEEPI_MEMORY="+s.Docker.Memory)
-			fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from settings.json\n", s.Docker.Memory)
-		}
-	}
+	applyMemoryLimit(cmd, workdir)
 	fmt.Fprintf(os.Stderr, "  ℹ Starting container...\n")
 	if err := cmd.Run(); err != nil {
 		return err
