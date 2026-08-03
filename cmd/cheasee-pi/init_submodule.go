@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -167,9 +166,9 @@ func removeSubmoduleDirs(workdir string) {
 
 // removeSubmoduleSettings removes entries referencing submodule paths
 // (.g./../private-pi/skills) from .pi/settings.json skills and prompts arrays.
+// Writes atomically via Settings.Save, and only when something was removed.
 func removeSubmoduleSettings(workdir string) error {
-	path := filepath.Join(workdir, ".pi", "settings.json")
-	data, err := os.ReadFile(path)
+	settings, err := LoadSettings(workdir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -177,47 +176,26 @@ func removeSubmoduleSettings(workdir string) error {
 		return err
 	}
 
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return err
-	}
-
 	changed := false
-	for _, key := range []string{"skills", "prompts"} {
-		raw, ok := cfg[key]
-		if !ok {
-			continue
-		}
-		arr, ok := raw.([]any)
-		if !ok {
-			continue
-		}
-		filtered := make([]any, 0, len(arr))
-		for _, v := range arr {
-			s, ok := v.(string)
-			if !ok {
-				filtered = append(filtered, v)
-				continue
-			}
-			// Skip entries that reference parent directories (submodule paths)
+	filter := func(entries []string) []string {
+		filtered := make([]string, 0, len(entries))
+		for _, s := range entries {
+			// Drop entries that reference parent directories (submodule paths)
 			if strings.HasPrefix(s, "../") || strings.HasPrefix(s, "..\\") {
 				changed = true
 				continue
 			}
-			filtered = append(filtered, v)
+			filtered = append(filtered, s)
 		}
-		cfg[key] = filtered
+		return filtered
 	}
+	settings.Skills = filter(settings.Skills)
+	settings.Prompts = filter(settings.Prompts)
 
 	if !changed {
 		return nil
 	}
-
-	out, err := json.MarshalIndent(cfg, "", "\t")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, out, 0644); err != nil {
+	if err := settings.Save(workdir); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Removed submodule paths from .pi/settings.json\n")

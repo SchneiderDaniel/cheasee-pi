@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,65 +66,29 @@ func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
 }
 
 func (w *SettingsWriter) updatePISettings(provider, model string) error {
-	path := filepath.Join(w.Workdir, ".pi", "settings.json")
-	data, err := os.ReadFile(path)
+	settings, err := LoadSettings(w.Workdir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // workspace not initialized, skip
 		}
 		return err
 	}
-
-	var settings map[string]any
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return err
-	}
-
-	settings["defaultProvider"] = provider
-	if model != "" {
-		settings["defaultModel"] = model
-	}
-
-	out, err := json.MarshalIndent(settings, "", "\t")
-	if err != nil {
-		return err
-	}
-
-	return atomicWrite(path, out, 0644)
+	return settings.SetDefaultProvider(provider, model).Save(w.Workdir)
 }
 
 func (w *SettingsWriter) updateAgentSettings(provider string) error {
 	path := filepath.Join(w.Workdir, ".pi", "agent", "settings.json")
 
-	// Try reading existing
-	data, err := os.ReadFile(path)
+	settings, err := loadSettingsFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create with just defaultProvider
-			dir := filepath.Dir(path)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return err
-			}
-			settings := map[string]string{"defaultProvider": provider}
-			out, _ := json.MarshalIndent(settings, "", "\t")
-			return atomicWrite(path, out, 0644)
+			return saveSettingsFile(path, &Settings{DefaultProvider: provider})
 		}
 		return err
 	}
-
-	var settings map[string]any
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return err
-	}
-
-	settings["defaultProvider"] = provider
-
-	out, err := json.MarshalIndent(settings, "", "\t")
-	if err != nil {
-		return err
-	}
-
-	return atomicWrite(path, out, 0644)
+	settings.DefaultProvider = provider
+	return saveSettingsFile(path, settings)
 }
 
 // ProviderToEnvVar maps provider name to its canonical env var.
