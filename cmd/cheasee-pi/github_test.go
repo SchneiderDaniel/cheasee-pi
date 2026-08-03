@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 )
 
 // testGitHubClient creates an httpGitHubClient pointed at the given test server.
@@ -430,6 +433,101 @@ func TestGitListSubmodules_NotARepo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "open repo") {
 		t.Errorf("error should mention open repo: %v", err)
+	}
+}
+
+// TestGitListSubmodules_RoundTrip writes a plain .gitmodules into an
+// uninitialized repo (no matching .git/config entries, so results mirror the
+// file directly, sidestepping go-git's Path-override merge) and asserts the
+// returned config.Submodule values match it.
+func TestGitListSubmodules_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	const gitmodules = `[submodule "flask_blogs"]
+	path = flask_blogs
+	url = ../flask_blogs
+[submodule "private-pi"]
+	path = private-pi/skills
+	url = ../private-pi
+`
+	if err := os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte(gitmodules), 0644); err != nil {
+		t.Fatalf("write .gitmodules: %v", err)
+	}
+
+	subs, err := (gitSubmoduleOps{}).ListSubmodules(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("ListSubmodules: %v", err)
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 submodules, got %d", len(subs))
+	}
+
+	// go-git stores submodules in a map (config.Modules.Submodules), so
+	// iteration order is nondeterministic — compare as a name-keyed set.
+	byName := make(map[string]config.Submodule, len(subs))
+	for _, s := range subs {
+		byName[s.Name] = s
+	}
+	want := []config.Submodule{
+		{Name: "flask_blogs", Path: "flask_blogs", URL: "../flask_blogs"},
+		{Name: "private-pi", Path: "private-pi/skills", URL: "../private-pi"},
+	}
+	for _, w := range want {
+		got, ok := byName[w.Name]
+		if !ok {
+			t.Errorf("submodule %q missing from results: %+v", w.Name, subs)
+			continue
+		}
+		if got.Name != w.Name || got.Path != w.Path || got.URL != w.URL {
+			t.Errorf("submodule %q: got %+v, want %+v", w.Name, got, w)
+		}
+		if got.Branch != "" {
+			t.Errorf("submodule %q: expected empty Branch for fresh .gitmodules parse, got %q", w.Name, got.Branch)
+		}
+	}
+}
+
+// TestGitListSubmodules_NoGitmodules: absent .gitmodules yields an empty
+// slice and nil error (preserves runInitSubmodule's "No submodules found").
+func TestGitListSubmodules_NoGitmodules(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	subs, err := (gitSubmoduleOps{}).ListSubmodules(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("ListSubmodules: %v", err)
+	}
+	if len(subs) != 0 {
+		t.Errorf("expected empty result, got %d submodules", len(subs))
+	}
+}
+
+// TestGitListSubmodules_GitmodulesSymlink: a symlinked .gitmodules surfaces
+// go-git's ErrGitModulesSymlink wrapped as "list submodules".
+func TestGitListSubmodules_GitmodulesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "real-gitmodules")
+	if err := os.WriteFile(target, []byte("[submodule]\n"), 0644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, ".gitmodules")); err != nil {
+		t.Skipf("os.Symlink unsupported: %v", err)
+	}
+
+	_, err := (gitSubmoduleOps{}).ListSubmodules(context.Background(), dir)
+	if err == nil {
+		t.Fatal("expected error for symlinked .gitmodules")
+	}
+	if !strings.Contains(err.Error(), "list submodules") {
+		t.Errorf("error should mention list submodules: %v", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
+	"github.com/go-git/go-git/v5/config"
 )
 
 // ──────────────────────────────────────────────
@@ -73,7 +74,7 @@ func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 // ──────────────────────────────────────────────
 
 type mockSubmoduleOps struct {
-	listSubmodulesFunc      func(ctx context.Context, repoPath string) ([]Submodule, error)
+	listSubmodulesFunc      func(ctx context.Context, repoPath string) ([]config.Submodule, error)
 	setSubmoduleURLFunc     func(ctx context.Context, repoPath, name, newURL string) error
 	initAndUpdateSubmodFunc func(ctx context.Context, repoPath string) error
 	addSubmoduleFunc        func(ctx context.Context, repoPath, name, url string) error
@@ -88,7 +89,7 @@ type mockSubmoduleOps struct {
 	addSubmoduleCalls     []struct{ Name, URL string }
 }
 
-func (m *mockSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+func (m *mockSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error) {
 	m.listSubmodulesCalled = true
 	if m.listSubmodulesFunc != nil {
 		return m.listSubmodulesFunc(ctx, repoPath)

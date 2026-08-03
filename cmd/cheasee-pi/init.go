@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cli/oauth/device"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/spf13/cobra"
 )
 
@@ -72,7 +73,7 @@ type InitDeps struct {
 	SubmoduleURLs     map[string]string
 	ConfirmFn         func(string) (bool, error)
 	InputFn           func(title, placeholder string) (string, error)
-	SubmodulePromptFn func([]Submodule) (map[string]string, error)
+	SubmodulePromptFn func([]config.Submodule) (map[string]string, error)
 }
 
 // Validate checks that all required dependencies for the active path are non-nil.
