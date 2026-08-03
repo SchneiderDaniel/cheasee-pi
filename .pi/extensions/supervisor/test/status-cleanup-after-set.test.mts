@@ -104,7 +104,7 @@ function checkStatusCleanup(filePaths: string[]): string[] {
 // per-iteration "Status: ...", and post-pipeline.ts clears on completion —
 // so the package is scanned as one ordered stream.
 const FILES_TO_CHECK: Array<string | string[]> = [
-	"pipeline/audit.ts",
+	"pipeline/audit/index.ts",
 	"pipeline/merge.ts",
 	"pipeline/notifications.ts",
 	[
@@ -133,3 +133,19 @@ for (const file of FILES_TO_CHECK) {
 		});
 	});
 }
+
+// Issue #1407 split: audit.ts became pipeline/audit/*. The setStatus lifecycle
+// is owned exclusively by the orchestrator (index.ts); the sibling gate and
+// decision modules must not touch the supervisor status.
+describe("supervisor status cleanup — pipeline/audit siblings", () => {
+	it("aggregate/tsc-gate/lsp-gate/pre-gates contain zero setStatus('supervisor' calls", () => {
+		const siblingFiles = ["aggregate.ts", "tsc-gate.ts", "lsp-gate.ts", "pre-gates.ts"];
+		for (const file of siblingFiles) {
+			const src = readFileSync(join(__dirname, "../pipeline/audit", file), "utf-8");
+			assert.ok(
+				!src.includes('setStatus("supervisor"'),
+				`pipeline/audit/${file} must not call setStatus("supervisor", ...) — the orchestrator owns the lifecycle`,
+			);
+		}
+	});
+});
