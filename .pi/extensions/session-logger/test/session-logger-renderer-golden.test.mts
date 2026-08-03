@@ -42,7 +42,10 @@ function sessionHeader(overrides: Record<string, unknown> = {}): Record<string, 
 		id: "test-session-001",
 		timestamp: "2025-06-01T10:00:00Z",
 		cwd: "/tmp/project",
-		version: "1.0",
+		// Numeric, matching CURRENT_SESSION_VERSION — ParsedSessionStats.version
+		// is declared `number` (session-stats.ts); string "1.0" was a latent
+		// type violation and a misfire trigger for version-gated logic.
+		version: 3,
 		...overrides,
 	};
 }
@@ -470,6 +473,58 @@ describe("session-logger renderer golden characterization (byte-for-byte)", () =
 	}
 });
 
+// ─── Version handling (fixture version is numeric) ─────────────────
+
+function writeJsonlTo(dir: string, entries: Record<string, unknown>[]): string {
+	const filepath = path.join(dir, "test-session.jsonl");
+	const lines = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+	writeFileSync(filepath, lines, "utf-8");
+	return filepath;
+}
+
+describe("session-logger renderer version handling", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = mkdtempSync(path.join(os.tmpdir(), "session-logger-golden-ver-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("header-only fixture → stats.version is numeric 3", () => {
+		const filepath = writeJsonlTo(tmpDir, [sessionHeader()]);
+		const stats = parseSessionStats(filepath);
+		assert.ok(stats, "expected stats");
+		assert.equal(stats.version, 3);
+		assert.equal(typeof stats.version, "number");
+	});
+
+	it("header missing version → stats.version === 0", () => {
+		const filepath = writeJsonlTo(tmpDir, [
+			{ type: "session", id: "no-ver", timestamp: "2025-06-01T10:00:00Z", cwd: "/tmp" },
+		]);
+		const stats = parseSessionStats(filepath);
+		assert.ok(stats, "expected stats");
+		assert.equal(stats.version, 0);
+	});
+
+	it("no stale string-version fixtures remain in golden corpus", () => {
+		const files = readdirSync(GOLDEN_DIR).filter(
+			(f) => f.endsWith(".md") || f.endsWith(".stats.json"),
+		);
+		assert.ok(files.length > 0, "expected golden fixtures present");
+		for (const f of files) {
+			const content = readFileSync(join(GOLDEN_DIR, f), "utf8");
+			assert.ok(
+				!content.includes('"version": "1.0"') && !content.includes("| **Version** | 1.0 |"),
+				`stale string version in ${f}`,
+			);
+		}
+	});
+});
+
 // ─── Boundary error paths ──────────────────────────────────────────
 
 describe("session-logger renderer boundary error paths", () => {
@@ -571,5 +626,16 @@ describe("renderer/* import standalone (no ESM cycle)", () => {
 				`${f} must not import back from renderer.ts (ESM cycle risk)`,
 			);
 		}
+	});
+
+	it("parse.ts does not import host parseSessionEntries/migrateSessionEntries", () => {
+		// Reinvention #1403 settled: the fail-closed manual parse stays. Any
+		// import of the host package's parse/migrate helpers would violate the
+		// docstring contract in parse.ts.
+		const source = readFileSync(join(dir, "parse.ts"), "utf8");
+		assert.ok(
+			!source.includes('from "@earendil-works/pi-coding-agent"'),
+			"parse.ts must not import host parse/migrate helpers (reinvention #1403)",
+		);
 	});
 });

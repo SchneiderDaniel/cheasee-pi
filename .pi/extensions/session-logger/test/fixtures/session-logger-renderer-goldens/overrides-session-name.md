@@ -6,7 +6,7 @@
 | **Start** | `2025-06-01T10:00:00Z` |
 | **Name** | `My Session` |
 | **CWD** | `/tmp/project` |
-| **Version** | 1.0 |
+| **Version** | 3 |
 | **Entries** | 4 |
 
 
