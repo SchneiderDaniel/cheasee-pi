@@ -1,11 +1,11 @@
 /**
- * Tests: worktree-sandbox/index.ts — rewritePath helper, findUnsafeCd, findUnsafeWriteInBash, findSuspiciousArg
+ * Tests: worktree-sandbox/index.ts — rewritePath helper, findUnsafeCd, findUnsafeWriteInBash
  *
  * Phase 1: Pure function unit tests for the extracted rewritePath helper.
  * Tests the path-rewriting logic that was previously duplicated across
  * read/write/edit handlers.
  *
- * Phase 2a: hasShellExpansion and findSuspiciousArg — core security helpers
+ * Phase 2a: hasShellExpansion — core security helper
  * Phase 2b: findUnsafeCd — all bypass vectors blocked, safe cds pass
  * Phase 3: findUnsafeWriteInBash — redirects, cp, mv, touch
  */
@@ -33,7 +33,6 @@ let mod: {
 	findUnsafeCd: (command: string, sandboxRoot: string) => string | null;
 	findUnsafeWriteInBash: (command: string, sandboxRoot: string) => string | null;
 	hasShellExpansion: (token: string) => boolean;
-	findSuspiciousArg: (command: string, sandboxRoot: string) => string | null;
 };
 
 // https://nodejs.org/api/esm.html#module-register-and-hooks --experimental-strip-types needed
@@ -444,147 +443,6 @@ describe("hasShellExpansion", () => {
 
 	it("returns false for numeric", () => {
 		assert.equal(mod.hasShellExpansion("42"), false);
-	});
-});
-
-// ─── Phase 2b: findSuspiciousArg ───────────────────────────────────
-
-describe("findSuspiciousArg", () => {
-	before(async () => {
-		mod = await import("../index.ts");
-	});
-
-	const SANDBOX = "/home/user/project";
-
-	it("returns null for cd with absolute path inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`cd ${SANDBOX}/src`, SANDBOX), null);
-	});
-
-	it("returns null for cd with relative path inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg("cd src", SANDBOX), null);
-	});
-
-	it("returns null for cd with .. inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`cd ${SANDBOX}/src/../lib`, SANDBOX), null);
-	});
-
-	it("returns null for cp/mv inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`cp ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
-	});
-
-	it("returns null for cat of file inside sandbox (no shell expansion)", () => {
-		assert.equal(mod.findSuspiciousArg(`cat ${SANDBOX}/file.txt`, SANDBOX), null);
-	});
-
-	it("returns null for ls with path inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`ls ${SANDBOX}/src`, SANDBOX), null);
-	});
-
-	it("returns reason for cd with absolute path outside sandbox", () => {
-		const result = mod.findSuspiciousArg("cd /etc", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns reason for cd with relative path escaping sandbox", () => {
-		const result = mod.findSuspiciousArg("cd ../outside", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns reason for cd with path traversal escaping sandbox", () => {
-		const result = mod.findSuspiciousArg("cd src/../../outside", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns reason when sandboxRoot is not normalized and path starts with it (fence bypass)", () => {
-		// Sandbox root = "/home/user/project" (no trailing slash)
-		// Path = "/home/user/project-other/file" — starts with sandbox root but is outside
-		const result = mod.findSuspiciousArg("cd /home/user/project-other", "/home/user/project");
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns reason for cp destination outside sandbox", () => {
-		const result = mod.findSuspiciousArg(`cp ${SANDBOX}/a.txt /etc/passwd`, SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns null for cp to path that stays inside sandbox via .. but resolves inside", () => {
-		// If sandboxRoot is "/home/user/project", then "../user/project/outside" resolves
-		// to "/home/user/outside" which might be outside. This tests the normalize + comparison.
-		// Using a path that actually stays inside.
-		assert.equal(mod.findSuspiciousArg(`cp file.txt ${SANDBOX}/subdir/../file.txt`, SANDBOX), null);
-	});
-
-	it("returns reason for find with path outside sandbox", () => {
-		const result = mod.findSuspiciousArg("find /etc -name config", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns null for find within sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`find ${SANDBOX}/src -name "*.ts"`, SANDBOX), null);
-	});
-
-	it("returns reason when path with shell expansion resolves outside", () => {
-		// $HOME might resolve anywhere — the arg touches a path outside sandbox
-		const result = mod.findSuspiciousArg("cd $HOME", SANDBOX);
-		assert.ok(result !== null);
-	});
-
-	it("returns reason for path with wildcard that resolves outside", () => {
-		const result = mod.findSuspiciousArg("cat ../*/outside", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns null for path with wildcard that stays inside", () => {
-		assert.equal(mod.findSuspiciousArg(`cat ${SANDBOX}/src/*.ts`, SANDBOX), null);
-	});
-
-	it("returns reason for semicolon chained command that escapes", () => {
-		const result = mod.findSuspiciousArg(`cd ${SANDBOX}; cat /etc/passwd`, SANDBOX);
-		assert.ok(result !== null);
-	});
-
-	it("returns reason for pipe with outside path", () => {
-		const result = mod.findSuspiciousArg(`cat ${SANDBOX}/a.txt | cat /etc/passwd`, SANDBOX);
-		assert.ok(result !== null);
-	});
-
-	it("returns null for safe ls with glob", () => {
-		assert.equal(mod.findSuspiciousArg(`ls ${SANDBOX}/*.md`, SANDBOX), null);
-	});
-
-	it("returns null for safe git command", () => {
-		assert.equal(mod.findSuspiciousArg("git status", SANDBOX), null);
-	});
-
-	it("returns null for safe npm command", () => {
-		assert.equal(mod.findSuspiciousArg("npm test", SANDBOX), null);
-	});
-
-	it("returns null for mkdir inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`mkdir -p ${SANDBOX}/new-dir`, SANDBOX), null);
-	});
-
-	it("returns reason for mkdir outside sandbox", () => {
-		const result = mod.findSuspiciousArg("mkdir -p /outside/dir", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns reason for rm of file outside sandbox", () => {
-		const result = mod.findSuspiciousArg("rm /etc/critical.conf", SANDBOX);
-		assert.ok(result !== null);
-		assert.ok(result.includes("outside"));
-	});
-
-	it("returns null for rm of file inside sandbox", () => {
-		assert.equal(mod.findSuspiciousArg(`rm ${SANDBOX}/temp.txt`, SANDBOX), null);
 	});
 });
 

@@ -19,17 +19,20 @@ import * as mod from "../index.ts";
 const SB = "/home/user/project";
 
 describe("byte-identical: public API surface (index.ts barrel)", () => {
-	it("exposes all 10 documented exports, callable", () => {
+	it("exposes all 9 documented exports, callable", () => {
 		assert.equal(typeof mod.findMeaningfulToken, "function");
 		assert.equal(typeof mod.findUnsafeWriteInBash, "function");
 		assert.equal(typeof mod.findUnsafeCd, "function");
-		assert.equal(typeof mod.findSuspiciousArg, "function");
 		assert.equal(typeof mod.hasShellExpansion, "function");
 		assert.equal(typeof mod.tokenizeCommand, "function");
 		assert.ok(mod.SEPARATORS instanceof Set);
 		assert.equal(typeof mod.isCommandStart, "function");
 		assert.equal(typeof mod.rewritePath, "function");
 		assert.equal(typeof mod.default, "function");
+	});
+
+	it("does not re-export removed dead code (findSuspiciousArg)", () => {
+		assert.equal("findSuspiciousArg" in mod, false);
 	});
 
 	it("keeps internal helpers module-private (not re-exported)", () => {
@@ -106,16 +109,10 @@ describe("byte-identical: isCommandStart + SEPARATORS", () => {
 	});
 });
 
-describe("byte-identical: hasShellExpansion + findSuspiciousArg", () => {
+describe("byte-identical: hasShellExpansion", () => {
 	it("hasShellExpansion unchanged", () => {
 		assert.equal(mod.hasShellExpansion("$HOME/x"), true);
 		assert.equal(mod.hasShellExpansion("/plain/path"), false);
-	});
-
-	it("findSuspiciousArg reason strings unchanged", () => {
-		assert.equal(mod.findSuspiciousArg("cat /etc/passwd", SB), "outside sandbox: /etc/passwd");
-		assert.equal(mod.findSuspiciousArg(`cat ${SB}/file.txt`, SB), null);
-		assert.equal(mod.findSuspiciousArg("", SB), null);
 	});
 });
 

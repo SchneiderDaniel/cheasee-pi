@@ -130,7 +130,7 @@ export function rewritePath(
 // Detector concerns live in sibling modules (see file header for the
 // import DAG). Re-exported here so all consumers import from index.ts.
 
-export { tokenizeCommand, hasShellExpansion, findSuspiciousArg } from "./meaningful-token.ts";
+export { tokenizeCommand, hasShellExpansion } from "./meaningful-token.ts";
 export { SEPARATORS, isCommandStart, findMeaningfulToken } from "./meaningful-token.ts";
 export type { MeaningfulTokenResult } from "./meaningful-token.ts";
 export { findUnsafeCd } from "./unsafe-cd.ts";

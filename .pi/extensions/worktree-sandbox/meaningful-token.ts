@@ -4,7 +4,7 @@
  * Owns the shell-quote surface (tokenizeCommand), token classification
  * (isCommandStart, SEPARATORS, MeaningfulTokenResult), the shell-walk
  * primitive (findMeaningfulToken), argument-level safety helpers
- * (hasShellExpansion, findSuspiciousArg), and the path-containment
+ * (hasShellExpansion), and the path-containment
  * primitives (isPathWithinSandbox, isPathSafe) that every detector shares.
  *
  * This module must stay free of imports from sibling detector modules —
@@ -50,74 +50,6 @@ export function tokenizeCommand(cmd: string): ParseEntry[] {
  */
 export function hasShellExpansion(token: string): boolean {
 	return /[\$`~{*?\['";|&]/.test(token);
-}
-
-/**
- * Shell-aware suspicious argument detection.
- *
- * Scans all command arguments for shell expansion syntax or paths
- * that would escape the sandbox. Returns the first suspicious token
- * found, or null if all arguments are safe.
- *
- * This is a general-purpose version of findUnsafeCd that checks all
- * arguments in all commands, not just cd targets.
- */
-export function findSuspiciousArg(command: string, sandboxRoot: string): string | null {
-	if (!command || !command.trim()) return null;
-
-	const tokens = tokenizeCommand(command);
-	let prevWasFlag = false;
-
-	for (let i = 0; i < tokens.length; i++) {
-		const token = tokens[i]!;
-
-		// Handle glob operators (shell-quote produces { op: "glob", pattern } for wildcard patterns)
-		if (typeof token === "object" && "op" in token && token.op === "glob") {
-			const pattern = token.pattern ?? "";
-			if (pattern && !isPathSafe(pattern, sandboxRoot)) {
-				return `outside sandbox: ${pattern}`;
-			}
-			continue;
-		}
-
-		// Skip non-string tokens (operators, comments)
-		if (typeof token !== "string") {
-			continue;
-		}
-
-		// Skip command names (first token of each command)
-		// A string is a command name if it's at position 0 or preceded by a separator
-		if (isCommandStart(tokens, i)) {
-			prevWasFlag = false;
-			continue;
-		}
-
-		// Track and skip flags (starting with -)
-		if (token.startsWith("-")) {
-			prevWasFlag = true;
-			continue;
-		}
-
-		// Empty token means unresolved variable
-		if (token === "") {
-			return command;
-		}
-
-		// Check if path resolves outside sandbox (before shell expansion,
-		// so wildcards that resolve outside get "outside" in the reason)
-		if (!isPathSafe(token, sandboxRoot)) {
-			return `outside sandbox: ${token}`;
-		}
-
-		// Check for shell expansion syntax — skip for flag values
-		// (e.g. -name "*.ts" where *.ts is a pattern, not a path)
-		if (!prevWasFlag && hasShellExpansion(token)) {
-			return token;
-		}
-
-		prevWasFlag = false;
-	}
-	return null;
 }
 
 // ─── Shell token helpers ───────────────────────────────────────────
