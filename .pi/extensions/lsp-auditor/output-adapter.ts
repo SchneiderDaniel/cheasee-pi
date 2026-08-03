@@ -11,6 +11,7 @@
  *   - "print" / others       → plain text string
  */
 
+import { formatDiagnostics, pushLineBlock, truncateMessage } from "./formatting.ts";
 import type { LspDiagnostic, StructuredDiagnostics } from "./types.ts";
 
 // ─── Public API ──────────────────────────────────────────────────────
@@ -69,14 +70,9 @@ function formatTuiWithUris(diagnostics: LspDiagnostic[], worktreePath: string): 
 	const blocks: string[] = [];
 	for (const [filePath, diags] of byFile) {
 		const uri = pathToFileUri(filePath);
-		const lines: string[] = [];
-		for (const d of diags) {
-			let msg = d.message;
-			if (msg.length > 500) msg = msg.slice(0, 497) + "...";
-			lines.push(`${uri}:${d.line}:${d.column} — [${d.severity}] ${msg}`);
-		}
-		if (blocks.length > 0) blocks.push("");
-		blocks.push(lines.join("\n"));
+		pushLineBlock(blocks, diags, (d) =>
+			`${uri}:${d.line}:${d.column} — [${d.severity}] ${truncateMessage(d.message)}`,
+		);
 	}
 
 	return blocks.join("\n");
@@ -84,27 +80,10 @@ function formatTuiWithUris(diagnostics: LspDiagnostic[], worktreePath: string): 
 
 /**
  * Format diagnostics as plain text (no URI links).
- * Matches formatDiagnostics() style from formatting.ts.
+ * Delegates to formatDiagnostics() — single canonical plain-text renderer.
  */
 function formatPlainText(diagnostics: LspDiagnostic[]): string {
-	if (diagnostics.length === 0) return "";
-
-	const byFile = groupByFile(diagnostics);
-
-	const blocks: string[] = [];
-	for (const [filePath, diags] of byFile) {
-		diags.sort((a, b) => (a.line !== b.line ? a.line - b.line : a.column - b.column));
-		const lines: string[] = [];
-		for (const d of diags) {
-			let msg = d.message;
-			if (msg.length > 500) msg = msg.slice(0, 497) + "...";
-			lines.push(`${filePath}, Line ${d.line}: [${d.severity}] ${msg}`);
-		}
-		if (blocks.length > 0) blocks.push("");
-		blocks.push(lines.join("\n"));
-	}
-
-	return blocks.join("\n");
+	return formatDiagnostics(diagnostics);
 }
 
 /**
