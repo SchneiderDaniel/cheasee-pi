@@ -493,7 +493,7 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Ported from shell-tokens.test.mts — edge cases not reachable through
-// guard-level exports (findUnsafeCd, findSuspiciousArg, findUnsafeWriteInBash).
+// guard-level exports (findUnsafeCd, findUnsafeWriteInBash).
 // These use hand-crafted ParseEntry[] arrays to pin separator/glob/comment
 // behavior that shell-quote.parse() does not naturally produce.
 // ═══════════════════════════════════════════════════════════════════════
