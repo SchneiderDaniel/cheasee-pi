@@ -7,10 +7,9 @@
  * Layer: domain — zero dependencies (no pi runtime, no agent-harness).
  * Pure functions with no I/O.
  *
- * Subsumes three overlapping detection code paths:
+ * Subsumes two overlapping detection code paths:
  *   1. BashCommand.isSearch() — standalone grep/rg
  *   2. isPipedFileGrep() — piped file→grep patterns
- *   3. isBashSearchOrRead() — turn-inefficiency classification
  *
  * READ_BASH_CMDS inlined to keep dependency-free.
  */
@@ -132,7 +131,7 @@ export function hasBypassAnnotation(cmd: string): boolean {
  *  - grep/rg chained with && or ;
  *  - Non-file pipe output piped to grep (e.g., ls | grep foo)
  *  - grep in quoted args, not first token
- *  - find (handled by isBashSearchOrRead)
+ *  - find → false (not a search, stays pass-through)
  *  - Empty string
  */
 export function isBashSearch(cmd: string): boolean {
@@ -220,29 +219,4 @@ export function isBashFileModify(cmd: string): boolean {
 	if (!token) return false;
 
 	return FILE_MODIFY_SIGNALS.includes(token);
-}
-
-/**
- * Composite detection: true if the command is a search OR file read OR find.
- *
- * Used by `detectTurnInefficiency` to classify bash commands as
- * "not discovery" (search/read bash = not discovery, so turn may be
- * flagged if ≥15 calls without discovery events).
- *
- * Includes `find` as a search-like command (unlike `isBashSearch`
- * which excludes it) to match the existing behavior of the inline
- * `isBashSearchOrRead` function.
- */
-export function isBashSearchOrRead(cmd: string): boolean {
-	if (!cmd) return false;
-
-	if (isBashSearch(cmd)) return true;
-	if (isBashFileRead(cmd)) return true;
-
-	// Find included only in the composite function (not in isBashSearch)
-	const lower = cmd.toLowerCase().trim();
-	const first = lower.split(/\s+/)[0];
-	if (first === "find") return true;
-
-	return false;
 }
