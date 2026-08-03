@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+	"github.com/go-git/go-git/v5/config"
 )
 
 // runInitSubmodule orchestrates submodule setup.
@@ -20,7 +21,7 @@ func runInitSubmodule(
 	workdir string,
 	urlOverrides map[string]string,
 	skipAll bool,
-	promptFn func([]Submodule) (map[string]string, error),
+	promptFn func([]config.Submodule) (map[string]string, error),
 	noInput bool,
 	confirmFn func(string) (bool, error),
 	inputFn func(title, placeholder string) (string, error),
@@ -275,7 +276,7 @@ func parseSubmoduleURLs(entries []string) (map[string]string, error) {
 
 // promptSubmoduleURLs prompts the user for each submodule's URL.
 // Returns a map of name→newURL for entries the user changed.
-func promptSubmoduleURLs(submodules []Submodule) (map[string]string, error) {
+func promptSubmoduleURLs(submodules []config.Submodule) (map[string]string, error) {
 	type entry struct {
 		name       string
 		defaultURL string

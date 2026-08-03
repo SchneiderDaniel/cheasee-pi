@@ -35,20 +35,13 @@ type GitHubClient interface {
 	WaitForkReady(ctx context.Context, token, owner, repo string) error
 }
 
-// Submodule represents a git submodule entry from .gitmodules.
-type Submodule struct {
-	Name string
-	Path string
-	URL  string
-}
-
 // submoduleOps performs submodule operations on a local git checkout.
 // The go-git backed ops run directly against the working tree; AddSubmodule
 // shells out to git. Kept as a narrow parameter so runInit orchestration
 // tests can inject a fake — there is no second production adapter.
 type submoduleOps interface {
 	// ListSubmodules returns all submodules defined in .gitmodules.
-	ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error)
+	ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error)
 	// SetSubmoduleURL rewrites the URL for a named submodule in .gitmodules
 	// and syncs it to .git/config via Init.
 	SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error
@@ -320,7 +313,7 @@ func gitAddSubmodule(ctx context.Context, repoPath, name, url string) error {
 // gitSubmoduleOps implements submoduleOps backed by go-git.
 type gitSubmoduleOps struct{}
 
-func (gitSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]Submodule, error) {
+func (gitSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error) {
 	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("open repo: %w", err)
@@ -336,14 +329,9 @@ func (gitSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]S
 		return nil, fmt.Errorf("list submodules: %w", err)
 	}
 
-	result := make([]Submodule, 0, len(subs))
+	result := make([]config.Submodule, 0, len(subs))
 	for _, sub := range subs {
-		cfg := sub.Config()
-		result = append(result, Submodule{
-			Name: cfg.Name,
-			Path: cfg.Path,
-			URL:  cfg.URL,
-		})
+		result = append(result, *sub.Config())
 	}
 	return result, nil
 }
