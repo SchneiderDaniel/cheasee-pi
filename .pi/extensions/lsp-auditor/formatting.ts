@@ -44,6 +44,34 @@ export function thresholdValue(threshold: string): number {
 // ─── Formatting ──────────────────────────────────────────────────────
 
 /**
+ * Truncate a diagnostic message to at most `max` characters (default 500),
+ * appending "..." when truncated. Uses UTF-16 slice semantics — kept as-is;
+ * centralizing here means any future fix propagates to all formatters.
+ */
+export function truncateMessage(msg: string, max = 500): string {
+	if (msg.length > max) return msg.slice(0, max - 3) + "...";
+	return msg;
+}
+
+/**
+ * Build a block of formatted diagnostic lines and append it to `blocks`,
+ * separating consecutive blocks with exactly one blank line.
+ * Shared by all text formatters so the join/blank-line logic stays in one place.
+ */
+export function pushLineBlock(
+	blocks: string[],
+	diags: LspDiagnostic[],
+	formatLine: (d: LspDiagnostic) => string,
+): void {
+	const lines: string[] = [];
+	for (const d of diags) {
+		lines.push(formatLine(d));
+	}
+	if (blocks.length > 0) blocks.push("");
+	blocks.push(lines.join("\n"));
+}
+
+/**
  * Format diagnostics into a compact, human-readable message.
  * Grouped by file, sorted by line.
  */
@@ -62,15 +90,9 @@ export function formatDiagnostics(diagnostics: LspDiagnostic[]): string {
 	for (const file of files) {
 		const diags = byFile.get(file)!;
 		diags.sort((a, b) => (a.line !== b.line ? a.line - b.line : a.column - b.column));
-
-		const lines: string[] = [];
-		for (const d of diags) {
-			let msg = d.message;
-			if (msg.length > 500) msg = msg.slice(0, 497) + "...";
-			lines.push(`${file}, Line ${d.line}: [${d.severity}] ${msg}`);
-		}
-		if (blocks.length > 0) blocks.push("");
-		blocks.push(lines.join("\n"));
+		pushLineBlock(blocks, diags, (d) =>
+			`${file}, Line ${d.line}: [${d.severity}] ${truncateMessage(d.message)}`,
+		);
 	}
 
 	return blocks.join("\n");

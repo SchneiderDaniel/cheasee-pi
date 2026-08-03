@@ -15,6 +15,7 @@ import {
 	severityValue,
 	thresholdValue,
 	formatDiagnostics,
+	truncateMessage,
 	filterBySeverity,
 } from "../formatting.ts";
 import { buildServerMappings } from "../server-mappings.ts";
@@ -159,6 +160,29 @@ describe("formatDiagnostics", () => {
 			{ file: "a.ts", line: 1, column: 1, severity: "Error", message: "🚀 unicode test 世界" },
 		]);
 		assert.ok(result.includes("🚀 unicode test 世界"));
+	});
+});
+
+describe("truncateMessage", () => {
+	it("empty message → empty string", () => {
+		assert.strictEqual(truncateMessage(""), "");
+	});
+
+	it("message ≤ 500 chars → unchanged, no ... suffix", () => {
+		const msg = "x".repeat(500);
+		assert.strictEqual(truncateMessage(msg), msg);
+	});
+
+	it("message 501 chars → exactly 497 chars + ...", () => {
+		const msg = "x".repeat(501);
+		assert.strictEqual(truncateMessage(msg), "x".repeat(497) + "...");
+	});
+
+	it("message 1000 chars → ends with ... (UTF-16 slice semantics)", () => {
+		const msg = "x".repeat(1000);
+		const result = truncateMessage(msg);
+		assert.strictEqual(result.length, 500);
+		assert.ok(result.endsWith("..."));
 	});
 });
 

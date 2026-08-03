@@ -12,6 +12,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import type { LspDiagnostic, StructuredDiagnostics } from "../types.ts";
 import { formatForMode } from "../output-adapter.ts";
+import { formatDiagnostics } from "../formatting.ts";
 
 // ─── Shared fixture — 3 diagnostics across 2 files ───────────────────
 
@@ -40,6 +41,16 @@ const SAMPLE_DIAGS: LspDiagnostic[] = [
 ];
 
 const WORKTREE_PATH = "/workspace";
+
+// Non-alphabetical fixture — locks the accepted ordering delta (blocks become alphabetical)
+const NON_ALPHA_DIAGS: LspDiagnostic[] = [
+	{ file: "/workspace/z.ts", line: 1, column: 1, severity: "Error", message: "zzz" },
+	{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: "aaa" },
+];
+
+// Boundary fixtures for truncation tests
+const EXACT_500_MSG = "x".repeat(500);
+const LONG_MSG_501 = "x".repeat(501);
 
 // =========================================================================
 // Tests
@@ -233,5 +244,108 @@ describe("formatForMode — edge cases", () => {
 	it("unknown mode → defaults to print mode (plain text)", () => {
 		const result = formatForMode(SAMPLE_DIAGS, "unknown-mode", WORKTREE_PATH, false);
 		assert.strictEqual(typeof result, "string");
+	});
+});
+
+describe("formatForMode — delegation to formatDiagnostics", () => {
+	it("print route ≡ formatDiagnostics (exact equality)", () => {
+		const result = formatForMode(SAMPLE_DIAGS, "print", WORKTREE_PATH, false) as string;
+		assert.strictEqual(result, formatDiagnostics(SAMPLE_DIAGS));
+	});
+
+	it("tui + hasUI=false route ≡ formatDiagnostics (exact equality)", () => {
+		const result = formatForMode(SAMPLE_DIAGS, "tui", WORKTREE_PATH, false) as string;
+		assert.strictEqual(result, formatDiagnostics(SAMPLE_DIAGS));
+	});
+
+	it("unknown mode route ≡ formatDiagnostics (exact equality)", () => {
+		const result = formatForMode(SAMPLE_DIAGS, "unknown-mode", WORKTREE_PATH, false) as string;
+		assert.strictEqual(result, formatDiagnostics(SAMPLE_DIAGS));
+	});
+
+	it("single diagnostic → exact plain-text line", () => {
+		const single = [
+			{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: "msg" },
+		] as LspDiagnostic[];
+		const result = formatForMode(single, "print", WORKTREE_PATH, false) as string;
+		assert.strictEqual(result, "/workspace/a.ts, Line 1: [Error] msg");
+	});
+
+	it("same-file diagnostics sorted by line asc then column asc", () => {
+		const unsorted = [
+			{ file: "/workspace/a.ts", line: 5, column: 9, severity: "Warning", message: "w" },
+			{ file: "/workspace/a.ts", line: 2, column: 7, severity: "Error", message: "e" },
+			{ file: "/workspace/a.ts", line: 2, column: 3, severity: "Hint", message: "h" },
+		] as LspDiagnostic[];
+		const result = formatForMode(unsorted, "print", WORKTREE_PATH, false) as string;
+		assert.strictEqual(
+			result,
+			[
+				"/workspace/a.ts, Line 2: [Hint] h",
+				"/workspace/a.ts, Line 2: [Error] e",
+				"/workspace/a.ts, Line 5: [Warning] w",
+			].join("\n"),
+		);
+	});
+
+	it("two files → blocks separated by exactly one blank line", () => {
+		const result = formatForMode(SAMPLE_DIAGS, "print", WORKTREE_PATH, false) as string;
+		const appBlock = [
+			"/workspace/src/app.ts, Line 10: [Error] Type 'string' is not assignable to type 'number'",
+			"/workspace/src/app.ts, Line 25: [Warning] Variable 'x' is declared but never used",
+		].join("\n");
+		const libBlock = "/workspace/src/lib.ts, Line 3: [Error] Cannot find name 'foo'";
+		assert.strictEqual(result, `${appBlock}\n\n${libBlock}`);
+	});
+
+	it("message exactly 500 chars → untruncated, no ... suffix", () => {
+		const result = formatForMode(
+			[{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: EXACT_500_MSG }],
+			"print",
+			WORKTREE_PATH,
+			false,
+		) as string;
+		assert.strictEqual(result, `/workspace/a.ts, Line 1: [Error] ${EXACT_500_MSG}`);
+	});
+
+	it("message 501 chars → exactly 497 chars + ...", () => {
+		const result = formatForMode(
+			[{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: LONG_MSG_501 }],
+			"print",
+			WORKTREE_PATH,
+			false,
+		) as string;
+		assert.strictEqual(
+			result,
+			`/workspace/a.ts, Line 1: [Error] ${LONG_MSG_501.slice(0, 497)}...`,
+		);
+	});
+
+	it("empty message → rendered, no truncation", () => {
+		const result = formatForMode(
+			[{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: "" }],
+			"print",
+			WORKTREE_PATH,
+			false,
+		) as string;
+		assert.strictEqual(result, "/workspace/a.ts, Line 1: [Error] ");
+	});
+
+	it("same line+column pair keeps input order (stable sort)", () => {
+		const samePos = [
+			{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: "first" },
+			{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message: "second" },
+		] as LspDiagnostic[];
+		const result = formatForMode(samePos, "print", WORKTREE_PATH, false) as string;
+		assert.strictEqual(
+			result,
+			"/workspace/a.ts, Line 1: [Error] first\n/workspace/a.ts, Line 1: [Error] second",
+		);
+	});
+
+	it("non-alphabetical input [z.ts, a.ts] → first block is a.ts (alphabetical delta)", () => {
+		const result = formatForMode(NON_ALPHA_DIAGS, "print", WORKTREE_PATH, false) as string;
+		assert.ok(result.startsWith("/workspace/a.ts"));
+		assert.strictEqual(result, formatDiagnostics(NON_ALPHA_DIAGS));
 	});
 });
