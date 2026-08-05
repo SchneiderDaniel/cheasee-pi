@@ -438,10 +438,10 @@ func pinPassthroughEnv(t *testing.T) string {
 func TestBuildEnvFlags_happyPath(t *testing.T) {
 	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", "sk-openai-1"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
-	if err := cfg.AddProvider(context.Background(), "anthropic", "sk-ant-1"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "anthropic", FakeAPIKeyAlt); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
@@ -451,8 +451,8 @@ func TestBuildEnvFlags_happyPath(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"OPENAI_API_KEY":    "sk-openai-1",
-		"ANTHROPIC_API_KEY": "sk-ant-1",
+		"OPENAI_API_KEY":    FakeAPIKey,
+		"ANTHROPIC_API_KEY": FakeAPIKeyAlt,
 	}
 	if !maps.Equal(env, want) {
 		t.Errorf("buildEnvFlags = %v, want %v", env, want)
@@ -462,7 +462,7 @@ func TestBuildEnvFlags_happyPath(t *testing.T) {
 func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
 	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "claude", "sk-ant-xxx"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "claude", FakeAPIKeyAlt); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
@@ -470,7 +470,7 @@ func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-	if got := env["ANTHROPIC_API_KEY"]; got != "sk-ant-xxx" {
+	if got := env["ANTHROPIC_API_KEY"]; got != FakeAPIKeyAlt {
 		t.Errorf("claude alias should map to ANTHROPIC_API_KEY, got %v", env)
 	}
 }
@@ -526,10 +526,10 @@ func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
 func TestBuildEnvFlags_aliasDupesCollapseToOneKey(t *testing.T) {
 	pinPassthroughEnv(t)
 	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "anthropic", "sk-ant-anth"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "anthropic", FakeAPIKey); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
-	if err := cfg.AddProvider(context.Background(), "claude", "sk-ant-claude"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "claude", FakeAPIKeyAlt); err != nil {
 		t.Fatalf("seed auth.json: %v", err)
 	}
 
@@ -541,7 +541,7 @@ func TestBuildEnvFlags_aliasDupesCollapseToOneKey(t *testing.T) {
 		t.Fatalf("expected exactly one ANTHROPIC_API_KEY entry, got %v", env)
 	}
 	// Sorted provider iteration assigns claude last, so claude's key wins.
-	if got := env["ANTHROPIC_API_KEY"]; got != "sk-ant-claude" {
+	if got := env["ANTHROPIC_API_KEY"]; got != FakeAPIKeyAlt {
 		t.Errorf("expected claude key to win deterministic last-write, got %q", got)
 	}
 }
@@ -592,14 +592,14 @@ func TestBuildEnvFlags_invalidAuthReturnsWrappedError(t *testing.T) {
 
 func TestBuildEnvFlags_passthroughEnvVars(t *testing.T) {
 	pinPassthroughEnv(t)
-	t.Setenv("GH_TOKEN", "gho_x")
+	t.Setenv("GH_TOKEN", FakeGitHubToken)
 	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "acct-123")
 
 	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-	if env["GH_TOKEN"] != "gho_x" {
+	if env["GH_TOKEN"] != FakeGitHubToken {
 		t.Errorf("GH_TOKEN not passed through, got %v", env)
 	}
 	if env["CLOUDFLARE_ACCOUNT_ID"] != "acct-123" {
@@ -633,14 +633,14 @@ func TestBuildEnvFlags_apiKeyOverride(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "from-process")
 
 	saved := upAPIKey
-	upAPIKey = "session-key"
+	upAPIKey = FakeUpAPIKey
 	defer func() { upAPIKey = saved }()
 
 	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-	if env["OPENCODE_API_KEY"] != "session-key" {
+	if env["OPENCODE_API_KEY"] != FakeUpAPIKey {
 		t.Errorf("--api-key should override auth.json and process env, got %v", env)
 	}
 }
@@ -649,14 +649,14 @@ func TestBuildEnvFlags_apiKeyInjectedWithoutProvider(t *testing.T) {
 	pinPassthroughEnv(t)
 
 	saved := upAPIKey
-	upAPIKey = "session-key"
+	upAPIKey = FakeUpAPIKey
 	defer func() { upAPIKey = saved }()
 
 	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
-	if env["OPENCODE_API_KEY"] != "session-key" {
+	if env["OPENCODE_API_KEY"] != FakeUpAPIKey {
 		t.Errorf("--api-key should inject OPENCODE_API_KEY with no opencode provider, got %v", env)
 	}
 }

@@ -35,7 +35,7 @@ func (m *mockAuthenticator) Wait(ctx context.Context, code *device.CodeResponse)
 	if m.waitFunc != nil {
 		return m.waitFunc(ctx, code)
 	}
-	return &api.AccessToken{Token: "gho_test_token"}, nil
+	return &api.AccessToken{Token: FakeGitHubToken}, nil
 }
 
 // ──────────────────────────────────────────────
