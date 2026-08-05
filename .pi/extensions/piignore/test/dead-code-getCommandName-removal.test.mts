@@ -48,27 +48,31 @@ describe("piignore/index.ts — dead getCommandName removed", () => {
 describe("knip.ignoreIssues — criterion 3 suppression config", () => {
 	const packageJson = readSource("../../../package.json");
 
-	it('knip.ignoreIssues contains ".pi/git/**" (vendored code suppression)', () => {
+	// knip 6.x schema requires array values (zod: z.record(z.string(),
+	// z.array(issueTypeSchema))); "*" is rejected with "expected: array" and
+	// the pre-existing "default" type is likewise invalid — both make knip
+	// exit 2 with no stdout (dead-code gate status "error").
+	it('knip.ignoreIssues contains ".pi/git/**" (vendored code suppression, explicit /** glob)', () => {
 		assert.match(
 			packageJson,
 			/".pi\/git\/\*\*"\s*:\s*\[/,
-			'knip.ignoreIssues must suppress .pi/git/** findings (explicit /** glob)',
+			'knip.ignoreIssues must suppress .pi/git/** findings (explicit /** glob, array of valid issue types)',
 		);
 	});
 
-	it('knip.ignoreIssues contains "**/test/fixtures/**" (fixture suppression)', () => {
+	it('knip.ignoreIssues contains "**/test/fixtures/**" (fixture suppression, explicit /** glob)', () => {
 		assert.match(
 			packageJson,
 			/"\*\*\/test\/fixtures\/\*\*"\s*:\s*\[/,
-			'knip.ignoreIssues must suppress fixture findings (explicit /** glob)',
+			'knip.ignoreIssues must suppress fixture findings (explicit /** glob, array of valid issue types)',
 		);
 	});
 
-	it('knip.ignoreIssues entries use valid knip 6.x issue types (no stale invalid "default")', () => {
+	it('knip.ignoreIssues uses only valid knip 6 issue types (no "*", no stale "default")', () => {
 		assert.equal(
-			packageJson.includes("\"default\""),
+			packageJson.includes('"default"'),
 			false,
-			'"default" is not a valid knip 6.x issue type and breaks knip entirely — stale entry must stay removed',
+			'"default" is not a valid knip 6.x issue type and makes knip exit 2 with no stdout — it must be migrated to a valid type',
 		);
 	});
 });

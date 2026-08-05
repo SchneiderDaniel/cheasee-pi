@@ -27,9 +27,7 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.9.1",
-		"@types/shell-quote": "^1.7.5",
 		"eslint": "^10.5.0",
 		"js-yaml": "^5.2.2",
 		"prettier": "^3.8.3",
@@ -50,7 +48,7 @@
 			".pi/extensions/*/index.ts"
 		],
 		"ignoreIssues": {
-				".pi/git/**": [
+			".pi/git/**": [
 				"files",
 				"dependencies",
 				"devDependencies",
@@ -99,15 +97,16 @@
 				"exports",
 				"types"
 			],
+			".pi/extensions/format-on-save/index.ts": [
+				"exports"
+			],
 			".pi/extensions/lsp-auditor/lsp-client.ts": [
 				"exports"
 			]
 		},
 		"ignoreDependencies": [
 			"boxen",
-			"prettier",
-			"@types/js-yaml",
-			"@types/shell-quote"
+			"prettier"
 		]
 	}
 }
