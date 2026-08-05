@@ -33,6 +33,7 @@ import json
 import mimetypes
 import os
 import re
+import subprocess
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -109,11 +110,36 @@ def _safe_path(rel):
     return target
 
 
+def _gitignored(paths):
+    """Return the subset of repo-relative paths matched by .gitignore.
+
+    Delegates to `git check-ignore` so real gitignore semantics apply
+    (nested .gitignore, negation, dir patterns). Empty set when git is
+    unavailable or REPO_ROOT is not a git work tree — no filtering then.
+    """
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", REPO_ROOT, "check-ignore", "--stdin", "-z"],
+            input="\0".join(paths) + "\0",
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if proc.returncode not in (0, 1):  # 0 = matched, 1 = none matched
+        return set()  # not a git work tree (e.g. exit 128)
+    return {p for p in proc.stdout.split("\0") if p}
+
+
 def _walk():
     """Yield {path,type,size} for every blob under REPO_ROOT.
 
-    Prunes EXCLUDE_DIRS by directory name and submodule dirs (when
-    INCLUDE_SUBMODULES is false) by their .gitmodules path.
+    Prunes EXCLUDE_DIRS by directory name, submodule dirs (when
+    INCLUDE_SUBMODULES is false) by their .gitmodules path, and any
+    path matched by .gitignore (e.g. installed package artifacts).
     """
     entries = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
@@ -131,7 +157,10 @@ def _walk():
             except OSError:
                 continue
             entries.append({"path": rel, "type": "blob", "size": size})
-    return entries
+    # Analysis is tree-driven; gitignored installs (e.g. .pi/git) would
+    # otherwise surface as dead code. One batch call, no per-file cost.
+    ignored = _gitignored([e["path"] for e in entries])
+    return [e for e in entries if e["path"] not in ignored]
 
 
 class Handler(BaseHTTPRequestHandler):
