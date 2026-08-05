@@ -15,7 +15,9 @@ import (
 //go:embed embedded
 var embeddedFS embed.FS
 
-// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,run-pi.sh,stop-pi.sh,lib/worktree-fix.sh}.
+// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,run-pi.sh,stop-pi.sh,lib/worktree-fix.sh}
+// and embedded/docker/codeflow/{Dockerfile,server.py,config.json}.
+// Synced from docker/ via `make embed`; verify with `make check-embed`.
 // Note: lib/auth-env.sh is no longer embedded; it is derived at runtime via
 // `cheasee-pi auth envvars` (the canonical Go source).
 func AssetFS() fs.FS {

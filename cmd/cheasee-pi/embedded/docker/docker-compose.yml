@@ -41,3 +41,26 @@ services:
       interval: 10s
       retries: 3
       start_period: 15s
+
+  codeflow:
+    # Browser-based code-structure visualizer (tree-sitter AST, 18 languages),
+    # served locally and pointed at this workspace. Settings live in
+    # docker/codeflow/config.json (bind-mounted, editable without rebuild):
+    #   include_submodules: false  -> git submodules excluded from analysis
+    #   include_submodules: true   -> submodule directories included
+    #
+    #   http://localhost:8470/?repo=local/workspace&run=1
+    #
+    # Port mapping: host side via CODEFLOW_PORT (default 8470), container side
+    # from the "port" key in config.json (default 8470) — keep them in sync
+    # when changing either.
+    build:
+      context: codeflow
+    container_name: codeflow
+    environment:
+      - REPO_ROOT=/workspaces/main
+    volumes:
+      - ../../:/workspaces:ro
+      - ./codeflow/config.json:/opt/codeflow/config.json:ro
+    ports:
+      - "${CODEFLOW_PORT:-8470}:8470"

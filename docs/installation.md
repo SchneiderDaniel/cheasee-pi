@@ -39,7 +39,7 @@ curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VE
 
 ```powershell
 # PowerShell
-$version = "0.33"
+$version = "0.4"
 $arch = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
 curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$version/cheasee-pi_${version}_windows_$arch.zip"
 tar -xf cheasee-pi.zip
@@ -50,7 +50,7 @@ Move-Item cheasee-pi.exe "$env:LOCALAPPDATA\cheasee-pi\"
 ### Verify
 
 ```bash
-cheasee-pi version
+cheasee-pi --version
 ```
 
 ## Setup

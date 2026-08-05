@@ -10,8 +10,6 @@ nav_order: 6
 
 All prompts were converted to skills with `disable-model-invocation: true`. They no longer live in `.pi/prompts/` but in `.pi/skills/`, invocable via `/skill:<name>`. Agent does NOT load them automatically — manual invocation only.
 
-> Internal-only prompts exist (changelog-check, extension-validation, package-extension) — not in public builds.
-
 ## Table of contents
 {: .no_toc .text-delta }
 
@@ -26,6 +24,4 @@ All Cheasee-Pi prompts became skills. See [Skills](skills) for details.
 
 ```
 .pi/prompts/ — empty (all converted to skills)
-
-Internal prompts (not in public build): changelog-check, extension-validation, package-extension
 ```

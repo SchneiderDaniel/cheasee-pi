@@ -51,5 +51,3 @@ Selected extensions are published as npm packages under the `@cheasee-pi` scope.
 **Why publish separately?** Not all extensions belong on pi.dev — some are Cheasee-Pi-specific (supervisor, session-logger, context-info). Published packages are self-contained, useful in any Pi setup.
 
 **Package structure:** Each published extension has its own `package.json` with `keywords: ["pi-package"]` and a `pi` manifest pointing to its entry file.
-
-> Internal-only extensions: check-extensions (harness-dev), not in public build.

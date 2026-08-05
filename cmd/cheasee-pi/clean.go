@@ -67,15 +67,18 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 	}
 
 	pruneDanglingImages()
-
-	// Build cache accumulates quickly with repeated rebuilds.
-	// Run unconditionally — it's fast when empty.
-	cmd2 := exec.Command("docker", "buildx", "prune", "-f")
-	if err := cmd2.Run(); err == nil {
-		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
-	}
+	pruneBuildCache()
 
 	return nil
+}
+
+// pruneBuildCache removes the Docker buildx build cache.
+// Safe to run unconditionally — fast when empty.
+func pruneBuildCache() {
+	cmd := exec.Command("docker", "buildx", "prune", "-f")
+	if err := cmd.Run(); err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+	}
 }
 
 

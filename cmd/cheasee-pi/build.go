@@ -71,6 +71,10 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 
 	if buildNoCache {
 		buildCmd.Args = append(buildCmd.Args, "--no-cache")
+		// Full rebuild re-extracts every layer beside the existing image;
+		// stale build cache + dangling images can fill the disk first.
+		pruneDanglingImages()
+		pruneBuildCache()
 	}
 
 	buildCmd.Stdout = os.Stderr

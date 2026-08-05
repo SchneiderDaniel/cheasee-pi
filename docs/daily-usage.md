@@ -49,6 +49,7 @@ until you stop it.
 
 **What happens:**
 - Image is built from `docker/Dockerfile` (Debian 12-slim + Node.js 22 + Python 3 + pi)
+- CodeFlow service image is built from `docker/codeflow/Dockerfile` (first run clones the CodeFlow UI)
 - Workspace root is bind-mounted to `/workspaces` inside the container
 - Entrypoint auto-detects UID/GID from the mount and remaps the `agentuser` user
 - npm dependencies are installed on first start (~30-60s)
@@ -75,6 +76,45 @@ For a shell-based alternative, see `docker/run-pi.sh`.
 
 See [Missing API keys](#missing-api-keys) in Troubleshooting if models still don't
 show up.
+
+## CodeFlow (code-structure visualization)
+
+The stack includes a local CodeFlow service: a browser-based visualizer that renders
+the workspace's module dependency graph, call structure, and architecture (tree-sitter
+AST parsing, 18 languages). It starts automatically with `docker compose up -d` and
+serves on port 8470.
+
+Open it in the browser:
+
+```
+http://localhost:8470/?repo=local/workspace&run=1
+```
+
+The `repo` and `run` parameters trigger analysis of the mounted workspace
+(`/workspaces/main`) without further interaction. The `repo` value is arbitrary
+(`owner/name`); the local shim ignores it and maps every API request to the
+mounted repository, including git submodule directories when enabled.
+
+### Configuration
+
+Settings live in `docker/codeflow/config.json` (bind-mounted read-only, editable
+without rebuilding the image):
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `port` | `8470` | Listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
+| `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
+| `include_submodules` | `false` | When `true`, git submodules (`private-pi`, `flask_blogs`) are included in the analysis |
+| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
+
+Configuration changes take effect on the next `docker compose up -d` (no rebuild
+required). The compose port mapping uses `CODEFLOW_PORT` for the host side.
+
+### Limitations
+
+GitHub-specific features (ownership attribution, pull-request impact analysis)
+require the real GitHub API and are unavailable in local mode; the structure
+graph, blast radius, and health score work fully offline.
 
 ## Run pi
 
