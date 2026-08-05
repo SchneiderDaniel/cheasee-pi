@@ -108,9 +108,7 @@ func TestDockerVersionParsing(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestDockerCheck_NotInstalled(t *testing.T) {
-	saved := lookPath
-	lookPath = func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") }
-	defer func() { lookPath = saved }()
+	stubLookPath(t, func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") })
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -128,12 +126,7 @@ func TestDockerCheck_NotInstalled(t *testing.T) {
 }
 
 func TestDockerCheck_DaemonNotRunning(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
-		return &mockCmd{runFn: func() error { return fmt.Errorf("Cannot connect to the Docker daemon") }}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, fmt.Errorf("Cannot connect to the Docker daemon"), "", nil)
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -151,15 +144,7 @@ func TestDockerCheck_DaemonNotRunning(t *testing.T) {
 }
 
 func TestDockerCheck_VersionOutputError(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("connection refused") }}
-		}
-		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, nil, "", fmt.Errorf("connection refused"))
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -171,15 +156,7 @@ func TestDockerCheck_VersionOutputError(t *testing.T) {
 }
 
 func TestDockerCheck_EmptyVersion(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("  \n"), nil }}
-		}
-		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, nil, "  \n", nil)
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -194,15 +171,7 @@ func TestDockerCheck_EmptyVersion(t *testing.T) {
 }
 
 func TestDockerCheck_TooOld(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("23.0.0"), nil }}
-		}
-		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, nil, "23.0.0", nil)
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -214,15 +183,7 @@ func TestDockerCheck_TooOld(t *testing.T) {
 }
 
 func TestDockerCheck_InvalidVersion(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("not-a-version"), nil }}
-		}
-		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, nil, "not-a-version", nil)
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -234,15 +195,7 @@ func TestDockerCheck_InvalidVersion(t *testing.T) {
 }
 
 func TestDockerCheck_Healthy(t *testing.T) {
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("25.0.0-rc1"), nil }}
-		}
-		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	stubDockerCheck(t, nil, "25.0.0-rc1", nil)
 
 	res, err := dockerCheck(context.Background(), dockerCheckTimeout)
 	if err != nil {
@@ -260,18 +213,16 @@ func TestDockerCheck_Healthy(t *testing.T) {
 }
 
 func TestDockerCheck_ArgsCaptured(t *testing.T) {
-	stubDockerLookPath(t)
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
 	var infoArgs, versionArgs []string
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		if len(arg) > 0 && arg[0] == "info" {
 			infoArgs = arg
 			return &mockCmd{}
 		}
 		versionArgs = arg
 		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	if _, err := dockerCheck(context.Background(), dockerCheckTimeout); err != nil {
 		t.Fatalf("dockerCheck returned error: %v", err)

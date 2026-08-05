@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,99 +13,9 @@ import (
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 	"github.com/go-git/go-git/v5/config"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
-
-// defaultMocks returns a set of working mock implementations for the genuine
-// seam ports (network/external-service boundaries). In-process adapters
-// (probe, extract, env, scaffold, remover, uid, git identity) are real.
-func defaultMocks() InitPorts {
-	return InitPorts{
-		Auth: &mockAuthenticator{},
-		GitHub: &mockGitHubClient{
-			getUserFunc: func(ctx context.Context, token string) (string, error) {
-				return "testuser", nil
-			},
-			createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-				return "testuser/cheasee-pi", nil
-			},
-			waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
-				return nil
-			},
-		},
-	}
-}
-
-// setGitIdentity points git config lookups at a hermetic temp config file
-// containing user.name/user.email, so real osGitIdentity lookups are
-// deterministic and never fall through to interactive prompts. Serialized
-// (no t.Parallel) because t.Setenv is process-wide.
-func setGitIdentity(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not available")
-	}
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(cfg, []byte("[user]\n\tname = Test User\n\temail = test@example.com\n"), 0644); err != nil {
-		t.Fatalf("write gitconfig: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-}
-
-// unsetGitIdentity points git config lookups at an empty file (no identity),
-// the deterministic no-identity state for fallback tests.
-func unsetGitIdentity(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not available")
-	}
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(cfg, nil, 0644); err != nil {
-		t.Fatalf("write gitconfig: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-}
-
-// ──────────────────────────────────────────────
-// Seam stubs for docker/git CLI tests
-// ──────────────────────────────────────────────
-
-// stubDockerLookPath makes the docker binary appear installed until test end.
-func stubDockerLookPath(t *testing.T) {
-	t.Helper()
-	saved := lookPath
-	lookPath = func(_ string) (string, error) { return "/usr/bin/docker", nil }
-	t.Cleanup(func() { lookPath = saved })
-}
-
-// stubDockerCheck stubs the docker seams. daemonErr, when non-nil, makes
-// `docker info` fail; version is the docker version output (versionErr wins
-// over version when set).
-func stubDockerCheck(t *testing.T, daemonErr error, version string, versionErr error) {
-	t.Helper()
-	stubDockerLookPath(t)
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) {
-				if versionErr != nil {
-					return nil, versionErr
-				}
-				return []byte(version), nil
-			}}
-		}
-		return &mockCmd{runFn: func() error { return daemonErr }}
-	}
-	t.Cleanup(func() { runCommandContext = saved })
-}
-
-// redirectConfigDir points the auth config dir at a fresh temp dir so no test
-// touches the real $HOME/.config.
-func redirectConfigDir(t *testing.T) {
-	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-}
 
 // authJSONExists reports whether auth.json was written to the config dir.
 func authJSONExists(t *testing.T) bool {
@@ -136,22 +45,10 @@ func loadAuthJSON(t *testing.T) *Auth {
 // ──────────────────────────────────────────────
 
 func TestInitUseCase_DockerNotInstalled(t *testing.T) {
-	redirectConfigDir(t)
-	saved := lookPath
-	lookPath = func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") }
-	defer func() { lookPath = saved }()
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
+	stubLookPath(t, func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") })
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -164,20 +61,10 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 }
 
 func TestInitUseCase_DockerNotRunning(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, fmt.Errorf("Cannot connect to the Docker daemon"), "", nil)
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -190,20 +77,10 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 }
 
 func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "23.0.0", nil)
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -216,20 +93,10 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 }
 
 func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "", fmt.Errorf("version check failed"))
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker version fetch fails")
 	}
@@ -239,21 +106,14 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 }
 
 func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
-	redirectConfigDir(t)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  true,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.NoDockerCheck = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
@@ -266,22 +126,14 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 }
 
 func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
@@ -295,28 +147,19 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 
 func TestInitUseCase_ConfigSaveError(t *testing.T) {
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	// Block the config dir path with a regular file so MkdirAll fails
 	// deterministically (real file I/O, no mock error injection).
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 	if err := os.WriteFile(filepath.Join(dir, "cheasee-pi"), []byte("block"), 0644); err != nil {
 		t.Fatalf("block config dir: %v", err)
 	}
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -326,24 +169,15 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 }
 
 func TestInitUseCase_ContextCancelled(t *testing.T) {
-	redirectConfigDir(t)
-	stubDockerLookPath(t)
+	testutil.RedirectConfigHome(t)
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancelled
 
-	ports := defaultMocks()
-
-	err := runInit(ctx, InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(ctx, initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -563,23 +397,16 @@ func TestRunInitAuth_RequestCodeError(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_FullFlow(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
@@ -591,24 +418,16 @@ func TestRunInit_FullFlow(t *testing.T) {
 func TestRunInit_NoGitHubFlag(t *testing.T) {
 	// --no-github flag: extract + env + save all run after auth, with the
 	// real in-process adapters (probe, extract, env render, scaffold).
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -617,7 +436,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		t.Errorf("extract should have run (docker/docker-compose.yml missing): %v", err)
 	}
 	// Real env renderer ran: docker/.env present with host uid/gid and git identity.
-	envVals := readEnvFile(t, workdir)
+	envVals := testutil.ReadEnvFile(t, workdir)
 	if envVals["HOST_UID"] == "" || envVals["HOST_GIT_NAME"] != "Test User" {
 		t.Errorf("expected .env with HOST_UID and git identity, got: %v", envVals)
 	}
@@ -658,7 +477,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	ports := defaultMocks()
 
 	// Override auth with one that respects cancelled context
@@ -671,16 +490,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	// Cancel right after docker check
 	cancel()
 
-	err := runInit(ctx, InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(ctx, initDeps(t, func(d *InitDeps) { d.Ports = ports }))
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -691,9 +501,9 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_ForkAlreadyExists(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 	ports := defaultMocks()
 
 	// Override GitHub client to return fork-already-exists
@@ -710,17 +520,12 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
@@ -731,7 +536,7 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_ForkNon422Error(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
 
@@ -745,16 +550,11 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}
@@ -856,14 +656,7 @@ func TestRunInitSubmodule_SkipAll(t *testing.T) {
 }
 
 func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err != nil {
@@ -881,13 +674,7 @@ func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
 }
 
 func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return nil, nil // user accepted all defaults
@@ -906,14 +693,7 @@ func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	urlOverrides := map[string]string{
 		"flask_blogs": "https://github.com/user/flask_blogs",
@@ -938,16 +718,9 @@ func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return nil
-		},
+	mc := submoduleFixture(false)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return nil
 	}
 
 	urlOverrides := map[string]string{
@@ -966,14 +739,7 @@ func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return map[string]string{
@@ -994,13 +760,7 @@ func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	// Prompt returns one URL, but override wins
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
@@ -1039,15 +799,9 @@ func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return fmt.Errorf("invalid URL")
-		},
+	mc := submoduleFixture(true)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return fmt.Errorf("invalid URL")
 	}
 
 	urlOverrides := map[string]string{
@@ -1064,15 +818,9 @@ func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
-			return fmt.Errorf("update failed")
-		},
+	mc := submoduleFixture(true)
+	mc.initAndUpdateSubmodFunc = func(ctx context.Context, repoPath string) error {
+		return fmt.Errorf("update failed")
 	}
 
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
@@ -1085,13 +833,7 @@ func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return nil, fmt.Errorf("user cancelled")
@@ -1142,15 +884,9 @@ func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return fmt.Errorf("submodule %q not found in .gitmodules", name)
-		},
+	mc := submoduleFixture(true)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return fmt.Errorf("submodule %q not found in .gitmodules", name)
 	}
 
 	urlOverrides := map[string]string{
@@ -1182,7 +918,7 @@ func TestRunInitExtract_Success(t *testing.T) {
 func TestRunInitExtract_LogMessage(t *testing.T) {
 	// Capture stderr to verify the log message includes the /docker suffix.
 	dir := t.TempDir()
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := runInitExtract(context.Background(), dir); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1201,31 +937,15 @@ func TestRunInitExtract_LogMessage(t *testing.T) {
 // Env generation tests
 // ──────────────────────────────────────────────
 
-// readEnvFile reads docker/.env and returns its KEY=VALUE lines as a map.
-func readEnvFile(t *testing.T, workdir string) map[string]string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(workdir, "docker", ".env"))
-	if err != nil {
-		t.Fatalf("read docker/.env: %v", err)
-	}
-	vals := make(map[string]string)
-	for _, line := range strings.Split(string(data), "\n") {
-		if k, v, ok := strings.Cut(line, "="); ok {
-			vals[k] = strings.Trim(v, "\"")
-		}
-	}
-	return vals
-}
-
 func TestRunInitEnv_Success(t *testing.T) {
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	vals := readEnvFile(t, workdir)
+	vals := testutil.ReadEnvFile(t, workdir)
 	if vals["HOST_UID"] == "" {
 		t.Error("expected non-empty HOST_UID")
 	}
@@ -1242,14 +962,14 @@ func TestRunInitEnv_Success(t *testing.T) {
 
 func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
 	// Empty git config + declined identity prompt → defaults written.
-	unsetGitIdentity(t)
+	testutil.SetGitConfig(t, "")
 
 	workdir := t.TempDir()
 	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	vals := readEnvFile(t, workdir)
+	vals := testutil.ReadEnvFile(t, workdir)
 	if vals["HOST_GIT_NAME"] != "Cheasee-Pi" {
 		t.Errorf("expected default HOST_GIT_NAME 'Cheasee-Pi', got %q", vals["HOST_GIT_NAME"])
 	}
@@ -1265,32 +985,16 @@ func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
 // Scaffold phase tests (real templateSettingsRenderer)
 // ──────────────────────────────────────────────
 
-// readSettingsFile reads .pi/settings.json and returns it as a map.
-func readSettingsFile(t *testing.T, workdir string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("read .pi/settings.json: %v", err)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-	return raw
-}
-
 func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
-	setGitIdentity(t)
-	oldProvider := initProvider
-	initProvider = "opencode-go"
-	defer func() { initProvider = oldProvider }()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := readSettingsFile(t, workdir)
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
 	}
@@ -1307,10 +1011,8 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 }
 
 func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
-	unsetGitIdentity(t)
-	oldProvider := initProvider
-	initProvider = "opencode-go"
-	defer func() { initProvider = oldProvider }()
+	testutil.SetGitConfig(t, "")
+	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	// Declined identity prompt → default name/email written.
@@ -1318,7 +1020,7 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := readSettingsFile(t, workdir)
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
 		t.Fatal("expected gitIdentity object")
@@ -1387,49 +1089,20 @@ func TestInitDeps_Validate(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestInit_SuccessMessage(t *testing.T) {
-	setGitIdentity(t)
-	// Capture stderr to verify the success message
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stderr = w
-
-	// Restore after test
-	defer func() {
-		w.Close()
-		os.Stderr = oldStderr
-	}()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	redirectConfigDir(t)
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
 
-	err = runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		APIKey:         FakeAPIKey,
-		NoDockerCheck:  false,
-		NoGitHub:       true,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork},
-		Workdir:        t.TempDir(),
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
+	output := testutil.CaptureStderr(t, func() {
+		err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+			d.NoGitHub = true
+			d.APIKey = FakeAPIKey
+		}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	w.Close()
-	os.Stderr = oldStderr
-
-	var buf bytes.Buffer
-	_, err = buf.ReadFrom(r)
-	if err != nil {
-		t.Fatalf("read stderr: %v", err)
-	}
-	output := buf.String()
 
 	if strings.Contains(output, "cheasee-pi start") {
 		t.Error("success message must NOT reference 'cheasee-pi start'")
@@ -1452,10 +1125,7 @@ func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 		Provider: "opencode-go",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	// Must contain the provider-keyed object
 	var raw map[string]any
@@ -1487,10 +1157,7 @@ func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 		// Provider is empty — should write flat api_key
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -1516,10 +1183,7 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 		RepoPath:    "/workspace",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -1590,8 +1254,7 @@ func TestAuthPerProvider_UnmarshalFlatFormat(t *testing.T) {
 }
 
 func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
@@ -1655,8 +1318,7 @@ func TestAuthPerProvider_UnmarshalMalformedJSON(t *testing.T) {
 }
 
 func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
@@ -1698,10 +1360,7 @@ func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 		Provider: "openai",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	if bytes.Contains(data, []byte("github_token")) {
 		t.Error("expected no github_token in output when empty")
@@ -1716,8 +1375,7 @@ func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Write old-format auth.json
 	oldDir := filepath.Join(dir, "cheasee-pi")
@@ -1740,8 +1398,7 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 }
 
 func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
@@ -1778,17 +1435,11 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
-	rootCmd.SetArgs([]string{"init", "--help"})
-	var buf strings.Builder
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-
-	_, err := rootCmd.ExecuteC()
+	output, err := testutil.RunCobra(t, rootCmd, "init", "--help")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
 	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--skip-fork", "--fork-url", "--no-input", "--submodule-url", "--skip-submodules"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
@@ -1897,22 +1548,15 @@ func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_SkipFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeSkipFork},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeSkipFork}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
@@ -1922,9 +1566,9 @@ func TestRunInit_SkipFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURL(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	submoduleInited := false
 	ops := &mockSubmoduleOps{
@@ -1955,17 +1599,12 @@ func TestRunInit_ForkURL(t *testing.T) {
 	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   ops,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = ops
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
@@ -1984,9 +1623,9 @@ func TestRunInit_ForkURL(t *testing.T) {
 }
 
 func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	forkCalled := false
 	waitForkCalled := false
@@ -2010,17 +1649,12 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 	ports.GitHub = mockGH
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
@@ -2033,21 +1667,14 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURLInvalid(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error for invalid fork URL")
 	}
@@ -2061,23 +1688,18 @@ func TestRunInit_ForkURLInvalid(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        false,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil, "Configure API keys"),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.NoInput = false
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+	}))
 	if err != nil {
 		t.Fatalf("post-clone confirm flow failed: %v", err)
 	}
@@ -2087,21 +1709,16 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 }
 
 func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        false,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(false, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoInput = false
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = mockConfirmFn(false, nil)
+	}))
 	if err != nil {
 		t.Fatalf("expected nil error (clean exit) when confirm is declined: %v", err)
 	}
@@ -2112,23 +1729,18 @@ func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
 
 func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	// With noInput=true, the post-clone confirm should be skipped
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	// If confirm were called with false, we'd error (but it won't be called)
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = nil
+	}))
 	if err != nil {
 		t.Fatalf("post-clone confirm with noInput=true failed: %v", err)
 	}
@@ -2141,31 +1753,15 @@ func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
-
-	vals := TemplateSettingsValues{
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
 		Memory:   "4G",
 		CPUs:     "4.0",
-	}
+	})
 
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("Scaffold failed: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
 	}
@@ -2197,69 +1793,36 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 }
 
 func TestSettingsScaffold_Idempotent(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
-
-	vals := TemplateSettingsValues{
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Original",
 		GitEmail: "orig@example.com",
 		Memory:   "2G",
 		CPUs:     "2.0",
-	}
-
-	// First call: write file
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("first Scaffold failed: %v", err)
-	}
+	})
 
 	// Second call: should no-op (file exists)
-	vals2 := TemplateSettingsValues{
+	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
 		Provider: "overwrite",
 		GitName:  "Overwrite",
 		GitEmail: "overwrite@example.com",
 		Memory:   "8G",
 		CPUs:     "8.0",
-	}
-	if err := scaffold.Scaffold(context.Background(), workdir, vals2); err != nil {
+	}); err != nil {
 		t.Fatalf("second Scaffold failed: %v", err)
 	}
 
 	// Content must still be from first call (unchanged)
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go' (unchanged), got %v", raw["defaultProvider"])
 	}
 }
 
 func TestSettingsScaffold_EmptyValues(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{}) // all empty
 
-	vals := TemplateSettingsValues{} // all empty
-
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("Scaffold failed: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
+	raw := testutil.ReadSettingsRaw(t, workdir)
 
 	// Empty values should be empty strings in output
 	if raw["defaultProvider"] != "" {
@@ -2389,12 +1952,10 @@ func TestGitInitializer_ContextCancelled(t *testing.T) {
 	cancel() // immediately cancelled
 
 	// Seam must not be touched for a pre-cancelled ctx.
-	saved := runCommandContext
-	runCommandContext = func(ctx context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		t.Errorf("runCommandContext should not be invoked with cancelled ctx")
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitInit(ctx, workdir)
 	if err == nil {
@@ -2462,7 +2023,7 @@ func TestInitRemove_SingleFile(t *testing.T) {
 	}
 
 	// Capture stderr
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -2488,7 +2049,7 @@ func TestInitRemove_Directory(t *testing.T) {
 		t.Fatalf("create .github dir: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -2516,7 +2077,7 @@ func TestInitRemove_MultiplePatterns(t *testing.T) {
 		t.Fatalf("write b.md: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -2602,7 +2163,7 @@ func TestInitRemove_DeepGlob(t *testing.T) {
 		t.Fatalf("write pkg: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -2676,25 +2237,17 @@ func seedCloneFixture(t *testing.T, workdir string) {
 }
 
 func TestRunInit_RemoverCalled(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	seedCloneFixture(t, workdir)
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("full flow with remover failed: %v", err)
 	}
@@ -2710,26 +2263,18 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 }
 
 func TestRunInit_RemoverError(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
 	os.MkdirAll(filepath.Join(workdir, ".git"), 0755)
 	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), []byte("unmatched[brackets\n"), 0644); err != nil {
 		t.Fatalf("write .initremove: %v", err)
 	}
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error when remover fails")
 	}
@@ -2739,24 +2284,16 @@ func TestRunInit_RemoverError(t *testing.T) {
 }
 
 func TestRunInit_RemoverSkipFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	seedCloneFixture(t, workdir)
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeSkipFork},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeSkipFork}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
@@ -2768,41 +2305,16 @@ func TestRunInit_RemoverSkipFork(t *testing.T) {
 	}
 }
 
-// captureStderr runs fn and returns any output written to stderr.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	orig := os.Stderr
-	os.Stderr = w
-
-	out := make(chan string, 1)
-	go func() {
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		out <- buf.String()
-	}()
-
-	fn()
-
-	os.Stderr = orig
-	w.Close()
-	return <-out
-}
 // ──────────────────────────────────────────────
 // gitInit seam tests (runner-level)
 // ──────────────────────────────────────────────
 
 func TestGitInit_SeamArgsCaptured(t *testing.T) {
 	var captured []string
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		captured = arg
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	workdir := t.TempDir()
 	if err := gitInit(context.Background(), workdir); err != nil {
@@ -2814,13 +2326,11 @@ func TestGitInit_SeamArgsCaptured(t *testing.T) {
 }
 
 func TestGitInit_ErrorWrapsOutput(t *testing.T) {
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{combinedFn: func() ([]byte, error) {
 			return []byte("fatal: Invalid path"), fmt.Errorf("exit status 128")
 		}}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitInit(context.Background(), t.TempDir())
 	if err == nil {

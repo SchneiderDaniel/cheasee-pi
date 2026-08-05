@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // ──────────────────────────────────────────────
@@ -15,25 +16,12 @@ import (
 // ──────────────────────────────────────────────
 
 func TestEnvRenderer_WritesCorrectLines(t *testing.T) {
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "docker", ".env")
-
-	r := &flatEnvRenderer{}
-	err := r.Render(context.Background(), dest, EnvValues{
+	content := RenderEnv(t, EnvValues{
 		HostUID:  "1000",
 		HostGID:  "1001",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
 	})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read .env: %v", err)
-	}
-	content := string(data)
 
 	if !strings.Contains(content, "HOST_UID=1000") {
 		t.Errorf("missing HOST_UID: %s", content)
@@ -50,25 +38,12 @@ func TestEnvRenderer_WritesCorrectLines(t *testing.T) {
 }
 
 func TestEnvRenderer_ShellEscapesWhitespace(t *testing.T) {
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "docker", ".env")
-
-	r := &flatEnvRenderer{}
-	err := r.Render(context.Background(), dest, EnvValues{
+	content := RenderEnv(t, EnvValues{
 		HostUID:  "1000",
 		HostGID:  "1001",
 		GitName:  "User With Spaces",
 		GitEmail: "test@example.com",
 	})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read .env: %v", err)
-	}
-	content := string(data)
 
 	// Value with spaces should be quoted
 	if !strings.Contains(content, `HOST_GIT_NAME="User With Spaces"`) {
@@ -311,23 +286,8 @@ func TestEnvValues_Validate(t *testing.T) {
 // GitIdentity adapter tests
 // ──────────────────────────────────────────────
 
-// writeGitConfig writes a global git config file and points git at it
-// hermetically (GIT_CONFIG_GLOBAL, git >= 2.32; system config disabled).
-func writeGitConfig(t *testing.T, content string) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not available")
-	}
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(cfg, []byte(content), 0644); err != nil {
-		t.Fatalf("write gitconfig: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-}
-
 func TestOSGitIdentity_Lookup(t *testing.T) {
-	writeGitConfig(t, "[user]\n\tname = Test User\n\temail = test@example.com\n")
+	testutil.SetGitConfig(t, "[user]\n\tname = Test User\n\temail = test@example.com\n")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
@@ -343,7 +303,7 @@ func TestOSGitIdentity_Lookup(t *testing.T) {
 }
 
 func TestOSGitIdentity_NameOnly(t *testing.T) {
-	writeGitConfig(t, "[user]\n\tname = Test User\n")
+	testutil.SetGitConfig(t, "[user]\n\tname = Test User\n")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
@@ -359,7 +319,7 @@ func TestOSGitIdentity_NameOnly(t *testing.T) {
 }
 
 func TestOSGitIdentity_NoConfig(t *testing.T) {
-	writeGitConfig(t, "")
+	testutil.SetGitConfig(t, "")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // fullSchema is the canonical scaffold output with skills/prompts added.
@@ -198,7 +198,7 @@ func TestLoadSettings_missingPiDir(t *testing.T) {
 
 func TestLoadSettings_corruptJSON(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, "{invalid json")
+	testutil.WriteSettingsFile(t, workdir, "{invalid json")
 	if _, err := LoadSettings(workdir); err == nil {
 		t.Fatal("expected error for corrupt JSON, got nil")
 	}
@@ -206,7 +206,7 @@ func TestLoadSettings_corruptJSON(t *testing.T) {
 
 func TestLoadSettings_typeMismatch(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{"docker": {"memory": 4096}}`)
+	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": 4096}}`)
 	if _, err := LoadSettings(workdir); err == nil {
 		t.Fatal("expected error for docker.memory as number, got nil")
 	}
@@ -214,7 +214,7 @@ func TestLoadSettings_typeMismatch(t *testing.T) {
 
 func TestLoadSettings_nonObjectJSON(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `[1,2]`)
+	testutil.WriteSettingsFile(t, workdir, `[1,2]`)
 	if _, err := LoadSettings(workdir); err == nil {
 		t.Fatal("expected error for non-object JSON, got nil")
 	}
@@ -222,7 +222,7 @@ func TestLoadSettings_nonObjectJSON(t *testing.T) {
 
 func TestLoadSettings_emptyObject(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{}`)
+	testutil.WriteSettingsFile(t, workdir, `{}`)
 	s, err := LoadSettings(workdir)
 	if err != nil {
 		t.Fatalf("empty {} must load without error, got %v", err)
@@ -236,7 +236,7 @@ func TestLoadSettings_lenientUnknownAndCaseVariantKeys(t *testing.T) {
 	workdir := t.TempDir()
 	// Unknown keys and case-variant keys were accepted by the old map reads
 	// (encoding/json matches keys case-insensitively) — v1 compat.
-	writeSettingsFile(t, workdir, `{"DefaultProvider": "openai", "futureKey": 42}`)
+	testutil.WriteSettingsFile(t, workdir, `{"DefaultProvider": "openai", "futureKey": 42}`)
 	s, err := LoadSettings(workdir)
 	if err != nil {
 		t.Fatalf("case-variant/unknown keys must load, got %v", err)
@@ -261,7 +261,7 @@ func TestLoadSettings_lenientUnknownAndCaseVariantKeys(t *testing.T) {
 
 func TestMemoryLimitEnv_present(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{"docker": {"memory": "4G"}}`)
+	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": "4G"}}`)
 	env, ok := memoryLimitEnv(workdir)
 	if !ok {
 		t.Fatal("expected ok=true for docker.memory=4G")
@@ -281,30 +281,25 @@ func TestMemoryLimitEnv_missingFileSilent(t *testing.T) {
 
 func TestMemoryLimitEnv_corruptWarns(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, "{nope")
+	testutil.WriteSettingsFile(t, workdir, "{nope")
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stderr
-	os.Stderr = w
-	env, ok := memoryLimitEnv(workdir)
-	w.Close()
-	os.Stderr = old
-	stderr, _ := io.ReadAll(r)
+	var (
+		env string
+		ok  bool
+	)
+	stderr := testutil.CaptureStderr(t, func() { env, ok = memoryLimitEnv(workdir) })
 
 	if ok || env != "" {
 		t.Errorf("corrupt JSON: want (\"\", false), got (%q, %v)", env, ok)
 	}
-	if !strings.Contains(string(stderr), "settings.json") {
+	if !strings.Contains(stderr, "settings.json") {
 		t.Errorf("corrupt JSON must warn on stderr, got: %q", stderr)
 	}
 }
 
 func TestMemoryLimitEnv_emptyMemory(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{"docker": {"memory": ""}}`)
+	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": ""}}`)
 	if env, ok := memoryLimitEnv(workdir); ok || env != "" {
 		t.Errorf("empty memory: want (\"\", false), got (%q, %v)", env, ok)
 	}
@@ -312,7 +307,7 @@ func TestMemoryLimitEnv_emptyMemory(t *testing.T) {
 
 func TestMemoryLimitEnv_noDockerSection(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{"defaultProvider": "openai"}`)
+	testutil.WriteSettingsFile(t, workdir, `{"defaultProvider": "openai"}`)
 	if env, ok := memoryLimitEnv(workdir); ok || env != "" {
 		t.Errorf("no docker section: want (\"\", false), got (%q, %v)", env, ok)
 	}
@@ -381,7 +376,7 @@ func TestSettingsWriter_missingPISettingsSkipped(t *testing.T) {
 
 func TestSettingsWriter_corruptPISettingsErrors(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, "{nope")
+	testutil.WriteSettingsFile(t, workdir, "{nope")
 	sw := &SettingsWriter{Workdir: workdir}
 	err := sw.WriteDefaultProvider("openai", "gpt-4o")
 	if err == nil || !strings.Contains(err.Error(), ".pi/settings.json") {
@@ -492,7 +487,7 @@ func TestRemoveSubmoduleSettings_missingFileNil(t *testing.T) {
 
 func TestRemoveSubmoduleSettings_corruptFileErrors(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, "{nope")
+	testutil.WriteSettingsFile(t, workdir, "{nope")
 	if err := removeSubmoduleSettings(workdir); err == nil {
 		t.Fatal("expected error for corrupt settings, got nil")
 	}
@@ -504,21 +499,15 @@ func TestRemoveSubmoduleSettings_corruptFileErrors(t *testing.T) {
 
 func TestApplyMemoryLimit_setsEnvAndAnnounces(t *testing.T) {
 	workdir := t.TempDir()
-	writeSettingsFile(t, workdir, `{"docker": {"memory": "4G"}}`)
+	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": "4G"}}`)
 
 	cmd := exec.Command("echo") // never run
-	r, w, _ := os.Pipe()
-	old := os.Stderr
-	os.Stderr = w
-	applyMemoryLimit(cmd, workdir)
-	w.Close()
-	os.Stderr = old
-	stderr, _ := io.ReadAll(r)
+	stderr := testutil.CaptureStderr(t, func() { applyMemoryLimit(cmd, workdir) })
 
 	if !slices.Contains(cmd.Env, "CHEASEEPI_MEMORY=4G") {
 		t.Errorf("cmd.Env missing CHEASEEPI_MEMORY=4G, got %v", cmd.Env)
 	}
-	if !strings.Contains(string(stderr), "Using memory limit 4G from settings.json") {
+	if !strings.Contains(stderr, "Using memory limit 4G from settings.json") {
 		t.Errorf("expected announcement on stderr, got: %q", stderr)
 	}
 }
@@ -537,19 +526,13 @@ func TestApplyMemoryLimit_noLimitNoEnv(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestSettingsScaffold_outputLoadsAsTypedSettings(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
-
-	vals := TemplateSettingsValues{
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
 		Memory:   "4G",
 		CPUs:     "4.0",
-	}
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("Scaffold failed: %v", err)
-	}
+	})
 
 	s, err := LoadSettings(workdir)
 	if err != nil {
@@ -577,12 +560,8 @@ func TestSettingsScaffold_outputLoadsAsTypedSettings(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestAuthList_showsSettingsDefault(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
-		t.Fatal(err)
-	}
+	testutil.RedirectConfigHome(t)
+	seedAuth(t, map[string]string{"openai": FakeAPIKey})
 
 	workdir := t.TempDir()
 	if err := (&Settings{
@@ -592,68 +571,37 @@ func TestAuthList_showsSettingsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	saved := authListWorkdir
-	authListWorkdir = workdir
-	defer func() { authListWorkdir = saved }()
+	withAuthListWorkdir(t, workdir)
 
-	r, w, _ := os.Pipe()
-	old := os.Stderr
-	os.Stderr = w
-	err := runAuthListE(&cobra.Command{}, nil)
-	w.Close()
-	os.Stderr = old
-	stderr, _ := io.ReadAll(r)
+	var err error
+	stderr := testutil.CaptureStderr(t, func() { err = runAuthListE(&cobra.Command{}, nil) })
 
 	if err != nil {
 		t.Fatalf("auth list: %v", err)
 	}
-	if !strings.Contains(string(stderr), "Default provider (from .pi/settings.json): anthropic") {
+	if !strings.Contains(stderr, "Default provider (from .pi/settings.json): anthropic") {
 		t.Errorf("missing default provider section, got: %q", stderr)
 	}
-	if !strings.Contains(string(stderr), "Default model: claude-sonnet-4-20250514") {
+	if !strings.Contains(stderr, "Default model: claude-sonnet-4-20250514") {
 		t.Errorf("missing default model line, got: %q", stderr)
 	}
 }
 
 func TestAuthList_missingSettingsNoDefaultSection(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
-		t.Fatal(err)
-	}
+	testutil.RedirectConfigHome(t)
+	seedAuth(t, map[string]string{"openai": FakeAPIKey})
 
-	saved := authListWorkdir
-	authListWorkdir = t.TempDir() // no .pi/settings.json
-	defer func() { authListWorkdir = saved }()
+	withAuthListWorkdir(t, t.TempDir()) // no .pi/settings.json
 
-	r, w, _ := os.Pipe()
-	old := os.Stderr
-	os.Stderr = w
-	err := runAuthListE(&cobra.Command{}, nil)
-	w.Close()
-	os.Stderr = old
-	stderr, _ := io.ReadAll(r)
+	var err error
+	stderr := testutil.CaptureStderr(t, func() { err = runAuthListE(&cobra.Command{}, nil) })
 
 	if err != nil {
 		t.Fatalf("auth list: %v", err)
 	}
-	if strings.Contains(string(stderr), "Default provider") {
+	if strings.Contains(stderr, "Default provider") {
 		t.Errorf("missing settings must not print a default section, got: %q", stderr)
 	}
 }
 
 // ──────────────────────────────────────────────
-// helpers
-// ──────────────────────────────────────────────
-
-func writeSettingsFile(t *testing.T, workdir, content string) {
-	t.Helper()
-	path := filepath.Join(workdir, ".pi", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-}

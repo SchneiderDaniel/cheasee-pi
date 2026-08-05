@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // linePattern matches "provider=ENV_VAR" lines
@@ -30,12 +32,7 @@ func runAuthEnvvars(t *testing.T, extraArgs ...string) string {
 		}
 	}
 
-	format := "shell"
-	for i, a := range extraArgs {
-		if a == "--format" && i+1 < len(extraArgs) {
-			format = extraArgs[i+1]
-		}
-	}
+	format := authEnvvarsFormatFromArgs(extraArgs...)
 
 	authEnvvarsFormat = format
 	var stdout bytes.Buffer
@@ -51,27 +48,29 @@ func runAuthEnvvars(t *testing.T, extraArgs ...string) string {
 // runAuthEnvvarsErr returns the error from runAuthEnvvarsE, for negative tests.
 func runAuthEnvvarsErr(t *testing.T, extraArgs ...string) error {
 	t.Helper()
-	format := "shell"
-	for i, a := range extraArgs {
-		if a == "--format" && i+1 < len(extraArgs) {
-			format = extraArgs[i+1]
-		}
-	}
+	format := authEnvvarsFormatFromArgs(extraArgs...)
 
 	authEnvvarsFormat = format
 	cmd := &cobra.Command{}
 	return runAuthEnvvarsE(cmd, nil)
 }
 
+// authEnvvarsFormatFromArgs extracts the --format value (default "shell").
+func authEnvvarsFormatFromArgs(extraArgs ...string) string {
+	format := "shell"
+	for i, a := range extraArgs {
+		if a == "--format" && i+1 < len(extraArgs) {
+			format = extraArgs[i+1]
+		}
+	}
+	return format
+}
+
 // runAuthEnvvarsCobra runs through cobra for tests that need full command parsing.
 func runAuthEnvvarsCobra(t *testing.T, extraArgs ...string) string {
 	t.Helper()
-	var stdout, stderr bytes.Buffer
-	rootCmd.SetOut(&stdout)
-	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs(append([]string{"auth", "envvars"}, extraArgs...))
-	rootCmd.ExecuteC() //nolint:errcheck
-	return stdout.String()
+	out, _ := testutil.RunCobra(t, rootCmd, append([]string{"auth", "envvars"}, extraArgs...)...)
+	return out
 }
 
 // ──────────────────────────────────────────────
