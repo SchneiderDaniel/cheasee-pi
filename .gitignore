@@ -1,4 +1,16 @@
 .env
+
+# Generated docker/ tree — canonical source is cmd/cheasee-pi/embedded/docker/
+# (required by //go:embed embedded in embed.go). Regenerate with `make docker-tree`;
+# CI enforces with `make check-docker`. docker/-only extras (test/, docker-compose.legacy.yml)
+# stay tracked.
+docker/Dockerfile
+docker/docker-compose.yml
+docker/entrypoint.sh
+docker/run-pi.sh
+docker/stop-pi.sh
+docker/codeflow/
+docker/lib/
 .pi/sessions
 .pi/supervisor-state.json
 .pi/state/session-extensions.json
