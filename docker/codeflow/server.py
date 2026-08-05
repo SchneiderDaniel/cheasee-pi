@@ -10,11 +10,15 @@ Emulated endpoints (the only ones CodeFlow's analysis path uses):
 Anything else returns 404 and CodeFlow degrades gracefully.
 
 The served index.html has its hardcoded 'https://api.github.com/' base rewritten
-to the relative './api/' at serve time, so the vendored checkout stays pristine.
+to the relative './api/' at serve time, plus a set of byte rewrites (_UI_REWRITES)
+that raise the analysis size limits and reword the GitHub-specific dialogs, so the
+vendored checkout stays pristine and the UI speaks about local files instead of
+the GitHub API it only emulates. Both patches are silent no-ops if upstream
+renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
-  include_submodules   bool; submodule dirs (from .gitmodules) excluded unless true (default: false)
-  exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore"])
+  include_submodules   bool; submodule dirs (from .gitmodules) analyzed only when true (shipped config: true)
+  exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore", ".pi"])
   port                 listen port (default: 8470)
   host                 bind address (default: 0.0.0.0)
 
@@ -62,7 +66,7 @@ REPO_ROOT = os.environ.get("REPO_ROOT", "/repo")
 UI_DIR = os.environ.get("UI_DIR", "/opt/codeflow-ui")
 EXCLUDE_DIRS = set(
     _CONFIG.get("exclude_dirs")
-    or [d for d in os.environ.get("EXCLUDE_DIRS", ".git,node_modules").split(",") if d]
+    or [d for d in os.environ.get("EXCLUDE_DIRS", ".git,node_modules,ignore,.pi").split(",") if d]
 )
 INCLUDE_SUBMODULES = _as_bool(
     _CONFIG.get("include_submodules", os.environ.get("INCLUDE_SUBMODULES", "false"))
@@ -73,21 +77,77 @@ except (TypeError, ValueError):
     PORT = 8470
 HOST = _CONFIG.get("host") or os.environ.get("HOST") or "0.0.0.0"
 
-# Submodule paths from .gitmodules (e.g. {"private-pi", "flask_blogs"}); these
-# directories are excluded from analysis unless INCLUDE_SUBMODULES is true.
+# Submodule paths from .gitmodules (e.g. {"private-pi", "flask_blogs"}).
+# Always parsed: used to exclude the directories when INCLUDE_SUBMODULES is
+# false, and to apply each submodule's own .gitignore when it is true.
 SUBMODULE_DIRS = set()
-if not INCLUDE_SUBMODULES:
-    gitmodules = os.path.join(REPO_ROOT, ".gitmodules")
-    if os.path.isfile(gitmodules):
-        try:
-            cfg = configparser.ConfigParser()
-            cfg.read(gitmodules)
-            SUBMODULE_DIRS = {v.get("path", "") for v in cfg.values() if v.get("path")}
-        except configparser.Error:
-            pass
+gitmodules = os.path.join(REPO_ROOT, ".gitmodules")
+if os.path.isfile(gitmodules):
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read(gitmodules)
+        SUBMODULE_DIRS = {v.get("path", "") for v in cfg.values() if v.get("path")}
+    except configparser.Error:
+        pass
 
 # The single hardcoded API base inside index.html, rewritten to a same-origin path.
 _API_BASE = re.compile(rb"'https://api\.github\.com/'")
+
+# Rewrites applied to the served index.html. The vendored UI only knows the
+# GitHub API; these raise its analysis size limits (upstream guards exist
+# because the API is slow and rate-limited — the shim serves files from disk)
+# and reword the dialogs that mention GitHub rate limits, zipball archives and
+# API samples. Each entry is (compiled regex, replacement bytes) and is a
+# silent no-op if upstream changes the string. The reworded dialogs remain
+# reachable only for workspaces larger than the raised limits (>10000 files).
+
+def _msg_re(*parts):
+    """Regex for a JS message built from quoted string literals and bare
+    identifiers (files.length, HARD_LIMIT) concatenated with '+', as the
+    upstream minifier emits it — the '+' may sit on its own line with
+    indentation, so segments are joined by a whitespace-tolerant separator."""
+    pat = []
+    for kind, text in parts:
+        if kind == "id":
+            pat.append(re.escape(text))
+        else:
+            pat.append("'" + re.escape(text) + "'")
+    return re.compile(r"\s*\+\s*".join(pat).encode())
+
+
+_UI_REWRITES = (
+    (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
+    # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a
+    # workspace exceeds repoMax (>10000 files).
+    (re.compile(re.escape(b"title:'Analyze a GitHub API sample?'")), b"title:'Analyze all local files?'"),
+    (_msg_re(
+        ("s", "This GitHub repository has "),
+        ("id", "files.length"),
+        ("s", " analyzable files.\\n\\n"),
+        ("s", "The browser cannot read GitHub zipball archives directly because GitHub redirects archive downloads to a CORS-restricted host.\\n\\n"),
+        ("s", "For full analysis: download the repository ZIP from GitHub, then use Open ZIP in CodeFlow.\\n\\n"),
+        ("s", "Continue now with a "),
+        ("id", "HARD_LIMIT"),
+        ("s", "-file API sample?"),
+    ), b"'This workspace has '+files.length+' analyzable files.\\n\\n'+'CodeFlow reads every file through the local server, so full analysis needs no GitHub downloads.\\n\\n'+'Continue with all '+files.length+' files?'"),
+    (re.compile(re.escape(b"confirmLabel:'Analyze sample'")), b"confirmLabel:'Analyze all files'"),
+    # Privacy panel: claims every call goes straight to api.github.com.
+    (re.compile(re.escape(b"'Direct API Calls'")), b"'Local Analysis'"),
+    (re.compile(re.escape(b"'All GitHub API calls go directly from your browser to api.github.com. We have no proxy, no middleware, no way to intercept your data.'")),
+     b"'All code analysis runs against files served by the local CodeFlow server. Nothing leaves this machine.'"),
+    (re.compile(re.escape(b"'Found '+files.length+' files. Using a '+HARD_LIMIT+'-file API sample. Use Open ZIP for full analysis.'")),
+     b"'Found '+files.length+' files. Analyzing all of them.'"),
+    # Soft-limit confirm: "Analyze a large repository?" — same rate-limit fiction.
+    (_msg_re(
+        ("s", "This repository has "),
+        ("id", "files.length"),
+        ("s", " files.\\n\\n"),
+        ("s", "Analyzing larger repositories can take longer and may hit GitHub API rate limits.\\n\\n"),
+        ("s", "Tip: add a token or GitHub App for higher limits."),
+    ), b"'This workspace has '+files.length+' files.\\n\\n'+'Analyzing larger workspaces can take longer and use significant browser memory.\\n\\n'+'Tip: add exclude patterns to shrink the scan.'"),
+    # Startup progress text: shown on every analysis; rate limits are fiction locally.
+    (re.compile(re.escape(b"setProgress('Checking rate limit...')")), b"setProgress('Checking workspace...')"),
+)
 
 # .git appears both as a directory and (inside submodule worktrees) as a pointer
 # file; both are meaningless for analysis.
@@ -116,12 +176,35 @@ def _gitignored(paths):
     Delegates to `git check-ignore` so real gitignore semantics apply
     (nested .gitignore, negation, dir patterns). Empty set when git is
     unavailable or REPO_ROOT is not a git work tree — no filtering then.
+    When INCLUDE_SUBMODULES is true, each submodule's own .gitignore rules
+    are applied to the paths inside it as well. Main-repo and submodule
+    paths are checked separately: `git check-ignore` errors out (rc 128,
+    dropping every result after) when its input contains a path inside a
+    submodule gitlink.
     """
     if not paths:
         return set()
+    if INCLUDE_SUBMODULES:
+        prefixes = tuple(sub + "/" for sub in SUBMODULE_DIRS)
+        main_paths = [p for p in paths if not p.startswith(prefixes)]
+    else:
+        main_paths = paths
+    ignored = _check_ignore(REPO_ROOT, main_paths)
+    if INCLUDE_SUBMODULES:
+        for sub in sorted(SUBMODULE_DIRS):
+            prefix = sub + "/"
+            sub_paths = [p[len(prefix):] for p in paths if p.startswith(prefix)]
+            if not sub_paths:
+                continue
+            ignored |= {prefix + p for p in _check_ignore(os.path.join(REPO_ROOT, sub), sub_paths)}
+    return ignored
+
+
+def _check_ignore(root, paths):
+    """Run `git check-ignore --stdin` under root; return the ignored paths."""
     try:
         proc = subprocess.run(
-            ["git", "-C", REPO_ROOT, "check-ignore", "--stdin", "-z"],
+            ["git", "-C", root, "check-ignore", "--stdin", "-z"],
             input="\0".join(paths) + "\0",
             capture_output=True,
             text=True,
@@ -145,7 +228,7 @@ def _walk():
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
         rel_dir = os.path.relpath(dirpath, REPO_ROOT)
         dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDE_DIRS and d not in _IGNORED_NAMES)
-        if rel_dir in SUBMODULE_DIRS:
+        if not INCLUDE_SUBMODULES and rel_dir in SUBMODULE_DIRS:
             dirnames[:] = []
             continue
         for name in sorted(filenames):
@@ -203,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if patch_api_base:
             data = _API_BASE.sub(b"'api/'", data)
+            for pat, repl in _UI_REWRITES:
+                data = pat.sub(lambda _: repl, data)
         self.send_response(200)
         self.send_header("Content-Type", _mime(rel))
         self.send_header("Content-Length", str(len(data)))
