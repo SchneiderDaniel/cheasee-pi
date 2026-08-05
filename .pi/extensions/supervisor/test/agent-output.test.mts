@@ -893,8 +893,8 @@ describe("extractLastJson — string-boundary-aware brace matching", () => {
 // ─── Tests: thinking-prefix stripping — JSON in thinking blocks ────
 // When agents use thinking:high, JSON output may be emitted inside
 // thinking blocks. Event handlers push thinking lines to fullLog with
-// "💭 " prefix per line. stripThinkingPrefix removes these prefixes
-// so parseAgentOutput can still extract valid JSON.
+// "💭 " prefix per line. extractLastJson strips these prefixes via
+// THINKING_PREFIX_RE so parseAgentOutput can still extract valid JSON.
 
 describe("parseAgentOutput — JSON in thinking blocks (💭 prefix)", () => {
 	it("extracts JSON from thinking-prefixed lines (thinking:high scenario)", () => {
