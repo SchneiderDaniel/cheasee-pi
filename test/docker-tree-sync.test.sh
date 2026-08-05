@@ -8,6 +8,12 @@
 #     stay tracked and untouched
 #
 # Phase 1: Makefile sync targets (docker-tree / check-docker) — real FS
+#
+# NOTE: Phase 1 deliberately deletes and regenerates the shared docker/ files to
+# prove regen works. Do NOT run this script concurrently with the tracked
+# docker/test/*.test.mts suites — they exec docker/run-pi.sh / stop-pi.sh, and a
+# test hitting the rm→regen window gets bash exit 127 ("script not found").
+# (CI is safe: embed-sync.yml runs only read-only make check-docker.)
 # Phase 2: embed integrity (Go)
 # Phase 3: Git hygiene (.gitignore + git index)
 # Phase 4: CI + docs wiring
@@ -236,11 +242,13 @@ fi
 
 echo "== Phase 5: docker/ convenience-script regression (no Docker daemon) =="
 
-# Note: unbreak-worktrees.test.mts is intentionally NOT run here — it is
-# environment-sensitive (fixtures point at /home/user/git/.bare/worktrees/{main,feature-x,...}
-# and worktree-fix.sh skips rewriting when that absolute path exists as a directory —
-# pre-existing flake, unrelated to tree consolidation). worktree-fix.sh identity is
-# already covered by the byte-identical check in Phase 1.
+# NOTE: do NOT run this script concurrently with the tracked docker/test/*.test.mts
+# suites — Phase 1 deliberately deletes+regenerates docker/ shared files, and a
+# test exec'ing run-pi.sh/stop-pi.sh/lib/*.sh in that window gets exit 127.
+# unbreak-worktrees.test.mts is additionally environment-sensitive (fixtures point
+# at /home/user/git/.bare/worktrees/*; worktree-fix.sh skips rewriting when that
+# absolute path exists) — excluded here; its identity is covered by Phase 1's
+# byte-identical check. CI is safe: embed-sync.yml runs only read-only check-docker.
 run_expect 0 "docker-convenience-scripts.test.mts passes against regenerated docker/" node --experimental-strip-types --test docker/test/docker-convenience-scripts.test.mts
 
 echo
