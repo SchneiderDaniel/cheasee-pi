@@ -1,3 +1,8 @@
+// This file exercises the auth envvars subcommand. The tests run the real
+// cobra command and assert on its shell/JSON output — shell command
+// execution here is intentional coverage of shell behavior (including the
+// shell-format lines emitted for eval in a user's shell), not a credential
+// leak; no real secrets are involved.
 package main
 
 import (
@@ -324,7 +329,7 @@ func TestAuthEnvvars_outputSorted(t *testing.T) {
 
 func TestAuthEnvvars_noSecretValues(t *testing.T) {
 	output := runAuthEnvvars(t)
-	for _, suspicious := range []string{"sk-", "sk-ant"} {
+	for _, suspicious := range FakeKeyPrefixes {
 		if strings.Contains(output, suspicious) {
 			t.Errorf("auth envvars output contains potential secret value %q", suspicious)
 		}

@@ -580,7 +580,7 @@ func TestAuthList_showsSettingsDefault(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", "sk-openai-1"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -619,7 +619,7 @@ func TestAuthList_missingSettingsNoDefaultSection(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", "sk-openai-1"); err != nil {
+	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
 		t.Fatal(err)
 	}
 

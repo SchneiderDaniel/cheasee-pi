@@ -34,7 +34,7 @@ func TestHTTPGitHubClient_GetAuthenticatedUser_200(t *testing.T) {
 		if r.URL.Path != "/user" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer gho_test" {
+		if r.Header.Get("Authorization") != "Bearer "+FakeGitHubToken {
 			t.Errorf("expected Bearer token, got: %s", r.Header.Get("Authorization"))
 		}
 		if r.Header.Get("Accept") != "application/vnd.github.v3+json" {
@@ -46,7 +46,7 @@ func TestHTTPGitHubClient_GetAuthenticatedUser_200(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	user, err := client.GetAuthenticatedUser(context.Background(), "gho_test")
+	user, err := client.GetAuthenticatedUser(context.Background(), FakeGitHubToken)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestHTTPGitHubClient_GetAuthenticatedUser_401(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	_, err := client.GetAuthenticatedUser(context.Background(), "gho_bad")
+	_, err := client.GetAuthenticatedUser(context.Background(), FakeGitHubToken)
 	if err == nil {
 		t.Fatal("expected error for 401")
 	}
@@ -89,7 +89,7 @@ func TestHTTPGitHubClient_CreateFork_202(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	fork, err := client.CreateFork(context.Background(), "gho_test", "owner", "repo")
+	fork, err := client.CreateFork(context.Background(), FakeGitHubToken, "owner", "repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestHTTPGitHubClient_CreateFork_422(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	_, err := client.CreateFork(context.Background(), "gho_test", "owner", "repo")
+	_, err := client.CreateFork(context.Background(), FakeGitHubToken, "owner", "repo")
 	if err == nil {
 		t.Fatal("expected error for 422 (fork already exists)")
 	}
@@ -125,7 +125,7 @@ func TestHTTPGitHubClient_CreateFork_403(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	_, err := client.CreateFork(context.Background(), "gho_test", "owner", "repo")
+	_, err := client.CreateFork(context.Background(), FakeGitHubToken, "owner", "repo")
 	if err == nil {
 		t.Fatal("expected error for 403")
 	}
@@ -138,7 +138,7 @@ func TestHTTPGitHubClient_WaitForkReady_200(t *testing.T) {
 	defer ts.Close()
 
 	client := testGitHubClient(ts)
-	err := client.WaitForkReady(context.Background(), "gho_test", "owner", "repo")
+	err := client.WaitForkReady(context.Background(), FakeGitHubToken, "owner", "repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestHTTPGitHubClient_WaitForkReady_404(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediate cancellation — WaitForkReady should return ctx.Err()
 
-	err := client.WaitForkReady(ctx, "gho_test", "owner", "repo")
+	err := client.WaitForkReady(ctx, FakeGitHubToken, "owner", "repo")
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -166,11 +166,11 @@ func TestHTTPGitHubClient_WaitForkReady_404(t *testing.T) {
 
 func TestHTTPGitHubClient_NewRequest_BasicAuth(t *testing.T) {
 	client := &httpGitHubClient{httpClient: http.DefaultClient, baseURL: "https://api.github.com"}
-	req, err := client.newRequest(context.Background(), "GET", "/user", "gho_token", nil)
+	req, err := client.newRequest(context.Background(), "GET", "/user", FakeGitHubToken, nil)
 	if err != nil {
 		t.Fatalf("newRequest failed: %v", err)
 	}
-	if req.Header.Get("Authorization") != "Bearer gho_token" {
+	if req.Header.Get("Authorization") != "Bearer "+FakeGitHubToken {
 		t.Errorf("expected Bearer token, got: %s", req.Header.Get("Authorization"))
 	}
 	if req.Header.Get("Accept") != "application/vnd.github.v3+json" {
@@ -226,8 +226,8 @@ func TestParseGitHubURL_Empty(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestRedactToken_ReplacesOccurrences(t *testing.T) {
-	got := redactToken("fatal: https://oauth2:gho_secret@github.com/a/b.git\nremote: gho_secret", "gho_secret")
-	if strings.Contains(got, "gho_secret") {
+	got := redactToken("fatal: https://oauth2:"+FakeGitHubToken+"@github.com/a/b.git\nremote: "+FakeGitHubToken, FakeGitHubToken)
+	if strings.Contains(got, FakeGitHubToken) {
 		t.Errorf("token should be redacted: %q", got)
 	}
 	if !strings.Contains(got, "***") {
@@ -251,7 +251,7 @@ func TestGitCloneWorktree_InvalidURL(t *testing.T) {
 	}
 	defer func() { runCommandContext = saved }()
 
-	err := gitCloneWorktree(context.Background(), "gho_token", "not-a-url", t.TempDir())
+	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "not-a-url", t.TempDir())
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
@@ -279,7 +279,7 @@ func TestGitCloneWorktree_HappyPath(t *testing.T) {
 	defer func() { runCommandContext = saved }()
 
 	workdir := filepath.Join(t.TempDir(), "repo")
-	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", workdir)
+	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", workdir)
 	if err != nil {
 		t.Fatalf("gitCloneWorktree failed: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestGitCloneWorktree_HappyPath(t *testing.T) {
 	if strings.Join(clone[:2], " ") != "clone --bare" {
 		t.Errorf("expected clone --bare, got %v", clone)
 	}
-	if clone[2] != "https://oauth2:gho_token@github.com/owner/repo.git" {
+	if clone[2] != "https://oauth2:"+FakeGitHubToken+"@github.com/owner/repo.git" {
 		t.Errorf("expected tokenized URL, got %q", clone[2])
 	}
 	if !strings.HasSuffix(clone[3], "/.bare") {
@@ -322,7 +322,7 @@ func TestGitCloneWorktree_DefaultBranchFallback(t *testing.T) {
 	}
 	defer func() { runCommandContext = saved }()
 
-	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
+	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
 	if err != nil {
 		t.Fatalf("gitCloneWorktree failed: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestGitCloneWorktree_DefaultBranchFallback(t *testing.T) {
 }
 
 func TestGitCloneWorktree_BareCloneError(t *testing.T) {
-	const token = "gho_secret_token"
+	const token = FakeGitHubToken
 	// Output echoes the token as git would when echoing the URL.
 	output := []byte("fatal: unable to access 'https://oauth2:" + token + "@github.com/owner/repo.git/': Could not resolve host")
 	saved := runCommandContext
@@ -368,7 +368,7 @@ func TestGitCloneWorktree_WorktreeAddError(t *testing.T) {
 	}
 	defer func() { runCommandContext = saved }()
 
-	err := gitCloneWorktree(context.Background(), "gho_token", "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
+	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -576,7 +576,7 @@ func TestGitClone_LocalBareRepo(t *testing.T) {
 
 	// Bogus token: go-git BasicAuth is ignored for local paths, clone succeeds.
 	dest := filepath.Join(t.TempDir(), "clone")
-	if err := gitClone(context.Background(), "gho_bogus_token", src, dest); err != nil {
+	if err := gitClone(context.Background(), FakeGitHubToken, src, dest); err != nil {
 		t.Fatalf("gitClone failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dest, "file.txt")); err != nil {
@@ -585,7 +585,7 @@ func TestGitClone_LocalBareRepo(t *testing.T) {
 }
 
 func TestGitClone_UnreadableSource(t *testing.T) {
-	err := gitClone(context.Background(), "gho_token", filepath.Join(t.TempDir(), "nonexistent"), filepath.Join(t.TempDir(), "clone"))
+	err := gitClone(context.Background(), FakeGitHubToken, filepath.Join(t.TempDir(), "nonexistent"), filepath.Join(t.TempDir(), "clone"))
 	if err == nil {
 		t.Fatal("expected error for unreadable source")
 	}

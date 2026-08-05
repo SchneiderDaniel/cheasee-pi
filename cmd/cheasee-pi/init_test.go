@@ -245,7 +245,7 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  true,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -260,8 +260,8 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called when --no-docker-check is set")
 	}
-	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
-		t.Errorf("expected saved key 'sk-abc123', got %q", got)
+	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+		t.Errorf("expected saved key %q, got %q", FakeAPIKey, got)
 	}
 }
 
@@ -273,7 +273,7 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  false,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -288,8 +288,8 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called on happy path")
 	}
-	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", got)
+	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, got)
 	}
 }
 
@@ -308,7 +308,7 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  false,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -335,7 +335,7 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 
 	err := runInit(ctx, InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  false,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -484,8 +484,8 @@ func TestRunInitAuth_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if token != "gho_test_token" {
-		t.Errorf("expected gho_test_token, got %q", token)
+	if token != FakeGitHubToken {
+		t.Errorf("expected %q, got %q", FakeGitHubToken, token)
 	}
 	if user != "" {
 		t.Errorf("expected empty user from auth (resolved later), got %q", user)
@@ -600,7 +600,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  false,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -629,8 +629,8 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		t.Error("Save should be called on legacy path")
 	}
 	auth := loadAuthJSON(t)
-	if auth.APIKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.RepoPath != workdir {
 		t.Errorf("expected RepoPath %q, got %q", workdir, auth.RepoPath)
@@ -639,12 +639,12 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
 	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
-	auth, err := runInitLegacy(context.Background(), &fileRepository{}, "sk-legacy-key", "opencode-go")
+	auth, err := runInitLegacy(context.Background(), &fileRepository{}, FakeAPIKey, "opencode-go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if auth.APIKey != "sk-legacy-key" {
-		t.Errorf("expected API key 'sk-legacy-key', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.RepoPath != "" {
 		t.Errorf("expected empty RepoPath from runInitLegacy (orchestrator fills it), got %q", auth.RepoPath)
@@ -1408,7 +1408,7 @@ func TestInit_SuccessMessage(t *testing.T) {
 
 	err = runInit(context.Background(), InitDeps{
 		Ports:          ports,
-		APIKey:         "sk-abc123",
+		APIKey:         FakeAPIKey,
 		NoDockerCheck:  false,
 		NoGitHub:       true,
 		NoInput:        true,
@@ -1448,7 +1448,7 @@ func TestInit_SuccessMessage(t *testing.T) {
 
 func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 	auth := &Auth{
-		APIKey:   "sk-abc",
+		APIKey:   FakeAPIKey,
 		Provider: "opencode-go",
 	}
 
@@ -1471,8 +1471,8 @@ func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 	if !ok {
 		t.Fatal("expected provider entry to be an object")
 	}
-	if entry["key"] != "sk-abc" {
-		t.Errorf("expected key 'sk-abc', got %v", entry["key"])
+	if entry["key"] != FakeAPIKey {
+		t.Errorf("expected key %q, got %v", FakeAPIKey, entry["key"])
 	}
 
 	// Must NOT have flat api_key field
@@ -1483,7 +1483,7 @@ func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 
 func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 	auth := &Auth{
-		APIKey: "sk-abc",
+		APIKey: FakeAPIKey,
 		// Provider is empty — should write flat api_key
 	}
 
@@ -1500,8 +1500,8 @@ func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 	if _, ok := raw["api_key"]; !ok {
 		t.Error("expected flat 'api_key' field when Provider is empty")
 	}
-	if raw["api_key"] != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %v", raw["api_key"])
+	if raw["api_key"] != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %v", FakeAPIKey, raw["api_key"])
 	}
 }
 
@@ -1511,7 +1511,7 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 	// backward compatibility (even if empty string), preserving the
 	// pre-existing TestConfigSave_EmptyAPIKey contract.
 	auth := &Auth{
-		GitHubToken: "gho_token",
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/workspace",
 	}
@@ -1535,32 +1535,32 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 	} else {
 		t.Error("expected 'api_key' field (empty) for backward compat when Provider is empty")
 	}
-	if raw["github_token"] != "gho_token" {
-		t.Errorf("expected github_token 'gho_token', got %v", raw["github_token"])
+	if raw["github_token"] != FakeGitHubToken {
+		t.Errorf("expected github_token %q, got %v", FakeGitHubToken, raw["github_token"])
 	}
 }
 
 func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
-	data := []byte(`{
-		"opencode-go": {"key": "sk-abc"},
-		"github_token": "gho_123",
+	data := []byte(fmt.Sprintf(`{
+		"opencode-go": {"key": "%s"},
+		"github_token": "%s",
 		"github_user": "testuser",
 		"repo_path": "/workspace"
-	}`)
+	}`, FakeAPIKey, FakeGitHubToken))
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("Unmarshal of provider format failed: %v", err)
 	}
 
-	if auth.APIKey != "sk-abc" {
-		t.Errorf("expected APIKey 'sk-abc', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected APIKey %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.Provider != "opencode-go" {
 		t.Errorf("expected Provider 'opencode-go', got %q", auth.Provider)
 	}
-	if auth.GitHubToken != "gho_123" {
-		t.Errorf("expected GitHubToken 'gho_123', got %q", auth.GitHubToken)
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, auth.GitHubToken)
 	}
 	if auth.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", auth.GitHubUser)
@@ -1571,21 +1571,21 @@ func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
 }
 
 func TestAuthPerProvider_UnmarshalFlatFormat(t *testing.T) {
-	data := []byte(`{"api_key": "sk-old", "github_token": "gho_old"}`)
+	data := []byte(fmt.Sprintf(`{"api_key": "%s", "github_token": "%s"}`, FakeAPIKey, FakeGitHubToken))
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("Unmarshal of flat format failed: %v", err)
 	}
 
-	if auth.APIKey != "sk-old" {
-		t.Errorf("expected APIKey 'sk-old', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected APIKey %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.Provider != "" {
 		t.Errorf("expected empty Provider for flat format, got %q", auth.Provider)
 	}
-	if auth.GitHubToken != "gho_old" {
-		t.Errorf("expected GitHubToken 'gho_old', got %q", auth.GitHubToken)
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, auth.GitHubToken)
 	}
 }
 
@@ -1595,7 +1595,7 @@ func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:   "sk-jq-test",
+		APIKey:   FakeAPIKey,
 		Provider: "opencode-go",
 	}
 
@@ -1623,8 +1623,8 @@ func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
 	if !ok {
 		t.Fatal("provider entry must be an object")
 	}
-	if entryMap["key"] != "sk-jq-test" {
-		t.Errorf("expected key 'sk-jq-test', got %v", entryMap["key"])
+	if entryMap["key"] != FakeAPIKey {
+		t.Errorf("expected key %q, got %v", FakeAPIKey, entryMap["key"])
 	}
 }
 
@@ -1660,9 +1660,9 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:      "sk-abc",
+		APIKey:      FakeAPIKey,
 		Provider:    "opencode-go",
-		GitHubToken: "gho_token",
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/some/path",
 	}
@@ -1675,14 +1675,14 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
 	if loaded.Provider != "opencode-go" {
 		t.Errorf("expected Provider 'opencode-go', got %q", loaded.Provider)
 	}
-	if loaded.GitHubToken != "gho_token" {
-		t.Errorf("expected GitHubToken 'gho_token', got %q", loaded.GitHubToken)
+	if loaded.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, loaded.GitHubToken)
 	}
 	if loaded.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", loaded.GitHubUser)
@@ -1694,7 +1694,7 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 
 func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 	auth := &Auth{
-		APIKey:   "sk-abc",
+		APIKey:   FakeAPIKey,
 		Provider: "openai",
 	}
 
@@ -1723,7 +1723,7 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 	oldDir := filepath.Join(dir, "cheasee-pi")
 	os.MkdirAll(oldDir, 0700)
 	oldPath := filepath.Join(oldDir, "auth.json")
-	oldContent := `{"api_key": "sk-old-key"}`
+	oldContent := fmt.Sprintf(`{"api_key": "%s"}`, FakeAPIKey)
 	os.WriteFile(oldPath, []byte(oldContent), 0600)
 
 	cfg := &fileRepository{}
@@ -1731,8 +1731,8 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load of old format failed: %v", err)
 	}
-	if auth.APIKey != "sk-old-key" {
-		t.Errorf("expected API key 'sk-old-key', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.GitHubToken != "" {
 		t.Errorf("expected empty GitHubToken for old format, got %q", auth.GitHubToken)
@@ -1745,8 +1745,8 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:      "sk-abc",
-		GitHubToken: "gho_token",
+		APIKey:      FakeAPIKey,
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/some/path",
 	}
@@ -1759,11 +1759,11 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
-	if loaded.GitHubToken != "gho_token" {
-		t.Errorf("expected GitHubToken 'gho_token', got %q", loaded.GitHubToken)
+	if loaded.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, loaded.GitHubToken)
 	}
 	if loaded.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", loaded.GitHubUser)
@@ -1972,7 +1972,7 @@ func TestRunInit_ForkURL(t *testing.T) {
 	if cloneURL == "" {
 		t.Error("CloneWorktree should be called with fork URL")
 	}
-	if cloneURL != "https://oauth2:gho_test_token@github.com/user/existing-fork.git" {
+	if cloneURL != "https://oauth2:"+FakeGitHubToken+"@github.com/user/existing-fork.git" {
 		t.Errorf("expected tokenized clone URL, got %q", cloneURL)
 	}
 	if !submoduleInited {
