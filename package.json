@@ -50,6 +50,44 @@
 			".pi/extensions/*/index.ts"
 		],
 		"ignoreIssues": {
+				".pi/git/**": [
+				"files",
+				"dependencies",
+				"devDependencies",
+				"optionalPeerDependencies",
+				"unlisted",
+				"binaries",
+				"unresolved",
+				"exports",
+				"types",
+				"nsExports",
+				"nsTypes",
+				"duplicates",
+				"enumMembers",
+				"namespaceMembers",
+				"catalog",
+				"catalogReferences",
+				"cycles"
+			],
+			"**/test/fixtures/**": [
+				"files",
+				"dependencies",
+				"devDependencies",
+				"optionalPeerDependencies",
+				"unlisted",
+				"binaries",
+				"unresolved",
+				"exports",
+				"types",
+				"nsExports",
+				"nsTypes",
+				"duplicates",
+				"enumMembers",
+				"namespaceMembers",
+				"catalog",
+				"catalogReferences",
+				"cycles"
+			],
 			".pi/extensions/supervisor/index.ts": [
 				"exports"
 			],
@@ -61,16 +99,15 @@
 				"exports",
 				"types"
 			],
-			".pi/extensions/format-on-save/index.ts": [
-				"default"
-			],
 			".pi/extensions/lsp-auditor/lsp-client.ts": [
 				"exports"
 			]
 		},
 		"ignoreDependencies": [
 			"boxen",
-			"prettier"
+			"prettier",
+			"@types/js-yaml",
+			"@types/shell-quote"
 		]
 	}
 }

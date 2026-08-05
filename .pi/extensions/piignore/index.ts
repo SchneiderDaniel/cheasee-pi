@@ -324,14 +324,6 @@ function segmentTokens(tokens: BashToken[]): BashToken[][] {
 }
 
 /**
- * Extract the command name from a bash command (first non-option token).
- */
-function getCommandName(command: string): string {
-	const tokens = tokenizeBashCommand(command);
-	return getCommandNameFromTokens(tokens);
-}
-
-/**
  * Extract the command name from a list of tokens (first non-option, non-operator token).
  */
 function getCommandNameFromTokens(tokens: BashToken[]): string {

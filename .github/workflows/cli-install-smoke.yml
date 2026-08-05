@@ -55,6 +55,14 @@ jobs:
           DOCKER_TLS_CERTDIR: ""
         ports:
           - 2375:2375
+        # Share the runner's /tmp with the DinD daemon so bind mounts in the
+        # generated docker-compose.yml (e.g. ./codeflow/config.json under the
+        # test's temp workdir) resolve to real files. Without this, the daemon
+        # sees a missing source path and creates a DIRECTORY instead, and
+        # file-onto-file bind mounts fail with "not a directory" (e.g. codeflow
+        # config.json bind mount added on main in "codeflow added" fa42875).
+        volumes:
+          - /tmp:/tmp
 
     steps:
       - uses: actions/checkout@v5

@@ -30,10 +30,6 @@ export function stripAnsi(text: string): string {
  */
 const THINKING_PREFIX_RE = /^💭\s*/gm;
 
-function stripThinkingPrefix(text: string): string {
-	return text.replace(THINKING_PREFIX_RE, "");
-}
-
 const VALID_SEVERITIES = new Set<FindingSeverity>(["critical", "warning", "suggestion"]);
 
 // ─── Smart Quote Detection ──────────────────────────────────────
