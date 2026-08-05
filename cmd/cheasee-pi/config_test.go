@@ -14,7 +14,7 @@ func TestConfigSave_Load(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	ctx := context.Background()
 	if err := cfg.Save(ctx, auth); err != nil {
@@ -25,8 +25,8 @@ func TestConfigSave_Load(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestConfigSave_CreatesDirectory(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -57,7 +57,7 @@ func TestConfigSave_ValidJSON(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -77,8 +77,8 @@ func TestConfigSave_ValidJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if result["api_key"] != "sk-abc123" {
-		t.Errorf("expected api_key 'sk-abc123', got %v", result["api_key"])
+	if result["api_key"] != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %v", FakeAPIKey, result["api_key"])
 	}
 }
 
@@ -87,7 +87,7 @@ func TestConfigSave_AtomicWrite(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -191,7 +191,7 @@ func TestConfigSave_SpecialChars(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	specialKey := `sk-"quoted"-with\backslash and ünicode`
+	specialKey := `key-"quoted"-with\backslash and ünicode`
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: specialKey}
 
