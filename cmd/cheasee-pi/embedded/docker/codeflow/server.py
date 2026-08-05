@@ -350,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._not_found()
 
-    def log_message(self, fmt, *args):  # quiet
+    def log_message(self, format, *args):  # quiet
         pass
 
 

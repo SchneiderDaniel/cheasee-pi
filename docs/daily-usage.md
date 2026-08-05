@@ -39,6 +39,10 @@ automatically inside the container.
 
 ### First run (build + start)
 
+> **Fresh source clone?** Run `make docker-tree` once first — the repo-root
+> `docker/` tree is generated from the canonical source at
+> `cmd/cheasee-pi/embedded/docker/` (see `make check-docker`).
+
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
 ```

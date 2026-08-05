@@ -69,7 +69,15 @@ Each agent is a Markdown file in `.pi/extensions/supervisor/agents/` with YAML f
 
 ## Docker container
 
-The container is built from `docker/Dockerfile` (Debian 12-slim) and includes:
+The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 12-slim) and includes:
+
+> **Single source of truth:** the docker tree lives at
+> `cmd/cheasee-pi/embedded/docker/` (real files there are required by
+> `//go:embed embedded` in `embed.go`). The repo-root `docker/` tree is a
+> generated build artifact for the dev-facing compose workflow — on a fresh
+> clone run `make docker-tree` before compose-from-repo-root, and `make
+> check-docker` to verify sync. Docker-only extras (`docker/test/`,
+> `docker-compose.legacy.yml`) stay tracked and are never touched by the sync.
 
 - Node.js 22
 - Python 3 + pip + venv

@@ -1,6 +1,0 @@
-{
-	"port": 8470,
-	"host": "0.0.0.0",
-	"include_submodules": true,
-	"exclude_dirs": [".git", "node_modules", "ignore", ".pi"]
-}
