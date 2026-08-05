@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"os/user"
@@ -368,5 +369,202 @@ func TestOSGitIdentity_NoConfig(t *testing.T) {
 	}
 	if name != "" || email != "" {
 		t.Errorf("expected empty name/email for empty config, got %q/%q", name, email)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 1: Settings scaffold renderer (entity)
+// ──────────────────────────────────────────────
+
+func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test User",
+		GitEmail: "test@example.com",
+		Memory:   "4G",
+		CPUs:     "4.0",
+	}
+
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "gpt-4o" {
+		t.Errorf("expected defaultModel 'gpt-4o', got %v", raw["defaultModel"])
+	}
+
+	docker, ok := raw["docker"].(map[string]any)
+	if !ok {
+		t.Fatal("expected docker object")
+	}
+	if docker["memory"] != "4G" {
+		t.Errorf("expected memory '4G', got %v", docker["memory"])
+	}
+	if docker["cpus"] != "4.0" {
+		t.Errorf("expected cpus '4.0', got %v", docker["cpus"])
+	}
+
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "Test User" {
+		t.Errorf("expected gitIdentity.name 'Test User', got %v", gitID["name"])
+	}
+	if gitID["email"] != "test@example.com" {
+		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
+	}
+}
+
+func TestSettingsScaffold_Idempotent(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Original",
+		GitEmail: "orig@example.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+	}
+
+	// First call: write file
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("first Scaffold failed: %v", err)
+	}
+
+	// Second call: should no-op (file exists)
+	vals2 := TemplateSettingsValues{
+		Provider: "overwrite",
+		GitName:  "Overwrite",
+		GitEmail: "overwrite@example.com",
+		Memory:   "8G",
+		CPUs:     "8.0",
+	}
+	if err := scaffold.Scaffold(context.Background(), workdir, vals2); err != nil {
+		t.Fatalf("second Scaffold failed: %v", err)
+	}
+
+	// Content must still be from first call (unchanged)
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("expected defaultProvider 'opencode-go' (unchanged), got %v", raw["defaultProvider"])
+	}
+}
+
+func TestSettingsScaffold_EmptyValues(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := TemplateSettingsValues{} // all empty
+
+	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("Read settings.json failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("settings.json is not valid JSON: %v", err)
+	}
+
+	// Empty values should be empty strings in output
+	if raw["defaultProvider"] != "" {
+		t.Errorf("expected empty defaultProvider, got %v", raw["defaultProvider"])
+	}
+
+	gitID, ok := raw["gitIdentity"].(map[string]any)
+	if !ok {
+		t.Fatal("expected gitIdentity object")
+	}
+	if gitID["name"] != "" {
+		t.Errorf("expected empty gitIdentity.name, got %v", gitID["name"])
+	}
+	if gitID["email"] != "" {
+		t.Errorf("expected empty gitIdentity.email, got %v", gitID["email"])
+	}
+
+	docker, ok := raw["docker"].(map[string]any)
+	if !ok {
+		t.Fatal("expected docker object")
+	}
+	if docker["memory"] != "" {
+		t.Errorf("expected empty docker.memory, got %v", docker["memory"])
+	}
+	if docker["cpus"] != "" {
+		t.Errorf("expected empty docker.cpus, got %v", docker["cpus"])
+	}
+}
+
+func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test",
+		GitEmail: "test@test.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+	}
+
+	// Pre-create .pi as file so MkdirAll fails with ENOTDIR
+	workdir := t.TempDir()
+	os.WriteFile(filepath.Join(workdir, ".pi"), []byte(""), 0644)
+
+	err := scaffold.Scaffold(context.Background(), workdir, vals)
+	if err == nil {
+		t.Fatal("expected error when .pi is a file")
+	}
+	if !strings.Contains(err.Error(), ".pi") && !strings.Contains(err.Error(), "mkdir") && !strings.Contains(err.Error(), "file") {
+		t.Errorf("error should mention .pi, mkdir, or file: %v", err)
+	}
+}
+
+func TestSettingsScaffold_ContextCancelled(t *testing.T) {
+	scaffold := NewSettingsScaffold()
+	workdir := t.TempDir()
+
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancelled
+
+	err := scaffold.Scaffold(ctx, workdir, vals)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Errorf("error should mention context: %v", err)
 	}
 }

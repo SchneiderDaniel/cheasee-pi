@@ -128,3 +128,22 @@ func TestFSExtractor_RespectsContextCancellation(t *testing.T) {
 		t.Errorf("expected context canceled error, got: %v", err)
 	}
 }
+
+func TestExtract_SkipsPiSubtree(t *testing.T) {
+	ext := NewExtractor()
+	workdir := t.TempDir()
+
+	if err := ext.Extract(context.Background(), workdir); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// docker/ should exist
+	if _, err := os.Stat(filepath.Join(workdir, "docker", "docker-compose.yml")); os.IsNotExist(err) {
+		t.Error("expected docker-compose.yml to be extracted")
+	}
+
+	// .pi/ should NOT be extracted (it's consumed by scaffold, not extractor)
+	if _, err := os.Stat(filepath.Join(workdir, "pi")); err == nil {
+		t.Error("pi/ should not be extracted to workspace")
+	}
+}
