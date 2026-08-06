@@ -25,7 +25,7 @@ jobs:
             --body-file - <<WELCOME
           ## 👋 Welcome, @${{ github.event.pull_request.user.login }}!
 
-          Thanks for submitting this PR to AgentCastle. A maintainer will review it shortly.
+          Thanks for submitting this PR to Cheasee-Pi. A maintainer will review it shortly.
 
           ### Quick checklist
           - [ ] Commits follow [conventional-commits](https://www.conventionalcommits.org/)
