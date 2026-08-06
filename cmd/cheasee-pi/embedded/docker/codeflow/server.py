@@ -280,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             for pat, repl in _UI_REWRITES:
                 data = pat.sub(lambda _: repl, data)
         self.send_response(200)
-        self.send_header("Content-Type", _mime(os.path.basename(target)))
+        self.send_header("Content-Type", _mime(os.path.basename(target)).replace("\r", "").replace("\n", ""))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -306,42 +306,49 @@ class Handler(BaseHTTPRequestHandler):
 
         if rest[0] == "contents":
             rel = "/".join(rest[1:])
-            # Inline normalization + prefix check (CodeQL path-injection
-            # sanitizer only recognizes guards in the calling function).
             root = os.path.realpath(REPO_ROOT)
             target = os.path.realpath(os.path.join(root, rel.lstrip("/")))
-            if target != root and not target.startswith(root + os.sep):
+            if target == root:
+                # Repo root itself: allowed. Use the untainted constant so
+                # CodeQL sees the guard below as the only tainted path.
+                self._list_contents(root, "")
+                return
+            if not target.startswith(root + os.sep):
                 self._not_found()
                 return
-            if os.path.isdir(target):
-                entries = []
-                for name in sorted(os.listdir(target)):
-                    full = os.path.join(target, name)
-                    rel_child = os.path.join(rel, name) if rel else name
-                    if os.path.isdir(full):
-                        if rel_child in SUBMODULE_DIRS:
-                            continue  # submodule excluded unless INCLUDE_SUBMODULES
-                        entries.append({"type": "dir", "path": rel_child, "name": name})
-                    elif os.path.isfile(full):
-                        try:
-                            size = os.path.getsize(full)
-                        except OSError:
-                            size = 0
-                        entries.append({"type": "file", "path": rel_child, "name": name, "size": size})
-                self._json(entries)
-                return
-            if os.path.isfile(target):
-                try:
-                    with open(target, "rb") as fh:
-                        raw = fh.read()
-                except OSError:
-                    self._not_found()
-                    return
-                self._json({"content": base64.b64encode(raw).decode(), "encoding": "base64"})
-                return
-            self._not_found()
+            self._list_contents(target, rel)
             return
 
+        self._not_found()
+
+    def _list_contents(self, target, rel):
+        """Serve GET /contents/{rel}: dir listing or base64 file."""
+        if os.path.isdir(target):
+            entries = []
+            for name in sorted(os.listdir(target)):
+                full = os.path.join(target, name)
+                rel_child = os.path.join(rel, name) if rel else name
+                if os.path.isdir(full):
+                    if rel_child in SUBMODULE_DIRS:
+                        continue  # submodule excluded unless INCLUDE_SUBMODULES
+                    entries.append({"type": "dir", "path": rel_child, "name": name})
+                elif os.path.isfile(full):
+                    try:
+                        size = os.path.getsize(full)
+                    except OSError:
+                        size = 0
+                    entries.append({"type": "file", "path": rel_child, "name": name, "size": size})
+            self._json(entries)
+            return
+        if os.path.isfile(target):
+            try:
+                with open(target, "rb") as fh:
+                    raw = fh.read()
+            except OSError:
+                self._not_found()
+                return
+            self._json({"content": base64.b64encode(raw).decode(), "encoding": "base64"})
+            return
         self._not_found()
 
     def log_message(self, format, *args):  # quiet
