@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 func TestConfigSave_Load(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: FakeAPIKey}
@@ -31,8 +32,7 @@ func TestConfigSave_Load(t *testing.T) {
 }
 
 func TestConfigSave_CreatesDirectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: FakeAPIKey}
@@ -53,8 +53,7 @@ func TestConfigSave_CreatesDirectory(t *testing.T) {
 }
 
 func TestConfigSave_ValidJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: FakeAPIKey}
@@ -83,8 +82,7 @@ func TestConfigSave_ValidJSON(t *testing.T) {
 }
 
 func TestConfigSave_AtomicWrite(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: FakeAPIKey}
@@ -105,8 +103,7 @@ func TestConfigSave_AtomicWrite(t *testing.T) {
 }
 
 func TestConfigLoad_FileNotExists(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	loaded, err := cfg.Load(context.Background())
@@ -122,8 +119,7 @@ func TestConfigLoad_FileNotExists(t *testing.T) {
 }
 
 func TestConfigLoad_InvalidJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Create auth.json with invalid JSON
 	path := filepath.Join(dir, "cheasee-pi", "auth.json")
@@ -138,8 +134,7 @@ func TestConfigLoad_InvalidJSON(t *testing.T) {
 }
 
 func TestConfigLoad_PathIsDirectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Create auth.json as a directory
 	path := filepath.Join(dir, "cheasee-pi", "auth.json")
@@ -153,8 +148,7 @@ func TestConfigLoad_PathIsDirectory(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	path, err := cfg.Path()
@@ -169,8 +163,7 @@ func TestConfigPath(t *testing.T) {
 }
 
 func TestConfigSave_EmptyAPIKey(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: ""}
@@ -188,8 +181,7 @@ func TestConfigSave_EmptyAPIKey(t *testing.T) {
 }
 
 func TestConfigSave_SpecialChars(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	specialKey := `key-"quoted"-with\backslash and ünicode`
 	cfg := &fileRepository{}

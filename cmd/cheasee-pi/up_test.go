@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -196,53 +195,14 @@ func TestOrphanScanBash_echoesKilledPIDs(t *testing.T) {
 // scanOrphans tests — Phase 3
 // ──────────────────────────────────────────────
 
-type mockCmd struct {
-	outputFn   func() ([]byte, error)
-	combinedFn func() ([]byte, error)
-	runFn      func() error
-	// Captured Set* config, for callers that configure the command
-	dir    string
-	env    []string
-	stdout interface{ Write([]byte) (int, error) }
-	stderr interface{ Write([]byte) (int, error) }
-}
-
-func (m *mockCmd) Output() ([]byte, error) {
-	if m.outputFn != nil {
-		return m.outputFn()
-	}
-	return nil, nil
-}
-
-func (m *mockCmd) CombinedOutput() ([]byte, error) {
-	if m.combinedFn != nil {
-		return m.combinedFn()
-	}
-	return nil, nil
-}
-
-func (m *mockCmd) Run() error {
-	if m.runFn != nil {
-		return m.runFn()
-	}
-	return nil
-}
-
-func (m *mockCmd) SetDir(d string)       { m.dir = d }
-func (m *mockCmd) SetEnv(e []string)     { m.env = e }
-func (m *mockCmd) SetStdout(w io.Writer) { m.stdout = w }
-func (m *mockCmd) SetStderr(w io.Writer) { m.stderr = w }
-
 func TestScanOrphans_containerNotRunning(t *testing.T) {
-	saved := execCommand
-	execCommand = func(_ string, _ ...string) cmdIface {
+	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		return &mockCmd{
 			outputFn: func() ([]byte, error) {
 				return []byte(""), nil
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	count, err := scanOrphans(context.Background(), "cheasee-pi")
 	if err != nil {
@@ -254,9 +214,8 @@ func TestScanOrphans_containerNotRunning(t *testing.T) {
 }
 
 func TestScanOrphans_noOrphans(t *testing.T) {
-	saved := execCommand
 	step := 0
-	execCommand = func(_ string, _ ...string) cmdIface {
+	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -270,8 +229,7 @@ func TestScanOrphans_noOrphans(t *testing.T) {
 				return []byte(""), nil
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	count, err := scanOrphans(context.Background(), "cheasee-pi")
 	if err != nil {
@@ -283,9 +241,8 @@ func TestScanOrphans_noOrphans(t *testing.T) {
 }
 
 func TestScanOrphans_countsKilled(t *testing.T) {
-	saved := execCommand
 	step := 0
-	execCommand = func(_ string, _ ...string) cmdIface {
+	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -299,8 +256,7 @@ func TestScanOrphans_countsKilled(t *testing.T) {
 				return []byte("killing 42\nkilling 99\n"), nil
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	count, err := scanOrphans(context.Background(), "cheasee-pi")
 	if err != nil {
@@ -312,9 +268,8 @@ func TestScanOrphans_countsKilled(t *testing.T) {
 }
 
 func TestScanOrphans_dockerExecFails(t *testing.T) {
-	saved := execCommand
 	step := 0
-	execCommand = func(_ string, _ ...string) cmdIface {
+	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -328,8 +283,7 @@ func TestScanOrphans_dockerExecFails(t *testing.T) {
 				return nil, fmt.Errorf("container stopped")
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	_, err := scanOrphans(context.Background(), "cheasee-pi")
 	if err == nil {
@@ -338,11 +292,10 @@ func TestScanOrphans_dockerExecFails(t *testing.T) {
 }
 
 func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
-	saved := execCommand
 	var capturedName string
 	var capturedArgs []string
 	step := 0
-	execCommand = func(name string, arg ...string) cmdIface {
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -358,8 +311,7 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 				return []byte(""), nil
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	scanOrphans(context.Background(), "cheasee-pi")
 
@@ -384,15 +336,13 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 }
 
 func TestScanOrphans_dockerPsFails(t *testing.T) {
-	saved := execCommand
-	execCommand = func(_ string, _ ...string) cmdIface {
+	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		return &mockCmd{
 			outputFn: func() ([]byte, error) {
 				return nil, fmt.Errorf("docker daemon not running")
 			},
 		}
-	}
-	defer func() { execCommand = saved }()
+	})
 
 	_, err := scanOrphans(context.Background(), "cheasee-pi")
 	if err == nil {
@@ -417,38 +367,21 @@ func indexOf(slice []string, val string) int {
 // buildEnvFlags tests — map shape + passthrough
 // ──────────────────────────────────────────────
 
-// pinPassthroughEnv makes buildEnvFlags hermetic: fresh XDG_CONFIG_HOME,
-// every passthrough env name cleared, and PATH pointing at a failing gh
-// binary so GH_TOKEN extraction can't leak the host's real token into the map.
-func pinPassthroughEnv(t *testing.T) string {
+// buildEnvFlagsOrFatal calls buildEnvFlags, failing the test on error.
+func buildEnvFlagsOrFatal(t *testing.T) map[string]string {
 	t.Helper()
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	for _, name := range AllEnvVarNames() {
-		t.Setenv(name, "")
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	return xdg
-}
-
-func TestBuildEnvFlags_happyPath(t *testing.T) {
-	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", FakeAPIKey); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
-	if err := cfg.AddProvider(context.Background(), "anthropic", FakeAPIKeyAlt); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
-
 	env, err := buildEnvFlags(context.Background())
 	if err != nil {
 		t.Fatalf("buildEnvFlags: %v", err)
 	}
+	return env
+}
+
+func TestBuildEnvFlags_happyPath(t *testing.T) {
+	pinPassthroughEnv(t)
+	seedAuth(t, map[string]string{"openai": FakeAPIKey, "anthropic": FakeAPIKeyAlt})
+
+	env := buildEnvFlagsOrFatal(t)
 
 	want := map[string]string{
 		"OPENAI_API_KEY":    FakeAPIKey,
@@ -461,15 +394,9 @@ func TestBuildEnvFlags_happyPath(t *testing.T) {
 
 func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "claude", FakeAPIKeyAlt); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"claude": FakeAPIKeyAlt})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if got := env["ANTHROPIC_API_KEY"]; got != FakeAPIKeyAlt {
 		t.Errorf("claude alias should map to ANTHROPIC_API_KEY, got %v", env)
 	}
@@ -477,15 +404,9 @@ func TestBuildEnvFlags_resolvesClaudeAlias(t *testing.T) {
 
 func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "google", "xxx"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"google": "xxx"})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if got := env["GEMINI_API_KEY"]; got != "xxx" {
 		t.Errorf("google alias should map to GEMINI_API_KEY, got %v", env)
 	}
@@ -493,15 +414,9 @@ func TestBuildEnvFlags_resolvesGoogleAlias(t *testing.T) {
 
 func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "opencode", "xxx"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"opencode": "xxx"})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if got := env["OPENCODE_API_KEY"]; got != "xxx" {
 		t.Errorf("opencode alias should map to OPENCODE_API_KEY, got %v", env)
 	}
@@ -509,15 +424,9 @@ func TestBuildEnvFlags_resolvesOpenCodeAlias(t *testing.T) {
 
 func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "xai", "xxx"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"xai": "xxx"})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if got := env["XAI_API_KEY"]; got != "xxx" {
 		t.Errorf("xai should map to XAI_API_KEY, got %v", env)
 	}
@@ -525,18 +434,9 @@ func TestBuildEnvFlags_resolvesXaiDriftVictim(t *testing.T) {
 
 func TestBuildEnvFlags_aliasDupesCollapseToOneKey(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "anthropic", FakeAPIKey); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
-	if err := cfg.AddProvider(context.Background(), "claude", FakeAPIKeyAlt); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"anthropic": FakeAPIKey, "claude": FakeAPIKeyAlt})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if len(env) != 1 {
 		t.Fatalf("expected exactly one ANTHROPIC_API_KEY entry, got %v", env)
 	}
@@ -548,15 +448,9 @@ func TestBuildEnvFlags_aliasDupesCollapseToOneKey(t *testing.T) {
 
 func TestBuildEnvFlags_unknownProviderPassthrough(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "mystery", "k123"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"mystery": "k123"})
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if got := env["MYSTERY_API_KEY"]; got != "k123" {
 		t.Errorf("unknown provider should emit MYSTERY_API_KEY, got %v", env)
 	}
@@ -565,10 +459,7 @@ func TestBuildEnvFlags_unknownProviderPassthrough(t *testing.T) {
 func TestBuildEnvFlags_emptyAuthNoEnvs(t *testing.T) {
 	pinPassthroughEnv(t)
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if env == nil {
 		t.Fatal("expected non-nil empty map")
 	}
@@ -595,10 +486,7 @@ func TestBuildEnvFlags_passthroughEnvVars(t *testing.T) {
 	t.Setenv("GH_TOKEN", FakeGitHubToken)
 	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "acct-123")
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if env["GH_TOKEN"] != FakeGitHubToken {
 		t.Errorf("GH_TOKEN not passed through, got %v", env)
 	}
@@ -609,16 +497,10 @@ func TestBuildEnvFlags_passthroughEnvVars(t *testing.T) {
 
 func TestBuildEnvFlags_authWinsOverProcessEnv(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "openai", "from-auth"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"openai": "from-auth"})
 	t.Setenv("OPENAI_API_KEY", "from-process")
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if env["OPENAI_API_KEY"] != "from-auth" {
 		t.Errorf("auth.json value should win over process env, got %v", env)
 	}
@@ -626,21 +508,15 @@ func TestBuildEnvFlags_authWinsOverProcessEnv(t *testing.T) {
 
 func TestBuildEnvFlags_apiKeyOverride(t *testing.T) {
 	pinPassthroughEnv(t)
-	cfg := &fileRepository{}
-	if err := cfg.AddProvider(context.Background(), "opencode-go", "from-auth"); err != nil {
-		t.Fatalf("seed auth.json: %v", err)
-	}
+	seedAuth(t, map[string]string{"opencode-go": "from-auth"})
 	t.Setenv("OPENCODE_API_KEY", "from-process")
 
 	saved := upAPIKey
-	upAPIKey = FakeUpAPIKey
+	upAPIKey = "session-key"
 	defer func() { upAPIKey = saved }()
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
-	if env["OPENCODE_API_KEY"] != FakeUpAPIKey {
+	env := buildEnvFlagsOrFatal(t)
+	if env["OPENCODE_API_KEY"] != "session-key" {
 		t.Errorf("--api-key should override auth.json and process env, got %v", env)
 	}
 }
@@ -649,14 +525,11 @@ func TestBuildEnvFlags_apiKeyInjectedWithoutProvider(t *testing.T) {
 	pinPassthroughEnv(t)
 
 	saved := upAPIKey
-	upAPIKey = FakeUpAPIKey
+	upAPIKey = "session-key"
 	defer func() { upAPIKey = saved }()
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
-	if env["OPENCODE_API_KEY"] != FakeUpAPIKey {
+	env := buildEnvFlagsOrFatal(t)
+	if env["OPENCODE_API_KEY"] != "session-key" {
 		t.Errorf("--api-key should inject OPENCODE_API_KEY with no opencode provider, got %v", env)
 	}
 }
@@ -664,10 +537,7 @@ func TestBuildEnvFlags_apiKeyInjectedWithoutProvider(t *testing.T) {
 func TestBuildEnvFlags_ghTokenExtractionFailureSwallowed(t *testing.T) {
 	pinPassthroughEnv(t) // PATH points at a failing gh; GH_TOKEN is empty.
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if _, ok := env["GH_TOKEN"]; ok {
 		t.Errorf("failing gh binary should not produce GH_TOKEN, got %v", env)
 	}
@@ -677,10 +547,7 @@ func TestBuildEnvFlags_ignoresUnlistedEnvVars(t *testing.T) {
 	pinPassthroughEnv(t)
 	t.Setenv("SOME_UNRELATED_VAR", "should-not-appear")
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 	if _, ok := env["SOME_UNRELATED_VAR"]; ok {
 		t.Errorf("unlisted env var should not be passed through: %v", env)
 	}
@@ -695,10 +562,7 @@ func TestBuildEnvFlags_allProvidersAgreeWithProviderEnvAliases(t *testing.T) {
 		}
 	}
 
-	env, err := buildEnvFlags(context.Background())
-	if err != nil {
-		t.Fatalf("buildEnvFlags: %v", err)
-	}
+	env := buildEnvFlagsOrFatal(t)
 
 	want := make(map[string]string)
 	for _, name := range ProviderNames() {

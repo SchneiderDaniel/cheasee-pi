@@ -243,13 +243,11 @@ func TestRedactToken_EmptyTokenNoOp(t *testing.T) {
 }
 
 func TestGitCloneWorktree_InvalidURL(t *testing.T) {
-	saved := runCommandContext
 	called := false
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		called = true
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "not-a-url", t.TempDir())
 	if err == nil {
@@ -265,8 +263,7 @@ func TestGitCloneWorktree_InvalidURL(t *testing.T) {
 
 func TestGitCloneWorktree_HappyPath(t *testing.T) {
 	var calls [][]string
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		calls = append(calls, arg)
 		if arg[0] == "clone" {
 			return &mockCmd{}
@@ -275,8 +272,7 @@ func TestGitCloneWorktree_HappyPath(t *testing.T) {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("refs/remotes/origin/master"), nil }}
 		}
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	workdir := filepath.Join(t.TempDir(), "repo")
 	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", workdir)
@@ -309,8 +305,7 @@ func TestGitCloneWorktree_HappyPath(t *testing.T) {
 
 func TestGitCloneWorktree_DefaultBranchFallback(t *testing.T) {
 	var worktreeArgs []string
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		if len(arg) > 2 && arg[2] == "symbolic-ref" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("HEAD not found") }}
 		}
@@ -319,8 +314,7 @@ func TestGitCloneWorktree_DefaultBranchFallback(t *testing.T) {
 		}
 		worktreeArgs = arg
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
 	if err != nil {
@@ -335,11 +329,9 @@ func TestGitCloneWorktree_BareCloneError(t *testing.T) {
 	const token = FakeGitHubToken
 	// Output echoes the token as git would when echoing the URL.
 	output := []byte("fatal: unable to access 'https://oauth2:" + token + "@github.com/owner/repo.git/': Could not resolve host")
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{combinedFn: func() ([]byte, error) { return output, fmt.Errorf("exit status 128") }}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitCloneWorktree(context.Background(), token, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
 	if err == nil {
@@ -354,9 +346,8 @@ func TestGitCloneWorktree_BareCloneError(t *testing.T) {
 }
 
 func TestGitCloneWorktree_WorktreeAddError(t *testing.T) {
-	saved := runCommandContext
 	step := 0
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		step++
 		if step == 1 { // bare clone
 			return &mockCmd{}
@@ -365,8 +356,7 @@ func TestGitCloneWorktree_WorktreeAddError(t *testing.T) {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("refs/remotes/origin/main"), nil }}
 		}
 		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("fatal: worktree error"), fmt.Errorf("exit status 128") }}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitCloneWorktree(context.Background(), FakeGitHubToken, "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo"))
 	if err == nil {
@@ -380,13 +370,11 @@ func TestGitCloneWorktree_WorktreeAddError(t *testing.T) {
 func TestGitAddSubmodule_CapturesArgsAndDir(t *testing.T) {
 	var capturedArgs []string
 	var captured *mockCmd
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		capturedArgs = arg
 		captured = &mockCmd{}
 		return captured
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	repoPath := t.TempDir()
 	if err := gitAddSubmodule(context.Background(), repoPath, "flask_blogs", "https://github.com/user/flask_blogs"); err != nil {
@@ -402,13 +390,11 @@ func TestGitAddSubmodule_CapturesArgsAndDir(t *testing.T) {
 }
 
 func TestGitAddSubmodule_ErrorWrapsOutput(t *testing.T) {
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{combinedFn: func() ([]byte, error) {
 			return []byte("fatal: path 'x' is already tracked"), fmt.Errorf("exit status 128")
 		}}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitAddSubmodule(context.Background(), t.TempDir(), "x", "https://github.com/a/b.git")
 	if err == nil {
