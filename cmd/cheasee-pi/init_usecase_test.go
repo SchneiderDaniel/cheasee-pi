@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,22 +11,10 @@ import (
 )
 
 func TestInitUseCase_DockerNotInstalled(t *testing.T) {
-	redirectConfigDir(t)
-	saved := lookPath
-	lookPath = func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") }
-	defer func() { lookPath = saved }()
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
+	stubLookPath(t, func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") })
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker not installed")
 	}
@@ -38,20 +27,10 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 }
 
 func TestInitUseCase_DockerNotRunning(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, fmt.Errorf("Cannot connect to the Docker daemon"), "", nil)
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker not running")
 	}
@@ -64,20 +43,10 @@ func TestInitUseCase_DockerNotRunning(t *testing.T) {
 }
 
 func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "23.0.0", nil)
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker version too old")
 	}
@@ -90,20 +59,10 @@ func TestInitUseCase_DockerVersionTooOld(t *testing.T) {
 }
 
 func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "", fmt.Errorf("version check failed"))
-	ports := defaultMocks()
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.NoGitHub = true }))
 	if err == nil {
 		t.Fatal("expected error when Docker version fetch fails")
 	}
@@ -113,84 +72,60 @@ func TestInitUseCase_DockerCheckReturnsErr(t *testing.T) {
 }
 
 func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
-	redirectConfigDir(t)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: true,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.NoDockerCheck = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error with --no-docker-check: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called when --no-docker-check is set")
 	}
-	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
-		t.Errorf("expected saved key 'sk-abc123', got %q", got)
+	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+		t.Errorf("expected saved key %q, got %q", FakeAPIKey, got)
 	}
 }
 
 func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error on happy path: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called on happy path")
 	}
-	if got := loadAuthJSON(t).APIKey; got != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", got)
+	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, got)
 	}
 }
 
 func TestInitUseCase_ConfigSaveError(t *testing.T) {
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	// Block the config dir path with a regular file so MkdirAll fails
 	// deterministically (real file I/O, no mock error injection).
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 	if err := os.WriteFile(filepath.Join(dir, "cheasee-pi"), []byte("block"), 0644); err != nil {
 		t.Fatalf("block config dir: %v", err)
 	}
 
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err == nil {
 		t.Fatal("expected error when Save fails")
 	}
@@ -200,24 +135,15 @@ func TestInitUseCase_ConfigSaveError(t *testing.T) {
 }
 
 func TestInitUseCase_ContextCancelled(t *testing.T) {
-	redirectConfigDir(t)
-	stubDockerLookPath(t)
+	testutil.RedirectConfigHome(t)
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancelled
 
-	ports := defaultMocks()
-
-	err := runInit(ctx, InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(ctx, initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
 	if err == nil {
 		t.Fatal("expected error with cancelled context")
 	}
@@ -225,10 +151,6 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 		t.Errorf("error should mention context cancellation: %v", err)
 	}
 }
-
-// ──────────────────────────────────────────────
-// Phase 2: Working dir probe tests
-// ──────────────────────────────────────────────
 
 func TestInitProbe_Empty(t *testing.T) {
 	called := false
@@ -352,14 +274,10 @@ func TestInitProbe_UserDeclines(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Fork already exists test
-// ──────────────────────────────────────────────
-
 func TestRunInit_ForkAlreadyExists(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 	ports := defaultMocks()
 
 	// Override GitHub client to return fork-already-exists
@@ -376,28 +294,19 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  &mockSubmoduleOps{},
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-already-exists should not be fatal: %v", err)
 	}
 }
 
-// ──────────────────────────────────────────────
-// Fork non-422 error test
-// ──────────────────────────────────────────────
-
 func TestRunInit_ForkNon422Error(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	ports := defaultMocks()
 
@@ -411,16 +320,11 @@ func TestRunInit_ForkNon422Error(t *testing.T) {
 	}
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error for non-422 fork error")
 	}

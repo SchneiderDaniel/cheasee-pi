@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// ──────────────────────────────────────────────
-// Phase 5: InitRemover adapter tests
-// ──────────────────────────────────────────────
 
 func TestInitRemove_NoFile(t *testing.T) {
 	r := &initRemover{}
@@ -46,7 +43,7 @@ func TestInitRemove_SingleFile(t *testing.T) {
 	}
 
 	// Capture stderr
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -72,7 +69,7 @@ func TestInitRemove_Directory(t *testing.T) {
 		t.Fatalf("create .github dir: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -100,7 +97,7 @@ func TestInitRemove_MultiplePatterns(t *testing.T) {
 		t.Fatalf("write b.md: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -186,7 +183,7 @@ func TestInitRemove_DeepGlob(t *testing.T) {
 		t.Fatalf("write pkg: %v", err)
 	}
 
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := r.Remove(workdir); err != nil {
 			t.Fatalf("Remove failed: %v", err)
 		}
@@ -237,25 +234,17 @@ func TestInitRemove_InitremoveIsDirectory(t *testing.T) {
 }
 
 func TestRunInit_RemoverCalled(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	seedCloneFixture(t, workdir)
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		SubmoduleOps:   &mockSubmoduleOps{},
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("full flow with remover failed: %v", err)
 	}
@@ -271,26 +260,18 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 }
 
 func TestRunInit_RemoverError(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
 	os.MkdirAll(filepath.Join(workdir, ".git"), 0755)
 	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), []byte("unmatched[brackets\n"), 0644); err != nil {
 		t.Fatalf("write .initremove: %v", err)
 	}
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error when remover fails")
 	}
@@ -300,24 +281,16 @@ func TestRunInit_RemoverError(t *testing.T) {
 }
 
 func TestRunInit_RemoverSkipFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	seedCloneFixture(t, workdir)
-	err := runInit(context.Background(), InitDeps{
-		Ports:          ports,
-		NoDockerCheck:  false,
-		NoGitHub:       false,
-		NoInput:        true,
-		SourceFork:     SourceForkInput{Mode: ModeSkipFork},
-		Workdir:        workdir,
-		ConfirmFn:      mockConfirmFn(true, nil),
-		InputFn:        mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeSkipFork}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}

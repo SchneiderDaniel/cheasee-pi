@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// ──────────────────────────────────────────────
-// Phase 2: parseSubmoduleURLs tests
-// ──────────────────────────────────────────────
-
 func TestParseSubmoduleURLs_HappyPath(t *testing.T) {
 	result, err := parseSubmoduleURLs([]string{"flask_blogs=https://github.com/user/flask_blogs"})
 	if err != nil {
@@ -82,10 +78,6 @@ func TestParseSubmoduleURLs_EmptyInput(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Phase 4: runInitSubmodule orchestrator tests
-// ──────────────────────────────────────────────
-
 func TestRunInitSubmodule_SkipAll(t *testing.T) {
 	mc := &mockSubmoduleOps{}
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, true, nil, false, nil, nil)
@@ -104,14 +96,7 @@ func TestRunInitSubmodule_SkipAll(t *testing.T) {
 }
 
 func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
 	if err != nil {
@@ -129,13 +114,7 @@ func TestRunInitSubmodule_NoOverridesNoPrompt(t *testing.T) {
 }
 
 func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return nil, nil // user accepted all defaults
@@ -154,14 +133,7 @@ func TestRunInitSubmodule_WithPromptReturnsEmpty(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	urlOverrides := map[string]string{
 		"flask_blogs": "https://github.com/user/flask_blogs",
@@ -186,16 +158,9 @@ func TestRunInitSubmodule_UrlOverridesOne(t *testing.T) {
 }
 
 func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return nil
-		},
+	mc := submoduleFixture(false)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return nil
 	}
 
 	urlOverrides := map[string]string{
@@ -214,14 +179,7 @@ func TestRunInitSubmodule_UrlOverridesBoth(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-				{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(false)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return map[string]string{
@@ -242,13 +200,7 @@ func TestRunInitSubmodule_PromptReturnsOverride(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverridesPrecedePrompt(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	// Prompt returns one URL, but override wins
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
@@ -287,15 +239,9 @@ func TestRunInitSubmodule_ListSubmodulesError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return fmt.Errorf("invalid URL")
-		},
+	mc := submoduleFixture(true)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return fmt.Errorf("invalid URL")
 	}
 
 	urlOverrides := map[string]string{
@@ -312,15 +258,9 @@ func TestRunInitSubmodule_SetSubmoduleURLError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
-			return fmt.Errorf("update failed")
-		},
+	mc := submoduleFixture(true)
+	mc.initAndUpdateSubmodFunc = func(ctx context.Context, repoPath string) error {
+		return fmt.Errorf("update failed")
 	}
 
 	err := runInitSubmodule(context.Background(), mc, t.TempDir(), nil, false, nil, false, nil, nil)
@@ -333,13 +273,7 @@ func TestRunInitSubmodule_InitAndUpdateError(t *testing.T) {
 }
 
 func TestRunInitSubmodule_PromptError(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-	}
+	mc := submoduleFixture(true)
 
 	promptFn := func(sms []config.Submodule) (map[string]string, error) {
 		return nil, fmt.Errorf("user cancelled")
@@ -390,15 +324,9 @@ func TestRunInitSubmodule_EmptySubmoduleList(t *testing.T) {
 }
 
 func TestRunInitSubmodule_OverrideNonExistentSubmodule(t *testing.T) {
-	mc := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{
-				{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-			}, nil
-		},
-		setSubmoduleURLFunc: func(ctx context.Context, repoPath, name, url string) error {
-			return fmt.Errorf("submodule %q not found in .gitmodules", name)
-		},
+	mc := submoduleFixture(true)
+	mc.setSubmoduleURLFunc = func(ctx context.Context, repoPath, name, url string) error {
+		return fmt.Errorf("submodule %q not found in .gitmodules", name)
 	}
 
 	urlOverrides := map[string]string{

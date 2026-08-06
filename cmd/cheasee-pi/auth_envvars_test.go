@@ -1,3 +1,8 @@
+// This file exercises the auth envvars subcommand. The tests run the real
+// cobra command and assert on its shell/JSON output — shell command
+// execution here is intentional coverage of shell behavior (including the
+// shell-format lines emitted for eval in a user's shell), not a credential
+// leak; no real secrets are involved.
 package main
 
 import (
@@ -8,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // linePattern matches "provider=ENV_VAR" lines
@@ -25,12 +32,7 @@ func runAuthEnvvars(t *testing.T, extraArgs ...string) string {
 		}
 	}
 
-	format := "shell"
-	for i, a := range extraArgs {
-		if a == "--format" && i+1 < len(extraArgs) {
-			format = extraArgs[i+1]
-		}
-	}
+	format := authEnvvarsFormatFromArgs(extraArgs...)
 
 	authEnvvarsFormat = format
 	var stdout bytes.Buffer
@@ -46,27 +48,29 @@ func runAuthEnvvars(t *testing.T, extraArgs ...string) string {
 // runAuthEnvvarsErr returns the error from runAuthEnvvarsE, for negative tests.
 func runAuthEnvvarsErr(t *testing.T, extraArgs ...string) error {
 	t.Helper()
-	format := "shell"
-	for i, a := range extraArgs {
-		if a == "--format" && i+1 < len(extraArgs) {
-			format = extraArgs[i+1]
-		}
-	}
+	format := authEnvvarsFormatFromArgs(extraArgs...)
 
 	authEnvvarsFormat = format
 	cmd := &cobra.Command{}
 	return runAuthEnvvarsE(cmd, nil)
 }
 
+// authEnvvarsFormatFromArgs extracts the --format value (default "shell").
+func authEnvvarsFormatFromArgs(extraArgs ...string) string {
+	format := "shell"
+	for i, a := range extraArgs {
+		if a == "--format" && i+1 < len(extraArgs) {
+			format = extraArgs[i+1]
+		}
+	}
+	return format
+}
+
 // runAuthEnvvarsCobra runs through cobra for tests that need full command parsing.
 func runAuthEnvvarsCobra(t *testing.T, extraArgs ...string) string {
 	t.Helper()
-	var stdout, stderr bytes.Buffer
-	rootCmd.SetOut(&stdout)
-	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs(append([]string{"auth", "envvars"}, extraArgs...))
-	rootCmd.ExecuteC() //nolint:errcheck
-	return stdout.String()
+	out, _ := testutil.RunCobra(t, rootCmd, append([]string{"auth", "envvars"}, extraArgs...)...)
+	return out
 }
 
 // ──────────────────────────────────────────────
@@ -324,7 +328,7 @@ func TestAuthEnvvars_outputSorted(t *testing.T) {
 
 func TestAuthEnvvars_noSecretValues(t *testing.T) {
 	output := runAuthEnvvars(t)
-	for _, suspicious := range []string{"sk-", "sk-ant"} {
+	for _, suspicious := range FakeKeyPrefixes {
 		if strings.Contains(output, suspicious) {
 			t.Errorf("auth envvars output contains potential secret value %q", suspicious)
 		}

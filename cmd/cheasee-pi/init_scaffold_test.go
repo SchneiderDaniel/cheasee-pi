@@ -1,17 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// ──────────────────────────────────────────────
-// Extract tests
-// ──────────────────────────────────────────────
 
 func TestRunInitExtract_Success(t *testing.T) {
 	dir := t.TempDir()
@@ -28,7 +24,7 @@ func TestRunInitExtract_Success(t *testing.T) {
 func TestRunInitExtract_LogMessage(t *testing.T) {
 	// Capture stderr to verify the log message includes the /docker suffix.
 	dir := t.TempDir()
-	stderr := captureStderr(t, func() {
+	stderr := testutil.CaptureStderr(t, func() {
 		if err := runInitExtract(context.Background(), dir); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -44,14 +40,14 @@ func TestRunInitExtract_LogMessage(t *testing.T) {
 }
 
 func TestRunInitEnv_Success(t *testing.T) {
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
 	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	vals := readEnvFile(t, workdir)
+	vals := testutil.ReadEnvFile(t, workdir)
 	if vals["HOST_UID"] == "" {
 		t.Error("expected non-empty HOST_UID")
 	}
@@ -68,14 +64,14 @@ func TestRunInitEnv_Success(t *testing.T) {
 
 func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
 	// Empty git config + declined identity prompt → defaults written.
-	unsetGitIdentity(t)
+	testutil.SetGitConfig(t, "")
 
 	workdir := t.TempDir()
 	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	vals := readEnvFile(t, workdir)
+	vals := testutil.ReadEnvFile(t, workdir)
 	if vals["HOST_GIT_NAME"] != "Cheasee-Pi" {
 		t.Errorf("expected default HOST_GIT_NAME 'Cheasee-Pi', got %q", vals["HOST_GIT_NAME"])
 	}
@@ -88,17 +84,15 @@ func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
 }
 
 func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
-	setGitIdentity(t)
-	oldProvider := initProvider
-	initProvider = "opencode-go"
-	defer func() { initProvider = oldProvider }()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := readSettingsFile(t, workdir)
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
 	}
@@ -115,10 +109,8 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 }
 
 func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
-	unsetGitIdentity(t)
-	oldProvider := initProvider
-	initProvider = "opencode-go"
-	defer func() { initProvider = oldProvider }()
+	testutil.SetGitConfig(t, "")
+	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	// Declined identity prompt → default name/email written.
@@ -126,7 +118,7 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := readSettingsFile(t, workdir)
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
 		t.Fatal("expected gitIdentity object")
@@ -138,10 +130,6 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 		t.Errorf("expected default gitIdentity.email 'cheasee-pi@localhost', got %v", gitID["email"])
 	}
 }
-
-// ──────────────────────────────────────────────
-// InitDeps.Validate tests
-// ──────────────────────────────────────────────
 
 func TestInitDeps_Validate(t *testing.T) {
 	all := defaultMocks()
@@ -190,54 +178,21 @@ func TestInitDeps_Validate(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Success message test
-// ──────────────────────────────────────────────
-
 func TestInit_SuccessMessage(t *testing.T) {
-	setGitIdentity(t)
-	// Capture stderr to verify the success message
-	oldStderr := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stderr = w
-
-	// Restore after test
-	defer func() {
-		w.Close()
-		os.Stderr = oldStderr
-	}()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	redirectConfigDir(t)
-	ports := defaultMocks()
+	testutil.RedirectConfigHome(t)
 
-	err = runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
+	output := testutil.CaptureStderr(t, func() {
+		err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+			d.NoGitHub = true
+			d.APIKey = FakeAPIKey
+		}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	w.Close()
-	os.Stderr = oldStderr
-
-	var buf bytes.Buffer
-	_, err = buf.ReadFrom(r)
-	if err != nil {
-		t.Fatalf("read stderr: %v", err)
-	}
-	output := buf.String()
 
 	if strings.Contains(output, "cheasee-pi start") {
 		t.Error("success message must NOT reference 'cheasee-pi start'")

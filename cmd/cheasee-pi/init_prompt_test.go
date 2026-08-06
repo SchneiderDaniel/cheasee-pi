@@ -2,27 +2,18 @@ package main
 
 import (
 	"context"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/go-git/go-git/v5/config"
 	"strings"
 	"testing"
 )
 
-// ──────────────────────────────────────────────
-// CLI flag tests
-// ──────────────────────────────────────────────
-
 func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
-	rootCmd.SetArgs([]string{"init", "--help"})
-	var buf strings.Builder
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-
-	_, err := rootCmd.ExecuteC()
+	output, err := testutil.RunCobra(t, rootCmd, "init", "--help")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
 	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--skip-fork", "--fork-url", "--no-input", "--submodule-url", "--skip-submodules"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
@@ -30,10 +21,6 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 		}
 	}
 }
-
-// ──────────────────────────────────────────────
-// Phase 1: SourceForkMode constants (entity layer)
-// ──────────────────────────────────────────────
 
 func TestSourceForkMode_Constants(t *testing.T) {
 	// Verify all three are distinct
@@ -71,10 +58,6 @@ func TestSourceForkInput_RoundTrip(t *testing.T) {
 		t.Errorf("expected fork URL, got %q", sfi.ForkURL)
 	}
 }
-
-// ──────────────────────────────────────────────
-// Phase 2: runInitPromptSource tests (use-case layer)
-// ──────────────────────────────────────────────
 
 func TestRunInitPromptSource_EmptyInputDefaults(t *testing.T) {
 	result, err := runInitPromptSource(SourceForkInput{Mode: ModePromptFork})
@@ -126,27 +109,16 @@ func TestRunInitPromptSource_ForkURLMode(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Phase 4: Orchestration tests
-// ──────────────────────────────────────────────
-
 func TestRunInit_SkipFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModeSkipFork},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeSkipFork}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("skip-fork flow failed: %v", err)
 	}
@@ -156,9 +128,9 @@ func TestRunInit_SkipFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURL(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	submoduleInited := false
 	ops := &mockSubmoduleOps{
@@ -189,24 +161,19 @@ func TestRunInit_ForkURL(t *testing.T) {
 	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  ops,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = ops
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
 	if cloneURL == "" {
 		t.Error("CloneWorktree should be called with fork URL")
 	}
-	if cloneURL != "https://oauth2:gho_test_token@github.com/user/existing-fork.git" {
+	if cloneURL != "https://oauth2:"+FakeGitHubToken+"@github.com/user/existing-fork.git" {
 		t.Errorf("expected tokenized clone URL, got %q", cloneURL)
 	}
 	if !submoduleInited {
@@ -218,9 +185,9 @@ func TestRunInit_ForkURL(t *testing.T) {
 }
 
 func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	forkCalled := false
 	waitForkCalled := false
@@ -244,17 +211,12 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 	ports.GitHub = mockGH
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  &mockSubmoduleOps{},
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("fork-url flow failed: %v", err)
 	}
@@ -267,21 +229,14 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 }
 
 func TestRunInit_ForkURLInvalid(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: ""}
+		d.Workdir = workdir
+	}))
 	if err == nil {
 		t.Fatal("expected error for invalid fork URL")
 	}
@@ -290,28 +245,19 @@ func TestRunInit_ForkURLInvalid(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Phase 5: Post-clone confirm tests
-// ──────────────────────────────────────────────
-
 func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  &mockSubmoduleOps{},
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       false,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil, "Configure API keys"),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.NoInput = false
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+	}))
 	if err != nil {
 		t.Fatalf("post-clone confirm flow failed: %v", err)
 	}
@@ -321,21 +267,16 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 }
 
 func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	ports := defaultMocks()
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       false,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(false, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoInput = false
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = mockConfirmFn(false, nil)
+	}))
 	if err != nil {
 		t.Fatalf("expected nil error (clean exit) when confirm is declined: %v", err)
 	}
@@ -346,23 +287,18 @@ func TestRunInit_PostCloneConfirm_Declined(t *testing.T) {
 
 func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	// With noInput=true, the post-clone confirm should be skipped
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	// If confirm were called with false, we'd error (but it won't be called)
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  &mockSubmoduleOps{},
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+		d.ConfirmFn = nil
+	}))
 	if err != nil {
 		t.Fatalf("post-clone confirm with noInput=true failed: %v", err)
 	}

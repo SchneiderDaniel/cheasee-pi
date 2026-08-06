@@ -1,11 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // builtInCmds are Cobra-internal commands (help, completion) that are exempt
@@ -41,19 +42,11 @@ func TestRootCmd_HasInitSubcommand(t *testing.T) {
 }
 
 func TestRootCmd_HelpContainsAppName(t *testing.T) {
-	rootCmd.SetArgs(nil)
-	rootCmd.SetArgs([]string{"--help"})
-
-	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-
-	_, err := rootCmd.ExecuteC()
+	output, err := testutil.RunCobra(t, rootCmd, "--help")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
 	if !strings.Contains(output, rootCmd.Use) {
 		t.Errorf("help output should contain app name %q", rootCmd.Use)
 	}
@@ -69,13 +62,10 @@ func TestRootCmd_NoRaspberryPiReference(t *testing.T) {
 }
 
 func TestRootCmd_UnknownFlagError(t *testing.T) {
-	rootCmd.SetArgs([]string{"--unknown-flag"})
-	err := rootCmd.Execute()
+	_, err := testutil.RunCobra(t, rootCmd, "--unknown-flag")
 	if err == nil {
 		t.Error("expected error for unknown flag, got nil")
 	}
-	// Reset args for subsequent tests.
-	rootCmd.SetArgs(nil)
 }
 
 func TestInitCmd_RunE(t *testing.T) {
@@ -161,18 +151,11 @@ func TestRootCmd_Version_IsExpectedRelease(t *testing.T) {
 }
 
 func TestInitCmd_HelpShowsFlags(t *testing.T) {
-	rootCmd.SetArgs([]string{"init", "--help"})
-	var buf bytes.Buffer
-	// Cobra help renders to OutOrStderr — set both.
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-
-	_, err := rootCmd.ExecuteC()
+	output, err := testutil.RunCobra(t, rootCmd, "init", "--help")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
 	if !strings.Contains(output, "--api-key") {
 		t.Errorf("init --help output should show --api-key flag\n--- output:\n%s", output)
 	}

@@ -207,19 +207,14 @@ var testSplitFiles = []string{
 }
 
 // initHelperDecls pins the cross-subject helpers to init_helpers_test.go.
+// The rest of the original init_test.go helpers moved to helpers_test.go
+// (mocks, seam stubs, initDeps, submoduleFixture) and testutil/ (SetGitConfig,
+// RedirectConfigHome, ReadEnvFile, ReadSettingsRaw, CaptureStderr) when main
+// consolidated test scaffolding; only the auth + clone-fixture helpers remain.
 var initHelperDecls = map[string]string{
-	"func:defaultMocks":       "init_helpers_test.go",
-	"func:setGitIdentity":     "init_helpers_test.go",
-	"func:unsetGitIdentity":   "init_helpers_test.go",
-	"func:stubDockerLookPath": "init_helpers_test.go",
-	"func:stubDockerCheck":    "init_helpers_test.go",
-	"func:redirectConfigDir":  "init_helpers_test.go",
-	"func:authJSONExists":     "init_helpers_test.go",
-	"func:loadAuthJSON":       "init_helpers_test.go",
-	"func:readEnvFile":        "init_helpers_test.go",
-	"func:readSettingsFile":   "init_helpers_test.go",
-	"func:seedCloneFixture":   "init_helpers_test.go",
-	"func:captureStderr":      "init_helpers_test.go",
+	"func:authJSONExists":   "init_helpers_test.go",
+	"func:loadAuthJSON":     "init_helpers_test.go",
+	"func:seedCloneFixture": "init_helpers_test.go",
 }
 
 // runInitFlowDecls pins the TestRunInit_* decls (colliding prefix) by flow

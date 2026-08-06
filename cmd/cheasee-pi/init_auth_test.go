@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 	"os"
@@ -11,18 +12,14 @@ import (
 	"testing"
 )
 
-// ──────────────────────────────────────────────
-// Phase 3: Authentication tests (AC1)
-// ──────────────────────────────────────────────
-
 func TestRunInitAuth_Success(t *testing.T) {
 	auth := &mockAuthenticator{}
 	token, user, err := runInitAuth(context.Background(), auth)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if token != "gho_test_token" {
-		t.Errorf("expected gho_test_token, got %q", token)
+	if token != FakeGitHubToken {
+		t.Errorf("expected %q, got %q", FakeGitHubToken, token)
 	}
 	if user != "" {
 		t.Errorf("expected empty user from auth (resolved later), got %q", user)
@@ -95,28 +92,17 @@ func TestRunInitAuth_RequestCodeError(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Phase 4: Full flow tests
-// ──────────────────────────────────────────────
-
 func TestRunInit_FullFlow(t *testing.T) {
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		SubmoduleOps:  &mockSubmoduleOps{},
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.SubmoduleOps = &mockSubmoduleOps{}
+		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
@@ -128,24 +114,16 @@ func TestRunInit_FullFlow(t *testing.T) {
 func TestRunInit_NoGitHubFlag(t *testing.T) {
 	// --no-github flag: extract + env + save all run after auth, with the
 	// real in-process adapters (probe, extract, env render, scaffold).
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	setGitIdentity(t)
-
-	ports := defaultMocks()
+	testutil.SetGitConfig(t, testGitIdentityConfig)
 
 	workdir := t.TempDir()
-	err := runInit(context.Background(), InitDeps{
-		Ports:         ports,
-		APIKey:        "sk-abc123",
-		NoDockerCheck: false,
-		NoGitHub:      true,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       workdir,
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+		d.Workdir = workdir
+	}))
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
@@ -154,7 +132,7 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		t.Errorf("extract should have run (docker/docker-compose.yml missing): %v", err)
 	}
 	// Real env renderer ran: docker/.env present with host uid/gid and git identity.
-	envVals := readEnvFile(t, workdir)
+	envVals := testutil.ReadEnvFile(t, workdir)
 	if envVals["HOST_UID"] == "" || envVals["HOST_GIT_NAME"] != "Test User" {
 		t.Errorf("expected .env with HOST_UID and git identity, got: %v", envVals)
 	}
@@ -166,8 +144,8 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 		t.Error("Save should be called on legacy path")
 	}
 	auth := loadAuthJSON(t)
-	if auth.APIKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.RepoPath != workdir {
 		t.Errorf("expected RepoPath %q, got %q", workdir, auth.RepoPath)
@@ -176,12 +154,12 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 
 func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
 	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
-	auth, err := runInitLegacy(context.Background(), &fileRepository{}, "sk-legacy-key", "opencode-go")
+	auth, err := runInitLegacy(context.Background(), &fileRepository{}, FakeAPIKey, "opencode-go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if auth.APIKey != "sk-legacy-key" {
-		t.Errorf("expected API key 'sk-legacy-key', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.RepoPath != "" {
 		t.Errorf("expected empty RepoPath from runInitLegacy (orchestrator fills it), got %q", auth.RepoPath)
@@ -195,7 +173,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stubDockerCheck(t, nil, "24.0.9", nil)
-	redirectConfigDir(t)
+	testutil.RedirectConfigHome(t)
 	ports := defaultMocks()
 
 	// Override auth with one that respects cancelled context
@@ -208,16 +186,7 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	// Cancel right after docker check
 	cancel()
 
-	err := runInit(ctx, InitDeps{
-		Ports:         ports,
-		NoDockerCheck: false,
-		NoGitHub:      false,
-		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
-		Workdir:       t.TempDir(),
-		ConfirmFn:     mockConfirmFn(true, nil),
-		InputFn:       mockInputFn("", nil),
-	})
+	err := runInit(ctx, initDeps(t, func(d *InitDeps) { d.Ports = ports }))
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}

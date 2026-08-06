@@ -11,13 +11,14 @@ import (
 	"strings"
 )
 
-//go:generate cp ../../docker/Dockerfile embedded/docker/Dockerfile
 //go:embed embedded
 var embeddedFS embed.FS
 
 // AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,run-pi.sh,stop-pi.sh,lib/worktree-fix.sh}
 // and embedded/docker/codeflow/{Dockerfile,server.py,config.json}.
-// Synced from docker/ via `make embed`; verify with `make check-embed`.
+// Canonical source is embedded/docker/ (checked in, required by //go:embed);
+// the repo-root docker/ tree is regenerated from it via `make docker-tree`
+// and verified with `make check-docker`.
 // Note: lib/auth-env.sh is no longer embedded; it is derived at runtime via
 // `cheasee-pi auth envvars` (the canonical Go source).
 func AssetFS() fs.FS {

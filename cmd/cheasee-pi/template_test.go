@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // ──────────────────────────────────────────────
@@ -16,25 +16,12 @@ import (
 // ──────────────────────────────────────────────
 
 func TestEnvRenderer_WritesCorrectLines(t *testing.T) {
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "docker", ".env")
-
-	r := &flatEnvRenderer{}
-	err := r.Render(context.Background(), dest, EnvValues{
+	content := RenderEnv(t, EnvValues{
 		HostUID:  "1000",
 		HostGID:  "1001",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
 	})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read .env: %v", err)
-	}
-	content := string(data)
 
 	if !strings.Contains(content, "HOST_UID=1000") {
 		t.Errorf("missing HOST_UID: %s", content)
@@ -51,25 +38,12 @@ func TestEnvRenderer_WritesCorrectLines(t *testing.T) {
 }
 
 func TestEnvRenderer_ShellEscapesWhitespace(t *testing.T) {
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "docker", ".env")
-
-	r := &flatEnvRenderer{}
-	err := r.Render(context.Background(), dest, EnvValues{
+	content := RenderEnv(t, EnvValues{
 		HostUID:  "1000",
 		HostGID:  "1001",
 		GitName:  "User With Spaces",
 		GitEmail: "test@example.com",
 	})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read .env: %v", err)
-	}
-	content := string(data)
 
 	// Value with spaces should be quoted
 	if !strings.Contains(content, `HOST_GIT_NAME="User With Spaces"`) {
@@ -312,23 +286,8 @@ func TestEnvValues_Validate(t *testing.T) {
 // GitIdentity adapter tests
 // ──────────────────────────────────────────────
 
-// writeGitConfig writes a global git config file and points git at it
-// hermetically (GIT_CONFIG_GLOBAL, git >= 2.32; system config disabled).
-func writeGitConfig(t *testing.T, content string) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not available")
-	}
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(cfg, []byte(content), 0644); err != nil {
-		t.Fatalf("write gitconfig: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
-}
-
 func TestOSGitIdentity_Lookup(t *testing.T) {
-	writeGitConfig(t, "[user]\n\tname = Test User\n\temail = test@example.com\n")
+	testutil.SetGitConfig(t, "[user]\n\tname = Test User\n\temail = test@example.com\n")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
@@ -344,7 +303,7 @@ func TestOSGitIdentity_Lookup(t *testing.T) {
 }
 
 func TestOSGitIdentity_NameOnly(t *testing.T) {
-	writeGitConfig(t, "[user]\n\tname = Test User\n")
+	testutil.SetGitConfig(t, "[user]\n\tname = Test User\n")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
@@ -360,7 +319,7 @@ func TestOSGitIdentity_NameOnly(t *testing.T) {
 }
 
 func TestOSGitIdentity_NoConfig(t *testing.T) {
-	writeGitConfig(t, "")
+	testutil.SetGitConfig(t, "")
 
 	id := &osGitIdentity{}
 	name, email, err := id.Lookup()
@@ -372,36 +331,16 @@ func TestOSGitIdentity_NoConfig(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Phase 1: Settings scaffold renderer (entity)
-// ──────────────────────────────────────────────
-
 func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
-
-	vals := TemplateSettingsValues{
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Test User",
 		GitEmail: "test@example.com",
 		Memory:   "4G",
 		CPUs:     "4.0",
-	}
+	})
 
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("Scaffold failed: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
 	}
@@ -433,69 +372,36 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 }
 
 func TestSettingsScaffold_Idempotent(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
-
-	vals := TemplateSettingsValues{
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
 		Provider: "opencode-go",
 		GitName:  "Original",
 		GitEmail: "orig@example.com",
 		Memory:   "2G",
 		CPUs:     "2.0",
-	}
-
-	// First call: write file
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("first Scaffold failed: %v", err)
-	}
+	})
 
 	// Second call: should no-op (file exists)
-	vals2 := TemplateSettingsValues{
+	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
 		Provider: "overwrite",
 		GitName:  "Overwrite",
 		GitEmail: "overwrite@example.com",
 		Memory:   "8G",
 		CPUs:     "8.0",
-	}
-	if err := scaffold.Scaffold(context.Background(), workdir, vals2); err != nil {
+	}); err != nil {
 		t.Fatalf("second Scaffold failed: %v", err)
 	}
 
 	// Content must still be from first call (unchanged)
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
-
+	raw := testutil.ReadSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go' (unchanged), got %v", raw["defaultProvider"])
 	}
 }
 
 func TestSettingsScaffold_EmptyValues(t *testing.T) {
-	scaffold := NewSettingsScaffold()
-	workdir := t.TempDir()
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{}) // all empty
 
-	vals := TemplateSettingsValues{} // all empty
-
-	if err := scaffold.Scaffold(context.Background(), workdir, vals); err != nil {
-		t.Fatalf("Scaffold failed: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("Read settings.json failed: %v", err)
-	}
-
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatalf("settings.json is not valid JSON: %v", err)
-	}
+	raw := testutil.ReadSettingsRaw(t, workdir)
 
 	// Empty values should be empty strings in output
 	if raw["defaultProvider"] != "" {

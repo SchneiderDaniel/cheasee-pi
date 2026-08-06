@@ -4,18 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 func TestConfigSave_Load(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	ctx := context.Background()
 	if err := cfg.Save(ctx, auth); err != nil {
@@ -26,17 +28,16 @@ func TestConfigSave_Load(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc123" {
-		t.Errorf("expected API key 'sk-abc123', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
 }
 
 func TestConfigSave_CreatesDirectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -54,11 +55,10 @@ func TestConfigSave_CreatesDirectory(t *testing.T) {
 }
 
 func TestConfigSave_ValidJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -78,17 +78,16 @@ func TestConfigSave_ValidJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if result["api_key"] != "sk-abc123" {
-		t.Errorf("expected api_key 'sk-abc123', got %v", result["api_key"])
+	if result["api_key"] != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %v", FakeAPIKey, result["api_key"])
 	}
 }
 
 func TestConfigSave_AtomicWrite(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
-	auth := &Auth{APIKey: "sk-abc123"}
+	auth := &Auth{APIKey: FakeAPIKey}
 
 	if err := cfg.Save(context.Background(), auth); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -106,8 +105,7 @@ func TestConfigSave_AtomicWrite(t *testing.T) {
 }
 
 func TestConfigLoad_FileNotExists(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	loaded, err := cfg.Load(context.Background())
@@ -123,8 +121,7 @@ func TestConfigLoad_FileNotExists(t *testing.T) {
 }
 
 func TestConfigLoad_InvalidJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Create auth.json with invalid JSON
 	path := filepath.Join(dir, "cheasee-pi", "auth.json")
@@ -139,8 +136,7 @@ func TestConfigLoad_InvalidJSON(t *testing.T) {
 }
 
 func TestConfigLoad_PathIsDirectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Create auth.json as a directory
 	path := filepath.Join(dir, "cheasee-pi", "auth.json")
@@ -154,8 +150,7 @@ func TestConfigLoad_PathIsDirectory(t *testing.T) {
 }
 
 func TestConfigPath(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	path, err := cfg.Path()
@@ -170,8 +165,7 @@ func TestConfigPath(t *testing.T) {
 }
 
 func TestConfigSave_EmptyAPIKey(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: ""}
@@ -189,10 +183,9 @@ func TestConfigSave_EmptyAPIKey(t *testing.T) {
 }
 
 func TestConfigSave_SpecialChars(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
-	specialKey := `sk-"quoted"-with\backslash and ünicode`
+	specialKey := `key-"quoted"-with\backslash and ünicode`
 	cfg := &fileRepository{}
 	auth := &Auth{APIKey: specialKey}
 
@@ -209,20 +202,13 @@ func TestConfigSave_SpecialChars(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Auth per-provider schema tests (entity layer)
-// ──────────────────────────────────────────────
-
 func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 	auth := &Auth{
-		APIKey:   "sk-abc",
+		APIKey:   FakeAPIKey,
 		Provider: "opencode-go",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	// Must contain the provider-keyed object
 	var raw map[string]any
@@ -238,8 +224,8 @@ func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 	if !ok {
 		t.Fatal("expected provider entry to be an object")
 	}
-	if entry["key"] != "sk-abc" {
-		t.Errorf("expected key 'sk-abc', got %v", entry["key"])
+	if entry["key"] != FakeAPIKey {
+		t.Errorf("expected key %q, got %v", FakeAPIKey, entry["key"])
 	}
 
 	// Must NOT have flat api_key field
@@ -250,14 +236,11 @@ func TestAuthPerProvider_MarshalHasProviderSlot(t *testing.T) {
 
 func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 	auth := &Auth{
-		APIKey: "sk-abc",
+		APIKey: FakeAPIKey,
 		// Provider is empty — should write flat api_key
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -267,8 +250,8 @@ func TestAuthPerProvider_MarshalNoProviderWritesFlat(t *testing.T) {
 	if _, ok := raw["api_key"]; !ok {
 		t.Error("expected flat 'api_key' field when Provider is empty")
 	}
-	if raw["api_key"] != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %v", raw["api_key"])
+	if raw["api_key"] != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %v", FakeAPIKey, raw["api_key"])
 	}
 }
 
@@ -278,15 +261,12 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 	// backward compatibility (even if empty string), preserving the
 	// pre-existing TestConfigSave_EmptyAPIKey contract.
 	auth := &Auth{
-		GitHubToken: "gho_token",
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/workspace",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -302,32 +282,32 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 	} else {
 		t.Error("expected 'api_key' field (empty) for backward compat when Provider is empty")
 	}
-	if raw["github_token"] != "gho_token" {
-		t.Errorf("expected github_token 'gho_token', got %v", raw["github_token"])
+	if raw["github_token"] != FakeGitHubToken {
+		t.Errorf("expected github_token %q, got %v", FakeGitHubToken, raw["github_token"])
 	}
 }
 
 func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
-	data := []byte(`{
-		"opencode-go": {"key": "sk-abc"},
-		"github_token": "gho_123",
+	data := []byte(fmt.Sprintf(`{
+		"opencode-go": {"key": "%s"},
+		"github_token": "%s",
 		"github_user": "testuser",
 		"repo_path": "/workspace"
-	}`)
+	}`, FakeAPIKey, FakeGitHubToken))
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("Unmarshal of provider format failed: %v", err)
 	}
 
-	if auth.APIKey != "sk-abc" {
-		t.Errorf("expected APIKey 'sk-abc', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected APIKey %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.Provider != "opencode-go" {
 		t.Errorf("expected Provider 'opencode-go', got %q", auth.Provider)
 	}
-	if auth.GitHubToken != "gho_123" {
-		t.Errorf("expected GitHubToken 'gho_123', got %q", auth.GitHubToken)
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, auth.GitHubToken)
 	}
 	if auth.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", auth.GitHubUser)
@@ -338,31 +318,30 @@ func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
 }
 
 func TestAuthPerProvider_UnmarshalFlatFormat(t *testing.T) {
-	data := []byte(`{"api_key": "sk-old", "github_token": "gho_old"}`)
+	data := []byte(fmt.Sprintf(`{"api_key": "%s", "github_token": "%s"}`, FakeAPIKey, FakeGitHubToken))
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("Unmarshal of flat format failed: %v", err)
 	}
 
-	if auth.APIKey != "sk-old" {
-		t.Errorf("expected APIKey 'sk-old', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected APIKey %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.Provider != "" {
 		t.Errorf("expected empty Provider for flat format, got %q", auth.Provider)
 	}
-	if auth.GitHubToken != "gho_old" {
-		t.Errorf("expected GitHubToken 'gho_old', got %q", auth.GitHubToken)
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, auth.GitHubToken)
 	}
 }
 
 func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:   "sk-jq-test",
+		APIKey:   FakeAPIKey,
 		Provider: "opencode-go",
 	}
 
@@ -390,8 +369,8 @@ func TestAuthPerProvider_SaveWritesJqParseableOutput(t *testing.T) {
 	if !ok {
 		t.Fatal("provider entry must be an object")
 	}
-	if entryMap["key"] != "sk-jq-test" {
-		t.Errorf("expected key 'sk-jq-test', got %v", entryMap["key"])
+	if entryMap["key"] != FakeAPIKey {
+		t.Errorf("expected key %q, got %v", FakeAPIKey, entryMap["key"])
 	}
 }
 
@@ -422,14 +401,13 @@ func TestAuthPerProvider_UnmarshalMalformedJSON(t *testing.T) {
 }
 
 func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:      "sk-abc",
+		APIKey:      FakeAPIKey,
 		Provider:    "opencode-go",
-		GitHubToken: "gho_token",
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/some/path",
 	}
@@ -442,14 +420,14 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
 	if loaded.Provider != "opencode-go" {
 		t.Errorf("expected Provider 'opencode-go', got %q", loaded.Provider)
 	}
-	if loaded.GitHubToken != "gho_token" {
-		t.Errorf("expected GitHubToken 'gho_token', got %q", loaded.GitHubToken)
+	if loaded.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, loaded.GitHubToken)
 	}
 	if loaded.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", loaded.GitHubUser)
@@ -461,14 +439,11 @@ func TestAuthPerProvider_RoundTripWithProvider(t *testing.T) {
 
 func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 	auth := &Auth{
-		APIKey:   "sk-abc",
+		APIKey:   FakeAPIKey,
 		Provider: "openai",
 	}
 
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	data := marshalAuth(t, auth)
 
 	if bytes.Contains(data, []byte("github_token")) {
 		t.Error("expected no github_token in output when empty")
@@ -478,19 +453,14 @@ func TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// Legacy/backward compat tests
-// ──────────────────────────────────────────────
-
 func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	dir := testutil.RedirectConfigHome(t)
 
 	// Write old-format auth.json
 	oldDir := filepath.Join(dir, "cheasee-pi")
 	os.MkdirAll(oldDir, 0700)
 	oldPath := filepath.Join(oldDir, "auth.json")
-	oldContent := `{"api_key": "sk-old-key"}`
+	oldContent := fmt.Sprintf(`{"api_key": "%s"}`, FakeAPIKey)
 	os.WriteFile(oldPath, []byte(oldContent), 0600)
 
 	cfg := &fileRepository{}
@@ -498,8 +468,8 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load of old format failed: %v", err)
 	}
-	if auth.APIKey != "sk-old-key" {
-		t.Errorf("expected API key 'sk-old-key', got %q", auth.APIKey)
+	if auth.APIKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
 	}
 	if auth.GitHubToken != "" {
 		t.Errorf("expected empty GitHubToken for old format, got %q", auth.GitHubToken)
@@ -507,13 +477,12 @@ func TestConfigBackwardCompat_OldAuthLoads(t *testing.T) {
 }
 
 func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	testutil.RedirectConfigHome(t)
 
 	cfg := &fileRepository{}
 	auth := &Auth{
-		APIKey:      "sk-abc",
-		GitHubToken: "gho_token",
+		APIKey:      FakeAPIKey,
+		GitHubToken: FakeGitHubToken,
 		GitHubUser:  "testuser",
 		RepoPath:    "/some/path",
 	}
@@ -526,11 +495,11 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.APIKey != "sk-abc" {
-		t.Errorf("expected api_key 'sk-abc', got %q", loaded.APIKey)
+	if loaded.APIKey != FakeAPIKey {
+		t.Errorf("expected api_key %q, got %q", FakeAPIKey, loaded.APIKey)
 	}
-	if loaded.GitHubToken != "gho_token" {
-		t.Errorf("expected GitHubToken 'gho_token', got %q", loaded.GitHubToken)
+	if loaded.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected GitHubToken %q, got %q", FakeGitHubToken, loaded.GitHubToken)
 	}
 	if loaded.GitHubUser != "testuser" {
 		t.Errorf("expected GitHubUser 'testuser', got %q", loaded.GitHubUser)

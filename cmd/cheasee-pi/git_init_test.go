@@ -9,10 +9,6 @@ import (
 	"testing"
 )
 
-// ──────────────────────────────────────────────
-// Phase 2: Git initializer (entity)
-// ──────────────────────────────────────────────
-
 func TestGitInitializer_Init(t *testing.T) {
 	workdir := t.TempDir()
 
@@ -65,12 +61,10 @@ func TestGitInitializer_ContextCancelled(t *testing.T) {
 	cancel() // immediately cancelled
 
 	// Seam must not be touched for a pre-cancelled ctx.
-	saved := runCommandContext
-	runCommandContext = func(ctx context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		t.Errorf("runCommandContext should not be invoked with cancelled ctx")
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitInit(ctx, workdir)
 	if err == nil {
@@ -81,18 +75,12 @@ func TestGitInitializer_ContextCancelled(t *testing.T) {
 	}
 }
 
-// ──────────────────────────────────────────────
-// gitInit seam tests (runner-level)
-// ──────────────────────────────────────────────
-
 func TestGitInit_SeamArgsCaptured(t *testing.T) {
 	var captured []string
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		captured = arg
 		return &mockCmd{}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	workdir := t.TempDir()
 	if err := gitInit(context.Background(), workdir); err != nil {
@@ -104,13 +92,11 @@ func TestGitInit_SeamArgsCaptured(t *testing.T) {
 }
 
 func TestGitInit_ErrorWrapsOutput(t *testing.T) {
-	saved := runCommandContext
-	runCommandContext = func(_ context.Context, _ string, _ ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{combinedFn: func() ([]byte, error) {
 			return []byte("fatal: Invalid path"), fmt.Errorf("exit status 128")
 		}}
-	}
-	defer func() { runCommandContext = saved }()
+	})
 
 	err := gitInit(context.Background(), t.TempDir())
 	if err == nil {
