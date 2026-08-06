@@ -1,0 +1,88 @@
+# Dependency Existence Check
+# ===========================
+# Proactive slopsquatting guard: verifies that every declared dependency
+# exists in its registry and (where the registry exposes dates) is at least
+# 14 days old, so hallucinated package names registered by attackers are
+# caught before they are installed. Runs the stdlib-only checker in scripts/
+# on pull requests and pushes to main.
+#
+# Job order: offline unit tests first (no network), then the live check
+# against the real registries, with ::error:: annotations per finding and a
+# JSON report artifact on failure.
+#
+# Budget: ~5 min
+
+name: Dependency Existence Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run offline checker unit tests
+        run: python3 test/dependency-existence-check.test.py
+
+      - name: Validate workflow YAML
+        run: node --experimental-strip-types --test test/dependency-existence-workflow.test.mts
+
+  check:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache registry responses
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/slopsquat
+          key: dependency-existence-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            dependency-existence-${{ runner.os }}-
+
+      - name: Run dependency existence check
+        run: |
+          python3 scripts/dependency-existence-check.py --root . --json \
+            > /tmp/dependency-existence-report.json || true
+          python3 - <<'EOF'
+          import json, sys
+          try:
+              report = json.load(open("/tmp/dependency-existence-report.json"))
+          except Exception as exc:
+              print(f"::error::could not read dependency-existence report: {exc}")
+              sys.exit(1)
+          for failure in report.get("failures", []):
+              loc = failure.get("source_file", "") or ""
+              line = failure.get("line", 0)
+              print(f"::error file={loc},line={line}::{failure.get('message', 'dependency check failed')}")
+          print(f"Checked {len(report.get('checked', []))} dependencies, "
+                f"{len(report.get('failures', []))} finding(s)")
+          sys.exit(0 if report.get("ok") else 1)
+          EOF
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-existence-report
+          path: /tmp/dependency-existence-report.json
