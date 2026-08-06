@@ -161,15 +161,6 @@ def _mime(path):
     return _MIME.get(ext) or mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
-def _safe_path(rel):
-    """Resolve a repo-relative path, refusing traversal outside REPO_ROOT."""
-    root = os.path.realpath(REPO_ROOT)
-    target = os.path.realpath(os.path.join(root, rel.lstrip("/")))
-    if target != root and not target.startswith(root + os.sep):
-        return None
-    return target
-
-
 def _gitignored(paths):
     """Return the subset of repo-relative paths matched by .gitignore.
 
@@ -289,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             for pat, repl in _UI_REWRITES:
                 data = pat.sub(lambda _: repl, data)
         self.send_response(200)
-        self.send_header("Content-Type", _mime(rel))
+        self.send_header("Content-Type", _mime(os.path.basename(target)))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -315,8 +306,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if rest[0] == "contents":
             rel = "/".join(rest[1:])
-            target = _safe_path(rel)
-            if target is None:
+            # Inline normalization + prefix check (CodeQL path-injection
+            # sanitizer only recognizes guards in the calling function).
+            root = os.path.realpath(REPO_ROOT)
+            target = os.path.realpath(os.path.join(root, rel.lstrip("/")))
+            if target != root and not target.startswith(root + os.sep):
                 self._not_found()
                 return
             if os.path.isdir(target):
