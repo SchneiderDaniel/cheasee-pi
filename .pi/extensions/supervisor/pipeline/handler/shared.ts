@@ -11,6 +11,7 @@ import type {
 	FilteredIssueData,
 	ProjectField,
 	ProjectItem,
+	AgentRunner,
 } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ExecFn, NotifyFn } from "../helpers.ts";
@@ -65,6 +66,11 @@ export interface RunContext {
 	crashCleanup: CrashCleanup | undefined;
 	stopReason: string | undefined;
 	agentResults: PipelineAgentResult[];
+
+	// Test injection seam (issue #1472): optional mock agent runner passed
+	// through to executeAgent and the PR-readiness gate's developer dispatch.
+	// Production callers omit this — undefined means the real runner is used.
+	_runner?: AgentRunner;
 }
 
 // ─── Resolved-By Info Fetcher ─────────────────────────────────────
