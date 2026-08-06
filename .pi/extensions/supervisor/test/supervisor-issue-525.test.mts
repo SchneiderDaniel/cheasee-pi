@@ -169,24 +169,30 @@ describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 3: Source-structure — types.ts SupervisorMessageDetails update (Bug 1)
 // ═══════════════════════════════════════════════════════════════════════
+// The interface was removed entirely as dead code (GH #1473 dead-code gate:
+// unused-export, no production consumer). Removal satisfies this phase's
+// intent — rawOutput/textOutput are "removed" — so the interface is now
+// optional: absent ⇒ pass, present ⇒ fields must be optional/required per spec.
 
 describe("Bug 1 — SupervisorMessageDetails interface update", () => {
 	const source = readFileSync(".pi/extensions/supervisor/config/types.ts", "utf-8");
 
+	/** Body of the SupervisorMessageDetails interface, or null when absent (removed as dead code). */
+	function supervisorMessageDetailsBody(): string | null {
+		const interfaceStart = source.indexOf("export interface SupervisorMessageDetails");
+		if (interfaceStart < 0) return null;
+		const interfaceBlock = source.slice(interfaceStart);
+		const bodyStart = interfaceBlock.indexOf("{");
+		const bodyEnd = interfaceBlock.indexOf("}");
+		if (bodyStart < 0 || bodyEnd < 0) return "";
+		return interfaceBlock.slice(bodyStart + 1, bodyEnd);
+	}
+
 	// ── 3.1: rawOutput field removed or made optional ──
 
 	it("3.1: rawOutput field removed or marked optional in SupervisorMessageDetails", () => {
-		// Find the SupervisorMessageDetails interface
-		const interfaceStart = source.indexOf("export interface SupervisorMessageDetails");
-		assert.ok(interfaceStart >= 0, "SupervisorMessageDetails interface must exist");
-
-		const interfaceBlock = source.slice(interfaceStart);
-		// Extract the interface body
-		const bodyStart = interfaceBlock.indexOf("{");
-		const bodyEnd = interfaceBlock.indexOf("}");
-		assert.ok(bodyStart >= 0, "Interface must have body");
-		const body = interfaceBlock.slice(bodyStart + 1, bodyEnd);
-
+		const body = supervisorMessageDetailsBody();
+		if (body === null) return; // interface removed (dead code, #1473) — rawOutput removed with it
 		// Check for rawOutput — should be either removed or marked optional with ?
 		const rawOutputLine = body.split("\n").find((l) => l.includes("rawOutput"));
 		if (rawOutputLine) {
@@ -196,16 +202,11 @@ describe("Bug 1 — SupervisorMessageDetails interface update", () => {
 				"rawOutput must be optional (marked with ?) if present: " + rawOutputLine.trim(),
 			);
 		}
-		// If rawOutput is completely removed, also ok
 	});
 
 	it("3.2: textOutput field removed or marked optional in SupervisorMessageDetails", () => {
-		const interfaceStart = source.indexOf("export interface SupervisorMessageDetails");
-		const interfaceBlock = source.slice(interfaceStart);
-		const bodyStart = interfaceBlock.indexOf("{");
-		const bodyEnd = interfaceBlock.indexOf("}");
-		const body = interfaceBlock.slice(bodyStart + 1, bodyEnd);
-
+		const body = supervisorMessageDetailsBody();
+		if (body === null) return; // interface removed (dead code, #1473) — textOutput removed with it
 		const textOutputLine = body.split("\n").find((l) => l.includes("textOutput"));
 		if (textOutputLine) {
 			assert.ok(
@@ -218,12 +219,8 @@ describe("Bug 1 — SupervisorMessageDetails interface update", () => {
 	// ── 3.3: Small metadata fields retained ──
 
 	it("3.3: agentName, summaryLine, toolCount, tokenCount, durationMs remain required", () => {
-		const interfaceStart = source.indexOf("export interface SupervisorMessageDetails");
-		const interfaceBlock = source.slice(interfaceStart);
-		const bodyStart = interfaceBlock.indexOf("{");
-		const bodyEnd = interfaceBlock.indexOf("}");
-		const body = interfaceBlock.slice(bodyStart + 1, bodyEnd);
-
+		const body = supervisorMessageDetailsBody();
+		if (body === null) return; // interface removed (dead code, #1473)
 		assert.ok(body.includes("agentName"), "agentName must remain in SupervisorMessageDetails");
 		assert.ok(body.includes("summaryLine"), "summaryLine must remain in SupervisorMessageDetails");
 		assert.ok(body.includes("toolCount"), "toolCount must remain in SupervisorMessageDetails");

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { tryRebaseOntoBase } from "../../pipeline/rebase.ts";
+import type { RebaseOptions } from "../../config/types.ts";
 
 // ─── Call Tracking ────────────────────────────────────────────────
 
@@ -768,5 +769,203 @@ describe("tryRebaseOntoBase()", () => {
 		assert.equal(execCalls[5].args[0], "diff");
 		assert.equal(execCalls[6].args[0], "rebase");
 		assert.equal(execCalls[6].args[1], "--abort");
+	});
+
+	// ─── Phase 1 (issue #1473): mergeFallback:false option ──────────
+
+	it("mergeFallback:false + conflict → conflictFiles returned, merge NEVER invoked, abort exactly once", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				// rebase fails with a conflict
+				{ code: 1, stdout: "", stderr: "rebase failed: conflict" },
+				// diff --diff-filter=U lists conflicted files
+				{ code: 0, stdout: "src/a.ts\nsrc/b.ts\n", stderr: "" },
+				// rebase --abort succeeds
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, {
+			mergeFallback: false,
+		});
+
+		assert.ok(!result.success, "should fail on conflict");
+		assert.deepEqual(
+			result.conflictFiles,
+			["src/a.ts", "src/b.ts"],
+			"should return conflicted files straight after abort",
+		);
+		assert.ok(
+			result.message.includes("Rebase conflicts"),
+			"message should mention rebase conflicts",
+		);
+
+		// git merge --no-edit NEVER invoked; no git merge --abort (nothing to abort)
+		const mergeCalls = execCalls.filter((c) => c.args[0] === "merge");
+		assert.equal(mergeCalls.length, 0, "merge fallback must NOT be invoked with mergeFallback:false");
+		// git rebase --abort called exactly once
+		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
+		assert.equal(abortCalls.length, 1, "rebase --abort should be called exactly once");
+		// call order: fetch → rebase → diff → abort
+		assert.deepEqual(
+			execCalls.map((c) => c.args[0]),
+			["fetch", "rebase", "diff", "rebase"],
+			"call order should be fetch, rebase, diff, rebase --abort",
+		);
+	});
+
+	it("opts undefined (default) → merge fallback still attempted on conflict (regression guard)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "rebase failed: conflict" },
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				// merge fallback — succeeds
+				{ code: 0, stdout: "merge ok", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi);
+
+		assert.ok(result.success, "default opts should still attempt and succeed via merge fallback");
+		assert.deepEqual(result.conflictFiles, []);
+		const mergeCalls = execCalls.filter((c) => c.args[0] === "merge");
+		assert.equal(mergeCalls.length, 1, "default opts must still attempt the merge fallback");
+		assert.deepEqual(mergeCalls[0]!.args, ["merge", "--no-edit", "origin/main"]);
+	});
+
+	it("mergeFallback:false + success → call sequence identical to default (fetch → rebase)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, {
+			mergeFallback: false,
+		});
+
+		assert.ok(result.success, "should succeed");
+		assert.deepEqual(result.conflictFiles, [], "no conflict files on success");
+		assert.equal(execCalls.length, 2, "only fetch + rebase");
+		assert.deepEqual(
+			execCalls.map((c) => c.args[0]),
+			["fetch", "rebase"],
+			"option must not alter the success path",
+		);
+	});
+
+	it("mergeFallback:false + non-conflict failure (index.lock) → abort called, stderr-backed message, empty conflictFiles", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists." },
+				// diff empty
+				{ code: 0, stdout: "", stderr: "" },
+				// abort
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, {
+			mergeFallback: false,
+		});
+
+		assert.ok(!result.success, "should fail");
+		assert.deepEqual(result.conflictFiles, [], "no conflict files");
+		assert.ok(
+			result.message.includes("index.lock"),
+			"message should surface the real rebase stderr",
+		);
+		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
+		assert.equal(abortCalls.length, 1, "rebase --abort should be called");
+		const mergeCalls = execCalls.filter((c) => c.args[0] === "merge");
+		assert.equal(mergeCalls.length, 0, "no merge fallback on non-conflict failure");
+	});
+
+	it("mergeFallback:false + fetch exhaustion → unchanged failure, no rebase attempted", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 1, stdout: "", stderr: "network down 1" },
+				{ code: 1, stdout: "", stderr: "network down 2" },
+				{ code: 1, stdout: "", stderr: "network down 3" },
+			],
+			execCalls,
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, {
+			mergeFallback: false,
+		});
+
+		assert.ok(!result.success, "should fail");
+		assert.deepEqual(result.conflictFiles, []);
+		assert.ok(result.message.toLowerCase().includes("fetch failed"));
+		assert.equal(execCalls.length, 3, "all calls are fetch attempts");
+		for (const call of execCalls) {
+			assert.equal(call.args[0], "fetch");
+		}
+	});
+
+	it("mergeFallback:false + untracked-collision → Phase 2.5 scoped-clean + retry still applies", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: ISSUE_COLLISION_STDERR },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "report/jscpd-report.json\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+			{ resolveOnError: true },
+		);
+
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, {
+			mergeFallback: false,
+		});
+
+		assert.ok(result.success, "scoped-clean + retry must still apply with mergeFallback:false");
+		assert.deepEqual(result.conflictFiles, []);
+		assert.deepEqual(
+			execCalls.map((c) => c.args[0]),
+			["fetch", "rebase", "ls-files", "ls-tree", "clean", "rebase"],
+			"option only gates the post-conflict merge, never the collision recovery",
+		);
+		assert.deepEqual(execCalls[4].args, ["clean", "-fd", "--", "report/jscpd-report.json"]);
+	});
+
+	// ─── Phase 2 (issue #1473): RebaseOptions type contract ─────────
+
+	it("tryRebaseOntoBase accepts optional RebaseOptions as 5th argument (type-level contract)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+			],
+			execCalls,
+		);
+		// Compile-time contract: { mergeFallback: boolean } accepted; unknown keys rejected.
+		const opts: RebaseOptions = { mergeFallback: false };
+		const result = await tryRebaseOntoBase(WORKTREE_PATH, DEFAULT_BRANCH, REMOTE, pi, opts);
+		assert.ok(result.success);
+		const emptyOpts: RebaseOptions = {};
+		assert.equal(emptyOpts.mergeFallback, undefined, "mergeFallback is optional");
 	});
 });

@@ -89,6 +89,14 @@ export interface StageState {
 	 * 3+ gate failures appear as separate entries.
 	 */
 	gateFailureHistory: string[];
+	/**
+	 * Files that conflicted in the last pre-Implementation rebase (issue
+	 * #1473). Set on conflict, cleared on the next successful pre-dispatch
+	 * rebase. Ephemeral — same lifecycle as gateFailureContext; survives
+	 * Audit→Implementation loop-backs and feeds the developer task's
+	 * "Reintegrate main" section and the PR summary.
+	 */
+	rebaseConflictFiles?: string[];
 }
 
 export function createStageState(initialStatus: string): StageState {
@@ -103,6 +111,7 @@ export function createStageState(initialStatus: string): StageState {
 
 		gateFailureContext: undefined,
 		gateFailureHistory: [],
+		rebaseConflictFiles: undefined,
 	};
 }
 

@@ -25,7 +25,7 @@ export async function commitChanges(exec: ExecFn, cwd: string, message: string):
 	});
 }
 
-/** Push a branch to a remote. Retries with --force on non-fast-forward rejection. */
+/** Push a branch to a remote. Retries with --force-with-lease on non-fast-forward rejection. */
 export async function pushBranch(
 	exec: ExecFn,
 	cwd: string,
@@ -45,27 +45,34 @@ export async function pushBranch(
 
 			const stderr = (result.stderr || "") + (result.stdout || "");
 			// Non-fast-forward: old branch exists remotely from previous pipeline run.
-			// Force-push since this branch is pipeline-owned (single-author, not shared).
+			// Retry with --force-with-lease: safe while the branch is pipeline-owned
+			// (single-author) and fails closed if a concurrent/resumed instance
+			// advanced the remote since our last fetch (mid-pipeline rebases rewrite
+			// SHAs, so every refresh makes the next stage push non-fast-forward).
 			if (stderr.includes("non-fast-forward") || stderr.includes("fetch first")) {
-				log.warn("git", "Non-fast-forward push — retrying with --force", {
+				log.warn("git", "Non-fast-forward push — retrying with --force-with-lease", {
 					cwd,
 					remote,
 					branch,
 					stderr: stderr.slice(0, 300),
 				});
-				const forceResult = await exec("git", ["push", "--force", remote, branch], {
-					cwd,
-				});
+				const forceResult = await exec(
+					"git",
+					["push", "--force-with-lease", remote, branch],
+					{
+						cwd,
+					},
+				);
 				if (forceResult.code === 0) {
-					log.info("git", `git push --force OK — ${remote}/${branch}`);
+					log.info("git", `git push --force-with-lease OK — ${remote}/${branch}`);
 					return;
 				}
 				const forceStderr = (forceResult.stderr || "") + (forceResult.stdout || "");
-				log.error("git", "git push --force also failed", {
+				log.error("git", "git push --force-with-lease also failed", {
 					cwd,
 					stderr: forceStderr.slice(0, 500),
 				});
-				throw new Error(`git push --force failed: ${forceStderr}`);
+				throw new Error(`git push --force-with-lease failed: ${forceStderr}`);
 			}
 
 			log.warn("git", "git push failed", {
