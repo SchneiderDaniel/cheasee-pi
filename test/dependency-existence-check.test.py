@@ -85,6 +85,11 @@ def url_for(registry, name):
     raise AssertionError(f"unknown registry {registry}")
 
 
+def _netloc(url):
+    """Host of a registry URL: exact host match, not substring (CodeQL-clean)."""
+    return urllib.parse.urlparse(url).netloc
+
+
 def ok_route(registry, name, iso=OLD_ISO):
     url = url_for(registry, name)
     if registry == "pypi":
@@ -132,9 +137,9 @@ def make_response(url, etag=None):
     """Permissive default handler: any registry URL answers 200 with an old date."""
     if "pypi.org/pypi/" in url:
         return 200, pypi_body(), None
-    if "registry.npmjs.org/" in url:
+    if _netloc(url) == "registry.npmjs.org":
         return 200, json.dumps({"time": {"created": OLD_ISO}}), None
-    if "proxy.golang.org/" in url:
+    if _netloc(url) == "proxy.golang.org":
         return 200, json.dumps({"Version": "v1.0.0", "Time": OLD_ISO}), None
     if "crates.io/api/v1/crates/" in url:
         return 200, json.dumps({"crate": {"created_at": OLD_ISO}}), None
@@ -155,7 +160,7 @@ def make_response(url, etag=None):
         return 200, json.dumps({"created_at": OLD_ISO}), None
     if "repo.packagist.org/p2/" in url:
         return 200, json.dumps({"packages": {"x/y": [{"time": OLD_ISO}]}}), None
-    if "swiftpackageindex.com/" in url:
+    if _netloc(url) == "swiftpackageindex.com":
         return 200, "<html>ok</html>", None
     if "pub.dev/api/packages/" in url:
         return 200, json.dumps({"versions": [{"published": OLD_ISO}]}), None
@@ -1135,7 +1140,7 @@ class RegistryAndTransportTests(unittest.TestCase):
 
             def opener(url, headers, etag):
                 seen.append((url, headers.get("User-Agent")))
-                if "crates.io" in url:
+                if _netloc(url) == "crates.io":
                     return 200, {}, json.dumps({"crate": {"created_at": OLD_ISO}})
                 return 200, {}, pypi_body()
 
@@ -1146,7 +1151,7 @@ class RegistryAndTransportTests(unittest.TestCase):
             self.assertTrue(seen)
             for url, ua in seen:
                 self.assertTrue(ua, f"User-Agent missing for {url}")
-            crates = [url for url, _ in seen if "crates.io" in url]
+            crates = [url for url, _ in seen if _netloc(url) == "crates.io"]
             self.assertTrue(crates, "crates.io must be exercised")
         finally:
             td.cleanup()
@@ -1427,8 +1432,8 @@ class EndToEndTests(unittest.TestCase):
             k.split("node_modules/")[-1] for k in lock["packages"]
             if k.startswith("node_modules/") and k.split("node_modules/")[-1] not in direct
         }
-        npm_requested = {urllib.parse.unquote(u.split("registry.npmjs.org/")[1])
-                         for u in urls if "registry.npmjs.org/" in u}
+        npm_requested = {urllib.parse.unquote(urllib.parse.urlparse(u).path.lstrip("/"))
+                         for u in urls if _netloc(u) == "registry.npmjs.org"}
         for n in transitive_only - other_direct:
             self.assertNotIn(n, npm_requested, f"transitive {n} was requested")
 
