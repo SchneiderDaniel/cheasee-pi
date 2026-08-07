@@ -40,6 +40,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Contract test (stubbed gh, no network)
         run: bash test/security-posture.test.sh

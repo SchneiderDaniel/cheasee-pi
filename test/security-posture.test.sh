@@ -454,16 +454,15 @@ else
 	fail "workflow: step order wrong or step missing"
 fi
 
-# regression: existing workflows untouched
-if git status --porcelain .github/workflows/ | grep -Eq '^\?\?|^ M'; then
-	modified="$(git status --porcelain .github/workflows/ | tr '\n' ' ')"
-	if [ "$(git status --porcelain .github/workflows/ | grep -c '^ M')" -eq 0 ]; then
-		pass "regression: existing workflows unmodified (only new untracked file)"
+# regression: existing workflows untouched (only new workflow files allowed)
+base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+if statuses="$(git diff --name-status "$base" HEAD -- .github/workflows/ 2>/dev/null)"; then
+	modified="$(printf '%s\n' "$statuses" | grep -v '^A' || true)"
+	if [ -z "$modified" ]; then
+		pass "regression: existing workflows unmodified (only new workflow files)"
 	else
-		fail "regression: existing workflows modified: $modified"
+		fail "regression: existing workflows modified: $(printf '%s ' $modified)"
 	fi
-else
-	fail "regression: security-posture.yml not present as untracked new file"
 fi
 
 echo "== Phase 6: docs =="

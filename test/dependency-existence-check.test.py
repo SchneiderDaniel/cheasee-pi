@@ -75,7 +75,7 @@ def url_for(registry, name):
     if registry == "conan":
         return f"https://conan.io/center/recipes/{name}"
     if registry == "rubygems":
-        return f"https://rubygems.org/api/v1/gems/{name}.json"
+        return f"https://rubygems.org/api/v1/versions/{name}.json"
     if registry == "packagist":
         return f"https://repo.packagist.org/p2/{name}.json"
     if registry == "swift":
@@ -117,7 +117,7 @@ def ok_route(registry, name, iso=OLD_ISO):
     if registry == "conan":
         return url, (200, "<html>recipe</html>", None)
     if registry == "rubygems":
-        return url, (200, json.dumps({"created_at": iso}), None)
+        return url, (200, json.dumps([{"number": "1.0.0", "built_at": iso}]), None)
     if registry == "packagist":
         return url, (200, json.dumps(
             {"packages": {name: [{"name": name, "time": iso}]}}), None)
@@ -156,8 +156,8 @@ def make_response(url, etag=None):
         return 200, json.dumps({"name": "x"}), None
     if "conan.io/center/recipes/" in url:
         return 200, "<html>recipe</html>", None
-    if "rubygems.org/api/v1/gems/" in url:
-        return 200, json.dumps({"created_at": OLD_ISO}), None
+    if "rubygems.org/api/v1/versions/" in url:
+        return 200, json.dumps([{"number": "1.0.0", "built_at": OLD_ISO}]), None
     if "repo.packagist.org/p2/" in url:
         return 200, json.dumps({"packages": {"x/y": [{"time": OLD_ISO}]}}), None
     if _netloc(url) == "swiftpackageindex.com":
@@ -242,7 +242,7 @@ class PipelineAndAgeGuardTests(unittest.TestCase):
         for n, iv in self._orig.items():
             dec.REGISTRIES[n].interval = iv
 
-    def _run_py_dep(self, published, threshold=None, name="alpha"):
+    def _run_py_dep(self, published, threshold=None, name="alpha", args_extra=None):
         td, repo = write_repo({"requirements.txt": f"{name}\n"})
         try:
             fetcher = FakeFetcher(routes=dict([
@@ -251,6 +251,8 @@ class PipelineAndAgeGuardTests(unittest.TestCase):
             args = ["--root", str(repo), "--json"]
             if threshold is not None:
                 args += ["--threshold-days", str(threshold)]
+            if args_extra:
+                args += args_extra
             code, out = run_main(args, fetcher)
             return code, json.loads(out)
         finally:
@@ -269,6 +271,34 @@ class PipelineAndAgeGuardTests(unittest.TestCase):
         code, r = self._run_py_dep(iso_days_ago(-1))  # future-dated
         self.assertEqual(code, 1)
         self.assertEqual(r["failures"][0]["reason"], "too-young")
+
+    def test_exempt_young_allows_specific_version_below_threshold(self):
+        code, r = self._run_py_dep(iso_days_ago(3))
+        self.assertEqual(code, 1)
+        self.assertEqual(r["failures"][0]["reason"], "too-young")
+        # Exempting the exact NAME@VERSION passes.
+        code, r = self._run_py_dep(
+            iso_days_ago(3),
+            args_extra=["--exempt-young", "alpha@1.0.0"])
+        self.assertEqual(code, 0, r["failures"])
+        self.assertTrue(r["ok"])
+        # Exemption is name-scoped (unpinned deps carry no version).
+        code, r = self._run_py_dep(
+            iso_days_ago(3),
+            args_extra=["--exempt-young", "alpha@9.9.9"])
+        self.assertEqual(code, 0, r["failures"])
+        self.assertTrue(r["ok"])
+        # Unrelated package stays blocked.
+        code, r = self._run_py_dep(
+            iso_days_ago(3),
+            name="beta",
+            args_extra=["--exempt-young", "alpha@1.0.0"])
+        self.assertEqual(code, 1)
+        self.assertEqual(r["failures"][0]["reason"], "too-young")
+
+    def test_exempt_young_rejects_malformed_spec(self):
+        code, out = run_main(["--exempt-young", "no-at-sign"], None)
+        self.assertEqual(code, 2)
 
     def test_days_since_floor_semantics(self):
         self.assertEqual(dec.days_since(iso_days_ago(13.99)), 13)

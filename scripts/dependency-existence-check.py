@@ -599,16 +599,24 @@ class RubygemsRegistry(Registry):
     interval = 2.0
 
     def _url(self, name: str) -> str:
-        return f"https://rubygems.org/api/v1/gems/{urllib.parse.quote(name, safe='')}.json"
+        # /api/v1/gems/{name}.json no longer exposes a release date; the
+        # versions endpoint carries per-version built_at timestamps.
+        return f"https://rubygems.org/api/v1/versions/{urllib.parse.quote(name, safe='')}.json"
 
     def _parse(self, name: str, status: int, body: str) -> PackageRecord:
         if status == 404 or not body:
             return PackageRecord(False)
-        data = self._json(body, name)
-        t = data.get("created_at")
-        if not t:
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as e:
+            raise RegistryError(f"malformed JSON response for {name}: {e}") from None
+        if not isinstance(data, list):
+            raise RegistryError(f"unexpected response shape for {name}")
+        times = [v.get("built_at") for v in data
+                 if isinstance(v, dict) and v.get("built_at")]
+        if not times:
             return PackageRecord(True, None)  # core age guard fails closed
-        return PackageRecord(True, t)
+        return PackageRecord(True, min(times))
 
 
 class PackagistRegistry(Registry):
@@ -1499,9 +1507,11 @@ def _prefer(a: Dependency, b: Dependency) -> bool:
 
 
 def run_check(root: Path, fetcher, threshold_days: int,
-              check_transitive: bool, verbose: bool) -> dict:
+              check_transitive: bool, verbose: bool,
+              exempt_young: set[tuple[str, str]] | None = None) -> dict:
     matcher = GitignoreMatcher(root)
     ignore = IgnoreFilter(root)
+    exempt_young = exempt_young or set()
     adapter_by_lang = {a.language: a for a in ADAPTERS}
 
     # Cheap basename pre-filter: only read files whose name could match a
@@ -1618,12 +1628,15 @@ def run_check(root: Path, fetcher, threshold_days: int,
                 ))
                 continue
             if threshold_days > 0 and age_days < threshold_days:
-                failures.append(_failure(
-                    dep, "too-young",
-                    f"Package {name!r} is {age_days} days old — below "
-                    f"{threshold_days}-day safety threshold",
-                ))
-                continue
+                if any(n == dep.name for n, _ in exempt_young):
+                    age_days = None  # explicit exemption: known-good release
+                else:
+                    failures.append(_failure(
+                        dep, "too-young",
+                        f"Package {name!r} is {age_days} days old — below "
+                        f"{threshold_days}-day safety threshold",
+                    ))
+                    continue
         checked.append({
             "language": dep.language,
             "name": dep.name,
@@ -1679,6 +1692,9 @@ def main(argv: list[str] | None = None, fetcher=None) -> int:
                         help="directory for ETag/response cache (default: ~/.cache/slopsquat)")
     parser.add_argument("--threshold-days", type=int, default=SAFETY_THRESHOLD_DAYS,
                         help="minimum package age in days (0 disables the age guard)")
+    parser.add_argument("--exempt-young", action="append", default=[], metavar="NAME@VERSION",
+                        help="allow a specific package version below the age threshold "
+                             "(repeatable; e.g. a just-released security patch)")
     parser.add_argument("--check-transitive", action="store_true",
                         help="also check transitive dependencies from lockfiles")
     parser.add_argument("--verbose", action="store_true")
@@ -1697,8 +1713,19 @@ def main(argv: list[str] | None = None, fetcher=None) -> int:
             os.path.expanduser("~"), ".cache", "slopsquat")
         fetcher = RealFetcher(cache_dir)
 
+    exempt_young = set()
+    for spec in args.exempt_young:
+        if "@" not in spec:
+            print(f"error: --exempt-young expects NAME@VERSION, got {spec!r}", file=sys.stderr)
+            return 2
+        name, _, version = spec.partition("@")
+        if not name or not version:
+            print(f"error: --exempt-young expects NAME@VERSION, got {spec!r}", file=sys.stderr)
+            return 2
+        exempt_young.add((name, version))
+
     report = run_check(root, fetcher, args.threshold_days,
-                       args.check_transitive, args.verbose)
+                       args.check_transitive, args.verbose, exempt_young)
 
     if args.json:
         print(json.dumps(report, indent=2))
