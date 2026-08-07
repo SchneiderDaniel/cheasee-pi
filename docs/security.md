@@ -95,20 +95,6 @@ npm view <pkg> time.created
 
 This prevents supply chain attacks via recently published malicious packages.
 
-## CI security posture check
-
-`.github/workflows/security-posture.yml` probes the GitHub-native security features (Dependabot, code scanning, secret scanning, malware scanning) on every pull request, on push to `main`, and nightly (alert counts drift over time):
-
-- **Dependabot** — `vulnerability-alerts` + `automated-security-fixes` (enablement) and `dependabot/alerts?state=open` (open alerts)
-- **Code scanning / secret scanning** — `alerts?state=open` endpoints (200 = enabled, 404 = disabled or never ran)
-- **Malware scanning** — no public per-repo REST endpoint yet; `MALWARE_MODE=warn` (default) prints a non-blocking notice with the `/security/malware` link, `MALWARE_MODE=strict` fails closed
-
-**Exit codes:** `0` pass (all features enabled, zero open alerts), `1` posture violation (feature disabled or open alerts), `2` check infrastructure failure (token lacks `security-events` scope, rate limit, network error, `gh` missing, repo undeterminable). The check never exits 0 on uncertainty — it fails closed.
-
-**Environment:** `REPO` (default `$GITHUB_REPOSITORY`), `GH_TOKEN` (default `$GITHUB_TOKEN`; alert APIs require the `security_events` scope), `MALWARE_MODE` (`warn`|`strict`, default `warn`), `ALERT_LINKS` (max alert links printed per feature, default 5).
-
-Findings link to `https://github.com/<owner>/<repo>/security/dependabot`, `https://github.com/<owner>/<repo>/security/code-scanning`, `https://github.com/<owner>/<repo>/security/secret-scanning`, `https://github.com/<owner>/<repo>/security/malware`, and the settings page `https://github.com/<owner>/<repo>/settings/security_analysis`.
-
 ## Scope boundary enforcement
 
 Before dispatching the Developer agent, the supervisor runs a `git diff` check against the GitHub issue labels to determine which files the agent is allowed to modify. Agents are restricted from writing to files outside their assigned scope.
