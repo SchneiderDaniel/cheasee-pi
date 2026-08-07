@@ -20,6 +20,7 @@ import {
 	buildLeaveOpenForPrComment,
 } from "../empty-worktree-policy.ts";
 import { executeAgent } from "../execute-agent.ts";
+import { tryRebaseOntoBase } from "../rebase.ts";
 import {
 	WORKFLOW,
 	computeAuditScoreFromFindings,
@@ -255,6 +256,18 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// Build vuln context for auditor
 		const vulnContext: string | undefined =
 			agentName === "auditor" ? (buildVulnContext(stageState.vulnResult) ?? undefined) : undefined;
+		// Pre-Implementation rebase (issue #1473): refresh the worktree onto the
+		// latest default branch before every developer dispatch (incl. Audit→
+		// Implementation loop-backs), so same-family PRs landing mid-pipeline
+		// don't produce late PR-creation conflicts. Conflicts are resolved by
+		// the developer with full context (mergeFallback:false — the fallback
+		// merge commit would pollute hasBranchCommits). Fail-open on network
+		// failure: the end-rebase at PR creation remains the backstop.
+		const rebaseConflictContext =
+			agentName === "developer" && worktreePath && worktreeBranch
+				? await refreshWorktreeBeforeImplementation(runCtx, worktreePath)
+				: undefined;
+
 		const task = buildAgentTask(
 			agentName,
 			issueNum,
@@ -278,6 +291,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 			stageState.gateFailureContext,
 			systemPromptOptions,
+			rebaseConflictContext,
 		);
 
 		getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
@@ -807,4 +821,77 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 	runCtx.loopStatus = loopStatus;
 	runCtx.stopReason = stopReason;
 	runCtx.prCreationResult = prCreationResult;
+}
+
+/**
+ * Pre-Implementation rebase (issue #1473): refresh the worktree onto the
+ * latest default branch before a developer dispatch, so same-family PRs
+ * landing mid-pipeline don't produce late PR-creation conflicts.
+ *
+ * Extracted from runAgentLoop (S138 ceiling) — the loop keeps only the
+ * guarded call; policy lives here:
+ * - Conflict → store files in stageState.rebaseConflictFiles (loop-scoped,
+ *   survives Audit→Implementation loop-backs) and return the newline-joined
+ *   file list as task context. The aborted rebase discards conflict markers,
+ *   so the developer gets explicit merge-reintegration steps in the task.
+ * - Success → clear stale conflict context.
+ * - Non-conflict failure / exception → fail-open: warn via notify+collector,
+ *   clear conflict context, proceed stale (end-rebase + merge handler remain
+ *   the correctness backstop; a transient outage must not kill a 20-40min
+ *   pipeline).
+ *
+ * mergeFallback:false — the `git merge --no-edit` fallback's unattributed
+ * merge commit would count in hasBranchCommits base..head and pollute the
+ * Bug #1343 empty-worktree classifier.
+ *
+ * @returns conflict context (newline-joined conflicted file paths) or undefined.
+ */
+async function refreshWorktreeBeforeImplementation(
+	runCtx: RunContext,
+	worktreePath: string,
+): Promise<string | undefined> {
+	const { ctx, pi, config, collector, stageState } = runCtx;
+	let rebaseConflictContext: string | undefined;
+	try {
+		const rebaseResult = await tryRebaseOntoBase(
+			worktreePath,
+			config.defaultBranch!,
+			config.remote!,
+			pi,
+			{ mergeFallback: false },
+		);
+		if (rebaseResult.success) {
+			stageState.rebaseConflictFiles = undefined;
+			getDebugLogger().info("handler", "Pre-Implementation rebase OK — no conflicts");
+		} else if (rebaseResult.conflictFiles.length > 0) {
+			stageState.rebaseConflictFiles = rebaseResult.conflictFiles;
+			rebaseConflictContext = rebaseResult.conflictFiles.join("\n");
+			ctx.ui.notify(
+				`Rebase conflicts with latest ${config.defaultBranch} in ${rebaseResult.conflictFiles.length} file(s) — developer will reintegrate main: ${rebaseResult.conflictFiles.join(", ")}`,
+				"warning",
+			);
+		} else {
+			// Non-conflict failure (fetch failed, index.lock, …) — fail-open:
+			// proceed stale; end-rebase + merge handler remain the backstop.
+			stageState.rebaseConflictFiles = undefined;
+			ctx.ui.notify(
+				`Cannot rebase onto latest ${config.defaultBranch}: ${rebaseResult.message} — proceeding with current base`,
+				"warning",
+			);
+			collector?.push(
+				"handler",
+				"warn",
+				`Pre-Implementation rebase failed (non-conflict): ${rebaseResult.message}`,
+			);
+		}
+	} catch (rebaseErr: unknown) {
+		const rebaseMsg = rebaseErr instanceof Error ? rebaseErr.message : String(rebaseErr);
+		stageState.rebaseConflictFiles = undefined;
+		ctx.ui.notify(
+			`Pre-Implementation rebase failed: ${rebaseMsg} — proceeding with current base`,
+			"warning",
+		);
+		collector?.push("handler", "warn", `Pre-Implementation rebase failed: ${rebaseMsg}`);
+	}
+	return rebaseConflictContext;
 }

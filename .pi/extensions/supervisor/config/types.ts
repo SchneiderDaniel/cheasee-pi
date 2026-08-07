@@ -44,9 +44,6 @@ export interface FilteredIssueData {
 	comments: Array<{ author: string; body: string }>;
 }
 
-/** DebugLogger type — re-exported from debug.ts (canonical definition) */
-export type { DebugLogger } from "../lib/debug.ts";
-
 /** Common signature for agent runners (in-process and subprocess) */
 export type AgentRunner = (
 	agent: ParsedAgent,
@@ -148,53 +145,6 @@ export interface AgentRunState {
 	thinkingLevel?: string;
 }
 
-// ─── Message renderer details type ───────────────────────────────────
-
-export interface SupervisorMessageDetails {
-	agentName: string;
-	success: boolean;
-	statusLabel: string;
-	toolCount: number;
-	tokenCount: number;
-	durationMs: number;
-	/** Agent text output (optional — excluded from sendAgentResultMessage
-	 *  to prevent subagent context leak into supervisor session, GH #525) */
-	textOutput?: string;
-	summaryLine: string;
-	/** Thinking output for expanded view */
-	thinkingOutput?: string;
-	/** Whether thinking output is available */
-	hasThinking?: boolean;
-	/** Complete raw stdout+stderr from agent session (optional — excluded
-	 *  from sendAgentResultMessage to prevent subagent context leak into
-	 *  supervisor session, GH #525) */
-	rawOutput?: string;
-	/** Whether raw output is available */
-	hasRawOutput?: boolean;
-	/** Audit score extracted from auditor output, e.g. "5/6" */
-	auditScore?: string;
-	/** Task prompt given to the agent (displayed in expanded view) */
-	taskPrompt?: string;
-
-	// ─── Per-agent usage breakdown ────────────────────────
-	/** Model identifier used for this agent run */
-	model?: string;
-	/** Input tokens consumed (from last assistant message usage) */
-	inputTokens?: number;
-	/** Output tokens produced (from last assistant message usage) */
-	outputTokens?: number;
-	/** Prompt cache read tokens */
-	cacheRead?: number;
-	/** Prompt cache write tokens */
-	cacheWrite?: number;
-	/** Monetary cost of the agent run */
-	cost?: number;
-	/** Number of LLM turns (assistant messages with usage) */
-	turnCount?: number;
-	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
-	thinkingLevel?: string;
-}
-
 // ─── Dependency gate types ─────────────────────────────────────────
 
 interface BlockerInfo {
@@ -219,19 +169,6 @@ interface GhBlockingIssue {
 export interface GhTimelineNode {
 	__typename: string;
 	blockingIssue?: GhBlockingIssue | null;
-}
-
-export interface GhTimelineResponse {
-	data?: {
-		repository?: {
-			issue?: {
-				timelineItems?: {
-					nodes?: GhTimelineNode[];
-				};
-			};
-		};
-	};
-	errors?: Array<{ message: string }>;
 }
 
 // ─── Project Item Field Value Node ──────────────────────────────────
@@ -309,6 +246,20 @@ export interface RebaseResult {
 	skipped?: boolean;
 	/** Reason for skipping */
 	skipReason?: string;
+}
+
+/** Options for tryRebaseOntoBase (pipeline/rebase.ts). */
+export interface RebaseOptions {
+	/**
+	 * When false, a conflicted rebase is aborted and conflictFiles returned
+	 * without attempting the `git merge --no-edit` fallback. The fallback's
+	 * unattributed merge commit counts in hasBranchCommits base..head and
+	 * pollutes the Bug #1343 empty-worktree classifier. Pre-Implementation
+	 * refreshes (issue #1473) use false — the developer reintegrates main via
+	 * an instructed merge in the task prompt. Defaults to true, keeping the
+	 * PR-creation end-rebase call site byte-identical.
+	 */
+	mergeFallback?: boolean;
 }
 
 // ─── Agent Output Schema ────────────────────────────────────────────

@@ -24,12 +24,18 @@ describe("DebugLogger — config/types.ts", () => {
 		);
 	});
 
-	it("has a re-export of DebugLogger from ../lib/debug.ts", () => {
+	it("no longer re-exports DebugLogger from types.ts (dead re-export removed — GH #1473)", () => {
 		const source = readFileSync(typesPath, "utf-8");
-		const hasReExport =
-			source.includes('export type { DebugLogger } from "../lib/debug.ts"') ||
-			source.includes('export type { DebugLogger } from "../lib/debug.js"');
-		assert.ok(hasReExport, "config/types.ts must re-export DebugLogger type from ../lib/debug.ts");
+		assert.ok(
+			!source.includes("export type { DebugLogger }"),
+			"config/types.ts must not re-export DebugLogger — the canonical type lives in lib/debug.ts and consumers import it from there directly",
+		);
+		// Canonical definition stays in lib/debug.ts (unchanged by the removal)
+		const debugSource = readFileSync(resolve(__dirname, "..", "lib", "debug.ts"), "utf-8");
+		assert.ok(
+			debugSource.includes("export interface DebugLogger {"),
+			"lib/debug.ts owns the canonical DebugLogger definition",
+		);
 	});
 });
 
@@ -93,11 +99,25 @@ describe("DebugLogger — consumer imports", () => {
 		);
 	});
 
-	it("agent/runner.ts imports DebugLogger from config/types.ts", () => {
+	it("agent/runner package consumes DebugLogger via lib/debug.ts, not the types.ts barrel", () => {
 		const runnerPath = resolve(__dirname, "..", "agent", "runner.ts");
 		const runnerSource = readFileSync(runnerPath, "utf-8");
-		const hasImport =
-			runnerSource.includes("DebugLogger") && runnerSource.includes('../config/types.ts"');
-		assert.ok(hasImport, "runner.ts imports DebugLogger through types.ts barrel");
+		// The runner.ts barrel re-exports the runner/ package; the orchestrator
+		// (runner/index.ts) imports the canonical getDebugLogger from lib/debug.ts
+		// and its types from config/types.ts (AgentRunResult etc.) — never a
+		// DebugLogger re-export from types.ts (removed as dead code in #1473).
+		const indexSource = readFileSync(
+			resolve(__dirname, "..", "agent", "runner", "index.ts"),
+			"utf-8",
+		);
+		assert.ok(runnerSource.includes("export * from \"./runner/index.ts\""), "runner.ts is a barrel");
+		assert.ok(
+			indexSource.includes('from "../../lib/debug.ts"'),
+			"runner package imports getDebugLogger from lib/debug.ts",
+		);
+		assert.ok(
+			!indexSource.includes("DebugLogger") || indexSource.includes('from "../../lib/debug.ts"'),
+			"DebugLogger usage resolves through lib/debug.ts, never the types.ts re-export",
+		);
 	});
 });

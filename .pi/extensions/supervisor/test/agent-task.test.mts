@@ -1920,3 +1920,183 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 4 (issue #1473): rebaseConflictContext — "Reintegrate main" section
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () => {
+	// Positional args up to gateFailureContext; rebaseConflictContext is the
+	// appended 22nd parameter (regression guard for param ordering).
+	function devTaskWithContext(context: string | null | undefined): string {
+		return buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+			undefined, // worktreePath
+			undefined, // branchName
+			undefined, // summarizedRejections
+			undefined, // duplicateCodeContext
+			undefined, // researchFindings
+			undefined, // auditFeedback
+			undefined, // deadCodeContext
+			undefined, // vulnContext
+			undefined, // gateFailureContext
+			undefined, // systemPromptOptions
+			context, // rebaseConflictContext (new, appended last)
+		);
+	}
+
+	it("developer with context — 'Reintegrate main' section present, every conflicted file listed verbatim", () => {
+		const task = devTaskWithContext("src/a.ts\nsrc/b.ts\nsrc/c.ts");
+		assert.ok(task.includes("### Reintegrate main"), "Section heading present");
+		assert.ok(task.includes("- `src/a.ts`"), "First file listed verbatim");
+		assert.ok(task.includes("- `src/b.ts`"), "Second file listed verbatim");
+		assert.ok(task.includes("- `src/c.ts`"), "Third file listed verbatim");
+		assert.ok(task.includes("3 file(s) conflicted"), "Conflict count rendered");
+		assert.ok(
+			task.indexOf("src/a.ts") < task.indexOf("src/c.ts"),
+			"Files listed in given order",
+		);
+	});
+
+	it("developer with context — instructs git fetch <remote> <defaultBranch> and git merge <remote>/<defaultBranch>", () => {
+		const task = devTaskWithContext("src/a.ts");
+		assert.ok(task.includes("git fetch origin main"), "Fetch instruction present");
+		assert.ok(task.includes("git merge origin/main"), "Merge instruction present");
+		assert.ok(task.includes("git add -A"), "Stage step present (merge.ts devTask mirror)");
+		assert.ok(
+			task.includes("git commit -m"),
+			"Commit-merge step present (merge.ts devTask mirror)",
+		);
+	});
+
+	it("developer with context — no push instruction (pipeline owns push)", () => {
+		const task = devTaskWithContext("src/a.ts");
+		assert.ok(!task.includes("git push origin"), "No push command in conflict-path developer task");
+		assert.ok(!task.includes("git push --force"), "No force-push instruction");
+		assert.ok(
+			task.includes("Do NOT run `git push`"),
+			"Explicit keep-push-outside warning present",
+		);
+	});
+
+	it("context null/undefined — section absent; default developer task unchanged", () => {
+		const withNull = devTaskWithContext(null);
+		const withUndefined = devTaskWithContext(undefined);
+		const withNoArg = devTaskWithContext(undefined as unknown as string);
+		for (const task of [withNull, withUndefined, withNoArg]) {
+			assert.ok(!task.includes("### Reintegrate main"), "No section when context absent");
+			assert.ok(!task.includes("git merge origin/main"), "No merge instruction when absent");
+		}
+		// Default task (no context arg) byte-identical to pre-change rendering:
+		// no extra section, existing blocks still present.
+		assert.ok(withUndefined.includes("Work from current directory"), "Setup block intact");
+		assert.ok(withUndefined.includes('"action": "COMPLETE"'), "JSON output intact");
+	});
+
+	it("section rendered only for developer — architect/test-designer/auditor/researcher never contain it even with context", () => {
+		const args: [
+			string,
+			number,
+			string,
+			string,
+			FilteredIssueData,
+			Array<{ path: string; repo: string }>,
+			string,
+			string,
+			string,
+			string,
+			string,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			string,
+		] = [
+			"x" as string,
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"src/a.ts",
+		];
+		for (const agentName of ["architect", "test-designer", "auditor", "researcher"]) {
+			args[0] = agentName;
+			const task = buildAgentTask(...args);
+			assert.ok(!task.includes("### Reintegrate main"), `${agentName} must not get the section`);
+			assert.ok(
+				!task.includes("git merge origin/main"),
+				`${agentName} must not get merge instructions`,
+			);
+		}
+		// Sanity: same context on developer DOES render
+		args[0] = "developer";
+		assert.ok(buildAgentTask(...args).includes("### Reintegrate main"), "developer renders section");
+	});
+
+	it("regression: prior args (gateFailureContext before systemPromptOptions) untouched by the appended param", () => {
+		const task = buildAgentTask(
+			"developer",
+			42,
+			"owner/repo",
+			"Fix bug",
+			makeFilteredData(),
+			[],
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"GATE_FAILED: tsc",
+			undefined,
+			"src/a.ts",
+		);
+		// gateFailureContext still rendered
+		assert.ok(task.includes("<previous_gate_failure>"), "gateFailureContext block intact");
+		assert.ok(
+			task.includes("GATE_FAILED: tsc"),
+			"gateFailureContext content intact",
+		);
+		// rebaseConflictContext also rendered
+		assert.ok(task.includes("### Reintegrate main"), "rebaseConflictContext block rendered");
+	});
+});

@@ -4,7 +4,7 @@
 // in pipeline/merge.ts (which catches any race-window conflicts).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RebaseResult } from "../config/types.ts";
+import type { RebaseOptions, RebaseResult } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
 /** Maximum retry attempts for git fetch (transient network flakes) */
@@ -95,6 +95,7 @@ export async function tryRebaseOntoBase(
 	defaultBranch: string,
 	remote: string,
 	pi: ExtensionAPI,
+	opts?: RebaseOptions,
 ): Promise<RebaseResult> {
 	const log = getDebugLogger();
 	log.info("rebase", `Rebasing worktree ${worktreePath} ← ${remote}/${defaultBranch}`);
@@ -238,6 +239,20 @@ export async function tryRebaseOntoBase(
 				})
 				.catch(() => {});
 			log.info("rebase", "Rebase aborted after conflicts");
+
+			// ─── mergeFallback:false — skip the merge fallback ──────────
+			// Return conflictFiles straight after abort. The fallback's
+			// unattributed merge commit counts in hasBranchCommits base..head
+			// and pollutes the Bug #1343 empty-worktree classifier. Pre-Implementation
+			// refreshes (issue #1473) use this path; the developer reintegrates
+			// main via an instructed merge in the task prompt instead.
+			if (opts?.mergeFallback === false) {
+				return {
+					success: false,
+					conflictFiles,
+					message: `Rebase conflicts in ${conflictFiles.length} file(s): ${conflictFiles.join(", ")}`,
+				};
+			}
 
 			// ─── Fallback: try merge ──────────────────────────────────
 			// Rebase fails when origin/main touched same file in overlapping
