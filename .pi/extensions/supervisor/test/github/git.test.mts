@@ -89,7 +89,7 @@ describe("pushBranch() — Result<T>", () => {
 		);
 	});
 
-	it("non-fast-forward retry with --force succeeds — returns { ok: true }", async () => {
+	it("non-fast-forward retry with --force-with-lease succeeds — returns { ok: true }", async () => {
 		const { exec, calls } = createMockExec([
 			{ code: 1, stdout: "", stderr: "non-fast-forward" },
 			{ code: 0, stdout: "", stderr: "" },
@@ -98,10 +98,10 @@ describe("pushBranch() — Result<T>", () => {
 		const result = await pushBranch(exec, "/tmp/worktree", "origin", "feature", notify);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 2);
-		assert.deepEqual(calls[1].args, ["push", "--force", "origin", "feature"]);
+		assert.deepEqual(calls[1].args, ["push", "--force-with-lease", "origin", "feature"]);
 	});
 
-	it("non-fast-forward retry with --force also fails — returns { ok: false }", async () => {
+	it("non-fast-forward retry with --force-with-lease also fails — returns { ok: false }, error mentions force-with-lease", async () => {
 		const { exec, calls } = createMockExec([
 			{ code: 1, stdout: "", stderr: "non-fast-forward" },
 			{ code: 1, stdout: "", stderr: "force push rejected" },
@@ -110,8 +110,32 @@ describe("pushBranch() — Result<T>", () => {
 		const result = await pushBranch(exec, "/tmp/worktree", "origin", "feature", notify);
 		assert.equal(result.ok, false);
 		if (!result.ok) {
-			assert.ok(result.error.includes("git push --force failed"));
+			assert.ok(result.error.includes("git push --force-with-lease failed"));
 		}
+		assert.equal(
+			calls.filter((c) => c.args[0] === "push" && c.args[1] === "--force").length,
+			0,
+			"plain --force must never be invoked",
+		);
+	});
+
+	it("lease rejection (remote advanced since fetch) — fails closed { ok: false }, no clobber path", async () => {
+		// --force-with-lease refuses when the remote ref moved since our last
+		// fetch; the push must fail closed instead of overwriting the unseen change.
+		const { exec, calls } = createMockExec([
+			{ code: 1, stdout: "", stderr: "non-fast-forward" },
+			{
+				code: 1,
+				stdout: "",
+				stderr:
+					"[rejected] (stale info) — remote refs/heads/feature has moved since the last fetch",
+			},
+		]);
+		const { notify } = createMockNotify();
+		const result = await pushBranch(exec, "/tmp/worktree", "origin", "feature", notify);
+		assert.equal(result.ok, false, "lease rejection must fail closed");
+		assert.equal(calls.length, 2, "exactly one retry attempt");
+		assert.deepEqual(calls[1].args, ["push", "--force-with-lease", "origin", "feature"]);
 	});
 });
 

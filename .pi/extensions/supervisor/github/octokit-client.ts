@@ -168,6 +168,38 @@ interface DepsTimelineResponse {
 	errors?: Array<{ message: string }>;
 }
 
+// ─── REST → Domain PR Conflict Mapping ──────────────────────────
+// Pure translation of a REST `pulls.list` item into the domain
+// PrConflictInfo shape. REST fields (issue #1472):
+//   - mergeable: boolean | null  (null = background computation in progress)
+//   - mergeable_state: "clean|dirty|unknown|blocked|unstable|behind|has_hooks|draft"
+// Only `dirty` counts as a conflict; the other non-clean states mean the PR
+// exists and is mergeable (blocked/unstable/behind/has_hooks/draft) or is
+// still being computed (unknown) — the gate polls UNKNOWN instead of failing.
+
+export function mapRestPrToConflictInfo(
+	pr: Record<string, unknown>,
+	fallbackHeadRef: string,
+	fallbackBaseRef: string,
+): PrConflictInfo {
+	const mergeableRaw = pr.mergeable as boolean | null | undefined;
+	const mergeable =
+		mergeableRaw === null || mergeableRaw === undefined
+			? "UNKNOWN"
+			: mergeableRaw
+				? "MERGEABLE"
+				: "NOT_MERGEABLE";
+	const mergeableState = (pr.mergeable_state as string | undefined) || "unknown";
+	return {
+		number: pr.number as number,
+		hasConflict: mergeableState.toLowerCase() === "dirty",
+		mergeable,
+		mergeStateStatus: mergeableState.toUpperCase(),
+		headRefName: (pr.head as { ref?: string })?.ref || fallbackHeadRef,
+		baseRefName: (pr.base as { ref?: string })?.ref || fallbackBaseRef,
+	};
+}
+
 // ─── OctokitClient ──────────────────────────────────────────────
 
 export class OctokitClient implements GitHubPort {
@@ -325,16 +357,7 @@ export class OctokitClient implements GitHubPort {
 		const prs = resp.data;
 		if (!prs || prs.length === 0) return null;
 
-		const pr = prs[0]! as Record<string, unknown>;
-		return {
-			number: pr.number as number,
-			hasConflict:
-				(pr.mergeable as string) === "CONFLICTING" || (pr.merge_state_status as string) === "DIRTY",
-			mergeable: (pr.mergeable as string) || "UNKNOWN",
-			mergeStateStatus: (pr.merge_state_status as string) || "UNKNOWN",
-			headRefName: (pr.head as { ref?: string })?.ref || branch,
-			baseRefName: (pr.base as { ref?: string })?.ref || "main",
-		};
+		return mapRestPrToConflictInfo(prs[0]! as Record<string, unknown>, branch, "main");
 	}
 
 	async createPullRequest(input: {
