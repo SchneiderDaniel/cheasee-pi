@@ -15,9 +15,14 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig, AgentRunResult, PrConflictInfo } from "../../config/types.ts";
+import type {
+	SupervisorConfig,
+	AgentRunResult,
+	PrConflictInfo,
+	PrCreationResult,
+} from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
-import { createMockGitHubPort } from "../helper/mock-github-port.ts";
+import { createMockGitHubPort, type PortCall } from "../helper/mock-github-port.ts";
 
 // ─── Temp worktree helper ─────────────────────────────────────────
 // merge.ts checks if .pi/extensions/supervisor/agents/developer.md
@@ -543,5 +548,579 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			clearCalls.length > 0,
 			"agent-developer widget should be cleared even when runAgentSubprocess throws",
 		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Issue #1472: pre-Done PR readiness gate + mergeability poll
+
+function createGateMockRunner(result?: Partial<AgentRunResult>) {
+	return mock.fn(
+		async (..._args: any[]) =>
+			({
+				output: "Conflicts resolved",
+				success: true,
+				agentName: "developer",
+				toolCount: 5,
+				tokenCount: 1000,
+				durationMs: 30000,
+				textOutput: "Successfully resolved merge conflicts\nCONFLICTS_RESOLVED",
+				textOnly: "Successfully resolved merge conflicts\nCONFLICTS_RESOLVED",
+				summaryLine: "Successfully resolved merge conflicts",
+				errorOutput: "",
+				...(result || {}),
+			}) as AgentRunResult,
+	);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+
+function makeDirtyInfo(): PrConflictInfo {
+	return {
+		number: 123,
+		hasConflict: true,
+		mergeable: "NOT_MERGEABLE",
+		mergeStateStatus: "DIRTY",
+		headRefName: BRANCH,
+		baseRefName: "main",
+	};
+}
+
+function makeCleanInfo(): PrConflictInfo {
+	return {
+		number: 123,
+		hasConflict: false,
+		mergeable: "MERGEABLE",
+		mergeStateStatus: "CLEAN",
+		headRefName: BRANCH,
+		baseRefName: "main",
+	};
+}
+
+function makeUnknownInfo(): PrConflictInfo {
+	return {
+		number: 123,
+		hasConflict: false,
+		mergeable: "UNKNOWN",
+		mergeStateStatus: "UNKNOWN",
+		headRefName: BRANCH,
+		baseRefName: "main",
+	};
+}
+
+// Sequenced listPullRequestsForBranch: returns listValues[i], then repeats
+// the last value. Records every port call in trackCalls for order assertions.
+function createSequencedPort(
+	listValues: Array<PrConflictInfo | null>,
+	trackCalls?: PortCall[],
+): GitHubPort {
+	let idx = 0;
+	return createMockGitHubPort(
+		{
+			compareBranches: async () => 3,
+			listPullRequestsForBranch: async (_branch: string, _repo: string) => {
+				const v = listValues[Math.min(idx, listValues.length - 1)] ?? null;
+				idx++;
+				return v;
+			},
+			createPullRequest: async () => ({ number: 456 }),
+			updatePullRequest: async () => {},
+			postIssueComment: async () => {},
+		},
+		trackCalls,
+	);
+}
+
+function makeFailedPrResult(rebaseConflicts?: string[]): PrCreationResult {
+	return {
+		success: false,
+		error: "Rebase conflicts in 1 file(s)",
+		source: "pr-creation",
+		pushSkipped: true,
+		...(rebaseConflicts ? { rebaseConflicts } : {}),
+	};
+}
+
+// ─── awaitPrMergeability ───────────────────────────────────────────
+
+describe("awaitPrMergeability() — bounded mergeability poll", () => {
+	const NO_BACKOFF = { attempts: 5, backoffMs: [0, 0, 0, 0, 0] };
+
+	it("returns settled info on the first poll (1 port call)", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort([makeCleanInfo()], calls);
+		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
+
+		const info = await awaitPrMergeability(port, BRANCH, "owner/repo", NO_BACKOFF);
+
+		assert.ok(info, "should return settled info");
+		assert.equal(info!.hasConflict, false);
+		assert.equal(
+			calls.filter((c) => c.method === "listPullRequestsForBranch").length,
+			1,
+			"exactly 1 port call when first poll settles",
+		);
+	});
+
+	it("polls unknown → unknown → clean (exactly 3 polls)", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort([makeUnknownInfo(), makeUnknownInfo(), makeCleanInfo()], calls);
+		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
+
+		const info = await awaitPrMergeability(port, BRANCH, "owner/repo", NO_BACKOFF);
+
+		assert.ok(info, "should settle on the 3rd poll");
+		assert.equal(info!.mergeStateStatus, "CLEAN");
+		const listCalls = calls.filter((c) => c.method === "listPullRequestsForBranch");
+		assert.equal(listCalls.length, 3, "exactly 3 polls for unknown → unknown → clean");
+	});
+
+	it("all 5 attempts UNKNOWN → returns null (bounded, no hang)", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort(
+			[makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo()],
+			calls,
+		);
+		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
+
+		const info = await awaitPrMergeability(port, BRANCH, "owner/repo", NO_BACKOFF);
+
+		assert.equal(info, null, "null on poll exhaustion");
+		const listCalls = calls.filter((c) => c.method === "listPullRequestsForBranch");
+		assert.equal(listCalls.length, 5, "exactly 5 polls before exhaustion");
+	});
+
+	it("port throws → returns null (fail-open, no crash)", async () => {
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => {
+				throw new Error("network error");
+			},
+		});
+		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
+
+		const info = await awaitPrMergeability(port, BRANCH, "owner/repo", NO_BACKOFF);
+		assert.equal(info, null, "fail-open on port error");
+	});
+});
+
+// ─── ensurePrReadyForDone — gate ───────────────────────────────────
+
+describe("ensurePrReadyForDone() — pre-Done readiness gate", () => {
+	const NO_BACKOFF = { attempts: 5, backoffMs: [0, 0, 0, 0, 0] };
+
+	it("existing clean PR → { ok: true }, no resolution, no createPrOnApproval retry", async () => {
+		const calls: PortCall[] = [];
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([makeCleanInfo()], calls);
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "clean PR passes the gate");
+		assert.equal(execCalls.length, 0, "no git calls for a clean PR");
+		assert.equal(runner.mock.callCount(), 0, "no developer dispatch for a clean PR");
+		assert.ok(
+			calls.some((c) => c.method === "listPullRequestsForBranch"),
+			"PR existence/mergeability was checked",
+		);
+	});
+
+	it("PR dirty (#1457) → auto-merge → push → re-poll clean → { ok: true }", async () => {
+		const calls: PortCall[] = [];
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([makeDirtyInfo(), makeDirtyInfo(), makeCleanInfo(), makeCleanInfo()], calls);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
+				{ code: 0, stdout: "merge ok", stderr: "" }, // tryAutoMerge merge
+				{ code: 0, stdout: "push ok", stderr: "" }, // resolveBranchConflicts push
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "dirty PR resolved by auto-merge passes the gate");
+		assert.equal(runner.mock.callCount(), 0, "auto-merge success does not dispatch developer");
+		const listCalls = calls.filter((c) => c.method === "listPullRequestsForBranch");
+		assert.equal(listCalls.length, 4, "initial + settle + re-check + re-settle = 4 polls");
+		// Port call order: dirty, dirty (settled), clean, clean (settled)
+		assert.equal(listCalls[0]?.args[0], BRANCH);
+		// Exec order: fetch → merge → push
+		assert.deepEqual(
+			execCalls.map((c) => c.args[0]),
+			["fetch", "merge", "push"],
+			"auto-merge fetch → merge → push",
+		);
+	});
+
+	it("PR dirty + auto-merge fails → developer dispatch succeeds → createPrOnApproval retried exactly once → re-poll → { ok: true }", async () => {
+		const calls: PortCall[] = [];
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([makeDirtyInfo(), makeDirtyInfo(), null, makeCleanInfo(), makeCleanInfo()], calls);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
+				{ code: 1, stdout: "", stderr: "merge failed" }, // tryAutoMerge merge fails
+				{ code: 0, stdout: "file1.ts\nfile2.ts\n", stderr: "" }, // diff-filter=U
+				{ code: 0, stdout: "", stderr: "" }, // merge --abort
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // retry rebase fetch
+				{ code: 0, stdout: "rebase ok", stderr: "" }, // retry rebase
+				{ code: 0, stdout: "push ok", stderr: "" }, // retry push
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "dev-resolved dirty PR passes the gate");
+		assert.equal(runner.mock.callCount(), 1, "exactly 1 developer dispatch");
+		const createCalls = calls.filter((c) => c.method === "createPullRequest");
+		assert.equal(createCalls.length, 1, "createPrOnApproval retried exactly once");
+	});
+
+	it("rebaseConflicts + no PR (#1455) → resolution proceeds → developer dispatch → retry → { ok: true }", async () => {
+		const calls: PortCall[] = [];
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([null, null, makeCleanInfo(), makeCleanInfo()], calls);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
+				{ code: 1, stdout: "", stderr: "merge failed" }, // tryAutoMerge merge fails
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" }, // diff-filter=U
+				{ code: 0, stdout: "", stderr: "" }, // merge --abort
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // retry rebase fetch
+				{ code: 0, stdout: "rebase ok", stderr: "" }, // retry rebase
+				{ code: 0, stdout: "push ok", stderr: "" }, // retry push
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			makeFailedPrResult(["src/a.ts"]),
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "#1455 recovery path passes the gate");
+		assert.equal(runner.mock.callCount(), 1, "exactly 1 developer dispatch");
+		assert.equal(
+			calls.filter((c) => c.method === "createPullRequest").length,
+			1,
+			"createPrOnApproval retried once after resolution",
+		);
+	});
+
+	it("developer fails → { ok: false } + blockerNote mentioning manual intervention; exactly 1 dispatch, no retry loop", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([null]);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "merge failed" },
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner({ success: false, summaryLine: "Could not resolve" });
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			makeFailedPrResult(["src/a.ts"]),
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, false, "developer failure blocks the gate");
+		assert.ok(
+			verdict.blockerNote!.includes("Manual intervention"),
+			"blockerNote must mention manual intervention",
+		);
+		assert.equal(runner.mock.callCount(), 1, "exactly 1 developer dispatch, no retry loop");
+		assert.equal(
+			execCalls.filter((c) => c.args[0] === "push").length,
+			0,
+			"no push when resolution failed",
+		);
+	});
+
+	it("retried createPrOnApproval still returns rebaseConflicts → { ok: false } + blockerNote", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([null]);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // resolve: tryAutoMerge fetch
+				{ code: 1, stdout: "", stderr: "merge failed" }, // resolve: merge fails
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" }, // resolve: diff
+				{ code: 0, stdout: "", stderr: "" }, // resolve: merge --abort
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // retry: rebase fetch
+				{ code: 1, stdout: "", stderr: "rebase conflict" }, // retry: rebase fails
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" }, // retry: diff
+				{ code: 0, stdout: "", stderr: "" }, // retry: rebase --abort
+				{ code: 1, stdout: "", stderr: "merge failed" }, // retry: merge fallback fails
+				{ code: 0, stdout: "", stderr: "" }, // retry: merge --abort
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			makeFailedPrResult(["src/a.ts"]),
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, false, "still-conflicting retry blocks the gate");
+		assert.ok(
+			verdict.blockerNote!.includes("manual intervention"),
+			"blockerNote must mention manual intervention",
+		);
+		assert.equal(runner.mock.callCount(), 1, "exactly 1 developer dispatch (no retry loop)");
+	});
+
+	it("poll exhaustion with existing PR (mergeability stays UNKNOWN) → { ok: true } fail-open", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort([
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+		]);
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "poll exhaustion fails open (documented false-Done window)");
+		assert.equal(execCalls.length, 0, "no git calls on poll exhaustion");
+		assert.equal(runner.mock.callCount(), 0, "no developer dispatch on poll exhaustion");
+	});
+});
+
+// ─── handlePostPipelineMerge — rebaseConflicts (no-PR) backstop ────
+
+describe("handlePostPipelineMerge() — rebaseConflicts (#1455 no-PR) backstop", () => {
+	it("no rebaseConflicts + no PR → unchanged 'No PR found' early return (regression)", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => null,
+		});
+		const pi = createMockPi([], execCalls);
+		const ctx = createMockCtx(true);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		const result = await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(result, false, "early return, no conflict work");
+		assert.equal(execCalls.length, 0, "no git calls when no PR and no rebaseConflicts");
+	});
+
+	it("no PR + rebaseConflicts set → skips early return, proceeds to resolution", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => null,
+		});
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
+				{ code: 1, stdout: "", stderr: "merge failed" }, // tryAutoMerge merge fails
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" }, // diff-filter=U
+				{ code: 0, stdout: "", stderr: "" }, // merge --abort
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		const result = await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			port,
+			["src/a.ts"],
+		);
+
+		assert.equal(result, false, "resolution succeeded → no unresolved conflicts");
+		assert.equal(runner.mock.callCount(), 1, "developer dispatched for #1455 resolution");
+		const fetchCalls = execCalls.filter(
+			(c) => c.cmd === "git" && c.args[0] === "fetch",
+		);
+		assert.ok(fetchCalls.length > 0, "auto-merge fetch ran — early return was skipped");
+	});
+
+	it("no PR + rebaseConflicts + developer fails → returns true (unresolved)", async () => {
+		const execCalls: ExecCall[] = [];
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => null,
+		});
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "merge failed" },
+				{ code: 0, stdout: "src/a.ts\n", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner({ success: false, summaryLine: "Failed" });
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		const result = await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			port,
+			["src/a.ts"],
+		);
+
+		assert.equal(result, true, "unresolved conflicts reported when developer fails");
 	});
 });
