@@ -454,12 +454,13 @@ else
 	fail "workflow: step order wrong or step missing"
 fi
 
-# regression: existing workflows untouched (only new workflow files allowed)
+# regression: no OTHER workflow files modified (security-posture.yml itself is
+# the subject of this contract test and may change alongside it)
 base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
 if statuses="$(git diff --name-status "$base" HEAD -- .github/workflows/ 2>/dev/null)"; then
-	modified="$(printf '%s\n' "$statuses" | grep -v '^A' || true)"
+	modified="$(printf '%s\n' "$statuses" | grep -v '^A' | grep -v 'security-posture.yml' || true)"
 	if [ -z "$modified" ]; then
-		pass "regression: existing workflows unmodified (only new workflow files)"
+		pass "regression: no existing workflows modified (security-posture.yml changes allowed)"
 	else
 		fail "regression: existing workflows modified: $(printf '%s ' $modified)"
 	fi
