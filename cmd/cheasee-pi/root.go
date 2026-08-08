@@ -12,7 +12,7 @@ Its init command authenticates with GitHub, clones your fork, configures
 submodules, and extracts Docker compose files for containerized deployment.
 
 Without a subcommand, launches pi inside the Docker container (same as 'up').`,
-	Version:            "0.4",
+	Version:            "0.50",
 	DisableAutoGenTag:  true,
 	RunE:               runUpE,
 }
