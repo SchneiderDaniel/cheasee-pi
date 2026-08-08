@@ -16,7 +16,7 @@ DOCKER_TREE_SRC := cmd/cheasee-pi/embedded/docker
 .PHONY: docker-tree check-docker
 
 docker-tree:
-	@find $(DOCKER_TREE_SRC) -type f | while read -r src; do \
+	@find $(DOCKER_TREE_SRC) -type f ! -name '*.pyc' | while read -r src; do \
 		rel="$${src#$(DOCKER_TREE_SRC)/}"; \
 		dest="docker/$$rel"; \
 		mkdir -p "$$(dirname "$$dest")"; \
@@ -25,13 +25,13 @@ docker-tree:
 	@echo "Synced docker/ from $(DOCKER_TREE_SRC)/."
 
 check-docker:
-	@count=$$(find $(DOCKER_TREE_SRC) -type f | wc -l); \
+	@count=$$(find $(DOCKER_TREE_SRC) -type f ! -name '*.pyc' | wc -l); \
 	if [ "$$count" -eq 0 ]; then \
 		echo "ERROR: no files found under $(DOCKER_TREE_SRC)/" >&2; \
 		exit 1; \
 	fi; \
 	tmp=$$(mktemp); \
-	find $(DOCKER_TREE_SRC) -type f | while read -r src; do \
+	find $(DOCKER_TREE_SRC) -type f ! -name '*.pyc' | while read -r src; do \
 		rel="$${src#$(DOCKER_TREE_SRC)/}"; \
 		dest="docker/$$rel"; \
 		if [ ! -f "$$dest" ]; then \
@@ -43,6 +43,15 @@ check-docker:
 	if [ -s "$$tmp" ]; then cat "$$tmp" >&2; rm -f "$$tmp"; exit 1; fi; \
 	rm -f "$$tmp"; \
 	echo "docker/ matches $(DOCKER_TREE_SRC)/."
+
+# ──────────────────────────────────────────────
+# Single normal repo invariant (no git submodules)
+# ──────────────────────────────────────────────
+
+.PHONY: check-no-submodules
+
+check-no-submodules:
+	@bash scripts/check-no-submodules.sh
 
 # ──────────────────────────────────────────────
 # Build

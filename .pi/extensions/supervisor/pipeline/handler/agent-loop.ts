@@ -396,7 +396,6 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			config.repo,
 			issueTitle,
 			loopFilteredData,
-			config.submodules || [],
 			config.defaultBranch!,
 			config.remote!,
 			config.worktreeBase!,

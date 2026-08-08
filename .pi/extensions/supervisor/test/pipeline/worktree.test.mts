@@ -4,6 +4,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createWorktree,
@@ -191,11 +194,10 @@ describe("createWorktree()", () => {
 // ─── Tests: installWorktreeDeps() ─────────────────────────────────
 
 describe("installWorktreeDeps()", () => {
-	it("runs git submodule update then npm ci in worktree — returns { ok: true }", async () => {
+	it("copies host dirs then npm ci in worktree — returns { ok: true }", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 			],
@@ -204,27 +206,49 @@ describe("installWorktreeDeps()", () => {
 		const { notify } = createMockNotify();
 		const result = await installWorktreeDeps(pi, "/main-repo", "/worktree", notify);
 		assert.equal(result.ok, true);
-		// First call is cp .pi/git, second is git submodule update, third is npm ci
-		assert.equal(calls.length, 3);
+		// First call is cp .pi/git (private-pi absent → skipped), second is npm ci
+		assert.equal(calls.length, 2);
 		assert.equal(calls[0].cmd, "cp");
 		assert.ok(calls[0].args.includes("/main-repo/.pi/git"));
 		assert.ok(calls[0].args.includes("/worktree/.pi/git"));
 		assert.deepEqual(calls[1], {
-			cmd: "git",
-			args: ["submodule", "update", "--init", "--recursive"],
-			opts: { cwd: "/worktree", timeout: 120_000 },
-		});
-		assert.deepEqual(calls[2], {
 			cmd: "npm",
 			args: ["ci"],
 			opts: { cwd: "/worktree", timeout: 120_000 },
 		});
 	});
 
+	it("copies host-side private-pi clone when present (fail-open when absent)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "wt-copy-"));
+		mkdirSync(join(cwd, "private-pi"), { recursive: true });
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await installWorktreeDeps(pi, cwd, "/worktree", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 3);
+		assert.equal(calls[0].cmd, "cp");
+		assert.ok(calls[0].args.includes(join(cwd, ".pi/git")));
+		assert.equal(calls[1].cmd, "cp");
+		assert.ok(calls[1].args.includes(join(cwd, "private-pi")));
+		assert.ok(calls[1].args.includes("/worktree/private-pi"));
+		assert.deepEqual(calls[2], {
+			cmd: "npm",
+			args: ["ci"],
+			opts: { cwd: "/worktree", timeout: 120_000 },
+		});
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
 	it("returns { ok: false } on npm ci failure — notify.error called", async () => {
-		// cp succeeds, submodule succeeds, both npm attempts fail
+		// cp succeeds, both npm attempts fail
 		const pi = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 1, stdout: "", stderr: "still failing" },
@@ -244,7 +268,6 @@ describe("installWorktreeDeps()", () => {
 
 	it("returns { ok: true } on retry success", async () => {
 		const pi = createMockPi([
-			{ code: 0, stdout: "", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
 			{ code: 1, stdout: "", stderr: "network error" },
 			{ code: 0, stdout: "", stderr: "" },

@@ -1206,7 +1206,7 @@ if (hasMockModule) {
 				assert.equal(skillFlags.length, 1, "exactly one --skill flag");
 				assert.ok(result.args.includes("--no-skills"), "--no-skills still present");
 			} else {
-				// Submodule absent → both skills fail open
+				// Host-side private-pi clone absent → both skills fail open
 				assert.deepEqual(result.skillPaths, []);
 				assert.equal(skillFlags.length, 0);
 			}

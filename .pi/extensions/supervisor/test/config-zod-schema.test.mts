@@ -32,7 +32,6 @@ const validFull = {
 	statusMapping: { todo: "developer", done: "auditor" },
 	maxRejections: 5,
 	codeowners: ["user1", "user2"],
-	submodules: [{ path: "lib", repo: "owner/lib" }],
 	defaultBranch: "develop",
 	remote: "upstream",
 	worktreeBase: "/tmp/worktrees/",
@@ -67,8 +66,6 @@ describe("SupervisorConfigSchema — parse", () => {
 		assert.equal(result.auditScoreThreshold, 0.75);
 		assert.equal(result.vulnGateBlocking, false);
 		assert.equal(result.vulnGateTimeoutSec, 60);
-		// submodules defaults to undefined (optional, no .default())
-		assert.equal(result.submodules, undefined);
 		// agentTimeoutsMin defaults to undefined (optional, no .default())
 		assert.equal(result.agentTimeoutsMin, undefined);
 	});
@@ -81,7 +78,6 @@ describe("SupervisorConfigSchema — parse", () => {
 		assert.deepEqual(result.statusMapping, { todo: "developer", done: "auditor" });
 		assert.equal(result.maxRejections, 5);
 		assert.deepEqual(result.codeowners, ["user1", "user2"]);
-		assert.deepEqual(result.submodules, [{ path: "lib", repo: "owner/lib" }]);
 		assert.equal(result.defaultBranch, "develop");
 		assert.equal(result.remote, "upstream");
 		assert.equal(result.worktreeBase, "/tmp/worktrees/");
@@ -294,22 +290,15 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	// ── submodules ───────────────────────────────────────────────
 
-	it("accepts valid submodules array", () => {
+	it("strips a stray submodules key (zod removes unknown fields)", () => {
 		const result = SupervisorConfigSchema.parse({
 			...validMinimal,
 			submodules: [{ path: "lib", repo: "owner/repo" }],
 		});
-		assert.deepEqual(result.submodules, [{ path: "lib", repo: "owner/repo" }]);
-	});
-
-	it("throws ZodError when submodule path is wrong type", () => {
-		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({
-					...validMinimal,
-					submodules: [{ path: 123 }],
-				}),
-			z.ZodError,
+		assert.equal(
+			(result as Record<string, unknown>).submodules,
+			undefined,
+			"submodules must not survive schema parsing",
 		);
 	});
 
@@ -441,7 +430,26 @@ describe("loadConfig — zod integration", () => {
 		assert.equal(config.auditScoreThreshold, 0.85);
 		assert.equal(config.vulnGateBlocking, true);
 		assert.equal(config.vulnGateTimeoutSec, 120);
-		assert.deepEqual(config.submodules, [{ path: "lib", repo: "owner/lib" }]);
+	});
+
+	it("ignores a stray .gitmodules file on disk", () => {
+		writeSettings({
+			supervisor: {
+				repo: "owner/repo",
+				projectNumber: 1,
+				statusMapping: { todo: "developer" },
+				codeowners: ["user"],
+			},
+		});
+		writeFileSync(join(testDir, ".gitmodules"), "[submodule \"x\"]\n\tpath = x\n\turl = https://github.com/a/b.git\n", "utf-8");
+		process.chdir(testDir);
+		const config = loadConfig();
+		assert.equal(config.repo, "owner/repo");
+		assert.equal(
+			(config as Record<string, unknown>).submodules,
+			undefined,
+			".gitmodules must not affect config",
+		);
 	});
 });
 
@@ -478,7 +486,6 @@ describe("SupervisorConfig type compatibility", () => {
 		const result = SupervisorConfigSchema.parse(validMinimal);
 		assert.equal(result.agentTokenBudget, undefined);
 		assert.equal(result.maxToolCalls, undefined);
-		assert.equal(result.submodules, undefined);
 		assert.equal(result.agentTimeoutsMin, undefined);
 	});
 });

@@ -41,7 +41,6 @@ describe("task.ts runtime exports — direct call in assertions", () => {
 				"r",
 				"t",
 				makeFilteredData(),
-				[],
 				"m",
 				"o",
 				"../",
@@ -79,15 +78,12 @@ function makeFilteredData(overrides?: Partial<FilteredIssueData>): FilteredIssue
 	};
 }
 
-const DEFAULT_SUBMODULES: Array<{ path: string; repo: string }> = [];
-
 const BASE_ARGS = {
 	agentName: "auditor",
 	issueNum: 42,
 	repo: "owner/repo",
 	title: "Fix bug",
 	filteredData: makeFilteredData(),
-	submodules: DEFAULT_SUBMODULES,
 	defaultBranch: "main",
 	remote: "origin",
 	worktreeBase: "../",
@@ -187,7 +183,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -205,7 +200,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -223,7 +217,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -240,7 +233,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -260,7 +252,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -278,7 +269,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.repo,
 			BASE_ARGS.title,
 			BASE_ARGS.filteredData,
-			BASE_ARGS.submodules,
 			BASE_ARGS.defaultBranch,
 			BASE_ARGS.remote,
 			BASE_ARGS.worktreeBase,
@@ -286,23 +276,6 @@ describe("buildAgentTask — auditor JSON output markers", () => {
 			BASE_ARGS.mainRepoPrefix,
 		);
 		assert.ok(task.includes("### Structured Output Format"), "Structured output heading present");
-	});
-
-	it("with empty submodules list — no submodule repos listed", () => {
-		const task = buildAgentTask(
-			"auditor",
-			BASE_ARGS.issueNum,
-			BASE_ARGS.repo,
-			BASE_ARGS.title,
-			BASE_ARGS.filteredData,
-			[],
-			BASE_ARGS.defaultBranch,
-			BASE_ARGS.remote,
-			BASE_ARGS.worktreeBase,
-			BASE_ARGS.branchPrefix,
-			BASE_ARGS.mainRepoPrefix,
-		);
-		assert.ok(task.includes("(none)") || !task.includes("submodule"), "No submodules listed");
 	});
 });
 
@@ -318,7 +291,6 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -338,7 +310,6 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -366,7 +337,6 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -384,7 +354,6 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -403,7 +372,6 @@ describe("buildAgentTask — other agents (JSON output markers)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -427,7 +395,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -452,7 +419,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -480,7 +446,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -502,7 +467,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -522,7 +486,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -545,7 +508,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -570,7 +532,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -595,7 +556,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -620,7 +580,6 @@ describe("buildAgentTask — auditor worktree path + branch name (Phase 4)", () 
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -644,7 +603,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -661,7 +619,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -688,7 +645,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -714,7 +670,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -741,7 +696,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -767,7 +721,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -797,7 +750,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -823,7 +775,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -849,7 +800,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -875,7 +825,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -901,7 +850,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -928,7 +876,6 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -962,7 +909,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead Code: remove foo",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -982,7 +928,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Fix dead code in bar",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1002,7 +947,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Remove dead export",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1019,7 +963,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Fix something",
 			makeFilteredData({ body: "Remove unused export from module" }),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1039,7 +982,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Fix something",
 			makeFilteredData({ body: "This value is not exported from module anymore" }),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1059,7 +1001,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1079,7 +1020,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"",
 			makeFilteredData({ body: "" }),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1099,7 +1039,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"deadline",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1119,7 +1058,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove unused export",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1139,7 +1077,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove unused export",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1156,7 +1093,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead Code: remove exports",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1176,7 +1112,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead Code: remove exports",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1196,7 +1131,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead Code: remove exports",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1216,7 +1150,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead Code: remove exports",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1236,7 +1169,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove foo",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1263,7 +1195,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove foo",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1295,7 +1226,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			makeFilteredData({
 				body: "Remove dead export from extension test/file.ts",
 			}),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1313,7 +1243,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Dead code: remove foo",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1340,7 +1269,6 @@ describe("buildAgentTask — dead-code removal hint injection (Issue #934 Fix 3)
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1462,7 +1390,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Add gitleaks scanner",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1482,7 +1409,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Add new dependency",
 			makeFilteredData({ body: "npm install some-package" }),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1493,14 +1419,13 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 		assert.ok(task.includes("### Dockerfile Awareness"), "Should contain heading");
 	});
 
-	it("title 'Add osv-scanner' → task mentions all 6 Dockerfiles by path", () => {
+	it("title 'Add osv-scanner' → task mentions docker/Dockerfile by path", () => {
 		const task = buildAgentTask(
 			"developer",
 			1122,
 			"owner/repo",
 			"Add osv-scanner",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1508,17 +1433,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"/test/main/repo",
 		);
 		assert.ok(task.includes("docker/Dockerfile"), "Mentions docker/Dockerfile");
-		assert.ok(task.includes("flask_blogs/flask_sudoku/Dockerfile"), "Mentions sudoku Dockerfile");
-		assert.ok(
-			task.includes("flask_blogs/flask_hippocooking/Dockerfile"),
-			"Mentions hippocooking Dockerfile",
-		);
-		assert.ok(
-			task.includes("flask_blogs/flask_planhead/Dockerfile"),
-			"Mentions planhead Dockerfile",
-		);
-		assert.ok(task.includes("flask_blogs/nginx/Dockerfile"), "Mentions nginx Dockerfile");
-		assert.ok(task.includes("flask_blogs/Dockerfile.test"), "Mentions test Dockerfile");
 	});
 
 	it("title 'Fix typo in README' → does NOT contain '### Dockerfile Awareness'", () => {
@@ -1528,7 +1442,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Fix typo in README",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1548,7 +1461,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Install new CLI tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1560,26 +1472,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 		assert.ok(task.includes("docker/Dockerfile"), "Should mention docker/Dockerfile");
 	});
 
-	it("instruction correctly maps submodule deps → submodule Dockerfiles", () => {
-		const task = buildAgentTask(
-			"developer",
-			1124,
-			"owner/repo",
-			"Add python package",
-			makeFilteredData(),
-			[],
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/test/main/repo",
-		);
-		assert.ok(
-			task.includes("Submodule service dependencies"),
-			"Should mention submodule deps mapping",
-		);
-	});
-
 	it("instruction mentions existing Dockerfile conventions", () => {
 		const task = buildAgentTask(
 			"developer",
@@ -1587,7 +1479,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Add npm package",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1606,7 +1497,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1630,7 +1520,6 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1654,7 +1543,6 @@ describe("buildAgentTask — Dockerfile awareness NOT injected for other agents"
 			"owner/repo",
 			"Install python package",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1674,7 +1562,6 @@ describe("buildAgentTask — Dockerfile awareness NOT injected for other agents"
 			"owner/repo",
 			"Add new dependency",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1694,7 +1581,6 @@ describe("buildAgentTask — Dockerfile awareness NOT injected for other agents"
 			"owner/repo",
 			"Add apt package",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1714,7 +1600,6 @@ describe("buildAgentTask — Dockerfile awareness NOT injected for other agents"
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1740,7 +1625,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1758,7 +1642,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Add tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1777,7 +1660,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"pip install package",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1794,7 +1676,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"npm install pkg",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1812,7 +1693,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1829,7 +1709,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Dead code: remove unused export",
 			makeFilteredData({ body: "Install pip package" }),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1847,7 +1726,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Install tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1874,7 +1752,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Add CLI tool",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1903,7 +1780,6 @@ describe("buildAgentTask — Dockerfile awareness regression (existing content p
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1935,7 +1811,6 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -1962,10 +1837,7 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 		assert.ok(task.includes("- `src/b.ts`"), "Second file listed verbatim");
 		assert.ok(task.includes("- `src/c.ts`"), "Third file listed verbatim");
 		assert.ok(task.includes("3 file(s) conflicted"), "Conflict count rendered");
-		assert.ok(
-			task.indexOf("src/a.ts") < task.indexOf("src/c.ts"),
-			"Files listed in given order",
-		);
+		assert.ok(task.indexOf("src/a.ts") < task.indexOf("src/c.ts"), "Files listed in given order");
 	});
 
 	it("developer with context — instructs git fetch <remote> <defaultBranch> and git merge <remote>/<defaultBranch>", () => {
@@ -1983,10 +1855,7 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 		const task = devTaskWithContext("src/a.ts");
 		assert.ok(!task.includes("git push origin"), "No push command in conflict-path developer task");
 		assert.ok(!task.includes("git push --force"), "No force-push instruction");
-		assert.ok(
-			task.includes("Do NOT run `git push`"),
-			"Explicit keep-push-outside warning present",
-		);
+		assert.ok(task.includes("Do NOT run `git push`"), "Explicit keep-push-outside warning present");
 	});
 
 	it("context null/undefined — section absent; default developer task unchanged", () => {
@@ -2010,7 +1879,6 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 			string,
 			string,
 			FilteredIssueData,
-			Array<{ path: string; repo: string }>,
 			string,
 			string,
 			string,
@@ -2033,7 +1901,6 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -2062,7 +1929,10 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 		}
 		// Sanity: same context on developer DOES render
 		args[0] = "developer";
-		assert.ok(buildAgentTask(...args).includes("### Reintegrate main"), "developer renders section");
+		assert.ok(
+			buildAgentTask(...args).includes("### Reintegrate main"),
+			"developer renders section",
+		);
 	});
 
 	it("regression: prior args (gateFailureContext before systemPromptOptions) untouched by the appended param", () => {
@@ -2072,7 +1942,6 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -2092,10 +1961,7 @@ describe("buildAgentTask — rebaseConflictContext (Phase 4, Issue #1473)", () =
 		);
 		// gateFailureContext still rendered
 		assert.ok(task.includes("<previous_gate_failure>"), "gateFailureContext block intact");
-		assert.ok(
-			task.includes("GATE_FAILED: tsc"),
-			"gateFailureContext content intact",
-		);
+		assert.ok(task.includes("GATE_FAILED: tsc"), "gateFailureContext content intact");
 		// rebaseConflictContext also rendered
 		assert.ok(task.includes("### Reintegrate main"), "rebaseConflictContext block rendered");
 	});

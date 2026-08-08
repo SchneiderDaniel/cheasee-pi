@@ -51,11 +51,6 @@ func (r *initRemover) Remove(workdir string) error {
 		}
 
 		for _, match := range matches {
-			// Protect .gitmodules
-			if match == ".gitmodules" {
-				continue
-			}
-
 			fullPath := filepath.Join(workdir, match)
 
 			// Stat the path — ENOENT = skip silently (no error)

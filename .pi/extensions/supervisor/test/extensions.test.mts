@@ -34,7 +34,7 @@ describe("resolveSkillPaths", () => {
 				`got ${result[0]}`,
 			);
 		} else {
-			// Submodule absent (e.g. uninitialized worktree) → fail-open
+			// Host-side private-pi clone absent (e.g. fresh clone) → fail-open
 			assert.deepEqual(result, []);
 		}
 	});

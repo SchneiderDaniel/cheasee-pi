@@ -126,7 +126,6 @@ Configure the project in `.pi/settings.json`:
 | `remote` | string | `"origin"` | Git remote name |
 | `worktreeBase` | string | `"../"` | Parent dir for git worktrees |
 | `branchPrefix` | string | `"worktree-git-issue-"` | Prefix for worktree branch names |
-| `submodules` | object[] | auto from `.gitmodules` | Explicit submodule `{path, repo}` overrides |
 | `maxRejections` | number | `3` | Max audit rejection loops before human intervention |
 | `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes |
 | `agentTokenBudget` | number | `300000` | Soft token cap per agent session (0=unlimited) |
@@ -180,27 +179,6 @@ Each agent posts its findings as a GitHub issue comment:
 
 ---
 
-## Submodule strategy
-
-When the repo has submodules, the Developer works on **both repos simultaneously** using a **matched-branch pattern**:
-
-```
-Main repo (cheasee-pi)          Submodule (flask_blogs)
-│                                │
-├─ Branch: worktree-git-...     ├─ Branch: worktree-git-... (same name)
-├─ Commit includes submodule    ├─ Actual code changes
-│  pointer update (pinned SHA)  │
-└───────────────────────────────┴───────────────────────────────
-```
-
-**Submodule must be pushed first** because the main repo commit records a specific submodule SHA. If that SHA only exists locally, teammates get `fatal: reference is not a tree`.
-
-**PR creation order:**
-1. Create submodule PR first (if submodule has changes)
-2. Create main repo PR second (includes submodule pointer)
-
----
-
 ## GitHub CLI setup
 
 Inside the Docker container, authenticate with GitHub:
@@ -219,7 +197,7 @@ This documentation site is built with Jekyll + the Just the Docs theme and deplo
 
 The workflow:
 1. Triggers on pushes to `main` that touch `docs/**`
-2. Checks out the repo without submodules (`submodules: false`)
+2. Checks out the repo
 3. Builds with `ruby/setup-ruby` and `bundler-cache`
 4. Deploys to GitHub Pages
 

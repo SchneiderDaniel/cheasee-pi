@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/cli/oauth/device"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/spf13/cobra"
 )
 
@@ -28,10 +27,8 @@ var (
 	initClientID       string
 	initProvider       string
 	initSkipFork       bool
-	initForkURL        string
-	initNoInput        bool
-	initSubmoduleURLs  []string
-	initSkipSubmodules bool
+	initForkURL string
+	initNoInput bool
 )
 
 // SourceForkMode controls how the fork source is determined.
@@ -61,19 +58,15 @@ type InitPorts struct {
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
 type InitDeps struct {
-	Ports             InitPorts
-	SubmoduleOps      submoduleOps // go-git submodule ops; nil → gitSubmoduleOps
-	APIKey            string
-	NoDockerCheck     bool
-	NoGitHub          bool
-	NoInput           bool
-	SkipSubmodules    bool
-	SourceFork        SourceForkInput
-	Workdir           string
-	SubmoduleURLs     map[string]string
-	ConfirmFn         func(string) (bool, error)
-	InputFn           func(title, placeholder string) (string, error)
-	SubmodulePromptFn func([]config.Submodule) (map[string]string, error)
+	Ports         InitPorts
+	APIKey        string
+	NoDockerCheck bool
+	NoGitHub      bool
+	NoInput       bool
+	SourceFork    SourceForkInput
+	Workdir       string
+	ConfirmFn     func(string) (bool, error)
+	InputFn       func(title, placeholder string) (string, error)
 }
 
 // Validate checks that all required dependencies for the active path are non-nil.
@@ -103,10 +96,9 @@ The init command will:
   1. Verify Docker Engine 24.0+ is installed and running
   2. Authenticate with GitHub via OAuth device flow (or use --api-key with --no-github)
   3. Fork and clone the cheasee-pi repository
-  4. Configure the pi submodule for your fork
-  5. Extract embedded docker-compose.yml, Dockerfile, and entrypoint.sh
-  6. Generate docker/.env with host UID/GID and git identity
-  7. Configure API keys for pi providers (interactive)
+  4. Extract embedded docker-compose.yml, Dockerfile, and entrypoint.sh
+  5. Generate docker/.env with host UID/GID and git identity
+  6. Configure API keys for pi providers (interactive)
 
 After init, manage API keys with:
   cheasee-pi auth add <provider>
@@ -131,8 +123,6 @@ func init() {
 	initCmd.Flags().BoolVar(&initSkipFork, "skip-fork", false, "Skip fork step, use existing repo")
 	initCmd.Flags().StringVar(&initForkURL, "fork-url", "", "Specify existing fork URL (skip fork and clone)")
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
-	initCmd.Flags().StringArrayVar(&initSubmoduleURLs, "submodule-url", nil, "Override submodule URL (repeatable, format: name=url)")
-	initCmd.Flags().BoolVar(&initSkipSubmodules, "skip-submodules", false, "Skip all submodule setup")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -151,11 +141,6 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("get working directory: %w", err)
 		}
-	}
-
-	submoduleURLs, err := parseSubmoduleURLs(initSubmoduleURLs)
-	if err != nil {
-		return fmt.Errorf("parse submodule URLs: %w", err)
 	}
 
 	// Wire up remaining ports (docker/git CLI and auth config are package-level)
@@ -190,17 +175,14 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 			Auth:   authenticator,
 			GitHub: gitHubClient,
 		},
-		APIKey:            initAPIKey,
-		NoDockerCheck:     initNoDockerCheck,
-		NoGitHub:          initNoGitHub,
-		NoInput:           initNoInput,
-		SkipSubmodules:    initSkipSubmodules,
-		SourceFork:        sourceForkInput,
-		Workdir:           workdir,
-		SubmoduleURLs:     submoduleURLs,
-		ConfirmFn:         confirmFn,
-		InputFn:           inputFn,
-		SubmodulePromptFn: promptSubmoduleURLs,
+		APIKey:        initAPIKey,
+		NoDockerCheck: initNoDockerCheck,
+		NoGitHub:      initNoGitHub,
+		NoInput:       initNoInput,
+		SourceFork:    sourceForkInput,
+		Workdir:       workdir,
+		ConfirmFn:     confirmFn,
+		InputFn:       inputFn,
 	})
 }
 
@@ -277,7 +259,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			case ModeUseForkURL:
 				// Use user-supplied fork URL directly — skip fork and wait
 				cloneURL = deps.SourceFork.ForkURL
-				if err := runInitCloneSubmodule(ctx, token, cloneURL, deps.Workdir); err != nil {
+				if err := runInitClone(ctx, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 
@@ -323,7 +305,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 					cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", sourceOwner, sourceRepoName)
 				}
 
-				if err := runInitCloneSubmodule(ctx, token, cloneURL, deps.Workdir); err != nil {
+				if err := runInitClone(ctx, token, cloneURL, deps.Workdir); err != nil {
 					return err
 				}
 			}
@@ -344,17 +326,6 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			if deps.SourceFork.Mode != ModeSkipFork {
 				if err := NewInitRemover().Remove(deps.Workdir); err != nil {
 					return fmt.Errorf("post-clone cleanup: %w", err)
-				}
-			}
-
-			// Configure submodules for non-skip modes
-			if deps.SourceFork.Mode != ModeSkipFork {
-				ops := deps.SubmoduleOps
-				if ops == nil {
-					ops = gitSubmoduleOps{}
-				}
-				if err := runInitSubmodule(ctx, ops, deps.Workdir, deps.SubmoduleURLs, deps.SkipSubmodules, deps.SubmodulePromptFn, deps.NoInput, deps.ConfirmFn, deps.InputFn); err != nil {
-					return fmt.Errorf("submodule config: %w", err)
 				}
 			}
 

@@ -4,6 +4,7 @@
 // All functions return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "./result.ts";
@@ -155,24 +156,32 @@ export async function createWorktree(
 	);
 }
 
-// ponytail: copy git-ignored `.pi/git/` dir into worktree so extensions that
-// depend on git-managed packages (ponytail hooks, etc.) can load.
-// `.pi/git/` is in .gitignore — git worktree add doesn't copy it.
-async function copyGitDir(
+// ponytail: copy git-ignored host dirs into worktree so extensions that depend
+// on git-managed packages (ponytail hooks, etc.) can load, and the maintainer's
+// host-side private-pi clone is available to agents. `.pi/git/` and `private-pi/`
+// are in .gitignore — git worktree add doesn't copy them.
+async function copyHostDirs(
 	pi: ExtensionAPI,
 	cwd: string,
 	worktreePath: string,
 	notify: NotifyFn,
 ): Promise<void> {
 	const log = getDebugLogger();
-	const src = resolvePath(cwd, ".pi/git");
-	const dst = resolvePath(worktreePath, ".pi/git");
-	try {
-		await pi.exec("cp", ["-r", "--preserve=links", src, dst], { timeout: 30_000 });
-		log.info("worktree", `Copied .pi/git from ${src} to ${dst}`);
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log.warn("worktree", `Failed to copy .pi/git: ${msg} — continuing without`);
+	const dirs: Array<[string, string]> = [
+		[resolvePath(cwd, ".pi/git"), resolvePath(worktreePath, ".pi/git")],
+	];
+	const privatePiSrc = resolvePath(cwd, "private-pi");
+	if (existsSync(privatePiSrc)) {
+		dirs.push([privatePiSrc, resolvePath(worktreePath, "private-pi")]);
+	}
+	for (const [src, dst] of dirs) {
+		try {
+			await pi.exec("cp", ["-r", "--preserve=links", src, dst], { timeout: 30_000 });
+			log.info("worktree", `Copied ${src} to ${dst}`);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log.warn("worktree", `Failed to copy ${src}: ${msg} — continuing without`);
+		}
 	}
 }
 
@@ -184,26 +193,12 @@ export async function installWorktreeDeps(
 	worktreePath: string,
 	notify: NotifyFn,
 ): Promise<Result<void>> {
-	await copyGitDir(pi, cwd, worktreePath, notify);
+	await copyHostDirs(pi, cwd, worktreePath, notify);
 
 	return withNotify(
 		async () => {
 			const log = getDebugLogger();
 			log.info("worktree", `Installing deps at ${worktreePath}`);
-
-			// Initialize git submodules so agents can edit submodule code too
-			// If no submodules exist, command exits 0 silently.
-			// If remote is unreachable, warn and continue — agents may still work.
-			try {
-				await pi.exec("git", ["submodule", "update", "--init", "--recursive"], {
-					cwd: worktreePath,
-					timeout: 120_000,
-				});
-				log.info("worktree", "Submodules initialized in worktree");
-			} catch (submodErr: unknown) {
-				const submodMsg = submodErr instanceof Error ? submodErr.message : String(submodErr);
-				log.warn("worktree", `Submodule init failed — continuing: ${submodMsg}`);
-			}
 
 			// Attempt 1
 			try {

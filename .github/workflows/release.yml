@@ -29,6 +29,8 @@ jobs:
           go-version: "1.25"
       - name: Run tests
         run: go test ./cmd/cheasee-pi/...
+      - name: Assert single normal repo (no submodules)
+        run: make check-no-submodules
       - name: Build smoke test
         run: go build ./cmd/cheasee-pi/
       - name: Validate GoReleaser config

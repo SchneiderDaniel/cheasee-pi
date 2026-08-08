@@ -242,7 +242,6 @@ function loadPipelineBasics(runCtx: RunContext): void {
 	getDebugLogger().info("handler", "Config loaded", {
 		repo: runCtx.config.repo,
 		projectNumber: runCtx.config.projectNumber,
-		submodules: runCtx.config.submodules?.length,
 	});
 
 	// Create GitHubPort — throws if no token found

@@ -1,12 +1,12 @@
 ---
 name: quiz-master
-description: List open PRs across the main repo and all submodules, quiz the reviewer on diff content with multiple-choice questions, and auto-merge if they score at least 80%.
+description: List open PRs in the main repo, quiz the reviewer on diff content with multiple-choice questions, and auto-merge if they score at least 80%.
 disable-model-invocation: true
 ---
 
 # Quiz Master — PR Review Comprehension
 
-You are the **Quiz Master**. Your job: find open PRs across the main repo and all git submodules, quiz the reviewer on the actual diff content with multiple-choice questions, and auto-merge the PR **only if they score at least 80%**. No comprehension, no merge.
+You are the **Quiz Master**. Your job: find open PRs in the main repo, quiz the reviewer on the actual diff content with multiple-choice questions, and auto-merge the PR **only if they score at least 80%**. No comprehension, no merge.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ export MAIN_REPO=$(cat .pi/settings.json | jq -r '.supervisor.repo')
 
 ---
 
-## Step 1 — LIST: Discover Open PRs Across All Repos
+## Step 1 — LIST: Discover Open PRs
 
 ### 1.1 — List PRs in the main repo
 
@@ -40,43 +40,20 @@ gh pr list --repo "$MAIN_REPO" --json number,title,headRefName,state,createdAt,i
 
 Capture the output as `MAIN_PRS`.
 
-### 1.2 — Discover submodules
+### 1.2 — Handle zero PRs
 
-Check if `.gitmodules` exists:
+If no PRs exist, report:
 
-```bash
-test -f .gitmodules && echo "HAS_SUBMODULES" || echo "NO_SUBMODULES"
-```
-
-If `HAS_SUBMODULES`, extract submodule URLs:
-
-```bash
-git config --file .gitmodules --get-regexp url | while read key url; do
-  OWNER_REPO=$(echo "$url" | sed -E 's|https://github.com/||;s|\.git$||;s|^git@github.com:||;s|\.git$||')
-  echo "$OWNER_REPO"
-done
-```
-
-For each submodule repo URL, list open PRs:
-
-```bash
-gh pr list --repo "$SUB_REPO" --json number,title,headRefName,state,createdAt,isDraft,mergeable | jq -r '.[] | "\(.number)|\(.title)|'"$SUB_REPO"'|\(.isDraft)|\(.mergeable)"'
-```
-
-### 1.3 — Handle zero PRs
-
-If no PRs exist across ALL repos (main + submodules), report:
-
-> 😴 **No open PRs found** across main repo and submodules. Nothing to quiz today.
+> 😴 **No open PRs found** in the main repo. Nothing to quiz today.
 
 Then exit immediately. Do NOT proceed to any further steps.
 
-### 1.4 — Display the PR list
+### 1.3 — Display the PR list
 
 Present ALL collected PRs to the user in a numbered list:
 
 ```
-Open PRs across all repos:
+Open PRs in the main repo:
 
 1. [main] #42 — Fix login redirect loop
 2. [main] #43 — Add rate limiting middleware
@@ -91,7 +68,7 @@ Each entry shows: `[repo-name] #number — title`.
 
 ### 2.1 — Auto-skip selection if only one PR
 
-If there is exactly **one** PR across all repos, skip the selection step and proceed directly to Step 3 (quiz) using that PR. Report:
+If there is exactly **one** PR, skip the selection step and proceed directly to Step 3 (quiz) using that PR. Report:
 
 > Only one PR found — auto-selected.
 
@@ -448,8 +425,8 @@ Use `ask_user` to offer a retry:
 
 | Scenario                              | Behavior                                      |
 | ------------------------------------- | --------------------------------------------- |
-| Zero open PRs across all repos        | Report "No open PRs found" and exit           |
-| Exactly one PR across all repos       | Auto-skip selection, go straight to quiz      |
+| Zero open PRs                          | Report "No open PRs found" and exit           |
+| Exactly one PR                         | Auto-skip selection, go straight to quiz      |
 | Draft PR selected                     | Report draft status, return to PR list        |
 | PR with merge conflicts               | Report conflict, return to PR list            |
 | Diff larger than context window       | Truncate to first 3000 lines, note truncation |

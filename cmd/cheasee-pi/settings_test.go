@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -424,72 +425,40 @@ func TestSettingsWriter_agentPathUpdatesExisting(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
-// removeSubmoduleSettings (init_submodule.go)
+// Parent-path settings entries survive init
 // ──────────────────────────────────────────────
 
-func TestRemoveSubmoduleSettings_filtersParentPaths(t *testing.T) {
+// TestSettingsScaffold_PreservesParentPathEntries asserts that `../private-pi/...`
+// skills/prompts entries survive init — nothing strips them anymore (the old
+// parent-path filter is gone).
+func TestSettingsScaffold_PreservesParentPathEntries(t *testing.T) {
 	workdir := t.TempDir()
 	s := &Settings{
 		Comment: "keep me",
-		Skills:  []string{"../private-pi/skills", "bash", "..\\win-style"},
+		Skills:  []string{"../private-pi/skills", "bash"},
 		Prompts: []string{"../private-pi/prompts", "code-review"},
 	}
 	if err := s.Save(workdir); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := removeSubmoduleSettings(workdir); err != nil {
-		t.Fatalf("removeSubmoduleSettings: %v", err)
+	// Scaffold is idempotent: existing settings.json is left untouched.
+	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{}); err != nil {
+		t.Fatalf("scaffold: %v", err)
 	}
 
 	loaded, err := LoadSettings(workdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Skills) != 1 || loaded.Skills[0] != "bash" {
-		t.Errorf("Skills = %v, want [bash]", loaded.Skills)
+	if !slices.Contains(loaded.Skills, "../private-pi/skills") {
+		t.Errorf("Skills lost parent-path entry: %v", loaded.Skills)
 	}
-	if len(loaded.Prompts) != 1 || loaded.Prompts[0] != "code-review" {
-		t.Errorf("Prompts = %v, want [code-review]", loaded.Prompts)
+	if !slices.Contains(loaded.Prompts, "../private-pi/prompts") {
+		t.Errorf("Prompts lost parent-path entry: %v", loaded.Prompts)
 	}
 	if loaded.Comment != "keep me" {
 		t.Errorf("comment must survive: %q", loaded.Comment)
-	}
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json") + ".tmp"); !os.IsNotExist(err) {
-		t.Error("no .tmp residue after submodule cleanup")
-	}
-}
-
-func TestRemoveSubmoduleSettings_noParentPathsNoWrite(t *testing.T) {
-	workdir := t.TempDir()
-	s := &Settings{Comment: "keep", Skills: []string{"bash", "web"}}
-	if err := s.Save(workdir); err != nil {
-		t.Fatal(err)
-	}
-	before, _ := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-
-	if err := removeSubmoduleSettings(workdir); err != nil {
-		t.Fatalf("removeSubmoduleSettings: %v", err)
-	}
-
-	after, _ := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if string(before) != string(after) {
-		t.Errorf("no parent paths: file must be untouched\nbefore: %s\nafter:  %s", before, after)
-	}
-}
-
-func TestRemoveSubmoduleSettings_missingFileNil(t *testing.T) {
-	workdir := t.TempDir()
-	if err := removeSubmoduleSettings(workdir); err != nil {
-		t.Fatalf("missing file must return nil, got %v", err)
-	}
-}
-
-func TestRemoveSubmoduleSettings_corruptFileErrors(t *testing.T) {
-	workdir := t.TempDir()
-	testutil.WriteSettingsFile(t, workdir, "{nope")
-	if err := removeSubmoduleSettings(workdir); err == nil {
-		t.Fatal("expected error for corrupt settings, got nil")
 	}
 }
 

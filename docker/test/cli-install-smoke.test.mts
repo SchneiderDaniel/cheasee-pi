@@ -178,7 +178,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
 				"--skip-fork " +
-				"--skip-submodules " +
+				"" +
 				"--no-input " +
 				"--no-docker-check " +
 				"--api-key ci-test-key " +
@@ -344,7 +344,7 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 
 	it("adapter — init with --no-input but without --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --provider opencode-go --workdir "${errWorkdir}"`,
+			`"${BINARY_PATH}" init --no-github --skip-fork --no-input --no-docker-check --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for missing --api-key");
@@ -352,7 +352,7 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 
 	it("adapter — init with empty --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --skip-submodules --no-input --no-docker-check --api-key "" --provider opencode-go --workdir "${errWorkdir}"`,
+			`"${BINARY_PATH}" init --no-github --skip-fork --no-input --no-docker-check --api-key "" --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for empty --api-key");
@@ -384,7 +384,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
 				"--skip-fork " +
-				"--skip-submodules " +
+				"" +
 				"--no-input " +
 				"--no-docker-check " +
 				"--api-key ci-test-key " +
@@ -439,7 +439,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
 				"--skip-fork " +
-				"--skip-submodules " +
+				"" +
 				"--no-input " +
 				"--no-docker-check " +
 				"--api-key ci-test-key " +
@@ -467,7 +467,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				`"${BINARY_PATH}" init ` +
 					"--no-github " +
 					"--skip-fork " +
-					"--skip-submodules " +
+					"" +
 					"--no-input " +
 					"--no-docker-check " +
 					"--api-key ci-test-key " +
@@ -501,7 +501,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				`"${BINARY_PATH}" init ` +
 					"--no-github " +
 					"--skip-fork " +
-					"--skip-submodules " +
+					"" +
 					"--no-input " +
 					"--no-docker-check " +
 					"--api-key ci-test-key " +

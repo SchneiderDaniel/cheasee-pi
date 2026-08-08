@@ -45,9 +45,7 @@ services:
   codeflow:
     # Browser-based code-structure visualizer (tree-sitter AST, 18 languages),
     # served locally and pointed at this workspace. Settings live in
-    # docker/codeflow/config.json (bind-mounted, editable without rebuild):
-    #   include_submodules: false  -> git submodules excluded from analysis
-    #   include_submodules: true   -> submodule directories included
+    # docker/codeflow/config.json (bind-mounted, editable without rebuild).
     #
     #   http://localhost:8470/?repo=local/workspace&run=1
     #

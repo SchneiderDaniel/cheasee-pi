@@ -28,7 +28,6 @@ export const SupervisorConfigSchema = z.object({
 	codeowners: z
 		.array(z.string())
 		.nonempty({ message: "supervisor.codeowners must be a non-empty list" }),
-	submodules: z.array(z.object({ path: z.string(), repo: z.string() })).optional(),
 	defaultBranch: z.string().default("main"),
 	remote: z.string().default("origin"),
 	worktreeBase: z.string().default("../"),
@@ -49,33 +48,6 @@ export type SupervisorConfig = z.infer<typeof SupervisorConfigSchema>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-/** Parse .gitmodules into submodule entries. Only returns entries with GitHub URLs. */
-function parseGitmodules(): Array<{ path: string; repo: string }> {
-	const gitmodulesPath = ".gitmodules";
-	if (!existsSync(gitmodulesPath)) return [];
-	const content = readFileSync(gitmodulesPath, "utf-8");
-	const subs: Array<{ path: string; repo: string }> = [];
-	const sectionRe = /\[submodule\s+"(.+?)"\]/g;
-	let match: RegExpExecArray | null;
-	while ((match = sectionRe.exec(content)) !== null) {
-		const name = match[1];
-		const sectionStart = match.index + match[0].length;
-		const nextSection = content.indexOf("[", sectionStart);
-		const sectionBody =
-			nextSection === -1 ? content.slice(sectionStart) : content.slice(sectionStart, nextSection);
-		const pathMatch = sectionBody.match(/^\s*path\s*=\s*(.+)$/m);
-		const urlMatch = sectionBody.match(/^\s*url\s*=\s*(.+)$/m);
-		if (!pathMatch || !urlMatch) continue;
-		const path = pathMatch[1].trim();
-		const url = urlMatch[1].trim();
-		const ghMatch = url.match(/github\.com[/:](.+?)\/(.+?)(?:\.git)?$/);
-		if (!ghMatch) continue;
-		const repo = `${ghMatch[1]}/${ghMatch[2]}`;
-		subs.push({ path, repo });
-	}
-	return subs;
-}
-
 // ─── Config loading ──────────────────────────────────────────────────
 
 export function loadConfig(): SupervisorConfig {
@@ -90,19 +62,12 @@ export function loadConfig(): SupervisorConfig {
 	// Schema-driven validation — replaces ~50 lines of manual if/throw checks
 	const parsed = SupervisorConfigSchema.parse(cfg);
 
-	// Post-parse: submodules fallback to .gitmodules
-	const submodules =
-		parsed.submodules && parsed.submodules.length > 0
-			? parsed.submodules
-			: parseGitmodules();
-
 	// Post-parse: cross-field policy for agentTimeoutsMin
 	const knownAgents = Object.values(parsed.statusMapping) as string[];
 	const agentTimeoutsMin = validateAgentTimeouts(parsed.agentTimeoutsMin, knownAgents);
 
 	return {
 		...parsed,
-		submodules,
 		agentTimeoutsMin,
 	};
 }
@@ -121,8 +86,8 @@ export function loadConfig(): SupervisorConfig {
  *   `.pi/skills` and `../private-pi/skills` land where the CLI loads them
  *   (`<repo>/.pi/skills` and `<repo>/private-pi/skills`).
  * - Fail-open: missing/unreadable settings or missing `skills` key → `[]`
- *   (worktrees stripped of submodule roots by init.go are the expected
- *   state, not an anomaly).
+ *   (fresh clones without the maintainer's host-side `../private-pi` clone
+ *   are the expected state, not an anomaly).
  */
 export function loadSkillsRoots(cwd: string): string[] {
 	const settingsPath = resolvePath(cwd, ".pi/settings.json");
