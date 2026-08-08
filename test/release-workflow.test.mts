@@ -27,7 +27,7 @@ interface WorkflowConfig {
 	jobs?: Record<
 		string,
 		{
-			"if"?: string;
+			if?: string;
 			needs?: string | string[];
 			"runs-on"?: string;
 			permissions?: Record<string, string>;
@@ -77,7 +77,7 @@ describe(".github/workflows/release.yml", () => {
 			assert.ok(pr.paths.includes("go.sum"), "missing go.sum path");
 			assert.ok(
 				pr.paths.includes(".github/workflows/release.yml"),
-				"missing .github/workflows/release.yml path"
+				"missing .github/workflows/release.yml path",
 			);
 		});
 	});
@@ -92,9 +92,7 @@ describe(".github/workflows/release.yml", () => {
 		it("test job runs go build ./cmd/cheasee-pi/", () => {
 			const workflow = parseWorkflow();
 			const steps = workflow.jobs?.test?.steps || [];
-			const buildStep = steps.find(
-				(s) => s.run && s.run.includes("go build ./cmd/cheasee-pi/")
-			);
+			const buildStep = steps.find((s) => s.run && s.run.includes("go build ./cmd/cheasee-pi/"));
 			assert.ok(buildStep, "test job missing go build step");
 		});
 
@@ -113,8 +111,10 @@ describe(".github/workflows/release.yml", () => {
 			const workflow = parseWorkflow();
 			assert.ok(workflow.jobs?.release, "release job missing");
 			const needs = workflow.jobs.release.needs;
-			assert.ok(needs === "test" || (Array.isArray(needs) && needs.includes("test")),
-				"release job must need test");
+			assert.ok(
+				needs === "test" || (Array.isArray(needs) && needs.includes("test")),
+				"release job must need test",
+			);
 		});
 
 		it("release job is gated by startsWith(github.ref, 'refs/tags/v')", () => {
@@ -123,7 +123,7 @@ describe(".github/workflows/release.yml", () => {
 			assert.ok(releaseJob, "release job missing");
 			assert.ok(
 				releaseJob["if"]?.includes("startsWith(github.ref, 'refs/tags/v')"),
-				"release job must have if condition for tag push"
+				"release job must have if condition for tag push",
 			);
 		});
 
@@ -135,7 +135,7 @@ describe(".github/workflows/release.yml", () => {
 			assert.strictEqual(
 				releaseJob.permissions.contents,
 				"write",
-				"release job permissions.contents must be write"
+				"release job permissions.contents must be write",
 			);
 		});
 
@@ -144,33 +144,33 @@ describe(".github/workflows/release.yml", () => {
 			assert.strictEqual(
 				workflow.jobs?.release?.["runs-on"],
 				"ubuntu-latest",
-				"release job must run on ubuntu-latest"
+				"release job must run on ubuntu-latest",
 			);
 		});
 
-		it("release job uses actions/checkout@v4 with fetch-depth: 0", () => {
+		it("release job uses actions/checkout@v5 with fetch-depth: 0", () => {
 			const workflow = parseWorkflow();
 			const steps = workflow.jobs?.release?.steps || [];
-			const checkoutStep = steps.find((s) => s.uses?.startsWith("actions/checkout@v4"));
-			assert.ok(checkoutStep, "release job missing actions/checkout@v4");
+			const checkoutStep = steps.find((s) => s.uses?.startsWith("actions/checkout@v5"));
+			assert.ok(checkoutStep, "release job missing actions/checkout@v5");
 			assert.strictEqual(
 				checkoutStep?.with?.["fetch-depth"],
 				0,
-				"checkout must have fetch-depth: 0"
+				"checkout must have fetch-depth: 0",
 			);
 		});
 
-		it("release job uses goreleaser/goreleaser-action@v6 with args: release --clean", () => {
+		it("release job uses goreleaser/goreleaser-action@v7 with args: release --clean", () => {
 			const workflow = parseWorkflow();
 			const steps = workflow.jobs?.release?.steps || [];
 			const goreleaserStep = steps.find((s) =>
-				s.uses?.startsWith("goreleaser/goreleaser-action@v6")
+				s.uses?.startsWith("goreleaser/goreleaser-action@v7"),
 			);
-			assert.ok(goreleaserStep, "release job missing goreleaser/goreleaser-action@v6");
+			assert.ok(goreleaserStep, "release job missing goreleaser/goreleaser-action@v7");
 			assert.strictEqual(
 				goreleaserStep?.with?.args,
 				"release --clean",
-				"goreleaser args must include release --clean"
+				"goreleaser args must include release --clean",
 			);
 		});
 
