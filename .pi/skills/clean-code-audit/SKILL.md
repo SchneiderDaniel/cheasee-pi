@@ -19,7 +19,6 @@ Requires: `gh` CLI authenticated.
 | Target              | What it analyzes                                |
 | ------------------- | ----------------------------------------------- |
 | `root` (or omitted) | Main repo                                       |
-| `<submodule-name>`  | Submodule by name (resolved from `.gitmodules`) |
 | `<any-path>`        | Arbitrary directory                             |
 
 ## Workflow
@@ -29,10 +28,10 @@ Requires: `gh` CLI authenticated.
 Extract target from message:
 
 - `/skill:clean-code-audit <target>` → use directly
-- Natural language: parse "of X", "in X", "for X", or single word matching submodule name or valid path
+- Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 
-Read `.gitmodules` from project root. Parse submodules. If target matches submodule name, resolve to its `path`. Otherwise treat as relative directory. For `root`, use `.`.
+Treat the target as a relative directory. For `root`, use `.`.
 
 ### 2 — Explore codebase for violations
 
@@ -91,7 +90,7 @@ File at most 7 candidates total across both strengths; 2–4 strong is a healthy
 
 **Title:** `Clean Code Audit: <target-name> — <YYYY-MM-DD>`
 
-**Labels:** Always `clean-code`. If target is a submodule, also add submodule name as label (create with `gh label create <name>` if absent).
+**Labels:** Always `clean-code`.
 
 **Body structure:**
 
@@ -157,7 +156,7 @@ Create the umbrella issue first (Step 3) and **capture its issue number** (print
 ```
 gh issue create \
   --title "CLEAN: <candidate short title>" \
-  --label clean-code[,<submodule-name>] \
+  --label clean-code \
   --body-file <body-file> \
   --parent <umbrella-number>
 ```
@@ -189,7 +188,7 @@ Sub-issue fields:
   - [ ] Error behaviour preserved
   - [ ] Teammate would approve as net improvement
   ````
-- **Labels:** same as umbrella (`clean-code` + submodule name)
+- **Labels:** same as umbrella (`clean-code`)
 
 ### 5 — Board, complete
 

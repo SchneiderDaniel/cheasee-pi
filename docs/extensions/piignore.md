@@ -41,7 +41,7 @@ Hierarchical .piignore loading with shell-aware bash path extraction:
 └── test/     # Unit tests
 ```
 
-Single-file extension (no submodules). Core logic:
+Single-file extension. Core logic:
 - `loadPiIgnore()` — Walks up from cwd to filesystem root, collecting `.piignore` files
 - `patternToRegex()` — Converts gitignore pattern to RegExp
 - `isIgnored()` — Checks path against all loaded patterns with negation support

@@ -154,8 +154,10 @@ rm -f cheasee-pi
 restore
 
 # 11. git-clean outcome: no untracked/modified entries under docker/ after regen
-#     (staged D entries are this change's consolidation diff — expected)
-if git status --porcelain docker/ | grep -Eq '^\?\?|^ M|^A '; then
+#     (staged D entries are this change's consolidation diff — expected;
+#     tracked docker/ extras — test/, docker-compose.legacy.yml — may legitimately
+#     carry working changes and are excluded)
+if git status --porcelain docker/ | grep -Ev '^D |^ M docker/test/|^ M docker/docker-compose\.legacy\.yml' | grep -Eq '^\?\?|^ M|^A '; then
 	fail "git-clean: unexpected entries under docker/: $(git status --porcelain docker/ | tr '\n' ' ')"
 else
 	pass "git-clean: no untracked/modified entries under docker/ after regen"

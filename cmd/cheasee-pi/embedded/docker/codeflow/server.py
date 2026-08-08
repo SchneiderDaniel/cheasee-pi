@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CodeFlow local shim — serves the CodeFlow UI and emulates the GitHub REST API
 against a mounted repository directory, so the browser can analyze the container's
-own codebase (including git submodules, which are plain directories on disk).
+own codebase.
 
 Emulated endpoints (the only ones CodeFlow's analysis path uses):
   GET /api/repos/{owner}/{repo}                      -> {"default_branch": ...}
@@ -17,7 +17,6 @@ the GitHub API it only emulates. Both patches are silent no-ops if upstream
 renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
-  include_submodules   bool; submodule dirs (from .gitmodules) analyzed only when true (shipped config: true)
   exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore", ".pi"])
   port                 listen port (default: 8470)
   host                 bind address (default: 0.0.0.0)
@@ -27,12 +26,10 @@ Env (deployment overrides, used when config.json is absent):
   REPO_ROOT     directory to analyze               (default: /repo)
   UI_DIR        CodeFlow checkout to serve         (default: /opt/codeflow-ui)
   EXCLUDE_DIRS  comma-separated dir names          (fallback for exclude_dirs)
-  INCLUDE_SUBMODULES  true/false                   (fallback for include_submodules)
   PORT          listen port                        (fallback for port)
   HOST          bind address                       (fallback for host)
 """
 import base64
-import configparser
 import json
 import mimetypes
 import os
@@ -68,27 +65,11 @@ EXCLUDE_DIRS = set(
     _CONFIG.get("exclude_dirs")
     or [d for d in os.environ.get("EXCLUDE_DIRS", ".git,node_modules,ignore,.pi").split(",") if d]
 )
-INCLUDE_SUBMODULES = _as_bool(
-    _CONFIG.get("include_submodules", os.environ.get("INCLUDE_SUBMODULES", "false"))
-)
 try:
     PORT = int(_CONFIG.get("port") or os.environ.get("PORT") or 8470)
 except (TypeError, ValueError):
     PORT = 8470
 HOST = _CONFIG.get("host") or os.environ.get("HOST") or "0.0.0.0"
-
-# Submodule paths from .gitmodules (e.g. {"private-pi", "flask_blogs"}).
-# Always parsed: used to exclude the directories when INCLUDE_SUBMODULES is
-# false, and to apply each submodule's own .gitignore when it is true.
-SUBMODULE_DIRS = set()
-gitmodules = os.path.join(REPO_ROOT, ".gitmodules")
-if os.path.isfile(gitmodules):
-    try:
-        cfg = configparser.ConfigParser()
-        cfg.read(gitmodules)
-        SUBMODULE_DIRS = {v.get("path", "") for v in cfg.values() if v.get("path")}
-    except configparser.Error:
-        pass
 
 # The single hardcoded API base inside index.html, rewritten to a same-origin path.
 _API_BASE = re.compile(rb"'https://api\.github\.com/'")
@@ -149,7 +130,7 @@ _UI_REWRITES = (
     (re.compile(re.escape(b"setProgress('Checking rate limit...')")), b"setProgress('Checking workspace...')"),
 )
 
-# .git appears both as a directory and (inside submodule worktrees) as a pointer
+# .git appears both as a directory and (inside linked worktrees) as a pointer
 # file; both are meaningless for analysis.
 _IGNORED_NAMES = {'.git'}
 # Force a correct content type; the stdlib guess misses .wasm on some platforms.
@@ -167,28 +148,10 @@ def _gitignored(paths):
     Delegates to `git check-ignore` so real gitignore semantics apply
     (nested .gitignore, negation, dir patterns). Empty set when git is
     unavailable or REPO_ROOT is not a git work tree — no filtering then.
-    When INCLUDE_SUBMODULES is true, each submodule's own .gitignore rules
-    are applied to the paths inside it as well. Main-repo and submodule
-    paths are checked separately: `git check-ignore` errors out (rc 128,
-    dropping every result after) when its input contains a path inside a
-    submodule gitlink.
     """
     if not paths:
         return set()
-    if INCLUDE_SUBMODULES:
-        prefixes = tuple(sub + "/" for sub in SUBMODULE_DIRS)
-        main_paths = [p for p in paths if not p.startswith(prefixes)]
-    else:
-        main_paths = paths
-    ignored = _check_ignore(REPO_ROOT, main_paths)
-    if INCLUDE_SUBMODULES:
-        for sub in sorted(SUBMODULE_DIRS):
-            prefix = sub + "/"
-            sub_paths = [p[len(prefix):] for p in paths if p.startswith(prefix)]
-            if not sub_paths:
-                continue
-            ignored |= {prefix + p for p in _check_ignore(os.path.join(REPO_ROOT, sub), sub_paths)}
-    return ignored
+    return _check_ignore(REPO_ROOT, paths)
 
 
 def _check_ignore(root, paths):
@@ -211,17 +174,13 @@ def _check_ignore(root, paths):
 def _walk():
     """Yield {path,type,size} for every blob under REPO_ROOT.
 
-    Prunes EXCLUDE_DIRS by directory name, submodule dirs (when
-    INCLUDE_SUBMODULES is false) by their .gitmodules path, and any
-    path matched by .gitignore (e.g. installed package artifacts).
+    Prunes EXCLUDE_DIRS by directory name and any path matched by .gitignore
+    (e.g. installed package artifacts).
     """
     entries = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
         rel_dir = os.path.relpath(dirpath, REPO_ROOT)
         dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDE_DIRS and d not in _IGNORED_NAMES)
-        if not INCLUDE_SUBMODULES and rel_dir in SUBMODULE_DIRS:
-            dirnames[:] = []
-            continue
         for name in sorted(filenames):
             if name in _IGNORED_NAMES:
                 continue
@@ -329,8 +288,6 @@ class Handler(BaseHTTPRequestHandler):
                 full = os.path.join(target, name)
                 rel_child = os.path.join(rel, name) if rel else name
                 if os.path.isdir(full):
-                    if rel_child in SUBMODULE_DIRS:
-                        continue  # submodule excluded unless INCLUDE_SUBMODULES
                     entries.append({"type": "dir", "path": rel_child, "name": name})
                 elif os.path.isfile(full):
                     try:

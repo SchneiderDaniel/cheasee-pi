@@ -928,14 +928,14 @@ export function extractStructuredAuditOutput(output: string, toolNames?: Set<str
 	}
 
 	const prBodyMatch = output.match(
-		/PR_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:COMMENT_BODY|SUBMODULE_PR|PR_TITLE)\s*:|$)/,
+		/PR_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:COMMENT_BODY|PR_TITLE)\s*:|$)/,
 	);
 	if (prBodyMatch) {
 		result.prBody = prBodyMatch[1].trim();
 	}
 
 	const commentBodyMatch = output.match(
-		/COMMENT_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:SUBMODULE_PR|AUDIT_DECISION)\s*:|$)/,
+		/COMMENT_BODY\s*:[^\S\n]*([\s\S]*?)(?=\n(?:AUDIT_DECISION)\s*:|$)/,
 	);
 	if (commentBodyMatch) {
 		let body = commentBodyMatch[1].trim();

@@ -19,7 +19,6 @@ Requires: `gh` CLI authenticated.
 | Target              | What it analyzes                                |
 | ------------------- | ----------------------------------------------- |
 | `root` (or omitted) | Main repo                                       |
-| `<submodule-name>`  | Submodule by name (resolved from `.gitmodules`) |
 | `<any-path>`        | Arbitrary directory                             |
 
 ## Workflow
@@ -29,10 +28,10 @@ Requires: `gh` CLI authenticated.
 Extract target from message:
 
 - `/skill:code-simplification <target>` → use directly
-- Natural language: parse "of X", "in X", "for X", or single word matching submodule name or valid path
+- Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 
-Read `.gitmodules` from project root. Parse submodules. If target matches submodule name, resolve to its `path`. Otherwise treat as relative directory. For `root`, use `.`.
+Treat the target as a relative directory. For `root`, use `.`.
 
 ### 2 — Explore codebase for complexity patterns
 

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
-	"github.com/go-git/go-git/v5/config"
 	"strings"
 	"testing"
 )
@@ -14,7 +13,7 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--skip-fork", "--fork-url", "--no-input", "--submodule-url", "--skip-submodules"}
+	expectedFlags := []string{"--workdir", "--source-repo", "--no-github", "--client-id", "--provider", "--skip-fork", "--fork-url", "--no-input"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)
@@ -132,17 +131,6 @@ func TestRunInit_ForkURL(t *testing.T) {
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
 
-	submoduleInited := false
-	ops := &mockSubmoduleOps{
-		listSubmodulesFunc: func(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-			return []config.Submodule{{Name: "pi", URL: "https://github.com/SchneiderDaniel/pi.git"}}, nil
-		},
-		initAndUpdateSubmodFunc: func(ctx context.Context, repoPath string) error {
-			submoduleInited = true
-			return nil
-		},
-	}
-
 	// Capture the CloneWorktree seam args (git clone --bare <authURL> <dir>)
 	var cloneURL string
 	savedRun := runCommandContext
@@ -163,7 +151,6 @@ func TestRunInit_ForkURL(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
 		d.Ports = ports
-		d.SubmoduleOps = ops
 		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
 		d.Workdir = workdir
 	}))
@@ -175,9 +162,6 @@ func TestRunInit_ForkURL(t *testing.T) {
 	}
 	if cloneURL != "https://oauth2:"+FakeGitHubToken+"@github.com/user/existing-fork.git" {
 		t.Errorf("expected tokenized clone URL, got %q", cloneURL)
-	}
-	if !submoduleInited {
-		t.Error("Submodule init should be called with fork URL")
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called after fork-url flow")
@@ -213,7 +197,6 @@ func TestRunInit_ForkURLSkipsCreateFork(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
 		d.Ports = ports
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.SourceFork = SourceForkInput{Mode: ModeUseForkURL, ForkURL: "https://github.com/user/existing-fork.git"}
 		d.Workdir = workdir
 	}))
@@ -252,7 +235,6 @@ func TestRunInit_PostCloneConfirm_Accepted(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.NoInput = false
 		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
@@ -294,7 +276,6 @@ func TestRunInit_PostCloneConfirm_NoInputSkipsPrompt(t *testing.T) {
 	// If confirm were called with false, we'd error (but it won't be called)
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
 		d.ConfirmFn = nil

@@ -79,10 +79,6 @@ system_prompt: |
 }
 ```
 
-### Sub-module support
-
-When the repo has submodules, Developer works on both simultaneously using matched-branch pattern. Submodule changes must be pushed first (main repo commit pins submodule SHA).
-
 ## Install
 
 Part of Cheasee-Pi monorepo. Activated automatically.
@@ -154,7 +150,7 @@ flowchart LR
 - **Structured JSON agent output** — `{ action, findings, commentBody, targetStatus }` with fallback to section heading detection, then legacy text markers.
 - **Gate failure != Auditor rejection** — Gate failures (CI/TSC/LSP/knip/jscpd/traceability) send back to Implementation but do NOT count toward `maxRejections`. Context accumulated in `gateFailureHistory`.
 - **Audit scoring across 8 dimensions** — Correctness, completeness, security, performance, style, test coverage, documentation, edge cases. Score must meet `auditScoreThreshold` (default 0.75).
-- **Worktree isolation** — Each issue gets its own git worktree at `../<branch-prefix><issue-number>/`. Submodules handled with matched-branch pattern.
+- **Worktree isolation** — Each issue gets its own git worktree at `../<branch-prefix><issue-number>/`.
 - **Per-agent budgets** — `agentTokenBudget` (soft cap) and `maxToolCalls` (hard cap).
 - **Push recovery** — If branch SHA not found on remote (force push), pipeline recovers by fetching latest.
 

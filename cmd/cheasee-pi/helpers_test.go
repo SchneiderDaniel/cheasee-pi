@@ -11,7 +11,6 @@ import (
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
-	"github.com/go-git/go-git/v5/config"
 )
 
 // ──────────────────────────────────────────────
@@ -75,61 +74,6 @@ func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 }
 
 // ──────────────────────────────────────────────
-// Mock: submoduleOps (go-git submodule ops)
-// ──────────────────────────────────────────────
-
-type mockSubmoduleOps struct {
-	listSubmodulesFunc      func(ctx context.Context, repoPath string) ([]config.Submodule, error)
-	setSubmoduleURLFunc     func(ctx context.Context, repoPath, name, newURL string) error
-	initAndUpdateSubmodFunc func(ctx context.Context, repoPath string) error
-	addSubmoduleFunc        func(ctx context.Context, repoPath, name, url string) error
-
-	// Tracking fields for test assertions
-	listSubmodulesCalled  bool
-	setSubmoduleURLCalled bool
-	setSubmoduleURLName   string
-	setSubmoduleURLURL    string
-	setSubmoduleURLCalls  []struct{ Name, URL string }
-	initAndUpdateCalled   bool
-	addSubmoduleCalls     []struct{ Name, URL string }
-}
-
-func (m *mockSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-	m.listSubmodulesCalled = true
-	if m.listSubmodulesFunc != nil {
-		return m.listSubmodulesFunc(ctx, repoPath)
-	}
-	return nil, nil
-}
-
-func (m *mockSubmoduleOps) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
-	m.setSubmoduleURLCalled = true
-	m.setSubmoduleURLName = name
-	m.setSubmoduleURLURL = newURL
-	m.setSubmoduleURLCalls = append(m.setSubmoduleURLCalls, struct{ Name, URL string }{name, newURL})
-	if m.setSubmoduleURLFunc != nil {
-		return m.setSubmoduleURLFunc(ctx, repoPath, name, newURL)
-	}
-	return nil
-}
-
-func (m *mockSubmoduleOps) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
-	m.initAndUpdateCalled = true
-	if m.initAndUpdateSubmodFunc != nil {
-		return m.initAndUpdateSubmodFunc(ctx, repoPath)
-	}
-	return nil
-}
-
-func (m *mockSubmoduleOps) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
-	m.addSubmoduleCalls = append(m.addSubmoduleCalls, struct{ Name, URL string }{name, url})
-	if m.addSubmoduleFunc != nil {
-		return m.addSubmoduleFunc(ctx, repoPath, name, url)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
 // Mock: ConfirmFn
 // ──────────────────────────────────────────────
 
@@ -166,7 +110,6 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 var (
 	_ Authenticator = (*mockAuthenticator)(nil)
 	_ GitHubClient  = (*mockGitHubClient)(nil)
-	_ submoduleOps  = (*mockSubmoduleOps)(nil)
 )
 
 // ──────────────────────────────────────────────
@@ -359,24 +302,6 @@ func pinPassthroughEnv(t *testing.T) string {
 	}
 	t.Setenv("PATH", bin)
 	return xdg
-}
-
-// submoduleFixture returns a mockSubmoduleOps whose ListSubmodules returns the
-// standard flask_blogs/private-pi fixture — or only flask_blogs when single is
-// true. Set additional mock funcs on the returned mock as needed.
-func submoduleFixture(single bool) *mockSubmoduleOps {
-	subs := []config.Submodule{
-		{Name: "flask_blogs", Path: "flask_blogs", URL: "https://github.com/SchneiderDaniel/flask_blogs"},
-		{Name: "private-pi", Path: "private-pi", URL: "https://github.com/SchneiderDaniel/private-pi.git"},
-	}
-	if single {
-		subs = subs[:1]
-	}
-	return &mockSubmoduleOps{
-		listSubmodulesFunc: func(context.Context, string) ([]config.Submodule, error) {
-			return subs, nil
-		},
-	}
 }
 
 // marshalAuth JSON-marshals auth, failing the test on error.

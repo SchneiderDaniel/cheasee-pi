@@ -117,26 +117,6 @@ func TestInitRemove_MultiplePatterns(t *testing.T) {
 	}
 }
 
-func TestInitRemove_GitmodulesProtected(t *testing.T) {
-	r := &initRemover{}
-	workdir := t.TempDir()
-	content := []byte(".gitmodules")
-	if err := os.WriteFile(filepath.Join(workdir, ".initremove"), content, 0644); err != nil {
-		t.Fatalf("write .initremove: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workdir, ".gitmodules"), []byte("[submodule \"test\"]\n\tpath = test\n\turl = https://github.com/x/test.git"), 0644); err != nil {
-		t.Fatalf("write .gitmodules: %v", err)
-	}
-
-	if err := r.Remove(workdir); err != nil {
-		t.Fatalf("Remove failed: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(workdir, ".gitmodules")); os.IsNotExist(err) {
-		t.Error(".gitmodules should be preserved")
-	}
-}
-
 func TestInitRemove_NonExistentPattern(t *testing.T) {
 	r := &initRemover{}
 	workdir := t.TempDir()
@@ -241,7 +221,6 @@ func TestRunInit_RemoverCalled(t *testing.T) {
 	workdir := t.TempDir()
 	seedCloneFixture(t, workdir)
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
 	}))

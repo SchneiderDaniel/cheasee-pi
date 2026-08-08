@@ -25,7 +25,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -46,7 +45,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -64,7 +62,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -82,7 +79,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -100,7 +96,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -125,7 +120,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -137,28 +131,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 		assert.ok(task.includes('"commentBody"'), "Auditor prompt should contain commentBody");
 	});
 
-	it("no longer contains --body-file for submodule fallback", async () => {
-		const { buildAgentTask } = await import("../agent/task.ts");
-		const submodules = [{ path: "sub/a", repo: "owner/sub-a" }];
-		const task = buildAgentTask(
-			"auditor",
-			42,
-			"owner/repo",
-			"Fix bug",
-			{ body: "body", comments: [] },
-			submodules,
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/test/main/repo",
-		);
-		assert.ok(
-			!task.includes("gh pr create"),
-			"Auditor prompt should not contain gh pr create even with submodules",
-		);
-	});
-
 	it("still includes code review instructions", async () => {
 		const { buildAgentTask } = await import("../agent/task.ts");
 		const task = buildAgentTask(
@@ -167,7 +139,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			{ body: "body", comments: [] },
-			[],
 			"main",
 			"origin",
 			"../",
@@ -177,57 +148,6 @@ describe("buildAgentTask — auditor simplified (Phase 3)", () => {
 		assert.ok(
 			task.includes("Review Findings"),
 			"Auditor prompt should include review dimensions in output template",
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Phase 3: buildAgentTask("auditor") with submodules — structured submodule
-// ---------------------------------------------------------------------------
-
-describe("buildAgentTask — auditor with submodules (Phase 3)", () => {
-	it("submodule section uses structured markers not shell commands", async () => {
-		const { buildAgentTask } = await import("../agent/task.ts");
-		const submodules = [{ path: "sub/a", repo: "owner/sub-a" }];
-		const task = buildAgentTask(
-			"auditor",
-			42,
-			"owner/repo",
-			"Fix bug",
-			{ body: "body", comments: [] },
-			submodules,
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/test/main/repo",
-		);
-		assert.ok(task.includes("Submodules"), "Should mention submodules exist");
-		assert.ok(!task.includes("cd sub/a"), "Should not contain shell cd to submodule");
-	});
-
-	it("references submodule repos for structured output", async () => {
-		const { buildAgentTask } = await import("../agent/task.ts");
-		const submodules = [
-			{ path: "sub/a", repo: "owner/sub-a" },
-			{ path: "sub/b", repo: "owner/sub-b" },
-		];
-		const task = buildAgentTask(
-			"auditor",
-			42,
-			"owner/repo",
-			"Fix bug",
-			{ body: "body", comments: [] },
-			submodules,
-			"main",
-			"origin",
-			"../",
-			"worktree-git-issue-",
-			"/test/main/repo",
-		);
-		assert.ok(
-			task.includes("owner/sub-a") && task.includes("owner/sub-b"),
-			"Should reference submodule repos",
 		);
 	});
 });

@@ -21,6 +21,7 @@ const PACKAGE_FILES = [
 	"preflight.ts",
 	"agent-loop.ts",
 	"post-pipeline.ts",
+	"pr-gates.ts",
 	"shared.ts",
 ];
 

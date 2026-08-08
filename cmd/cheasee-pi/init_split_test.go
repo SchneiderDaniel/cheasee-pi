@@ -18,7 +18,7 @@ var initSplitFiles = []string{
 	"init_auth.go",
 	"init_prompt.go",
 	"init_scaffold.go",
-	"init_submodule.go",
+	"init_clone.go",
 }
 
 // wantInitDecls is the full inventory of top-level declarations in the five
@@ -26,7 +26,7 @@ var initSplitFiles = []string{
 // decl placed in the wrong file (or renamed) fails the test.
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
-	"var:initAPIKey,initNoDockerCheck,initWorkdir,initSourceRepo,initNoGitHub,initClientID,initProvider,initSkipFork,initForkURL,initNoInput,initSubmoduleURLs,initSkipSubmodules": "init.go",
+	"var:initAPIKey,initNoDockerCheck,initWorkdir,initSourceRepo,initNoGitHub,initClientID,initProvider,initSkipFork,initForkURL,initNoInput": "init.go",
 	"type:SourceForkMode":                              "init.go",
 	"const:ModePromptFork,ModeUseForkURL,ModeSkipFork": "init.go",
 	"type:SourceForkInput":                             "init.go",
@@ -44,12 +44,7 @@ var wantInitDecls = map[string]string{
 	"func:runInitLegacy":  "init_auth.go",
 	"func:promptAPIKey":   "init_auth.go",
 
-	"func:runInitSubmodule":        "init_submodule.go",
-	"func:removeSubmoduleDirs":     "init_submodule.go",
-	"func:removeSubmoduleSettings": "init_submodule.go",
-	"func:runInitCloneSubmodule":   "init_submodule.go",
-	"func:parseSubmoduleURLs":      "init_submodule.go",
-	"func:promptSubmoduleURLs":     "init_submodule.go",
+	"func:runInitClone": "init_clone.go",
 
 	"func:runInitDockerCheck": "init_scaffold.go",
 	"func:runInitExtract":     "init_scaffold.go",
@@ -199,7 +194,7 @@ var testSplitFiles = []string{
 	"init_helpers_test.go",
 	"init_usecase_test.go",
 	"init_auth_test.go",
-	"init_submodule_test.go",
+	"init_clone_test.go",
 	"init_scaffold_test.go",
 	"init_prompt_test.go",
 	"initremove_test.go",
@@ -208,7 +203,7 @@ var testSplitFiles = []string{
 
 // initHelperDecls pins the cross-subject helpers to init_helpers_test.go.
 // The rest of the original init_test.go helpers moved to helpers_test.go
-// (mocks, seam stubs, initDeps, submoduleFixture) and testutil/ (SetGitConfig,
+// (mocks, seam stubs, initDeps) and testutil/ (SetGitConfig,
 // RedirectConfigHome, ReadEnvFile, ReadSettingsRaw, CaptureStderr) when main
 // consolidated test scaffolding; only the auth + clone-fixture helpers remain.
 var initHelperDecls = map[string]string{
@@ -244,12 +239,11 @@ var runInitFlowDecls = map[string]string{
 var testSplitRules = []prefixRule{
 	{"TestRunInitAuth", "init_auth_test.go"},
 	{"TestRunInitLegacy", "init_auth_test.go"},
-	{"TestRunInitSubmodule", "init_submodule_test.go"},
+	{"TestInitClone", "init_clone_test.go"},
 	{"TestRunInitPromptSource", "init_prompt_test.go"},
 	{"TestRunInitExtract", "init_scaffold_test.go"},
 	{"TestRunInitEnv", "init_scaffold_test.go"},
 	{"TestRunInitScaffold", "init_scaffold_test.go"},
-	{"TestParseSubmoduleURLs", "init_submodule_test.go"},
 	{"TestInitDeps", "init_scaffold_test.go"},
 	{"TestInit_SuccessMessage", "init_scaffold_test.go"},
 	{"TestInitCmd", "init_prompt_test.go"},

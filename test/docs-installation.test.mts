@@ -274,7 +274,7 @@ describe("docs/installation.md", () => {
 			return section;
 		};
 
-		it("contains 8 original steps: Docker, git/gh, fork, worktree, submodule, start, API key, settings", () => {
+		it("contains original steps: Docker, git/gh, fork, worktree, start, API key, settings", () => {
 			const section = getLegacySection().toLowerCase();
 			const stepMatches = section.match(/###\s+step\s+\d+/gi) || [];
 			assert.ok(stepMatches.length >= 7, `Expected at least 7 steps, found ${stepMatches.length}`);
@@ -301,14 +301,6 @@ describe("docs/installation.md", () => {
 			assert.ok(
 				/worktree\s+add/im.test(section),
 				"Legacy path missing git worktree add"
-			);
-		});
-
-		it("references git submodule configuration", () => {
-			const section = getLegacySection();
-			assert.ok(
-				/submodule/im.test(section),
-				"Legacy path missing git submodule"
 			);
 		});
 

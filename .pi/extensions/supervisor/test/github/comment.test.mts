@@ -240,20 +240,21 @@ describe("extractStructuredAuditOutput()", () => {
 		assert.equal(result?.commentBody, "## Audit Approved\nLooks good!");
 	});
 
-	it("PR_BODY with AUDIT_SCORE followed by SUBMODULE_PR — captures correctly", () => {
+	it("PR_BODY with AUDIT_SCORE followed by PR_TITLE — captures correctly", () => {
 		const output = [
 			"AUDIT_DECISION: APPROVED",
 			"PR_TITLE: feat(#123): multi-repo",
 			"PR_BODY: ## Changes",
 			"AUDIT_SCORE: 6/6",
 			"",
-			"SUBMODULE_PR: submodule-repo main..feat-branch",
+			"PR_TITLE: feat(#123): follow-up",
 			"COMMENT_BODY: Done",
 		].join("\n");
 		const result = extractStructuredAuditOutput(output);
 		assert.ok(result !== null);
 		assert.ok(result?.prBody?.includes("AUDIT_SCORE: 6/6"));
 		assert.ok(result?.prBody?.includes("## Changes"));
+		assert.ok(!result?.prBody?.includes("follow-up"));
 	});
 
 	it("empty PR_BODY (no content before next marker) — prBody is empty string", () => {
@@ -285,14 +286,14 @@ describe("extractStructuredAuditOutput()", () => {
 		);
 	});
 
-	it("COMMENT_BODY followed by SUBMODULE_PR boundary — stops correctly", () => {
+	it("COMMENT_BODY followed by AUDIT_DECISION boundary — stops correctly", () => {
 		const output = [
 			"AUDIT_DECISION: APPROVED",
 			"PR_TITLE: feat",
 			"PR_BODY: desc",
 			"COMMENT_BODY: ## Approved",
 			"All checks passed.",
-			"SUBMODULE_PR: sub-repo main..feat",
+			"AUDIT_DECISION: REJECTED",
 		].join("\n");
 		const result = extractStructuredAuditOutput(output);
 		assert.ok(result !== null);

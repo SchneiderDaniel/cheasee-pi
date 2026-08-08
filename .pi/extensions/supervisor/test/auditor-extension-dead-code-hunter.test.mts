@@ -10,7 +10,7 @@
 
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
@@ -21,6 +21,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const AUDITOR_MD = resolve(__dirname, "../agents/auditor.md");
+
+// These skills live in the maintainer's host-side private-pi clone
+// (`../private-pi/skills`), which is absent on fresh clones — fail-open then.
+function privatePiSkill(name: string): boolean {
+	return existsSync(resolve(process.cwd(), "private-pi", "skills", name, "SKILL.md"));
+}
 
 function readAuditorMd(): string {
 	return readFileSync(AUDITOR_MD, "utf-8");
@@ -65,30 +71,40 @@ describe("auditor.md — skills frontmatter (Phase 1)", () => {
 describe("resolveSkillPaths regression (Phase 2)", () => {
 	it("resolveSkillPaths('extension-duplicate-code-hunter') returns array with correct path", () => {
 		const result = resolveSkillPaths("extension-duplicate-code-hunter");
-		assert.equal(result.length, 1);
-		assert.ok(
-			result[0]!.endsWith(".pi/skills/extension-duplicate-code-hunter/SKILL.md") ||
+		if (privatePiSkill("extension-duplicate-code-hunter")) {
+			assert.equal(result.length, 1);
+			assert.ok(
 				result[0]!.endsWith("extension-duplicate-code-hunter/SKILL.md"),
-			`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
-		);
+				`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
+			);
+		} else {
+			assert.deepEqual(result, []); // private-pi clone absent → fail-open
+		}
 	});
 
 	it("resolveSkillPaths('extension-dead-code-hunter') returns array with correct path", () => {
 		const result = resolveSkillPaths("extension-dead-code-hunter");
-		assert.equal(result.length, 1);
-		assert.ok(
-			result[0]!.endsWith(".pi/skills/extension-dead-code-hunter/SKILL.md") ||
+		if (privatePiSkill("extension-dead-code-hunter")) {
+			assert.equal(result.length, 1);
+			assert.ok(
 				result[0]!.endsWith("extension-dead-code-hunter/SKILL.md"),
-			`Path should end with extension-dead-code-hunter/SKILL.md, got ${result[0]}`,
-		);
+				`Path should end with extension-dead-code-hunter/SKILL.md, got ${result[0]}`,
+			);
+		} else {
+			assert.deepEqual(result, []); // private-pi clone absent → fail-open
+		}
 	});
 
 	it("resolveSkillPaths('extension-spec') still resolves correctly (regression)", () => {
 		const result = resolveSkillPaths("extension-spec");
-		assert.equal(result.length, 1);
-		assert.ok(
-			result[0]!.endsWith("extension-spec/SKILL.md") || result[0]!.endsWith("extension-spec.md"),
-		);
+		if (privatePiSkill("extension-spec")) {
+			assert.equal(result.length, 1);
+			assert.ok(
+				result[0]!.endsWith("extension-spec/SKILL.md") || result[0]!.endsWith("extension-spec.md"),
+			);
+		} else {
+			assert.deepEqual(result, []); // private-pi clone absent → fail-open
+		}
 	});
 
 	it("resolveSkillPaths('') returns empty array (regression)", () => {
@@ -144,7 +160,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -175,7 +190,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -195,7 +209,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -222,7 +235,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -249,7 +261,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -269,7 +280,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -294,7 +304,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 			"owner/repo",
 			"Fix bug",
 			makeFilteredData(),
-			[],
 			"main",
 			"origin",
 			"../",
@@ -352,7 +361,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 					"owner/repo",
 					"Fix bug",
 					makeFilteredData(),
-					[],
 					"main",
 					"origin",
 					"../",
@@ -370,7 +378,6 @@ describe("buildAgentTask — deadCodeContext (Phase 3)", () => {
 					"owner/repo",
 					"Fix bug",
 					makeFilteredData(),
-					[],
 					"main",
 					"origin",
 					"../",

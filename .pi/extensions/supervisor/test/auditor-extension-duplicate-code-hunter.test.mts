@@ -11,7 +11,7 @@
 
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
@@ -108,20 +108,27 @@ describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
 describe("resolveSkillPaths regression (Phase 3)", () => {
 	it("resolveSkillPaths('extension-duplicate-code-hunter') returns array with correct path", () => {
 		const result = resolveSkillPaths("extension-duplicate-code-hunter");
-		assert.equal(result.length, 1);
-		assert.ok(
-			result[0]!.endsWith(".pi/skills/extension-duplicate-code-hunter/SKILL.md") ||
+		if (existsSync(resolve(process.cwd(), "private-pi", "skills", "extension-duplicate-code-hunter", "SKILL.md"))) {
+			assert.equal(result.length, 1);
+			assert.ok(
 				result[0]!.endsWith("extension-duplicate-code-hunter/SKILL.md"),
-			`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
-		);
+				`Path should end with extension-duplicate-code-hunter/SKILL.md, got ${result[0]}`,
+			);
+		} else {
+			assert.deepEqual(result, []); // private-pi clone absent → fail-open
+		}
 	});
 
 	it("resolveSkillPaths('extension-spec') still resolves correctly (regression)", () => {
 		const result = resolveSkillPaths("extension-spec");
-		assert.equal(result.length, 1);
-		assert.ok(
-			result[0]!.endsWith("extension-spec/SKILL.md") || result[0]!.endsWith("extension-spec.md"),
-		);
+		if (existsSync(resolve(process.cwd(), "private-pi", "skills", "extension-spec", "SKILL.md"))) {
+			assert.equal(result.length, 1);
+			assert.ok(
+				result[0]!.endsWith("extension-spec/SKILL.md") || result[0]!.endsWith("extension-spec.md"),
+			);
+		} else {
+			assert.deepEqual(result, []); // private-pi clone absent → fail-open
+		}
 	});
 
 	it("resolveSkillPaths('') returns empty array (regression)", () => {

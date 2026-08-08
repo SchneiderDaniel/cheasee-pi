@@ -13,9 +13,6 @@ import (
 
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	goGitHTTP "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 // ──────────────────────────────────────────────
@@ -33,22 +30,6 @@ type GitHubClient interface {
 	GetAuthenticatedUser(ctx context.Context, token string) (string, error)
 	CreateFork(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error)
 	WaitForkReady(ctx context.Context, token, owner, repo string) error
-}
-
-// submoduleOps performs submodule operations on a local git checkout.
-// The go-git backed ops run directly against the working tree; AddSubmodule
-// shells out to git. Kept as a narrow parameter so runInit orchestration
-// tests can inject a fake — there is no second production adapter.
-type submoduleOps interface {
-	// ListSubmodules returns all submodules defined in .gitmodules.
-	ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error)
-	// SetSubmoduleURL rewrites the URL for a named submodule in .gitmodules
-	// and syncs it to .git/config via Init.
-	SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error
-	// InitAndUpdateSubmodules runs git submodule init + update --init --recursive.
-	InitAndUpdateSubmodules(ctx context.Context, repoPath string) error
-	// AddSubmodule runs git submodule add for a new submodule.
-	AddSubmodule(ctx context.Context, repoPath, name, url string) error
 }
 
 // ──────────────────────────────────────────────
@@ -224,25 +205,8 @@ func (c *httpGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo
 }
 
 // ──────────────────────────────────────────────
-// Clone/submodule ops: free funcs + gitSubmoduleOps (no port)
+// Clone ops: free funcs (no port)
 // ──────────────────────────────────────────────
-
-// gitClone clones a repo with go-git using HTTPS BasicAuth token auth.
-func gitClone(ctx context.Context, token, repoURL, destPath string) error {
-	auth := &goGitHTTP.BasicAuth{
-		Username: "",     // Must be empty for GitHub token auth
-		Password: token,
-	}
-
-	_, err := git.PlainCloneContext(ctx, destPath, false, &git.CloneOptions{
-		URL:  repoURL,
-		Auth: auth,
-	})
-	if err != nil {
-		return fmt.Errorf("clone failed: %w", err)
-	}
-	return nil
-}
 
 // gitCloneWorktree clones bare and creates a worktree.
 func gitCloneWorktree(ctx context.Context, token, repoURL, workdir string) error {
@@ -297,127 +261,6 @@ func redactToken(text, token string) string {
 		return text
 	}
 	return strings.ReplaceAll(text, token, "***")
-}
-
-// gitAddSubmodule runs git submodule add for a new submodule.
-func gitAddSubmodule(ctx context.Context, repoPath, name, url string) error {
-	cmd := runCommandContext(ctx, "git", "submodule", "add", url, name)
-	cmd.SetDir(repoPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git submodule add %s %s: %w\nOutput: %s", url, name, err, string(output))
-	}
-	return nil
-}
-
-// gitSubmoduleOps implements submoduleOps backed by go-git.
-type gitSubmoduleOps struct{}
-
-func (gitSubmoduleOps) ListSubmodules(ctx context.Context, repoPath string) ([]config.Submodule, error) {
-	repo, err := git.PlainOpen(repoPath)
-	if err != nil {
-		return nil, fmt.Errorf("open repo: %w", err)
-	}
-
-	wt, err := repo.Worktree()
-	if err != nil {
-		return nil, fmt.Errorf("get worktree: %w", err)
-	}
-
-	subs, err := wt.Submodules()
-	if err != nil {
-		return nil, fmt.Errorf("list submodules: %w", err)
-	}
-
-	result := make([]config.Submodule, 0, len(subs))
-	for _, sub := range subs {
-		result = append(result, *sub.Config())
-	}
-	return result, nil
-}
-
-func (gitSubmoduleOps) SetSubmoduleURL(ctx context.Context, repoPath, name, newURL string) error {
-	repo, err := git.PlainOpen(repoPath)
-	if err != nil {
-		return fmt.Errorf("open repo: %w", err)
-	}
-
-	// Parse .gitmodules using config.Modules for safe structured editing
-	gitmodulesPath := filepath.Join(repoPath, ".gitmodules")
-	data, err := os.ReadFile(gitmodulesPath)
-	if err != nil {
-		return fmt.Errorf("read .gitmodules: %w", err)
-	}
-
-	modules := config.NewModules()
-	if err := modules.Unmarshal(data); err != nil {
-		return fmt.Errorf("parse .gitmodules: %w", err)
-	}
-
-	subCfg, ok := modules.Submodules[name]
-	if !ok {
-		return fmt.Errorf("submodule %q not found in .gitmodules", name)
-	}
-	subCfg.URL = newURL
-
-	newData, err := modules.Marshal()
-	if err != nil {
-		return fmt.Errorf("marshal .gitmodules: %w", err)
-	}
-
-	if err := os.WriteFile(gitmodulesPath, newData, 0644); err != nil {
-		return fmt.Errorf("write .gitmodules: %w", err)
-	}
-
-	// Sync new URL from .gitmodules to .git/config via Init
-	wt, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("get worktree: %w", err)
-	}
-
-	sub, err := wt.Submodule(subCfg.Path)
-	if err != nil {
-		return fmt.Errorf("find submodule %q in worktree: %w", name, err)
-	}
-	if err := sub.Init(); err != nil {
-		return fmt.Errorf("init submodule %q: %w", name, err)
-	}
-
-	return nil
-}
-
-func (gitSubmoduleOps) InitAndUpdateSubmodules(ctx context.Context, repoPath string) error {
-	repo, err := git.PlainOpen(repoPath)
-	if err != nil {
-		return fmt.Errorf("open repo: %w", err)
-	}
-
-	wt, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("get worktree: %w", err)
-	}
-
-	subs, err := wt.Submodules()
-	if err != nil {
-		return fmt.Errorf("list submodules: %w", err)
-	}
-
-	if err := subs.Init(); err != nil {
-		return fmt.Errorf("init submodules: %w", err)
-	}
-
-	if err := subs.UpdateContext(ctx, &git.SubmoduleUpdateOptions{
-		Init:              true,
-		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
-	}); err != nil {
-		return fmt.Errorf("update submodules: %w", err)
-	}
-
-	return nil
-}
-
-func (gitSubmoduleOps) AddSubmodule(ctx context.Context, repoPath, name, url string) error {
-	return gitAddSubmodule(ctx, repoPath, name, url)
 }
 
 // ParseGitHubURL parses "owner/repo" from various GitHub URL formats.

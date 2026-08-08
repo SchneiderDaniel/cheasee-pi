@@ -1,5 +1,9 @@
 .env
 
+# Maintainer host-side clone of the private-pi repo (skills/prompts/extensions
+# roots in .pi/settings.json). Never tracked — fresh clones run without it.
+private-pi/
+
 # Generated docker/ tree — canonical source is cmd/cheasee-pi/embedded/docker/
 # (required by //go:embed embedded in embed.go). Regenerate with `make docker-tree`;
 # CI enforces with `make check-docker`. docker/-only extras (test/, docker-compose.legacy.yml)

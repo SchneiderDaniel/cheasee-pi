@@ -296,7 +296,6 @@ func TestRunInit_ForkAlreadyExists(t *testing.T) {
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
 		d.Ports = ports
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
 	}))

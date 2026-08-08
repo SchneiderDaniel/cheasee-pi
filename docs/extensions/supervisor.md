@@ -214,7 +214,7 @@ Each pipeline run gets its own isolated git worktree:
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│ Setup            │  .pi/git/ copied → git submodule update --init
+│ Setup            │  .pi/git/ (+ private-pi/ when present) copied
 │                  │  → npm ci (2 attempts, non-blocking)
 └────────┬────────┘
          ▼
@@ -327,7 +327,7 @@ handleSupervisorCommand(args, ctx, pi)
 6. Read board        → find project, column, status field
 7. Check deps        → blocked by open PRs/issues?
 8. Create worktree   → git worktree add ...
-9. Setup             → .pi/git copy → git submodule init → npm ci
+9. Setup             → .pi/git/ (+ private-pi/ when present) copy → npm ci
 10. Register crash   → SIGTERM/SIGINT cleanup handlers
 ```
 
@@ -536,4 +536,3 @@ Integration tests cover:
 - Quality gates (each gate tested independently)
 - Worktree creation and cleanup lifecycle
 - Status transition edge cases (backward transitions, max rejections, dedup gates)
-- Submodule handling with matched-branch pattern

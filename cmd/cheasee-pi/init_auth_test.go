@@ -99,7 +99,6 @@ func TestRunInit_FullFlow(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.SubmoduleOps = &mockSubmoduleOps{}
 		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
 	}))

@@ -97,7 +97,7 @@ http://localhost:8470/?repo=local/workspace&run=1
 The `repo` and `run` parameters trigger analysis of the mounted workspace
 (`/workspaces/main`) without further interaction. The `repo` value is arbitrary
 (`owner/name`); the local shim ignores it and maps every API request to the
-mounted repository, including git submodule directories when enabled.
+mounted repository.
 
 ### Configuration
 
@@ -108,7 +108,6 @@ without rebuilding the image):
 | --- | --- | --- |
 | `port` | `8470` | Listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
 | `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
-| `include_submodules` | `false` | When `true`, git submodules (`private-pi`, `flask_blogs`) are included in the analysis |
 | `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
 
 Configuration changes take effect on the next `docker compose up -d` (no rebuild

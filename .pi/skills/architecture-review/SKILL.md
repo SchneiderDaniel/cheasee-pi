@@ -19,7 +19,6 @@ Requires: `gh` CLI authenticated.
 | Target              | What it analyzes                                |
 | ------------------- | ----------------------------------------------- |
 | `root` (or omitted) | Main repo                                       |
-| `<submodule-name>`  | Submodule by name (resolved from `.gitmodules`) |
 | `<any-path>`        | Arbitrary directory                             |
 
 ## Workflow
@@ -29,10 +28,10 @@ Requires: `gh` CLI authenticated.
 Extract target from message:
 
 - `/skill:architecture-review <target>` → use directly
-- Natural language: parse "of X", "in X", "for X", or single word matching submodule name or valid path
+- Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 
-Read `.gitmodules` from project root. Parse submodules. If target matches submodule name, resolve to its `path`. Otherwise treat as relative directory. For `root`, use `.`.
+Treat the target as a relative directory. For `root`, use `.`.
 
 ### 2 — Explore codebase
 
@@ -81,7 +80,7 @@ File at most 5 candidates total across both strengths; 1-2 strong is a healthy r
 
 **Title:** `Architecture Review: <target-name> — <YYYY-MM-DD>`
 
-**Labels:** Always `architecture`. If target is a submodule, also add submodule name as label (create with `gh label create <name>` if absent).
+**Labels:** Always `architecture`.
 
 **Body structure:**
 
@@ -129,7 +128,7 @@ Create the umbrella issue first (Step 3) and **capture its issue number** (print
 ```
 gh issue create \
   --title "ICA: <candidate short title>" \
-  --label architecture[,<submodule-name>] \
+  --label architecture \
   --body-file <body-file> \
   --parent <umbrella-number>
 ```
@@ -141,7 +140,7 @@ Sub-issue fields:
 - **Body:** opens with `Part of **Architecture Review: <target-name>** (#N)` (informational only; the real parent link is set by `--parent`, not this line) + full card from umbrella plus:
   - **Dependency category** (see below)
   - **Testing strategy** — what old tests become waste, what new tests look like
-- **Labels:** same as umbrella (`architecture` + submodule name)
+- **Labels:** same as umbrella (`architecture`)
 
 ### 5 — Board, complete
 
