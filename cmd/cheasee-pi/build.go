@@ -87,8 +87,10 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 	buildCmd := exec.CommandContext(ctx, "docker", args...)
 	buildCmd.Dir = cacheDir
 
-	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY build arg
-	applyMemoryLimit(buildCmd, root)
+	// compose validates every volume spec even for `build`, so
+	// WORKSPACE_HOST_PATH must be set (same env application as start/down:
+	// memory/cpus/git identity from settings.json ride along).
+	applyComposeEnv(execRunner{buildCmd}, root)
 
 	buildCmd.Stdout = os.Stderr
 	buildCmd.Stderr = os.Stderr
