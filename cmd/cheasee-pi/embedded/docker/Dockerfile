@@ -235,6 +235,14 @@ RUN groupadd --gid 1001 agentuser && \
 # private-pi/ is gitignored (never tracked), so a clone cannot include it —
 # the symlink is conditional and appears only when /opt/cheasee-pi carries it.
 #
+# MARKER CONTRACT (dogfooding, consumed by entrypoint.sh at runtime): when the
+# mounted repo is detected as cheasee-pi (cmd/cheasee-pi/embedded/docker/ dir
+# present AND go.mod declares module github.com/SchneiderDaniel/cheasee-pi),
+# the entrypoint re-points these global symlinks at the LIVE repo so pi's
+# realpath-based dedup collapses the global + project loads into one. The
+# marker is structural, not content-based, and covers the upstream module
+# only — renamed-module forks don't match and keep this baked copy.
+#
 # ponytail is removed: it loads hooks from the gitignored .pi/git vendored
 # clone (absent on fresh clones), and a failed extension load kills pi boot.
 ARG CHEASEE_REF=main

@@ -94,6 +94,79 @@ if [ -d /opt/playwright-browsers ]; then
     ln -sf /opt/playwright-browsers /home/agentuser/.cache/ms-playwright 2>/dev/null || true
 fi
 
+# --- Re-point global pi resources at the live repo (dogfooding) ------
+# When the mounted repo IS cheasee-pi, the baked /opt/cheasee-pi copy and the
+# repo-local tree would load identical resources twice (pi merges global +
+# project settings arrays and dedupes by resolved realpath only). Re-pointing
+# the global ~/.pi/agent symlinks at the live repo makes both resolve to one
+# canonical path → pi loads each resource exactly once, and edits made in the
+# mounted repo are live (no stale /opt copy).
+#
+# Marker contract (documented in Dockerfile Layer 6b): the repo is considered
+# cheasee-pi iff /workspaces/main/cmd/cheasee-pi/embedded/docker/ exists AND
+# go.mod declares module github.com/SchneiderDaniel/cheasee-pi. Structural by
+# design — NOT content-based ("has .pi/skills" would false-positive on any pi
+# user's repo). Upstream module only: renamed-module forks don't match and
+# keep the baked /opt copy.
+is_cheasee_pi_repo() {
+    [ -d /workspaces/main/cmd/cheasee-pi/embedded/docker ] || return 1
+    MODULE="$(grep -m1 '^module ' /workspaces/main/go.mod 2>/dev/null)" || return 1
+    [ "$MODULE" = "module github.com/SchneiderDaniel/cheasee-pi" ] || return 1
+    return 0
+}
+
+# re_point <agent_subdir> <repo_dir> — re-point the global resource symlinks
+# in ~/.pi/agent/<agent_subdir> at the live repo's entries. Re-links existing
+# symlinks under a [ -L ] guard and creates missing links; a real file/dir
+# occupying a link name is left untouched (Stow conflict refusal — never
+# ln -sfn over a real dir). No-ops when the link already points at the repo
+# entry (idempotent across restarts), skips dotfiles (.gitkeep), and never
+# links a repo entry whose target is missing — the /opt/cheasee-pi symlink
+# stays, no dangling links.
+re_point() {
+    local agent_subdir="$1" repo_dir="$2"
+    local agent_dir="/home/agentuser/.pi/agent/$agent_subdir"
+    [ -d "$agent_dir" ] || return 0
+    [ -d "$repo_dir" ] || return 0
+    local d name link
+    for d in "$repo_dir"/*; do
+        [ -e "$d" ] || continue
+        name="$(basename "$d")"
+        [[ "$name" == .* ]] && continue
+        link="$agent_dir/$name"
+        if [ -L "$link" ]; then
+            # existing symlink: re-point unless already at the repo entry
+            [ "$(readlink "$link")" = "$d" ] && continue
+            ln -sfn "$d" "$link"
+            chown -h agentuser:agentuser "$link" 2>/dev/null || true
+        elif [ ! -e "$link" ]; then
+            # no link yet: create it (repo resources added after image build
+            # keep global availability; realpath dedup collapses the double path)
+            ln -s "$d" "$link"
+            chown -h agentuser:agentuser "$link" 2>/dev/null || true
+        fi
+        # real file/dir at the link name → left untouched (conflict refusal)
+    done
+}
+
+if is_cheasee_pi_repo; then
+    echo "Detected cheasee-pi repo at /workspaces/main — re-pointing global pi resources at the live repo"
+    re_point skills /workspaces/main/.pi/skills
+    re_point extensions /workspaces/main/.pi/extensions
+    re_point prompts /workspaces/main/.pi/prompts
+    re_point themes /workspaces/main/.pi/themes
+    # Whole-dir custom/ link (gitignored, absent on most clones)
+    if [ -d /workspaces/main/custom ]; then
+        if [ -L /home/agentuser/.pi/agent/custom ]; then
+            ln -sfn /workspaces/main/custom /home/agentuser/.pi/agent/custom
+            chown -h agentuser:agentuser /home/agentuser/.pi/agent/custom 2>/dev/null || true
+        elif [ ! -e /home/agentuser/.pi/agent/custom ]; then
+            ln -s /workspaces/main/custom /home/agentuser/.pi/agent/custom
+            chown -h agentuser:agentuser /home/agentuser/.pi/agent/custom 2>/dev/null || true
+        fi
+    fi
+fi
+
 # --- Update file ownership ----------------------------------------
 # Ensure the workspace and home directory are owned by the (possibly
 # remapped) user so bind-mounted volumes are writable.
