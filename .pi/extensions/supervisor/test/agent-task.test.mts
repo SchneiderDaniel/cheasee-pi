@@ -1402,7 +1402,7 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 		);
 	});
 
-	it("body mentioning 'npm install' → task contains docker/Dockerfile reference", () => {
+	it("body mentioning 'npm install' → task contains cmd/cheasee-pi/embedded/docker/Dockerfile reference", () => {
 		const task = buildAgentTask(
 			"developer",
 			1124,
@@ -1415,11 +1415,14 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"worktree-git-issue-",
 			"/test/main/repo",
 		);
-		assert.ok(task.includes("docker/Dockerfile"), "Should reference main Dockerfile");
+		assert.ok(
+			task.includes("cmd/cheasee-pi/embedded/docker/Dockerfile"),
+			"Should reference main Dockerfile",
+		);
 		assert.ok(task.includes("### Dockerfile Awareness"), "Should contain heading");
 	});
 
-	it("title 'Add osv-scanner' → task mentions docker/Dockerfile by path", () => {
+	it("title 'Add osv-scanner' → task mentions cmd/cheasee-pi/embedded/docker/Dockerfile by path", () => {
 		const task = buildAgentTask(
 			"developer",
 			1122,
@@ -1432,7 +1435,10 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"worktree-git-issue-",
 			"/test/main/repo",
 		);
-		assert.ok(task.includes("docker/Dockerfile"), "Mentions docker/Dockerfile");
+		assert.ok(
+			task.includes("cmd/cheasee-pi/embedded/docker/Dockerfile"),
+			"Mentions cmd/cheasee-pi/embedded/docker/Dockerfile",
+		);
 	});
 
 	it("title 'Fix typo in README' → does NOT contain '### Dockerfile Awareness'", () => {
@@ -1454,7 +1460,7 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 		);
 	});
 
-	it("instruction correctly maps pi-agent deps → docker/Dockerfile", () => {
+	it("instruction correctly maps pi-agent deps → cmd/cheasee-pi/embedded/docker/Dockerfile", () => {
 		const task = buildAgentTask(
 			"developer",
 			1124,
@@ -1467,9 +1473,12 @@ describe("buildAgentTask — Dockerfile awareness injection (developer)", () => 
 			"worktree-git-issue-",
 			"/test/main/repo",
 		);
-		// The instruction should say Pi agent deps go in docker/Dockerfile
+		// The instruction should say Pi agent deps go in cmd/cheasee-pi/embedded/docker/Dockerfile
 		assert.ok(task.includes("Pi agent dependencies"), "Should mention pi agent deps mapping");
-		assert.ok(task.includes("docker/Dockerfile"), "Should mention docker/Dockerfile");
+		assert.ok(
+			task.includes("cmd/cheasee-pi/embedded/docker/Dockerfile"),
+			"Should mention cmd/cheasee-pi/embedded/docker/Dockerfile",
+		);
 	});
 
 	it("instruction mentions existing Dockerfile conventions", () => {

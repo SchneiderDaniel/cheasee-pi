@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const FIX_SCRIPT = resolve(__dirname, "../lib/worktree-fix.sh");
+const FIX_SCRIPT = resolve(__dirname, "../../cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh");
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
