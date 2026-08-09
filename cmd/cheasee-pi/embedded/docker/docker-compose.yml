@@ -22,6 +22,7 @@ services:
       dockerfile: Dockerfile
       args:
         PI_VERSION: ${PI_VERSION:-latest}
+        CHEASEE_REF: ${CHEASEE_REF:-main}
     container_name: cheasee-pi
     environment:
       - HOST_UID=${HOST_UID:-}

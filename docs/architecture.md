@@ -79,13 +79,14 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 > check-docker` to verify sync. Docker-only extras (`docker/test/`,
 > `docker-compose.legacy.yml`) stay tracked and are never touched by the sync.
 >
-> **Pi resources:** the tracked `.pi/` resources (skills, prompts, extensions,
-> themes + package.json/tsconfig.json) are synced to
-> `cmd/cheasee-pi/embedded/pi-resources/` via `make pi-tree` (`make check-pi`
-> verifies sync). The CLI extracts them into the image at `/opt/cheasee-pi` and
-> symlinks them into `~/.pi/agent/` (global pi resources), so the Cheasee-Pi
-> experience is available inside any mounted repo. State dirs (agent/,
-> context/, sessions/, git/, venvs) never bake into the image.
+> **Pi resources:** the image clones the cheasee-pi repo at build time
+> (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and
+> symlinks its resource dirs (.pi/skills, .pi/prompts, .pi/extensions,
+> .pi/themes) into `~/.pi/agent/` (global pi resources), so the Cheasee-Pi
+> experience is available inside any mounted repo. No generated resource
+> mirror is embedded — the repo is the single source of truth. State dirs
+> (agent/, context/, sessions/, git/, venvs) are gitignored and never reach
+> the image.
 
 - Node.js 22
 - Python 3 + pip + venv

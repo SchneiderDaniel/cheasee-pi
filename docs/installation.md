@@ -97,8 +97,10 @@ cheasee-pi
 
 1. Verifies the current directory is inside a git repository (refuses otherwise)
 2. Scaffolds `.pi/settings.json` into the repo root if missing (never overwrites)
-3. Extracts compose/Dockerfile/pi-resources to the CLI cache dir
-   (`~/.cache/cheasee-pi/<version>/`)
+3. Extracts compose/Dockerfile to the CLI cache dir
+   (`~/.cache/cheasee-pi/<version>/`); the image build clones the cheasee-pi
+   repo (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi`
+   and symlinks its resources into `~/.pi/agent/`
 4. Starts the container (builds image ~2 min first time) with your repo mounted
    at `/workspaces/main`
 5. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI

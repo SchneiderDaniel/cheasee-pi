@@ -72,55 +72,15 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 	}
 }
 
-// TestFSExtractor_StagesPiResources verifies the pi-resources tree is staged
-// at the extract root for `COPY pi-resources/ /opt/cheasee-pi/`.
-func TestFSExtractor_StagesPiResources(t *testing.T) {
-	ext := NewExtractor()
-	destDir := t.TempDir()
-
-	if err := ext.Extract(context.Background(), destDir); err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	// The staged tree mirrors .pi/ under pi-resources/ (skills/prompts/
-	// extensions/themes present; state dirs never staged). prompts/ is
-	// currently empty except a gitkeep dotfile, so it has no embeddable
-	// entries and is not staged as an empty dir — only dirs with content
-	// are required here.
-	for _, name := range []string{"pi-resources/.pi/skills", "pi-resources/.pi/extensions", "pi-resources/.pi/themes"} {
-		if _, err := os.Stat(filepath.Join(destDir, name)); err != nil {
-			t.Errorf("missing staged %s: %v", name, err)
-		}
-	}
-	for _, absent := range []string{"pi-resources/.pi/sessions", "pi-resources/.pi/scrapling-venv", "pi-resources/.pi/agent"} {
-		if _, err := os.Stat(filepath.Join(destDir, absent)); !os.IsNotExist(err) {
-			t.Errorf("state dir %s must not be staged", absent)
-		}
-	}
-
-	// The cache dir carries a .dockerignore (lean build context guard).
-	data, err := os.ReadFile(filepath.Join(destDir, ".dockerignore"))
-	if err != nil {
-		t.Fatalf(".dockerignore missing: %v", err)
-	}
-	content := string(data)
-	for _, pat := range []string{"node_modules", ".git", "scrapling-venv"} {
-		if !strings.Contains(content, pat) {
-			t.Errorf(".dockerignore should exclude %q", pat)
-		}
-	}
-}
-
 // TestFSExtractor_MapFSWalk verifies the WalkDir+Copy logic hermetically by
-// injecting an in-memory FS: docker/ assets flatten to the dest root,
-// pi-resources/ stages under pi-resources/, pi/ subtree skipped.
+// injecting an in-memory FS: docker/ assets flatten to the dest root, pi/
+// subtree skipped.
 func TestFSExtractor_MapFSWalk(t *testing.T) {
 	fsys := fstest.MapFS{
 		"embedded/docker/docker-compose.yml": &fstest.MapFile{Data: []byte("name: cheasee-pi\n")},
 		"embedded/docker/Dockerfile":         &fstest.MapFile{Data: []byte("FROM alpine\n")},
 		"embedded/docker/sub/run.sh":         &fstest.MapFile{Data: []byte("#!/bin/sh\n")},
 		"embedded/pi/settings.json":          &fstest.MapFile{Data: []byte("{}")},
-		"embedded/pi-resources/.pi/skills/x": &fstest.MapFile{Data: []byte("skill\n")},
 	}
 	ext := &FSExtractor{source: fsys, prefix: "embedded"}
 	destDir := t.TempDir()
@@ -139,15 +99,6 @@ func TestFSExtractor_MapFSWalk(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(destDir, "docker")); !os.IsNotExist(err) {
 		t.Error("docker/ wrapper dir must not be created")
-	}
-
-	// pi-resources staged under pi-resources/.
-	staged, err := os.ReadFile(filepath.Join(destDir, "pi-resources", ".pi", "skills", "x"))
-	if err != nil {
-		t.Fatalf("read staged pi-resources: %v", err)
-	}
-	if string(staged) != "skill\n" {
-		t.Errorf("staged content mismatch: %q", staged)
 	}
 
 	// pi/ subtree skipped (consumed by scaffold, not extracted).

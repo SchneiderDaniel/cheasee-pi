@@ -24,7 +24,7 @@ var buildCmd = &cobra.Command{
 Reads docker.memory from .pi/settings.json and passes it as CHEASEEPI_MEMORY
 build arg so the container can apply cgroup limits at runtime.
 
-The compose/Dockerfile/pi-resources come from the CLI-managed cache dir
+The compose/Dockerfile come from the CLI-managed cache dir
 (version-keyed, extracted on demand); your repo is only used for git
 verification and resource settings. Use --no-cache to force a full rebuild.
 

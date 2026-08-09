@@ -30,9 +30,10 @@ var upCmd = &cobra.Command{
 	Long: `Launch an interactive pi session inside the Cheasee-Pi Docker container.
 
 Runs from your own git repository: the repo toplevel is bind-mounted at
-/workspaces/main inside the container. compose/Dockerfile/pi-resources live in
-a CLI-managed cache dir; only .pi/settings.json is scaffolded into the repo
-(created if missing, never overwritten).
+/workspaces/main inside the container. compose/Dockerfile live in a
+CLI-managed cache dir; only .pi/settings.json is scaffolded into the repo
+(created if missing, never overwritten). The image clones the cheasee-pi
+repo at build time (Dockerfile ARG CHEASEE_REF) for its .pi resources.
 
 Reads provider API keys from ~/.config/cheasee-pi/auth.json and passes them as
 environment variables to the container, so pi finds models without manual /login.
@@ -130,8 +131,8 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ✓ Created .pi/settings.json in %s\n", root)
 	}
 
-	// Phase 6: ensure the version-keyed cache dir with embedded compose +
-	// pi-resources staged (regenerable; a fresh extraction overwrites cleanly).
+	// Phase 6: ensure the version-keyed cache dir with embedded compose
+	// assets (regenerable; a fresh extraction overwrites cleanly).
 	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
 		return fmt.Errorf("cache dir: %w", err)
@@ -186,7 +187,7 @@ func runUpScaffold(ctx context.Context, root string) (bool, error) {
 		GitEmail:     gitEmail,
 		Memory:       "2G",
 		CPUs:         "2.0",
-		HasPrivatePi: hasPrivatePi(),
+		HasPrivatePi: false,
 	}
 	if err := NewSettingsScaffold().Scaffold(ctx, root, vals); err != nil {
 		return false, err

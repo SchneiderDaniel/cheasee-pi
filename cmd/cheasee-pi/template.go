@@ -229,15 +229,10 @@ type TemplateSettingsValues struct {
 	HasPrivatePi bool
 }
 
-// hasPrivatePi reports whether the embedded pi-resources tree carries the
-// gitignored private-pi repo (maintainer builds only — private-pi/ is never
-// tracked, so fresh clones scaffold without private-pi entries). Unblocked by
-// the #1492 restructure: once private-pi content is tracked and synced, the
-// scaffold automatically includes its absolute /opt/cheasee-pi paths.
-func hasPrivatePi() bool {
-	_, err := fs.Stat(embeddedFS, "embedded/pi-resources/private-pi")
-	return err == nil
-}
+// hasPrivatePi is always false: the image clones the public cheasee-pi repo
+// (Dockerfile ARG CHEASEE_REF), and private-pi/ is gitignored, so it can
+// never be present at /opt/cheasee-pi. The template renderer keeps the flag
+// (tests exercise both branches); production scaffolding never sets it.
 
 // ──────────────────────────────────────────────
 // Adapter: templateSettingsRenderer

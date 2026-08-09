@@ -49,7 +49,9 @@ This builds the Docker image from the CLI cache dir (`~/.cache/cheasee-pi/<versi
 `sleep infinity` and stays alive until you stop it.
 
 **What happens:**
-- Compose/Dockerfile/pi-resources are extracted to the CLI cache dir
+- Compose/Dockerfile are extracted to the CLI cache dir; the image clones
+  the cheasee-pi repo at build time (`ARG CHEASEE_REF`, default `main`)
+  into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
 - Your repo (git toplevel) is bind-mounted to `/workspaces/main`
 - CodeFlow service is built from the cache dir's `codeflow/` subtree
 - Entrypoint auto-detects UID/GID from the mount and remaps the `agentuser` user

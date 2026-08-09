@@ -13,7 +13,7 @@
  *   9. cheasee-pi start with PTY (checkpoint 8)
  *   10. cheasee-pi down (checkpoint 9)
  *
- * compose/Dockerfile/pi-resources no longer live in the user repo — init is
+ * compose/Dockerfile no longer live in the user repo — init is
  * scaffold-only (no docker/ dir, no clone, no fork) and start extracts the
  * embedded compose tree into the version-keyed CLI cache dir
  * (<XDG_CACHE_HOME>/cheasee-pi/<cliVersion>/). This test computes that path
@@ -60,12 +60,12 @@ const POLL_INTERVAL_MS = 5_000;
 /**
  * CLI version key — must match cliVersionKey in cmd/cheasee-pi/cache.go.
  * The cache dir is version-keyed so an upgraded binary never mixes stale
- * compose/Dockerfile/pi-resources content with new embedded assets.
+ * compose/Dockerfile content with new embedded assets.
  */
 const CLI_VERSION = "0.50";
 
 /**
- * Compute the CLI cache dir (compose/Dockerfile/pi-resources live there,
+ * Compute the CLI cache dir (compose/Dockerfile live there,
  * extracted by `cheasee-pi start`, never in the user repo).
  */
 function composeDir(): string {
@@ -246,7 +246,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 
 	it("checkpoint 4 — cheasee-pi build exits 0", () => {
 		// build is the binary's extract-then-build path: it stages the embedded
-		// compose/Dockerfile/pi-resources into the version-keyed cache dir and
+		// compose/Dockerfile into the version-keyed cache dir and
 		// runs `docker compose build` from there. The raw compose command cannot
 		// run first — the cache dir starts empty until the binary extracts.
 		const result = exec(`"${BINARY_PATH}" build --no-docker-check`, {
@@ -459,23 +459,14 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 
 	it("adapter — down extracts compose/Dockerfile into the version-keyed cache dir", () => {
 		// down resolves the compose project from the cache dir, extracting the
-		// embedded docker tree + pi-resources staging on the way (regenerable).
+		// embedded docker tree on the way (regenerable).
 		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: initWorkdir });
 		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
-		for (const f of [
-			"docker-compose.yml",
-			"Dockerfile",
-			"entrypoint.sh",
-			"lib/worktree-fix.sh",
-			".dockerignore",
-		]) {
+		for (const f of ["docker-compose.yml", "Dockerfile", "entrypoint.sh", "lib/worktree-fix.sh"]) {
 			const fullPath = join(composeDir(), f);
 			assert.ok(existsSync(fullPath), `expected cache dir file to exist: ${f} (${fullPath})`);
 			assert.ok(readFileSync(fullPath, "utf-8").length > 0, `expected non-empty file: ${f}`);
 		}
-		// The staged pi-resources tree feeds COPY pi-resources/ /opt/cheasee-pi/
-		const staged = join(composeDir(), "pi-resources", ".pi", "skills");
-		assert.ok(existsSync(staged), `expected staged pi-resources/.pi/skills at ${staged}`);
 	});
 
 	it("adapter — start --dry-run prints without scaffolding or touching docker", () => {

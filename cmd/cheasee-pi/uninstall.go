@@ -21,7 +21,7 @@ var uninstallCmd = &cobra.Command{
 	Long: `Remove cheasee-pi configuration files and CLI-managed assets.
 
 The uninstall command removes:
-  1. Cache dir (compose/Dockerfile/pi-resources under the user cache dir)
+  1. Cache dir (compose/Dockerfile under the user cache dir)
   2. .pi/ directory (agent configuration, contexts, themes)
   3. Auth config (~/.config/cheasee-pi/auth.json)
   4. cheasee-pi binary (the running executable)
@@ -112,7 +112,7 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Remove cache dir (CLI-managed compose/Dockerfile/pi-resources)
+	// Remove cache dir (CLI-managed compose/Dockerfile)
 	if cacheDir != "" {
 		if err := os.RemoveAll(cacheDir); err != nil {
 			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove cache dir: %v\n", err)

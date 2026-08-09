@@ -38,13 +38,22 @@ func readCompose(t *testing.T) string {
 }
 
 // ──────────────────────────────────────────────
-// Phase 7: Dockerfile bake invariants
+// Phase 7: Dockerfile resource invariants
 // ──────────────────────────────────────────────
 
-func TestDockerfile_BakesPiResources(t *testing.T) {
+func TestDockerfile_ClonesCheaseePi(t *testing.T) {
 	content := readDockerfile(t)
-	if !strings.Contains(content, "COPY pi-resources/ /opt/cheasee-pi/") {
-		t.Error("Dockerfile must COPY pi-resources/ to /opt/cheasee-pi/")
+	if !strings.Contains(content, "git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi") {
+		t.Error("Dockerfile must clone the cheasee-pi repo to /opt/cheasee-pi (ARG CHEASEE_REF)")
+	}
+	if !strings.Contains(content, "ARG CHEASEE_REF=main") {
+		t.Error("Dockerfile must default ARG CHEASEE_REF to main")
+	}
+	if strings.Contains(content, "COPY pi-resources/") {
+		t.Error("Dockerfile must not COPY a staged pi-resources tree (repo is cloned instead)")
+	}
+	if !strings.Contains(content, "/opt/cheasee-pi/.pi/extensions/ponytail") {
+		t.Error("Dockerfile must remove the ponytail extension (loads from gitignored .pi/git)")
 	}
 }
 

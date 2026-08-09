@@ -219,28 +219,29 @@ RUN groupadd --gid 1001 agentuser && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------
-# Layer 6b: Cheasee-Pi resources baked into the image
+# Layer 6b: Cheasee-Pi resources cloned into the image
 # ---------------------------------------------------------------
-# The staged pi-resources tree (tracked .pi content: skills/prompts/
-# extensions/themes) is copied to /opt/cheasee-pi and symlinked into
+# The cheasee-pi repo is cloned to /opt/cheasee-pi and its resource dirs
+# (.pi/skills, .pi/prompts, .pi/extensions, .pi/themes) symlinked into
 # agentuser's global pi resource dir (~/.pi/agent) so the Cheasee-Pi
-# experience is available inside ANY mounted repo.
+# experience is available inside ANY mounted repo. Cloning (vs embedding a
+# generated copy into the Go binary) keeps the repo the single source of
+# truth — no pi-resources mirror to sync.
 #
 # Explicit /home/agentuser/.pi/agent/... paths — Docker's USER directive
 # does not set $HOME (defaults to /root), so `~` after a user switch would
 # silently drop the links into /root/.pi/agent.
 #
-# private-pi/ is gitignored (never tracked), so the bake cannot include it
-# from a fresh clone — the symlink is conditional and appears only when
-# pi-resources carries it (post-#1492 restructure).
-COPY pi-resources/package.json pi-resources/package-lock.json /opt/cheasee-pi/
-# Baked .pi/extensions import repo deps (proper-lockfile, zod, shell-quote,
-# typescript, ...). Previously these resolved from the mounted repo's
-# node_modules; now the staged repo manifests (copied by make pi-tree)
-# install them at /opt/cheasee-pi/node_modules — same resolution path.
-RUN cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
+# private-pi/ is gitignored (never tracked), so a clone cannot include it —
+# the symlink is conditional and appears only when /opt/cheasee-pi carries it.
+#
+# ponytail is removed: it loads hooks from the gitignored .pi/git vendored
+# clone (absent on fresh clones), and a failed extension load kills pi boot.
+ARG CHEASEE_REF=main
+RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+    && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
+    && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
     && npm cache clean --force
-COPY pi-resources/ /opt/cheasee-pi/
 # An empty glob (e.g. .pi/prompts has no entries yet) leaves the loop's last
 # command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes
 # unmatched globs a no-op while real ln failures still propagate.

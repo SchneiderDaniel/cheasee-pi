@@ -1,3 +1,0 @@
-                                                                                
- [38;5;167m✗ bash: Unknown error[39m                                                          
-                                                                                

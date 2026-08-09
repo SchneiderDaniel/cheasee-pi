@@ -68,7 +68,7 @@ func runInitScaffold(
 		GitEmail:     gitEmail,
 		Memory:       "2G",
 		CPUs:         "2.0",
-		HasPrivatePi: hasPrivatePi(),
+		HasPrivatePi: false,
 	}
 
 	if err := NewSettingsScaffold().Scaffold(ctx, workdir, vals); err != nil {

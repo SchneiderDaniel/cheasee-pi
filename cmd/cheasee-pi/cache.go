@@ -9,8 +9,8 @@ import (
 
 // CacheDir returns the version-keyed cache directory for CLI-managed assets:
 // <os.UserCacheDir>/cheasee-pi/<cliVersion>. Keying by CLI version means an
-// upgraded binary never mixes new compose/Dockerfile/pi-resources content
-// with stale cache state (act/gh precedent). os.UserCacheDir honors
+// upgraded binary never mixes new compose/Dockerfile content with stale cache
+// state (act/gh precedent). os.UserCacheDir honors
 // $XDG_CACHE_HOME on Unix, $HOME/Library/Caches on Darwin and %LocalAppData%
 // on Windows — never a hardcoded ~/.cache.
 func CacheDir() (string, error) {
