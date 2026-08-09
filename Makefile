@@ -65,12 +65,12 @@ pi-tree:
 	@rm -rf $(PI_TREE_DEST)
 	@mkdir -p $(PI_TREE_DEST)/.pi
 	@for d in $(PI_TREE_DIRS); do \
-		cp -a $(PI_TREE_SRC)/$$d $(PI_TREE_DEST)/.pi/ || exit 1; \
+		cp -aL $(PI_TREE_SRC)/$$d $(PI_TREE_DEST)/.pi/ || exit 1; \
 	done
 	@for f in $(PI_TREE_FILES); do \
 		cp -a $(PI_TREE_SRC)/$$f $(PI_TREE_DEST)/.pi/ || exit 1; \
 	done
-	@echo "Synced pi-resources from $(PI_TREE_SRC)/ to $(PI_TREE_DEST)/."
+	@echo "Synced pi-resources from $(PI_TREE_SRC)/ to $(PI_TREE_DEST)/ (symlinks dereferenced)."
 
 check-pi:
 	@if [ ! -d "$(PI_TREE_DEST)/.pi" ]; then \
@@ -90,8 +90,19 @@ check-pi:
 					echo "ERROR: $(PI_TREE_DEST)/.pi/$$d/$$f differs from source (run 'make pi-tree')" >> "$$tmp"; \
 			done; \
 			find . -type l | while IFS= read -r l; do \
-				[ "$$(readlink "$$l")" = "$$(readlink "$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$l")" ] || \
-					echo "ERROR: symlink $(PI_TREE_DEST)/.pi/$$d/$$l differs from source (run 'make pi-tree')" >> "$$tmp"; \
+				resolved="$$(readlink -f "$$l" 2>/dev/null)"; \
+				dest="$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$l"; \
+				if [ -L "$$dest" ]; then \
+					echo "ERROR: $(PI_TREE_DEST)/.pi/$$d/$$l is still a symlink (run 'make pi-tree' — dereferences)" >> "$$tmp"; \
+				elif [ -d "$$resolved" ]; then \
+					diff -r "$$resolved" "$$dest" >/dev/null 2>&1 || \
+						echo "ERROR: symlink target $(PI_TREE_DEST)/.pi/$$d/$$l differs (run 'make pi-tree')" >> "$$tmp"; \
+				elif [ -f "$$resolved" ]; then \
+					cmp -s "$$resolved" "$$dest" || \
+						echo "ERROR: symlink target $(PI_TREE_DEST)/.pi/$$d/$$l differs (run 'make pi-tree')" >> "$$tmp"; \
+				else \
+					echo "ERROR: symlink $(PI_TREE_DEST)/.pi/$$d/$$l resolves nowhere (run 'make pi-tree')" >> "$$tmp"; \
+				fi; \
 			done; \
 		); \
 	done; \
@@ -99,6 +110,9 @@ check-pi:
 		if ! cmp -s "$(PI_TREE_SRC)/$$f" "$(PI_TREE_DEST)/.pi/$$f"; then \
 			echo "ERROR: $(PI_TREE_DEST)/.pi/$$f differs from $(PI_TREE_SRC)/$$f (run 'make pi-tree')" >> "$$tmp"; \
 		fi; \
+	done; \
+	find "$(PI_TREE_DEST)/.pi" -type l | while IFS= read -r l; do \
+		echo "ERROR: $(PI_TREE_DEST)/.pi/$$l is a symlink — pi-tree must dereference (run 'make pi-tree')" >> "$$tmp"; \
 	done; \
 	if [ -s "$$tmp" ]; then cat "$$tmp" >&2; rm -f "$$tmp"; exit 1; fi; \
 	rm -f "$$tmp"; \

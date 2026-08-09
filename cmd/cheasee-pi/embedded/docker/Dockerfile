@@ -234,15 +234,18 @@ RUN groupadd --gid 1001 agentuser && \
 # from a fresh clone — the symlink is conditional and appears only when
 # pi-resources carries it (post-#1492 restructure).
 COPY pi-resources/ /opt/cheasee-pi/
+# An empty glob (e.g. .pi/prompts has no entries yet) leaves the loop's last
+# command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes
+# unmatched globs a no-op while real ln failures still propagate.
 RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts /home/agentuser/.pi/agent/extensions /home/agentuser/.pi/agent/themes \
-    && for d in /opt/cheasee-pi/.pi/skills/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
-    && for d in /opt/cheasee-pi/.pi/prompts/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
-    && for d in /opt/cheasee-pi/.pi/extensions/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/extensions/; done \
-    && for d in /opt/cheasee-pi/.pi/themes/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/themes/; done \
+    && for d in /opt/cheasee-pi/.pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+    && for d in /opt/cheasee-pi/.pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+    && for d in /opt/cheasee-pi/.pi/extensions/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/extensions/; done \
+    && for d in /opt/cheasee-pi/.pi/themes/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/themes/; done \
     && if [ -d /opt/cheasee-pi/custom ]; then ln -sfn /opt/cheasee-pi/custom /home/agentuser/.pi/agent/custom; fi \
     && if [ -d /opt/cheasee-pi/private-pi ]; then \
-         for d in /opt/cheasee-pi/private-pi/skills/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
-         && for d in /opt/cheasee-pi/private-pi/prompts/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+         for d in /opt/cheasee-pi/private-pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+         && for d in /opt/cheasee-pi/private-pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
          && mkdir -p /home/agentuser/.pi/agent/extensions \
          && ln -sfn /opt/cheasee-pi/private-pi/extensions/check-extensions /home/agentuser/.pi/agent/extensions/check-extensions; \
        fi \

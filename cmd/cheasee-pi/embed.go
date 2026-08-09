@@ -17,7 +17,9 @@ var embeddedFS embed.FS
 // piTreeFS carries the generated pi-resources/.pi tree. The `.pi` directory
 // name is excluded by the directory-embed rule (dot-names), so it needs an
 // explicit pattern; the extractor merges it with embeddedFS when staging the
-// bake context. Synced from the repo .pi/ via `make pi-tree`.
+// bake context. Synced from the repo .pi/ via `make pi-tree` (which copies
+// with -L, so symlinked/vendored skills are dereferenced — go:embed cannot
+// carry symlinks).
 //
 //go:embed embedded/pi-resources/.pi
 var piTreeFS embed.FS
