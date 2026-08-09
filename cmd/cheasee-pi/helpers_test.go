@@ -229,14 +229,6 @@ func seedAuth(t *testing.T, providers map[string]string) {
 	}
 }
 
-// withInitProvider sets the package-level init provider for the test duration.
-func withInitProvider(t *testing.T, name string) {
-	t.Helper()
-	saved := initProvider
-	initProvider = name
-	t.Cleanup(func() { initProvider = saved })
-}
-
 // withAuthListWorkdir sets the package-level auth list workdir for the test duration.
 func withAuthListWorkdir(t *testing.T, workdir string) {
 	t.Helper()
@@ -284,6 +276,7 @@ func initDeps(t *testing.T, opts ...func(*InitDeps)) InitDeps {
 		NoDockerCheck: false,
 		NoGitHub:      false,
 		NoInput:       true,
+		Provider:      "opencode-go", // matches the --provider flag default
 		Workdir:       t.TempDir(),
 		ConfirmFn:     mockConfirmFn(true, nil),
 		InputFn:       mockInputFn("", nil),

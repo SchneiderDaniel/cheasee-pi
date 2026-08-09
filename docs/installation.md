@@ -132,9 +132,11 @@ cheasee-pi down
 ## After setup
 
 Edit `cheasee-settings.json` in your workspace root to configure cheasee-pi:
-`defaultProvider`, `docker.memory`/`docker.cpus`, `gitIdentity`.
-Pi's own `.pi/settings.json` (`defaultModel`, `skills`, `prompts`, `extensions`,
+`defaultProvider`, `defaultModel`, `docker.memory`/`docker.cpus`, `gitIdentity`.
+Pi's own `.pi/settings.json` (`skills`, `prompts`, `extensions`,
 `theme`) is self-scaffolded by pi on first run — the CLI never writes it.
+`cheasee-pi auth add`/`auth list` round-trip the default provider/model
+through `cheasee-settings.json`.
 
 ## What's next
 

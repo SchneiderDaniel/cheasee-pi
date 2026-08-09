@@ -84,25 +84,24 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// Phase 1: workspace gate — empty folder → auto-init; cheasee-settings.json
 	// present → run; anything else → refuse. Runs before any docker/git call so
 	// a non-initialized cwd is refused fast (and dry-run touches nothing).
-	root, found := findWorkspaceRoot(workdir)
-	if !found {
-		switch state, err := classifyWorkspace(workdir); {
-		case err != nil:
-			return err
-		case state == WorkspaceEmpty:
-			if upDryRun {
-				fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` again.\n", workdir)
-				return nil
-			}
-			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init` first...\n", workdir)
-			if err := runInit(ctx, newInitDeps(workdir)); err != nil {
-				return fmt.Errorf("auto-init failed: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "  ℹ Init complete — run `cheasee-pi start` again to launch pi.\n")
+	root, state, err := resolveStartWorkspace(workdir)
+	if err != nil {
+		return err
+	}
+	if state == WorkspaceEmpty {
+		if upDryRun {
+			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` again.\n", workdir)
 			return nil
-		case state == WorkspaceRefuse:
-			return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
 		}
+		fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init` first...\n", workdir)
+		if err := runInit(ctx, newInitDeps(workdir)); err != nil {
+			return fmt.Errorf("auto-init failed: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "  ℹ Init complete — run `cheasee-pi start` again to launch pi.\n")
+		return nil
+	}
+	if state == WorkspaceRefuse {
+		return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
 	}
 
 	// docker exec working directory: /workspaces/main when started at the
@@ -189,6 +188,29 @@ const (
 	WorkspaceInitialized                       // cheasee-settings.json present → run
 	WorkspaceRefuse                            // non-empty, no settings → refuse
 )
+
+// resolveStartWorkspace resolves the start gate in a single pass: walks up
+// from workdir looking for cheasee-settings.json (the initialized marker) and
+// returns the workspace root when an ancestor is initialized; when no ancestor
+// is, classifies the cwd itself (empty → auto-init, else refuse). One stat
+// per ancestor level — no second pass over the cwd.
+func resolveStartWorkspace(workdir string) (root string, state WorkspaceState, err error) {
+	dir, err := filepath.Abs(workdir)
+	if err != nil {
+		dir = workdir
+	}
+	for {
+		if _, err := os.Stat(cheaseeSettingsPath(dir)); err == nil {
+			return dir, WorkspaceInitialized, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			state, err := classifyWorkspace(workdir)
+			return "", state, err
+		}
+		dir = parent
+	}
+}
 
 // classifyWorkspace classifies a folder for the start gate: an empty folder
 // (or one containing only .DS_Store) is ready for auto-init, a folder with

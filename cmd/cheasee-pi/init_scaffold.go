@@ -34,14 +34,13 @@ func runInitDockerCheck(ctx context.Context) error {
 // intentionally NOT scaffolded — pi self-scaffolds it on first run.
 func runInitScaffold(
 	ctx context.Context,
-	workdir string,
-	confirmFn func(string) (bool, error),
+	deps InitDeps,
 ) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Creating cheasee-settings.json...\n")
 
 	gitName, gitEmail, _ := NewGitIdentity().Lookup()
 	if gitName == "" || gitEmail == "" {
-		ok, err := confirmFn("No git identity found. Configure git user.name and git user.email for cheasee-settings.json?")
+		ok, err := deps.ConfirmFn("No git identity found. Configure git user.name and git user.email for cheasee-settings.json?")
 		if err != nil {
 			return err
 		}
@@ -67,18 +66,19 @@ func runInitScaffold(
 	}
 
 	vals := TemplateSettingsValues{
-		Provider: initProvider,
-		GitName:  gitName,
-		GitEmail: gitEmail,
-		Memory:   "2G",
-		CPUs:     "2.0",
-		ClientID: initClientID,
+		Provider:     deps.Provider,
+		DefaultModel: DefaultModel(deps.Provider),
+		GitName:      gitName,
+		GitEmail:     gitEmail,
+		Memory:       "2G",
+		CPUs:         "2.0",
+		ClientID:     deps.ClientID,
 	}
 
-	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, workdir, vals); err != nil {
+	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, deps.Workdir, vals); err != nil {
 		return err
 	}
-	if err := gitIgnoreCheaseeSettings(workdir); err != nil {
+	if err := gitIgnoreCheaseeSettings(deps.Workdir); err != nil {
 		return fmt.Errorf("gitignore cheasee-settings.json: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ cheasee-settings.json created\n")

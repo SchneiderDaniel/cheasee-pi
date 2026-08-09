@@ -238,6 +238,42 @@ func TestGitCloneWorktree_cloneFailureWrappedAndCleaned(t *testing.T) {
 	}
 }
 
+func TestGitCloneWorktree_cancelledBetweenCloneAndWorktree(t *testing.T) {
+	// A cancelled parent (Ctrl-C) right after the bare clone returns must not
+	// proceed to worktree add — the bare clone we created is cleaned up so no
+	// half-cloned residue remains.
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cloneRan := false
+	saved := runCommandContext
+	stubRunCommandContext(t, func(c context.Context, name string, arg ...string) runner {
+		if name == "git" && slices.Contains(arg, "clone") {
+			cloneRan = true
+			cancel() // cancel right after the (stubbed) clone succeeds
+			return &mockCmd{}
+		}
+		return saved(c, name, arg...)
+	})
+
+	err := gitCloneWorktree(ctx, "owner/repo", workdir)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled after clone, got %v", err)
+	}
+	if !cloneRan {
+		t.Fatal("clone stub never ran")
+	}
+	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+		t.Errorf("cancelled flow must clean up the bare dir it created, stat err: %v", statErr)
+	}
+}
+
 func TestGitCloneWorktree_worktreeAddFailureWrapped(t *testing.T) {
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")

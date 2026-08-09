@@ -506,14 +506,15 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 		}
 	});
 
-	it("adapter — start --dry-run prints without scaffolding or touching docker", () => {
-		// dry-run is side-effect-free: git check + env print only. In a git
-		// repo it must not scaffold (no .pi/settings.json yet) and must not
-		// invoke compose — it just prints the would-be docker command.
-		const dryDir = mkdtempSync(join(tmpdir(), "cli-install-dryrun-"));
+	it("adapter — start --dry-run on an empty folder prints the auto-init plan and touches nothing", () => {
+		// dry-run is side-effect-free: on an empty folder it prints what the
+		// start gate would do (auto-init) and exits — no scaffold, no compose,
+		// no clone, no .bare, no settings file. Nested under a fresh parent so
+		// the sibling .bare assertion can't collide with other suites' mounts.
+		const parent = mkdtempSync(join(tmpdir(), "cli-install-dryrun-parent-"));
+		const dryDir = join(parent, "ws");
+		mkdirSync(dryDir);
 		try {
-			const init = exec(`git init -q "${dryDir}"`, { timeout: 10_000 });
-			assert.strictEqual(init.status, 0, `git init exited ${init.status}: ${init.stderr}`);
 			const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
 				timeout: 30_000,
 				cwd: dryDir,
@@ -524,50 +525,78 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				`start --dry-run exited ${result.status}: ${result.stderr}`,
 			);
 			assert.ok(
-				result.stderr.includes("Docker command"),
-				`expected dry-run docker command in stderr, got: ${result.stderr}`,
+				result.stderr.includes("would run `cheasee-pi init`"),
+				`expected auto-init plan in stderr, got: ${result.stderr}`,
 			);
 			assert.ok(
-				!existsSync(join(dryDir, ".pi", "settings.json")),
-				"dry-run must not scaffold .pi/settings.json",
+				!existsSync(join(dryDir, "cheasee-settings.json")),
+				"dry-run must not scaffold cheasee-settings.json",
+			);
+			assert.ok(
+				!existsSync(join(dryDir, "..", ".bare")),
+				"dry-run must not create the sibling .bare",
 			);
 		} finally {
-			rmSync(dryDir, { recursive: true, force: true });
+			rmSync(parent, { recursive: true, force: true });
 		}
 	});
 
-	it("adapter — .pi/settings.json is valid JSON with expected keys", () => {
-		const settingsPath = join(initWorkdir, ".pi", "settings.json");
+	it("adapter — start --dry-run on an initialized workspace prints the docker command", () => {
+		// initWorkdir has cheasee-settings.json (initialized marker), so the
+		// gate passes and dry-run prints the would-be docker command without
+		// touching anything (no scaffold, no compose, no cache extraction).
+		const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
+			timeout: 30_000,
+			cwd: initWorkdir,
+		});
+		assert.strictEqual(
+			result.status,
+			0,
+			`start --dry-run exited ${result.status}: ${result.stderr}`,
+		);
+		assert.ok(
+			result.stderr.includes("Docker command"),
+			`expected dry-run docker command in stderr, got: ${result.stderr}`,
+		);
+		assert.ok(
+			!existsSync(join(initWorkdir, ".pi", "settings.json")),
+			"dry-run must not scaffold .pi/settings.json",
+		);
+	});
+
+	it("adapter — cheasee-settings.json is valid JSON with expected keys", () => {
+		const settingsPath = join(initWorkdir, "cheasee-settings.json");
 		const content = readFileSync(settingsPath, "utf-8");
 		let parsed: Record<string, unknown>;
 		try {
 			parsed = JSON.parse(content) as Record<string, unknown>;
 		} catch {
-			assert.fail(`.pi/settings.json is not valid JSON: ${content}`);
+			assert.fail(`cheasee-settings.json is not valid JSON: ${content}`);
 		}
-		assert.ok("defaultProvider" in parsed, "settings.json missing defaultProvider");
-		assert.ok("defaultModel" in parsed, "settings.json missing defaultModel");
-		assert.ok("docker" in parsed, "settings.json missing docker");
+		assert.ok("defaultProvider" in parsed, "cheasee-settings.json missing defaultProvider");
+		assert.ok("defaultModel" in parsed, "cheasee-settings.json missing defaultModel");
+		assert.ok("docker" in parsed, "cheasee-settings.json missing docker");
 		const docker = parsed.docker as Record<string, unknown>;
-		assert.ok(docker?.memory, "settings.json missing docker.memory");
-		assert.ok(docker?.cpus, "settings.json missing docker.cpus");
+		assert.ok(docker?.memory, "cheasee-settings.json missing docker.memory");
+		assert.ok(docker?.cpus, "cheasee-settings.json missing docker.cpus");
+		assert.ok("gitIdentity" in parsed, "cheasee-settings.json missing gitIdentity");
+		assert.ok("oauth" in parsed, "cheasee-settings.json missing oauth");
 		assert.strictEqual(
 			parsed.defaultProvider,
 			"opencode-go",
 			`expected defaultProvider to be "opencode-go", got: ${parsed.defaultProvider}`,
 		);
-		// Absolute /opt/cheasee-pi resource paths (baked into the image)
+		// pi's own settings file is NOT scaffolded by init (pi self-scaffolds
+		// on first run); the dedicated file is the only settings output.
 		assert.ok(
-			content.includes("/opt/cheasee-pi/.pi/skills"),
-			`expected /opt/cheasee-pi skills path, got: ${content}`,
-		);
-		assert.ok(
-			!content.includes("../private-pi"),
-			`settings must not reference ../private-pi sibling paths: ${content}`,
+			!existsSync(join(initWorkdir, ".pi", "settings.json")),
+			"init must not scaffold .pi/settings.json",
 		);
 	});
 
-	it("adapter — init is idempotent (second run exits 0, no overwrite)", () => {
+	it("adapter — init on an already-initialized folder refuses (presence = marker)", () => {
+		// cheasee-settings.json presence marks the workspace initialized; a
+		// second init must refuse outright instead of re-applying.
 		const result = exec(
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
@@ -579,16 +608,24 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				`--workdir "${initWorkdir}"`,
 			{ timeout: 60_000 },
 		);
-		assert.strictEqual(result.status, 0, `second init exited ${result.status}: ${result.stderr}`);
+		assert.notStrictEqual(
+			result.status,
+			0,
+			`second init should be refused, exited ${result.status}: ${result.stderr}`,
+		);
+		assert.ok(
+			result.stderr.includes("already initialized"),
+			`expected "already initialized" refusal, got: ${result.stderr}`,
+		);
 
-		// .pi/settings.json should not have been overwritten (idempotent)
-		const settingsPath = join(initWorkdir, ".pi", "settings.json");
+		// The existing file must be untouched by the refused re-init.
+		const settingsPath = join(initWorkdir, "cheasee-settings.json");
 		const content = readFileSync(settingsPath, "utf-8");
 		const parsed = JSON.parse(content) as Record<string, unknown>;
 		assert.strictEqual(
 			parsed.defaultProvider,
 			"opencode-go",
-			`idempotent init should keep defaultProvider`,
+			`refused re-init should keep defaultProvider`,
 		);
 	});
 
@@ -610,7 +647,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 				0,
 				`init without --provider exited ${result.status}: ${result.stderr}`,
 			);
-			const settingsPath = join(noProvDir, ".pi", "settings.json");
+			const settingsPath = join(noProvDir, "cheasee-settings.json");
 			const content = readFileSync(settingsPath, "utf-8");
 			const parsed = JSON.parse(content) as Record<string, unknown>;
 			assert.strictEqual(

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -60,6 +59,7 @@ func settingsPath(workdir string) string {
 type CheaseeSettings struct {
 	Comment         string              `json:"//,omitempty"`
 	DefaultProvider string              `json:"defaultProvider,omitempty"`
+	DefaultModel    string              `json:"defaultModel,omitempty"`
 	Docker          DockerSettings      `json:"docker,omitempty"`
 	GitIdentity     GitIdentitySettings `json:"gitIdentity,omitempty"`
 	OAuth           OAuthSettings       `json:"oauth,omitempty"`
@@ -181,14 +181,4 @@ func memoryLimitEnv(workdir string) (string, bool) {
 func envValue(env string) string {
 	_, v, _ := strings.Cut(env, "=")
 	return v
-}
-
-// applyMemoryLimit appends the CHEASEEPI_MEMORY env entry derived from
-// cheasee-settings.json to a docker compose command and announces it. No-op
-// when no memory limit is configured.
-func applyMemoryLimit(cmd *exec.Cmd, workdir string) {
-	if env, ok := memoryLimitEnv(workdir); ok {
-		cmd.Env = append(os.Environ(), env)
-		fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from cheasee-settings.json\n", envValue(env))
-	}
 }

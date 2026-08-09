@@ -392,32 +392,10 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 	}
 }
 
-func TestSettingsScaffold_HasPrivatePi(t *testing.T) {
-	// With HasPrivatePi, the gitignored private-pi paths are scaffolded as
-	// absolute /opt/cheasee-pi/private-pi/... entries.
-	workdir := ScaffoldSettings(t, TemplateSettingsValues{
-		Provider:     "opencode-go",
-		HasPrivatePi: true,
-	})
-
-	raw := testutil.ReadSettingsRaw(t, workdir)
-	skills, ok := raw["skills"].([]any)
-	if !ok || len(skills) != 2 || skills[1] != "/opt/cheasee-pi/private-pi/skills" {
-		t.Errorf("expected private-pi skills entry, got %v", raw["skills"])
-	}
-	prompts, ok := raw["prompts"].([]any)
-	if !ok || len(prompts) != 2 || prompts[1] != "/opt/cheasee-pi/private-pi/prompts" {
-		t.Errorf("expected private-pi prompts entry, got %v", raw["prompts"])
-	}
-	exts, ok := raw["extensions"].([]any)
-	if !ok || len(exts) != 1 || exts[0] != "/opt/cheasee-pi/private-pi/extensions/check-extensions" {
-		t.Errorf("expected check-extensions entry, got %v", raw["extensions"])
-	}
-}
-
 func TestSettingsScaffold_NoPrivatePiOmitsEntries(t *testing.T) {
-	// HasPrivatePi=false (fresh clone — private-pi is gitignored) must omit
-	// every private-pi path; the scaffold stays valid JSON.
+	// The pi template has no private-pi branches anymore (the flag is gone —
+	// the image always clones the public cheasee-pi repo); the scaffold stays
+	// valid JSON with the /opt/cheasee-pi/.pi paths.
 	workdir := ScaffoldSettings(t, TemplateSettingsValues{})
 
 	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
@@ -425,7 +403,7 @@ func TestSettingsScaffold_NoPrivatePiOmitsEntries(t *testing.T) {
 		t.Fatalf("read scaffold: %v", err)
 	}
 	if strings.Contains(string(data), "private-pi") {
-		t.Errorf("scaffold must not reference private-pi paths when absent:\n%s", data)
+		t.Errorf("scaffold must not reference private-pi paths:\n%s", data)
 	}
 	// Valid JSON (the empty extensions array must parse).
 	var v any
@@ -545,12 +523,13 @@ func TestSettingsScaffold_ContextCancelled(t *testing.T) {
 func TestCheaseeSettingsScaffold_rendersValidJSONAtRoot(t *testing.T) {
 	workdir := t.TempDir()
 	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
-		Provider: "opencode-go",
-		GitName:  "Test User",
-		GitEmail: "test@example.com",
-		Memory:   "4G",
-		CPUs:     "4.0",
-		ClientID: "test-client",
+		Provider:     "opencode-go",
+		DefaultModel: "deepseek-v4-flash",
+		GitName:      "Test User",
+		GitEmail:     "test@example.com",
+		Memory:       "4G",
+		CPUs:         "4.0",
+		ClientID:     "test-client",
 	}); err != nil {
 		t.Fatalf("Scaffold failed: %v", err)
 	}
@@ -566,6 +545,9 @@ func TestCheaseeSettingsScaffold_rendersValidJSONAtRoot(t *testing.T) {
 	}
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("defaultProvider = %v, want opencode-go", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "deepseek-v4-flash" {
+		t.Errorf("defaultModel = %v, want deepseek-v4-flash", raw["defaultModel"])
 	}
 	docker := raw["docker"].(map[string]any)
 	if docker["memory"] != "4G" || docker["cpus"] != "4.0" {

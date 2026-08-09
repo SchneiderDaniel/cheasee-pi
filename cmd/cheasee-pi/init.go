@@ -24,6 +24,9 @@ var newInitDeps = func(workdir string) InitDeps {
 		NoDockerCheck: initNoDockerCheck,
 		NoGitHub:      initNoGitHub,
 		NoInput:       initNoInput,
+		Provider:      initProvider,
+		ClientID:      initClientID,
+		RepoURL:       initRepoURL,
 		Workdir:       workdir,
 		ConfirmFn:     promptConfirm,
 		InputFn:       promptInput,
@@ -54,12 +57,18 @@ type InitPorts struct {
 }
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
+// Provider/ClientID/RepoURL carry the flag-derived init inputs so the
+// shared factory (newInitDeps) fully encapsulates them — no package-global
+// reads inside the flow (start-triggered init and runInitE run identically).
 type InitDeps struct {
 	Ports         InitPorts
 	APIKey        string
 	NoDockerCheck bool
 	NoGitHub      bool
 	NoInput       bool
+	Provider      string
+	ClientID      string
+	RepoURL       string
 	Workdir       string
 	ConfirmFn     func(string) (bool, error)
 	InputFn       func(title, placeholder string) (string, error)
@@ -180,8 +189,8 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	if deps.NoGitHub {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
-		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", initProvider)
-		auth, err = runInitLegacy(ctx, cfg, deps.APIKey, initProvider)
+		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", deps.Provider)
+		auth, err = runInitLegacy(ctx, cfg, deps.APIKey, deps.Provider)
 		if err != nil {
 			return err
 		}
@@ -192,7 +201,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			if errors.Is(err, device.ErrUnsupported) {
 				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
 				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
-				auth, err = runInitLegacy(ctx, cfg, deps.APIKey, initProvider)
+				auth, err = runInitLegacy(ctx, cfg, deps.APIKey, deps.Provider)
 				if err != nil {
 					return err
 				}
@@ -217,7 +226,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 
 	// Phase 6: Scaffold cheasee-settings.json (never overwrites)
-	if err := runInitScaffold(ctx, deps.Workdir, deps.ConfirmFn); err != nil {
+	if err := runInitScaffold(ctx, deps); err != nil {
 		return fmt.Errorf("settings scaffold: %w", err)
 	}
 
@@ -267,8 +276,8 @@ func runInitProbe(workdir string) error {
 // --repo-url flag when set, otherwise the interactive InputFn prompt. With
 // --no-input and no flag, errors out before any git call.
 func resolveRepoURL(deps InitDeps) (string, error) {
-	if initRepoURL != "" {
-		return initRepoURL, nil
+	if deps.RepoURL != "" {
+		return deps.RepoURL, nil
 	}
 	if deps.NoInput {
 		return "", errors.New("init: --repo-url is required with --no-input (empty-folder init clones a bare repo + worktree)")

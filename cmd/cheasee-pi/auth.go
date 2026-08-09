@@ -25,7 +25,7 @@ var authCmd = &cobra.Command{
 
 Add, remove, or list configured provider API keys. Keys are stored in
 ~/.config/cheasee-pi/auth.json and also written to workspace settings
-(.pi/settings.json and .pi/agent/settings.json).`,
+(cheasee-settings.json and .pi/agent/settings.json).`,
 }
 
 var authAddCmd = &cobra.Command{
@@ -37,7 +37,7 @@ If provider name is given as argument, use it directly. Otherwise
 prompt from a list of known providers.
 
 The key is saved to ~/.config/cheasee-pi/auth.json and also written
-to the workspace .pi/settings.json and .pi/agent/settings.json as
+to the workspace cheasee-settings.json and .pi/agent/settings.json as
 the default provider (last added becomes default).
 
 Examples:
@@ -90,12 +90,12 @@ func init() {
 	rootCmd.AddCommand(authCmd)
 	authCmd.AddCommand(authAddCmd, authRemoveCmd, authListCmd, authEnvvarsCmd)
 
-	authAddCmd.Flags().StringVar(&authAddWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
+	authAddCmd.Flags().StringVar(&authAddWorkdir, "workdir", "", "Working directory of a cheasee-pi workspace (default: current directory)")
 	authAddCmd.Flags().BoolVar(&authAddNoInput, "no-input", false, "Skip model selection prompt")
 
-	authRemoveCmd.Flags().StringVar(&authRemoveWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
+	authRemoveCmd.Flags().StringVar(&authRemoveWorkdir, "workdir", "", "Working directory of a cheasee-pi workspace (default: current directory)")
 
-	authListCmd.Flags().StringVar(&authListWorkdir, "workdir", "", "Working directory with .pi/settings.json (default: current directory)")
+	authListCmd.Flags().StringVar(&authListWorkdir, "workdir", "", "Working directory of a cheasee-pi workspace (default: current directory)")
 
 	authEnvvarsCmd.Flags().StringVar(&authEnvvarsFormat, "format", "shell", "Output format: shell or json")
 }
@@ -217,11 +217,12 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  %-15s %s\n", name, masked)
 	}
 
-	// Also show workspace default if available
+	// Also show workspace default if available — read from the dedicated
+	// cheasee-settings.json (single source for the default provider).
 	workdir, err := resolveWorkdir(authListWorkdir)
 	if err == nil {
-		if settings, err := LoadSettings(workdir); err == nil && settings.DefaultProvider != "" {
-			fmt.Fprintf(os.Stderr, "\nDefault provider (from .pi/settings.json): %s\n", settings.DefaultProvider)
+		if settings, err := LoadCheaseeSettings(workdir); err == nil && settings.DefaultProvider != "" {
+			fmt.Fprintf(os.Stderr, "\nDefault provider (from cheasee-settings.json): %s\n", settings.DefaultProvider)
 			if settings.DefaultModel != "" {
 				fmt.Fprintf(os.Stderr, "Default model: %s\n", settings.DefaultModel)
 			}

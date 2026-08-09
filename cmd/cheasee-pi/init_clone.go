@@ -73,6 +73,19 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 		return fmt.Errorf("bare clone failed: %w\n%s", err, redactToken(string(out)))
 	}
 
+	// A cancelled parent (Ctrl-C) between the two commands must not proceed
+	// to worktree add — that would leave the bare clone on disk without the
+	// worktree. Clean up the bare dir we created, mirroring the clone-failure
+	// path.
+	select {
+	case <-ctx.Done():
+		if !barePreExisted {
+			os.RemoveAll(bareDir)
+		}
+		return ctx.Err()
+	default:
+	}
+
 	wtCmd := runCommandContext(ctx, "git",
 		"--git-dir", bareDir,
 		"worktree", "add", "--detach", workdir,

@@ -265,18 +265,18 @@ func TestCommittedSettings_ValidJSON(t *testing.T) {
 func TestScaffoldSettings_Unchanged(t *testing.T) {
 	content := readScaffoldSettings(t)
 	// The scaffold governs consumer repos (points at the baked /opt tree) and
-	// must not converge with the committed dogfooding settings.
+	// must not converge with the committed dogfooding settings. private-pi is
+	// gitignored and never present in the image, so no private-pi paths.
 	for _, want := range []string{
 		"/opt/cheasee-pi/.pi/skills",
 		"/opt/cheasee-pi/.pi/prompts",
-		"/opt/cheasee-pi/private-pi",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("scaffold settings must still point at %q (consumer repos)", want)
 		}
 	}
-	if strings.Contains(content, "../private-pi") {
-		t.Error("scaffold settings must not reference ../private-pi")
+	if strings.Contains(content, "private-pi") {
+		t.Error("scaffold settings must not reference private-pi (gitignored, never in the image)")
 	}
 }
 

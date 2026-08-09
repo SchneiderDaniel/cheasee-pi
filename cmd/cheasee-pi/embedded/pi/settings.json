@@ -10,9 +10,9 @@
     "name": "{{.GitName}}",
     "email": "{{.GitEmail}}"
   },
-  "skills": ["/opt/cheasee-pi/.pi/skills"{{if .HasPrivatePi}}, "/opt/cheasee-pi/private-pi/skills"{{end}}],
-  "prompts": ["/opt/cheasee-pi/.pi/prompts"{{if .HasPrivatePi}}, "/opt/cheasee-pi/private-pi/prompts"{{end}}],
-  "extensions": [{{if .HasPrivatePi}}"/opt/cheasee-pi/private-pi/extensions/check-extensions"{{end}}],
+  "skills": ["/opt/cheasee-pi/.pi/skills"],
+  "prompts": ["/opt/cheasee-pi/.pi/prompts"],
+  "extensions": [],
   "theme": "cheasee-pi",
   "sessionDir": ".pi/sessions"
 }

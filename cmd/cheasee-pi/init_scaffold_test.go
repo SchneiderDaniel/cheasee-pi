@@ -11,10 +11,12 @@ import (
 
 func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	testutil.SetGitConfig(t, testGitIdentityConfig)
-	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
-	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
+	if err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Provider = "opencode-go"
+	})); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
@@ -22,6 +24,9 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "deepseek-v4-flash" {
+		t.Errorf("expected defaultModel 'deepseek-v4-flash' (first known opencode-go model), got %v", raw["defaultModel"])
 	}
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
@@ -48,11 +53,14 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 
 func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 	testutil.SetGitConfig(t, "")
-	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	// Declined identity prompt → default name/email written.
-	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
+	if err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Provider = "opencode-go"
+		d.ConfirmFn = mockConfirmFn(false, nil)
+	})); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
