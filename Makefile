@@ -58,6 +58,11 @@ PI_TREE_SRC := .pi
 PI_TREE_DEST := cmd/cheasee-pi/embedded/pi-resources
 PI_TREE_DIRS := skills prompts extensions themes
 PI_TREE_FILES := package.json tsconfig.json
+# Project-local extensions whose hooks load from the gitignored .pi/git
+# vendored clone (absent on CI/fresh clones). Never baked: the baked copy
+# cannot work there, and a failed extension load kills pi's boot. The
+# mounted repo still provides the extension when the clone is present.
+PI_TREE_SKIP := extensions/ponytail
 
 .PHONY: pi-tree check-pi
 
@@ -72,6 +77,9 @@ pi-tree:
 	done
 	@for f in package.json package-lock.json; do \
 		cp -a $$f $(PI_TREE_DEST)/ || exit 1; \
+	done
+	@for s in $(PI_TREE_SKIP); do \
+		rm -rf $(PI_TREE_DEST)/.pi/$$s || exit 1; \
 	done
 	@echo "Synced pi-resources from $(PI_TREE_SRC)/ to $(PI_TREE_DEST)/ (symlinks dereferenced)."
 
@@ -88,11 +96,13 @@ check-pi:
 		fi; \
 		( \
 			cd "$(CURDIR)/$(PI_TREE_SRC)/$$d" && \
-			find . -type f | while IFS= read -r f; do \
+			skip="$$(for s in $(PI_TREE_SKIP); do case "$$s" in $$d/*) printf '%s\n' "$${s#$$d/}";; esac; done)"; \
+			if [ -n "$$skip" ]; then pat="^\./$${skip}(/|$$)"; else pat='^$$'; fi; \
+			find . -type f | grep -v -E "$$pat" | while IFS= read -r f; do \
 				cmp -s "$$f" "$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$f" || \
 					echo "ERROR: $(PI_TREE_DEST)/.pi/$$d/$$f differs from source (run 'make pi-tree')" >> "$$tmp"; \
 			done; \
-			find . -type l | while IFS= read -r l; do \
+			find . -type l | grep -v -E "$$pat" | while IFS= read -r l; do \
 				resolved="$$(readlink -f "$$l" 2>/dev/null)"; \
 				dest="$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$l"; \
 				if [ -L "$$dest" ]; then \
