@@ -17,13 +17,12 @@ var embeddedFS embed.FS
 // AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,lib/worktree-fix.sh},
 // embedded/docker/codeflow/{Dockerfile,server.py,config.json}, and the embedded/pi/
 // settings template. Canonical source is embedded/docker/ (checked in, required
-// by //go:embed); the repo-root docker/ tree is regenerated from it via
-// `make docker-tree` and verified with `make check-docker`. The Cheasee-Pi
-// resource tree (.pi/) is NOT embedded: the Dockerfile clones the cheasee-pi
-// repo at build time (ARG CHEASEE_REF), keeping the repo the single source of
-// truth with no generated mirror to sync.
-// Note: lib/auth-env.sh is no longer embedded; it is derived at runtime via
-// `cheasee-pi auth envvars` (the canonical Go source).
+// by //go:embed; the build fails if the pattern matches no files). The repo-root
+// docker/ tree is gone — the CLI extracts this subtree at runtime to a
+// version-keyed cache dir (see cache.go / up.go). The Cheasee-Pi resource tree
+// (.pi/) is NOT embedded: the Dockerfile clones the cheasee-pi repo at build
+// time (ARG CHEASEE_REF), keeping the repo the single source of truth with no
+// generated mirror to sync.
 func AssetFS() fs.FS {
 	return embeddedFS
 }

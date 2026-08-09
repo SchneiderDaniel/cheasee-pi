@@ -109,4 +109,4 @@ nav_order: 10
 
 - **Base image:** Debian 12-slim (bookworm)
 - **Image name:** `cheasee-pi`
-- **Build context:** `cmd/cheasee-pi/embedded/docker/Dockerfile` (canonical source; repo-root `docker/` regenerated via `make docker-tree`)
+- **Build context:** `cmd/cheasee-pi/embedded/docker/Dockerfile` (canonical source, embedded via `//go:embed` and extracted to a cache dir at runtime)

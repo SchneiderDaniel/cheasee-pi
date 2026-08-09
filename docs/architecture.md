@@ -73,11 +73,10 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 
 > **Single source of truth:** the docker tree lives at
 > `cmd/cheasee-pi/embedded/docker/` (real files there are required by
-> `//go:embed embedded` in `embed.go`). The repo-root `docker/` tree is a
-> generated build artifact for the dev-facing compose workflow — on a fresh
-> clone run `make docker-tree` before compose-from-repo-root, and `make
-> check-docker` to verify sync. Docker-only extras (`docker/test/`,
-> `docker-compose.legacy.yml`) stay tracked and are never touched by the sync.
+> `//go:embed embedded` in `embed.go`; the build fails if the pattern matches
+> no files). The CLI extracts this subtree at runtime to a version-keyed cache
+> dir (the docker compose build context). Docker-only extras at repo root
+> (`docker/test/`, `docker-compose.legacy.yml`) stay tracked for dev/CI use.
 >
 > **Pi resources:** the image clones the cheasee-pi repo at build time
 > (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and

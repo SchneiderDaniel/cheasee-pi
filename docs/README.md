@@ -103,7 +103,7 @@ The stack ships a local CodeFlow service (browser-based dependency/architecture
 visualizer, tree-sitter AST, 18 languages). It starts with `docker compose up -d`
 and serves on port 8470. See
 [Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization)
-for configuration (`docker/codeflow/config.json`).
+for configuration (`cmd/cheasee-pi/embedded/docker/codeflow/config.json`).
 
 ## Contributing
 
