@@ -26,6 +26,9 @@ type Settings struct {
 	GitIdentity     GitIdentitySettings `json:"gitIdentity,omitempty"`
 	Skills          []string            `json:"skills,omitempty"`
 	Prompts         []string            `json:"prompts,omitempty"`
+	Extensions      []string            `json:"extensions,omitempty"`
+	Theme           string              `json:"theme,omitempty"`
+	SessionDir      string              `json:"sessionDir,omitempty"`
 }
 
 // DockerSettings mirrors the "docker" section of the scaffold schema.

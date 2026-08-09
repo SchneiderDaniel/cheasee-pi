@@ -21,9 +21,19 @@ def login(username, password):
         return None
 
 
+class User:
+    """Stub user record."""
+
+    def __init__(self, username):
+        self.username = username
+
+    def verify_password(self, password):
+        return True
+
+
 def find_user(username):
     """Find user by username (stub)."""
-    return type("User", (), {"verify_password": lambda self, pwd: True})()
+    return User(username)
 
 
 def generate_token(user):

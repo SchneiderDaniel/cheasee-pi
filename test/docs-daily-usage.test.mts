@@ -144,14 +144,18 @@ describe("docs/daily-usage.md", () => {
 		});
 	});
 
-	// --- Phase 5: Convenience scripts and legacy wrapper ---
+	// --- Phase 5: Convenience scripts and CLI wrapper ---
 	describe("Phase 5: Wrapper documentation", () => {
-		it("references docker/run-pi.sh", () => {
-			assert.ok(readDoc().includes("run-pi.sh"), "Missing run-pi.sh reference");
+		it("references cheasee-pi start", () => {
+			assert.ok(readDoc().includes("cheasee-pi start"), "Missing cheasee-pi start reference");
 		});
 
-		it("references docker/stop-pi.sh", () => {
-			assert.ok(readDoc().includes("stop-pi.sh"), "Missing stop-pi.sh reference");
+		it("does NOT reference the removed run-pi.sh/stop-pi.sh scripts", () => {
+			const content = readDoc();
+			assert.ok(
+				!content.includes("run-pi.sh") && !content.includes("stop-pi.sh"),
+				"run-pi.sh/stop-pi.sh were removed with the repo-mount restructure",
+			);
 		});
 	});
 

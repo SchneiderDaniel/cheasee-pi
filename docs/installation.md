@@ -8,10 +8,14 @@ nav_order: 2
 
 {: .no_toc }
 
+1. TOC
+{:toc}
+
 ## Prerequisites
 
 - **Docker Engine** ≥24.0 with [Compose V2](https://docs.docker.com/compose/)
 - **git** with `user.name` and `user.email` configured
+- **Your own git repository** — cheasee-pi runs from any repo you own (it does not clone/fork anything)
 
 ## Install
 
@@ -61,11 +65,13 @@ cheasee-pi init
 
 This one command handles everything:
 
-1. Authenticates with GitHub (OAuth in browser)
-2. Forks the repo (or use `--fork-url <URL>` / `--skip-fork`)
-3. Clones your fork with a bare worktree
-4. Extracts Docker config
-5. Asks for provider API keys
+1. Verifies Docker Engine 24.0+ is installed and running
+2. Authenticates with GitHub (OAuth in browser)
+3. Scaffolds `.pi/settings.json` into your repo with cheasee-pi defaults
+   (absolute `/opt/cheasee-pi` resource paths; never overwrites an existing file)
+
+No fork, no clone, no docker files in your repo — the compose file, Dockerfile,
+and pi resources are CLI-managed cache state.
 
 {:.note-title}
 > No GitHub?
@@ -80,13 +86,24 @@ cheasee-pi auth list                # verify
 
 ## Run
 
+Run cheasee-pi from **your own git repository**:
+
 ```bash
 # ✓ Auth config saved to ~/.config/cheasee-pi/auth.json after init
 cheasee-pi
 ```
 
-`cheasee-pi` starts the container (builds image ~2 min first time), injects keys
-from `~/.config/cheasee-pi/auth.json`, and opens pi TUI.
+`cheasee-pi` (alias `start`):
+
+1. Verifies the current directory is inside a git repository (refuses otherwise)
+2. Scaffolds `.pi/settings.json` into the repo root if missing (never overwrites)
+3. Extracts compose/Dockerfile to the CLI cache dir
+   (`~/.cache/cheasee-pi/<version>/`); the image build clones the cheasee-pi
+   repo (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi`
+   and symlinks its resources into `~/.pi/agent/`
+4. Starts the container (builds image ~2 min first time) with your repo mounted
+   at `/workspaces/main`
+5. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
 
 Pi auto-updates to the latest version on every container start. No manual update needed.
 
@@ -96,22 +113,12 @@ Stop the container when done:
 cheasee-pi down
 ```
 
-Or use raw Docker:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
-docker compose -f docker/docker-compose.yml down
-```
-
 ## After setup
 
-Update `.pi/settings.json` to point pi at your fork:
-
-| Field | Change? | Description |
-|-------|---------|-------------|
-| `supervisor.repo` | **Yes** | Your fork (`YOU/cheasee-pi`) |
-| `defaultProvider` | If needed | e.g. `"opencode-go"` |
-| `defaultModel` | If needed | e.g. `"deepseek-v4-flash"` |
+Edit `.pi/settings.json` in your repo to configure pi: `defaultProvider`,
+`defaultModel`, `docker.memory`/`docker.cpus`, `skills`, `prompts`,
+`extensions`, `theme`. Delete the file and run `cheasee-pi start` to
+re-scaffold defaults — the CLI never overwrites an existing file.
 
 ## What's next
 
@@ -122,18 +129,35 @@ Update `.pi/settings.json` to point pi at your fork:
 
 ### Container doesn't start
 
+Compose/Dockerfile live in the CLI cache dir:
+
 ```bash
-docker compose -f docker/docker-compose.yml build --no-cache
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+cheasee-pi start --build
 ```
 
 ### Permission errors
 
-The compose file maps host UID/GID automatically. For manual commands:
+The entrypoint auto-detects host UID/GID from the `/workspaces/main` mount.
+On macOS/Windows mounts with unusual ownership, pass them explicitly:
 
 ```bash
-HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up
+HOST_UID=$(id -u) HOST_GID=$(id -g) \
+  WORKSPACE_HOST_PATH=$(pwd) \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up
 ```
+
+### macOS: repo outside Docker Desktop shared roots
+
+Docker Desktop only shares `/Users`, `/Volumes`, `/private`, `/tmp`,
+`/var/folders` by default. Repos elsewhere fail at mount time with "Mounts
+denied" — move the repo under one of those roots or add it to Docker Desktop's
+file-sharing settings.
+
+### SELinux hosts (Fedora/RHEL)
+
+Bind mounts are blocked without relabel labels. Set
+`CHEASEEPI_SELINUX_RELABEL=1` when starting to append `:Z` to the mounts.
 
 ### Emoji not displaying
 
@@ -159,7 +183,7 @@ Then set the font in your terminal to `JetBrainsMono Nerd Font`.
 
 ### API keys not picked up
 
-Use `docker compose -f docker/docker-compose.yml up -d --build` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker:
+Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker:
 
 ```bash
 docker exec -it \

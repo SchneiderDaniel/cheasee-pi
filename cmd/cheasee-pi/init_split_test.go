@@ -18,44 +18,34 @@ var initSplitFiles = []string{
 	"init_auth.go",
 	"init_prompt.go",
 	"init_scaffold.go",
-	"init_clone.go",
 }
 
-// wantInitDecls is the full inventory of top-level declarations in the five
+// wantInitDecls is the full inventory of top-level declarations in the four
 // init*.go files, mapped to their target file. It mirrors the split plan: a
 // decl placed in the wrong file (or renamed) fails the test.
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
-	"var:initAPIKey,initNoDockerCheck,initWorkdir,initSourceRepo,initNoGitHub,initClientID,initProvider,initSkipFork,initForkURL,initNoInput": "init.go",
-	"type:SourceForkMode":                              "init.go",
-	"const:ModePromptFork,ModeUseForkURL,ModeSkipFork": "init.go",
-	"type:SourceForkInput":                             "init.go",
-	"type:InitPorts":                                   "init.go",
-	"type:InitDeps":                                    "init.go",
-	"func:Validate":                                    "init.go",
-	"var:initCmd":                                      "init.go",
-	"func:init":                                        "init.go",
-	"func:runInitE":                                    "init.go",
-	"func:runInit":                                     "init.go",
-	"func:runInitProbe":                                "init.go",
+	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput": "init.go",
+	"type:InitPorts":    "init.go",
+	"type:InitDeps":     "init.go",
+	"func:Validate":     "init.go",
+	"var:initCmd":       "init.go",
+	"func:init":         "init.go",
+	"func:runInitE":     "init.go",
+	"func:runInit":      "init.go",
+	"func:runInitProbe": "init.go",
 
 	"func:runInitAuth":    "init_auth.go",
 	"func:runInitAPIKeys": "init_auth.go",
 	"func:runInitLegacy":  "init_auth.go",
 	"func:promptAPIKey":   "init_auth.go",
 
-	"func:runInitClone": "init_clone.go",
-
 	"func:runInitDockerCheck": "init_scaffold.go",
-	"func:runInitExtract":     "init_scaffold.go",
-	"func:runInitEnv":         "init_scaffold.go",
-	"func:runInitGitInit":     "init_scaffold.go",
 	"func:runInitScaffold":    "init_scaffold.go",
 
-	"func:promptConfirm":       "init_prompt.go",
-	"func:promptGitIdentity":   "init_prompt.go",
-	"func:promptInput":         "init_prompt.go",
-	"func:runInitPromptSource": "init_prompt.go",
+	"func:promptConfirm":     "init_prompt.go",
+	"func:promptGitIdentity": "init_prompt.go",
+	"func:promptInput":       "init_prompt.go",
 }
 
 // declKey returns a stable identifier for a top-level declaration.
@@ -194,65 +184,42 @@ var testSplitFiles = []string{
 	"init_helpers_test.go",
 	"init_usecase_test.go",
 	"init_auth_test.go",
-	"init_clone_test.go",
 	"init_scaffold_test.go",
 	"init_prompt_test.go",
-	"initremove_test.go",
-	"git_init_test.go",
 }
 
 // initHelperDecls pins the cross-subject helpers to init_helpers_test.go.
 // The rest of the original init_test.go helpers moved to helpers_test.go
 // (mocks, seam stubs, initDeps) and testutil/ (SetGitConfig,
 // RedirectConfigHome, ReadEnvFile, ReadSettingsRaw, CaptureStderr) when main
-// consolidated test scaffolding; only the auth + clone-fixture helpers remain.
+// consolidated test scaffolding; only the auth helpers remain.
 var initHelperDecls = map[string]string{
-	"func:authJSONExists":   "init_helpers_test.go",
-	"func:loadAuthJSON":     "init_helpers_test.go",
-	"func:seedCloneFixture": "init_helpers_test.go",
+	"func:authJSONExists": "init_helpers_test.go",
+	"func:loadAuthJSON":   "init_helpers_test.go",
 }
 
 // runInitFlowDecls pins the TestRunInit_* decls (colliding prefix) by flow
-// stage: auth seam, prompt/fork seam, remover orchestration, runInit
-// orchestration with mockGitHubClient.
+// stage: auth seam, scaffold-only orchestration with mockAuthenticator.
 var runInitFlowDecls = map[string]string{
-	"func:TestRunInit_FullFlow":                            "init_auth_test.go",
-	"func:TestRunInit_NoGitHubFlag":                        "init_auth_test.go",
-	"func:TestRunInit_ContextCancelledMidFlow":             "init_auth_test.go",
-	"func:TestRunInit_SkipFork":                            "init_prompt_test.go",
-	"func:TestRunInit_ForkURL":                             "init_prompt_test.go",
-	"func:TestRunInit_ForkURLSkipsCreateFork":              "init_prompt_test.go",
-	"func:TestRunInit_ForkURLInvalid":                      "init_prompt_test.go",
-	"func:TestRunInit_PostCloneConfirm_Accepted":           "init_prompt_test.go",
-	"func:TestRunInit_PostCloneConfirm_Declined":           "init_prompt_test.go",
-	"func:TestRunInit_PostCloneConfirm_NoInputSkipsPrompt": "init_prompt_test.go",
-	"func:TestRunInit_RemoverCalled":                       "initremove_test.go",
-	"func:TestRunInit_RemoverError":                        "initremove_test.go",
-	"func:TestRunInit_RemoverSkipFork":                     "initremove_test.go",
-	"func:TestRunInit_ForkAlreadyExists":                   "init_usecase_test.go",
-	"func:TestRunInit_ForkNon422Error":                     "init_usecase_test.go",
+	"func:TestRunInit_FullFlow":                   "init_auth_test.go",
+	"func:TestRunInit_NoGitHubFlag":               "init_auth_test.go",
+	"func:TestRunInit_ContextCancelledMidFlow":    "init_auth_test.go",
+	"func:TestRunInit_ScaffoldOnlyNoClone":        "init_prompt_test.go",
+	"func:TestRunInit_NoGitHubLegacySkipsGitInit": "init_prompt_test.go",
 }
 
 // testSplitRules map decl name prefixes to their subject file. Rules are
 // checked in order; more specific prefixes must come first (e.g.
-// TestGitInitializer before TestGitInit).
+// TestRunInitScaffold before TestRunInitProbe).
 var testSplitRules = []prefixRule{
 	{"TestRunInitAuth", "init_auth_test.go"},
 	{"TestRunInitLegacy", "init_auth_test.go"},
-	{"TestInitClone", "init_clone_test.go"},
-	{"TestRunInitPromptSource", "init_prompt_test.go"},
-	{"TestRunInitExtract", "init_scaffold_test.go"},
-	{"TestRunInitEnv", "init_scaffold_test.go"},
 	{"TestRunInitScaffold", "init_scaffold_test.go"},
 	{"TestInitDeps", "init_scaffold_test.go"},
 	{"TestInit_SuccessMessage", "init_scaffold_test.go"},
 	{"TestInitCmd", "init_prompt_test.go"},
-	{"TestSourceFork", "init_prompt_test.go"},
-	{"TestInitRemove", "initremove_test.go"},
-	{"TestGitInitializer", "git_init_test.go"},
-	{"TestGitInit", "git_init_test.go"},
-	{"TestInitUseCase", "init_usecase_test.go"},
 	{"TestInitProbe", "init_usecase_test.go"},
+	{"TestInitUseCase", "init_usecase_test.go"},
 }
 
 // mergedTestDecls are the decls moved from init_test.go into existing test

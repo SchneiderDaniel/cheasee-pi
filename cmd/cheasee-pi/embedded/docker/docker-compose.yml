@@ -1,22 +1,28 @@
 # Cheasee-Pi — Docker Compose orchestration
 # ===========================================
-# Builds and runs the cheasee-pi container with workspace mounts,
-# environment variables, and resource limits driven by .pi/settings.json.
+# Lives in the CLI-managed cache dir (~/.cache/cheasee-pi/<cli-version>/),
+# extracted by `cheasee-pi start`. The build context is the cache dir itself
+# (`context: .`); the user's repo is bind-mounted at /workspaces/main via
+# WORKSPACE_HOST_PATH — a CLI-resolved absolute toplevel, never ${PWD}
+# (shells keep a logical PWD on macOS; getcwd resolves it).
 #
 # Usage (via wrapper):
-#   ./cheasee-pi.sh
+#   cheasee-pi start
 #
-# Direct usage (without wrapper — uses defaults):
-#   docker compose -f docker/docker-compose.yml up -d --build
+# Direct usage (compose resolves relative paths against this file's dir):
+#   docker compose -f <cacheDir>/docker-compose.yml up -d --build
 #   docker exec -it cheasee-pi /bin/bash -c 'cd /workspaces/main && pi'
+
+name: cheasee-pi
 
 services:
   cheasee-pi:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         PI_VERSION: ${PI_VERSION:-latest}
+        CHEASEE_REF: ${CHEASEE_REF:-main}
     container_name: cheasee-pi
     environment:
       - HOST_UID=${HOST_UID:-}
@@ -24,9 +30,9 @@ services:
       - HOST_GIT_NAME=${HOST_GIT_NAME:-Cheasee-Pi}
       - HOST_GIT_EMAIL=${HOST_GIT_EMAIL:-cheasee-pi@localhost}
     volumes:
-      - ../../:/workspaces
-      - ~/.config/gh:/home/agentuser/.config/gh:rw
-      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw
+      - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
+      - ~/.config/gh:/home/agentuser/.config/gh:rw${VOLUME_RELABEL:-}
+      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw${VOLUME_RELABEL:-}
     mem_limit: ${CHEASEEPI_MEMORY:-2G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
     init: true
@@ -45,7 +51,8 @@ services:
   codeflow:
     # Browser-based code-structure visualizer (tree-sitter AST, 18 languages),
     # served locally and pointed at this workspace. Settings live in
-    # docker/codeflow/config.json (bind-mounted, editable without rebuild).
+    # codeflow/config.json relative to this compose file (bind-mounted,
+    # editable without rebuild).
     #
     #   http://localhost:8470/?repo=local/workspace&run=1
     #
@@ -58,7 +65,7 @@ services:
     environment:
       - REPO_ROOT=/workspaces/main
     volumes:
-      - ../../:/workspaces:ro
+      - ${WORKSPACE_HOST_PATH}:/workspaces/main:ro${VOLUME_RELABEL:-}
       - ./codeflow/config.json:/opt/codeflow/config.json:ro
     ports:
       - "${CODEFLOW_PORT:-8470}:8470"

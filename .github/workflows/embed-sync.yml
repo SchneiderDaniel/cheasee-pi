@@ -6,6 +6,9 @@
 # dev-facing compose workflow. This workflow regenerates it and verifies
 # the docker-tree/check-docker Makefile targets keep the trees in sync,
 # and that no generated file is tracked (single canonical tree, no drift).
+# The pi-resources tree is gone since the bake rework: the image clones the
+# cheasee-pi repo at build time (Dockerfile ARG CHEASEE_REF), so there is no
+# generated resource mirror to keep in sync.
 #
 # Budget: <1 min
 

@@ -221,12 +221,18 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 
 // TemplateSettingsValues holds the values for .pi/settings.json template substitution.
 type TemplateSettingsValues struct {
-	Provider string
-	GitName  string
-	GitEmail string
-	Memory   string
-	CPUs     string
+	Provider     string
+	GitName      string
+	GitEmail     string
+	Memory       string
+	CPUs         string
+	HasPrivatePi bool
 }
+
+// hasPrivatePi is always false: the image clones the public cheasee-pi repo
+// (Dockerfile ARG CHEASEE_REF), and private-pi/ is gitignored, so it can
+// never be present at /opt/cheasee-pi. The template renderer keeps the flag
+// (tests exercise both branches); production scaffolding never sets it.
 
 // ──────────────────────────────────────────────
 // Adapter: templateSettingsRenderer

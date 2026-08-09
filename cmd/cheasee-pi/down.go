@@ -1,15 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
-
-var downWorkdir string
 
 var downCmd = &cobra.Command{
 	Use:     "down",
@@ -17,33 +15,47 @@ var downCmd = &cobra.Command{
 	Short:   "Stop and remove the Docker container",
 	Long: `Stop and remove the Cheasee-Pi Docker container via docker compose down.
 
-Stops the container and removes it, avoiding name collision on next start.
+The compose file resolves from the CLI-managed cache dir (same project name
+'cheasee-pi' as start), so down works from any directory.
 
 Examples:
-  cheasee-pi down                # stop default container
-  cheasee-pi down --workdir ..   # specify project directory`,
+  cheasee-pi down                # stop default container`,
 	DisableAutoGenTag: true,
 	RunE:              runDownE,
 }
 
 func init() {
 	rootCmd.AddCommand(downCmd)
-	downCmd.Flags().StringVar(&downWorkdir, "workdir", "", "Working directory (default: current directory)")
 }
 
 func runDownE(_ *cobra.Command, _ []string) error {
-	workdir, err := resolveWorkdir(downWorkdir)
+	ctx := context.Background()
+
+	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
-		return fmt.Errorf("resolve workdir: %w", err)
+		return fmt.Errorf("cache dir: %w", err)
+	}
+	if err := NewExtractor().Extract(ctx, cacheDir); err != nil {
+		return fmt.Errorf("extract compose files: %w", err)
 	}
 
-	composeDir := filepath.Join(workdir, "docker")
-	cmd := exec.Command("docker", "compose",
-		"-f", filepath.Join(composeDir, "docker-compose.yml"),
-		"down",
-	)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
+	cmd := runCommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
+
+	// compose validates every volume spec even for `down`, so
+	// WORKSPACE_HOST_PATH must be non-empty. Resolve the repo toplevel like
+	// start does; fall back to the cwd so down keeps working outside a repo.
+	workspace, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+	if root, _, repoErr := repoRoot(workspace); repoErr == nil {
+		workspace = root
+	}
+	applyComposeEnv(cmd, workspace)
+
+	cmd.SetStdout(os.Stderr)
+	cmd.SetStderr(os.Stderr)
 
 	fmt.Fprintf(os.Stderr, "  ℹ Stopping container...\n")
 	if err := cmd.Run(); err != nil {

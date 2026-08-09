@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -368,6 +369,68 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 	}
 	if gitID["email"] != "test@example.com" {
 		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
+	}
+
+	// Absolute /opt/cheasee-pi resource paths (never ../private-pi/...).
+	skills, ok := raw["skills"].([]any)
+	if !ok || len(skills) != 1 || skills[0] != "/opt/cheasee-pi/.pi/skills" {
+		t.Errorf("expected skills ['/opt/cheasee-pi/.pi/skills'], got %v", raw["skills"])
+	}
+	prompts, ok := raw["prompts"].([]any)
+	if !ok || len(prompts) != 1 || prompts[0] != "/opt/cheasee-pi/.pi/prompts" {
+		t.Errorf("expected prompts ['/opt/cheasee-pi/.pi/prompts'], got %v", raw["prompts"])
+	}
+	exts, ok := raw["extensions"].([]any)
+	if !ok || len(exts) != 0 {
+		t.Errorf("expected empty extensions without private-pi, got %v", raw["extensions"])
+	}
+	if raw["theme"] != "cheasee-pi" {
+		t.Errorf("expected theme 'cheasee-pi', got %v", raw["theme"])
+	}
+	if raw["sessionDir"] != ".pi/sessions" {
+		t.Errorf("expected sessionDir '.pi/sessions', got %v", raw["sessionDir"])
+	}
+}
+
+func TestSettingsScaffold_HasPrivatePi(t *testing.T) {
+	// With HasPrivatePi, the gitignored private-pi paths are scaffolded as
+	// absolute /opt/cheasee-pi/private-pi/... entries.
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{
+		Provider:     "opencode-go",
+		HasPrivatePi: true,
+	})
+
+	raw := testutil.ReadSettingsRaw(t, workdir)
+	skills, ok := raw["skills"].([]any)
+	if !ok || len(skills) != 2 || skills[1] != "/opt/cheasee-pi/private-pi/skills" {
+		t.Errorf("expected private-pi skills entry, got %v", raw["skills"])
+	}
+	prompts, ok := raw["prompts"].([]any)
+	if !ok || len(prompts) != 2 || prompts[1] != "/opt/cheasee-pi/private-pi/prompts" {
+		t.Errorf("expected private-pi prompts entry, got %v", raw["prompts"])
+	}
+	exts, ok := raw["extensions"].([]any)
+	if !ok || len(exts) != 1 || exts[0] != "/opt/cheasee-pi/private-pi/extensions/check-extensions" {
+		t.Errorf("expected check-extensions entry, got %v", raw["extensions"])
+	}
+}
+
+func TestSettingsScaffold_NoPrivatePiOmitsEntries(t *testing.T) {
+	// HasPrivatePi=false (fresh clone — private-pi is gitignored) must omit
+	// every private-pi path; the scaffold stays valid JSON.
+	workdir := ScaffoldSettings(t, TemplateSettingsValues{})
+
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("read scaffold: %v", err)
+	}
+	if strings.Contains(string(data), "private-pi") {
+		t.Errorf("scaffold must not reference private-pi paths when absent:\n%s", data)
+	}
+	// Valid JSON (the empty extensions array must parse).
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		t.Errorf("scaffold output must be valid JSON: %v\n%s", err, data)
 	}
 }
 

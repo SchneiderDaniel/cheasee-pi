@@ -1,11 +1,11 @@
 /**
- * Verify docs/installation.md covers both Go CLI and legacy bash install paths.
+ * Verify docs/installation.md matches the repo-mount restructure (#1493).
  *
  * Covers:
  *   - Phase 1: Document existence and Jekyll frontmatter
- *   - Phase 2: Both install paths present (Go CLI first, legacy second)
- *   - Phase 3: Go CLI path content completeness
- *   - Phase 4: Legacy bash path preservation (unchanged per AC2)
+ *   - Phase 2: Single install path (CLI binary; no fork/clone, no legacy bash)
+ *   - Phase 3: Install content completeness (download, OS detection, setup)
+ *   - Phase 4: Legacy bash path fully removed (per #1493 AC)
  *   - Phase 5: README quick-start integration
  *   - Phase 6: Cross-reference correctness
  */
@@ -29,7 +29,7 @@ function readReadme(): string {
 
 function sectionIndex(content: string, heading: string): number {
 	const match = content.match(new RegExp(`##\\s+${heading}`, "im"));
-	return match ? match.index ?? -1 : -1;
+	return match ? (match.index ?? -1) : -1;
 }
 
 /** Extract content between two headings (start inclusive, end exclusive). */
@@ -76,247 +76,179 @@ describe("docs/installation.md", () => {
 			const content = readDoc();
 			assert.ok(
 				/##\s+Table\s+of\s+contents|{:toc}/im.test(content),
-				"Missing Table of contents or {:toc}"
+				"Missing Table of contents or {:toc}",
 			);
 		});
 	});
 
-	// --- Phase 2: Both install paths present ---
-	describe("Phase 2: Both install paths present", () => {
-		it("has a Go CLI Path section heading", () => {
+	// --- Phase 2: Single install path (#1493 restructure) ---
+	describe("Phase 2: Single CLI install path", () => {
+		it("has an Install section", () => {
 			const content = readDoc();
+			assert.ok(/^##\s+Install/im.test(content), "Missing Install section");
+		});
+
+		it("Install section starts with a binary download (tar.gz / GitHub Releases)", () => {
+			const content = readDoc();
+			const installSection = sectionContent(content, "Install", "Verify");
+			assert.ok(installSection, "Install section not found");
 			assert.ok(
-				/##\s+Go\s+CLI\s+Path/im.test(content),
-				"Missing Go CLI Path section"
+				/download|tar\.gz|GitHub Releases/im.test(installSection),
+				"Install section missing binary download step",
 			);
 		});
 
-		it("Go CLI path section is before Legacy Bash Path section", () => {
+		it("does NOT reference a Legacy Bash Path section (removed in #1493)", () => {
 			const content = readDoc();
-			const goIdx = sectionIndex(content, "Go\\s+CLI\\s+Path");
-			const legacyIdx = sectionIndex(content, "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(goIdx >= 0, "Go CLI Path section not found");
-			assert.ok(legacyIdx >= 0, "Legacy Bash Path section not found");
-			assert.ok(goIdx < legacyIdx, "Go CLI Path must come before Legacy Bash Path");
-		});
-
-		it("Go CLI path heading or adjacent callout contains Recommended marker", () => {
-			const content = readDoc();
-			const match = content.match(/##\s+Go\s+CLI\s+Path[\s\S]*?(?=\n##|\n---)/m);
-			assert.ok(match, "Go CLI Path section not found");
 			assert.ok(
-				/\*\*Recommended\*\*|\*Recommended\*|Recommended/im.test(match[0]),
-				"Go CLI Path section missing 'Recommended' marker"
+				!/##\s+Legacy\s+[Bb]ash\s+Path/im.test(content),
+				"Legacy Bash Path section must be removed (#1493)",
 			);
 		});
 
-		it("has a Legacy Bash Path section heading", () => {
+		it("has a Setup section using cheasee-pi init", () => {
 			const content = readDoc();
+			const setupSection = sectionContent(content, "Setup", "Run");
+			assert.ok(setupSection, "Setup section not found");
 			assert.ok(
-				/##\s+Legacy\s+[Bb]ash\s+Path/im.test(content),
-				"Missing Legacy Bash Path section"
+				setupSection.includes("cheasee-pi init"),
+				"Setup section missing 'cheasee-pi init'",
 			);
 		});
 
-		it("Go CLI path mentions cheasee-pi init", () => {
+		it("Setup section states no fork/clone (user's own repo is used)", () => {
 			const content = readDoc();
-			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(goSection, "Go CLI Path section content not found");
+			const setupSection = sectionContent(content, "Setup", "Run");
+			assert.ok(setupSection, "Setup section not found");
 			assert.ok(
-				goSection.includes("cheasee-pi init"),
-				"Go CLI path missing 'cheasee-pi init'"
+				/no\s+fork|no\s+clone|not.*clone/im.test(setupSection),
+				"Setup section must state no fork/clone happens",
 			);
 		});
 
-		it("Go CLI path does NOT mention cheasee-pi start", () => {
+		it("Run section requires the user's own git repository", () => {
 			const content = readDoc();
-			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(goSection, "Go CLI Path section content not found");
+			const runSection = sectionContent(content, "Run", "After setup");
+			assert.ok(runSection, "Run section not found");
 			assert.ok(
-				!goSection.includes("cheasee-pi start"),
-				"Go CLI path must NOT mention 'cheasee-pi start'"
+				/git\s+repositor|git\s+repo/im.test(runSection),
+				"Run section missing git repository requirement",
 			);
 		});
 
-		it("Go CLI path references docker/run-pi.sh", () => {
+		it("Run section mentions the CLI cache dir for compose/Dockerfile", () => {
 			const content = readDoc();
-			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(goSection, "Go CLI Path section content not found");
+			const runSection = sectionContent(content, "Run", "After setup");
+			assert.ok(runSection, "Run section not found");
 			assert.ok(
-				goSection.includes("run-pi.sh"),
-				"Go CLI path must mention run-pi.sh"
+				/cache|~\/\.cache\/cheasee-pi/im.test(runSection),
+				"Run section missing CLI cache dir mention",
 			);
 		});
 
-		it("Go CLI path still contains docker compose up --build in Advanced subsection", () => {
+		it("Run section mentions /workspaces/main mount", () => {
 			const content = readDoc();
-			const goSection = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(goSection, "Go CLI Path section content not found");
+			const runSection = sectionContent(content, "Run", "After setup");
+			assert.ok(runSection, "Run section not found");
 			assert.ok(
-				goSection.includes("docker compose -f docker/docker-compose.yml up -d --build"),
-				"Go CLI path missing docker compose command in Advanced subsection"
+				runSection.includes("/workspaces/main"),
+				"Run section missing /workspaces/main mount",
 			);
 		});
 	});
 
-	// --- Phase 3: Go CLI path content completeness ---
-	describe("Phase 3: Go CLI path content completeness", () => {
-		const getGoSection = (): string => {
+	// --- Phase 3: Install content completeness ---
+	describe("Phase 3: Install content completeness", () => {
+		const getInstallSection = (): string => {
 			const content = readDoc();
-			const section = sectionContent(content, "Go\\s+CLI\\s+Path", "Legacy\\s+[Bb]ash\\s+Path");
-			assert.ok(section, "Go CLI Path section not found");
+			const section = sectionContent(content, "Install", "Verify");
+			assert.ok(section, "Install section not found");
 			return section;
 		};
 
-		it("includes a Download Binary step referencing GitHub Releases or tar.gz", () => {
-			const section = getGoSection();
-			assert.ok(
-				/download|tar\.gz|GitHub Releases/im.test(section),
-				"Go CLI path missing Download Binary step"
-			);
-		});
-
 		it("includes architecture/OS detection snippet (uname)", () => {
-			const section = getGoSection();
-			assert.ok(
-				/uname/im.test(section),
-				"Go CLI path missing uname architecture detection"
-			);
+			const section = getInstallSection();
+			assert.ok(/uname/im.test(section), "Install section missing uname architecture detection");
 		});
 
 		it("includes macOS-specific xattr -d com.apple.quarantine instruction", () => {
-			const section = getGoSection();
-			assert.ok(
-				section.includes("xattr"),
-				"Go CLI path missing xattr Gatekeeper bypass"
-			);
+			const section = getInstallSection();
+			assert.ok(section.includes("xattr"), "Install section missing xattr Gatekeeper bypass");
 		});
 
-		it("includes chmod +x instruction", () => {
-			const section = getGoSection();
-			assert.ok(
-				section.includes("chmod +x") || section.includes("chmod a+x"),
-				"Go CLI path missing chmod +x instruction"
-			);
+		it("includes Windows install guidance", () => {
+			const section = getInstallSection();
+			assert.ok(/Windows/i.test(section), "Install section missing Windows guidance");
 		});
 
-		it("includes a Verify Docker or Install Docker prerequisite step", () => {
-			const section = getGoSection();
-			assert.ok(
-				/Docker/im.test(section),
-				"Go CLI path missing Docker prerequisite"
-			);
+		it("includes a Verify step (cheasee-pi --version)", () => {
+			const content = readDoc();
+			const verifySection = sectionContent(content, "Verify", "Setup");
+			assert.ok(verifySection, "Verify section not found");
+			assert.ok(verifySection.includes("--version"), "Verify section missing cheasee-pi --version");
 		});
 
-		it("includes a docker compose up step", () => {
-			const section = getGoSection();
-			assert.ok(
-				/docker compose.*up/im.test(section),
-				"Go CLI path missing docker compose up"
-			);
+		it("Prerequisites include Docker", () => {
+			const content = readDoc();
+			const prereqSection = sectionContent(content, "Prerequisites", "Install");
+			assert.ok(prereqSection, "Prerequisites section not found");
+			assert.ok(/Docker/im.test(prereqSection), "Prerequisites section missing Docker");
 		});
 
-		it("includes a docker exec or pi command to enter the container", () => {
-			const section = getGoSection();
-			assert.ok(
-				/docker exec|pi\b/im.test(section),
-				"Go CLI path missing docker exec or pi command"
-			);
+		it("Prerequisites include git", () => {
+			const content = readDoc();
+			const prereqSection = sectionContent(content, "Prerequisites", "Install");
+			assert.ok(prereqSection, "Prerequisites section not found");
+			assert.ok(/git/im.test(prereqSection), "Prerequisites section missing git");
 		});
 
-		it("includes a step to configure .pi/settings.json", () => {
-			const section = getGoSection();
+		it("After-setup section covers .pi/settings.json configuration", () => {
+			const content = readDoc();
+			const afterSection = sectionContent(content, "After setup", "What's next");
+			assert.ok(afterSection, "After setup section not found");
 			assert.ok(
-				/settings\.json/im.test(section),
-				"Go CLI path missing settings.json configuration"
-			);
-		});
-
-		it("mentions SHA256 checksum verification or checksums.txt", () => {
-			const section = getGoSection();
-			assert.ok(
-				/checksum|sha256|checksums\.txt/im.test(section),
-				"Go CLI path missing checksum verification"
-			);
-		});
-
-		it("lists supported OS/arch matrix (linux/darwin × amd64/arm64)", () => {
-			const section = getGoSection();
-			assert.ok(
-				/linux.*darwin|amd64.*arm64|linux.*amd64.*arm64/im.test(section),
-				"Go CLI path missing supported OS/arch matrix"
-			);
-		});
-
-		it("notes Windows users must use legacy path via WSL2", () => {
-			const section = getGoSection();
-			assert.ok(
-				/Windows/i.test(section),
-				"Go CLI path missing Windows guidance note"
-			);
-		});
-
-		it("states bandwidth advantage (~15-30MB binary vs ~500MB clone)", () => {
-			const section = getGoSection();
-			assert.ok(
-				/\d+\s*MB/im.test(section),
-				"Go CLI path missing bandwidth comparison"
+				/settings\.json/im.test(afterSection),
+				"After setup section missing settings.json configuration",
 			);
 		});
 	});
 
-	// --- Phase 4: Legacy bash path preservation ---
-	describe("Phase 4: Legacy bash path preservation", () => {
-		const getLegacySection = (): string => {
+	// --- Phase 4: Legacy bash path removed (#1493) ---
+	describe("Phase 4: Legacy bash path removed", () => {
+		it("does NOT reference run-pi.sh", () => {
 			const content = readDoc();
-			const section = sectionContent(content, "Legacy\\s+[Bb]ash\\s+Path", "IDE|What happens|Verification|Troubleshooting");
-			assert.ok(section, "Legacy Bash Path section not found");
-			return section;
-		};
-
-		it("contains original steps: Docker, git/gh, fork, worktree, start, API key, settings", () => {
-			const section = getLegacySection().toLowerCase();
-			const stepMatches = section.match(/###\s+step\s+\d+/gi) || [];
-			assert.ok(stepMatches.length >= 7, `Expected at least 7 steps, found ${stepMatches.length}`);
+			assert.ok(!content.includes("run-pi.sh"), "Legacy run-pi.sh must not be referenced (#1493)");
 		});
 
-		it("mentions ./cheasee-pi.sh wrapper", () => {
-			const section = getLegacySection();
+		it("does NOT reference stop-pi.sh", () => {
+			const content = readDoc();
 			assert.ok(
-				section.includes("cheasee-pi.sh"),
-				"Legacy path missing cheasee-pi.sh reference"
+				!content.includes("stop-pi.sh"),
+				"Legacy stop-pi.sh must not be referenced (#1493)",
 			);
 		});
 
-		it("references git clone --bare workflow", () => {
-			const section = getLegacySection();
+		it("does NOT reference cheasee-pi.sh wrapper", () => {
+			const content = readDoc();
 			assert.ok(
-				section.includes("--bare"),
-				"Legacy path missing git clone --bare"
+				!content.includes("cheasee-pi.sh"),
+				"Legacy cheasee-pi.sh wrapper must not be referenced (#1493)",
 			);
 		});
 
-		it("references git worktree add", () => {
-			const section = getLegacySection();
+		it("does NOT reference git clone --bare workflow", () => {
+			const content = readDoc();
 			assert.ok(
-				/worktree\s+add/im.test(section),
-				"Legacy path missing git worktree add"
+				!content.includes("--bare"),
+				"Legacy git clone --bare workflow must not be referenced (#1493)",
 			);
 		});
 
-		it("does NOT reference cheasee-pi init (per AC2 unchanged)", () => {
-			const section = getLegacySection();
+		it("does NOT reference git worktree add", () => {
+			const content = readDoc();
 			assert.ok(
-				!section.includes("cheasee-pi init"),
-				"Legacy path must NOT reference cheasee-pi init"
-			);
-		});
-
-		it("mentions gh auth login -s repo,project,workflow", () => {
-			const section = getLegacySection();
-			assert.ok(
-				/gh\s+auth\s+login/im.test(section),
-				"Legacy path missing gh auth login"
+				!/worktree\s+add/im.test(content),
+				"Legacy git worktree add must not be referenced (#1493)",
 			);
 		});
 	});
@@ -327,15 +259,15 @@ describe("docs/installation.md", () => {
 			const readme = readReadme();
 			assert.ok(
 				/installation\.md|installation/im.test(readme),
-				"README missing reference to installation doc"
+				"README missing reference to installation doc",
 			);
 		});
 
-		it("README quick-start mentions Go CLI path or cheasee-pi init", () => {
+		it("README quick-start mentions cheasee-pi init", () => {
 			const readme = readReadme();
 			assert.ok(
 				/cheasee-pi\s+init|Go\s+CLI|Recommended/im.test(readme),
-				"README quick-start missing Go CLI path mention"
+				"README quick-start missing cheasee-pi init mention",
 			);
 		});
 
@@ -343,7 +275,7 @@ describe("docs/installation.md", () => {
 			const readme = readReadme();
 			assert.ok(
 				/docker compose/im.test(readme),
-				"README missing docker compose workflow reference"
+				"README missing docker compose workflow reference",
 			);
 		});
 
@@ -351,7 +283,7 @@ describe("docs/installation.md", () => {
 			const readme = readReadme();
 			assert.ok(
 				/Installation|installation/im.test(readme),
-				"README missing Installation in documentation table"
+				"README missing Installation in documentation table",
 			);
 		});
 	});
@@ -360,26 +292,17 @@ describe("docs/installation.md", () => {
 	describe("Phase 6: Cross-reference correctness", () => {
 		it("ends with a handoff/reference to daily-usage.md for post-setup workflow", () => {
 			const content = readDoc();
-			assert.ok(
-				/daily-usage|daily usage/im.test(content),
-				"Missing handoff to daily-usage.md"
-			);
+			assert.ok(/daily-usage|daily usage/im.test(content), "Missing handoff to daily-usage.md");
 		});
 
 		it("has a Troubleshooting section", () => {
 			const content = readDoc();
-			assert.ok(
-				/^##\s+.*[Tt]roubleshoot/im.test(content),
-				"Missing Troubleshooting section"
-			);
+			assert.ok(/^##\s+.*[Tt]roubleshoot/im.test(content), "Missing Troubleshooting section");
 		});
 
 		it("has a Prerequisites section", () => {
 			const content = readDoc();
-			assert.ok(
-				/^##\s+.*[Pp]rerequisites/im.test(content),
-				"Missing Prerequisites section"
-			);
+			assert.ok(/^##\s+.*[Pp]rerequisites/im.test(content), "Missing Prerequisites section");
 		});
 
 		it("all internal anchor references (#) resolve to section headings in the same file", () => {
@@ -405,10 +328,10 @@ describe("docs/installation.md", () => {
 				existingSlugs.add(slug);
 			}
 
-			const brokenAnchors = anchors.filter(a => !existingSlugs.has(a));
+			const brokenAnchors = anchors.filter((a) => !existingSlugs.has(a));
 			assert.ok(
 				brokenAnchors.length === 0,
-				`Broken internal anchor(s): ${brokenAnchors.join(", ")}`
+				`Broken internal anchor(s): ${brokenAnchors.join(", ")}`,
 			);
 		});
 	});

@@ -38,6 +38,8 @@ fi
 # files, .pi/settings.json. Test dirs/files are excluded so the intentional
 # negative tests (stray submodules key, .gitmodules-on-disk fixture,
 # TestFreshCloneNoSubmodules) can assert the token is *not* honored.
+# The embedded/pi-resources mirror no longer exists (#1498 rework: the image
+# clones the repo at build time) — nothing generated is scanned.
 hits="$(grep -rin --include='*.go' --include='*.ts' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.json' --include='*.sh' \
 	-e 'submodule' \
 	cmd/ \

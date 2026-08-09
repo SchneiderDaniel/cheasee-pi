@@ -3,13 +3,21 @@
  *
  * Simulates a real user's machine:
  *   1. Download cheasee-pi binary (pre-built by workflow)
- *   2. git config --global (avoids prompts in scaffold)
+ *   2. git config --global (avoids prompts in scaffold) + git init the workdir
  *   3. cheasee-pi init --no-github ... (all flags to skip interactivity)
- *   4. Verify generated files (checkpoint 3)
- *   5. docker compose build (checkpoint 4)
+ *   4. Verify scaffolded files (checkpoint 3)
+ *   5. cheasee-pi build — extracts cache tree, compose build (checkpoint 4)
  *   6. docker compose up -d (checkpoint 5)
  *   7. Health check reaches healthy (checkpoint 6)
  *   8. pi --version inside container (checkpoint 7)
+ *   9. cheasee-pi start with PTY (checkpoint 8)
+ *   10. cheasee-pi down (checkpoint 9)
+ *
+ * compose/Dockerfile no longer live in the user repo — init is
+ * scaffold-only (no docker/ dir, no clone, no fork) and start extracts the
+ * embedded compose tree into the version-keyed CLI cache dir
+ * (<XDG_CACHE_HOME>/cheasee-pi/<cliVersion>/). This test computes that path
+ * the same way the CLI does (cache.go CacheDir + cliVersionKey).
  *
  * Run with:
  *   CHEASEE_PI_BIN=/path/to/cheasee-pi \
@@ -22,14 +30,16 @@ import assert from "node:assert";
 import { describe, it, before, after } from "node:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 
 // Redirect auth.json to a test-only location so `init` subprocesses
 // don't clobber the real ~/.config/cheasee-pi/auth.json on the host.
+// The cache dir follows XDG_CACHE_HOME too (os.UserCacheDir honors it).
 const testXdgHome = mkdtempSync(join(tmpdir(), "cheasee-pi-test-xdg-"));
 process.env.XDG_CONFIG_HOME = testXdgHome;
+process.env.XDG_CACHE_HOME = testXdgHome;
 process.on("exit", () => {
 	try {
 		rmSync(testXdgHome, { recursive: true, force: true });
@@ -48,11 +58,22 @@ const HEALTH_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 5_000;
 
 /**
- * Compute the compose file path relative to a workdir.
- * The compose file is at <workdir>/docker/docker-compose.yml after init.
+ * CLI version key — must match cliVersionKey in cmd/cheasee-pi/cache.go.
+ * The cache dir is version-keyed so an upgraded binary never mixes stale
+ * compose/Dockerfile content with new embedded assets.
  */
-function composeFile(workdir: string): string {
-	return join(workdir, "docker", "docker-compose.yml");
+const CLI_VERSION = "0.50";
+
+/**
+ * Compute the CLI cache dir (compose/Dockerfile live there,
+ * extracted by `cheasee-pi start`, never in the user repo).
+ */
+function composeDir(): string {
+	return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "cheasee-pi", CLI_VERSION);
+}
+
+function composeFile(): string {
+	return join(composeDir(), "docker-compose.yml");
 }
 
 interface ExecResult {
@@ -128,7 +149,7 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Smoke test — full user flow (checkpoints 1-7)
+// Smoke test — full user flow (checkpoints 1-9)
 // ═══════════════════════════════════════════════════════════════════
 
 describe("CLI install smoke", { timeout: 600_000 }, () => {
@@ -145,12 +166,16 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 
 		// Create a fresh temp directory for the test
 		workdir = mkdtempSync(join(tmpdir(), "cli-install-"));
+		// `cheasee-pi start` only runs inside a git repository — the user's
+		// own repo is the pi workspace (mounted at /workspaces/main).
+		const init = exec(`git init -q "${workdir}"`, { timeout: 10_000 });
+		assert.strictEqual(init.status, 0, `git init exited ${init.status}: ${init.stderr}`);
 	});
 
 	after(() => {
 		// Clean up: compose down if container is running
 		if (workdir) {
-			exec(`docker compose -f "${composeFile(workdir)}" down -v 2>/dev/null || true`, {
+			exec(`docker compose -f "${composeFile()}" down -v 2>/dev/null || true`, {
 				timeout: 30_000,
 			});
 			// Remove temp directory
@@ -177,7 +202,6 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		const result = exec(
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
-				"--skip-fork " +
 				"" +
 				"--no-input " +
 				"--no-docker-check " +
@@ -193,35 +217,43 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		);
 	});
 
-	// ── Checkpoint 3: all 8 generated files exist ──────────────────
+	// ── Checkpoint 3: scaffold-only — settings.json, no docker files ──
 
-	it("checkpoint 3 — all generated files exist and are non-empty", () => {
-		const files = [
-			"docker/Dockerfile",
-			"docker/docker-compose.yml",
-			"docker/entrypoint.sh",
-			"docker/run-pi.sh",
-			"docker/stop-pi.sh",
-			"docker/lib/auth-env.sh",
-			"docker/.env",
-			".pi/settings.json",
-		];
-		for (const f of files) {
-			const fullPath = join(workdir, f);
-			assert.ok(existsSync(fullPath), `expected file to exist: ${f} (${fullPath})`);
-			const content = readFileSync(fullPath, "utf-8");
-			assert.ok(content.length > 0, `expected non-empty file: ${f}`);
-		}
+	it("checkpoint 3 — only .pi/settings.json is scaffolded into the repo", () => {
+		// The only artifact written into the user repo is .pi/settings.json.
+		const settingsPath = join(workdir, ".pi", "settings.json");
+		assert.ok(existsSync(settingsPath), `expected file to exist: .pi/settings.json`);
+		const content = readFileSync(settingsPath, "utf-8");
+		assert.ok(content.length > 0, `expected non-empty file: .pi/settings.json`);
+		// Absolute /opt/cheasee-pi resource paths — the image bakes the
+		// cheasee-pi resource tree there (never ../private-pi/... siblings).
+		assert.ok(
+			content.includes("/opt/cheasee-pi/.pi/skills"),
+			`expected /opt/cheasee-pi/.pi/skills in settings, got: ${content}`,
+		);
+		// No docker/ tree, no compose, no scripts in the user repo.
+		assert.ok(
+			!existsSync(join(workdir, "docker")),
+			"init must not create a docker/ dir in the user repo",
+		);
+		assert.ok(
+			!existsSync(join(workdir, "docker-compose.yml")),
+			"init must not create docker-compose.yml in the user repo",
+		);
 	});
 
-	// ── Checkpoint 4: docker compose build ─────────────────────────
+	// ── Checkpoint 4: cheasee-pi build (extract cache tree + compose build)
 
-	it("checkpoint 4 — docker compose build exits 0", () => {
-		const result = exec(
-			`docker compose -f "${composeFile(workdir)}" build`,
-			{ timeout: 600_000, cwd: workdir }, // 10 min — cold build is slow
-		);
-		assert.strictEqual(result.status, 0, `compose build exited ${result.status}: ${result.stderr}`);
+	it("checkpoint 4 — cheasee-pi build exits 0", () => {
+		// build is the binary's extract-then-build path: it stages the embedded
+		// compose/Dockerfile into the version-keyed cache dir and
+		// runs `docker compose build` from there. The raw compose command cannot
+		// run first — the cache dir starts empty until the binary extracts.
+		const result = exec(`"${BINARY_PATH}" build --no-docker-check`, {
+			timeout: 600_000,
+			cwd: workdir, // 10 min — cold build is slow
+		});
+		assert.strictEqual(result.status, 0, `build exited ${result.status}: ${result.stderr}`);
 	});
 
 	// ── Checkpoint 5: docker compose up -d ─────────────────────────
@@ -231,9 +263,10 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		// ./codeflow/config.json, whose source path cannot resolve inside the
 		// DinD daemon (auto-created as a directory -> ENOTDIR on mount).
 		// codeflow is a sidecar not exercised by this smoke test.
-		const result = exec(`docker compose -f "${composeFile(workdir)}" up -d cheasee-pi`, {
+		const result = exec(`docker compose -f "${composeFile()}" up -d cheasee-pi`, {
 			timeout: 120_000,
 			cwd: workdir,
+			env: { WORKSPACE_HOST_PATH: workdir },
 		});
 		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);
 
@@ -306,7 +339,9 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 9: cheasee-pi down removes container ────────────
 
 	it("checkpoint 9 — cheasee-pi down removes container", () => {
-		const result = exec(`"${BINARY_PATH}" down --workdir "${workdir}"`, { timeout: 60_000 });
+		// down resolves the same compose project from the cache dir — no
+		// --workdir needed (top-level `name: cheasee-pi` pins the project).
+		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000 });
 		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
 		assert.ok(
 			result.stderr.includes("Container stopped and removed"),
@@ -344,7 +379,7 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 
 	it("adapter — init with --no-input but without --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --no-input --no-docker-check --provider opencode-go --workdir "${errWorkdir}"`,
+			`"${BINARY_PATH}" init --no-github --no-input --no-docker-check --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for missing --api-key");
@@ -352,10 +387,30 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 
 	it("adapter — init with empty --api-key exits non-zero", () => {
 		const result = exec(
-			`"${BINARY_PATH}" init --no-github --skip-fork --no-input --no-docker-check --api-key "" --provider opencode-go --workdir "${errWorkdir}"`,
+			`"${BINARY_PATH}" init --no-github --no-input --no-docker-check --api-key "" --provider opencode-go --workdir "${errWorkdir}"`,
 			{ timeout: 10_000 },
 		);
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for empty --api-key");
+	});
+
+	it("adapter — removed fork/clone flags are rejected by cobra", () => {
+		const result = exec(
+			`"${BINARY_PATH}" init --no-github --skip-fork --no-input --no-docker-check --api-key ci-test-key --provider opencode-go --workdir "${errWorkdir}"`,
+			{ timeout: 10_000 },
+		);
+		assert.notStrictEqual(result.status, 0, "expected non-zero exit for removed --skip-fork flag");
+	});
+
+	it("adapter — start outside a git repository is refused", () => {
+		const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
+			timeout: 10_000,
+			cwd: errWorkdir,
+		});
+		assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-git cwd");
+		assert.ok(
+			result.stderr.includes("git"),
+			`expected error mentioning git, got: ${result.stderr}`,
+		);
 	});
 
 	it("adapter — non-existent binary exits non-zero", () => {
@@ -383,7 +438,6 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 		const result = exec(
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
-				"--skip-fork " +
 				"" +
 				"--no-input " +
 				"--no-docker-check " +
@@ -403,13 +457,46 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 		}
 	});
 
-	it("adapter — docker/.env contains expected vars", () => {
-		const envPath = join(initWorkdir, "docker", ".env");
-		const content = readFileSync(envPath, "utf-8");
-		assert.ok(content.includes("HOST_UID="), ".env missing HOST_UID");
-		assert.ok(content.includes("HOST_GID="), ".env missing HOST_GID");
-		assert.ok(content.includes("HOST_GIT_NAME="), ".env missing HOST_GIT_NAME");
-		assert.ok(content.includes("HOST_GIT_EMAIL="), ".env missing HOST_GIT_EMAIL");
+	it("adapter — down extracts compose/Dockerfile into the version-keyed cache dir", () => {
+		// down resolves the compose project from the cache dir, extracting the
+		// embedded docker tree on the way (regenerable).
+		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: initWorkdir });
+		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
+		for (const f of ["docker-compose.yml", "Dockerfile", "entrypoint.sh", "lib/worktree-fix.sh"]) {
+			const fullPath = join(composeDir(), f);
+			assert.ok(existsSync(fullPath), `expected cache dir file to exist: ${f} (${fullPath})`);
+			assert.ok(readFileSync(fullPath, "utf-8").length > 0, `expected non-empty file: ${f}`);
+		}
+	});
+
+	it("adapter — start --dry-run prints without scaffolding or touching docker", () => {
+		// dry-run is side-effect-free: git check + env print only. In a git
+		// repo it must not scaffold (no .pi/settings.json yet) and must not
+		// invoke compose — it just prints the would-be docker command.
+		const dryDir = mkdtempSync(join(tmpdir(), "cli-install-dryrun-"));
+		try {
+			const init = exec(`git init -q "${dryDir}"`, { timeout: 10_000 });
+			assert.strictEqual(init.status, 0, `git init exited ${init.status}: ${init.stderr}`);
+			const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
+				timeout: 30_000,
+				cwd: dryDir,
+			});
+			assert.strictEqual(
+				result.status,
+				0,
+				`start --dry-run exited ${result.status}: ${result.stderr}`,
+			);
+			assert.ok(
+				result.stderr.includes("Docker command"),
+				`expected dry-run docker command in stderr, got: ${result.stderr}`,
+			);
+			assert.ok(
+				!existsSync(join(dryDir, ".pi", "settings.json")),
+				"dry-run must not scaffold .pi/settings.json",
+			);
+		} finally {
+			rmSync(dryDir, { recursive: true, force: true });
+		}
 	});
 
 	it("adapter — .pi/settings.json is valid JSON with expected keys", () => {
@@ -432,13 +519,21 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			"opencode-go",
 			`expected defaultProvider to be "opencode-go", got: ${parsed.defaultProvider}`,
 		);
+		// Absolute /opt/cheasee-pi resource paths (baked into the image)
+		assert.ok(
+			content.includes("/opt/cheasee-pi/.pi/skills"),
+			`expected /opt/cheasee-pi skills path, got: ${content}`,
+		);
+		assert.ok(
+			!content.includes("../private-pi"),
+			`settings must not reference ../private-pi sibling paths: ${content}`,
+		);
 	});
 
 	it("adapter — init is idempotent (second run exits 0, no overwrite)", () => {
 		const result = exec(
 			`"${BINARY_PATH}" init ` +
 				"--no-github " +
-				"--skip-fork " +
 				"" +
 				"--no-input " +
 				"--no-docker-check " +
@@ -466,7 +561,6 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			const result = exec(
 				`"${BINARY_PATH}" init ` +
 					"--no-github " +
-					"--skip-fork " +
 					"" +
 					"--no-input " +
 					"--no-docker-check " +
@@ -500,7 +594,6 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			const result = exec(
 				`"${BINARY_PATH}" init ` +
 					"--no-github " +
-					"--skip-fork " +
 					"" +
 					"--no-input " +
 					"--no-docker-check " +

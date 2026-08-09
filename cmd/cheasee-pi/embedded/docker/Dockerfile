@@ -219,10 +219,53 @@ RUN groupadd --gid 1001 agentuser && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------
+# Layer 6b: Cheasee-Pi resources cloned into the image
+# ---------------------------------------------------------------
+# The cheasee-pi repo is cloned to /opt/cheasee-pi and its resource dirs
+# (.pi/skills, .pi/prompts, .pi/extensions, .pi/themes) symlinked into
+# agentuser's global pi resource dir (~/.pi/agent) so the Cheasee-Pi
+# experience is available inside ANY mounted repo. Cloning (vs embedding a
+# generated copy into the Go binary) keeps the repo the single source of
+# truth — no pi-resources mirror to sync.
+#
+# Explicit /home/agentuser/.pi/agent/... paths — Docker's USER directive
+# does not set $HOME (defaults to /root), so `~` after a user switch would
+# silently drop the links into /root/.pi/agent.
+#
+# private-pi/ is gitignored (never tracked), so a clone cannot include it —
+# the symlink is conditional and appears only when /opt/cheasee-pi carries it.
+#
+# ponytail is removed: it loads hooks from the gitignored .pi/git vendored
+# clone (absent on fresh clones), and a failed extension load kills pi boot.
+ARG CHEASEE_REF=main
+RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+    && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
+    && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
+    && npm cache clean --force
+# An empty glob (e.g. .pi/prompts has no entries yet) leaves the loop's last
+# command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes
+# unmatched globs a no-op while real ln failures still propagate.
+RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts /home/agentuser/.pi/agent/extensions /home/agentuser/.pi/agent/themes \
+    && for d in /opt/cheasee-pi/.pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+    && for d in /opt/cheasee-pi/.pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+    && for d in /opt/cheasee-pi/.pi/extensions/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/extensions/; done \
+    && for d in /opt/cheasee-pi/.pi/themes/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/themes/; done \
+    && if [ -d /opt/cheasee-pi/custom ]; then ln -sfn /opt/cheasee-pi/custom /home/agentuser/.pi/agent/custom; fi \
+    && if [ -d /opt/cheasee-pi/private-pi ]; then \
+         for d in /opt/cheasee-pi/private-pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+         && for d in /opt/cheasee-pi/private-pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+         && mkdir -p /home/agentuser/.pi/agent/extensions \
+         && ln -sfn /opt/cheasee-pi/private-pi/extensions/check-extensions /home/agentuser/.pi/agent/extensions/check-extensions; \
+       fi \
+    && chown -R agentuser:agentuser /home/agentuser/.pi
+
+# ---------------------------------------------------------------
 # Layer 7: Entrypoint + worktree fix library (last – changes most frequently)
 # ---------------------------------------------------------------
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY docker/lib/ /usr/local/bin/lib/
+# Build context is the CLI cache dir (compose `context: .`), so the entrypoint
+# and lib/ sit at the context root — no docker/ prefix.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY lib/ /usr/local/bin/lib/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/lib/worktree-fix.sh
 
 WORKDIR /workspaces/main
