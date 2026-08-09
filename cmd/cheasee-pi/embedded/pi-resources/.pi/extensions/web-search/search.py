@@ -21,7 +21,9 @@ def main():
         kwargs["timeout"] = timeout
 
     try:
-        from ddgs import DDGS
+        # ddgs is runtime-only (auto-installed into the extension venv on
+        # first call); it is never present in the host python env.
+        from ddgs import DDGS  # pyright: ignore[reportMissingImports]
 
         ddgs = DDGS(**kwargs) if kwargs else DDGS()
         results = list(ddgs.text(query, max_results=max_results, backend="auto"))
