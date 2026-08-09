@@ -114,7 +114,7 @@ func runInitAPIKeys(ctx context.Context, cfg *fileRepository, workdir string, co
 // It does NOT save, extract, or render — the orchestrator handles those.
 func runInitLegacy(ctx context.Context, cfg *fileRepository, apiKey string, provider string) (*Auth, error) {
 	if apiKey == "" {
-		key, err := promptAPIKey()
+		key, err := promptAPIKey(provider)
 		if err != nil {
 			return nil, fmt.Errorf("API key prompt failed: %w", err)
 		}
@@ -125,13 +125,13 @@ func runInitLegacy(ctx context.Context, cfg *fileRepository, apiKey string, prov
 }
 
 // promptAPIKey prompts the user for an API key (legacy).
-func promptAPIKey() (string, error) {
+func promptAPIKey(provider string) (string, error) {
 	var apiKey string
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("API Key").
-				Description("Provider: " + initProvider + " (set via --provider)\nGet your key at the provider's dashboard and paste it below.").
+				Description("Provider: " + provider + " (set via --provider)\nGet your key at the provider's dashboard and paste it below.").
 				Prompt("Paste your API key: ").
 				Value(&apiKey),
 		),

@@ -96,26 +96,42 @@ func TestRunInit_FullFlow(t *testing.T) {
 	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
+	clone := stubInitGit(t)
 
-	workdir := t.TempDir()
-	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.Workdir = workdir
-	}))
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := runInit(context.Background(), initDepsWithRepoURL(t, workdir))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called after full flow")
 	}
-	// Scaffold ran: .pi/settings.json present with /opt/cheasee-pi paths.
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); err != nil {
-		t.Errorf("scaffold should have run (.pi/settings.json missing): %v", err)
+	// Clone phase artifacts: sibling bare repo + checked-out main worktree.
+	if len(clone.cloneArgs) != 1 || len(clone.worktreeAdd) != 1 {
+		t.Fatalf("expected one bare clone + one worktree add, got %d/%d", len(clone.cloneArgs), len(clone.worktreeAdd))
+	}
+	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
+		t.Errorf("bare clone should have run (<parent>/.bare missing): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".git")); err != nil {
+		t.Errorf("worktree should be checked out (.git missing): %v", err)
+	}
+	// Dedicated settings scaffolded at the folder root; pi's file absent.
+	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
+		t.Errorf("cheasee-settings.json missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("init must not scaffold .pi/settings.json: %v", err)
 	}
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
-	// --no-github flag: scaffold + save run after auth, with the real
-	// in-process adapters (probe, scaffold). No extract/env/git-init.
+	// --no-github flag: API-key-only — no clone, no repo-URL prompt, no
+	// .pi/settings.json; the dedicated cheasee-settings.json is scaffolded.
 	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -129,13 +145,19 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
-	// Real scaffold ran: .pi/settings.json present.
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); err != nil {
-		t.Errorf("scaffold should have run (.pi/settings.json missing): %v", err)
+	// Dedicated settings scaffolded; pi's own file is not.
+	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
+		t.Errorf("cheasee-settings.json should have been scaffolded: %v", err)
 	}
-	// No docker/ extraction into the workdir anymore.
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("init must not scaffold .pi/settings.json: %v", err)
+	}
+	// No docker/ extraction into the workdir anymore, no clone.
 	if _, err := os.Stat(filepath.Join(workdir, "docker")); !os.IsNotExist(err) {
 		t.Errorf("docker/ must not be extracted into the workdir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".git")); !os.IsNotExist(err) {
+		t.Errorf("--no-github must not clone or create .git: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called on legacy path")
@@ -183,8 +205,21 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	// Cancel right after docker check
 	cancel()
 
-	err := runInit(ctx, initDeps(t, func(d *InitDeps) { d.Ports = ports }))
+	// Interactive with a stubbed repo-URL input and the docker check skipped
+	// so the flow reaches the auth phase before erroring on the cancelled ctx.
+	err := runInit(ctx, initDeps(t, func(d *InitDeps) {
+		d.Ports = ports
+		d.NoInput = false
+		d.NoDockerCheck = true
+		d.InputFn = mockInputFn("owner/repo", nil)
+	}))
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
+	}
+	if !strings.Contains(err.Error(), "GitHub authentication failed") {
+		t.Errorf("error should wrap the auth failure, got: %v", err)
+	}
+	if authJSONExists(t) {
+		t.Error("no partial auth.json must be saved when the flow fails")
 	}
 }

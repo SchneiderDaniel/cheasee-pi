@@ -21,11 +21,12 @@ var buildCmd = &cobra.Command{
 	Short: "Rebuild the Docker container image",
 	Long: `Rebuild the Cheasee-Pi Docker image without starting the container.
 
-Reads docker.memory from .pi/settings.json and passes it as CHEASEEPI_MEMORY
-build arg so the container can apply cgroup limits at runtime.
+Reads docker.memory from cheasee-settings.json and passes it as
+CHEASEEPI_MEMORY build arg so the container can apply cgroup limits at
+runtime.
 
 The compose/Dockerfile come from the CLI-managed cache dir
-(version-keyed, extracted on demand); your repo is only used for git
+(version-keyed, extracted on demand); the workspace is only used for git
 verification and resource settings. Use --no-cache to force a full rebuild.
 
 Examples:

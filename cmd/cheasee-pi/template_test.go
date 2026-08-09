@@ -392,32 +392,10 @@ func TestSettingsScaffold_WritesCorrectContent(t *testing.T) {
 	}
 }
 
-func TestSettingsScaffold_HasPrivatePi(t *testing.T) {
-	// With HasPrivatePi, the gitignored private-pi paths are scaffolded as
-	// absolute /opt/cheasee-pi/private-pi/... entries.
-	workdir := ScaffoldSettings(t, TemplateSettingsValues{
-		Provider:     "opencode-go",
-		HasPrivatePi: true,
-	})
-
-	raw := testutil.ReadSettingsRaw(t, workdir)
-	skills, ok := raw["skills"].([]any)
-	if !ok || len(skills) != 2 || skills[1] != "/opt/cheasee-pi/private-pi/skills" {
-		t.Errorf("expected private-pi skills entry, got %v", raw["skills"])
-	}
-	prompts, ok := raw["prompts"].([]any)
-	if !ok || len(prompts) != 2 || prompts[1] != "/opt/cheasee-pi/private-pi/prompts" {
-		t.Errorf("expected private-pi prompts entry, got %v", raw["prompts"])
-	}
-	exts, ok := raw["extensions"].([]any)
-	if !ok || len(exts) != 1 || exts[0] != "/opt/cheasee-pi/private-pi/extensions/check-extensions" {
-		t.Errorf("expected check-extensions entry, got %v", raw["extensions"])
-	}
-}
-
 func TestSettingsScaffold_NoPrivatePiOmitsEntries(t *testing.T) {
-	// HasPrivatePi=false (fresh clone — private-pi is gitignored) must omit
-	// every private-pi path; the scaffold stays valid JSON.
+	// The pi template has no private-pi branches anymore (the flag is gone —
+	// the image always clones the public cheasee-pi repo); the scaffold stays
+	// valid JSON with the /opt/cheasee-pi/.pi paths.
 	workdir := ScaffoldSettings(t, TemplateSettingsValues{})
 
 	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
@@ -425,7 +403,7 @@ func TestSettingsScaffold_NoPrivatePiOmitsEntries(t *testing.T) {
 		t.Fatalf("read scaffold: %v", err)
 	}
 	if strings.Contains(string(data), "private-pi") {
-		t.Errorf("scaffold must not reference private-pi paths when absent:\n%s", data)
+		t.Errorf("scaffold must not reference private-pi paths:\n%s", data)
 	}
 	// Valid JSON (the empty extensions array must parse).
 	var v any
@@ -535,5 +513,115 @@ func TestSettingsScaffold_ContextCancelled(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "context") {
 		t.Errorf("error should mention context: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// CheaseeSettings scaffold (dedicated cheasee-settings.json)
+// ──────────────────────────────────────────────
+
+func TestCheaseeSettingsScaffold_rendersValidJSONAtRoot(t *testing.T) {
+	workdir := t.TempDir()
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider:     "opencode-go",
+		DefaultModel: "deepseek-v4-flash",
+		GitName:      "Test User",
+		GitEmail:     "test@example.com",
+		Memory:       "4G",
+		CPUs:         "4.0",
+		ClientID:     "test-client",
+	}); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	// The dedicated file lives at the folder root (not a hidden dir).
+	data, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("cheasee-settings.json missing at root: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("scaffold output must be valid JSON: %v\n%s", err, data)
+	}
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("defaultProvider = %v, want opencode-go", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "deepseek-v4-flash" {
+		t.Errorf("defaultModel = %v, want deepseek-v4-flash", raw["defaultModel"])
+	}
+	docker := raw["docker"].(map[string]any)
+	if docker["memory"] != "4G" || docker["cpus"] != "4.0" {
+		t.Errorf("docker section mismatch: %v", docker)
+	}
+	gitID := raw["gitIdentity"].(map[string]any)
+	if gitID["name"] != "Test User" || gitID["email"] != "test@example.com" {
+		t.Errorf("gitIdentity mismatch: %v", gitID)
+	}
+	oauth := raw["oauth"].(map[string]any)
+	if oauth["clientID"] != "test-client" {
+		t.Errorf("oauth.clientID = %v, want test-client", oauth["clientID"])
+	}
+}
+
+func TestCheaseeSettingsScaffold_outputLoadsAsTypedCheaseeSettings(t *testing.T) {
+	workdir := t.TempDir()
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test User",
+		GitEmail: "test@example.com",
+		Memory:   "4G",
+		CPUs:     "4.0",
+		ClientID: "test-client",
+	}); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	s, err := LoadCheaseeSettings(workdir)
+	if err != nil {
+		t.Fatalf("scaffold output must load via LoadCheaseeSettings: %v", err)
+	}
+	if s.DefaultProvider != "opencode-go" {
+		t.Errorf("defaultProvider mismatch: %+v", s)
+	}
+	if s.Docker != (DockerSettings{Memory: "4G", CPUs: "4.0"}) {
+		t.Errorf("docker mismatch: %+v", s.Docker)
+	}
+	if s.GitIdentity != (GitIdentitySettings{Name: "Test User", Email: "test@example.com"}) {
+		t.Errorf("gitIdentity mismatch: %+v", s.GitIdentity)
+	}
+	if s.OAuth.ClientID != "test-client" {
+		t.Errorf("oauth.clientID mismatch: %+v", s.OAuth)
+	}
+}
+
+func TestCheaseeSettingsScaffold_idempotent(t *testing.T) {
+	workdir := t.TempDir()
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Original",
+		GitEmail: "orig@example.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+		ClientID: "client-a",
+	}
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("first Scaffold failed: %v", err)
+	}
+
+	// Second call with different values must no-op (never overwrites).
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider: "overwrite",
+		GitName:  "Overwrite",
+		GitEmail: "overwrite@example.com",
+		Memory:   "8G",
+		CPUs:     "8.0",
+		ClientID: "client-b",
+	}); err != nil {
+		t.Fatalf("second Scaffold failed: %v", err)
+	}
+
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("existing cheasee-settings.json must never be overwritten, got %v", raw["defaultProvider"])
 	}
 }

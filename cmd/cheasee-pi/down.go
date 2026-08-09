@@ -43,13 +43,14 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	cmd := runCommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
 
 	// compose validates every volume spec even for `down`, so
-	// WORKSPACE_HOST_PATH must be non-empty. Resolve the repo toplevel like
-	// start does; fall back to the cwd so down keeps working outside a repo.
+	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be non-empty. Resolve the
+	// workspace root (nearest ancestor with cheasee-settings.json) like start
+	// does; fall back to the cwd so down keeps working outside a workspace.
 	workspace, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
-	if root, _, repoErr := repoRoot(workspace); repoErr == nil {
+	if root, ok := findWorkspaceRoot(workspace); ok {
 		workspace = root
 	}
 	applyComposeEnv(cmd, workspace)

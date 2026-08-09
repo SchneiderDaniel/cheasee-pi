@@ -219,20 +219,19 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 // TemplateSettingsValues
 // ──────────────────────────────────────────────
 
-// TemplateSettingsValues holds the values for .pi/settings.json template substitution.
+// TemplateSettingsValues holds the values for settings template substitution
+// (pi's .pi/settings.json and the dedicated cheasee-settings.json). ClientID
+// and DefaultModel are only referenced by the cheasee template; the pi
+// template ignores them.
 type TemplateSettingsValues struct {
 	Provider     string
+	DefaultModel string
 	GitName      string
 	GitEmail     string
 	Memory       string
 	CPUs         string
-	HasPrivatePi bool
+	ClientID     string
 }
-
-// hasPrivatePi is always false: the image clones the public cheasee-pi repo
-// (Dockerfile ARG CHEASEE_REF), and private-pi/ is gitignored, so it can
-// never be present at /opt/cheasee-pi. The template renderer keeps the flag
-// (tests exercise both branches); production scaffolding never sets it.
 
 // ──────────────────────────────────────────────
 // Adapter: templateSettingsRenderer
@@ -241,20 +240,35 @@ type TemplateSettingsValues struct {
 type templateSettingsRenderer struct {
 	source       fs.FS
 	templatePath string
+	dest         func(workdir string) string // target path for the rendered file
 }
 
 // NewSettingsScaffold creates a settings scaffold that renders the embedded
-// pi/settings.json template using text/template substitution.
+// pi/settings.json template (pi's own settings file) using text/template
+// substitution. pi self-scaffolds its settings on first run; this renderer
+// remains for the committed template + tests.
 func NewSettingsScaffold() *templateSettingsRenderer {
 	return &templateSettingsRenderer{
 		source:       embeddedFS,
 		templatePath: "embedded/pi/settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
+	}
+}
+
+// NewCheaseeSettingsScaffold creates a settings scaffold that renders the
+// embedded cheasee-settings.json template at the workspace root — the
+// dedicated, gitignored cheasee-pi settings file whose presence marks the
+// workspace initialized.
+func NewCheaseeSettingsScaffold() *templateSettingsRenderer {
+	return &templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/cheasee-settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, "cheasee-settings.json") },
 	}
 }
 
 func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string, vals TemplateSettingsValues) error {
-	destDir := filepath.Join(workdir, ".pi")
-	destPath := filepath.Join(destDir, "settings.json")
+	destPath := r.dest(workdir)
 
 	// Idempotent: skip if file already exists.
 	if _, err := os.Stat(destPath); err == nil {

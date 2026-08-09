@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // runInitDockerCheck verifies Docker Engine is installed and running.
@@ -25,19 +27,20 @@ func runInitDockerCheck(ctx context.Context) error {
 	return nil
 }
 
-// runInitScaffold writes .pi/settings.json from the embedded template.
-// It resolves git identity from the system (git config, prompted only when
-// missing) and hardcodes absolute /opt/cheasee-pi resource paths.
+// runInitScaffold writes cheasee-settings.json from the embedded template at
+// the workspace root, then appends it to the worktree .gitignore (settings
+// are machine-local, never committed). Resolves git identity from the system
+// (git config, prompted only when missing). pi's own .pi/settings.json is
+// intentionally NOT scaffolded — pi self-scaffolds it on first run.
 func runInitScaffold(
 	ctx context.Context,
-	workdir string,
-	confirmFn func(string) (bool, error),
+	deps InitDeps,
 ) error {
-	fmt.Fprintf(os.Stderr, "  ℹ Creating .pi/settings.json...\n")
+	fmt.Fprintf(os.Stderr, "  ℹ Creating cheasee-settings.json...\n")
 
 	gitName, gitEmail, _ := NewGitIdentity().Lookup()
 	if gitName == "" || gitEmail == "" {
-		ok, err := confirmFn("No git identity found. Configure git user.name and user.email for .pi/settings.json?")
+		ok, err := deps.ConfirmFn("No git identity found. Configure git user.name and git user.email for cheasee-settings.json?")
 		if err != nil {
 			return err
 		}
@@ -63,17 +66,41 @@ func runInitScaffold(
 	}
 
 	vals := TemplateSettingsValues{
-		Provider:     initProvider,
+		Provider:     deps.Provider,
+		DefaultModel: DefaultModel(deps.Provider),
 		GitName:      gitName,
 		GitEmail:     gitEmail,
 		Memory:       "2G",
 		CPUs:         "2.0",
-		HasPrivatePi: false,
+		ClientID:     deps.ClientID,
 	}
 
-	if err := NewSettingsScaffold().Scaffold(ctx, workdir, vals); err != nil {
+	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, deps.Workdir, vals); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "  ✓ .pi/settings.json created\n")
+	if err := gitIgnoreCheaseeSettings(deps.Workdir); err != nil {
+		return fmt.Errorf("gitignore cheasee-settings.json: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ cheasee-settings.json created\n")
 	return nil
+}
+
+// gitIgnoreCheaseeSettings appends "cheasee-settings.json" to the worktree
+// .gitignore so the machine-local settings never show up as untracked in git
+// status. Idempotent: a second call (or an already-listed entry) adds no
+// duplicate line. Creates .gitignore when missing.
+func gitIgnoreCheaseeSettings(workdir string) error {
+	path := filepath.Join(workdir, ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if strings.Contains(string(data), "cheasee-settings.json") {
+		return nil
+	}
+	line := "cheasee-settings.json\n"
+	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
+		line = "\n" + line
+	}
+	return os.WriteFile(path, append(data, []byte(line)...), 0644)
 }

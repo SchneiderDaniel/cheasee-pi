@@ -153,75 +153,153 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 }
 
 func TestInitProbe_Empty(t *testing.T) {
-	called := false
-	confirm := func(title string) (bool, error) {
-		called = true
-		return true, nil
-	}
-	proceed, err := runInitProbe(context.Background(), t.TempDir(), confirm, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !proceed {
-		t.Error("expected to proceed for empty dir")
-	}
-	if called {
-		t.Error("confirmFn should not be called for an empty dir")
+	if err := runInitProbe(t.TempDir()); err != nil {
+		t.Fatalf("empty dir must proceed, got: %v", err)
 	}
 }
 
-func TestInitProbe_NoInputProceeds(t *testing.T) {
-	// Non-interactive mode proceeds even with existing setup markers.
-	called := false
-	confirm := func(title string) (bool, error) {
-		called = true
-		return true, nil
-	}
+func TestInitProbe_DSStoreOnlyProceeds(t *testing.T) {
+	// Finder-touched folders (.DS_Store only) auto-init.
 	dir := t.TempDir()
-	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
-
-	proceed, err := runInitProbe(context.Background(), dir, confirm, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if !proceed {
-		t.Error("expected to proceed when noInput is true")
-	}
-	if called {
-		t.Error("confirmFn should not be called when noInput is true")
+	if err := runInitProbe(dir); err != nil {
+		t.Fatalf(".DS_Store-only dir must proceed, got: %v", err)
 	}
 }
 
-func TestInitProbe_PromptsWhenSettingsExist(t *testing.T) {
+func TestInitProbe_NonEmptyRefuses(t *testing.T) {
+	// Hard refusal — no confirm prompt, no re-apply question.
 	dir := t.TempDir()
-	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
-
-	var gotTitle string
-	confirm := func(title string) (bool, error) {
-		gotTitle = title
-		return true, nil
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	proceed, err := runInitProbe(context.Background(), dir, confirm, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := runInitProbe(dir)
+	if err == nil || !strings.Contains(err.Error(), "empty folder") {
+		t.Fatalf("non-empty dir must refuse with an empty-folder-only error, got: %v", err)
 	}
-	if !proceed {
-		t.Error("expected to proceed when user accepts")
-	}
-	if gotTitle != "Existing .pi/settings.json detected. Re-apply configuration?" {
-		t.Errorf("expected re-apply confirm title, got %q", gotTitle)
+	if !strings.Contains(err.Error(), "file.txt") {
+		t.Errorf("refusal should name the offending entry, got: %v", err)
 	}
 }
 
-func TestInitProbe_UserDeclines(t *testing.T) {
+func TestInitProbe_SettingsPresentRefuses(t *testing.T) {
+	// cheasee-settings.json presence = initialized marker — no re-apply prompt.
 	dir := t.TempDir()
-	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
-
-	proceed, err := runInitProbe(context.Background(), dir, mockConfirmFn(false, nil), false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	testutil.WriteCheaseeSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
+	err := runInitProbe(dir)
+	if err == nil || !strings.Contains(err.Error(), "already initialized") {
+		t.Fatalf("settings present must refuse as already initialized, got: %v", err)
 	}
-	if proceed {
-		t.Error("expected not to proceed when user declines")
+	if !strings.Contains(err.Error(), "cheasee-pi start") {
+		t.Errorf("refusal should point at `cheasee-pi start`, got: %v", err)
+	}
+}
+
+func TestInitUseCase_NonEmptyRefusesEvenWithNoInput(t *testing.T) {
+	// The empty-folder contract is a hard refusal — --no-input does not bypass it.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
+	if err == nil || !strings.Contains(err.Error(), "empty folder") {
+		t.Fatalf("expected empty-folder refusal, got %v", err)
+	}
+	if authJSONExists(t) {
+		t.Error("no auth must be saved when the folder is refused")
+	}
+}
+
+func TestInitUseCase_SettingsPresentRefusesEvenWithNoInput(t *testing.T) {
+	// cheasee-settings.json presence = initialized marker — init refuses,
+	// --no-input or not (no re-apply flow).
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoGitHub = true
+		d.APIKey = FakeAPIKey
+	}))
+	if err == nil || !strings.Contains(err.Error(), "already initialized") {
+		t.Fatalf("expected already-initialized refusal, got %v", err)
+	}
+}
+
+func TestInitUseCase_UnparsableRepoURLErrorsBeforeGit(t *testing.T) {
+	// An unparsable repo URL must fail before any git call (no partial clone).
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	var gitCalls int
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			gitCalls++
+		}
+		return saved(ctx, name, arg...)
+	})
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = false
+		d.InputFn = mockInputFn("not-a-url", nil)
+	}))
+	if err == nil || !strings.Contains(err.Error(), "invalid repo URL") {
+		t.Fatalf("expected invalid repo URL error, got %v", err)
+	}
+	if gitCalls != 0 {
+		t.Errorf("no git call may run for an unparsable URL, got %d", gitCalls)
+	}
+	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+		t.Errorf("no .bare may be created for an unparsable URL: %v", statErr)
+	}
+}
+
+func TestInitUseCase_NoInputRequiresRepoURL(t *testing.T) {
+	// --no-input without --repo-url and without --no-github errors before
+	// any git call (there is no prompt to ask for the URL).
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	var gitCalls int
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			gitCalls++
+		}
+		return saved(ctx, name, arg...)
+	})
+
+	workdir := t.TempDir()
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) { d.Workdir = workdir }))
+	if err == nil || !strings.Contains(err.Error(), "--repo-url") {
+		t.Fatalf("expected --repo-url requirement error, got %v", err)
+	}
+	if gitCalls != 0 {
+		t.Errorf("no git call may run without a repo URL, got %d", gitCalls)
 	}
 }

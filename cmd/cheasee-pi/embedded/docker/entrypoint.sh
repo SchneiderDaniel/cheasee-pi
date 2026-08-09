@@ -180,6 +180,14 @@ if [ "$WORKSPACE_OWNER" != "$AGENT_UID:$AGENT_GID" ]; then
     chown -R agentuser:agentuser /workspaces/main || echo "Warning: chown /workspaces/main failed (non-fatal)"
 fi
 
+# The sibling bare repo is a separate mount — fix its ownership the same way
+# (worktree-fix + git gc paths inside it run as agentuser).
+BARE_OWNER=$(stat -c '%u:%g' /workspaces/.bare 2>/dev/null || echo "")
+if [ -n "$BARE_OWNER" ] && [ "$BARE_OWNER" != "$AGENT_UID:$AGENT_GID" ]; then
+    echo "Fixing /workspaces/.bare ownership to agentuser ($AGENT_UID:$AGENT_GID)..."
+    chown -R agentuser:agentuser /workspaces/.bare || echo "Warning: chown /workspaces/.bare failed (non-fatal)"
+fi
+
 # Home dir is small — always ensure correct ownership
 chown -R agentuser:agentuser /home/agentuser || echo "Warning: chown /home/agentuser failed (non-fatal)"
 
@@ -208,6 +216,10 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "gi
 gosu agentuser git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" 2>/dev/null || true
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
+# Mark the bare repo safe for container git ops — a host-owned .bare mount
+# would otherwise trip "detected dubious ownership" (CVE-2022-24765
+# mitigation) on every git call inside the container.
+gosu agentuser git config --global --add safe.directory /workspaces/.bare 2>/dev/null || true
 
 # --- Install workspace npm dependencies if missing -------------------
 # The workspace is a bind-mount from the host; node_modules is local to the

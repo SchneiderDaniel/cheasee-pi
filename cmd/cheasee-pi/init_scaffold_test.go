@@ -11,16 +11,22 @@ import (
 
 func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	testutil.SetGitConfig(t, testGitIdentityConfig)
-	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
-	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
+	if err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Provider = "opencode-go"
+	})); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := testutil.ReadSettingsRaw(t, workdir)
+	// The dedicated file lives at the folder root, not under .pi/.
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
+	}
+	if raw["defaultModel"] != "deepseek-v4-flash" {
+		t.Errorf("expected defaultModel 'deepseek-v4-flash' (first known opencode-go model), got %v", raw["defaultModel"])
 	}
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
@@ -32,27 +38,33 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	if gitID["email"] != "test@example.com" {
 		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
 	}
-	// Absolute /opt/cheasee-pi paths baked into the scaffold.
-	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("read scaffold: %v", err)
+	docker, ok := raw["docker"].(map[string]any)
+	if !ok {
+		t.Fatal("expected docker object")
 	}
-	if !strings.Contains(string(data), "/opt/cheasee-pi/.pi/skills") {
-		t.Error("scaffold must reference absolute /opt/cheasee-pi/.pi/skills path")
+	if docker["memory"] != "2G" {
+		t.Errorf("expected docker.memory '2G', got %v", docker["memory"])
+	}
+	// pi's own settings file is NOT scaffolded (pi self-scaffolds on first run).
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Error("init must not scaffold .pi/settings.json (pi owns it now)")
 	}
 }
 
 func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 	testutil.SetGitConfig(t, "")
-	withInitProvider(t, "opencode-go")
 
 	workdir := t.TempDir()
 	// Declined identity prompt → default name/email written.
-	if err := runInitScaffold(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
+	if err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Provider = "opencode-go"
+		d.ConfirmFn = mockConfirmFn(false, nil)
+	})); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
-	raw := testutil.ReadSettingsRaw(t, workdir)
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
 		t.Fatal("expected gitIdentity object")
@@ -62,6 +74,50 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 	}
 	if gitID["email"] != "cheasee-pi@localhost" {
 		t.Errorf("expected default gitIdentity.email 'cheasee-pi@localhost', got %v", gitID["email"])
+	}
+}
+
+func TestGitIgnoreCheaseeSettings_AppendsIdempotently(t *testing.T) {
+	workdir := t.TempDir()
+	if err := gitIgnoreCheaseeSettings(workdir); err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	first, err := os.ReadFile(filepath.Join(workdir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), "cheasee-settings.json") {
+		t.Errorf(".gitignore missing the settings entry: %q", first)
+	}
+
+	// Idempotent: a second append adds no duplicate line.
+	if err := gitIgnoreCheaseeSettings(workdir); err != nil {
+		t.Fatalf("second append: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(workdir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("second append must be byte-identical:\nfirst:  %q\nsecond: %q", first, second)
+	}
+}
+
+func TestGitIgnoreCheaseeSettings_appendsAfterExistingContent(t *testing.T) {
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, ".gitignore"), []byte("node_modules/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := gitIgnoreCheaseeSettings(workdir); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(workdir, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if got != "node_modules/\ncheasee-settings.json\n" {
+		t.Errorf("settings entry must append on its own line, got: %q", got)
 	}
 }
 

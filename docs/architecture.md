@@ -115,3 +115,28 @@ The `.pi/extensions/lib/` directory contains shared TypeScript modules used acro
 These are not extensions themselves — they are imported by extension code via relative imports.
 
 The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to container user `agentuser`.
+## Workspace layout & settings split
+
+`cheasee-pi start` gates on the workspace state instead of “is a git repo”:
+
+- **Empty folder** → auto-runs `cheasee-pi init` (repo-URL prompt → bare clone
+  to `<parent>/.bare` + `worktree add --detach` → `cheasee-settings.json`).
+- **`cheasee-settings.json` present** → initialized; runs normally.
+- **Non-empty folder without settings** → refused (“not initialized; run
+  `cheasee-pi init` in an empty folder”).
+
+The dedicated, gitignored `cheasee-settings.json` at the folder root is the
+initialized marker and the single source for compose env (`docker.memory` →
+`CHEASEEPI_MEMORY`, `docker.cpus` → `CHEASEEPI_CPUS`, `gitIdentity` →
+`HOST_GIT_NAME`/`HOST_GIT_EMAIL`). Pi's own `.pi/settings.json` is no longer
+scaffolded or read by the CLI — pi self-scaffolds it on first run.
+
+The container sees two sibling bind mounts: the workspace folder →
+`/workspaces/main` and `<parent>/.bare` → `/workspaces/.bare` (never a single
+parent-of-folder mount). The entrypoint marks `/workspaces/.bare` as
+`safe.directory` (CVE-2022-24765 dubious-ownership mitigation), chowns it on
+ownership mismatch, and `worktree-fix.sh` rewrites/locks the worktree paths.
+
+The empty-folder clone authenticates via the gh credential helper
+(`git -c credential.helper="!gh auth git-credential"`), never a token-bearing
+URL — git persists `remote.origin.url` verbatim in `.bare/config`.

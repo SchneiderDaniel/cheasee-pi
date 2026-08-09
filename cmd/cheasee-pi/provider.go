@@ -47,15 +47,23 @@ func DefaultModel(provider string) string {
 // SettingsWriter — updates workspace settings files
 // ──────────────────────────────────────────────
 
-// SettingsWriter writes provider config to .pi/settings.json
-// and .pi/agent/settings.json in the given workspace.
+// SettingsWriter writes provider config to cheasee-settings.json (the
+// dedicated cheasee-pi settings file — single source for the default
+// provider), plus .pi/agent/settings.json, and .pi/settings.json when it
+// already exists (pi's own file; cheasee-pi init no longer scaffolds it).
 type SettingsWriter struct {
 	Workdir string
 }
 
 // WriteDefaultProvider updates workspace settings files with the given
-// default provider and model. Skips files that don't exist (not an error).
+// default provider and model. cheasee-settings.json is the primary target
+// (single source — skipped only when absent, e.g. a legacy workspace);
+// .pi/settings.json is updated only if it exists; .pi/agent/settings.json is
+// always (re)created with the provider.
 func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
+	if err := w.updateCheaseeSettings(provider, model); err != nil {
+		return fmt.Errorf("update cheasee-settings.json: %w", err)
+	}
 	if err := w.updatePISettings(provider, model); err != nil {
 		return fmt.Errorf("update .pi/settings.json: %w", err)
 	}
@@ -63,6 +71,25 @@ func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
 		return fmt.Errorf("update .pi/agent/settings.json: %w", err)
 	}
 	return nil
+}
+
+// updateCheaseeSettings persists the default provider (+ model when non-empty)
+// to the dedicated cheasee-settings.json. Missing file → skipped (not an
+// error): auth add outside a cheasee-pi workspace stays a no-op for the
+// workspace half of its job, matching the legacy .pi behavior.
+func (w *SettingsWriter) updateCheaseeSettings(provider, model string) error {
+	settings, err := LoadCheaseeSettings(w.Workdir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	settings.DefaultProvider = provider
+	if model != "" {
+		settings.DefaultModel = model
+	}
+	return settings.Save(w.Workdir)
 }
 
 func (w *SettingsWriter) updatePISettings(provider, model string) error {

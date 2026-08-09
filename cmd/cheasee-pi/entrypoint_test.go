@@ -265,17 +265,45 @@ func TestCommittedSettings_ValidJSON(t *testing.T) {
 func TestScaffoldSettings_Unchanged(t *testing.T) {
 	content := readScaffoldSettings(t)
 	// The scaffold governs consumer repos (points at the baked /opt tree) and
-	// must not converge with the committed dogfooding settings.
+	// must not converge with the committed dogfooding settings. private-pi is
+	// gitignored and never present in the image, so no private-pi paths.
 	for _, want := range []string{
 		"/opt/cheasee-pi/.pi/skills",
 		"/opt/cheasee-pi/.pi/prompts",
-		"/opt/cheasee-pi/private-pi",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("scaffold settings must still point at %q (consumer repos)", want)
 		}
 	}
-	if strings.Contains(content, "../private-pi") {
-		t.Error("scaffold settings must not reference ../private-pi")
+	if strings.Contains(content, "private-pi") {
+		t.Error("scaffold settings must not reference private-pi (gitignored, never in the image)")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 4: bare-repo container plumbing (empty-folder init support)
+// ──────────────────────────────────────────────
+
+func TestEntrypoint_SafeDirectoryBare(t *testing.T) {
+	content := readEntrypoint(t)
+	if !strings.Contains(content, "safe.directory /workspaces/.bare") {
+		t.Error("entrypoint must mark /workspaces/.bare as safe.directory (CVE-2022-24765 dubious-ownership mitigation)")
+	}
+}
+
+func TestEntrypoint_BareChownParity(t *testing.T) {
+	content := readEntrypoint(t)
+	for _, want := range []string{
+		"stat -c '%u:%g' /workspaces/.bare",
+		"chown -R agentuser:agentuser /workspaces/.bare",
+		"Fixing /workspaces/.bare ownership",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("entrypoint must chown /workspaces/.bare on ownership mismatch (%q)", want)
+		}
+	}
+	// Existing main-worktree chown retained.
+	if !strings.Contains(content, "chown -R agentuser:agentuser /workspaces/main") {
+		t.Error("entrypoint must keep the /workspaces/main ownership fix")
 	}
 }
