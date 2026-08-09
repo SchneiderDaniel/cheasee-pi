@@ -100,8 +100,8 @@ check-pi:
 				elif [ -f "$$resolved" ]; then \
 					cmp -s "$$resolved" "$$dest" || \
 						echo "ERROR: symlink target $(PI_TREE_DEST)/.pi/$$d/$$l differs (run 'make pi-tree')" >> "$$tmp"; \
-				else \
-					echo "ERROR: symlink $(PI_TREE_DEST)/.pi/$$d/$$l resolves nowhere (run 'make pi-tree')" >> "$$tmp"; \
+				elif [ ! -e "$$dest" ]; then \
+					echo "ERROR: $(PI_TREE_DEST)/.pi/$$d/$$l missing from baked tree (run 'make pi-tree' where .pi/git is present)" >> "$$tmp"; \
 				fi; \
 			done; \
 		); \
