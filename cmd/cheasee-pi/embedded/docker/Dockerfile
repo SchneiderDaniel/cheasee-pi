@@ -233,6 +233,13 @@ RUN groupadd --gid 1001 agentuser && \
 # private-pi/ is gitignored (never tracked), so the bake cannot include it
 # from a fresh clone — the symlink is conditional and appears only when
 # pi-resources carries it (post-#1492 restructure).
+COPY pi-resources/package.json pi-resources/package-lock.json /opt/cheasee-pi/
+# Baked .pi/extensions import repo deps (proper-lockfile, zod, shell-quote,
+# typescript, ...). Previously these resolved from the mounted repo's
+# node_modules; now the staged repo manifests (copied by make pi-tree)
+# install them at /opt/cheasee-pi/node_modules — same resolution path.
+RUN cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
+    && npm cache clean --force
 COPY pi-resources/ /opt/cheasee-pi/
 # An empty glob (e.g. .pi/prompts has no entries yet) leaves the loop's last
 # command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes

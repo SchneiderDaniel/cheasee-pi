@@ -70,6 +70,9 @@ pi-tree:
 	@for f in $(PI_TREE_FILES); do \
 		cp -a $(PI_TREE_SRC)/$$f $(PI_TREE_DEST)/.pi/ || exit 1; \
 	done
+	@for f in package.json package-lock.json; do \
+		cp -a $$f $(PI_TREE_DEST)/ || exit 1; \
+	done
 	@echo "Synced pi-resources from $(PI_TREE_SRC)/ to $(PI_TREE_DEST)/ (symlinks dereferenced)."
 
 check-pi:
@@ -109,6 +112,11 @@ check-pi:
 	for f in $(PI_TREE_FILES); do \
 		if ! cmp -s "$(PI_TREE_SRC)/$$f" "$(PI_TREE_DEST)/.pi/$$f"; then \
 			echo "ERROR: $(PI_TREE_DEST)/.pi/$$f differs from $(PI_TREE_SRC)/$$f (run 'make pi-tree')" >> "$$tmp"; \
+		fi; \
+	done; \
+	for f in package.json package-lock.json; do \
+		if ! cmp -s "$$f" "$(PI_TREE_DEST)/$$f"; then \
+			echo "ERROR: $(PI_TREE_DEST)/$$f differs from repo $$f (run 'make pi-tree')" >> "$$tmp"; \
 		fi; \
 	done; \
 	find "$(PI_TREE_DEST)/.pi" -type l | while IFS= read -r l; do \

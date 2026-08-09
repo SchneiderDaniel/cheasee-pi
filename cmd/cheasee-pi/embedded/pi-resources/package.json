@@ -1,0 +1,131 @@
+{
+	"name": "main",
+	"version": "0.50",
+	"description": "---",
+	"main": "index.js",
+	"scripts": {
+		"test": "node --experimental-strip-types --test .pi/extensions/caveman/test/dead-code-removal.test.ts .pi/extensions/session-logger/test/session-logger-files.test.mts .pi/extensions/session-logger/test/session-logger-remove-waitForFile.test.mts .pi/extensions/session-logger/test/session-logger-stats.test.mts .pi/extensions/session-logger/test/session-logger.test.mts test/docs-daily-usage.test.mts test/extensions-load.test.mts test/ranked-map-removed.test.mts test/execution-protocols.test.mts .pi/extensions/context-info/test/context-info.test.mts .pi/extensions/context-info/test/context-status-bar.test.mts .pi/extensions/structural-analyzer/test/structural-analyzer.test.mts .pi/extensions/supervisor/test/supervisor-extensions.test.mts .pi/extensions/supervisor/test/supervisor-process-context-info.test.mts .pi/extensions/lsp-auditor/test/lsp-auditor.test.mts .pi/extensions/lsp-auditor/test/lsp-auditor-settings.test.mts .pi/extensions/format-on-save/test/format-on-save.test.mts .pi/extensions/tsc-checkpoint/test/adapter.test.ts .pi/extensions/tsc-checkpoint/test/checkpoint.test.ts .pi/extensions/tsc-checkpoint/test/format.test.ts .pi/extensions/tsc-checkpoint/test/index.test.ts .pi/extensions/tsc-checkpoint/test/trend-tracker.test.ts .pi/extensions/tsc-checkpoint/test/watcher.test.ts .pi/extensions/supervisor/test/output.test.mts .pi/extensions/supervisor/test/pipeline/pr-creation.test.mts .pi/extensions/supervisor/test/pipeline/stages.test.mts .pi/extensions/supervisor/test/pipeline/stages-split.test.mts .pi/extensions/supervisor/test/pipeline/handler-entry.test.mts .pi/extensions/supervisor/test/pipeline/handler-shared.test.mts .pi/extensions/supervisor/test/pipeline/handler-structure.test.mts .pi/extensions/supervisor/test/gate-failure-context.test.mts",
+		"tsc:extensions": "tsc --noEmit --project .pi/tsconfig.json",
+		"pi": "pi"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "MIT",
+	"type": "commonjs",
+	"dependencies": {
+		"@earendil-works/pi-ai": "^0.79.1",
+		"@earendil-works/pi-coding-agent": "^0.79.1",
+		"@earendil-works/pi-tui": "^0.79.1",
+		"@octokit/graphql": "^8.2.1",
+		"@octokit/rest": "^22.0.1",
+		"boxen": "^7.1.1",
+		"proper-lockfile": "^4.1.2",
+		"shell-quote": "^1.9.0",
+		"typebox": "^1.2.8",
+		"vscode-jsonrpc": "^8.2.1",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/node": "^25.9.1",
+		"eslint": "^10.5.0",
+		"js-yaml": "^5.2.2",
+		"prettier": "^3.8.3",
+		"typescript": "^6.0.3"
+	},
+	"overrides": {
+		"brace-expansion": "5.0.9",
+		"undici": "^8.9.0",
+		"protobufjs": "7.6.5",
+		"minimatch": {
+			"brace-expansion": "5.0.9"
+		},
+		"@google/genai": {
+			"protobufjs": "7.6.5"
+		}
+	},
+	"knip": {
+		"entry": [
+			".pi/extensions/*/index.ts"
+		],
+		"ignoreIssues": {
+			"cmd/cheasee-pi/embedded/pi-resources/**": [
+				"files",
+				"dependencies",
+				"devDependencies",
+				"optionalPeerDependencies",
+				"unlisted",
+				"binaries",
+				"unresolved",
+				"exports",
+				"types",
+				"nsExports",
+				"nsTypes",
+				"duplicates",
+				"enumMembers",
+				"namespaceMembers",
+				"catalog",
+				"catalogReferences",
+				"cycles"
+			],
+			".pi/git/**": [
+				"files",
+				"dependencies",
+				"devDependencies",
+				"optionalPeerDependencies",
+				"unlisted",
+				"binaries",
+				"unresolved",
+				"exports",
+				"types",
+				"nsExports",
+				"nsTypes",
+				"duplicates",
+				"enumMembers",
+				"namespaceMembers",
+				"catalog",
+				"catalogReferences",
+				"cycles"
+			],
+			"**/test/fixtures/**": [
+				"files",
+				"dependencies",
+				"devDependencies",
+				"optionalPeerDependencies",
+				"unlisted",
+				"binaries",
+				"unresolved",
+				"exports",
+				"types",
+				"nsExports",
+				"nsTypes",
+				"duplicates",
+				"enumMembers",
+				"namespaceMembers",
+				"catalog",
+				"catalogReferences",
+				"cycles"
+			],
+			".pi/extensions/supervisor/index.ts": [
+				"exports"
+			],
+			".pi/extensions/lsp-auditor/index.ts": [
+				"exports",
+				"types"
+			],
+			".pi/extensions/check-extensions/ast-scanner.ts": [
+				"exports",
+				"types"
+			],
+			".pi/extensions/format-on-save/index.ts": [
+				"exports"
+			],
+			".pi/extensions/lsp-auditor/lsp-client.ts": [
+				"exports"
+			]
+		},
+		"ignoreDependencies": [
+			"boxen",
+			"prettier"
+		]
+	}
+}
