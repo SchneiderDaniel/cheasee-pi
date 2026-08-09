@@ -1,0 +1,29 @@
+{
+	"name": "@agentcastle/piignore",
+	"version": "0.1.0",
+	"description": "Blocks AI access to sensitive files via .piignore patterns — keeps .env, secrets/, and other sensitive data safe",
+	"keywords": [
+		"pi-package",
+		"piignore",
+		"security",
+		"access-control",
+		"gitignore"
+	],
+	"license": "MIT",
+	"author": "SchneiderDaniel",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SchneiderDaniel/agentcastle.git"
+	},
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": ">=0.79.1",
+		"typebox": "*"
+	}
+}

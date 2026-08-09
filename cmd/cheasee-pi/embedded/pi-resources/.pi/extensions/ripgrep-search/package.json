@@ -1,0 +1,31 @@
+{
+	"name": "@agentcastle/ripgrep-search",
+	"version": "0.1.0",
+	"description": "Fast literal/regex code search tool for Pi — respects .gitignore, returns structured file:line:column:text results",
+	"keywords": [
+		"pi-package",
+		"ripgrep-search",
+		"search",
+		"ripgrep",
+		"grep",
+		"code-search"
+	],
+	"license": "MIT",
+	"author": "SchneiderDaniel",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SchneiderDaniel/agentcastle.git"
+	},
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	}
+}

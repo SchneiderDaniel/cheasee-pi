@@ -99,7 +99,6 @@ func TestRunInit_FullFlow(t *testing.T) {
 
 	workdir := t.TempDir()
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
 		d.Workdir = workdir
 	}))
 	if err != nil {
@@ -108,11 +107,15 @@ func TestRunInit_FullFlow(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called after full flow")
 	}
+	// Scaffold ran: .pi/settings.json present with /opt/cheasee-pi paths.
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); err != nil {
+		t.Errorf("scaffold should have run (.pi/settings.json missing): %v", err)
+	}
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
-	// --no-github flag: extract + env + save all run after auth, with the
-	// real in-process adapters (probe, extract, env render, scaffold).
+	// --no-github flag: scaffold + save run after auth, with the real
+	// in-process adapters (probe, scaffold). No extract/env/git-init.
 	testutil.RedirectConfigHome(t)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -126,18 +129,13 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy path should work: %v", err)
 	}
-	// Real extractor ran: compose files present.
-	if _, err := os.Stat(filepath.Join(workdir, "docker", "docker-compose.yml")); err != nil {
-		t.Errorf("extract should have run (docker/docker-compose.yml missing): %v", err)
-	}
-	// Real env renderer ran: docker/.env present with host uid/gid and git identity.
-	envVals := testutil.ReadEnvFile(t, workdir)
-	if envVals["HOST_UID"] == "" || envVals["HOST_GIT_NAME"] != "Test User" {
-		t.Errorf("expected .env with HOST_UID and git identity, got: %v", envVals)
-	}
 	// Real scaffold ran: .pi/settings.json present.
 	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); err != nil {
 		t.Errorf("scaffold should have run (.pi/settings.json missing): %v", err)
+	}
+	// No docker/ extraction into the workdir anymore.
+	if _, err := os.Stat(filepath.Join(workdir, "docker")); !os.IsNotExist(err) {
+		t.Errorf("docker/ must not be extracted into the workdir: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("Save should be called on legacy path")

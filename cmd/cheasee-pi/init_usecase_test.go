@@ -178,8 +178,7 @@ func TestInitProbe_NoInputProceeds(t *testing.T) {
 		return true, nil
 	}
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-	os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
+	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
 
 	proceed, err := runInitProbe(context.Background(), dir, confirm, true)
 	if err != nil {
@@ -193,138 +192,36 @@ func TestInitProbe_NoInputProceeds(t *testing.T) {
 	}
 }
 
-func TestInitProbe_PromptsAndAccepts(t *testing.T) {
-	tests := []struct {
-		name      string
-		setup     func(dir string)
-		wantTitle string
-	}{
-		{
-			name:      "repo only",
-			setup:     func(dir string) { os.MkdirAll(filepath.Join(dir, ".git"), 0755) },
-			wantTitle: "Git repository detected but no docker-compose.yml. Re-apply configuration?",
-		},
-		{
-			name: "compose only",
-			setup: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
-			},
-			wantTitle: "Docker compose files detected but no git repository. Re-apply configuration?",
-		},
-		{
-			name: "complete",
-			setup: func(dir string) {
-				os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-				os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
-			},
-			wantTitle: "Existing cheasee-pi setup detected. Re-apply configuration?",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			tt.setup(dir)
+func TestInitProbe_PromptsWhenSettingsExist(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
 
-			var gotTitle string
-			confirm := func(title string) (bool, error) {
-				gotTitle = title
-				return true, nil
-			}
-			proceed, err := runInitProbe(context.Background(), dir, confirm, false)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !proceed {
-				t.Error("expected to proceed when user accepts")
-			}
-			if gotTitle != tt.wantTitle {
-				t.Errorf("expected confirm title %q, got %q", tt.wantTitle, gotTitle)
-			}
-		})
+	var gotTitle string
+	confirm := func(title string) (bool, error) {
+		gotTitle = title
+		return true, nil
+	}
+	proceed, err := runInitProbe(context.Background(), dir, confirm, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !proceed {
+		t.Error("expected to proceed when user accepts")
+	}
+	if gotTitle != "Existing .pi/settings.json detected. Re-apply configuration?" {
+		t.Errorf("expected re-apply confirm title, got %q", gotTitle)
 	}
 }
 
 func TestInitProbe_UserDeclines(t *testing.T) {
-	tests := []struct {
-		name  string
-		setup func(dir string)
-	}{
-		{name: "repo only", setup: func(dir string) { os.MkdirAll(filepath.Join(dir, ".git"), 0755) }},
-		{name: "compose only", setup: func(dir string) {
-			os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
-		}},
-		{name: "complete", setup: func(dir string) {
-			os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-			os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte("version: '3'\n"), 0644)
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			tt.setup(dir)
+	dir := t.TempDir()
+	testutil.WriteSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
 
-			proceed, err := runInitProbe(context.Background(), dir, mockConfirmFn(false, nil), false)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if proceed {
-				t.Error("expected not to proceed when user declines")
-			}
-		})
-	}
-}
-
-func TestRunInit_ForkAlreadyExists(t *testing.T) {
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	ports := defaultMocks()
-
-	// Override GitHub client to return fork-already-exists
-	ports.GitHub = &mockGitHubClient{
-		getUserFunc: func(ctx context.Context, token string) (string, error) {
-			return "testuser", nil
-		},
-		createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-			return "", fmt.Errorf("fork already exists")
-		},
-		waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
-			return nil
-		},
-	}
-
-	workdir := t.TempDir()
-	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.Ports = ports
-		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
-		d.Workdir = workdir
-	}))
+	proceed, err := runInitProbe(context.Background(), dir, mockConfirmFn(false, nil), false)
 	if err != nil {
-		t.Fatalf("fork-already-exists should not be fatal: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestRunInit_ForkNon422Error(t *testing.T) {
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	ports := defaultMocks()
-
-	ports.GitHub = &mockGitHubClient{
-		getUserFunc: func(ctx context.Context, token string) (string, error) {
-			return "testuser", nil
-		},
-		createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-			return "", fmt.Errorf("forbidden")
-		},
-	}
-
-	workdir := t.TempDir()
-	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-		d.Ports = ports
-		d.SourceFork = SourceForkInput{Mode: ModePromptFork, SourceRepo: "owner/cheasee-pi"}
-		d.Workdir = workdir
-	}))
-	if err == nil {
-		t.Fatal("expected error for non-422 fork error")
+	if proceed {
+		t.Error("expected not to proceed when user declines")
 	}
 }

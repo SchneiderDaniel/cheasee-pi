@@ -6,6 +6,8 @@
 # dev-facing compose workflow. This workflow regenerates it and verifies
 # the docker-tree/check-docker Makefile targets keep the trees in sync,
 # and that no generated file is tracked (single canonical tree, no drift).
+# It also verifies the pi-resources tree (embedded for the image bake at
+# /opt/cheasee-pi) matches .pi/ via make check-pi.
 #
 # Budget: <1 min
 
@@ -15,6 +17,7 @@ on:
   pull_request:
     paths:
       - "cmd/cheasee-pi/embedded/docker/**"
+      - "cmd/cheasee-pi/embedded/pi-resources/**"
       - "Makefile"
       - ".gitignore"
   workflow_dispatch:
@@ -39,6 +42,9 @@ jobs:
 
       - name: Verify docker/ mirrors embedded source
         run: make check-docker
+
+      - name: Verify pi-resources mirrors .pi/
+        run: make check-pi
 
       - name: Assert generated files are not tracked
         run: |

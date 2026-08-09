@@ -1,0 +1,17 @@
+ [38;5;143m✓[39m [38;5;188mdev-agent[39m — [38;5;143mSUCCESS[39m                                                          
+ [38;5;241m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[39m           
+ [38;5;241mCompleted task[39m                                                                 
+
+ [38;5;241m── Task ──[39m                                                                     
+ [38;5;241mDo the thing[39m                                                                   
+
+ [38;5;241m── Output Preview ──[39m                                                           
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo 
+ oooooooooooooooooooooooooooooooo                                               
+
+ [38;5;241m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[39m           

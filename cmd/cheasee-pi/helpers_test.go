@@ -43,37 +43,6 @@ func (m *mockAuthenticator) Wait(ctx context.Context, code *device.CodeResponse)
 }
 
 // ──────────────────────────────────────────────
-// Mock: GitHubClient
-// ──────────────────────────────────────────────
-
-type mockGitHubClient struct {
-	getUserFunc    func(ctx context.Context, token string) (string, error)
-	createForkFunc func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error)
-	waitForkFunc   func(ctx context.Context, token, owner, repo string) error
-}
-
-func (m *mockGitHubClient) GetAuthenticatedUser(ctx context.Context, token string) (string, error) {
-	if m.getUserFunc != nil {
-		return m.getUserFunc(ctx, token)
-	}
-	return "testuser", nil
-}
-
-func (m *mockGitHubClient) CreateFork(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-	if m.createForkFunc != nil {
-		return m.createForkFunc(ctx, token, sourceOwner, sourceRepo)
-	}
-	return "testuser/cheasee-pi", nil
-}
-
-func (m *mockGitHubClient) WaitForkReady(ctx context.Context, token, owner, repo string) error {
-	if m.waitForkFunc != nil {
-		return m.waitForkFunc(ctx, token, owner, repo)
-	}
-	return nil
-}
-
-// ──────────────────────────────────────────────
 // Mock: ConfirmFn
 // ──────────────────────────────────────────────
 
@@ -109,7 +78,6 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 
 var (
 	_ Authenticator = (*mockAuthenticator)(nil)
-	_ GitHubClient  = (*mockGitHubClient)(nil)
 )
 
 // ──────────────────────────────────────────────
@@ -244,17 +212,6 @@ func RenderEnv(t *testing.T, vals EnvValues) string {
 func defaultMocks() InitPorts {
 	return InitPorts{
 		Auth: &mockAuthenticator{},
-		GitHub: &mockGitHubClient{
-			getUserFunc: func(ctx context.Context, token string) (string, error) {
-				return "testuser", nil
-			},
-			createForkFunc: func(ctx context.Context, token, sourceOwner, sourceRepo string) (string, error) {
-				return "testuser/cheasee-pi", nil
-			},
-			waitForkFunc: func(ctx context.Context, token, owner, repo string) error {
-				return nil
-			},
-		},
 	}
 }
 
@@ -315,9 +272,9 @@ func marshalAuth(t *testing.T, auth *Auth) []byte {
 }
 
 // initDeps builds a runInit dependency set with the common test defaults:
-// mocked ports, docker check enabled, GitHub flow enabled, no input, prompt
-// fork, fresh workdir, confirming+empty-input fns. Override any field via
-// opts, e.g. initDeps(t, func(d *InitDeps) { d.NoGitHub = true }).
+// mocked ports, docker check enabled, GitHub flow enabled, no input, fresh
+// workdir, confirming+empty-input fns. Override any field via opts, e.g.
+// initDeps(t, func(d *InitDeps) { d.NoGitHub = true }).
 func initDeps(t *testing.T, opts ...func(*InitDeps)) InitDeps {
 	t.Helper()
 	deps := InitDeps{
@@ -325,7 +282,6 @@ func initDeps(t *testing.T, opts ...func(*InitDeps)) InitDeps {
 		NoDockerCheck: false,
 		NoGitHub:      false,
 		NoInput:       true,
-		SourceFork:    SourceForkInput{Mode: ModePromptFork},
 		Workdir:       t.TempDir(),
 		ConfirmFn:     mockConfirmFn(true, nil),
 		InputFn:       mockInputFn("", nil),

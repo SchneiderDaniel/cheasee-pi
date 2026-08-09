@@ -45,6 +45,66 @@ check-docker:
 	echo "docker/ matches $(DOCKER_TREE_SRC)/."
 
 # ──────────────────────────────────────────────
+# Pi resource tree: sync .pi/ → cmd/cheasee-pi/embedded/pi-resources/
+# Single source of truth is the repo's .pi/ tracked resources (skills,
+# prompts, extensions, themes + package.json/tsconfig.json). State dirs
+# (agent/, context/, sessions/, git/, venvs) never bake into the image.
+# The tree is embedded via //go:embed (embed.go) and staged into the
+# image at /opt/cheasee-pi by the CLI extractor — run `make pi-tree`
+# when .pi/ resource content changes; CI enforces with `make check-pi`.
+# ──────────────────────────────────────────────
+
+PI_TREE_SRC := .pi
+PI_TREE_DEST := cmd/cheasee-pi/embedded/pi-resources
+PI_TREE_DIRS := skills prompts extensions themes
+PI_TREE_FILES := package.json tsconfig.json
+
+.PHONY: pi-tree check-pi
+
+pi-tree:
+	@rm -rf $(PI_TREE_DEST)
+	@mkdir -p $(PI_TREE_DEST)/.pi
+	@for d in $(PI_TREE_DIRS); do \
+		cp -a $(PI_TREE_SRC)/$$d $(PI_TREE_DEST)/.pi/ || exit 1; \
+	done
+	@for f in $(PI_TREE_FILES); do \
+		cp -a $(PI_TREE_SRC)/$$f $(PI_TREE_DEST)/.pi/ || exit 1; \
+	done
+	@echo "Synced pi-resources from $(PI_TREE_SRC)/ to $(PI_TREE_DEST)/."
+
+check-pi:
+	@if [ ! -d "$(PI_TREE_DEST)/.pi" ]; then \
+		echo "ERROR: $(PI_TREE_DEST)/.pi missing (run 'make pi-tree')" >&2; \
+		exit 1; \
+	fi; \
+	tmp=$$(mktemp); \
+	for d in $(PI_TREE_DIRS); do \
+		if [ ! -d "$(PI_TREE_DEST)/.pi/$$d" ]; then \
+			echo "ERROR: $(PI_TREE_DEST)/.pi/$$d missing (run 'make pi-tree')" >> "$$tmp"; \
+			continue; \
+		fi; \
+		( \
+			cd "$(CURDIR)/$(PI_TREE_SRC)/$$d" && \
+			find . -type f | while IFS= read -r f; do \
+				cmp -s "$$f" "$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$f" || \
+					echo "ERROR: $(PI_TREE_DEST)/.pi/$$d/$$f differs from source (run 'make pi-tree')" >> "$$tmp"; \
+			done; \
+			find . -type l | while IFS= read -r l; do \
+				[ "$$(readlink "$$l")" = "$$(readlink "$(CURDIR)/$(PI_TREE_DEST)/.pi/$$d/$$l")" ] || \
+					echo "ERROR: symlink $(PI_TREE_DEST)/.pi/$$d/$$l differs from source (run 'make pi-tree')" >> "$$tmp"; \
+			done; \
+		); \
+	done; \
+	for f in $(PI_TREE_FILES); do \
+		if ! cmp -s "$(PI_TREE_SRC)/$$f" "$(PI_TREE_DEST)/.pi/$$f"; then \
+			echo "ERROR: $(PI_TREE_DEST)/.pi/$$f differs from $(PI_TREE_SRC)/$$f (run 'make pi-tree')" >> "$$tmp"; \
+		fi; \
+	done; \
+	if [ -s "$$tmp" ]; then cat "$$tmp" >&2; rm -f "$$tmp"; exit 1; fi; \
+	rm -f "$$tmp"; \
+	echo "pi-resources matches $(PI_TREE_SRC)/."
+
+# ──────────────────────────────────────────────
 # Single normal repo invariant (no git submodules)
 # ──────────────────────────────────────────────
 

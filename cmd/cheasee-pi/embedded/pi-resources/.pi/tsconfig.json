@@ -1,0 +1,29 @@
+{
+	"compilerOptions": {
+		"target": "es2022",
+		"module": "es2022",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"strict": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"declaration": false
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.mts",
+		"extensions/**/*.ts",
+		"extensions/**/*.mts",
+		"lib/**/*.ts",
+		"scripts/**/*.ts"
+	],
+	"exclude": [
+		"sessions",
+		"node_modules",
+		"extensions/**/test/fixtures/**",
+		"extensions/**/fixtures/**"
+	]
+}

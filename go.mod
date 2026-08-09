@@ -4,9 +4,9 @@ go 1.25.8
 
 require (
 	charm.land/huh/v2 v2.0.3
-	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cli/oauth v1.2.2
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/mod v0.35.0
 )
 

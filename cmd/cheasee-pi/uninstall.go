@@ -18,10 +18,10 @@ var (
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove cheasee-pi configuration and extracted files",
-	Long: `Remove cheasee-pi configuration files from the working directory.
+	Long: `Remove cheasee-pi configuration files and CLI-managed assets.
 
 The uninstall command removes:
-  1. docker/ directory (compose files, Dockerfile, scripts)
+  1. Cache dir (compose/Dockerfile/pi-resources under the user cache dir)
   2. .pi/ directory (agent configuration, contexts, themes)
   3. Auth config (~/.config/cheasee-pi/auth.json)
   4. cheasee-pi binary (the running executable)
@@ -56,7 +56,8 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		return "not found"
 	}
 
-	dockerDir := filepath.Join(workdir, "docker")
+	// CLI-managed assets live in the version-keyed cache dir, never the repo.
+	cacheDir, _ := CacheDir()
 	piDir := filepath.Join(workdir, ".pi")
 	gitDir := filepath.Join(workdir, ".git")
 
@@ -75,7 +76,9 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 
 	// Show summary
 	fmt.Fprintf(os.Stderr, "The following will be removed:\n")
-	fmt.Fprintf(os.Stderr, "  %s/docker/   — %s\n", filepath.Base(workdir), identify(dockerDir))
+	if cacheDir != "" {
+		fmt.Fprintf(os.Stderr, "  %s        — %s\n", cacheDir, identify(cacheDir))
+	}
 	fmt.Fprintf(os.Stderr, "  %s/.pi/      — %s\n", filepath.Base(workdir), identify(piDir))
 	fmt.Fprintf(os.Stderr, "  %s/.git/     — %s", filepath.Base(workdir), identify(gitDir))
 	if uninstallRemoveGit {
@@ -109,11 +112,13 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Remove docker/
-	if err := os.RemoveAll(dockerDir); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ failed to remove docker/: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "  ✓ Removed docker/\n")
+	// Remove cache dir (CLI-managed compose/Dockerfile/pi-resources)
+	if cacheDir != "" {
+		if err := os.RemoveAll(cacheDir); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove cache dir: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "  ✓ Removed cache dir\n")
+		}
 	}
 
 	// Remove .pi/

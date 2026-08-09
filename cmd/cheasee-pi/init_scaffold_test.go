@@ -9,80 +9,6 @@ import (
 	"testing"
 )
 
-func TestRunInitExtract_Success(t *testing.T) {
-	dir := t.TempDir()
-	if err := runInitExtract(context.Background(), dir); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, name := range []string{"docker-compose.yml", "Dockerfile", "entrypoint.sh"} {
-		if _, err := os.Stat(filepath.Join(dir, "docker", name)); err != nil {
-			t.Errorf("expected extracted docker/%s: %v", name, err)
-		}
-	}
-}
-
-func TestRunInitExtract_LogMessage(t *testing.T) {
-	// Capture stderr to verify the log message includes the /docker suffix.
-	dir := t.TempDir()
-	stderr := testutil.CaptureStderr(t, func() {
-		if err := runInitExtract(context.Background(), dir); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	expectedSuffix := dir + "/docker"
-	if !strings.Contains(stderr, expectedSuffix) {
-		t.Errorf("log message should contain %q, got: %s", expectedSuffix, stderr)
-	}
-	if !strings.Contains(stderr, "Compose files extracted to") {
-		t.Errorf("log message should mention extraction, got: %s", stderr)
-	}
-}
-
-func TestRunInitEnv_Success(t *testing.T) {
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-
-	workdir := t.TempDir()
-	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(true, nil)); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	vals := testutil.ReadEnvFile(t, workdir)
-	if vals["HOST_UID"] == "" {
-		t.Error("expected non-empty HOST_UID")
-	}
-	if vals["HOST_GID"] == "" {
-		t.Error("expected non-empty HOST_GID")
-	}
-	if vals["HOST_GIT_NAME"] != "Test User" {
-		t.Errorf("expected HOST_GIT_NAME 'Test User', got %q", vals["HOST_GIT_NAME"])
-	}
-	if vals["HOST_GIT_EMAIL"] != "test@example.com" {
-		t.Errorf("expected HOST_GIT_EMAIL 'test@example.com', got %q", vals["HOST_GIT_EMAIL"])
-	}
-}
-
-func TestRunInitEnv_GitIdentityFallback(t *testing.T) {
-	// Empty git config + declined identity prompt → defaults written.
-	testutil.SetGitConfig(t, "")
-
-	workdir := t.TempDir()
-	if err := runInitEnv(context.Background(), workdir, mockConfirmFn(false, nil)); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	vals := testutil.ReadEnvFile(t, workdir)
-	if vals["HOST_GIT_NAME"] != "Cheasee-Pi" {
-		t.Errorf("expected default HOST_GIT_NAME 'Cheasee-Pi', got %q", vals["HOST_GIT_NAME"])
-	}
-	if vals["HOST_GIT_EMAIL"] != "cheasee-pi@localhost" {
-		t.Errorf("expected default HOST_GIT_EMAIL 'cheasee-pi@localhost', got %q", vals["HOST_GIT_EMAIL"])
-	}
-	if vals["HOST_UID"] == "" {
-		t.Error("expected non-empty HOST_UID")
-	}
-}
-
 func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	testutil.SetGitConfig(t, testGitIdentityConfig)
 	withInitProvider(t, "opencode-go")
@@ -105,6 +31,14 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	}
 	if gitID["email"] != "test@example.com" {
 		t.Errorf("expected gitIdentity.email 'test@example.com', got %v", gitID["email"])
+	}
+	// Absolute /opt/cheasee-pi paths baked into the scaffold.
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil {
+		t.Fatalf("read scaffold: %v", err)
+	}
+	if !strings.Contains(string(data), "/opt/cheasee-pi/.pi/skills") {
+		t.Error("scaffold must reference absolute /opt/cheasee-pi/.pi/skills path")
 	}
 }
 
@@ -144,10 +78,10 @@ func TestInitDeps_Validate(t *testing.T) {
 			ports: func() InitPorts { return all },
 		},
 		{
-			name:    "missing auth/github on github path",
-			ports:   func() InitPorts { p := all; p.Auth = nil; p.GitHub = nil; return p },
+			name:    "missing auth on github path",
+			ports:   func() InitPorts { p := all; p.Auth = nil; return p },
 			deps:    InitDeps{NoGitHub: false},
-			wantErr: []string{"Ports.Auth", "Ports.GitHub"},
+			wantErr: []string{"Ports.Auth"},
 		},
 		{
 			name:  "missing auth allowed on no-github path",
@@ -194,11 +128,11 @@ func TestInit_SuccessMessage(t *testing.T) {
 		}
 	})
 
-	if strings.Contains(output, "cheasee-pi start") {
-		t.Error("success message must NOT reference 'cheasee-pi start'")
+	if !strings.Contains(output, "cheasee-pi start") {
+		t.Error("success message must reference 'cheasee-pi start'")
 	}
-	if !strings.Contains(output, "bash docker/run-pi.sh") {
-		t.Error("success message must contain the convenience script command")
+	if strings.Contains(output, "bash docker/run-pi.sh") {
+		t.Error("success message must NOT reference the removed convenience script")
 	}
 	if !strings.Contains(output, "✅ Init complete") {
 		t.Error("success message must contain the checkmark and 'Init complete'")

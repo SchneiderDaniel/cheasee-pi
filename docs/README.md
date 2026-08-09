@@ -49,7 +49,7 @@ Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee
 ### Using the CLI (auto)
 
 ```bash
-cheasee-pi init           # interactive setup: auth, fork, clone, env
+cheasee-pi init           # interactive setup: auth, scaffold .pi/settings.json
 cheasee-pi                # start container + inject keys + launch pi (default)
 cheasee-pi down           # stop and remove container
 cheasee-pi clean          # kill orphaned pi sessions + prune Docker garbage

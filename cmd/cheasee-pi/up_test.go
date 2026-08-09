@@ -16,7 +16,7 @@ import (
 // ──────────────────────────────────────────────
 
 func TestExecArgs_runsPiDirectly(t *testing.T) {
-	args := execArgs(nil, "cheasee-pi")
+	args := execArgs(nil, "cheasee-pi", "/workspaces/main")
 	joined := strings.Join(args, " ")
 
 	checks := []string{
@@ -38,7 +38,7 @@ func TestExecArgs_runsPiDirectly(t *testing.T) {
 }
 
 func TestExecArgs_containsExpectedOrder(t *testing.T) {
-	args := execArgs(nil, "cheasee-pi")
+	args := execArgs(nil, "cheasee-pi", "/workspaces/main")
 	joined := strings.Join(args, " ")
 
 	checks := []string{
@@ -58,7 +58,7 @@ func TestExecArgs_containsExpectedOrder(t *testing.T) {
 
 func TestExecArgs_envFlagsInCorrectPosition(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
-	args := execArgs(env, "cheasee-pi")
+	args := execArgs(env, "cheasee-pi", "/workspaces/main")
 
 	execIdx := indexOf(args, "exec")
 	nameIdx := indexOf(args, "cheasee-pi")
@@ -82,7 +82,7 @@ func TestExecArgs_envFlagsInCorrectPosition(t *testing.T) {
 }
 
 func TestExecArgs_emptyEnvFlags(t *testing.T) {
-	args := execArgs(nil, "cheasee-pi")
+	args := execArgs(nil, "cheasee-pi", "/workspaces/main")
 	if len(args) < 6 {
 		t.Fatalf("execArgs returned too few args: %v", args)
 	}
@@ -101,7 +101,7 @@ func TestExecArgs_manyEnvFlags(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		env[fmt.Sprintf("KEY_%02d", i)] = fmt.Sprintf("val_%d", i)
 	}
-	args := execArgs(env, "cheasee-pi")
+	args := execArgs(env, "cheasee-pi", "/workspaces/main")
 
 	namePos := -1
 	for i, a := range args {
@@ -132,9 +132,9 @@ func TestExecArgs_sortedFlattenIsDeterministic(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		env[fmt.Sprintf("KEY_%02d", i)] = fmt.Sprintf("val_%d", i)
 	}
-	first := execArgs(env, "cheasee-pi")
+	first := execArgs(env, "cheasee-pi", "/workspaces/main")
 	for i := 0; i < 10; i++ {
-		if got := execArgs(env, "cheasee-pi"); !slices.Equal(got, first) {
+		if got := execArgs(env, "cheasee-pi", "/workspaces/main"); !slices.Equal(got, first) {
 			t.Fatalf("execArgs not deterministic on iteration %d:\n first: %v\n got:   %v", i, first, got)
 		}
 	}
@@ -142,7 +142,7 @@ func TestExecArgs_sortedFlattenIsDeterministic(t *testing.T) {
 
 func TestExecArgs_valuesSurviveUnescaped(t *testing.T) {
 	env := map[string]string{"WEIRD": "a=b c$d"}
-	args := execArgs(env, "cheasee-pi")
+	args := execArgs(env, "cheasee-pi", "/workspaces/main")
 	if !slices.Contains(args, "WEIRD=a=b c$d") {
 		t.Errorf("value with spaces/$/= must survive as a single argv element: %v", args)
 	}
@@ -641,3 +641,5 @@ func TestRedactEnvValue(t *testing.T) {
 		t.Errorf("empty value should print in full, got %q", got)
 	}
 }
+
+// ──────────────────────────────────────────────

@@ -1,0 +1,29 @@
+{
+	"name": "@agentcastle/ask-user",
+	"version": "0.1.0",
+	"description": "Lets the AI ask you interactive questions during a task — typed dialogs, searchable Q&A log, and slash command for history queries",
+	"keywords": [
+		"pi-package",
+		"ask-user",
+		"question",
+		"dialog",
+		"qna"
+	],
+	"license": "MIT",
+	"author": "SchneiderDaniel",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SchneiderDaniel/agentcastle.git"
+	},
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": ">=0.79.1",
+		"typebox": "*"
+	}
+}

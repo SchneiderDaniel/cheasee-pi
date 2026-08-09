@@ -1,0 +1,28 @@
+{
+	"name": "@agentcastle/structural-analyzer",
+	"version": "0.1.0",
+	"description": "AST-aware code search via ast-grep — finds function calls, class defs, try/catch blocks, and structural patterns",
+	"keywords": [
+		"pi-package",
+		"structural-analyzer",
+		"ast-grep",
+		"code-search",
+		"tree-sitter"
+	],
+	"license": "MIT",
+	"author": "SchneiderDaniel",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SchneiderDaniel/agentcastle.git"
+	},
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	}
+}

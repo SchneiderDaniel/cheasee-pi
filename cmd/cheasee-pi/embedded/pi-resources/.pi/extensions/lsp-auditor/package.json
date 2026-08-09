@@ -1,0 +1,33 @@
+{
+	"name": "@agentcastle/lsp-auditor",
+	"version": "0.1.0",
+	"description": "Pre-audit code quality via LSP before commit — runs language server checks on changed files",
+	"keywords": [
+		"pi-package",
+		"lsp-auditor",
+		"lsp",
+		"audit",
+		"code-quality",
+		"diagnostics"
+	],
+	"license": "MIT",
+	"author": "SchneiderDaniel",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SchneiderDaniel/agentcastle.git"
+	},
+	"type": "module",
+	"dependencies": {
+		"vscode-jsonrpc": "^8.2.1"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	}
+}

@@ -288,12 +288,12 @@ func TestAuthPerProvider_MarshalEmptyProviderNoKey(t *testing.T) {
 }
 
 func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
-	data := []byte(fmt.Sprintf(`{
+	data := fmt.Appendf(nil, `{
 		"opencode-go": {"key": "%s"},
 		"github_token": "%s",
 		"github_user": "testuser",
 		"repo_path": "/workspace"
-	}`, FakeAPIKey, FakeGitHubToken))
+	}`, FakeAPIKey, FakeGitHubToken)
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {
@@ -318,7 +318,7 @@ func TestAuthPerProvider_UnmarshalProviderFormat(t *testing.T) {
 }
 
 func TestAuthPerProvider_UnmarshalFlatFormat(t *testing.T) {
-	data := []byte(fmt.Sprintf(`{"api_key": "%s", "github_token": "%s"}`, FakeAPIKey, FakeGitHubToken))
+	data := fmt.Appendf(nil, `{"api_key": "%s", "github_token": "%s"}`, FakeAPIKey, FakeGitHubToken)
 
 	var auth Auth
 	if err := json.Unmarshal(data, &auth); err != nil {

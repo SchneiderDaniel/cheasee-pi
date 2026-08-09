@@ -1,0 +1,26 @@
+{
+  "sessionId": "test-session-001",
+  "timestamp": "2025-06-01T10:00:00Z",
+  "cwd": "/tmp/project",
+  "version": 3,
+  "entryCount": 2,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "total": 0
+  },
+  "cost": 0,
+  "modelChanges": [
+    {
+      "time": "2025-06-01T10:05:00Z",
+      "model": "anthropic/claude-sonnet-4"
+    }
+  ],
+  "thinkingChanges": [],
+  "compactions": 0,
+  "toolStats": {},
+  "fileModifications": [],
+  "perTurnTokens": []
+}

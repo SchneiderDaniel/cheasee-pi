@@ -24,6 +24,7 @@ Before running pi via Docker, ensure the following are in place:
 - **GitHub CLI authenticated** on the host — `gh auth status` shows `Logged in to github.com`
 - **Emoji font** on the host terminal (see [Installation > Troubleshooting](installation.md#emoji--icons-not-displaying) for setup)
 - **First-time build complete** — the Docker image must be built at least once. See [Start](#start-the-container) below.
+- **Your own git repository** — cheasee-pi mounts the repo you run it from.
 
 The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
 automatically inside the container.
@@ -32,54 +33,45 @@ automatically inside the container.
 > `/workspaces/main` mount ownership. On macOS (OrbStack) and Windows (WSL2), bind-mount
 > permissions may differ — if you encounter permission errors, pass them explicitly:
 > ```bash
-> HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up -d
+> HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 > ```
 
 ## Start the container
 
 ### First run (build + start)
 
-> **Fresh source clone?** Run `make docker-tree` once first — the repo-root
-> `docker/` tree is generated from the canonical source at
-> `cmd/cheasee-pi/embedded/docker/` (see `make check-docker`).
-
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+cheasee-pi start --build
 ```
 
-This builds the Docker image from `docker/Dockerfile` (~2 min first time) and starts
-the container in detached mode. The container runs `sleep infinity` and stays alive
-until you stop it.
+This builds the Docker image from the CLI cache dir (`~/.cache/cheasee-pi/<version>/`,
+~2 min first time) and starts the container in detached mode. The container runs
+`sleep infinity` and stays alive until you stop it.
 
 **What happens:**
-- Image is built from `docker/Dockerfile` (Debian 12-slim + Node.js 22 + Python 3 + pi)
-- CodeFlow service image is built from `docker/codeflow/Dockerfile` (first run clones the CodeFlow UI)
-- Workspace root is bind-mounted to `/workspaces` inside the container
+- Compose/Dockerfile/pi-resources are extracted to the CLI cache dir
+- Your repo (git toplevel) is bind-mounted to `/workspaces/main`
+- CodeFlow service is built from the cache dir's `codeflow/` subtree
 - Entrypoint auto-detects UID/GID from the mount and remaps the `agentuser` user
 - npm dependencies are installed on first start (~30-60s)
+
+The first run also scaffolds `.pi/settings.json` into your repo root if missing.
 
 ### Subsequent starts
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+cheasee-pi start
 ```
 
 Without `--build`, Compose reuses the cached image — start is near-instant (~2s).
 
-### Using the CLI (auto)
+### Raw docker compose (power users)
+
+Compose lives in the CLI cache dir (never in your repo):
 
 ```bash
-cheasee-pi
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
-
-`cheasee-pi` (no subcommand) checks if the container is running, starts it if needed,
-reads `~/.config/cheasee-pi/auth.json`, injects API keys as env vars, and launches pi.
-`cheasee-pi start` and `cheasee-pi up` work as aliases.
-
-For a shell-based alternative, see `docker/run-pi.sh`.
-
-See [Missing API keys](#missing-api-keys) in Troubleshooting if models still don't
-show up.
 
 ## CodeFlow (code-structure visualization)
 
@@ -101,8 +93,8 @@ mounted repository.
 
 ### Configuration
 
-Settings live in `docker/codeflow/config.json` (bind-mounted read-only, editable
-without rebuilding the image):
+Settings live in `codeflow/config.json` inside the CLI cache dir (bind-mounted
+read-only, editable without rebuilding the image):
 
 | Key | Default | Purpose |
 | --- | --- | --- |
@@ -120,6 +112,17 @@ require the real GitHub API and are unavailable in local mode; the structure
 graph, blast radius, and health score work fully offline.
 
 ## Run pi
+
+### Using the CLI (auto)
+
+```bash
+cheasee-pi
+```
+
+`cheasee-pi` (no subcommand, alias `start`) checks that you're inside a git
+repository, starts the container if needed, reads `~/.config/cheasee-pi/auth.json`,
+injects API keys as env vars, and launches pi with your repo mounted at
+`/workspaces/main`.
 
 ### Using docker exec (native)
 
@@ -144,16 +147,6 @@ docker exec -it \
 
 > **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
 > `cheasee-pi start` instead.
-
-### Using `cheasee-pi` (no subcommand)
-
-```bash
-cheasee-pi
-```
-
-`cheasee-pi` combines start and exec into a single command — it starts the container
-if not running, injects API keys from `~/.config/cheasee-pi/auth.json`, and opens the pi TUI.
-`cheasee-pi start` and `cheasee-pi up` work as aliases.
 
 ## Parallel sessions
 
@@ -196,18 +189,12 @@ cheasee-pi down
 ```
 
 `cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container via
-`docker compose down`.
+`docker compose down` (resolved from the CLI cache dir, same project name as start).
 
 ### Full teardown (removes container)
 
 ```bash
-docker compose -f docker/docker-compose.yml down
-```
-
-Or use the convenience script:
-
-```bash
-bash docker/stop-pi.sh
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
 ```
 
 This stops and **removes** the container. On next `up -d`, the container is rebuilt
@@ -216,7 +203,7 @@ from scratch, including `npm install` (~30-60s).
 ### Pause (preserves container state)
 
 ```bash
-docker compose -f docker/docker-compose.yml stop
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
 ```
 
 This stops the container but keeps it intact. Next `docker compose up -d` (without
@@ -228,16 +215,16 @@ short breaks and `down` when you're done for the day.
 
 ## Rebuild after Dockerfile changes
 
-When `docker/Dockerfile` or any dependency changes, rebuild the image explicitly:
+When the embedded Dockerfile or any dependency changes, rebuild the image explicitly:
 
 ```bash
-docker compose -f docker/docker-compose.yml build && docker compose -f docker/docker-compose.yml up -d
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build && docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 Or rebuild and restart in one step with `--build`:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+cheasee-pi start --build
 ```
 
 **Why explicit build?** `docker compose up` without `--build` reuses the cached
@@ -256,7 +243,7 @@ When Docker layer cache is stale or you want a clean build from scratch:
 cheasee-pi build --no-cache
 
 # Docker compose directly
-docker compose -f docker/docker-compose.yml build --no-cache
+docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
 ```
 
 This ignores all cached layers and rebuilds every step. Use when:
@@ -279,7 +266,7 @@ user's UID/GID. The entrypoint auto-detects from `/workspaces/main`, but on macO
 **Fix:** Pass `HOST_UID` and `HOST_GID` explicitly:
 
 ```bash
-HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f docker/docker-compose.yml up -d
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ### Missing API keys
@@ -319,8 +306,8 @@ interfere with new sessions.
    `docker-compose.override.yml` may conflict. Check with `docker compose ps`.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
-   docker compose -f docker/docker-compose.yml build --no-cache
-   docker compose -f docker/docker-compose.yml up -d
+   docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+   cheasee-pi start
    ```
 3. **Docker not running:** Verify with `docker ps`.
 
@@ -330,5 +317,3 @@ interfere with new sessions.
 
 **Fix:** Ensure `gh auth login -s repo,project,workflow` has been run on the host.
 The container mounts `~/.config/gh/` read-write automatically.
-
-

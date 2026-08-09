@@ -44,30 +44,3 @@ func promptInput(title, placeholder string) (string, error) {
 	err := form.Run()
 	return value, err
 }
-
-// runInitPromptSource resolves the source repository to fork from.
-// Returns "SchneiderDaniel/cheasee-pi" by default, or --source-repo if set.
-func runInitPromptSource(sfi SourceForkInput) (string, error) {
-	switch sfi.Mode {
-	case ModeUseForkURL:
-		// For fork URL mode, derive source repo from the fork URL
-		owner, repo := ParseGitHubURL(sfi.ForkURL)
-		if owner != "" && repo != "" {
-			return owner + "/" + repo, nil
-		}
-		return "SchneiderDaniel/cheasee-pi", nil
-	case ModeSkipFork:
-		// Skip fork entirely — source repo is not used
-		if sfi.SourceRepo != "" {
-			return sfi.SourceRepo, nil
-		}
-		return "SchneiderDaniel/cheasee-pi", nil
-	}
-
-	if sfi.SourceRepo != "" {
-		// User explicitly provided --source-repo
-		return sfi.SourceRepo, nil
-	}
-
-	return "SchneiderDaniel/cheasee-pi", nil
-}

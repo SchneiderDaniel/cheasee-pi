@@ -219,10 +219,42 @@ RUN groupadd --gid 1001 agentuser && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------
+# Layer 6b: Cheasee-Pi resources baked into the image
+# ---------------------------------------------------------------
+# The staged pi-resources tree (tracked .pi content: skills/prompts/
+# extensions/themes) is copied to /opt/cheasee-pi and symlinked into
+# agentuser's global pi resource dir (~/.pi/agent) so the Cheasee-Pi
+# experience is available inside ANY mounted repo.
+#
+# Explicit /home/agentuser/.pi/agent/... paths — Docker's USER directive
+# does not set $HOME (defaults to /root), so `~` after a user switch would
+# silently drop the links into /root/.pi/agent.
+#
+# private-pi/ is gitignored (never tracked), so the bake cannot include it
+# from a fresh clone — the symlink is conditional and appears only when
+# pi-resources carries it (post-#1492 restructure).
+COPY pi-resources/ /opt/cheasee-pi/
+RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts /home/agentuser/.pi/agent/extensions /home/agentuser/.pi/agent/themes \
+    && for d in /opt/cheasee-pi/.pi/skills/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+    && for d in /opt/cheasee-pi/.pi/prompts/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+    && for d in /opt/cheasee-pi/.pi/extensions/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/extensions/; done \
+    && for d in /opt/cheasee-pi/.pi/themes/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/themes/; done \
+    && if [ -d /opt/cheasee-pi/custom ]; then ln -sfn /opt/cheasee-pi/custom /home/agentuser/.pi/agent/custom; fi \
+    && if [ -d /opt/cheasee-pi/private-pi ]; then \
+         for d in /opt/cheasee-pi/private-pi/skills/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
+         && for d in /opt/cheasee-pi/private-pi/prompts/*; do [ -e "$d" ] && ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+         && mkdir -p /home/agentuser/.pi/agent/extensions \
+         && ln -sfn /opt/cheasee-pi/private-pi/extensions/check-extensions /home/agentuser/.pi/agent/extensions/check-extensions; \
+       fi \
+    && chown -R agentuser:agentuser /home/agentuser/.pi
+
+# ---------------------------------------------------------------
 # Layer 7: Entrypoint + worktree fix library (last – changes most frequently)
 # ---------------------------------------------------------------
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY docker/lib/ /usr/local/bin/lib/
+# Build context is the CLI cache dir (compose `context: .`), so the entrypoint
+# and lib/ sit at the context root — no docker/ prefix.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY lib/ /usr/local/bin/lib/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/lib/worktree-fix.sh
 
 WORKDIR /workspaces/main

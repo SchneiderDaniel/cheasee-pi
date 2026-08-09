@@ -24,9 +24,9 @@ var buildCmd = &cobra.Command{
 Reads docker.memory from .pi/settings.json and passes it as CHEASEEPI_MEMORY
 build arg so the container can apply cgroup limits at runtime.
 
-Useful after Dockerfile, entrypoint, or dependency changes.
-Use --no-cache to force a full rebuild from scratch (ignores Docker layer cache).
-For a full start (build + container up + pi), use 'cheasee-pi start --build'.
+The compose/Dockerfile/pi-resources come from the CLI-managed cache dir
+(version-keyed, extracted on demand); your repo is only used for git
+verification and resource settings. Use --no-cache to force a full rebuild.
 
 Examples:
   cheasee-pi build                 # rebuild image (cached)
@@ -54,28 +54,41 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("resolve workdir: %w", err)
 	}
 
+	// build runs from a git repo (settings + git identity come from it).
+	root, _, err := repoRoot(workdir)
+	if err != nil {
+		return err
+	}
+
 	if !buildNoDockerCheck {
 		if err := runInitDockerCheck(ctx); err != nil {
 			return err
 		}
 	}
 
-	composeDir := filepath.Join(workdir, "docker")
-	buildCmd := exec.CommandContext(ctx, "docker", "compose",
-		"-f", filepath.Join(composeDir, "docker-compose.yml"),
-		"build",
-	)
+	cacheDir, err := ensureCacheDir(ctx)
+	if err != nil {
+		return fmt.Errorf("cache dir: %w", err)
+	}
+	if err := NewExtractor().Extract(ctx, cacheDir); err != nil {
+		return fmt.Errorf("extract compose files: %w", err)
+	}
 
-	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY build arg
-	applyMemoryLimit(buildCmd, workdir)
-
+	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
+	args := []string{"compose", "-f", composeFile, "build"}
 	if buildNoCache {
-		buildCmd.Args = append(buildCmd.Args, "--no-cache")
+		args = append(args, "--no-cache")
 		// Full rebuild re-extracts every layer beside the existing image;
 		// stale build cache + dangling images can fill the disk first.
 		pruneDanglingImages()
 		pruneBuildCache()
 	}
+
+	buildCmd := exec.CommandContext(ctx, "docker", args...)
+	buildCmd.Dir = cacheDir
+
+	// Read docker.memory from .pi/settings.json to set CHEASEEPI_MEMORY build arg
+	applyMemoryLimit(buildCmd, root)
 
 	buildCmd.Stdout = os.Stderr
 	buildCmd.Stderr = os.Stderr

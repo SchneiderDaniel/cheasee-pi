@@ -221,11 +221,22 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 
 // TemplateSettingsValues holds the values for .pi/settings.json template substitution.
 type TemplateSettingsValues struct {
-	Provider string
-	GitName  string
-	GitEmail string
-	Memory   string
-	CPUs     string
+	Provider     string
+	GitName      string
+	GitEmail     string
+	Memory       string
+	CPUs         string
+	HasPrivatePi bool
+}
+
+// hasPrivatePi reports whether the embedded pi-resources tree carries the
+// gitignored private-pi repo (maintainer builds only — private-pi/ is never
+// tracked, so fresh clones scaffold without private-pi entries). Unblocked by
+// the #1492 restructure: once private-pi content is tracked and synced, the
+// scaffold automatically includes its absolute /opt/cheasee-pi paths.
+func hasPrivatePi() bool {
+	_, err := fs.Stat(embeddedFS, "embedded/pi-resources/private-pi")
+	return err == nil
 }
 
 // ──────────────────────────────────────────────

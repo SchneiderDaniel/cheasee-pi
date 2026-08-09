@@ -1,0 +1,202 @@
+// ── Project-local ponytail extension ──────────────────────────────
+// Replaces the symlink to .pi/git/.../pi-extension/ so patches (status
+// bar, behavior tweaks) live in tracked project code, not the cloned
+// package. Hooks are still imported from the cloned repo to stay in
+// sync with upstream.
+//
+// If upstream adds a new hook export, update the require() below.
+// If this diverges too far, revert to symlink and re-evaluate.
+
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+
+const require = createRequire(import.meta.url);
+const PROJECT_ROOT = process.cwd();
+const PKG = resolve(PROJECT_ROOT, ".pi/git/github.com/DietrichGebert/ponytail");
+
+const {
+	DEFAULT_MODE,
+	getDefaultMode,
+	normalizeMode,
+	normalizeConfigMode,
+	normalizePersistedMode,
+	writeDefaultMode,
+} = require(resolve(PKG, "hooks/ponytail-config.js"));
+const { getPonytailInstructions, filterSkillBodyForMode } = require(
+	resolve(PKG, "hooks/ponytail-instructions.js"),
+);
+
+export { filterSkillBodyForMode };
+export const readDefaultMode = getDefaultMode;
+
+export function resolveSessionMode(entries, fallbackMode = DEFAULT_MODE) {
+	const fallback = normalizePersistedMode(fallbackMode) || DEFAULT_MODE;
+	if (!Array.isArray(entries)) return fallback;
+
+	for (let i = entries.length - 1; i >= 0; i -= 1) {
+		const entry = entries[i];
+		if (entry?.type !== "custom" || entry?.customType !== "ponytail-mode") continue;
+
+		const mode = normalizePersistedMode(entry?.data?.mode);
+		if (mode) return mode;
+	}
+
+	return fallback;
+}
+
+export function parsePonytailCommand(text, defaultMode = DEFAULT_MODE) {
+	const fallback = normalizePersistedMode(defaultMode) || DEFAULT_MODE;
+	const normalizedText = String(text || "")
+		.trim()
+		.toLowerCase();
+
+	if (!normalizedText) {
+		return { type: "set-mode", mode: fallback === "off" ? "full" : fallback };
+	}
+
+	const [primary, secondary] = normalizedText.split(/\s+/);
+
+	if (primary === "status") return { type: "status" };
+
+	if (primary === "default") {
+		const mode = normalizeConfigMode(secondary);
+		return mode
+			? { type: "set-default", mode }
+			: { type: "invalid", reason: "invalid-default-mode" };
+	}
+
+	const mode = normalizeMode(primary);
+	return mode
+		? { type: "set-mode", mode }
+		: { type: "invalid", reason: "invalid-mode", mode: primary };
+}
+
+export { writeDefaultMode };
+
+export default function ponytailExtension(pi) {
+	let currentMode = DEFAULT_MODE;
+	let configuredDefaultMode = getDefaultMode();
+
+	const updateStatus = (ctx) => {
+		if (currentMode === "off") {
+			ctx?.ui?.setStatus?.("ponytail", undefined);
+		} else {
+			ctx?.ui?.setStatus?.("ponytail", "ponytail: " + currentMode.toUpperCase());
+		}
+	};
+
+	const setMode = (mode, ctx) => {
+		const normalized = normalizePersistedMode(mode);
+		if (!normalized) return;
+
+		currentMode = normalized;
+		pi.appendEntry("ponytail-mode", { mode: normalized });
+		updateStatus(ctx);
+		ctx?.ui?.notify?.(`Ponytail mode set to ${normalized}.`, "info");
+	};
+
+	const sendAlias = (skillName, args, ctx) => {
+		const normalized = String(args || "").trim();
+		const message = normalized ? `${skillName} ${normalized}` : skillName;
+
+		if (ctx?.isIdle?.() === false) {
+			pi.sendUserMessage(message, { deliverAs: "followUp" });
+			ctx?.ui?.notify?.(`${skillName} queued as follow-up.`, "info");
+			return;
+		}
+
+		pi.sendUserMessage(message);
+	};
+
+	pi.registerCommand("ponytail", {
+		description: "Set or report Ponytail mode",
+		handler: async (args, ctx) => {
+			const parsed = parsePonytailCommand(args, configuredDefaultMode);
+
+			if (parsed.type === "status") {
+				ctx?.ui?.notify?.(
+					`Ponytail: current ${currentMode} • default ${configuredDefaultMode}`,
+					"info",
+				);
+				return;
+			}
+
+			if (parsed.type === "set-default") {
+				const written = writeDefaultMode(parsed.mode);
+				if (written) {
+					configuredDefaultMode = getDefaultMode();
+					const message =
+						configuredDefaultMode === written
+							? `Default Ponytail mode set to ${written}.`
+							: `Saved default ${written}, but env override keeps default at ${configuredDefaultMode}.`;
+					ctx?.ui?.notify?.(message, "info");
+				}
+				return;
+			}
+
+			if (parsed.type === "set-mode") {
+				setMode(parsed.mode, ctx);
+				return;
+			}
+
+			ctx?.ui?.notify?.("Unknown or unsupported /ponytail mode.", "warning");
+		},
+	});
+
+	pi.registerCommand("ponytail-review", {
+		description: "Run /skill:ponytail-review",
+		handler: (_args, ctx) => sendAlias("/skill:ponytail-review", "", ctx),
+	});
+
+	pi.registerCommand("ponytail-audit", {
+		description: "Run /skill:ponytail-audit",
+		handler: (_args, ctx) => sendAlias("/skill:ponytail-audit", "", ctx),
+	});
+
+	pi.registerCommand("ponytail-gain", {
+		description: "Run /skill:ponytail-gain",
+		handler: (_args, ctx) => sendAlias("/skill:ponytail-gain", "", ctx),
+	});
+
+	pi.registerCommand("ponytail-debt", {
+		description: "Run /skill:ponytail-debt",
+		handler: (_args, ctx) => sendAlias("/skill:ponytail-debt", "", ctx),
+	});
+
+	pi.registerCommand("ponytail-help", {
+		description: "Run /skill:ponytail-help",
+		handler: (_args, ctx) => sendAlias("/skill:ponytail-help", "", ctx),
+	});
+
+	const isDeactivationCommand = (text) => {
+		const lower = String(text || "")
+			.trim()
+			.toLowerCase();
+		return lower === "stop ponytail" || lower === "normal mode";
+	};
+
+	pi.on("input", async (event) => {
+		if (event?.source === "extension") return;
+
+		const text = String(event?.text || "");
+		if (currentMode !== "off" && isDeactivationCommand(text)) {
+			setMode("off");
+		}
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		const entries = ctx?.sessionManager?.getBranch?.() || ctx?.sessionManager?.getEntries?.() || [];
+		configuredDefaultMode = getDefaultMode();
+		currentMode = resolveSessionMode(entries, configuredDefaultMode);
+		updateStatus(ctx);
+	});
+
+	pi.on("session_end", async (_event, ctx) => {
+		ctx?.ui?.setStatus?.("ponytail", undefined);
+	});
+
+	pi.on("before_agent_start", async (event) => {
+		if (!currentMode || currentMode === "off") return;
+		return { systemPrompt: `${event.systemPrompt}\n\n${getPonytailInstructions(currentMode)}` };
+	});
+}
