@@ -6,7 +6,7 @@
  *   2. git config --global (avoids prompts in scaffold) + git init the workdir
  *   3. cheasee-pi init --no-github ... (all flags to skip interactivity)
  *   4. Verify scaffolded files (checkpoint 3)
- *   5. docker compose build from the CLI cache dir (checkpoint 4)
+ *   5. cheasee-pi build — extracts cache tree, compose build (checkpoint 4)
  *   6. docker compose up -d (checkpoint 5)
  *   7. Health check reaches healthy (checkpoint 6)
  *   8. pi --version inside container (checkpoint 7)
@@ -242,18 +242,18 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		);
 	});
 
-	// ── Checkpoint 4: docker compose build (from CLI cache dir) ─────
+	// ── Checkpoint 4: cheasee-pi build (extract cache tree + compose build)
 
-	it("checkpoint 4 — docker compose build exits 0", () => {
-		const result = exec(
-			`docker compose -f "${composeFile()}" build --build-arg PI_BUILD_STAMP=$(date +%s)`,
-			{
-				timeout: 600_000,
-				cwd: workdir, // 10 min — cold build is slow
-				env: { WORKSPACE_HOST_PATH: workdir },
-			},
-		);
-		assert.strictEqual(result.status, 0, `compose build exited ${result.status}: ${result.stderr}`);
+	it("checkpoint 4 — cheasee-pi build exits 0", () => {
+		// build is the binary's extract-then-build path: it stages the embedded
+		// compose/Dockerfile/pi-resources into the version-keyed cache dir and
+		// runs `docker compose build` from there. The raw compose command cannot
+		// run first — the cache dir starts empty until the binary extracts.
+		const result = exec(`"${BINARY_PATH}" build --no-docker-check`, {
+			timeout: 600_000,
+			cwd: workdir, // 10 min — cold build is slow
+		});
+		assert.strictEqual(result.status, 0, `build exited ${result.status}: ${result.stderr}`);
 	});
 
 	// ── Checkpoint 5: docker compose up -d ─────────────────────────
@@ -461,11 +461,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 		// down resolves the compose project from the cache dir, extracting the
 		// embedded docker tree + pi-resources staging on the way (regenerable).
 		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: initWorkdir });
-		assert.strictEqual(
-			result.status,
-			0,
-			`down exited ${result.status}: ${result.stderr}`,
-		);
+		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
 		for (const f of [
 			"docker-compose.yml",
 			"Dockerfile",
@@ -474,10 +470,7 @@ describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
 			".dockerignore",
 		]) {
 			const fullPath = join(composeDir(), f);
-			assert.ok(
-				existsSync(fullPath),
-				`expected cache dir file to exist: ${f} (${fullPath})`,
-			);
+			assert.ok(existsSync(fullPath), `expected cache dir file to exist: ${f} (${fullPath})`);
 			assert.ok(readFileSync(fullPath, "utf-8").length > 0, `expected non-empty file: ${f}`);
 		}
 		// The staged pi-resources tree feeds COPY pi-resources/ /opt/cheasee-pi/

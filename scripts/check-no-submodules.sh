@@ -38,6 +38,9 @@ fi
 # files, .pi/settings.json. Test dirs/files are excluded so the intentional
 # negative tests (stray submodules key, .gitmodules-on-disk fixture,
 # TestFreshCloneNoSubmodules) can assert the token is *not* honored.
+# The embedded/pi-resources mirror is excluded too: it is a generated tree
+# byte-identical to .pi/ (enforced by check-pi) and cannot carry gitlinks or
+# .gitmodules — scanning it only flags prose in upstream extension comments.
 hits="$(grep -rin --include='*.go' --include='*.ts' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.json' --include='*.sh' \
 	-e 'submodule' \
 	cmd/ \
@@ -46,6 +49,7 @@ hits="$(grep -rin --include='*.go' --include='*.ts' --include='*.py' --include='
 	.pi/settings.json \
 	2>/dev/null \
 	| grep -v '^cmd/[^:]*_test\.go:' \
+	| grep -v '^cmd/cheasee-pi/embedded/pi-resources/' \
 	| grep -v '^\.pi/extensions/supervisor/test/' \
 	| grep -v '^docker/test/' || true)"
 if [ -n "$hits" ]; then

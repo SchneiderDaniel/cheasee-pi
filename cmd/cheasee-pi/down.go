@@ -41,6 +41,19 @@ func runDownE(_ *cobra.Command, _ []string) error {
 
 	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
 	cmd := runCommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
+
+	// compose validates every volume spec even for `down`, so
+	// WORKSPACE_HOST_PATH must be non-empty. Resolve the repo toplevel like
+	// start does; fall back to the cwd so down keeps working outside a repo.
+	workspace, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+	if root, _, repoErr := repoRoot(workspace); repoErr == nil {
+		workspace = root
+	}
+	applyComposeEnv(cmd, workspace)
+
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)
 
