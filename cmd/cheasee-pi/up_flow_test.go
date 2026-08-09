@@ -13,7 +13,7 @@ import (
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
-// runUpE use-case tests (Phase 5 — repo mount restructure)
+// runUpE use-case tests (empty-folder auto-init + workspace gate restructure)
 // ──────────────────────────────────────────────
 
 // upCapture records the docker compose invocations and their env during a
@@ -129,9 +129,118 @@ func stubExecPIContainer(t *testing.T) *upExecCapture {
 	return c
 }
 
-func TestRunUpE_nonGitCwdRefusedNoDockerCalls(t *testing.T) {
+// mkWorkspace creates an initialized workspace fixture: parent + ws (the
+// worktree root) with cheasee-settings.json, plus the sibling parent/.bare.
+func mkWorkspace(t *testing.T, settingsContent string) (parent, root string) {
+	t.Helper()
+	parent = t.TempDir()
+	root = filepath.Join(parent, "ws")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(parent, ".bare"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCheaseeSettingsFile(t, root, settingsContent)
+	return parent, root
+}
+
+// stubAutoInitDeps replaces the shared newInitDeps factory so start-triggered
+// init runs with the stubbed OAuth/prompt boundaries (the same seam runInitE
+// tests use) instead of a real device flow or TTY.
+func stubAutoInitDeps(t *testing.T) {
+	t.Helper()
+	saved := newInitDeps
+	newInitDeps = func(workdir string) InitDeps {
+		return initDepsWithRepoURL(t, workdir)
+	}
+	t.Cleanup(func() { newInitDeps = saved })
+}
+
+// ──────────────────────────────────────────────
+// Phase 1: workspace classifier (entity)
+// ──────────────────────────────────────────────
+
+func TestClassifyWorkspace_empty(t *testing.T) {
+	state, err := classifyWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatalf("classifyWorkspace: %v", err)
+	}
+	if state != WorkspaceEmpty {
+		t.Errorf("empty dir → WorkspaceEmpty, got %v", state)
+	}
+}
+
+func TestClassifyWorkspace_dsStoreOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := classifyWorkspace(dir)
+	if err != nil {
+		t.Fatalf("classifyWorkspace: %v", err)
+	}
+	if state != WorkspaceEmpty {
+		t.Errorf(".DS_Store-only dir → WorkspaceEmpty, got %v", state)
+	}
+}
+
+func TestClassifyWorkspace_initialized(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, dir, `{}`)
+	state, err := classifyWorkspace(dir)
+	if err != nil {
+		t.Fatalf("classifyWorkspace: %v", err)
+	}
+	if state != WorkspaceInitialized {
+		t.Errorf("cheasee-settings.json present → WorkspaceInitialized, got %v", state)
+	}
+}
+
+func TestClassifyWorkspace_nonEmptyRefuse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := classifyWorkspace(dir)
+	if err != nil {
+		t.Fatalf("classifyWorkspace: %v", err)
+	}
+	if state != WorkspaceRefuse {
+		t.Errorf("non-empty w/o settings → WorkspaceRefuse, got %v", state)
+	}
+}
+
+func TestFindWorkspaceRoot_fromSubdir(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(filepath.Join(root, "sub", "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCheaseeSettingsFile(t, root, `{}`)
+
+	got, ok := findWorkspaceRoot(filepath.Join(root, "sub", "dir"))
+	if !ok || got != root {
+		t.Errorf("findWorkspaceRoot(subdir) = %q, %v; want %q, true", got, ok, root)
+	}
+}
+
+func TestFindWorkspaceRoot_notFound(t *testing.T) {
+	if _, ok := findWorkspaceRoot(t.TempDir()); ok {
+		t.Error("no ancestor with cheasee-settings.json → not found")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 1: start gate use cases
+// ──────────────────────────────────────────────
+
+func TestRunUpE_nonInitializedRefusedNoDockerCalls(t *testing.T) {
 	workdir := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "somefile.txt"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	setUpRun(t, workdir)
@@ -146,16 +255,45 @@ func TestRunUpE_nonGitCwdRefusedNoDockerCalls(t *testing.T) {
 	})
 
 	err := runUpE(&cobra.Command{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
-		t.Fatalf("expected git refusal, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("expected refusal mentioning 'not initialized', got %v", err)
+	}
+	if !strings.Contains(err.Error(), "cheasee-pi init") {
+		t.Errorf("refusal must mention `cheasee-pi init`, got %v", err)
 	}
 	if dockerCalls != 0 {
-		t.Errorf("non-git cwd must be refused before any docker invocation, got %d", dockerCalls)
+		t.Errorf("non-initialized cwd must be refused before any docker invocation, got %d", dockerCalls)
 	}
 }
 
-func TestRunUpE_dryRunPrintsWithoutScaffoldOrCompose(t *testing.T) {
+func TestRunUpE_dryRunOnEmptyFolder(t *testing.T) {
+	workdir := t.TempDir()
+	setUpRun(t, workdir)
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+
+	// Dry-run on empty prints what would happen and exits — touches nothing.
+	if !strings.Contains(stderr, "would run `cheasee-pi init`") {
+		t.Errorf("dry-run on empty must announce the would-be init, got: %q", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); !os.IsNotExist(err) {
+		t.Errorf("dry-run must not scaffold cheasee-settings.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(workdir), ".bare")); !os.IsNotExist(err) {
+		t.Errorf("dry-run must not clone a .bare: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("dry-run must not scaffold .pi/settings.json: %v", err)
+	}
+}
+
+func TestRunUpE_dryRunOnInitialized(t *testing.T) {
 	root := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, root, `{}`)
 	setUpRun(t, root)
 
 	c := stubUpFlow(t, root, false)
@@ -165,15 +303,11 @@ func TestRunUpE_dryRunPrintsWithoutScaffoldOrCompose(t *testing.T) {
 		}
 	})
 
-	// Dry-run touches nothing: no scaffold, no compose, no extraction.
-	if _, err := os.Stat(filepath.Join(root, ".pi", "settings.json")); !os.IsNotExist(err) {
-		t.Errorf("dry-run must not scaffold .pi/settings.json: %v", err)
-	}
+	// Existing dry-run contract intact: env vars + docker command, nothing
+	// scaffolded or invoked.
 	if len(c.composeArgs) != 0 {
 		t.Errorf("dry-run must not invoke compose, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
 	}
-
-	// Prints the env vars and the docker exec command it would run.
 	if !strings.Contains(stderr, "Env vars to be injected") {
 		t.Errorf("dry-run must print env vars, got: %q", stderr)
 	}
@@ -182,8 +316,94 @@ func TestRunUpE_dryRunPrintsWithoutScaffoldOrCompose(t *testing.T) {
 	}
 }
 
-func TestRunUpE_fullFlowScaffoldsThenComposeUp(t *testing.T) {
-	root := t.TempDir()
+func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setUpRunMode(t, workdir, false)
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	stubInitGit(t)
+	stubAutoInitDeps(t)
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+
+	if !strings.Contains(stderr, "running `cheasee-pi init` first") {
+		t.Errorf("empty folder must announce auto-init, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "Cloned (bare + worktree)") {
+		t.Errorf("user should see the clone notice during auto-init, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "run `cheasee-pi start` again") {
+		t.Errorf("auto-init must hand off to a second start, got: %q", stderr)
+	}
+	// Init artifacts: worktree checked out, sibling .bare, settings at root.
+	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
+		t.Errorf("auto-init must scaffold cheasee-settings.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
+		t.Errorf("auto-init must bare-clone into <parent>/.bare: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, ".git")); err != nil {
+		t.Errorf("auto-init must add the main worktree: %v", err)
+	}
+	if !authJSONExists(t) {
+		t.Error("auto-init must save auth.json")
+	}
+}
+
+func TestRunUpE_autoInitMatchesRunInit(t *testing.T) {
+	// start-triggered init (runUpE empty branch) and runInit share the
+	// newInitDeps factory → byte-identical cheasee-settings.json artifacts.
+	parentA := t.TempDir()
+	dirA := filepath.Join(parentA, "ws")
+	if err := os.MkdirAll(dirA, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setUpRunMode(t, dirA, false)
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	stubInitGit(t)
+	stubAutoInitDeps(t)
+
+	if err := runUpE(&cobra.Command{}, nil); err != nil {
+		t.Fatalf("runUpE: %v", err)
+	}
+	settingsA, err := os.ReadFile(filepath.Join(dirA, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("read start-triggered settings: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parentA, ".bare")); err != nil {
+		t.Errorf("start-triggered init must bare-clone into <parent>/.bare: %v", err)
+	}
+
+	// Same flow via runInit (the `cheasee-pi init` path) on a second folder.
+	dirB := filepath.Join(t.TempDir(), "ws")
+	if err := os.MkdirAll(dirB, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := runInit(context.Background(), initDepsWithRepoURL(t, dirB)); err != nil {
+		t.Fatalf("runInit: %v", err)
+	}
+	settingsB, err := os.ReadFile(filepath.Join(dirB, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("read runInit settings: %v", err)
+	}
+	if string(settingsA) != string(settingsB) {
+		t.Errorf("start-triggered init and runInit must produce byte-identical cheasee-settings.json:\nA: %s\nB: %s", settingsA, settingsB)
+	}
+}
+
+func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
+	_, root := mkWorkspace(t, `{"docker": {"memory": "2G", "cpus": "2.0"}, "gitIdentity": {"name": "Test User", "email": "test@example.com"}}`)
 	setUpRunMode(t, root, false)
 	exec := stubExecPIContainer(t)
 
@@ -194,16 +414,12 @@ func TestRunUpE_fullFlowScaffoldsThenComposeUp(t *testing.T) {
 		}
 	})
 
-	// Scaffold: absolute /opt/cheasee-pi paths written into the repo root.
-	data, err := os.ReadFile(filepath.Join(root, ".pi", "settings.json"))
-	if err != nil {
-		t.Fatalf("settings scaffold missing: %v", err)
+	// start no longer scaffolds .pi/settings.json (runUpScaffold dropped).
+	if _, err := os.Stat(filepath.Join(root, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("start must not scaffold .pi/settings.json, got: %v", err)
 	}
-	if !strings.Contains(string(data), "/opt/cheasee-pi/.pi/skills") {
-		t.Errorf("scaffold must use absolute /opt/cheasee-pi paths:\n%s", data)
-	}
-	if !strings.Contains(stderr, "Created .pi/settings.json") {
-		t.Errorf("user should see a scaffold notice, got: %q", stderr)
+	if strings.Contains(stderr, "Created .pi/settings.json") {
+		t.Errorf("start must not announce a .pi/settings.json scaffold, got: %q", stderr)
 	}
 
 	// Compose invoked from the version-keyed cache dir: build then up.
@@ -220,49 +436,87 @@ func TestRunUpE_fullFlowScaffoldsThenComposeUp(t *testing.T) {
 	if !slices.Contains(build, "-f") || !slices.Contains(build, composeFile) {
 		t.Errorf("build must target %s, got %v", composeFile, build)
 	}
-	if !slices.Contains(build, "build") || !strings.Contains(strings.Join(build, " "), "PI_BUILD_STAMP=") {
-		t.Errorf("build must pass PI_BUILD_STAMP, got %v", build)
-	}
 	if !slices.Contains(up, "up") || !slices.Contains(up, "--remove-orphans") {
 		t.Errorf("up args wrong: %v", up)
 	}
 
-	// WORKSPACE_HOST_PATH = CLI-resolved absolute toplevel; ${PWD} never used.
+	// Two sibling mounts: workspace folder + its .bare; ${PWD} never used.
 	upEnv := c.composeCmds[1].env
 	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+root) {
 		t.Errorf("up env must carry WORKSPACE_HOST_PATH=%s, got %v", root, upEnv)
+	}
+	barePath := filepath.Join(filepath.Dir(root), ".bare")
+	if !slices.Contains(upEnv, "WORKSPACE_BARE_PATH="+barePath) {
+		t.Errorf("up env must carry WORKSPACE_BARE_PATH=%s, got %v", barePath, upEnv)
 	}
 	for _, e := range upEnv {
 		if strings.Contains(e, "${PWD}") || strings.HasPrefix(e, "WORKSPACE_HOST_PATH=${PWD}") {
 			t.Errorf("WORKSPACE_HOST_PATH must never use ${PWD}: %v", upEnv)
 		}
 	}
-	// Memory + git identity from the scaffolded settings.
+	// Memory + git identity from the dedicated cheasee-settings.json.
 	if !slices.Contains(upEnv, "CHEASEEPI_MEMORY=2G") {
-		t.Errorf("up env must carry CHEASEEPI_MEMORY from settings, got %v", upEnv)
+		t.Errorf("up env must carry CHEASEEPI_MEMORY from cheasee-settings.json, got %v", upEnv)
 	}
 	if !slices.Contains(upEnv, "HOST_GIT_NAME=Test User") {
-		t.Errorf("up env must carry HOST_GIT_NAME from settings gitIdentity, got %v", upEnv)
+		t.Errorf("up env must carry HOST_GIT_NAME from cheasee-settings.json gitIdentity, got %v", upEnv)
 	}
 
-	// Final exec descends to the toplevel target.
+	// Final exec descends to the workspace root target.
 	if exec.name != "cheasee-pi" || exec.target != "/workspaces/main" {
 		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", "cheasee-pi", exec.name, exec.target)
 	}
 }
 
-func TestRunUpE_existingSettingsUntouched(t *testing.T) {
-	root := t.TempDir()
+func TestRunUpE_settingsButNoBareFailsClosed(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCheaseeSettingsFile(t, root, `{"docker": {"memory": "2G"}}`)
+	// NO parent/.bare — corrupt workspace; compose must never be invoked
+	// (Docker's create_host_path would otherwise create a stray host dir).
 	setUpRunMode(t, root, false)
 	stubExecPIContainer(t)
 
-	legacy := `{"defaultProvider": "openai", "skills": ["../private-pi/skills"], "docker": {"memory": ""}}`
-	if err := os.MkdirAll(filepath.Join(root, ".pi"), 0755); err != nil {
-		t.Fatal(err)
+	var composeCalls int
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "docker" && slices.Contains(arg, "compose") {
+			composeCalls++
+			return &mockCmd{}
+		}
+		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
+		}
+		return &mockCmd{}
+	})
+	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}
+		}
+		return &mockCmd{}
+	})
+
+	err := runUpE(&cobra.Command{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "corrupt") {
+		t.Fatalf("expected fail-closed error mentioning the corrupt workspace, got %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".pi", "settings.json"), []byte(legacy), 0644); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(err.Error(), "cheasee-pi init") {
+		t.Errorf("error must carry the recovery hint, got %v", err)
 	}
+	if composeCalls != 0 {
+		t.Errorf("compose must never be invoked when .bare is missing, got %d", composeCalls)
+	}
+}
+
+func TestRunUpE_existingCheaseeSettingsUntouched(t *testing.T) {
+	_, root := mkWorkspace(t, `{}`)
+	legacy := `{"defaultProvider": "openai", "docker": {"memory": ""}}`
+	testutil.WriteCheaseeSettingsFile(t, root, legacy)
+	setUpRunMode(t, root, false)
+	stubExecPIContainer(t)
 
 	c := stubUpFlow(t, root, false)
 	if err := runUpE(&cobra.Command{}, nil); err != nil {
@@ -270,14 +524,14 @@ func TestRunUpE_existingSettingsUntouched(t *testing.T) {
 	}
 
 	// Never-overwrite rule: byte-identical after start.
-	after, err := os.ReadFile(filepath.Join(root, ".pi", "settings.json"))
+	after, err := os.ReadFile(filepath.Join(root, "cheasee-settings.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(after) != legacy {
-		t.Errorf("existing settings.json must be byte-preserved:\n got %q\nwant %q", after, legacy)
+		t.Errorf("existing cheasee-settings.json must be byte-preserved:\n got %q\nwant %q", after, legacy)
 	}
-	// Legacy settings load fine (no memory limit → no CHEASEEPI_MEMORY env).
+	// Empty docker.memory → no CHEASEEPI_MEMORY env.
 	upEnv := c.composeCmds[1].env
 	for _, e := range upEnv {
 		if strings.HasPrefix(e, "CHEASEEPI_MEMORY=") {
@@ -287,7 +541,7 @@ func TestRunUpE_existingSettingsUntouched(t *testing.T) {
 }
 
 func TestRunUpE_subdirExecTarget(t *testing.T) {
-	root := t.TempDir()
+	_, root := mkWorkspace(t, `{}`)
 	sub := filepath.Join(root, "sub", "dir")
 	if err := os.MkdirAll(sub, 0755); err != nil {
 		t.Fatal(err)
@@ -301,11 +555,11 @@ func TestRunUpE_subdirExecTarget(t *testing.T) {
 		}
 	})
 
-	// Dry-run prints the toplevel-mounted exec target with the relative cwd.
+	// Dry-run prints the mounted exec target with the relative cwd.
 	if !strings.Contains(stderr, "-w /workspaces/main/sub/dir") {
 		t.Errorf("dry-run must exec at -w /workspaces/main/sub/dir, got: %q", stderr)
 	}
-	// Dry-run touches nothing: no scaffold at the repo root, no compose.
+	// Dry-run touches nothing: no compose, no .pi scaffold.
 	if _, err := os.Stat(filepath.Join(root, ".pi", "settings.json")); !os.IsNotExist(err) {
 		t.Errorf("dry-run must not scaffold settings, got: %v", err)
 	}
@@ -315,7 +569,7 @@ func TestRunUpE_subdirExecTarget(t *testing.T) {
 }
 
 func TestRunUpE_subdirFullFlowMountsToplevel(t *testing.T) {
-	root := t.TempDir()
+	_, root := mkWorkspace(t, `{}`)
 	sub := filepath.Join(root, "sub", "dir")
 	if err := os.MkdirAll(sub, 0755); err != nil {
 		t.Fatal(err)
@@ -332,9 +586,9 @@ func TestRunUpE_subdirFullFlowMountsToplevel(t *testing.T) {
 	if exec.target != "/workspaces/main/sub/dir" {
 		t.Errorf("exec must target -w /workspaces/main/sub/dir, got %q", exec.target)
 	}
-	// Settings scaffold lives once at the repo root.
-	if _, err := os.Stat(filepath.Join(root, ".pi", "settings.json")); err != nil {
-		t.Errorf("settings must be scaffolded at the repo root: %v", err)
+	// start never scaffolds .pi/settings.json anymore.
+	if _, err := os.Stat(filepath.Join(root, ".pi", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("start must not scaffold .pi/settings.json at the workspace root: %v", err)
 	}
 	// Compose still invoked with the cache-dir compose file and the toplevel mount.
 	cacheDir, err := CacheDir()
@@ -351,7 +605,7 @@ func TestRunUpE_subdirFullFlowMountsToplevel(t *testing.T) {
 }
 
 func TestRunUpE_containerRunningSkipsComposeUp(t *testing.T) {
-	root := t.TempDir()
+	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	exec := stubExecPIContainer(t)
 
@@ -369,7 +623,7 @@ func TestRunUpE_containerRunningSkipsComposeUp(t *testing.T) {
 }
 
 func TestRunUpE_selinuxRelabelToggle(t *testing.T) {
-	root := t.TempDir()
+	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	stubExecPIContainer(t)
 

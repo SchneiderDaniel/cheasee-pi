@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -63,4 +65,26 @@ func repoRoot(workdir string) (root, relCwd string, err error) {
 		rel = "."
 	}
 	return root, rel, nil
+}
+
+// findWorkspaceRoot walks up from workdir looking for cheasee-settings.json —
+// the initialized marker — and returns the workspace root (the folder
+// cheasee-pi set up) with true. Returns false when no ancestor is
+// initialized (the caller then classifies the cwd itself: empty → auto-init,
+// else refuse).
+func findWorkspaceRoot(workdir string) (string, bool) {
+	dir, err := filepath.Abs(workdir)
+	if err != nil {
+		dir = workdir
+	}
+	for {
+		if _, err := os.Stat(cheaseeSettingsPath(dir)); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
 }

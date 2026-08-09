@@ -12,6 +12,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newInitDeps builds the shared InitDeps used by both `cheasee-pi init`
+// (runInitE) and start-triggered init (runUpE's empty-folder branch), so the
+// two entry points run byte-identical flows. Package-var seam (newRepository
+// pattern): tests replace it to drive either entry point with stubbed
+// OAuth/prompt boundaries instead of a real device flow or TTY.
+var newInitDeps = func(workdir string) InitDeps {
+	return InitDeps{
+		Ports:         InitPorts{Auth: NewAuthenticator(initClientID)},
+		APIKey:        initAPIKey,
+		NoDockerCheck: initNoDockerCheck,
+		NoGitHub:      initNoGitHub,
+		NoInput:       initNoInput,
+		Workdir:       workdir,
+		ConfirmFn:     promptConfirm,
+		InputFn:       promptInput,
+	}
+}
+
 // nextStepHint is the post-init instruction printed after a successful init run.
 // It is a constant so both the CLI and documentation stay in sync.
 const nextStepHint = "cheasee-pi start"
@@ -24,6 +42,7 @@ var (
 	initClientID      string
 	initProvider      string
 	initNoInput       bool
+	initRepoURL       string
 )
 
 // InitPorts bundles the injected port interfaces used by runInit.
@@ -61,25 +80,28 @@ func (d InitDeps) Validate() error {
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize cheasee-pi configuration",
-	Long: `Initialize cheasee-pi by authenticating with GitHub and scaffolding
-.pi/settings.json into your repository.
+	Long: `Initialize cheasee-pi in an EMPTY folder — init sets the workspace up
+itself: bare clone of your project repo to <parent>/.bare, main worktree in
+the folder, and the dedicated cheasee-settings.json scaffolded (gitignored,
+machine-local). Presence of cheasee-settings.json marks the workspace
+initialized; run 'cheasee-pi start' to launch pi.
 
 The init command will:
   1. Verify Docker Engine 24.0+ is installed and running
-  2. Authenticate with GitHub via OAuth device flow (or use --api-key with --no-github)
-  3. Scaffold .pi/settings.json with cheasee-pi defaults (never overwrites)
+  2. Probe the folder — init is empty-folder-only (refuses non-empty dirs)
+  3. Ask for your project repo URL (owner/repo or a GitHub URL)
+  4. Authenticate with GitHub via OAuth device flow (or use --api-key with --no-github)
+  5. Bare-clone + add the main worktree
+  6. Scaffold cheasee-settings.json with cheasee-pi defaults (never overwrites)
 
-No fork, no clone, no docker files in your repo — compose and Dockerfile are
-CLI-managed cache state. Run 'cheasee-pi start' from your git repository to
-launch pi.
-
-After init, manage API keys with:
+Existing non-empty folders are intentionally NOT supported — run init in a
+fresh empty folder. After init, manage API keys with:
   cheasee-pi auth add <provider>
   cheasee-pi auth list
   cheasee-pi auth remove <provider>
 
 GitHub OAuth is the primary authentication method. Use --no-github to fall
-back to the legacy API-key-only path.`,
+back to the legacy API-key-only path (no clone, no repo URL).`,
 	DisableAutoGenTag: true,
 	RunE:              runInitE,
 }
@@ -93,6 +115,7 @@ func init() {
 	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
+	initCmd.Flags().StringVar(&initRepoURL, "repo-url", "", "Project repository URL for the empty-folder clone (required with --no-input)")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -113,21 +136,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Wire up remaining ports (docker/git CLI and auth config are package-level)
-	authenticator := NewAuthenticator(initClientID)
-	confirmFn := promptConfirm
-	inputFn := promptInput
-
-	return runInit(ctx, InitDeps{
-		Ports:         InitPorts{Auth: authenticator},
-		APIKey:        initAPIKey,
-		NoDockerCheck: initNoDockerCheck,
-		NoGitHub:      initNoGitHub,
-		NoInput:       initNoInput,
-		Workdir:       workdir,
-		ConfirmFn:     confirmFn,
-		InputFn:       inputFn,
-	})
+	return runInit(ctx, newInitDeps(workdir))
 }
 
 // runInit is the orchestrator that sequences all init phases.
@@ -142,21 +151,32 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phase 2: Probe existing setup
-	proceed, err := runInitProbe(ctx, deps.Workdir, deps.ConfirmFn, deps.NoInput)
-	if err != nil {
+	// Phase 2: empty-folder probe — init is empty-folder-only and refuses when
+	// cheasee-settings.json already exists (presence = initialized marker).
+	if err := runInitProbe(deps.Workdir); err != nil {
 		return err
 	}
-	if !proceed {
-		fmt.Fprintln(os.Stderr, "Init cancelled.")
-		return nil
+
+	// Phase 3: project repo URL (GitHub path only; legacy --no-github skips
+	// the clone entirely). Validated before any git call.
+	var repoURL string
+	if !deps.NoGitHub {
+		url, err := resolveRepoURL(deps)
+		if err != nil {
+			return err
+		}
+		if owner, repo := ParseGitHubURL(url); owner == "" || repo == "" {
+			return fmt.Errorf("invalid repo URL %q — expected owner/repo or a GitHub repository URL", url)
+		}
+		repoURL = url
 	}
 
 	// Auth config is file I/O under the OS user config dir — no port.
 	cfg := &fileRepository{}
 
-	// Phase 3: Authentication
+	// Phase 4: Authentication
 	var auth *Auth
+	var err error
 	if deps.NoGitHub {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
@@ -189,12 +209,19 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phase 4: Scaffold .pi/settings.json (never overwrites)
+	// Phase 5: clone phase — bare clone to <parent>/.bare + main worktree.
+	if !deps.NoGitHub {
+		if err := gitCloneWorktree(ctx, repoURL, deps.Workdir); err != nil {
+			return err
+		}
+	}
+
+	// Phase 6: Scaffold cheasee-settings.json (never overwrites)
 	if err := runInitScaffold(ctx, deps.Workdir, deps.ConfirmFn); err != nil {
 		return fmt.Errorf("settings scaffold: %w", err)
 	}
 
-	// Phase 5: Save auth config
+	// Phase 7: Save auth config
 	if err := cfg.Save(ctx, auth); err != nil {
 		return fmt.Errorf("save auth config: %w", err)
 	}
@@ -202,7 +229,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	path, _ := cfg.Path()
 	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
 
-	// Phase 6: API key setup for pi providers (interactive only)
+	// Phase 8: API key setup for pi providers (interactive only)
 	if !deps.NoInput {
 		if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
 			return fmt.Errorf("API key setup: %w", err)
@@ -214,20 +241,45 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	return nil
 }
 
-// runInitProbe checks for an existing .pi/settings.json and prompts the user.
-// If noInput is true, skips the confirm prompt and proceeds.
-func runInitProbe(ctx context.Context, workdir string, confirmFn func(string) (bool, error), noInput bool) (bool, error) {
-	if noInput {
-		// Non-interactive: proceed without prompting
-		return true, nil
+// runInitProbe enforces the empty-folder-only init contract: refuses when
+// cheasee-settings.json already exists (presence = initialized marker — no
+// re-apply prompt) and refuses non-empty folders (cheasee-pi never
+// auto-initializes existing folders). .DS_Store is tolerated so
+// Finder-touched folders still auto-init. Returns nil to proceed.
+func runInitProbe(workdir string) error {
+	if _, err := os.Stat(cheaseeSettingsPath(workdir)); err == nil {
+		return fmt.Errorf("already initialized: %s exists — run `cheasee-pi start`", cheaseeSettingsPath(workdir))
 	}
-
-	if _, err := os.Stat(settingsPath(workdir)); err == nil {
-		ok, err := confirmFn("Existing .pi/settings.json detected. Re-apply configuration?")
-		if err != nil {
-			return false, err
+	entries, err := os.ReadDir(workdir)
+	if err != nil {
+		return fmt.Errorf("inspect folder: %w", err)
+	}
+	for _, e := range entries {
+		if e.Name() == ".DS_Store" {
+			continue
 		}
-		return ok, nil
+		return fmt.Errorf("init requires an empty folder: %q is not empty (found %q) — cheasee-pi init sets the workspace up itself (bare clone + worktree) and never initializes existing folders", workdir, e.Name())
 	}
-	return true, nil
+	return nil
+}
+
+// resolveRepoURL returns the project repo URL for the clone phase: the
+// --repo-url flag when set, otherwise the interactive InputFn prompt. With
+// --no-input and no flag, errors out before any git call.
+func resolveRepoURL(deps InitDeps) (string, error) {
+	if initRepoURL != "" {
+		return initRepoURL, nil
+	}
+	if deps.NoInput {
+		return "", errors.New("init: --repo-url is required with --no-input (empty-folder init clones a bare repo + worktree)")
+	}
+	url, err := deps.InputFn("Project repository URL", "git@github.com:owner/repo.git")
+	if err != nil {
+		return "", fmt.Errorf("repo URL prompt failed: %w", err)
+	}
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return "", errors.New("empty repo URL — expected owner/repo or a GitHub repository URL")
+	}
+	return url, nil
 }

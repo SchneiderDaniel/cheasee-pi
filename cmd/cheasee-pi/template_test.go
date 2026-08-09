@@ -537,3 +537,109 @@ func TestSettingsScaffold_ContextCancelled(t *testing.T) {
 		t.Errorf("error should mention context: %v", err)
 	}
 }
+
+// ──────────────────────────────────────────────
+// CheaseeSettings scaffold (dedicated cheasee-settings.json)
+// ──────────────────────────────────────────────
+
+func TestCheaseeSettingsScaffold_rendersValidJSONAtRoot(t *testing.T) {
+	workdir := t.TempDir()
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test User",
+		GitEmail: "test@example.com",
+		Memory:   "4G",
+		CPUs:     "4.0",
+		ClientID: "test-client",
+	}); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	// The dedicated file lives at the folder root (not a hidden dir).
+	data, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("cheasee-settings.json missing at root: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("scaffold output must be valid JSON: %v\n%s", err, data)
+	}
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("defaultProvider = %v, want opencode-go", raw["defaultProvider"])
+	}
+	docker := raw["docker"].(map[string]any)
+	if docker["memory"] != "4G" || docker["cpus"] != "4.0" {
+		t.Errorf("docker section mismatch: %v", docker)
+	}
+	gitID := raw["gitIdentity"].(map[string]any)
+	if gitID["name"] != "Test User" || gitID["email"] != "test@example.com" {
+		t.Errorf("gitIdentity mismatch: %v", gitID)
+	}
+	oauth := raw["oauth"].(map[string]any)
+	if oauth["clientID"] != "test-client" {
+		t.Errorf("oauth.clientID = %v, want test-client", oauth["clientID"])
+	}
+}
+
+func TestCheaseeSettingsScaffold_outputLoadsAsTypedCheaseeSettings(t *testing.T) {
+	workdir := t.TempDir()
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Test User",
+		GitEmail: "test@example.com",
+		Memory:   "4G",
+		CPUs:     "4.0",
+		ClientID: "test-client",
+	}); err != nil {
+		t.Fatalf("Scaffold failed: %v", err)
+	}
+
+	s, err := LoadCheaseeSettings(workdir)
+	if err != nil {
+		t.Fatalf("scaffold output must load via LoadCheaseeSettings: %v", err)
+	}
+	if s.DefaultProvider != "opencode-go" {
+		t.Errorf("defaultProvider mismatch: %+v", s)
+	}
+	if s.Docker != (DockerSettings{Memory: "4G", CPUs: "4.0"}) {
+		t.Errorf("docker mismatch: %+v", s.Docker)
+	}
+	if s.GitIdentity != (GitIdentitySettings{Name: "Test User", Email: "test@example.com"}) {
+		t.Errorf("gitIdentity mismatch: %+v", s.GitIdentity)
+	}
+	if s.OAuth.ClientID != "test-client" {
+		t.Errorf("oauth.clientID mismatch: %+v", s.OAuth)
+	}
+}
+
+func TestCheaseeSettingsScaffold_idempotent(t *testing.T) {
+	workdir := t.TempDir()
+	vals := TemplateSettingsValues{
+		Provider: "opencode-go",
+		GitName:  "Original",
+		GitEmail: "orig@example.com",
+		Memory:   "2G",
+		CPUs:     "2.0",
+		ClientID: "client-a",
+	}
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, vals); err != nil {
+		t.Fatalf("first Scaffold failed: %v", err)
+	}
+
+	// Second call with different values must no-op (never overwrites).
+	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+		Provider: "overwrite",
+		GitName:  "Overwrite",
+		GitEmail: "overwrite@example.com",
+		Memory:   "8G",
+		CPUs:     "8.0",
+		ClientID: "client-b",
+	}); err != nil {
+		t.Fatalf("second Scaffold failed: %v", err)
+	}
+
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
+	if raw["defaultProvider"] != "opencode-go" {
+		t.Errorf("existing cheasee-settings.json must never be overwritten, got %v", raw["defaultProvider"])
+	}
+}

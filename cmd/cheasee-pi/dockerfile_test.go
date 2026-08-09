@@ -176,3 +176,20 @@ func TestCompose_DefaultsPresent(t *testing.T) {
 		}
 	}
 }
+
+func TestCompose_BareSiblingMount(t *testing.T) {
+	content := readCompose(t)
+	// The sibling bare repo is bind-mounted at /workspaces/.bare so
+	// worktree-fix.sh sees its expected layout; the workspace folder mount is
+	// retained. :Z relabel (VOLUME_RELABEL) applies to both.
+	if !strings.Contains(content, "${WORKSPACE_BARE_PATH}:/workspaces/.bare${VOLUME_RELABEL:-}") {
+		t.Error("compose must bind ${WORKSPACE_BARE_PATH} at /workspaces/.bare with the relabel suffix")
+	}
+	if !strings.Contains(content, "${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}") {
+		t.Error("compose must keep the ${WORKSPACE_HOST_PATH}:/workspaces/main mount with the relabel suffix")
+	}
+	// The mount must be a sibling, never a parent-of-folder single mount.
+	if strings.Contains(content, "${WORKSPACE_HOST_PATH}/../:/workspaces") {
+		t.Error("compose must not mount the whole parent at /workspaces")
+	}
+}

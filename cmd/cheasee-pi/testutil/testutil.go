@@ -90,6 +90,29 @@ func WriteSettingsFile(t *testing.T, workdir, content string) {
 	}
 }
 
+// WriteCheaseeSettingsFile writes cheasee-settings.json at the workspace root.
+func WriteCheaseeSettingsFile(t *testing.T, workdir, content string) {
+	t.Helper()
+	path := filepath.Join(workdir, "cheasee-settings.json")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ReadCheaseeSettingsRaw reads cheasee-settings.json and returns it as a map.
+func ReadCheaseeSettingsRaw(t *testing.T, workdir string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("read cheasee-settings.json: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("cheasee-settings.json is not valid JSON: %v", err)
+	}
+	return raw
+}
+
 // SetGitConfig points git config lookups at a hermetic temp config file
 // containing content (system config disabled). Skips when git is absent.
 // Serialized (no t.Parallel) because t.Setenv is process-wide.

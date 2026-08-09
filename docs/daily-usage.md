@@ -24,7 +24,9 @@ Before running pi via Docker, ensure the following are in place:
 - **GitHub CLI authenticated** on the host — `gh auth status` shows `Logged in to github.com`
 - **Emoji font** on the host terminal (see [Installation > Troubleshooting](installation.md#emoji--icons-not-displaying) for setup)
 - **First-time build complete** — the Docker image must be built at least once. See [Start](#start-the-container) below.
-- **Your own git repository** — cheasee-pi mounts the repo you run it from.
+- **A cheasee-pi workspace** — run `cheasee-pi init` in an empty folder to set
+  one up (bare clone + main worktree + `cheasee-settings.json`), or just run
+  `cheasee-pi start` in an empty folder — it auto-inits first.
 
 The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
 automatically inside the container.
@@ -52,12 +54,16 @@ This builds the Docker image from the CLI cache dir (`~/.cache/cheasee-pi/<versi
 - Compose/Dockerfile are extracted to the CLI cache dir; the image clones
   the cheasee-pi repo at build time (`ARG CHEASEE_REF`, default `main`)
   into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
-- Your repo (git toplevel) is bind-mounted to `/workspaces/main`
+- Your workspace (main worktree) is bind-mounted to `/workspaces/main`, its
+  sibling bare repo to `/workspaces/.bare` (two sibling mounts — the
+  entrypoint rewrites worktree paths relative and locks them)
 - CodeFlow service is built from the cache dir's `codeflow/` subtree
 - Entrypoint auto-detects UID/GID from the mount and remaps the `agentuser` user
 - npm dependencies are installed on first start (~30-60s)
 
-The first run also scaffolds `.pi/settings.json` into your repo root if missing.
+The workspace's `cheasee-settings.json` (scaffolded by init, gitignored) is
+read for docker memory/cpus and git identity. pi's own `.pi/settings.json` is
+self-scaffolded by pi on its first run.
 
 ### Subsequent starts
 
@@ -121,8 +127,10 @@ graph, blast radius, and health score work fully offline.
 cheasee-pi
 ```
 
-`cheasee-pi` (no subcommand, alias `start`) checks that you're inside a git
-repository, starts the container if needed, reads `~/.config/cheasee-pi/auth.json`,
+`cheasee-pi` (no subcommand, alias `start`) gates on the workspace: empty
+folder → auto-runs `cheasee-pi init`; `cheasee-settings.json` present → runs;
+non-empty folder without settings → refused with a hint to run init. It then
+starts the container if needed, reads `~/.config/cheasee-pi/auth.json`,
 injects API keys as env vars, and launches pi with your repo mounted at
 `/workspaces/main`.
 

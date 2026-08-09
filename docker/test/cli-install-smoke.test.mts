@@ -3,15 +3,19 @@
  *
  * Simulates a real user's machine:
  *   1. Download cheasee-pi binary (pre-built by workflow)
- *   2. git config --global (avoids prompts in scaffold) + git init the workdir
- *   3. cheasee-pi init --no-github ... (all flags to skip interactivity)
+ *   2. git config --global (avoids prompts in scaffold)
+ *   3. cheasee-pi init --no-github ... into an EMPTY folder (init is
+ *      empty-folder-only: it sets the workspace up itself — the GitHub path
+ *      bare-clones + worktrees; the legacy --no-github path scaffolds only)
  *   4. Verify scaffolded files (checkpoint 3)
- *   5. cheasee-pi build — extracts cache tree, compose build (checkpoint 4)
- *   6. docker compose up -d (checkpoint 5)
- *   7. Health check reaches healthy (checkpoint 6)
- *   8. pi --version inside container (checkpoint 7)
- *   9. cheasee-pi start with PTY (checkpoint 8)
- *   10. cheasee-pi down (checkpoint 9)
+ *   5. git init the workdir so build/start can mount it (the GitHub path's
+ *      clone is replaced by the plain repo in this API-key-only smoke run)
+ *   6. cheasee-pi build — extracts cache tree, compose build (checkpoint 4)
+ *   7. docker compose up -d (checkpoint 5)
+ *   8. Health check reaches healthy (checkpoint 6)
+ *   9. pi --version inside container (checkpoint 7)
+ *   10. cheasee-pi start with PTY (checkpoint 8)
+ *   11. cheasee-pi down (checkpoint 9)
  *
  * compose/Dockerfile no longer live in the user repo — init is
  * scaffold-only (no docker/ dir, no clone, no fork) and start extracts the
@@ -28,7 +32,7 @@
 
 import assert from "node:assert";
 import { describe, it, before, after } from "node:test";
-import { mkdtempSync, existsSync, readFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -164,12 +168,14 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			);
 		}
 
-		// Create a fresh temp directory for the test
+		// Create a fresh EMPTY temp directory for the test — init is
+		// empty-folder-only (cheasee-pi sets the workspace up itself).
 		workdir = mkdtempSync(join(tmpdir(), "cli-install-"));
-		// `cheasee-pi start` only runs inside a git repository — the user's
-		// own repo is the pi workspace (mounted at /workspaces/main).
-		const init = exec(`git init -q "${workdir}"`, { timeout: 10_000 });
-		assert.strictEqual(init.status, 0, `git init exited ${init.status}: ${init.stderr}`);
+		// The sibling bare mount source: the compose file bind-mounts
+		// ${WORKSPACE_BARE_PATH}:/workspaces/.bare, and compose validates
+		// every volume spec even for raw `up`. An empty dir is fine for the
+		// smoke run (worktree-fix skips a bare dir without worktrees).
+		mkdirSync(join(workdir, "..", ".bare"), { recursive: true });
 	});
 
 	after(() => {
@@ -217,19 +223,24 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		);
 	});
 
-	// ── Checkpoint 3: scaffold-only — settings.json, no docker files ──
+	// ── Checkpoint 3: dedicated settings file, no docker files ──
 
-	it("checkpoint 3 — only .pi/settings.json is scaffolded into the repo", () => {
-		// The only artifact written into the user repo is .pi/settings.json.
-		const settingsPath = join(workdir, ".pi", "settings.json");
-		assert.ok(existsSync(settingsPath), `expected file to exist: .pi/settings.json`);
+	it("checkpoint 3 — cheasee-settings.json is scaffolded at the folder root", () => {
+		// The dedicated, gitignored settings file marks the workspace
+		// initialized — independent from pi's own .pi/settings.json (which pi
+		// self-scaffolds on first run, so init must not create it).
+		const settingsPath = join(workdir, "cheasee-settings.json");
+		assert.ok(existsSync(settingsPath), `expected file to exist: cheasee-settings.json`);
 		const content = readFileSync(settingsPath, "utf-8");
-		assert.ok(content.length > 0, `expected non-empty file: .pi/settings.json`);
-		// Absolute /opt/cheasee-pi resource paths — the image bakes the
-		// cheasee-pi resource tree there (never ../private-pi/... siblings).
+		assert.ok(content.length > 0, `expected non-empty file: cheasee-settings.json`);
 		assert.ok(
-			content.includes("/opt/cheasee-pi/.pi/skills"),
-			`expected /opt/cheasee-pi/.pi/skills in settings, got: ${content}`,
+			content.includes('"docker"'),
+			`expected docker section in cheasee-settings.json, got: ${content}`,
+		);
+		// pi's own settings file is NOT injected by init.
+		assert.ok(
+			!existsSync(join(workdir, ".pi", "settings.json")),
+			"init must not scaffold .pi/settings.json (pi self-scaffolds it)",
 		);
 		// No docker/ tree, no compose, no scripts in the user repo.
 		assert.ok(
@@ -240,6 +251,17 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			!existsSync(join(workdir, "docker-compose.yml")),
 			"init must not create docker-compose.yml in the user repo",
 		);
+	});
+
+	// ── Checkpoint 3b: plain git repo for build/start (smoke substitute) ──
+
+	it("checkpoint 3b — workdir is a git repo for the build/start journey", () => {
+		// The GitHub init path produces a bare clone + main worktree here; the
+		// legacy --no-github path (API-key only) leaves the folder repo-less.
+		// The smoke run mounts the folder as the pi workspace, so make it a
+		// plain repo — build/start require a git toplevel.
+		const init = exec(`git init -q "${workdir}"`, { timeout: 10_000 });
+		assert.strictEqual(init.status, 0, `git init exited ${init.status}: ${init.stderr}`);
 	});
 
 	// ── Checkpoint 4: cheasee-pi build (extract cache tree + compose build)
@@ -266,7 +288,12 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		const result = exec(`docker compose -f "${composeFile()}" up -d cheasee-pi`, {
 			timeout: 120_000,
 			cwd: workdir,
-			env: { WORKSPACE_HOST_PATH: workdir },
+			env: {
+				WORKSPACE_HOST_PATH: workdir,
+				// Sibling bare repo — same resolution the CLI applies
+				// (applyComposeEnv: <parent>/.bare → /workspaces/.bare).
+				WORKSPACE_BARE_PATH: join(workdir, "..", ".bare"),
+			},
 		});
 		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);
 
@@ -401,16 +428,26 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for removed --skip-fork flag");
 	});
 
-	it("adapter — start outside a git repository is refused", () => {
-		const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
-			timeout: 10_000,
-			cwd: errWorkdir,
-		});
-		assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-git cwd");
-		assert.ok(
-			result.stderr.includes("git"),
-			`expected error mentioning git, got: ${result.stderr}`,
-		);
+	it("adapter — start on a non-empty folder without settings is refused", () => {
+		// An empty folder auto-inits; a non-empty folder without
+		// cheasee-settings.json is refused (cheasee-pi never auto-initializes
+		// existing folders). errWorkdir is empty for the init error tests, so
+		// use a separate non-empty fixture here.
+		const refusedDir = mkdtempSync(join(tmpdir(), "cli-install-refused-"));
+		try {
+			writeFileSync(join(refusedDir, "somefile.txt"), "x");
+			const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
+				timeout: 10_000,
+				cwd: refusedDir,
+			});
+			assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-initialized folder");
+			assert.ok(
+				result.stderr.includes("not initialized"),
+				`expected refusal mentioning "not initialized", got: ${result.stderr}`,
+			);
+		} finally {
+			rmSync(refusedDir, { recursive: true, force: true });
+		}
 	});
 
 	it("adapter — non-existent binary exits non-zero", () => {

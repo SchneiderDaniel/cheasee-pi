@@ -16,6 +16,7 @@ import (
 var initSplitFiles = []string{
 	"init.go",
 	"init_auth.go",
+	"init_clone.go",
 	"init_prompt.go",
 	"init_scaffold.go",
 }
@@ -25,23 +26,28 @@ var initSplitFiles = []string{
 // decl placed in the wrong file (or renamed) fails the test.
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
-	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput": "init.go",
-	"type:InitPorts":    "init.go",
-	"type:InitDeps":     "init.go",
-	"func:Validate":     "init.go",
-	"var:initCmd":       "init.go",
-	"func:init":         "init.go",
-	"func:runInitE":     "init.go",
-	"func:runInit":      "init.go",
-	"func:runInitProbe": "init.go",
+	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL": "init.go",
+	"var:newInitDeps":     "init.go",
+	"type:InitPorts":      "init.go",
+	"type:InitDeps":       "init.go",
+	"func:Validate":       "init.go",
+	"var:initCmd":         "init.go",
+	"func:init":           "init.go",
+	"func:runInitE":       "init.go",
+	"func:runInit":        "init.go",
+	"func:runInitProbe":   "init.go",
+	"func:resolveRepoURL": "init.go",
+
+	"func:gitCloneWorktree": "init_clone.go",
 
 	"func:runInitAuth":    "init_auth.go",
 	"func:runInitAPIKeys": "init_auth.go",
 	"func:runInitLegacy":  "init_auth.go",
 	"func:promptAPIKey":   "init_auth.go",
 
-	"func:runInitDockerCheck": "init_scaffold.go",
-	"func:runInitScaffold":    "init_scaffold.go",
+	"func:runInitDockerCheck":       "init_scaffold.go",
+	"func:runInitScaffold":          "init_scaffold.go",
+	"func:gitIgnoreCheaseeSettings": "init_scaffold.go",
 
 	"func:promptConfirm":     "init_prompt.go",
 	"func:promptGitIdentity": "init_prompt.go",
@@ -182,6 +188,7 @@ func TestInitSplitFileSize(t *testing.T) {
 // any decl inside them that is not covered by an inventory entry or rule.
 var testSplitFiles = []string{
 	"init_helpers_test.go",
+	"init_clone_test.go",
 	"init_usecase_test.go",
 	"init_auth_test.go",
 	"init_scaffold_test.go",
@@ -204,7 +211,7 @@ var runInitFlowDecls = map[string]string{
 	"func:TestRunInit_FullFlow":                   "init_auth_test.go",
 	"func:TestRunInit_NoGitHubFlag":               "init_auth_test.go",
 	"func:TestRunInit_ContextCancelledMidFlow":    "init_auth_test.go",
-	"func:TestRunInit_ScaffoldOnlyNoClone":        "init_prompt_test.go",
+	"func:TestRunInit_GitHubFlowClonesWorktree":   "init_prompt_test.go",
 	"func:TestRunInit_NoGitHubLegacySkipsGitInit": "init_prompt_test.go",
 }
 
@@ -212,9 +219,13 @@ var runInitFlowDecls = map[string]string{
 // checked in order; more specific prefixes must come first (e.g.
 // TestRunInitScaffold before TestRunInitProbe).
 var testSplitRules = []prefixRule{
+	{"TestGitCloneWorktree", "init_clone_test.go"},
+	{"TestParseGitHubURL", "init_clone_test.go"},
+	{"TestRedactToken", "init_clone_test.go"},
 	{"TestRunInitAuth", "init_auth_test.go"},
 	{"TestRunInitLegacy", "init_auth_test.go"},
 	{"TestRunInitScaffold", "init_scaffold_test.go"},
+	{"TestGitIgnoreCheaseeSettings", "init_scaffold_test.go"},
 	{"TestInitDeps", "init_scaffold_test.go"},
 	{"TestInit_SuccessMessage", "init_scaffold_test.go"},
 	{"TestInitCmd", "init_prompt_test.go"},

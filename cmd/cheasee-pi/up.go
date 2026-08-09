@@ -29,14 +29,20 @@ var upCmd = &cobra.Command{
 	Short:   "Launch pi inside container with provider keys injected",
 	Long: `Launch an interactive pi session inside the Cheasee-Pi Docker container.
 
-Runs from your own git repository: the repo toplevel is bind-mounted at
-/workspaces/main inside the container. compose/Dockerfile live in a
-CLI-managed cache dir; only .pi/settings.json is scaffolded into the repo
-(created if missing, never overwritten). The image clones the cheasee-pi
-repo at build time (Dockerfile ARG CHEASEE_REF) for its .pi resources.
+Runs from a cheasee-pi workspace: the workspace folder (main worktree) is
+bind-mounted at /workspaces/main and its sibling bare repo at
+/workspaces/.bare inside the container. compose/Dockerfile live in a
+CLI-managed cache dir; the dedicated cheasee-settings.json (gitignored,
+machine-local) is the initialized marker.
 
-Reads provider API keys from ~/.config/cheasee-pi/auth.json and passes them as
-environment variables to the container, so pi finds models without manual /login.
+Empty folder → runs cheasee-pi init first (bare clone + main worktree +
+cheasee-settings.json). Non-empty folder without cheasee-settings.json is
+refused — run 'cheasee-pi init' in an empty folder.
+
+The image clones the cheasee-pi repo at build time (Dockerfile ARG
+CHEASEE_REF) for its .pi resources. Reads provider API keys from
+~/.config/cheasee-pi/auth.json and passes them as environment variables to
+ the container, so pi finds models without manual /login.
 
 If the container is not running, starts it with docker compose up first.
 Use --build to force rebuild.
@@ -75,17 +81,36 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("resolve workdir: %w", err)
 	}
 
-	// Phase 1: verify the current directory is a git repository (toplevel).
-	// Runs before any docker invocation — a non-git cwd is refused fast.
-	root, relCwd, err := repoRoot(workdir)
-	if err != nil {
-		return err
+	// Phase 1: workspace gate — empty folder → auto-init; cheasee-settings.json
+	// present → run; anything else → refuse. Runs before any docker/git call so
+	// a non-initialized cwd is refused fast (and dry-run touches nothing).
+	root, found := findWorkspaceRoot(workdir)
+	if !found {
+		switch state, err := classifyWorkspace(workdir); {
+		case err != nil:
+			return err
+		case state == WorkspaceEmpty:
+			if upDryRun {
+				fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` again.\n", workdir)
+				return nil
+			}
+			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init` first...\n", workdir)
+			if err := runInit(ctx, newInitDeps(workdir)); err != nil {
+				return fmt.Errorf("auto-init failed: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "  ℹ Init complete — run `cheasee-pi start` again to launch pi.\n")
+			return nil
+		case state == WorkspaceRefuse:
+			return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
+		}
 	}
 
 	// docker exec working directory: /workspaces/main when started at the
-	// toplevel, /workspaces/main/<rel> when started from a subdirectory.
+	// workspace root, /workspaces/main/<rel> when started from a subdirectory.
+	// Best-effort --show-prefix: a broken/corrupt worktree falls back to the
+	// root instead of refusing (the settings gate already passed).
 	target := "/workspaces/main"
-	if relCwd != "" && relCwd != "." {
+	if _, relCwd, err := repoRoot(workdir); err == nil && relCwd != "" && relCwd != "." {
 		target += "/" + relCwd
 	}
 
@@ -121,17 +146,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Phase 5: scaffold .pi/settings.json into the repo root (idempotent —
-	// never overwrites an existing file). Absolute /opt/cheasee-pi paths.
-	scaffolded, err := runUpScaffold(ctx, root)
-	if err != nil {
-		return fmt.Errorf("settings scaffold: %w", err)
-	}
-	if scaffolded {
-		fmt.Fprintf(os.Stderr, "  ✓ Created .pi/settings.json in %s\n", root)
-	}
-
-	// Phase 6: ensure the version-keyed cache dir with embedded compose
+	// Phase 5: ensure the version-keyed cache dir with embedded compose
 	// assets (regenerable; a fresh extraction overwrites cleanly).
 	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
@@ -141,7 +156,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
-	// Phase 7: Ensure container running
+	// Phase 6: Ensure container running
 	running, err := containerRunning(upName)
 	if err != nil {
 		return fmt.Errorf("check container: %w", err)
@@ -153,7 +168,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Phase 8: Run pre-start orphan scan (best-effort)
+	// Phase 7: Run pre-start orphan scan (best-effort)
 	killed, err := scanOrphans(ctx, upName)
 	if err != nil {
 		return fmt.Errorf("pre-start orphan scan: %w", err)
@@ -162,37 +177,38 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
 	}
 
-	// Phase 9: exec pi
+	// Phase 8: exec pi
 	return execPIContainer(upName, envMap, target)
 }
 
-// runUpScaffold writes .pi/settings.json into the repo root when missing
-// (never overwrites) and reports whether it created one. start is
-// non-interactive: git identity comes from git config with cheasee-pi
-// defaults on empty, no prompts.
-func runUpScaffold(ctx context.Context, root string) (bool, error) {
-	if _, err := os.Stat(settingsPath(root)); err == nil {
-		return false, nil
+// WorkspaceState is the start-gate classification of a folder.
+type WorkspaceState int
+
+const (
+	WorkspaceEmpty       WorkspaceState = iota // empty (or .DS_Store-only) → auto-init
+	WorkspaceInitialized                       // cheasee-settings.json present → run
+	WorkspaceRefuse                            // non-empty, no settings → refuse
+)
+
+// classifyWorkspace classifies a folder for the start gate: an empty folder
+// (or one containing only .DS_Store) is ready for auto-init, a folder with
+// cheasee-settings.json is an initialized workspace, and anything else is
+// refused — cheasee-pi never auto-initializes existing folders.
+func classifyWorkspace(workdir string) (WorkspaceState, error) {
+	if _, err := os.Stat(cheaseeSettingsPath(workdir)); err == nil {
+		return WorkspaceInitialized, nil
 	}
-	gitName, gitEmail, _ := NewGitIdentity().Lookup()
-	if gitName == "" {
-		gitName = "Cheasee-Pi"
+	entries, err := os.ReadDir(workdir)
+	if err != nil {
+		return 0, fmt.Errorf("inspect workspace %q: %w", workdir, err)
 	}
-	if gitEmail == "" {
-		gitEmail = "cheasee-pi@localhost"
+	for _, e := range entries {
+		if e.Name() == ".DS_Store" {
+			continue
+		}
+		return WorkspaceRefuse, nil
 	}
-	vals := TemplateSettingsValues{
-		Provider:     initProvider,
-		GitName:      gitName,
-		GitEmail:     gitEmail,
-		Memory:       "2G",
-		CPUs:         "2.0",
-		HasPrivatePi: false,
-	}
-	if err := NewSettingsScaffold().Scaffold(ctx, root, vals); err != nil {
-		return false, err
-	}
-	return true, nil
+	return WorkspaceEmpty, nil
 }
 
 func containerRunning(name string) (bool, error) {
@@ -205,11 +221,21 @@ func containerRunning(name string) (bool, error) {
 }
 
 // dockerComposeUp builds and starts the container from the cache dir. The
-// compose file lives at composeDir/docker-compose.yml; the user repo toplevel
-// (workspaceHostPath) is injected as WORKSPACE_HOST_PATH — the CLI-resolved
-// absolute path, never ${PWD} (macOS logical-vs-resolved path pitfall).
+// compose file lives at composeDir/docker-compose.yml; the workspace root
+// (workspaceHostPath) is injected as WORKSPACE_HOST_PATH and its sibling bare
+// repo as WORKSPACE_BARE_PATH — CLI-resolved absolute paths, never ${PWD}
+// (macOS logical-vs-resolved path pitfall).
 func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) error {
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
+
+	// Fail closed when the sibling bare repo is missing: the worktree's gitdir
+	// points into <parent>/.bare, and a compose up would otherwise let Docker's
+	// create_host_path auto-create a stray empty host dir that breaks the
+	// mount/worktree-fix contract. Recovery hint instead of a silent stray dir.
+	bareDir := filepath.Join(filepath.Dir(workspaceHostPath), ".bare")
+	if _, err := os.Stat(bareDir); err != nil {
+		return fmt.Errorf("workspace is corrupt: bare repository %s is missing (cheasee-settings.json present, no .bare sibling) — re-run `cheasee-pi init` in an empty folder and clone again", bareDir)
+	}
 
 	// Build with a per-build cache-busting stamp so the pi-coding-agent
 	// layer always re-resolves @latest (Docker caches RUN layers on the
@@ -242,21 +268,27 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) 
 }
 
 // applyComposeEnv sets the compose-up environment: the CLI-resolved absolute
-// workspace host path, plus resource limits and git identity from
-// .pi/settings.json (replacing the old docker/.env file). SELinux-enforcing
-// hosts opt in to bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1
-// (appends :Z to every bind mount — documented, not default: relabel cost).
+// workspace host path plus its sibling bare repo (<parent>/.bare) — two
+// sibling bind mounts (folder→/workspaces/main, bare→/workspaces/.bare), never
+// a single parent-of-folder mount — plus resource limits and git identity
+// from cheasee-settings.json (replacing the old docker/.env file and the
+// pi-coupled .pi/settings.json read). SELinux-enforcing hosts opt in to
+// bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
+// bind mount — documented, not default: relabel cost).
 func applyComposeEnv(cmd runner, workspaceHostPath string) {
-	env := append(os.Environ(), "WORKSPACE_HOST_PATH="+workspaceHostPath)
+	env := append(os.Environ(),
+		"WORKSPACE_HOST_PATH="+workspaceHostPath,
+		"WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workspaceHostPath), ".bare"),
+	)
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")
 		fmt.Fprintf(os.Stderr, "  ℹ SELinux relabeling enabled: appending :Z to bind mounts\n")
 	}
 	if mem, ok := memoryLimitEnv(workspaceHostPath); ok {
 		env = append(env, mem)
-		fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from settings.json\n", envValue(mem))
+		fmt.Fprintf(os.Stderr, "  ℹ Using memory limit %s from cheasee-settings.json\n", envValue(mem))
 	}
-	if s, err := LoadSettings(workspaceHostPath); err == nil {
+	if s, err := LoadCheaseeSettings(workspaceHostPath); err == nil {
 		if s.Docker.CPUs != "" {
 			env = append(env, "CHEASEEPI_CPUS="+s.Docker.CPUs)
 		}

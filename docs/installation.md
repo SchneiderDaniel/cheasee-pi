@@ -63,19 +63,27 @@ cheasee-pi --version
 cheasee-pi init
 ```
 
-This one command handles everything:
+Run init in an **empty folder** — cheasee-pi sets the workspace up itself:
 
 1. Verifies Docker Engine 24.0+ is installed and running
-2. Authenticates with GitHub (OAuth in browser)
-3. Scaffolds `.pi/settings.json` into your repo with cheasee-pi defaults
-   (absolute `/opt/cheasee-pi` resource paths; never overwrites an existing file)
+2. Probes the folder — init is empty-folder-only (existing non-empty folders
+   are refused; cheasee-pi never auto-initializes them)
+3. Asks for your project repo URL (`owner/repo` or any GitHub URL)
+4. Authenticates with GitHub (OAuth in browser)
+5. Bare-clones your repo to `<parent>/.bare` and adds the main worktree into
+   the folder
+6. Scaffolds the dedicated `cheasee-settings.json` at the folder root
+   (gitignored, machine-local — docker memory/cpus, git identity, default
+   provider; never overwrites an existing file)
 
-No fork, no clone, no docker files in your repo — the compose file, Dockerfile,
-and pi resources are CLI-managed cache state.
+No docker files in your repo — the compose file and Dockerfile are CLI-managed
+cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
+first run.
 
 {:.note-title}
 > No GitHub?
-> `cheasee-pi init --no-github` skips auth. You provide API keys separately.
+> `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
+> separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
 
 ### Add API keys later
 
@@ -86,24 +94,32 @@ cheasee-pi auth list                # verify
 
 ## Run
 
-Run cheasee-pi from **your own git repository**:
+Run cheasee-pi from your **cheasee-pi workspace** — or straight from an empty
+folder, which auto-runs init first:
 
 ```bash
 # ✓ Auth config saved to ~/.config/cheasee-pi/auth.json after init
-cheasee-pi
+cheasee-pi start
 ```
 
-`cheasee-pi` (alias `start`):
+`cheasee-pi` (alias `start`) gates on the workspace state:
 
-1. Verifies the current directory is inside a git repository (refuses otherwise)
-2. Scaffolds `.pi/settings.json` into the repo root if missing (never overwrites)
-3. Extracts compose/Dockerfile to the CLI cache dir
+- **Empty folder** → auto-runs `cheasee-pi init` (repo URL prompt, bare clone
+  + main worktree, `cheasee-settings.json`), then you run `start` again
+- **`cheasee-settings.json` present** → initialized workspace; runs normally
+- **Non-empty folder without `cheasee-settings.json`** → refused with
+  “not initialized; run `cheasee-pi init` in an empty folder”
+
+On an initialized workspace it:
+
+1. Extracts compose/Dockerfile to the CLI cache dir
    (`~/.cache/cheasee-pi/<version>/`); the image build clones the cheasee-pi
    repo (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi`
    and symlinks its resources into `~/.pi/agent/`
-4. Starts the container (builds image ~2 min first time) with your repo mounted
-   at `/workspaces/main`
-5. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
+2. Starts the container (builds image ~2 min first time) with the workspace
+   mounted at `/workspaces/main` and its sibling bare repo at
+   `/workspaces/.bare` (the entrypoint rewrites worktree paths and locks them)
+3. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
 
 Pi auto-updates to the latest version on every container start. No manual update needed.
 
@@ -115,10 +131,10 @@ cheasee-pi down
 
 ## After setup
 
-Edit `.pi/settings.json` in your repo to configure pi: `defaultProvider`,
-`defaultModel`, `docker.memory`/`docker.cpus`, `skills`, `prompts`,
-`extensions`, `theme`. Delete the file and run `cheasee-pi start` to
-re-scaffold defaults — the CLI never overwrites an existing file.
+Edit `cheasee-settings.json` in your workspace root to configure cheasee-pi:
+`defaultProvider`, `docker.memory`/`docker.cpus`, `gitIdentity`.
+Pi's own `.pi/settings.json` (`defaultModel`, `skills`, `prompts`, `extensions`,
+`theme`) is self-scaffolded by pi on first run — the CLI never writes it.
 
 ## What's next
 

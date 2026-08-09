@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -290,4 +292,141 @@ func initDeps(t *testing.T, opts ...func(*InitDeps)) InitDeps {
 		opt(&deps)
 	}
 	return deps
+}
+
+// initDepsWithRepoURL returns init deps configured for the GitHub clone path:
+// interactive mode with a stubbed repo-URL input and API-key setup declined
+// (the provider/model prompts are real huh TTY calls that would hang tests).
+// The git identity prompt is skipped via SetGitConfig in callers.
+func initDepsWithRepoURL(t *testing.T, workdir string, opts ...func(*InitDeps)) InitDeps {
+	t.Helper()
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = false
+		d.InputFn = mockInputFn("owner/repo", nil)
+		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+	})
+	for _, opt := range opts {
+		opt(&deps)
+	}
+	return deps
+}
+
+// cloneCapture records the git clone/worktree argv captured during an init
+// test via stubInitGit.
+type cloneCapture struct {
+	cloneArgs   [][]string
+	worktreeAdd [][]string
+}
+
+// stubInitGit stubs the git seam for the init clone phase: captures argv and
+// materializes the bare dir + worktree .git file so later phases (scaffold,
+// gitignore append) see a plausible workspace. Non-git commands fall through
+// to the previously-installed seam (e.g. a docker stub installed first).
+func stubInitGit(t *testing.T) *cloneCapture {
+	t.Helper()
+	c := &cloneCapture{}
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			if slices.Contains(arg, "clone") {
+				c.cloneArgs = append(c.cloneArgs, append([]string(nil), arg...))
+				bare := arg[len(arg)-1]
+				if err := os.MkdirAll(bare, 0755); err != nil {
+					return &mockCmd{runFn: func() error { return err }}
+				}
+				return &mockCmd{}
+			}
+			if slices.Contains(arg, "worktree") && slices.Contains(arg, "add") {
+				c.worktreeAdd = append(c.worktreeAdd, append([]string(nil), arg...))
+				wt := arg[len(arg)-1]
+				if err := os.MkdirAll(wt, 0755); err != nil {
+					return &mockCmd{runFn: func() error { return err }}
+				}
+				if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: ../.bare/worktrees/main\n"), 0644); err != nil {
+					return &mockCmd{runFn: func() error { return err }}
+				}
+				return &mockCmd{}
+			}
+		}
+		return saved(ctx, name, arg...)
+	})
+	return c
+}
+
+// gitCloneCapture records the git clone/worktree argv from stubGitClone.
+type gitCloneCapture struct {
+	cloneArgs    []string
+	worktreeArgs []string
+}
+
+// stubGitClone stubs the git seam for gitCloneWorktree tests: captures the
+// clone/worktree argv into a struct (closure-safe: the stub outlives the
+// helper call) and lets the test inject failures via non-nil errors. Non-git
+// commands fall through to the real seam.
+func stubGitClone(t *testing.T, cloneErr, worktreeErr error) *gitCloneCapture {
+	t.Helper()
+	c := &gitCloneCapture{}
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" && slices.Contains(arg, "clone") {
+			c.cloneArgs = append(append([]string(nil), name), arg...)
+			// Materialize the bare dir (git would leave a partial .bare on a
+			// failed clone too) so cleanup assertions are exercised.
+			if err := os.MkdirAll(arg[len(arg)-1], 0755); err != nil {
+				return &mockCmd{runFn: func() error { return err }}
+			}
+			if cloneErr != nil {
+				return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("fatal: remote error"), cloneErr }}
+			}
+			return &mockCmd{}
+		}
+		if name == "git" && slices.Contains(arg, "worktree") {
+			c.worktreeArgs = append(append([]string(nil), name), arg...)
+			if worktreeErr != nil {
+				return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("fatal: invalid reference"), worktreeErr }}
+			}
+			return &mockCmd{}
+		}
+		return saved(ctx, name, arg...)
+	})
+	return c
+}
+
+// runGit execs the real git binary, failing the test on error.
+func runGit(t *testing.T, args ...string) []byte {
+	t.Helper()
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return nil
+}
+
+// gitRemoteFixture builds a real git repo with one commit on the given
+// default branch, usable as a clone source for the adapter tests.
+func gitRemoteFixture(t *testing.T, branch string) string {
+	t.Helper()
+	src := t.TempDir()
+	runGit(t, "-C", src, "init", "-q")
+	// Force the default branch explicitly (host init.defaultBranch config
+	// may otherwise pick main or master regardless of the fixture intent).
+	runGit(t, "-C", src, "symbolic-ref", "HEAD", "refs/heads/"+branch)
+	runGit(t, "-C", src, "config", "user.email", "t@t.t")
+	runGit(t, "-C", src, "config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(src, "README.md"), []byte("fixture\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, "-C", src, "add", "README.md")
+	runGit(t, "-C", src, "commit", "-q", "-m", "init")
+	return src
+}
+
+// cloneWorktreeLayout builds the init-clone layout (bare clone +
+// worktree add --detach, no branch) exactly as gitCloneWorktree does.
+func cloneWorktreeLayout(t *testing.T, src, parent, workdir string) string {
+	t.Helper()
+	bareDir := filepath.Join(parent, ".bare")
+	runGit(t, "clone", "--bare", "-q", src, bareDir)
+	runGit(t, "--git-dir", bareDir, "worktree", "add", "--detach", workdir)
+	return bareDir
 }

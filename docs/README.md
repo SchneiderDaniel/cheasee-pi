@@ -49,8 +49,9 @@ Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee
 ### Using the CLI (auto)
 
 ```bash
-cheasee-pi init           # interactive setup: auth, scaffold .pi/settings.json
-cheasee-pi                # start container + inject keys + launch pi (default)
+cheasee-pi init           # empty-folder setup: repo URL, auth, bare clone + worktree,
+                          # scaffold gitignored cheasee-settings.json
+cheasee-pi start          # empty folder → auto-init; workspace → start pi (default)
 cheasee-pi down           # stop and remove container
 cheasee-pi clean          # kill orphaned pi sessions + prune Docker garbage
 cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
