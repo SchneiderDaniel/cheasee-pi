@@ -30,7 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 SRC="cmd/cheasee-pi/embedded/docker"
-SHARED_RELS=(Dockerfile docker-compose.yml entrypoint.sh run-pi.sh stop-pi.sh \
+SHARED_RELS=(Dockerfile docker-compose.yml entrypoint.sh \
 	codeflow/Dockerfile codeflow/config.json codeflow/server.py \
 	lib/auth-env.sh lib/worktree-fix.sh)
 
@@ -94,11 +94,12 @@ run_expect 0 "docker-tree is idempotent (second run exits 0)" make docker-tree
 # 3. check pass after regen
 run_expect 0 "check-docker passes after regen" make check-docker
 
-# 4. exec bits match source modes (run/stop 0755, entrypoint 0644)
-if [ -x docker/run-pi.sh ] && [ -x docker/stop-pi.sh ] && [ ! -x docker/entrypoint.sh ]; then
-	pass "exec bits: run-pi.sh/stop-pi.sh 0755, entrypoint.sh 0644"
+# 4. exec bits match source modes (entrypoint 0644; run-pi.sh/stop-pi.sh
+#    were removed in the #1493 repo-mount restructure)
+if [ ! -x docker/entrypoint.sh ]; then
+	pass "exec bits: entrypoint.sh 0644 (run-pi.sh/stop-pi.sh removed in #1493)"
 else
-	fail "exec bits mismatch: $(ls -l docker/run-pi.sh docker/stop-pi.sh docker/entrypoint.sh | awk '{print $1, $NF}')"
+	fail "exec bits mismatch: $(ls -l docker/entrypoint.sh | awk '{print $1, $NF}')"
 fi
 
 # 5. drift: append to embedded Dockerfile -> check-docker fails, names file, suggests make docker-tree
@@ -127,7 +128,7 @@ restore
 # 8. empty-source boundary: zero-match walk fails check-docker, leaves docker/ untouched
 mv "$SRC" "${SRC}.dtree-bak"
 run_fail "empty-source: check-docker fails when source walk matches nothing" make check-docker
-[ -f docker/run-pi.sh ] && pass "empty-source: docker/ left untouched" || fail "empty-source: docker/ was modified"
+[ -f docker/docker-compose.yml ] && pass "empty-source: docker/ left untouched" || fail "empty-source: docker/ was modified"
 mv "${SRC}.dtree-bak" "$SRC"
 
 # 9. docker/-only extras preserved; codeflow/ + lib/ recreated when removed
@@ -236,22 +237,17 @@ if grep -rn "single source of truth" Makefile docs/ 2>/dev/null | grep -q "docke
 else
 	pass "no stale docker/Dockerfile-as-source wording in Makefile/docs"
 fi
-if grep -q 'make docker-tree' docs/architecture.md && grep -q 'make docker-tree' docs/daily-usage.md; then
-	pass "docs: make docker-tree documented as fresh-clone prerequisite"
+if grep -q 'make docker-tree' docs/architecture.md; then
+	pass "docs: make docker-tree documented in architecture.md"
 else
-	fail "docs: make docker-tree fresh-clone prerequisite not documented"
+	fail "docs: make docker-tree missing from architecture.md"
 fi
 
 echo "== Phase 5: docker/ convenience-script regression (no Docker daemon) =="
 
-# NOTE: do NOT run this script concurrently with the tracked docker/test/*.test.mts
-# suites — Phase 1 deliberately deletes+regenerates docker/ shared files, and a
-# test exec'ing run-pi.sh/stop-pi.sh/lib/*.sh in that window gets exit 127.
-# unbreak-worktrees.test.mts is additionally environment-sensitive (fixtures point
-# at /home/user/git/.bare/worktrees/*; worktree-fix.sh skips rewriting when that
-# absolute path exists) — excluded here; its identity is covered by Phase 1's
-# byte-identical check. CI is safe: embed-sync.yml runs only read-only check-docker.
-run_expect 0 "docker-convenience-scripts.test.mts passes against regenerated docker/" node --experimental-strip-types --test docker/test/docker-convenience-scripts.test.mts
+# run-pi.sh/stop-pi.sh were removed in the #1493 repo-mount restructure — the
+# CLI (cheasee-pi start/down) replaces them, so docker-convenience-scripts.test.mts
+# was deleted with them. No convenience-script regression remains here.
 
 echo
 echo "RESULT: PASS=$PASS FAIL=$FAIL"
