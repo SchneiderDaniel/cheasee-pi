@@ -104,6 +104,79 @@ func TestRepoRoot_nonGitDirRefused(t *testing.T) {
 	}
 }
 
+func TestRepoRoot_gitCommandPinnedToCLocale(t *testing.T) {
+	// The actionable "not a git repository" error substring-matches git's
+	// stderr, which git localizes (German under de_DE). gitCommand must
+	// strip LC_ALL/LANG from the inherited env and pin them to C so the
+	// match never depends on the user's locale — and must not leave
+	// duplicate keys (their resolution varies across libc/git builds).
+	t.Setenv("LANG", "de_DE.UTF-8")
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+
+	var gitCmd *mockCmd
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		gitCmd = &mockCmd{}
+		return gitCmd
+	})
+
+	if _, _, err := repoRoot(t.TempDir()); err == nil {
+		t.Fatal("expected error")
+	}
+	if gitCmd == nil {
+		t.Fatal("git command was never invoked")
+	}
+
+	lcAll, lang := 0, 0
+	for _, kv := range gitCmd.env {
+		key, _, _ := strings.Cut(kv, "=")
+		switch key {
+		case "LC_ALL":
+			lcAll++
+			if kv != "LC_ALL=C" {
+				t.Errorf("LC_ALL = %q, want pinned to C", kv)
+			}
+		case "LANG":
+			lang++
+			if kv != "LANG=C" {
+				t.Errorf("LANG = %q, want pinned to C", kv)
+			}
+		}
+	}
+	if lcAll != 1 {
+		t.Errorf("expected exactly one LC_ALL entry, got %d: %v", lcAll, gitCmd.env)
+	}
+	if lang != 1 {
+		t.Errorf("expected exactly one LANG entry, got %d: %v", lang, gitCmd.env)
+	}
+}
+
+func TestRepoRoot_germanLocaleNonGitDirActionable(t *testing.T) {
+	// Real-git regression for the reported bug: with a German locale the
+	// CLI surfaced the raw "check git repository: exit status 128" instead
+	// of the actionable message, because git localizes its stderr and the
+	// code matched only the English text. LC_ALL/LANG pinning must make the
+	// message locale-independent. (On machines without the de_DE locale
+	// compiled in, git falls back to English and the test passes either
+	// way; where the locale exists it exercises the exact failure.)
+	t.Setenv("LANG", "de_DE.UTF-8")
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+
+	_, _, err := repoRoot(t.TempDir()) // no git init
+	if err == nil {
+		t.Fatal("expected error for non-git dir")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "not a git repository") {
+		t.Errorf("expected actionable 'not a git repository' message under German locale, got: %v", err)
+	}
+	if !strings.Contains(msg, "run cheasee-pi from your own git repository") {
+		t.Errorf("message should carry the remedy: %v", err)
+	}
+	if strings.Contains(msg, "check git repository") {
+		t.Errorf("raw wrapped error leaked instead of actionable message: %v", err)
+	}
+}
+
 func TestRepoRoot_gitBinaryFailingWrapsError(t *testing.T) {
 	stubGitRepo(t, "", "", os.ErrNotExist, true)
 

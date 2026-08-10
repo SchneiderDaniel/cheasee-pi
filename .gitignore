@@ -58,3 +58,4 @@ __pycache__/
 .vim/
 .idea/
 *.iml
+cheasee-settings.json
