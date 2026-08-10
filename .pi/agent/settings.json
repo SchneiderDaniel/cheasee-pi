@@ -1,3 +1,11 @@
 {
-	"defaultProvider": "opencode-go"
+	"defaultProvider": "opencode-go",
+	"docker": {
+		"memory": "",
+		"cpus": ""
+	},
+	"gitIdentity": {
+		"name": "",
+		"email": ""
+	}
 }

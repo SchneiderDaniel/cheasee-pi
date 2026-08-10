@@ -17,11 +17,12 @@ import (
 // Uses `git rev-parse --is-inside-work-tree` / `--show-toplevel`, which is
 // worktree-safe: nested repos resolve to the innermost worktree, and git
 // worktree checkouts report their own toplevel, not the main checkout.
-// Commands route through the runCommandContext seam so tests can stub the
-// git binary and inject failures.
+// Commands route through the gitCommand helper (locale pinned to C, see
+// below) over the runCommandContext seam so tests can stub the git binary
+// and inject failures.
 func repoRoot(workdir string) (root, relCwd string, err error) {
-	cmd := runCommandContext(context.Background(), "git",
-		"-C", workdir, "rev-parse", "--is-inside-work-tree")
+	cmd := gitCommand(context.Background(), workdir,
+		"rev-parse", "--is-inside-work-tree")
 	out, err := cmd.Output()
 	if err != nil {
 		// Common case: workdir is not inside any repo. git's own stderr
@@ -38,8 +39,8 @@ func repoRoot(workdir string) (root, relCwd string, err error) {
 		return "", "", fmt.Errorf("not a git repository: %q is not inside a git work tree (run cheasee-pi from your own git repo)", workdir)
 	}
 
-	cmd = runCommandContext(context.Background(), "git",
-		"-C", workdir, "rev-parse", "--show-toplevel")
+	cmd = gitCommand(context.Background(), workdir,
+		"rev-parse", "--show-toplevel")
 	out, err = cmd.Output()
 	if err != nil {
 		return "", "", fmt.Errorf("resolve git repository root: %w", err)
@@ -54,8 +55,8 @@ func repoRoot(workdir string) (root, relCwd string, err error) {
 	// so a symlinked cwd cannot produce a wrong ../-laden relative path.
 	// Output is already slash-separated on every platform (Windows included)
 	// and carries a trailing slash when non-empty; "" at the toplevel.
-	cmd = runCommandContext(context.Background(), "git",
-		"-C", workdir, "rev-parse", "--show-prefix")
+	cmd = gitCommand(context.Background(), workdir,
+		"rev-parse", "--show-prefix")
 	out, err = cmd.Output()
 	if err != nil {
 		return "", "", fmt.Errorf("resolve relative cwd: %w", err)
@@ -65,6 +66,31 @@ func repoRoot(workdir string) (root, relCwd string, err error) {
 		rel = "."
 	}
 	return root, rel, nil
+}
+
+// gitCommand builds a git command pinned to the C/POSIX locale so git's
+// stderr diagnostics are parseable regardless of the user's LANG. git
+// localizes its messages ("fatal: not a git repository" becomes
+// "Schwerwiegend: Kein Git-Repository…" under de_DE), and the actionable
+// error below substring-matches the English text. LC_ALL/LANG are stripped
+// from the inherited environment and re-appended as C so no duplicate-key
+// ambiguity remains (how duplicates resolve varies across libc/git builds).
+func gitCommand(ctx context.Context, workdir string, arg ...string) runner {
+	cmd := runCommandContext(ctx, "git", append([]string{"-C", workdir}, arg...)...)
+	cmd.SetEnv(pinnedCEEnv())
+	return cmd
+}
+
+// pinnedCEEnv returns the inherited environment with LC_ALL/LANG forced to C.
+func pinnedCEEnv() []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if key, _, ok := strings.Cut(kv, "="); ok && (key == "LC_ALL" || key == "LANG") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "LC_ALL=C", "LANG=C")
 }
 
 // findWorkspaceRoot walks up from workdir looking for cheasee-settings.json —
