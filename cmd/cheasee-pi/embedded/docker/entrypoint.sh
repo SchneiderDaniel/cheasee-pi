@@ -231,6 +231,13 @@ if [ ! -d /workspaces/main/node_modules ]; then
         || echo "Warning: npm install failed (non-fatal — pi may still work depending on which extensions are loaded)"
 fi
 
+# --- Signal readiness ----------------------------------------------
+# The compose healthcheck (test -f /tmp/.cheasee-pi-ready) only passes after
+# every setup step above — including the workspace npm install — so
+# `cheasee-pi start` (which waits for healthy before execing pi) never races
+# first-run dependency installation.
+touch /tmp/.cheasee-pi-ready
+
 # --- Drop privileges and exec -------------------------------------
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)

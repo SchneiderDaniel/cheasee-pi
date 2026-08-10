@@ -66,9 +66,13 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 		if slices.Contains(arg, "ps") {
 			names := ""
 			if running {
-				names = "cheasee-pi"
+				names = containerName(root)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(names), nil }}
+		}
+		if slices.Contains(arg, "inspect") {
+			// Ready-marker healthcheck: entrypoint setup assumed complete.
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
 		return &mockCmd{}
 	})
@@ -463,8 +467,8 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	}
 
 	// Final exec descends to the workspace root target.
-	if exec.name != "cheasee-pi" || exec.target != "/workspaces/main" {
-		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", "cheasee-pi", exec.name, exec.target)
+	if exec.name != containerName(root) || exec.target != "/workspaces/main" {
+		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", containerName(root), exec.name, exec.target)
 	}
 }
 
@@ -617,7 +621,7 @@ func TestRunUpE_containerRunningSkipsComposeUp(t *testing.T) {
 		t.Errorf("running container must skip compose up, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
 	}
 	// Orphan scan + exec still run against the running container.
-	if exec.name != "cheasee-pi" {
+	if exec.name != containerName(root) {
 		t.Errorf("exec must still run against the running container, got name=%q", exec.name)
 	}
 }

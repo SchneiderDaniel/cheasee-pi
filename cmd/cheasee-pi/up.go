@@ -104,6 +104,13 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
 	}
 
+	// Container name carries the repo slug (cheasee-pi-<repo>) so multiple
+	// workspaces run side by side without daemon name collisions; an explicit
+	// --name overrides the derived default verbatim.
+	if !cmd.Flags().Changed("name") {
+		upName = containerName(root)
+	}
+
 	// docker exec working directory: /workspaces/main when started at the
 	// workspace root, /workspaces/main/<rel> when started from a subdirectory.
 	// Best-effort --show-prefix: a broken/corrupt worktree falls back to the
@@ -162,9 +169,18 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	}
 
 	if upBuild || !running {
-		if err := dockerComposeUp(ctx, cacheDir, root); err != nil {
+		if err := dockerComposeUp(ctx, cacheDir, root, upName); err != nil {
 			return fmt.Errorf("docker compose up: %w", err)
 		}
+	}
+
+	// Gate the exec behind first-run setup: compose up -d returns as soon as
+	// the container starts, long before the entrypoint finishes (worktree
+	// fix, ownership, workspace npm install). The healthcheck only passes
+	// once the entrypoint wrote its ready marker, so a fresh container
+	// starts pi with all deps in place.
+	if err := waitHealthy(ctx, upName); err != nil {
+		return err
 	}
 
 	// Phase 7: Run pre-start orphan scan (best-effort)
@@ -247,7 +263,45 @@ func containerRunning(name string) (bool, error) {
 // (workspaceHostPath) is injected as WORKSPACE_HOST_PATH and its sibling bare
 // repo as WORKSPACE_BARE_PATH — CLI-resolved absolute paths, never ${PWD}
 // (macOS logical-vs-resolved path pitfall).
-func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) error {
+// waitHealthy polls the container health until healthy or the timeout
+// expires (2s interval). The entrypoint touches /tmp/.cheasee-pi-ready only
+// after all setup completes, so healthy implies pi can exec safely.
+func waitHealthy(ctx context.Context, name string) error {
+	deadline := time.Now().Add(healthWaitTimeout)
+	for {
+		status, err := containerHealth(ctx, name)
+		if err != nil {
+			return err
+		}
+		if status == "healthy" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("container %s not healthy after %s (status %q) — check `docker logs %s` for entrypoint errors", name, healthWaitTimeout, status, name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// containerHealth returns the container's health status via docker inspect.
+func containerHealth(ctx context.Context, name string) (string, error) {
+	cmd := execCommand("docker", "inspect", "--format", "{{.State.Health.Status}}", name)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// healthWaitTimeout bounds the ready-wait before execing pi. First-run npm
+// install dominates (workspace deps); generous by default.
+var healthWaitTimeout = 5 * time.Minute
+
+func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, containerName string) error {
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
 	// Fail closed when the sibling bare repo is missing: the worktree's gitdir
@@ -269,6 +323,10 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) 
 	)
 	build.SetStdout(os.Stderr)
 	build.SetStderr(os.Stderr)
+	// compose validates every volume spec even for `build`, so
+	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
+	// cpus/git identity from settings.json ride along).
+	applyComposeEnv(build, workspaceHostPath, containerName)
 	fmt.Fprintf(os.Stderr, "  ℹ Building container image...\n")
 	if err := build.Run(); err != nil {
 		return err
@@ -280,7 +338,7 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) 
 	)
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)
-	applyComposeEnv(cmd, workspaceHostPath)
+	applyComposeEnv(cmd, workspaceHostPath, containerName)
 	fmt.Fprintf(os.Stderr, "  ℹ Starting container...\n")
 	if err := cmd.Run(); err != nil {
 		return err
@@ -297,10 +355,72 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath string) 
 // pi-coupled .pi/settings.json read). SELinux-enforcing hosts opt in to
 // bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
 // bind mount — documented, not default: relabel cost).
-func applyComposeEnv(cmd runner, workspaceHostPath string) {
+// containerName returns the daemon container name for a workspace: the repo
+// slug suffixed to the service prefix. The slug comes from the bare repo's
+// remote (the actual repo name), falling back to the workspace folder name.
+// Distinct repos get distinct containers — two workspaces run side by side.
+func containerName(workspaceRoot string) string {
+	return "cheasee-pi-" + repoSlug(workspaceRoot)
+}
+
+// codeflowContainerName follows the same repo-slug scheme for the codeflow
+// sidecar service.
+func codeflowContainerName(workspaceRoot string) string {
+	return "codeflow-" + repoSlug(workspaceRoot)
+}
+
+// repoSlug is the docker-safe repo name for a workspace: the sibling bare
+// repo's remote URL repository name when resolvable, else the workspace
+// basename. Lowercased, non-alphanumerics → '-'
+// (ponytail: git config call per run, cached only if it ever shows up in
+// profiles — a subprocess read of one config key is sub-millisecond).
+func repoSlug(workspaceRoot string) string {
+	if name := bareRepoName(workspaceRoot); name != "" {
+		return sanitizeSlug(name)
+	}
+	return sanitizeSlug(filepath.Base(workspaceRoot))
+}
+
+// bareRepoName reads remote.origin.url from the sibling bare repo, returning
+// the trailing repo name (e.g. "cheasee-pi" from
+// https://github.com/owner/cheasee-pi.git). Empty on any error.
+func bareRepoName(workspaceRoot string) string {
+	bare := filepath.Join(filepath.Dir(workspaceRoot), ".bare")
+	cmd := execCommand("git", "--git-dir", bare, "config", "--get", "remote.origin.url")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(string(out))
+	name = strings.TrimSuffix(name, ".git")
+	if i := strings.LastIndexAny(name, "/:"); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
+// sanitizeSlug lowercases and maps non-alphanumerics to '-' so the slug is
+// a valid docker container-name character set.
+func sanitizeSlug(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
 	env := append(os.Environ(),
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
 		"WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workspaceHostPath), ".bare"),
+		// Container names carry the repo slug so distinct workspaces get
+		// distinct containers (compose interpolates them into container_name).
+		"CHEASEEPI_CONTAINER="+containerName,
+		"CODEFLOW_CONTAINER="+codeflowContainerName(workspaceHostPath),
 	)
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")

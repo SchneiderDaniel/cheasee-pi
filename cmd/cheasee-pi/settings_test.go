@@ -432,7 +432,7 @@ func TestApplyComposeEnv_ignoresPISettings(t *testing.T) {
 	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": "4G", "cpus": "2.0"}, "gitIdentity": {"name": "Pi Name", "email": "pi@example.com"}}`)
 
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir)
+	applyComposeEnv(cmd, workdir, containerName(workdir))
 
 	for _, e := range cmd.env {
 		if strings.HasPrefix(e, "CHEASEEPI_MEMORY=") || strings.HasPrefix(e, "CHEASEEPI_CPUS=") {
@@ -445,6 +445,12 @@ func TestApplyComposeEnv_ignoresPISettings(t *testing.T) {
 	if !slices.Contains(cmd.env, "WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workdir), ".bare")) {
 		t.Errorf("WORKSPACE_BARE_PATH must resolve the sibling .bare, got %v", cmd.env)
 	}
+	if !slices.Contains(cmd.env, "CHEASEEPI_CONTAINER="+containerName(workdir)) {
+		t.Errorf("CHEASEEPI_CONTAINER must carry the repo-slug container name, got %v", cmd.env)
+	}
+	if !slices.Contains(cmd.env, "CODEFLOW_CONTAINER="+codeflowContainerName(workdir)) {
+		t.Errorf("CODEFLOW_CONTAINER must carry the repo-slug codeflow name, got %v", cmd.env)
+	}
 }
 
 func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
@@ -453,7 +459,7 @@ func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
 
 	stderr := testutil.CaptureStderr(t, func() {
 		cmd := &mockCmd{}
-		applyComposeEnv(cmd, workdir)
+		applyComposeEnv(cmd, workdir, containerName(workdir))
 		for _, want := range []string{"CHEASEEPI_MEMORY=4G", "CHEASEEPI_CPUS=3.0", "HOST_GIT_NAME=Cheasee User", "HOST_GIT_EMAIL=c@example.com"} {
 			if !slices.Contains(cmd.env, want) {
 				t.Errorf("compose env missing %q, got %v", want, cmd.env)

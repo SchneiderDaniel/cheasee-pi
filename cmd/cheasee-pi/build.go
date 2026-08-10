@@ -91,7 +91,7 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH must be set (same env application as start/down:
 	// memory/cpus/git identity from settings.json ride along).
-	applyComposeEnv(execRunner{buildCmd}, root)
+	applyComposeEnv(execRunner{buildCmd}, root, containerName(root))
 
 	buildCmd.Stdout = os.Stderr
 	buildCmd.Stderr = os.Stderr

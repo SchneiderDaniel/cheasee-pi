@@ -23,7 +23,7 @@ services:
       args:
         PI_VERSION: ${PI_VERSION:-latest}
         CHEASEE_REF: ${CHEASEE_REF:-main}
-    container_name: cheasee-pi
+    container_name: ${CHEASEEPI_CONTAINER:-cheasee-pi}
     environment:
       - HOST_UID=${HOST_UID:-}
       - HOST_GID=${HOST_GID:-}
@@ -44,7 +44,11 @@ services:
       nofile: 1048576
     command: ["sleep", "infinity"]
     healthcheck:
-      test: ["CMD", "pi", "--version"]
+      # Ready marker: entrypoint.sh touches /tmp/.cheasee-pi-ready only after
+      # first-run setup (worktree fix, ownership, workspace npm install)
+      # completes — pi --version would pass while deps are still installing,
+      # letting `cheasee-pi start` race the entrypoint.
+      test: ["CMD-SHELL", "test -f /tmp/.cheasee-pi-ready"]
       interval: 10s
       retries: 3
       start_period: 15s
@@ -62,7 +66,7 @@ services:
     # when changing either.
     build:
       context: codeflow
-    container_name: codeflow
+    container_name: ${CODEFLOW_CONTAINER:-codeflow}
     environment:
       - REPO_ROOT=/workspaces/main
     volumes:

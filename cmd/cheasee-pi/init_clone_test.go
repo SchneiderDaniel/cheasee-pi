@@ -124,6 +124,22 @@ func TestGitCloneWorktree_shorthandNormalizedToHTTPS(t *testing.T) {
 	}
 }
 
+func TestGitCloneWorktree_scpStyleNormalizedToHTTPS(t *testing.T) {
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := stubGitClone(t, nil, nil)
+	if err := gitCloneWorktree(context.Background(), "git@github.com:owner/repo.git", workdir); err != nil {
+		t.Fatalf("gitCloneWorktree: %v", err)
+	}
+	if !slices.Contains(c.cloneArgs, "https://github.com/owner/repo.git") {
+		t.Errorf("scp-style ssh URL must be normalized to the https URL (gh credential helper is https-only), got %v", c.cloneArgs)
+	}
+}
+
 func TestGitCloneWorktree_credentialURLRefused(t *testing.T) {
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")

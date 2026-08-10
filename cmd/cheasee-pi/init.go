@@ -282,7 +282,7 @@ func resolveRepoURL(deps InitDeps) (string, error) {
 	if deps.NoInput {
 		return "", errors.New("init: --repo-url is required with --no-input (empty-folder init clones a bare repo + worktree)")
 	}
-	url, err := deps.InputFn("Project repository URL", "git@github.com:owner/repo.git")
+	url, err := deps.InputFn("Project repository URL", "https://github.com/owner/repo")
 	if err != nil {
 		return "", fmt.Errorf("repo URL prompt failed: %w", err)
 	}

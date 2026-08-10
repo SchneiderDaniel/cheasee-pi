@@ -53,7 +53,7 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	if root, ok := findWorkspaceRoot(workspace); ok {
 		workspace = root
 	}
-	applyComposeEnv(cmd, workspace)
+	applyComposeEnv(cmd, workspace, containerName(workspace))
 
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)

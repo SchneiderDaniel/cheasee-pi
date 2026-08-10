@@ -56,6 +56,16 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
+	// Default container name follows the workspace repo slug (like start);
+	// --name overrides verbatim.
+	if !cmd.Flags().Changed("name") {
+		if wd, err := os.Getwd(); err == nil {
+			if root, ok := findWorkspaceRoot(wd); ok {
+				cleanName = containerName(root)
+			}
+		}
+	}
+
 	killed, err := scanOrphans(ctx, cleanName)
 	if err != nil {
 		return fmt.Errorf("clean: %w", err)

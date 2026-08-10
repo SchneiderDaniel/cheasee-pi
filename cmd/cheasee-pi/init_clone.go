@@ -56,9 +56,16 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	}
 
 	// "owner/repo" shorthand → canonical https URL (git would otherwise
-	// treat the bare form as a local filesystem path).
+	// treat the bare form as a local filesystem path). scp-style ssh
+	// git@github.com:owner/repo → https too: the clone runs with the gh
+	// credential helper, which speaks https only — ssh dies with publickey
+	// errors on machines without a key. ssh://git@... stays passthrough
+	// (deliberate ssh users keep their transport).
 	cloneURL := repoURL
-	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") && !strings.Contains(repoURL, ":") {
+	switch {
+	case !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") && !strings.Contains(repoURL, ":"):
+		cloneURL = "https://github.com/" + owner + "/" + repo + ".git"
+	case strings.HasPrefix(repoURL, "git@") && strings.Contains(repoURL, "github.com:"):
 		cloneURL = "https://github.com/" + owner + "/" + repo + ".git"
 	}
 
