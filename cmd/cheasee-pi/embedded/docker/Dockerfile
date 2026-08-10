@@ -249,7 +249,10 @@ ARG CHEASEE_REF=main
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
-    && npm cache clean --force
+    && npm cache clean --force \
+    && rm -rf /opt/cheasee-pi/node_modules/@earendil-works \
+              /opt/cheasee-pi/node_modules/typebox \
+              /opt/cheasee-pi/node_modules/@sinclair
 # An empty glob (e.g. .pi/prompts has no entries yet) leaves the loop's last
 # command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes
 # unmatched globs a no-op while real ln failures still propagate.
