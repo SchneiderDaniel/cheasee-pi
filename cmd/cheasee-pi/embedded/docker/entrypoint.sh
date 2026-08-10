@@ -216,10 +216,19 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "gi
 gosu agentuser git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" 2>/dev/null || true
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
-# Mark the bare repo safe for container git ops — a host-owned .bare mount
+# Mark the bare repos safe for container git ops — host-owned .bare mounts
 # would otherwise trip "detected dubious ownership" (CVE-2022-24765
-# mitigation) on every git call inside the container.
-gosu agentuser git config --global --add safe.directory /workspaces/.bare 2>/dev/null || true
+# mitigation) on every git call inside the container. Two mounts are
+# involved: the worktree's own gitdir (/workspaces/main/.bare) and the
+# sibling bare mount (/workspaces/.bare). Configured for BOTH the agentuser
+# (the runtime user, via gosu) and root (the docker exec default user,
+# whose global config lives under /root) — a root-context git call on a
+# uid-1000-owned mount trips the same check.
+for _bare in /workspaces/main/.bare /workspaces/.bare; do
+    [ -d "$_bare" ] || continue
+    gosu agentuser git config --global --add safe.directory "$_bare" 2>/dev/null || true
+    git config --global --add safe.directory "$_bare" 2>/dev/null || true
+done
 
 # --- Install workspace npm dependencies if missing -------------------
 # The workspace is a bind-mount from the host; node_modules is local to the

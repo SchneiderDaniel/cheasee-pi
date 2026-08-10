@@ -286,8 +286,21 @@ func TestScaffoldSettings_Unchanged(t *testing.T) {
 
 func TestEntrypoint_SafeDirectoryBare(t *testing.T) {
 	content := readEntrypoint(t)
-	if !strings.Contains(content, "safe.directory /workspaces/.bare") {
-		t.Error("entrypoint must mark /workspaces/.bare as safe.directory (CVE-2022-24765 dubious-ownership mitigation)")
+	// Both bare mounts must be marked safe for container git ops — the
+	// worktree's own gitdir (/workspaces/main/.bare) and the sibling bare
+	// mount (/workspaces/.bare) — for the agentuser (runtime) AND root
+	// (docker exec default) contexts: root git on a uid-1000-owned mount
+	// trips the same CVE-2022-24765 dubious-ownership check.
+	for _, want := range []string{
+		"/workspaces/main/.bare",
+		"/workspaces/.bare",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("entrypoint must mark %q as safe.directory (CVE-2022-24765 dubious-ownership mitigation)", want)
+		}
+	}
+	if strings.Count(content, `safe.directory "$_bare"`) < 2 {
+		t.Error("entrypoint must configure safe.directory for both agentuser and root contexts")
 	}
 }
 
