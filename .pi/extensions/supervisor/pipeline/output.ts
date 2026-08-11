@@ -49,7 +49,9 @@ export function buildPipelineSummary(
 	overallStatus: "success" | "failed" | "stopped",
 	issueNum: number,
 	issueTitle: string,
-	config: SupervisorConfig,
+	// undefined when supervisor config failed to load (top-level catch) —
+	// the summary degrades to a bare #N link instead of crashing.
+	config: SupervisorConfig | undefined,
 	stopReason?: string,
 	prCreationResult?: PrCreationResult,
 	gateFailureHistory?: string[],
@@ -108,16 +110,22 @@ export function buildPipelineSummary(
 	);
 
 	// Issue link + auto-link PR to issue (cross-reference in GitHub UI)
-	lines.push(`**Issue:** https://github.com/${config.repo}/issues/${issueNum}`);
+	// config undefined → config load failed; drop repo link, keep bare #N
+	lines.push(
+		config
+			? `**Issue:** https://github.com/${config.repo}/issues/${issueNum}`
+			: `**Issue:** #${issueNum}`,
+	);
 	lines.push(`Closes #${issueNum}`);
 
 	// PR creation status
 	if (prCreationResult) {
 		if (prCreationResult.success) {
 			const action = prCreationResult.wasUpdate ? "updated" : "created";
-			const prLink = prCreationResult.prNumber
-				? `https://github.com/${config.repo}/pull/${prCreationResult.prNumber}`
-				: "(unknown)";
+			const prLink =
+				prCreationResult.prNumber && config
+					? `https://github.com/${config.repo}/pull/${prCreationResult.prNumber}`
+					: "(unknown)";
 			lines.push(`**PR:** ${action} — [#${prCreationResult.prNumber}](${prLink})`);
 		} else {
 			lines.push(`**PR creation failed:** ${prCreationResult.error || "Unknown error"}`);

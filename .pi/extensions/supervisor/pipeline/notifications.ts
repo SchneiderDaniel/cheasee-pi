@@ -144,7 +144,7 @@ export function sendPipelineError(
 	agentResults: PipelineAgentResult[],
 	issueNum: number,
 	issueTitle: string,
-	config: SupervisorConfig,
+	config: SupervisorConfig | undefined,
 	msg: string,
 	gateFailureHistory?: string[],
 	packageSafetyResult?: PackageSafetyAuditResult | null,

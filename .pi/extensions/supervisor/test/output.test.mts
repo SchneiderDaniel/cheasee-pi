@@ -37,6 +37,14 @@ const emptyResults: PipelineAgentResult[] = [];
 
 // ─── Tests: Closes #N in buildPipelineSummary ─────────────────────
 
+describe("buildPipelineSummary — config-load-failure error path", () => {
+	it("undefined config → bare #N issue link, no crash (regression: TypeError reading 'repo')", () => {
+		const output = buildPipelineSummary(emptyResults, "failed", 42, "Title", undefined);
+		assert.ok(output.includes("**Issue:** #42"), "bare #N link when repo unknown");
+		assert.ok(!output.includes("github.com/undefined"), "no undefined repo link");
+	});
+});
+
 describe("buildPipelineSummary — Closes #N line", () => {
 	it("contains Closes #N when issueNum is provided", () => {
 		const output = buildPipelineSummary(emptyResults, "success", 42, "Some title", defaultConfig);
@@ -172,12 +180,23 @@ describe("buildPipelineSummary — Closes #N line", () => {
 describe("buildPipelineSummary — header emoji/text", () => {
 	it("overallStatus=success → header ## ✅ Pipeline Complete", () => {
 		const output = buildPipelineSummary(emptyResults, "success", 42, "Test", defaultConfig);
-		assert.ok(output.includes("## ✅ Pipeline Complete"), "success should show ✅ and Pipeline Complete");
+		assert.ok(
+			output.includes("## ✅ Pipeline Complete"),
+			"success should show ✅ and Pipeline Complete",
+		);
 	});
 
 	it("overallStatus=success with failed PR → header ## ⚠️ Pipeline Complete (PR creation failed)", () => {
 		const prResult: PrCreationResult = { success: false, error: "GitHub API error" };
-		const output = buildPipelineSummary(emptyResults, "success", 42, "Test", defaultConfig, undefined, prResult);
+		const output = buildPipelineSummary(
+			emptyResults,
+			"success",
+			42,
+			"Test",
+			defaultConfig,
+			undefined,
+			prResult,
+		);
 		assert.ok(
 			output.includes("## ⚠️ Pipeline Complete (PR creation failed)"),
 			"success + failed PR should show ⚠️ and PR creation failed text",
@@ -186,12 +205,25 @@ describe("buildPipelineSummary — header emoji/text", () => {
 
 	it("overallStatus=failed → header ## ❌ Pipeline Failed", () => {
 		const output = buildPipelineSummary(emptyResults, "failed", 42, "Test", defaultConfig);
-		assert.ok(output.includes("## ❌ Pipeline Failed"), "failed should show ❌ and Pipeline Failed");
+		assert.ok(
+			output.includes("## ❌ Pipeline Failed"),
+			"failed should show ❌ and Pipeline Failed",
+		);
 	});
 
 	it("overallStatus=stopped → header ## ⏹ Pipeline Stopped", () => {
-		const output = buildPipelineSummary(emptyResults, "stopped", 42, "Test", defaultConfig, "User interrupted");
-		assert.ok(output.includes("## ⏹ Pipeline Stopped"), "stopped should show ⏹ and Pipeline Stopped");
+		const output = buildPipelineSummary(
+			emptyResults,
+			"stopped",
+			42,
+			"Test",
+			defaultConfig,
+			"User interrupted",
+		);
+		assert.ok(
+			output.includes("## ⏹ Pipeline Stopped"),
+			"stopped should show ⏹ and Pipeline Stopped",
+		);
 	});
 });
 
@@ -763,9 +795,9 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 		toolCount: tools,
 	});
 
-	const successAgent = (): PipelineAgentResult => makeAgent("developer", "SUCCESS", 5000, 30000, 10);
-	const failedAgent = (): PipelineAgentResult =>
-		makeAgent("auditor", "FAILED", 0, 5000, 0);
+	const successAgent = (): PipelineAgentResult =>
+		makeAgent("developer", "SUCCESS", 5000, 30000, 10);
+	const failedAgent = (): PipelineAgentResult => makeAgent("auditor", "FAILED", 0, 5000, 0);
 
 	it("failed without FAILED agent — errorMsg produces **Error:** line before manual intervention", () => {
 		const output = buildPipelineSummary(
@@ -780,12 +812,21 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 			undefined,
 			"Something went wrong in dispatch",
 		);
-		assert.ok(output.includes("**Error:** Something went wrong in dispatch"), "should include error message");
-		assert.ok(output.includes("**Manual intervention required.**"), "should include manual intervention");
+		assert.ok(
+			output.includes("**Error:** Something went wrong in dispatch"),
+			"should include error message",
+		);
+		assert.ok(
+			output.includes("**Manual intervention required.**"),
+			"should include manual intervention",
+		);
 		// Error line should appear before manual intervention
 		const errorIdx = output.indexOf("**Error:**");
 		const manualIdx = output.indexOf("**Manual intervention required.**");
-		assert.ok(errorIdx >= 0 && manualIdx >= 0 && errorIdx < manualIdx, "Error line before manual intervention");
+		assert.ok(
+			errorIdx >= 0 && manualIdx >= 0 && errorIdx < manualIdx,
+			"Error line before manual intervention",
+		);
 	});
 
 	it("failed WITH FAILED agent + errorMsg — both Stopped at and Error appear", () => {
@@ -801,7 +842,10 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 			undefined,
 			"Mid-dispatch exception",
 		);
-		assert.ok(output.includes("**Stopped at:** auditor"), "should include Stopped at for failed agent");
+		assert.ok(
+			output.includes("**Stopped at:** auditor"),
+			"should include Stopped at for failed agent",
+		);
 		assert.ok(output.includes("**Error:** Mid-dispatch exception"), "should include error message");
 		// Stopped at should come before Error
 		const stoppedIdx = output.indexOf("**Stopped at:**");
@@ -817,7 +861,10 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 			"Test",
 			defaultConfig,
 		);
-		assert.ok(!output.includes("**Error:**"), "should not include Error line when errorMsg omitted");
+		assert.ok(
+			!output.includes("**Error:**"),
+			"should not include Error line when errorMsg omitted",
+		);
 		assert.ok(output.includes("**Stopped at:** auditor"), "Stopped at still present");
 	});
 
@@ -886,6 +933,9 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 			undefined,
 			multiLineMsg,
 		);
-		assert.ok(output.includes("**Error:** First line error"), "first line of multiline error should appear");
+		assert.ok(
+			output.includes("**Error:** First line error"),
+			"first line of multiline error should appear",
+		);
 	});
 });
