@@ -59,5 +59,5 @@ Note: This rule does not apply to git URLs, tarballs, or local paths.
 </package_safety_audit>
 
 <CRITICAL_OVERRIDES>
-- THE MAIN BRANCH IS LOCKED. You are strictly forbidden from committing directly to main. Create branch, push and create PR.
+- THE MAIN BRANCH IS LOCKED. You are strictly forbidden from committing directly to main. Create branch, push and create PR. Merge only by user never agent.
 </CRITICAL_OVERRIDES>

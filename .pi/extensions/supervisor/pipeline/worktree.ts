@@ -4,8 +4,9 @@
 // All functions return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { existsSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
@@ -107,6 +108,66 @@ export async function reconcileToRemoteBranch(
 	return { ok: true, value: undefined };
 }
 
+/**
+ * Resolve the worktree base directory, falling back to a writable location.
+ *
+ * The configured base (default "../") resolves against the repo cwd and is
+ * used as-is when writable or creatable. In the docker deployment the parent
+ * of the repo mount (/workspaces) is an image-owned overlay (root:root 755),
+ * so `git worktree add` fails with "Permission denied" and the whole pipeline
+ * aborts. Probe writability up front and fall back to
+ * os.tmpdir()/cheasee-pi-worktrees — the pipeline runs instead of dying.
+ *
+ * Deterministic: same cwd + configured base + fs state always yields the same
+ * result, so the stale-state scanner can re-derive the base the worktree was
+ * actually created under.
+ */
+export function resolveWorktreeBase(
+	cwd: string,
+	configuredBase: string,
+	notify?: NotifyFn,
+): string {
+	const log = getDebugLogger();
+	const base = resolvePath(cwd, configuredBase);
+	if (isWritableOrCreatable(base)) {
+		return base;
+	}
+	const fallback = join(tmpdir(), "cheasee-pi-worktrees");
+	log.warn("worktree", `Worktree base ${base} is not writable — falling back to ${fallback}`);
+	notify?.info(`Worktree base ${base} not writable — using ${fallback} for this pipeline`);
+	try {
+		mkdirSync(fallback, { recursive: true });
+	} catch (err) {
+		throw new Error(
+			`Worktree base ${base} is not writable and fallback ${fallback} could not be created: ${
+				err instanceof Error ? err.message : String(err)
+			}`,
+		);
+	}
+	return fallback;
+}
+
+// W_OK on the path itself. Only missing paths (ENOENT) walk up to the
+// nearest existing ancestor — git worktree add creates leading dirs, so a
+// writable ancestor is enough for those. An existing-but-unwritable dir
+// (EACCES, e.g. /workspaces root:root 755) is a hard no: creation inside it
+// fails, so the caller must fall back.
+function isWritableOrCreatable(path: string): boolean {
+	try {
+		accessSync(path, fsConstants.W_OK);
+		return true;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			const parent = dirname(path);
+			if (parent === path) {
+				return false;
+			}
+			return isWritableOrCreatable(parent);
+		}
+		return false;
+	}
+}
+
 export async function createWorktree(
 	pi: ExtensionAPI,
 	cwd: string,
@@ -118,7 +179,8 @@ export async function createWorktree(
 	return withNotify(
 		async () => {
 			const log = getDebugLogger();
-			const wt = resolvePath(cwd, worktreeBase, worktreeBranch);
+			const base = resolveWorktreeBase(cwd, worktreeBase, notify);
+			const wt = resolvePath(base, worktreeBranch);
 			log.info("worktree", `Creating worktree: ${wt}`);
 
 			// Attempt 1: git worktree add -b (creates new branch + worktree)
