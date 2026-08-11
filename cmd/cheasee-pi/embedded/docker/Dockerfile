@@ -216,6 +216,7 @@ RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
 RUN groupadd --gid 1001 agentuser && \
     useradd --uid 1001 --gid agentuser --create-home --shell /bin/bash agentuser && \
     mkdir -p /workspaces/main /home/agentuser/.config && \
+    chown agentuser:agentuser /workspaces && \
     chown -R agentuser:agentuser /workspaces/main /home/agentuser
 
 # ---------------------------------------------------------------

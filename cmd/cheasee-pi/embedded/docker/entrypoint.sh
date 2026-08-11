@@ -188,6 +188,18 @@ if [ -n "$BARE_OWNER" ] && [ "$BARE_OWNER" != "$AGENT_UID:$AGENT_GID" ]; then
     chown -R agentuser:agentuser /workspaces/.bare || echo "Warning: chown /workspaces/.bare failed (non-fatal)"
 fi
 
+# The parent /workspaces dir is container-local (not a bind mount) and stays
+# root-owned unless fixed. The supervisor creates worktrees as SIBLINGS of
+# main/ and .bare/ (git worktree add writes directly under /workspaces), so
+# agentuser must be able to mkdir there. Non-recursive on purpose — recursing
+# would descend into the /workspaces/main and /workspaces/.bare mounts, which
+# are handled separately above.
+WORKSPACE_PARENT_OWNER=$(stat -c '%u:%g' /workspaces 2>/dev/null || echo "")
+if [ -n "$WORKSPACE_PARENT_OWNER" ] && [ "$WORKSPACE_PARENT_OWNER" != "$AGENT_UID:$AGENT_GID" ]; then
+    echo "Fixing /workspaces ownership to agentuser ($AGENT_UID:$AGENT_GID)..."
+    chown agentuser:agentuser /workspaces || echo "Warning: chown /workspaces failed (non-fatal)"
+fi
+
 # Home dir is small — always ensure correct ownership
 chown -R agentuser:agentuser /home/agentuser || echo "Warning: chown /home/agentuser failed (non-fatal)"
 

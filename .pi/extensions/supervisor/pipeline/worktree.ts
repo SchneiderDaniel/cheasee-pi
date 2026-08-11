@@ -3,7 +3,7 @@
 // Supervisor-owned: creates before agent dispatch, cleans up after pipeline.
 // All functions return Result<T> for explicit failure handling.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -11,6 +11,30 @@ import { withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 
 // ─── Create Worktree ─────────────────────────────────────────────
+
+// ─── Exec Contract Normalization ─────────────────────────────────
+// pi.exec resolves {code} even on non-zero exit — it never rejects. Some
+// mocks/tests reject instead. Normalize both contracts so callers can check
+// `.code` unconditionally; a silent success lets a failed worktree command
+// pass as ok (the broken fallback that produced the "Worktree missing"
+// cascade when `git worktree add` failed on an unwritable base dir).
+async function execChecked(
+	pi: ExtensionAPI,
+	cmd: string,
+	args: string[],
+	opts?: ExecOptions,
+): Promise<ExecResult> {
+	try {
+		return await pi.exec(cmd, args, opts);
+	} catch (err: unknown) {
+		return {
+			code: 1,
+			stdout: "",
+			stderr: err instanceof Error ? err.message : String(err),
+			killed: false,
+		};
+	}
+}
 
 /**
  * Reconcile the worktree branch to match the remote tracking branch if one exists.
@@ -34,41 +58,53 @@ export async function reconcileToRemoteBranch(
 	const log = getDebugLogger();
 	const remoteRef = `refs/remotes/${remote}/${worktreeBranch}`;
 
-	try {
-		// Check if remote tracking branch exists
-		// rev-parse --verify exits 128 when the ref doesn't exist — pi.exec
-		// may throw or return a result, so handle both via try/catch.
-		try {
-			await pi.exec("git", ["rev-parse", "--verify", remoteRef], { cwd, timeout: 10000 });
-		} catch {
-			log.info("worktree", `No remote tracking branch ${remote}/${worktreeBranch} — skipping reconciliation`);
-			return { ok: true, value: undefined };
-		}
-
-		log.info("worktree", `Remote tracking branch ${remote}/${worktreeBranch} exists — reconciling`);
-
-		// Fetch latest from remote for this branch
-		await pi.exec(
-			"git",
-			["fetch", remote, worktreeBranch],
-			{ cwd, timeout: 30000 },
+	// Check if remote tracking branch exists. The old try/catch-only guard
+	// never fired (pi.exec doesn't reject on non-zero exit) — a missing ref
+	// was treated as "exists" and fetch/reset ran against a possibly
+	// nonexistent worktree.
+	const revParse = await execChecked(pi, "git", ["rev-parse", "--verify", remoteRef], {
+		cwd,
+		timeout: 10000,
+	});
+	if (revParse.code !== 0) {
+		log.info(
+			"worktree",
+			`No remote tracking branch ${remote}/${worktreeBranch} — skipping reconciliation`,
 		);
-
-		// Reset worktree to match remote tracking branch
-		await pi.exec(
-			"git",
-			["reset", "--hard", `${remote}/${worktreeBranch}`],
-			{ cwd: wtPath, timeout: 15000 },
-		);
-
-		log.info("worktree", `Worktree reconciled to ${remote}/${worktreeBranch}`);
-		notify.info(`Reconciled worktree to remote branch ${remote}/${worktreeBranch}`);
 		return { ok: true, value: undefined };
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log.error("worktree", `Reconciliation failed: ${msg}`);
+	}
+
+	log.info("worktree", `Remote tracking branch ${remote}/${worktreeBranch} exists — reconciling`);
+
+	// Fetch latest from remote for this branch
+	const fetchRes = await execChecked(pi, "git", ["fetch", remote, worktreeBranch], {
+		cwd,
+		timeout: 30000,
+	});
+	if (fetchRes.code !== 0) {
+		const msg =
+			`git fetch ${remote} ${worktreeBranch} failed: ${fetchRes.stderr || fetchRes.stdout}`.trim();
+		log.error("worktree", msg);
 		return { ok: false, error: msg, source: "worktree" };
 	}
+
+	// Reset worktree to match remote tracking branch
+	const resetRes = await execChecked(
+		pi,
+		"git",
+		["reset", "--hard", `${remote}/${worktreeBranch}`],
+		{ cwd: wtPath, timeout: 15000 },
+	);
+	if (resetRes.code !== 0) {
+		const msg =
+			`git reset --hard ${remote}/${worktreeBranch} failed: ${resetRes.stderr || resetRes.stdout}`.trim();
+		log.error("worktree", msg);
+		return { ok: false, error: msg, source: "worktree" };
+	}
+
+	log.info("worktree", `Worktree reconciled to ${remote}/${worktreeBranch}`);
+	notify.info(`Reconciled worktree to remote branch ${remote}/${worktreeBranch}`);
+	return { ok: true, value: undefined };
 }
 
 export async function createWorktree(
@@ -98,7 +134,14 @@ export async function createWorktree(
 				log.info("worktree", `Worktree created at ${wt}`);
 
 				// Reconcile to remote tracking branch if one exists
-				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+				const reconcile = await reconcileToRemoteBranch(
+					pi,
+					cwd,
+					wt,
+					worktreeBranch,
+					"origin",
+					notify,
+				);
 				if (!reconcile.ok) {
 					throw new Error(`Reconciliation failed: ${reconcile.error}`);
 				}
@@ -121,7 +164,14 @@ export async function createWorktree(
 				log.info("worktree", `Worktree attached at ${wt} (existing branch ${worktreeBranch})`);
 
 				// Reconcile to remote tracking branch if one exists
-				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+				const reconcile = await reconcileToRemoteBranch(
+					pi,
+					cwd,
+					wt,
+					worktreeBranch,
+					"origin",
+					notify,
+				);
 				if (!reconcile.ok) {
 					throw new Error(`Reconciliation failed: ${reconcile.error}`);
 				}
@@ -132,24 +182,32 @@ export async function createWorktree(
 				log.warn("worktree", `Attempt 2 failed: ${attempt2Err}`);
 			}
 
-			// Both attempts failed — check if worktree dir somehow exists
-			try {
-				await pi.exec("test", ["-d", wt], { timeout: 5000 });
-				log.warn("worktree", "Both attempts failed but worktree dir exists — using it");
-
-				// Reconcile to remote tracking branch if one exists
-				const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
-				if (!reconcile.ok) {
-					throw new Error(`Reconciliation failed: ${reconcile.error}`);
-				}
-
-				return wt;
-			} catch {
-				// Directory doesn't exist — throw to stop pipeline early
+			// Both attempts failed — check if worktree dir somehow exists.
+			// Check result.code explicitly: pi.exec resolves {code} on non-zero
+			// exit (never rejects), so the old try/catch treated a missing dir
+			// as "exists" and the pipeline ran against a nonexistent worktree.
+			const testRes = await execChecked(pi, "test", ["-d", wt], { timeout: 5000 });
+			if (testRes.code !== 0) {
 				const msg = `Failed to create worktree at ${wt} after 2 attempts`;
 				log.error("worktree", msg);
 				throw new Error(msg);
 			}
+			log.warn("worktree", "Both attempts failed but worktree dir exists — using it");
+
+			// Reconcile to remote tracking branch if one exists
+			const reconcile = await reconcileToRemoteBranch(
+				pi,
+				cwd,
+				wt,
+				worktreeBranch,
+				"origin",
+				notify,
+			);
+			if (!reconcile.ok) {
+				throw new Error(`Reconciliation failed: ${reconcile.error}`);
+			}
+
+			return wt;
 		},
 		notify,
 		"worktree",
@@ -175,12 +233,14 @@ async function copyHostDirs(
 		dirs.push([privatePiSrc, resolvePath(worktreePath, "private-pi")]);
 	}
 	for (const [src, dst] of dirs) {
-		try {
-			await pi.exec("cp", ["-r", "--preserve=links", src, dst], { timeout: 30_000 });
-			log.info("worktree", `Copied ${src} to ${dst}`);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
+		const cpRes = await execChecked(pi, "cp", ["-r", "--preserve=links", src, dst], {
+			timeout: 30_000,
+		});
+		if (cpRes.code !== 0) {
+			const msg = cpRes.stderr || cpRes.stdout || "cp failed";
 			log.warn("worktree", `Failed to copy ${src}: ${msg} — continuing without`);
+		} else {
+			log.info("worktree", `Copied ${src} to ${dst}`);
 		}
 	}
 }
@@ -200,30 +260,29 @@ export async function installWorktreeDeps(
 			const log = getDebugLogger();
 			log.info("worktree", `Installing deps at ${worktreePath}`);
 
-			// Attempt 1
-			try {
-				await pi.exec("npm", ["ci"], { cwd: worktreePath, timeout: 120_000 });
+			// Attempt 1 — check result.code explicitly (pi.exec never rejects
+			// on non-zero exit; the old try/catch logged "npm ci OK" even when
+			// npm failed, e.g. package.json missing in a non-worktree dir).
+			const first = await execChecked(pi, "npm", ["ci"], { cwd: worktreePath, timeout: 120_000 });
+			if (first.code === 0) {
 				log.info("worktree", "npm ci OK");
 				return;
-			} catch (err: unknown) {
-				const errMsg = err instanceof Error ? err.message : String(err);
-				log.warn("worktree", `npm ci failed (attempt 1): ${errMsg}`);
 			}
+			const firstMsg = (first.stderr || first.stdout || "npm ci failed").trim();
+			log.warn("worktree", `npm ci failed (attempt 1): ${firstMsg}`);
 
 			// Retry once for transient failures (e.g., network flake, registry timeout)
-			try {
-				log.info("worktree", "Retrying npm ci...");
-				await pi.exec("npm", ["ci"], { cwd: worktreePath, timeout: 120_000 });
+			const retry = await execChecked(pi, "npm", ["ci"], { cwd: worktreePath, timeout: 120_000 });
+			if (retry.code === 0) {
 				log.info("worktree", "npm ci OK on retry");
 				return;
-			} catch (retryErr: unknown) {
-				const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-				log.warn("worktree", `npm ci failed (attempt 2): ${retryMsg}`);
 			}
+			const retryMsg = (retry.stderr || retry.stdout || "npm ci failed").trim();
+			log.warn("worktree", `npm ci failed (attempt 2): ${retryMsg}`);
 
 			// Both attempts failed — throw to trigger Result failure
 			throw new Error(
-				`npm ci failed at ${worktreePath} after 2 attempts — continuing with potentially missing dependencies`,
+				`npm ci failed at ${worktreePath} after 2 attempts — continuing with potentially missing dependencies: ${retryMsg}`,
 			);
 		},
 		notify,
@@ -244,13 +303,15 @@ export async function deleteBranch(
 	cwd: string,
 	worktreeBranch: string,
 ): Promise<Result<void>> {
-	try {
-		await pi.exec("git", ["branch", "-D", worktreeBranch], { cwd, timeout: 10000 });
-		return { ok: true, value: undefined };
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+	const delRes = await execChecked(pi, "git", ["branch", "-D", worktreeBranch], {
+		cwd,
+		timeout: 10000,
+	});
+	if (delRes.code !== 0) {
+		const msg = delRes.stderr || delRes.stdout || `git branch -D ${worktreeBranch} failed`;
 		return { ok: false, error: msg, source: "worktree" };
 	}
+	return { ok: true, value: undefined };
 }
 
 // ─── Cleanup Worktree ────────────────────────────────────────────
@@ -274,14 +335,36 @@ export async function cleanupWorktree(
 		async () => {
 			const log = getDebugLogger();
 			log.info("worktree", `Cleaning up worktree: ${worktreePath}, branch: ${worktreeBranch}`);
-			await pi.exec("git", ["worktree", "remove", "--force", worktreePath], {
-				cwd,
-				timeout: 15000,
-			});
-			await pi.exec("git", ["worktree", "prune"], { cwd, timeout: 15000 });
+			// Check result.code explicitly — pi.exec resolves {code} on non-zero
+			// exit (never rejects), so failures surface instead of logging
+			// "removed" unconditionally.
+			const removeRes = await execChecked(
+				pi,
+				"git",
+				["worktree", "remove", "--force", worktreePath],
+				{
+					cwd,
+					timeout: 15000,
+				},
+			);
+			if (removeRes.code !== 0) {
+				throw new Error(removeRes.stderr || removeRes.stdout || "git worktree remove failed");
+			}
+			const pruneRes = await execChecked(pi, "git", ["worktree", "prune"], { cwd, timeout: 15000 });
+			if (pruneRes.code !== 0) {
+				throw new Error(pruneRes.stderr || pruneRes.stdout || "git worktree prune failed");
+			}
 			log.info("worktree", "Worktree removed");
 			if (!skipBranch) {
-				await pi.exec("git", ["branch", "-D", worktreeBranch], { cwd, timeout: 10000 });
+				const branchRes = await execChecked(pi, "git", ["branch", "-D", worktreeBranch], {
+					cwd,
+					timeout: 10000,
+				});
+				if (branchRes.code !== 0) {
+					throw new Error(
+						branchRes.stderr || branchRes.stdout || `git branch -D ${worktreeBranch} failed`,
+					);
+				}
 				log.info("worktree", `Branch ${worktreeBranch} deleted`);
 			}
 		},
