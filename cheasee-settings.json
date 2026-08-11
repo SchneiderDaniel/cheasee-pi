@@ -3,7 +3,7 @@
 	"defaultProvider": "opencode-go",
 	"defaultModel": "deepseek-v4-flash",
 	"docker": {
-		"memory": "2G",
+		"memory": "5G",
 		"cpus": "2.0"
 	},
 	"gitIdentity": {
