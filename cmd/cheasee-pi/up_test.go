@@ -219,12 +219,12 @@ func TestScanOrphans_containerNotRunning(t *testing.T) {
 		}
 	})
 
-	count, err := scanOrphans(context.Background(), "cheasee-pi", 0)
+	killed, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
 	if err != nil {
 		t.Fatalf("scanOrphans returned error for not-running container: %v", err)
 	}
-	if count != 0 {
-		t.Errorf("expected 0 killed for not-running container, got %d", count)
+	if len(killed) != 0 {
+		t.Errorf("expected 0 killed for not-running container, got %d", len(killed))
 	}
 }
 
@@ -246,12 +246,12 @@ func TestScanOrphans_noOrphans(t *testing.T) {
 		}
 	})
 
-	count, err := scanOrphans(context.Background(), "cheasee-pi", 0)
+	killed, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
 	if err != nil {
 		t.Fatalf("scanOrphans returned error: %v", err)
 	}
-	if count != 0 {
-		t.Errorf("expected 0 killed, got %d", count)
+	if len(killed) != 0 {
+		t.Errorf("expected 0 killed, got %d", len(killed))
 	}
 }
 
@@ -273,12 +273,12 @@ func TestScanOrphans_countsKilled(t *testing.T) {
 		}
 	})
 
-	count, err := scanOrphans(context.Background(), "cheasee-pi", 0)
+	killed, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
 	if err != nil {
 		t.Fatalf("scanOrphans returned error: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 killed, got %d", count)
+	if len(killed) != 2 {
+		t.Errorf("expected 2 killed, got %d", len(killed))
 	}
 }
 
@@ -300,7 +300,7 @@ func TestScanOrphans_dockerExecFails(t *testing.T) {
 		}
 	})
 
-	_, err := scanOrphans(context.Background(), "cheasee-pi", 0)
+	_, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
 	if err == nil {
 		t.Fatal("expected error when docker exec fails, got nil")
 	}
@@ -328,12 +328,12 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 		}
 	})
 
-	scanOrphans(context.Background(), "cheasee-pi", 0)
+	scanOrphans(context.Background(), "cheasee-pi", 0, false)
 
 	if capturedName != "docker" {
 		t.Errorf("expected docker, got %q", capturedName)
 	}
-	if len(capturedArgs) < 6 {
+	if len(capturedArgs) < 8 {
 		t.Fatalf("too few args: %v", capturedArgs)
 	}
 	if capturedArgs[0] != "exec" {
@@ -345,13 +345,19 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 	if capturedArgs[2] != "CHEASEE_MAX_AGE_MIN=0" {
 		t.Errorf("expected age-reaper env, got %q", capturedArgs[2])
 	}
-	if capturedArgs[3] != "cheasee-pi" {
-		t.Errorf("expected container name, got %q", capturedArgs[3])
+	if capturedArgs[3] != "-e" {
+		t.Errorf("expected second -e, got %q", capturedArgs[3])
 	}
-	if capturedArgs[4] != "bash" || capturedArgs[5] != "-c" {
-		t.Errorf("expected bash -c, got %v", capturedArgs[4:6])
+	if capturedArgs[4] != "CHEASEE_DRY_RUN=0" {
+		t.Errorf("expected dry-run env, got %q", capturedArgs[4])
 	}
-	if capturedArgs[6] != orphanScanBash {
+	if capturedArgs[5] != "cheasee-pi" {
+		t.Errorf("expected container name, got %q", capturedArgs[5])
+	}
+	if capturedArgs[6] != "bash" || capturedArgs[7] != "-c" {
+		t.Errorf("expected bash -c, got %v", capturedArgs[6:8])
+	}
+	if capturedArgs[8] != orphanScanBash {
 		t.Errorf("expected orphanScanBash as script argument")
 	}
 }
@@ -372,10 +378,36 @@ func TestScanOrphans_forwardsMaxAgeEnv(t *testing.T) {
 		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
 	})
 
-	scanOrphans(context.Background(), "cheasee-pi", 45)
+	scanOrphans(context.Background(), "cheasee-pi", 45, false)
 
 	if !slices.Contains(capturedArgs, "CHEASEE_MAX_AGE_MIN=45") {
 		t.Errorf("expected CHEASEE_MAX_AGE_MIN=45 in args, got %v", capturedArgs)
+	}
+	if !slices.Contains(capturedArgs, "CHEASEE_DRY_RUN=0") {
+		t.Errorf("expected CHEASEE_DRY_RUN=0 in args, got %v", capturedArgs)
+	}
+}
+
+func TestScanOrphans_dryRunEnvFlag(t *testing.T) {
+	step := 0
+	var capturedArgs []string
+	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+		step++
+		if step == 1 {
+			return &mockCmd{
+				outputFn: func() ([]byte, error) {
+					return []byte("cheasee-pi"), nil
+				},
+			}
+		}
+		capturedArgs = arg
+		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
+	})
+
+	scanOrphans(context.Background(), "cheasee-pi", 30, true)
+
+	if !slices.Contains(capturedArgs, "CHEASEE_DRY_RUN=1") {
+		t.Errorf("expected CHEASEE_DRY_RUN=1 in args, got %v", capturedArgs)
 	}
 }
 
@@ -421,7 +453,7 @@ func TestScanOrphans_dockerPsFails(t *testing.T) {
 		}
 	})
 
-	_, err := scanOrphans(context.Background(), "cheasee-pi", 0)
+	_, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
 	if err == nil {
 		t.Fatal("expected error when docker ps fails, got nil")
 	}

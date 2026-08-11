@@ -11,6 +11,12 @@ import (
 
 var cleanName string
 var cleanMaxAge int
+var cleanDryRun bool
+var cleanYes bool
+
+// cleanConfirmFn is the y/N gate before killing pi sessions; overridable in
+// tests. Abort (false) leaves every session untouched.
+var cleanConfirmFn = promptConfirm
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
@@ -25,12 +31,18 @@ Run this when memory usage is high. Two reapers:
     clients that disconnect leave pi running with PPid=0 (parent stays the
     host-side shim, invisible inside the container), so age is the only
     in-container signal that a session is a detached straggler.
-Interactive sessions are NOT affected while younger than --older-than.
+
+Before killing anything, clean lists the matching sessions and asks for
+confirmation — a session older than the threshold that you are still
+actively using would otherwise die with the stragglers. --yes skips the
+prompt, --dry-run only shows what would happen.
 Dangling images and build cache (intermediate layers) are pruned.
 Use 'cheasee-pi start' to start a fresh session after cleaning.
 
 Examples:
-  cheasee-pi clean               # kill orphaned + sessions >30m old, prune Docker garbage
+  cheasee-pi clean               # preview, confirm, then kill sessions >30m old + prune
+  cheasee-pi clean --dry-run     # show what would be killed, touch nothing
+  cheasee-pi clean --yes         # skip the confirmation prompt
   cheasee-pi clean --older-than 60
   cheasee-pi clean --older-than 0   # PPid=1 orphans only, no age reaping
   cheasee-pi clean --name mypi   # specify container name`,
@@ -42,6 +54,8 @@ func init() {
 	rootCmd.AddCommand(cleanCmd)
 	cleanCmd.Flags().StringVar(&cleanName, "name", "cheasee-pi", "Container name")
 	cleanCmd.Flags().IntVar(&cleanMaxAge, "older-than", 30, "Kill pi sessions older than N minutes (detached docker exec stragglers); 0 disables age-based reaping")
+	cleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be killed and pruned without touching anything")
+	cleanCmd.Flags().BoolVar(&cleanYes, "yes", false, "Skip the confirmation prompt")
 }
 
 // pruneDanglingImages removes all dangling (<none>:<none>) Docker images.
@@ -57,6 +71,14 @@ func pruneDanglingImages() {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
+}
+
+// printCleanReport lists the sessions a clean pass matched.
+func printCleanReport(candidates []string) {
+	fmt.Fprintf(os.Stderr, "  %d pi session(s) matched the stale/orphan reapers:\n", len(candidates))
+	for _, c := range candidates {
+		fmt.Fprintf(os.Stderr, "    %s\n", c)
+	}
 }
 
 func runCleanE(cmd *cobra.Command, _ []string) error {
@@ -75,14 +97,55 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	killed, err := scanOrphans(ctx, cleanName, cleanMaxAge)
-	if err != nil {
-		return fmt.Errorf("clean: %w", err)
+	if cleanDryRun {
+		candidates, err := scanOrphans(ctx, cleanName, cleanMaxAge, true)
+		if err != nil {
+			return fmt.Errorf("clean: %w", err)
+		}
+		if len(candidates) == 0 {
+			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
+		} else {
+			printCleanReport(candidates)
+		}
+		fmt.Fprintf(os.Stderr, "  ℹ Dry-run: dangling images + build cache would also be pruned\n")
+		return nil
 	}
-	if killed > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
+
+	if cleanYes {
+		// Non-interactive: single real scan, no preview pass.
+		killed, err := scanOrphans(ctx, cleanName, cleanMaxAge, false)
+		if err != nil {
+			return fmt.Errorf("clean: %w", err)
+		}
+		if len(killed) > 0 {
+			fmt.Fprintf(os.Stderr, "  ✓ Killed %d pi session(s)\n", len(killed))
+		} else {
+			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
+		}
 	} else {
-		fmt.Fprintf(os.Stderr, "  ℹ No orphaned pi processes found\n")
+		// Preview first, then confirm before killing anything.
+		candidates, err := scanOrphans(ctx, cleanName, cleanMaxAge, true)
+		if err != nil {
+			return fmt.Errorf("clean: %w", err)
+		}
+		if len(candidates) == 0 {
+			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
+		} else {
+			printCleanReport(candidates)
+			ok, err := cleanConfirmFn(fmt.Sprintf("Kill %d pi session(s)?", len(candidates)))
+			if err != nil {
+				return fmt.Errorf("clean: %w", err)
+			}
+			if !ok {
+				fmt.Fprintf(os.Stderr, "  ✗ Aborted — no sessions killed\n")
+			} else {
+				killed, err := scanOrphans(ctx, cleanName, cleanMaxAge, false)
+				if err != nil {
+					return fmt.Errorf("clean: %w", err)
+				}
+				fmt.Fprintf(os.Stderr, "  ✓ Killed %d pi session(s)\n", len(killed))
+			}
+		}
 	}
 
 	pruneDanglingImages()

@@ -19,6 +19,8 @@ import (
 //     containerd shim, invisible inside the container PID namespace, so PPid
 //     reads 0 (never 1) and reaper 1 can't see it. Sessions older than the
 //     threshold are detached stragglers and get reaped by age.
+// CHEASEE_DRY_RUN=1 makes the script only report matches ("killing ..."
+// lines) without signalling them — scanOrphans uses it as a preview pass.
 // TOCTOU races between stat read and kill are tolerated — ESRCH is silently
 // swallowed by 2>/dev/null.
 const orphanScanBash = `for pid in /proc/[0-9]*/stat; do
@@ -26,7 +28,7 @@ const orphanScanBash = `for pid in /proc/[0-9]*/stat; do
   cmdline=$(tr '\0' ' ' < "${pid%/stat}/cmdline" 2>/dev/null)
   [ "$ppid" = "1" ] && { [[ "$cmdline" == "/usr/bin/pi"* ]] || [[ "$cmdline" == "pi "* ]] || [[ "$cmdline" == "pi" ]]; } && \
     echo "killing $(basename "$(dirname "$pid")")" && \
-    kill "$(basename "$(dirname "$pid")")" 2>/dev/null
+    { [ "${CHEASEE_DRY_RUN:-0}" = "1" ] || kill "$(basename "$(dirname "$pid")")" 2>/dev/null; }
   if [ "${CHEASEE_MAX_AGE_MIN:-0}" -gt 0 ] 2>/dev/null; then
     { [[ "$cmdline" == "/usr/bin/pi"* ]] || [[ "$cmdline" == "pi "* ]] || [[ "$cmdline" == "pi" ]]; } && {
       start=$(awk '{print $22}' "$pid" 2>/dev/null)
@@ -34,7 +36,7 @@ const orphanScanBash = `for pid in /proc/[0-9]*/stat; do
       age_min=$(( (now - start) / 6000 ))
       [ "$age_min" -gt "${CHEASEE_MAX_AGE_MIN:-0}" ] && \
         echo "killing $(basename "$(dirname "$pid")") (age ${age_min}m)" && \
-        kill "$(basename "$(dirname "$pid")")" 2>/dev/null
+        { [ "${CHEASEE_DRY_RUN:-0}" = "1" ] || kill "$(basename "$(dirname "$pid")")" 2>/dev/null; }
     }
   fi
 done || true`
@@ -51,38 +53,44 @@ var execCommand = func(name string, arg ...string) cmdIface {
 }
 
 // scanOrphans runs the orphan-scan bash inside the container and returns the
-// number of PIDs that were signalled. Returns (0, nil) if the container is
-// not running (graceful skip). Best-effort: TOCTOU races are tolerated.
+// "killing ..." report lines — one per session that matched a reaper. With
+// dryRun=true the script only reports matches without signalling them, so the
+// result doubles as a preview. Returns (nil, nil) if the container is not
+// running (graceful skip). Best-effort: TOCTOU races are tolerated.
 // maxAgeMinutes > 0 additionally reaps pi sessions older than the threshold
 // (detached docker exec stragglers — see orphanScanBash); 0 keeps the
 // original PPid=1-only behaviour.
-func scanOrphans(ctx context.Context, name string, maxAgeMinutes int) (int, error) {
+func scanOrphans(ctx context.Context, name string, maxAgeMinutes int, dryRun bool) ([]string, error) {
 	// Check container is running
 	cmd := execCommand("docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("docker ps: %w", err)
+		return nil, fmt.Errorf("docker ps: %w", err)
 	}
 	if strings.TrimSpace(string(out)) != name {
-		return 0, nil
+		return nil, nil
 	}
 
+	dryFlag := "0"
+	if dryRun {
+		dryFlag = "1"
+	}
 	execCmd := execCommand("docker", "exec",
 		"-e", fmt.Sprintf("CHEASEE_MAX_AGE_MIN=%d", maxAgeMinutes),
+		"-e", "CHEASEE_DRY_RUN="+dryFlag,
 		name, "bash", "-c", orphanScanBash)
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("orphan scan: %w", err)
+		return nil, fmt.Errorf("orphan scan: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	count := 0
-	for _, line := range lines {
+	var killed []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		if strings.HasPrefix(line, "killing ") {
-			count++
+			killed = append(killed, line)
 		}
 	}
-	return count, nil
+	return killed, nil
 }
 
 // killSessionByMarker reaps the pi session that carries the given

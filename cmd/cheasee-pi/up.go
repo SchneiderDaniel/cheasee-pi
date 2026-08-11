@@ -193,12 +193,12 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
 	// age reaping is clean's job, a pre-start age sweep could kill a long-
 	// running session the user still has attached elsewhere)
-	killed, err := scanOrphans(ctx, upName, 0)
+	killed, err := scanOrphans(ctx, upName, 0, false)
 	if err != nil {
 		return fmt.Errorf("pre-start orphan scan: %w", err)
 	}
-	if killed > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
+	if len(killed) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", len(killed))
 	}
 
 	// Phase 8: exec pi
