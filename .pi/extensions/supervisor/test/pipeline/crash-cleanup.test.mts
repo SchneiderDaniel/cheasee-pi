@@ -503,9 +503,11 @@ describe("cleanupOnExit() — Phase 2: cleanup logic (reordered: branch first)",
 		// then race starts with hanging worktree remove
 		const cleanupPromise = cleanupOnExit("SIGTERM", deps);
 
-		// Let microtasks drain: branch deletion resolved, setTimeout called for race
-		await Promise.resolve();
-		await Promise.resolve();
+		// Let microtasks drain: branch deletion resolved, setTimeout called for race.
+		// execChecked() adds an extra async layer over pi.exec — drain enough turns.
+		for (let i = 0; i < 10 && timeoutInfo.reject === null; i++) {
+			await Promise.resolve();
+		}
 
 		// At this point, branch -D completed and worktree remove was attempted
 		// (but hangs). execCalls[0] is always git branch -D.
