@@ -30,6 +30,7 @@ import type { Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../config/types.ts";
+import { resolveWorktreeBase } from "./worktree.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -271,7 +272,10 @@ export async function cleanupStalePipelineState(
 		return { ok: true, value: undefined };
 	}
 
-	const baseDir = resolve(cwd, worktreeBase);
+	// Resolve the base the worktrees actually live under — same derivation
+	// createWorktree uses, so stale-state scanning follows the tmpdir fallback
+	// when the configured base is not writable (docker /workspaces overlay).
+	const baseDir = resolveWorktreeBase(cwd, worktreeBase, notify);
 
 	// Collect all supervisor-state.json files to check
 	const stateFiles: string[] = [];
