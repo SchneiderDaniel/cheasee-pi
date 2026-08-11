@@ -13,13 +13,16 @@ var downCmd = &cobra.Command{
 	Use:     "down",
 	Aliases: []string{"stop"},
 	Short:   "Stop and remove the Docker container",
-	Long: `Stop and remove the Cheasee-Pi Docker container via docker compose down.
+	Long: `Stop and remove the Docker container belonging to this workspace.
 
-The compose file resolves from the CLI-managed cache dir (same project name
-'cheasee-pi' as start), so down works from any directory.
+The compose project is the workspace's per-repo project (cheasee-pi-<repo>,
+resolved from the CLI-managed cache dir like start), so down only stops and
+removes this workspace's container — parallel workspaces with other
+repositories keep running untouched. Outside a workspace, the legacy shared
+'cheasee-pi' project is targeted.
 
 Examples:
-  cheasee-pi down                # stop default container`,
+  cheasee-pi down                # stop current workspace's container`,
 	DisableAutoGenTag: true,
 	RunE:              runDownE,
 }

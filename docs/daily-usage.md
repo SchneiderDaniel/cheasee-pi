@@ -85,10 +85,14 @@ docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 
 The stack includes a local CodeFlow service: a browser-based visualizer that renders
 the workspace's module dependency graph, call structure, and architecture (tree-sitter
-AST parsing, 18 languages). It starts automatically with `docker compose up -d` and
-serves on port 8470.
+AST parsing, 18 languages). It starts automatically with `docker compose up -d`.
 
-Open it in the browser:
+The host port is derived per repository: `cheasee-pi start` maps it to
+8470 + a stable hash of the repo slug (range 8470–9469), so parallel workspaces
+with different repositories never collide on the same host port. An explicit
+`CODEFLOW_PORT` environment variable overrides the derivation.
+
+Open it in the browser (default port 8470 for a single-workspace setup):
 
 ```
 http://localhost:8470/?repo=local/workspace&run=1
@@ -106,12 +110,13 @@ read-only, editable without rebuilding the image):
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `port` | `8470` | Listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
+| `port` | `8470` | Container-side listen port; keep the compose mapping in sync when changed (host side is per-repo via `CODEFLOW_PORT`) |
 | `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
 | `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
 
 Configuration changes take effect on the next `docker compose up -d` (no rebuild
-required). The compose port mapping uses `CODEFLOW_PORT` for the host side.
+required). The compose port mapping uses `CODEFLOW_PORT` for the host side; the CLI
+derives a per-repo default when the variable is unset.
 
 ### Limitations
 
@@ -158,11 +163,16 @@ docker exec -it \
 > **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
 > `cheasee-pi start` instead.
 
-## Parallel sessions
+## Parallel workspaces
 
-You can run multiple pi sessions against the same container simultaneously from
-different terminals. Each `docker exec` creates an independent process on the same
-container — they do not share a TUI or stdin.
+Each workspace (folder with its own repository) runs its own container: the
+container name and compose project are derived from the repository
+(`cheasee-pi-<repo>`), so two workspaces with different repositories keep
+their containers running side by side — `start`, `down`, and the orphan scan
+in one workspace never touch another's container. Within one workspace you can
+run multiple pi sessions against the same container simultaneously from
+different terminals. Each `docker exec` creates an independent process on the
+same container — they do not share a TUI or stdin.
 
 ```bash
 # Terminal 1
@@ -175,7 +185,7 @@ docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
 ### Stale process cleanup
 
 Pi processes can become orphaned if a `docker exec` session disconnects or the
-wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each).
+wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each).
 
 **Cleanup command:**
 
@@ -183,8 +193,11 @@ wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each
 cheasee-pi clean
 ```
 
-This scans for processes reparented to PID 1 and kills them. It only targets
-orphans — interactive sessions are **not** affected.
+This removes **all** Cheasee-Pi containers (every repository's workspace
+container plus the codeflow sidecars), first killing orphaned pi processes
+inside the running ones, then pruning dangling images and build cache. It only
+targets orphans — interactive sessions are **not** affected — and only
+containers belonging to a `cheasee-pi` compose project are removed.
 
 **Automatic pre-start cleanup:** `cheasee-pi start` / `cheasee-pi up` runs the
 same orphan scan before launching pi, so orphans are always cleaned between
@@ -198,8 +211,10 @@ sessions.
 cheasee-pi down
 ```
 
-`cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container via
-`docker compose down` (resolved from the CLI cache dir, same project name as start).
+`cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container of
+the current workspace via `docker compose down` — the compose project is the
+workspace's per-repo project (`cheasee-pi-<repo>`), so parallel workspaces
+with other repositories keep running untouched.
 
 ### Full teardown (removes container)
 
