@@ -133,6 +133,13 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("build env vars: %w", err)
 	}
 
+	// Tag this session so the reaper can find it after the docker exec client
+	// detaches. Disconnected exec sessions stay alive (their parent remains the
+	// host-side shim, so the orphan scan never sees them); killing by this
+	// unique marker is the only way to reap exactly the session we launched.
+	sessionID := newSessionID()
+	envMap["CHEASEE_SESSION_ID"] = sessionID
+
 	if len(envMap) == 0 {
 		fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
@@ -183,8 +190,10 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Phase 7: Run pre-start orphan scan (best-effort)
-	killed, err := scanOrphans(ctx, upName)
+	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
+	// age reaping is clean's job, a pre-start age sweep could kill a long-
+	// running session the user still has attached elsewhere)
+	killed, err := scanOrphans(ctx, upName, 0)
 	if err != nil {
 		return fmt.Errorf("pre-start orphan scan: %w", err)
 	}
@@ -193,7 +202,15 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Phase 8: exec pi
-	return execPIContainer(upName, envMap, target)
+	execErr := execPIContainer(upName, envMap, target)
+
+	// The docker exec client just exited (user quit or disconnected). Reap the
+	// session by marker: on disconnect pi keeps running with PPid=0, invisible
+	// to the orphan scan — without this every detached start leaks a pi.
+	if err := killSessionByMarker(ctx, upName, sessionID); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
+	}
+	return execErr
 }
 
 // WorkspaceState is the start-gate classification of a folder.
