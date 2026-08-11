@@ -1,6 +1,13 @@
 {
 	"defaultProvider": "opencode-go",
 	"defaultModel": "deepseek-v4-flash",
+	"packages": [
+		{
+			"source": "https://github.com/DietrichGebert/ponytail",
+			"extensions": [],
+			"skills": []
+		}
+	],
 	"docker": {
 		"memory": "5G",
 		"cpus": "4.0"
