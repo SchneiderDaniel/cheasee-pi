@@ -26,6 +26,7 @@ var initSplitFiles = []string{
 // decl placed in the wrong file (or renamed) fails the test.
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
+	"const:initTimeout":  "init.go",
 	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL": "init.go",
 	"var:newInitDeps":     "init.go",
 	"type:InitPorts":      "init.go",
@@ -38,7 +39,8 @@ var wantInitDecls = map[string]string{
 	"func:runInitProbe":   "init.go",
 	"func:resolveRepoURL": "init.go",
 
-	"func:gitCloneWorktree": "init_clone.go",
+	"func:gitCloneWorktree":  "init_clone.go",
+	"func:removeInitResidue": "init_clone.go",
 
 	"func:runInitAuth":    "init_auth.go",
 	"func:runInitAPIKeys": "init_auth.go",
@@ -220,6 +222,7 @@ var runInitFlowDecls = map[string]string{
 // TestRunInitScaffold before TestRunInitProbe).
 var testSplitRules = []prefixRule{
 	{"TestGitCloneWorktree", "init_clone_test.go"},
+	{"TestRemoveInitResidue", "init_clone_test.go"},
 	{"TestParseGitHubURL", "init_clone_test.go"},
 	{"TestRedactToken", "init_clone_test.go"},
 	{"TestRunInitAuth", "init_auth_test.go"},

@@ -104,3 +104,22 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned (bare + worktree) to %s\n", workdir)
 	return nil
 }
+
+// removeInitResidue best-effort cleans a half-initialized workspace after a
+// post-clone init failure (scaffold/auth-save/API-key phase): the main
+// worktree plus the sibling .bare. The empty-folder probe guarantees only
+// freshly cloned + scaffolded files exist in the workdir, so removal cannot
+// destroy user data. Missing worktree/.bare is a silent no-op (best-effort
+// by contract); mirrors gitCloneWorktree's clone-failure cleanup paths.
+func removeInitResidue(workdir string) {
+	bareDir := filepath.Join(filepath.Dir(workdir), ".bare")
+
+	fmt.Fprintf(os.Stderr, "  ⚠ Init failed — removing incomplete workspace residue (worktree + .bare).\n")
+
+	// Prune the bare's worktree registration first (best-effort — a
+	// stubbed/incomplete worktree errors here, harmless), then remove the
+	// worktree dir and the sibling .bare outright.
+	_ = runCommandContext(context.Background(), "git", "--git-dir", bareDir, "worktree", "remove", "--force", workdir).Run()
+	os.RemoveAll(workdir)
+	os.RemoveAll(bareDir)
+}
