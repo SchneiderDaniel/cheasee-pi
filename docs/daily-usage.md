@@ -35,7 +35,9 @@ automatically inside the container.
 > `/workspaces/main` mount ownership. On macOS (OrbStack) and Windows (WSL2), bind-mount
 > permissions may differ — if you encounter permission errors, pass them explicitly:
 > ```bash
-> HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+> WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+>   HOST_UID=$(id -u) HOST_GID=$(id -g) \
+>   docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 > ```
 
 ## Start the container
@@ -71,7 +73,9 @@ self-scaffolded by pi on its first run.
 cheasee-pi start
 ```
 
-Without `--build`, Compose reuses the cached image — start is near-instant (~2s).
+Without `--build`, a running container is reused — start execs pi directly
+(~2s). A stopped container is rebuilt first (the pi layer re-resolves
+`@latest` via the build stamp), so the first start after `down` is slower.
 
 ### Raw docker compose (power users)
 
@@ -114,7 +118,7 @@ read-only, editable without rebuilding the image):
 | `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
 | `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
 
-Configuration changes take effect on the next `docker compose up -d` (no rebuild
+Configuration changes take effect on the next container start (no rebuild
 required). The compose port mapping uses `CODEFLOW_PORT` for the host side.
 
 ### Limitations
@@ -141,7 +145,9 @@ injects API keys as env vars, and launches pi with your repo mounted at
 ### Using docker exec (native)
 
 ```bash
-docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
+# The container is named cheasee-pi-<repo-slug> (repo slug, not plain cheasee-pi)
+CONTAINER=$(docker ps --format '{{.Names}}' | grep '^cheasee-pi-')
+docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
 
 This runs the `pi` CLI inside the running container as `agentuser`, working in the
@@ -156,7 +162,7 @@ docker exec -it \
   -e OPENAI_API_KEY=$OPENAI_API_KEY \
   --user agentuser \
   -w /workspaces/main \
-  cheasee-pi pi
+  "$CONTAINER" /usr/bin/pi --approve
 ```
 
 > **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
@@ -169,11 +175,11 @@ different terminals. Each `docker exec` creates an independent process on the sa
 container — they do not share a TUI or stdin.
 
 ```bash
-# Terminal 1
-docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
+# Terminal 1 (use the CONTAINER var from "Using docker exec" above)
+docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 
 # Terminal 2 (same container, independent session)
-docker exec -it --user agentuser -w /workspaces/main cheasee-pi pi
+docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
 
 ### Stale process cleanup
@@ -208,7 +214,8 @@ cheasee-pi down
 ### Full teardown (removes container)
 
 ```bash
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
+WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
 ```
 
 This stops and **removes** the container. On next `up -d`, the container is rebuilt
@@ -217,7 +224,8 @@ from scratch, including `npm install` (~30-60s).
 ### Pause (preserves container state)
 
 ```bash
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
+WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
 ```
 
 This stops the container but keeps it intact. Next `cheasee-pi start` (without
@@ -232,7 +240,9 @@ short breaks and `down` when you're done for the day.
 When the embedded Dockerfile or any dependency changes, rebuild the image explicitly:
 
 ```bash
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build && docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build \
+  && docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 Or rebuild and restart in one step with `--build`:
@@ -257,7 +267,8 @@ When Docker layer cache is stale or you want a clean build from scratch:
 cheasee-pi build --no-cache
 
 # Docker compose directly
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
 ```
 
 This ignores all cached layers and rebuilds every step. Use when:
@@ -280,7 +291,9 @@ user's UID/GID. The entrypoint auto-detects from `/workspaces/main`, but on macO
 **Fix:** Pass `HOST_UID` and `HOST_GID` explicitly:
 
 ```bash
-HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  HOST_UID=$(id -u) HOST_GID=$(id -g) \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ### Missing API keys
@@ -295,9 +308,10 @@ unless explicitly forwarded via `docker exec -e`.
 `~/.config/cheasee-pi/auth.json` and forwards them, or pass each key explicitly:
 
 ```bash
+CONTAINER=$(docker ps --format '{{.Names}}' | grep '^cheasee-pi-')
 docker exec -it -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  --user agentuser -w /workspaces/main cheasee-pi pi
+  --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
 
 ### Stale pi/orphaned processes
@@ -316,11 +330,14 @@ interfere with new sessions.
 
 **Causes and fixes:**
 
-1. **Port conflict:** No port mapping is configured by default, but custom overrides in
-   `docker-compose.override.yml` may conflict. Check with `docker compose ps`.
+1. **Port conflict:** The CodeFlow service maps host port 8470 by default
+   (`CODEFLOW_PORT`); a busy 8470 or custom overrides in
+   `docker-compose.override.yml` (cache dir) can conflict. Check with
+   `docker compose ps`.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
-   docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+   WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+     docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
    cheasee-pi start
    ```
 3. **Docker not running:** Verify with `docker ps`.

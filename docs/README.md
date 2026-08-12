@@ -104,9 +104,11 @@ cheasee-pi start --build
 
 The stack ships a local CodeFlow service (browser-based dependency/architecture
 visualizer, tree-sitter AST, 18 languages). It starts automatically with
-`cheasee-pi start` and serves on port 8470. See
-[Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization)
-for configuration (`cmd/cheasee-pi/embedded/docker/codeflow/config.json`).
+`cheasee-pi start` (a compose-stack service; raw `docker compose up -d` works
+too — the required bind-mount env vars are in
+[Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization))
+and serves on port 8470. Configuration:
+`cmd/cheasee-pi/embedded/docker/codeflow/config.json`.
 
 ## Contributing
 
