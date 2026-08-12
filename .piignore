@@ -2,10 +2,6 @@
 # Format: standard gitignore syntax
 # Reload with /reload after changes
 
-# --------------------------------------------------------------------
-# cheasee-pi machine-local settings (never edited by pi agents)
-# --------------------------------------------------------------------
-cheasee-settings.json
 
 # --------------------------------------------------------------------
 # Secrets & environment
