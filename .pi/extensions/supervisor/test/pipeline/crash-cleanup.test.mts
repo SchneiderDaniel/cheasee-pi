@@ -266,7 +266,7 @@ describe("cleanupOnExit() — Phase 2: cleanup logic (reordered: branch first)",
 			["branch", "-D", WORKTREE_BRANCH],
 			"branch -D must be first exec call",
 		);
-		assert.deepEqual(execCalls[1]!.args, ["worktree", "remove", "--force", WORKTREE_PATH]);
+		assert.deepEqual(execCalls[1]!.args, ["worktree", "remove", "--force", "--force", WORKTREE_PATH]);
 		assert.deepEqual(execCalls[2]!.args, ["worktree", "prune"]);
 
 		const exitMock = exitSpy as unknown as MockedFn;

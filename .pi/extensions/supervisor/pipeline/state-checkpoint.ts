@@ -350,15 +350,16 @@ export async function cleanupStalePipelineState(
 			warnings.push(`prune failed: ${msg}`);
 		}
 
-		// Step 2: git worktree remove --force
+		// Step 2: git worktree remove --force --force (double force overrides
+		// the entrypoint.sh lock — single --force refuses locked worktrees)
 		try {
-			await pi.exec("git", ["worktree", "remove", "--force", state.worktreePath], {
+			await pi.exec("git", ["worktree", "remove", "--force", "--force", state.worktreePath], {
 				cwd,
 				timeout: 15000,
 			});
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			log.warn("state-checkpoint", `git worktree remove --force failed: ${msg}`);
+			log.warn("state-checkpoint", `git worktree remove --force --force failed: ${msg}`);
 			warnings.push(`remove failed: ${msg}`);
 		}
 

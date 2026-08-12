@@ -450,7 +450,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		// Should call git worktree prune, remove, branch -D, and rm -rf
 		assert.ok(calls.length >= 4, "should have at least 4 exec calls");
 		assert.deepEqual(calls[0].args, ["worktree", "prune"]);
-		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "/tmp/stale-worktree"]);
+		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "--force", "/tmp/stale-worktree"]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "stale-branch"]);
 		assert.deepEqual(calls[3].args, ["-rf", "/tmp/stale-worktree"]);
 
@@ -654,7 +654,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(result.ok, true);
 		// Should have cleaned up the worktree
 		assert.equal(calls.length, 4);
-		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", wtDir]);
+		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "--force", wtDir]);
 		assert.equal(existsSync(wtStatePath), false);
 	});
 });

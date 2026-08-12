@@ -467,10 +467,13 @@ export async function cleanupWorktree(
 			// Check result.code explicitly — pi.exec resolves {code} on non-zero
 			// exit (never rejects), so failures surface instead of logging
 			// "removed" unconditionally.
+			// Double --force: git refuses to remove a locked worktree with a
+			// single --force (entrypoint.sh locks every worktree registration).
+			// The lock only protects against prune; we own this worktree.
 			const removeRes = await execChecked(
 				pi,
 				"git",
-				["worktree", "remove", "--force", worktreePath],
+				["worktree", "remove", "--force", "--force", worktreePath],
 				{
 					cwd,
 					timeout: 15000,

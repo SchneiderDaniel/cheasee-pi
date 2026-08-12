@@ -389,7 +389,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 3);
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
 	});
@@ -436,7 +436,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, true);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 2, "Only 2 git commands with skipBranch=true");
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		// No third call for branch -D
 	});
@@ -455,7 +455,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, false);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 3, "All 3 git commands with skipBranch=false");
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
 	});
