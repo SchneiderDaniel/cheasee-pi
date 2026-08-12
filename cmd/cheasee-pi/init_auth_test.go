@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,5 +224,345 @@ func TestRunInit_ContextCancelledMidFlow(t *testing.T) {
 	}
 	if authJSONExists(t) {
 		t.Error("no partial auth.json must be saved when the flow fails")
+	}
+}
+
+func TestRunReauth_RedoesAuthAndPreservesProviders(t *testing.T) {
+	// Interactive reauth through runInit: docker check + probe routing +
+	// device flow + user resolution + merge-safe patch + provider phase
+	// (declined). No clone, no scaffold, no repo-URL input.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	// Pre-seeded providers must survive the github patch (merge-safe).
+	seedAuth(t, map[string]string{"openai": "key-openai", "anthropic": "key-anthropic"})
+
+	workdir := t.TempDir()
+	settings := `{"oauth":{"clientID":"app-123"},"docker":{"memory":"2G"},"gitIdentity":{"name":"N","email":"e@x"},"defaultProvider":"openai"}`
+	testutil.WriteCheaseeSettingsFile(t, workdir, settings)
+
+	srv := githubUserServer(t)
+	defer srv.Close()
+	stubGitHubUserHTTP(t, srv)
+
+	var gitCalls int
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			gitCalls++
+		}
+		return saved(ctx, name, arg...)
+	})
+
+	inputCalled := false
+	var err error
+	stderr := testutil.CaptureStderr(t, func() {
+		err = runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+			d.Workdir = workdir
+			d.Reauth = true
+			d.NoInput = false
+			d.InputFn = func(title, placeholder string) (string, error) {
+				inputCalled = true
+				return "", nil
+			}
+			d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+		}))
+	})
+	if err != nil {
+		t.Fatalf("reauth through runInit failed: %v", err)
+	}
+
+	if gitCalls != 0 {
+		t.Errorf("reauth must not clone (no git argv), got %d git calls", gitCalls)
+	}
+	if inputCalled {
+		t.Error("reauth must not ask for a repo URL (InputFn must never be called)")
+	}
+	if _, statErr := os.Stat(filepath.Join(filepath.Dir(workdir), ".bare")); !os.IsNotExist(statErr) {
+		t.Errorf("reauth must not create <parent>/.bare: %v", statErr)
+	}
+
+	auth := loadAuthJSON(t)
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("expected fresh github_token %q, got %q", FakeGitHubToken, auth.GitHubToken)
+	}
+	if auth.GitHubUser != "octocat" {
+		t.Errorf("expected github_user %q, got %q", "octocat", auth.GitHubUser)
+	}
+	if auth.RepoPath != workdir {
+		t.Errorf("expected repo_path %q, got %q", workdir, auth.RepoPath)
+	}
+	providers, err := (&fileRepository{}).ListProviders(context.Background())
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if providers["openai"] != "key-openai" || providers["anthropic"] != "key-anthropic" {
+		t.Errorf("pre-seeded providers must survive the patch, got %v", providers)
+	}
+
+	got, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if string(got) != settings {
+		t.Errorf("settings file must be preserved byte-identical (provider phase declined), got:\n%s", got)
+	}
+
+	if !strings.Contains(stderr, "✓ GitHub credentials updated for octocat") {
+		t.Errorf("success line should name the resolved user, stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "https://github.com/settings/connections/applications") {
+		t.Errorf("stderr should print the revocation URL, stderr:\n%s", stderr)
+	}
+}
+
+func TestRunReauth_NoInputSkipsProviderPhase(t *testing.T) {
+	// --no-input --reauth: the flag is the confirmation — ConfirmFn is never
+	// called, the provider phase is skipped, auth.json is still updated.
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+
+	srv := githubUserServer(t)
+	defer srv.Close()
+	stubGitHubUserHTTP(t, srv)
+
+	confirmCalled := false
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.NoInput = true
+		d.ConfirmFn = func(string) (bool, error) {
+			confirmCalled = true
+			return true, nil
+		}
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if confirmCalled {
+		t.Error("--no-input must not call ConfirmFn (the flag is the confirmation)")
+	}
+	auth := loadAuthJSON(t)
+	if auth.GitHubToken != FakeGitHubToken || auth.GitHubUser != "octocat" || auth.RepoPath != workdir {
+		t.Errorf("auth.json must carry the fresh github fields, got %+v", auth)
+	}
+}
+
+func TestRunReauth_CreatesAuthJSONWhenMissing(t *testing.T) {
+	// Settings present but auth.json missing → reauth creates auth.json with
+	// the github fields.
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+
+	srv := githubUserServer(t)
+	defer srv.Close()
+	stubGitHubUserHTTP(t, srv)
+
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !authJSONExists(t) {
+		t.Fatal("reauth must create auth.json when missing")
+	}
+	auth := loadAuthJSON(t)
+	if auth.GitHubToken != FakeGitHubToken || auth.GitHubUser != "octocat" || auth.RepoPath != workdir {
+		t.Errorf("expected fresh github fields, got %+v", auth)
+	}
+}
+
+func TestRunReauth_ErrUnsupportedHardErrors(t *testing.T) {
+	// device.ErrUnsupported on an initialized workspace is a hard error
+	// naming --client-id — NO legacy API-key fallback, no provider re-prompt,
+	// auth.json untouched.
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	auth := &mockAuthenticator{
+		requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
+			return nil, device.ErrUnsupported
+		},
+	}
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.Ports = InitPorts{Auth: auth}
+	}))
+	if err == nil || !strings.Contains(err.Error(), "--client-id") {
+		t.Fatalf("expected hard error naming --client-id, got: %v", err)
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must be untouched on ErrUnsupported")
+	}
+}
+
+func TestRunReauth_DeviceFlowFailureWrapsGitHubAuthError(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	auth := &mockAuthenticator{
+		waitFunc: func(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error) {
+			return nil, fmt.Errorf("expired_token: device code expired")
+		},
+	}
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.Ports = InitPorts{Auth: auth}
+	}))
+	if err == nil || !strings.Contains(err.Error(), "GitHub authentication failed") || !strings.Contains(err.Error(), "expired_token") {
+		t.Fatalf("expected wrapped GitHub authentication failure, got: %v", err)
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("no partial auth.json may be written on device-flow failure")
+	}
+}
+
+func TestRunReauth_ResolveUserFailureLeavesAuthUntouched(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Status:     "401 Unauthorized",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    r,
+		}, nil
+	})
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+	}))
+	if err == nil || !strings.Contains(err.Error(), "resolve GitHub user") {
+		t.Fatalf("expected user-resolution failure, got: %v", err)
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must not be patched when user resolution fails (no partial token write)")
+	}
+}
+
+func TestRunReauth_DeclineAbortsLeavingAuthIdentical(t *testing.T) {
+	// Interactive: explicit confirmation gates before the device flow;
+	// declining aborts with auth.json byte-identical.
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	flowCalled := false
+	auth := &mockAuthenticator{
+		requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
+			flowCalled = true
+			return &device.CodeResponse{UserCode: "ABCD-1234", DeviceCode: "dc", VerificationURI: "https://github.com/login/device"}, nil
+		},
+	}
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.NoInput = false
+		d.ConfirmFn = func(string) (bool, error) { return false, nil }
+		d.Ports = InitPorts{Auth: auth}
+	}))
+	if err != nil {
+		t.Fatalf("declining re-auth must not error, got: %v", err)
+	}
+	if flowCalled {
+		t.Error("device flow must not run after the confirmation is declined")
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must be byte-identical after declined re-auth")
+	}
+}
+
+func TestRunReauth_MalformedSettingsFailsClosed(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, "cheasee-settings.json"), []byte("{not json}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	flowCalled := false
+	auth := &mockAuthenticator{
+		requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
+			flowCalled = true
+			return &device.CodeResponse{}, nil
+		},
+	}
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.Ports = InitPorts{Auth: auth}
+	}))
+	if err == nil || !strings.Contains(err.Error(), "cheasee-settings.json") {
+		t.Fatalf("expected fail-closed settings error, got: %v", err)
+	}
+	if flowCalled {
+		t.Error("device flow must not run when settings are malformed")
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must be untouched when settings are malformed")
+	}
+}
+
+func TestRunReauth_DockerCheckStillRuns(t *testing.T) {
+	// Docker check runs before the reauth routing — docker-not-installed
+	// aborts with auth.json untouched.
+	testutil.RedirectConfigHome(t)
+	stubLookPath(t, func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") })
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+	}))
+	if err == nil || !strings.Contains(err.Error(), "Docker is not installed") {
+		t.Fatalf("expected docker-not-installed error on the reauth path, got: %v", err)
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must be untouched when the docker check fails")
+	}
+}
+
+func TestRunReauth_NoGitHubRedoesProviderPhaseOnly(t *testing.T) {
+	// --reauth --no-github: provider-key phase only — no device flow, no
+	// github patch. With --no-input nothing is written (auth.json untouched).
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	seedAuth(t, map[string]string{"openai": "key-openai"})
+	before := authJSONBytes(t)
+
+	err := runReauth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.NoGitHub = true
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(before, authJSONBytes(t)) {
+		t.Error("auth.json must not be partially updated on --no-github --no-input reauth")
 	}
 }

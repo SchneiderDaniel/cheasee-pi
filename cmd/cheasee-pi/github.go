@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -47,6 +50,42 @@ var tokenUserinfoRe = regexp.MustCompile(`//[^/@\s]+@`)
 // credentials.
 func redactToken(text string) string {
 	return tokenUserinfoRe.ReplaceAllString(text, "//***@")
+}
+
+// httpClient is the HTTP client used by resolveGitHubUser. Package-var seam
+// (same pattern as lookPath/runCommandContext) so tests stub it with an
+// httptest server.
+var httpClient = http.DefaultClient
+
+// resolveGitHubUser resolves the token owner's login via GET
+// https://api.github.com/user — the one call needed to populate github_user
+// on the re-auth path (gh CLI does the same post-flow). Non-200 responses,
+// network errors, and malformed bodies are hard errors.
+func resolveGitHubUser(ctx context.Context, token string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET /user returned %s", resp.Status)
+	}
+	var body struct {
+		Login string `json:"login"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	if body.Login == "" {
+		return "", errors.New("GET /user response missing login")
+	}
+	return body.Login, nil
 }
 
 // Authenticator handles GitHub OAuth device flow authentication.

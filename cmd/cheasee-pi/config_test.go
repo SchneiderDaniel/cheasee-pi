@@ -508,3 +508,134 @@ func TestConfigBackwardCompat_RoundTripPreservesNewFields(t *testing.T) {
 		t.Errorf("expected RepoPath '/some/path', got %q", loaded.RepoPath)
 	}
 }
+
+func TestUpdateGitHubAuth_PreservesProvidersAndLegacyKey(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := fmt.Sprintf(`{"api_key":"legacy","openai":{"key":"k1"},"anthropic":{"key":"k2"},"github_token":"old-token","github_user":"old-user","repo_path":"/old"}`)
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws"); err != nil {
+		t.Fatalf("UpdateGitHubAuth: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read auth.json: %v", err)
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("auth.json must stay valid JSON: %v", err)
+	}
+	if got := string(raw["api_key"]); got != `"legacy"` {
+		t.Errorf("legacy flat api_key must survive, got %s", got)
+	}
+	for provider, want := range map[string]string{"openai": "k1", "anthropic": "k2"} {
+		var entry struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(raw[provider], &entry); err != nil || entry.Key != want {
+			t.Errorf("provider %q must survive, got %s (err %v)", provider, raw[provider], err)
+		}
+	}
+	if got := string(raw["github_token"]); got != `"new-token"` {
+		t.Errorf("github_token must be patched, got %s", got)
+	}
+	if got := string(raw["github_user"]); got != `"octocat"` {
+		t.Errorf("github_user must be patched, got %s", got)
+	}
+	if got := string(raw["repo_path"]); got != `"/ws"` {
+		t.Errorf("repo_path must be patched, got %s", got)
+	}
+}
+
+func TestUpdateGitHubAuth_MissingFileCreatesOnlyGitHubFields(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws"); err != nil {
+		t.Fatalf("UpdateGitHubAuth: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	data, err := os.ReadFile(filepath.Join(dir, "cheasee-pi", "auth.json"))
+	if err != nil {
+		t.Fatalf("read auth.json: %v", err)
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("created file must be valid JSON: %v", err)
+	}
+	if len(raw) != 3 {
+		t.Errorf("missing auth.json must create a file with only the github fields, got %v", raw)
+	}
+	for _, key := range []string{"github_token", "github_user", "repo_path"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("created file must contain %q", key)
+		}
+	}
+}
+
+func TestUpdateGitHubAuth_MalformedExistingErrorsWithoutOverwrite(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{invalid json}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &fileRepository{}
+	err = cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws")
+	if err == nil {
+		t.Fatal("expected error for malformed existing auth.json")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("malformed auth.json must not be overwritten")
+	}
+}
+
+func TestUpdateGitHubAuth_AtomicWritePermsAndRoundTrip(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws"); err != nil {
+		t.Fatalf("UpdateGitHubAuth: %v", err)
+	}
+
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat auth.json: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("expected 0600 perms, got %v", info.Mode().Perm())
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Error("no .tmp file may remain after UpdateGitHubAuth")
+	}
+
+	auth, err := cfg.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load round-trip: %v", err)
+	}
+	if auth.GitHubToken != "new-token" || auth.GitHubUser != "octocat" || auth.RepoPath != "/ws" {
+		t.Errorf("Load round-trip shows the new token/user, got %+v", auth)
+	}
+	if providers, err := cfg.ListProviders(context.Background()); err != nil || len(providers) != 0 {
+		t.Errorf("no providers should be present, got %v (err %v)", providers, err)
+	}
+}

@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -471,5 +474,66 @@ func TestGitCloneWorktree_e2eWorktreeFix(t *testing.T) {
 	}
 	if strings.Contains(string(status), "cheasee-settings.json") {
 		t.Errorf("cheasee-settings.json must never show as untracked, got: %q", status)
+	}
+}
+
+// ──────────────────────────────────────────────
+// resolveGitHubUser (adapter, httpClient seam)
+// ──────────────────────────────────────────────
+
+func TestResolveGitHubUser_Success(t *testing.T) {
+	// 200 {"login":"octocat"} → "octocat"; the request carries
+	// Authorization: Bearer <token> and hits /user (asserted on the server).
+	srv := githubUserServer(t)
+	defer srv.Close()
+	stubGitHubUserHTTP(t, srv)
+
+	user, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user != "octocat" {
+		t.Errorf("expected octocat, got %q", user)
+	}
+}
+
+func TestResolveGitHubUser_Unauthorized(t *testing.T) {
+	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Status:     "401 Unauthorized",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    r,
+		}, nil
+	})
+	_, err := resolveGitHubUser(context.Background(), "bad-token")
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("expected 401 error, got: %v", err)
+	}
+}
+
+func TestResolveGitHubUser_NetworkError(t *testing.T) {
+	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("connection refused")
+	})
+	_, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
+	if err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("expected network error, got: %v", err)
+	}
+}
+
+func TestResolveGitHubUser_MalformedBody(t *testing.T) {
+	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader("{not json}")),
+			Request:    r,
+		}, nil
+	})
+	_, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
+	if err == nil {
+		t.Fatal("expected error for malformed body")
 	}
 }

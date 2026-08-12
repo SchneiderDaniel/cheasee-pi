@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -170,6 +174,58 @@ func stubDockerCheck(t *testing.T, daemonErr error, version string, versionErr e
 		}
 		return &mockCmd{runFn: func() error { return daemonErr }}
 	})
+}
+
+// roundTripFunc adapts a function to http.RoundTripper for the httpClient
+// seam (stdlib net/http has no RoundTripperFunc, so tests define their own).
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// stubHTTPClient replaces the httpClient seam used by resolveGitHubUser with
+// one whose transport is fn, so tests inject responses without real network.
+// fn may assert on the request (path/headers) before answering.
+func stubHTTPClient(t *testing.T, fn func(*http.Request) (*http.Response, error)) {
+	t.Helper()
+	saved := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(fn)}
+	t.Cleanup(func() { httpClient = saved })
+}
+
+// stubGitHubUserHTTP replaces the httpClient seam with a transport that
+// rewrites https://api.github.com requests to srv, so resolveGitHubUser's
+// hardcoded endpoint is exercised end to end against an httptest server.
+func stubGitHubUserHTTP(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	saved := httpClient
+	httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		req := r.Clone(r.Context())
+		u, err := url.Parse(srv.URL)
+		if err != nil {
+			return nil, err
+		}
+		req.URL.Scheme = u.Scheme
+		req.URL.Host = u.Host
+		return srv.Client().Transport.RoundTrip(req)
+	})}
+	t.Cleanup(func() { httpClient = saved })
+}
+
+// githubUserServer returns an httptest server serving GET /user as the
+// resolved login "octocat", asserting the Bearer token and path on each
+// request. Used with stubGitHubUserHTTP to drive resolveGitHubUser.
+func githubUserServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user" {
+			t.Errorf("expected GET /user, got %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+FakeGitHubToken {
+			t.Errorf("expected Authorization: Bearer %s, got %q", FakeGitHubToken, got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"login":"octocat"}`)
+	}))
 }
 
 // ──────────────────────────────────────────────
