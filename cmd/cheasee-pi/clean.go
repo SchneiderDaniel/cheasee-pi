@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,39 +20,39 @@ var cleanConfirmFn = promptConfirm
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Kill orphaned/stale pi sessions and prune Docker garbage (dangling images + build cache)",
-	Long: `Kill orphaned pi processes inside the Cheasee-Pi Docker container and
-prune dangling Docker images and build cache from old rebuilds.
+	Short: "Kill orphaned/stale pi sessions, remove all cheasee-pi containers and prune Docker garbage",
+	Long: `Remove every cheasee-pi container (all repositories), kill orphaned pi
+processes inside them, and prune dangling Docker images + build cache.
 
-Pi processes orphaned by disconnected docker exec sessions accumulate RAM.
-Run this when memory usage is high. Two reapers:
-  - PPid=1 orphans (reparented to tini) are always killed.
-  - sessions older than --older-than minutes are killed too: docker exec
-    clients that disconnect leave pi running with PPid=0 (parent stays the
-    host-side shim, invisible inside the container), so age is the only
-    in-container signal that a session is a detached straggler.
+Since the per-repo container naming, clean enumerates ALL managed containers
+on the host — every repository's container (running or stopped) — force-
+removes each, and prunes dangling images and build cache from old rebuilds.
+Pi processes orphaned by disconnected docker exec sessions accumulate RAM;
+the orphan scan runs per container before removal.
 
-Before killing anything, clean lists the matching sessions and asks for
-confirmation — a session older than the threshold that you are still
-actively using would otherwise die with the stragglers. --yes skips the
-prompt, --dry-run only shows what would happen.
-Dangling images and build cache (intermediate layers) are pruned.
-Use 'cheasee-pi start' to start a fresh session after cleaning.
+WARNING: clean force-removes running containers — active pi sessions inside
+them are killed. Use --name to scope the operation to a single container, or
+--dry-run to preview.
+
+Before killing anything, clean lists the matching sessions/containers and
+asks for confirmation. --yes skips the prompt, --dry-run only shows what
+would happen. Dangling images and build cache (intermediate layers) are
+pruned. Use 'cheasee-pi start' to start a fresh session after cleaning.
 
 Examples:
-  cheasee-pi clean               # preview, confirm, then kill sessions >30m old + prune
-  cheasee-pi clean --dry-run     # show what would be killed, touch nothing
+  cheasee-pi clean               # preview, confirm, then remove all containers + prune
+  cheasee-pi clean --dry-run     # show what would be removed, touch nothing
   cheasee-pi clean --yes         # skip the confirmation prompt
   cheasee-pi clean --older-than 60
   cheasee-pi clean --older-than 0   # PPid=1 orphans only, no age reaping
-  cheasee-pi clean --name mypi   # specify container name`,
+  cheasee-pi clean --name mypi   # scope to a single container`,
 	DisableAutoGenTag: true,
 	RunE:              runCleanE,
 }
 
 func init() {
 	rootCmd.AddCommand(cleanCmd)
-	cleanCmd.Flags().StringVar(&cleanName, "name", "cheasee-pi", "Container name")
+	cleanCmd.Flags().StringVar(&cleanName, "name", "cheasee-pi", "Scope clean to this single container (default: all cheasee-pi containers)")
 	cleanCmd.Flags().IntVar(&cleanMaxAge, "older-than", 30, "Kill pi sessions older than N minutes (detached docker exec stragglers); 0 disables age-based reaping")
 	cleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be killed and pruned without touching anything")
 	cleanCmd.Flags().BoolVar(&cleanYes, "yes", false, "Skip the confirmation prompt")
@@ -61,13 +61,13 @@ func init() {
 // pruneDanglingImages removes all dangling (<none>:<none>) Docker images.
 // Tagged/in-use images are never affected.
 func pruneDanglingImages() {
-	ls := exec.Command("docker", "images", "--filter", "dangling=true", "-q")
+	ls := execCommand("docker", "images", "--filter", "dangling=true", "-q")
 	out, err := ls.Output()
 	if err != nil || len(out) == 0 {
 		return
 	}
-	cmd := exec.Command("docker", "image", "prune", "-f")
-	if err := cmd.Run(); err != nil {
+	cmd := execCommand("docker", "image", "prune", "-f")
+	if _, err := cmd.CombinedOutput(); err != nil {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
@@ -87,18 +87,22 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
-	// Default container name follows the workspace repo slug (like start);
-	// --name overrides verbatim.
-	if !cmd.Flags().Changed("name") {
-		if wd, err := os.Getwd(); err == nil {
-			if root, ok := findWorkspaceRoot(wd); ok {
-				cleanName = containerName(root)
-			}
+	// Scope: --name targets a single container; the default is every managed
+	// container on the host (all repositories — clean never touches just the
+	// current workspace).
+	var targets []string
+	var err error
+	if cmd.Flags().Changed("name") {
+		targets = []string{cleanName}
+	} else {
+		targets, err = listManagedContainers()
+		if err != nil {
+			return fmt.Errorf("clean: enumerate containers: %w", err)
 		}
 	}
 
 	if cleanDryRun {
-		candidates, err := scanOrphans(ctx, cleanName, cleanMaxAge, true)
+		candidates, err := scanTargets(ctx, targets, true)
 		if err != nil {
 			return fmt.Errorf("clean: %w", err)
 		}
@@ -106,44 +110,37 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 		} else {
 			printCleanReport(candidates)
+		}
+		if len(targets) > 0 {
+			fmt.Fprintf(os.Stderr, "  ℹ Would remove %d container(s): %s\n", len(targets), strings.Join(targets, ", "))
 		}
 		fmt.Fprintf(os.Stderr, "  ℹ Dry-run: dangling images + build cache would also be pruned\n")
 		return nil
 	}
 
 	if cleanYes {
-		// Non-interactive: single real scan, no preview pass.
-		killed, err := scanOrphans(ctx, cleanName, cleanMaxAge, false)
-		if err != nil {
+		if err := cleanAndRemove(ctx, targets); err != nil {
 			return fmt.Errorf("clean: %w", err)
-		}
-		if len(killed) > 0 {
-			fmt.Fprintf(os.Stderr, "  ✓ Killed %d pi session(s)\n", len(killed))
-		} else {
-			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 		}
 	} else {
-		// Preview first, then confirm before killing anything.
-		candidates, err := scanOrphans(ctx, cleanName, cleanMaxAge, true)
+		candidates, err := scanTargets(ctx, targets, true)
 		if err != nil {
 			return fmt.Errorf("clean: %w", err)
 		}
-		if len(candidates) == 0 {
+		if len(candidates) == 0 && len(targets) == 0 {
 			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 		} else {
-			printCleanReport(candidates)
-			ok, err := cleanConfirmFn(fmt.Sprintf("Kill %d pi session(s)?", len(candidates)))
+			if len(candidates) > 0 {
+				printCleanReport(candidates)
+			}
+			ok, err := cleanConfirmFn(cleanPrompt(candidates, targets))
 			if err != nil {
 				return fmt.Errorf("clean: %w", err)
 			}
 			if !ok {
-				fmt.Fprintf(os.Stderr, "  ✗ Aborted — no sessions killed\n")
-			} else {
-				killed, err := scanOrphans(ctx, cleanName, cleanMaxAge, false)
-				if err != nil {
-					return fmt.Errorf("clean: %w", err)
-				}
-				fmt.Fprintf(os.Stderr, "  ✓ Killed %d pi session(s)\n", len(killed))
+				fmt.Fprintf(os.Stderr, "  ✗ Aborted — no sessions killed, no containers removed\n")
+			} else if err := cleanAndRemove(ctx, targets); err != nil {
+				return fmt.Errorf("clean: %w", err)
 			}
 		}
 	}
@@ -154,13 +151,52 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// pruneBuildCache removes the Docker buildx build cache.
-// Safe to run unconditionally — fast when empty.
-func pruneBuildCache() {
-	cmd := exec.Command("docker", "buildx", "prune", "-f")
-	if err := cmd.Run(); err == nil {
-		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+// scanTargets runs the orphan scan across every target container and
+// aggregates the report lines.
+func scanTargets(ctx context.Context, targets []string, dryRun bool) ([]string, error) {
+	var all []string
+	for _, name := range targets {
+		killed, err := scanOrphans(ctx, name, cleanMaxAge, dryRun)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, killed...)
+	}
+	return all, nil
+}
+
+// cleanPrompt builds the confirmation question for the preview pass.
+func cleanPrompt(candidates, targets []string) string {
+	switch {
+	case len(candidates) > 0 && len(targets) > 0:
+		return fmt.Sprintf("Kill %d pi session(s) and remove %d container(s)?", len(candidates), len(targets))
+	case len(candidates) > 0:
+		return fmt.Sprintf("Kill %d pi session(s)?", len(candidates))
+	default:
+		return fmt.Sprintf("Remove %d container(s)?", len(targets))
 	}
 }
 
+// cleanAndRemove runs the real orphan scan across the targets, reports, then
+// force-removes the containers.
+func cleanAndRemove(ctx context.Context, targets []string) error {
+	killed, err := scanTargets(ctx, targets, false)
+	if err != nil {
+		return err
+	}
+	if len(killed) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Killed %d pi session(s)\n", len(killed))
+	} else {
+		fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
+	}
+	return removeContainers(targets)
+}
 
+// pruneBuildCache removes the Docker buildx build cache.
+// Safe to run unconditionally — fast when empty.
+func pruneBuildCache() {
+	cmd := execCommand("docker", "buildx", "prune", "-f")
+	if _, err := cmd.CombinedOutput(); err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+	}
+}

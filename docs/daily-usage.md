@@ -82,31 +82,39 @@ Without `--build`, a running container is reused — start execs pi directly
 
 Compose lives in the CLI cache dir (never in your repo) and interpolates the
 bind mounts from env vars — unset `WORKSPACE_HOST_PATH`/`WORKSPACE_BARE_PATH`
-are a hard error:
+are a hard error. The CLI injects a **per-repo compose project name** on every
+invocation (the `name: cheasee-pi` in the file is a fallback only), so direct
+usage must pass it too:
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) \
 WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ## CodeFlow (code-structure visualization)
 
 The stack includes a local CodeFlow service: a browser-based visualizer that renders
 the workspace's module dependency graph, call structure, and architecture (tree-sitter
-AST parsing, 18 languages). It starts automatically with `cheasee-pi start` and
-serves on port 8470.
+AST parsing, 18 languages). It starts automatically with `cheasee-pi start`.
 
-Open it in the browser:
+The host port is **derived per repository** (8470 + a deterministic hash of the
+repo identity, probed with a next-free fallback) so parallel workspaces never
+collide on one port. `cheasee-pi start` prints the URL after starting:
 
 ```
-http://localhost:8470/?repo=local/workspace&run=1
+ℹ CodeFlow: http://localhost:8891/?repo=local/workspace&run=1
 ```
 
-The `repo` and `run` parameters trigger analysis of the mounted workspace
-(`/workspaces/main`) without further interaction. The `repo` value is arbitrary
-(`owner/name`); the local shim ignores it and maps every API request to the
-mounted repository.
+Open the printed URL in the browser (the `repo` and `run` parameters trigger
+analysis of the mounted workspace `/workspaces/main` without further
+interaction; the `repo` value is arbitrary — the local shim ignores it and
+maps every API request to the mounted repository).
+
+To pin a port explicitly, set `docker.codeflowPort` in
+`cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
+derivation, the settings file wins over the env).
 
 ### Configuration
 
@@ -115,12 +123,14 @@ read-only, editable without rebuilding the image):
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `port` | `8470` | Listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
+| `port` | `8470` | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
 | `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
 | `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
 
 Configuration changes take effect on the next container start (no rebuild
-required). The compose port mapping uses `CODEFLOW_PORT` for the host side.
+required). The compose port mapping uses `CODEFLOW_PORT` for the host side
+(derived per repo by the CLI; `docker.codeflowPort` / `CODEFLOW_PORT`
+override it).
 
 ### Limitations
 
@@ -172,9 +182,12 @@ docker exec -it \
 
 ## Parallel sessions
 
-You can run multiple pi sessions against the same container simultaneously from
-different terminals. Each `docker exec` creates an independent process on the same
-container — they do not share a TUI or stdin.
+Each workspace/repository gets its own container (`cheasee-pi-<repo-slug>`
+plus the `codeflow-<repo-slug>` sidecar, and a per-repo compose project name)
+— two different repos on one host run side by side without interfering.
+Within one repo you can run multiple pi sessions against the same container
+simultaneously from different terminals. Each `docker exec` creates an
+independent process on the same container — they do not share a TUI or stdin.
 
 ```bash
 # Terminal 1 (use the CONTAINER var from "Using docker exec" above)
@@ -195,8 +208,11 @@ wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each
 cheasee-pi clean
 ```
 
-This scans for processes reparented to PID 1 and kills them. It only targets
-orphans — interactive sessions are **not** affected.
+`clean` removes **every** cheasee-pi container on the host (all repositories,
+running or stopped), running the orphan scan inside each first, then prunes
+dangling images and build cache. **It force-removes running containers —
+active pi sessions inside them are killed** (confirm first, or use `--yes`;
+`--dry-run` previews; `--name <container>` scopes to a single container).
 
 **Automatic pre-start cleanup:** `cheasee-pi start` / `cheasee-pi up` runs the
 same orphan scan before launching pi, so orphans are always cleaned between
@@ -210,14 +226,20 @@ sessions.
 cheasee-pi down
 ```
 
-`cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container via
-`docker compose down` (resolved from the CLI cache dir, same project name as start).
+`cheasee-pi down` (alias `cheasee-pi stop`) stops and removes the container of
+the **current workspace only** via `docker compose down` (the compose project
+name derives from the workspace's repository, so sibling workspaces' containers
+keep running). Outside any workspace the identity derives from the folder
+basename and `down` no-ops when nothing matches; legacy pre-derivation
+containers (project `cheasee-pi`) are not targeted — `cheasee-pi clean`
+removes those.
 
 ### Full teardown (removes container)
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
 ```
 
 This stops and **removes** the container. On next `up -d`, the container is rebuilt
@@ -227,7 +249,8 @@ from scratch, including `npm install` (~30-60s).
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
 ```
 
 This stops the container but keeps it intact. Next `cheasee-pi start` (without
@@ -243,8 +266,10 @@ When the embedded Dockerfile or any dependency changes, rebuild the image explic
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build \
-  && docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build \
+  && docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 Or rebuild and restart in one step with `--build`:
@@ -270,7 +295,8 @@ cheasee-pi build --no-cache
 
 # Docker compose directly
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
 ```
 
 This ignores all cached layers and rebuilds every step. Use when:
@@ -295,7 +321,8 @@ user's UID/GID. The entrypoint auto-detects from `/workspaces/main`, but on macO
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
   HOST_UID=$(id -u) HOST_GID=$(id -g) \
-  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+  docker compose -p cheasee-pi-<repo-slug> \
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ### Missing API keys
@@ -332,14 +359,16 @@ interfere with new sessions.
 
 **Causes and fixes:**
 
-1. **Port conflict:** The CodeFlow service maps host port 8470 by default
-   (`CODEFLOW_PORT`); a busy 8470 or custom overrides in
-   `docker-compose.override.yml` (cache dir) can conflict. Check with
-   `docker compose ps`.
+1. **Port conflict:** The CodeFlow host port is derived per repo (8470 +
+   deterministic hash, next-free fallback) — two parallel workspaces normally
+get distinct ports. A custom `docker.codeflowPort` / `CODEFLOW_PORT` that
+collides with another service still fails "port is already allocated"; check
+with `docker ps` and pick a free port.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
    WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-     docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+     docker compose -p cheasee-pi-<repo-slug> \
+       -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
    cheasee-pi start
    ```
 3. **Docker not running:** Verify with `docker ps`.

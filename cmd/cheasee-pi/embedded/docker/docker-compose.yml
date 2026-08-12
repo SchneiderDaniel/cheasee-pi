@@ -6,12 +6,15 @@
 # WORKSPACE_HOST_PATH — a CLI-resolved absolute toplevel, never ${PWD}
 # (shells keep a logical PWD on macOS; getcwd resolves it).
 #
-# Usage (via wrapper):
+# Usage (via wrapper — injects a per-repo compose project name):
 #   cheasee-pi start
 #
-# Direct usage (compose resolves relative paths against this file's dir):
-#   docker compose -f <cacheDir>/docker-compose.yml up -d --build
-#   docker exec -it cheasee-pi /bin/bash -c 'cd /workspaces/main && pi'
+# Direct usage (compose resolves relative paths against this file's dir; the
+# `name: cheasee-pi` below is a fallback only — the CLI always passes a
+# per-repo COMPOSE_PROJECT_NAME, so raw usage must pass -p too):
+#   docker compose -p cheasee-pi-<repo-slug> \
+#     -f <cacheDir>/docker-compose.yml up -d --build
+#   docker exec -it cheasee-pi-<repo-slug> /bin/bash -c 'cd /workspaces/main && pi'
 
 name: cheasee-pi
 
@@ -24,6 +27,8 @@ services:
         PI_VERSION: ${PI_VERSION:-latest}
         CHEASEE_REF: ${CHEASEE_REF:-main}
     container_name: ${CHEASEEPI_CONTAINER:-cheasee-pi}
+    labels:
+      - com.cheaseepi.managed=true
     environment:
       - HOST_UID=${HOST_UID:-}
       - HOST_GID=${HOST_GID:-}
@@ -67,6 +72,8 @@ services:
     build:
       context: codeflow
     container_name: ${CODEFLOW_CONTAINER:-codeflow}
+    labels:
+      - com.cheaseepi.managed=true
     environment:
       - REPO_ROOT=/workspaces/main
     volumes:

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -9,9 +10,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// cleanTestStub stubs the docker commands runCleanE issues: docker ps (name
-// lookup), docker exec scans (report lines) and inert prune commands.
-// Returns a pointer to the number of docker exec scan invocations.
+// cleanTestStub stubs the docker commands runCleanE issues: docker ps
+// (returns containerName for every filter — a host with exactly this one
+// managed container), docker exec scans (report lines) and inert
+// rm/prune/image calls. Returns a pointer to the number of docker exec scan
+// invocations.
 func cleanTestStub(t *testing.T, containerName, scanOutput string) *int {
 	t.Helper()
 	execCalls := 0
@@ -19,20 +22,14 @@ func cleanTestStub(t *testing.T, containerName, scanOutput string) *int {
 		if name != "docker" {
 			return &mockCmd{}
 		}
-		if slices.Contains(arg, "ps") {
-			name := containerName
-			for i, a := range arg {
-				if strings.HasPrefix(a, "name=") && i > 0 && arg[i-1] == "--filter" {
-					name = strings.TrimPrefix(a, "name=")
-				}
-			}
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
+		if len(arg) > 0 && arg[0] == "exec" {
+			execCalls++
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(scanOutput), nil }}
 		}
-		if slices.Contains(arg, "images") || slices.Contains(arg, "buildx") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return nil, nil }}
+		if len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(containerName), nil }}
 		}
-		execCalls++
-		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(scanOutput), nil }}
+		return &mockCmd{} // rm -f, image prune, buildx prune
 	})
 	return &execCalls
 }
@@ -52,13 +49,21 @@ func resetCleanState(t *testing.T) {
 	})
 }
 
+// newCleanCmd returns a clean command with the real flag defaults, so
+// flags.Changed("name") is false unless the test sets the flag.
+func newCleanCmd() *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().StringVar(&cleanName, "name", "cheasee-pi", "Container name")
+	return cmd
+}
+
 func TestRunCleanE_dryRunReportsWithoutKilling(t *testing.T) {
 	resetCleanState(t)
 	cleanDryRun = true
 
 	calls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\nkilling 99 (age 45m)\n")
 	stderr := testutil.CaptureStderr(t, func() {
-		if err := runCleanE(&cobra.Command{}, nil); err != nil {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
 			t.Fatalf("runCleanE: %v", err)
 		}
 	})
@@ -82,7 +87,7 @@ func TestRunCleanE_confirmAbortKillsNothing(t *testing.T) {
 
 	calls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
 	stderr := testutil.CaptureStderr(t, func() {
-		if err := runCleanE(&cobra.Command{}, nil); err != nil {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
 			t.Fatalf("runCleanE: %v", err)
 		}
 	})
@@ -93,9 +98,12 @@ func TestRunCleanE_confirmAbortKillsNothing(t *testing.T) {
 	if !strings.Contains(stderr, "Aborted") {
 		t.Errorf("abort must be reported, got %q", stderr)
 	}
+	if strings.Contains(stderr, "Removed container") {
+		t.Errorf("aborted clean must not remove containers, got %q", stderr)
+	}
 }
 
-func TestRunCleanE_confirmYesKills(t *testing.T) {
+func TestRunCleanE_confirmYesKillsAndRemoves(t *testing.T) {
 	resetCleanState(t)
 	saved := cleanConfirmFn
 	cleanConfirmFn = func(string) (bool, error) { return true, nil }
@@ -103,7 +111,7 @@ func TestRunCleanE_confirmYesKills(t *testing.T) {
 
 	calls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
 	stderr := testutil.CaptureStderr(t, func() {
-		if err := runCleanE(&cobra.Command{}, nil); err != nil {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
 			t.Fatalf("runCleanE: %v", err)
 		}
 	})
@@ -113,6 +121,9 @@ func TestRunCleanE_confirmYesKills(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Killed 1 pi session(s)") {
 		t.Errorf("kill must be reported, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "Removed container cheasee-pi") {
+		t.Errorf("confirmed clean must remove the container, got %q", stderr)
 	}
 }
 
@@ -126,7 +137,7 @@ func TestRunCleanE_yesFlagSkipsConfirm(t *testing.T) {
 
 	calls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
 	stderr := testutil.CaptureStderr(t, func() {
-		if err := runCleanE(&cobra.Command{}, nil); err != nil {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
 			t.Fatalf("runCleanE: %v", err)
 		}
 	})
@@ -137,6 +148,9 @@ func TestRunCleanE_yesFlagSkipsConfirm(t *testing.T) {
 	if !strings.Contains(stderr, "Killed 1 pi session(s)") {
 		t.Errorf("kill must be reported, got %q", stderr)
 	}
+	if !strings.Contains(stderr, "Removed container cheasee-pi") {
+		t.Errorf("--yes clean must remove the container, got %q", stderr)
+	}
 }
 
 func TestRunCleanE_noCandidatesStillPrunes(t *testing.T) {
@@ -145,7 +159,7 @@ func TestRunCleanE_noCandidatesStillPrunes(t *testing.T) {
 
 	calls := cleanTestStub(t, "cheasee-pi", "")
 	stderr := testutil.CaptureStderr(t, func() {
-		if err := runCleanE(&cobra.Command{}, nil); err != nil {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
 			t.Fatalf("runCleanE: %v", err)
 		}
 	})
@@ -155,5 +169,181 @@ func TestRunCleanE_noCandidatesStillPrunes(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "No stale pi sessions found") {
 		t.Errorf("expected no-stale message, got %q", stderr)
+	}
+	// Containers are still removed even with zero stale sessions.
+	if !strings.Contains(stderr, "Removed container cheasee-pi") {
+		t.Errorf("clean must remove containers even with no stale sessions, got %q", stderr)
+	}
+}
+
+// cleanMultiStub simulates a host with several managed containers: the label
+// pass lists all of them, the legacy name passes list the same set, and each
+// docker exec scan returns the given report lines.
+func cleanMultiStub(t *testing.T, containers []string, scanOutput string) {
+	t.Helper()
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		if len(arg) > 0 && arg[0] == "exec" {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(scanOutput), nil }}
+		}
+		if len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(strings.Join(containers, "\n")), nil }}
+		}
+		return &mockCmd{}
+	})
+}
+
+func TestRunCleanE_defaultCoversAllRepos(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+	cleanMaxAge = 0
+
+	// Two repos' containers (derived names) + a legacy pre-derivation one.
+	cleanMultiStub(t, []string{"cheasee-pi-repoA", "cheasee-pi-repoB", "cheasee-pi"}, "killing 42\n")
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	// Every enumerated container is removed (3 × docker rm -f).
+	for _, want := range []string{"cheasee-pi-repoA", "cheasee-pi-repoB", "cheasee-pi"} {
+		if !strings.Contains(stderr, "Removed container "+want) {
+			t.Errorf("clean must remove %s, got %q", want, stderr)
+		}
+	}
+	// 3 containers × 1 orphan scan each → aggregated kill report.
+	if !strings.Contains(stderr, "Killed 3 pi session(s)") {
+		t.Errorf("aggregated kill report expected, got %q", stderr)
+	}
+}
+
+func TestRunCleanE_nameFlagScopesSingleContainer(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+	cleanMaxAge = 0
+
+	// Host has several containers, but --name scopes to one.
+	cleanMultiStub(t, []string{"cheasee-pi-repoA", "cheasee-pi-repoB"}, "killing 42\n")
+	cmd := newCleanCmd()
+	if err := cmd.Flags().Set("name", "cheasee-pi-repoA"); err != nil {
+		t.Fatal(err)
+	}
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(cmd, nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if !strings.Contains(stderr, "Removed container cheasee-pi-repoA") {
+		t.Errorf("--name scope must remove the named container, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Removed container cheasee-pi-repoB") {
+		t.Errorf("--name scope must not touch other containers, got %q", stderr)
+	}
+}
+
+func TestRunCleanE_rmFailureSurfaces(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+	cleanMaxAge = 0
+
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		if len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("cheasee-pi-a\ncheasee-pi-b\n"), nil }}
+		}
+		if len(arg) > 0 && arg[0] == "exec" {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
+		}
+		if len(arg) > 0 && arg[0] == "rm" && slices.Contains(arg, "cheasee-pi-b") {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("container gone") }}
+		}
+		return &mockCmd{}
+	})
+
+	err := runCleanE(newCleanCmd(), nil)
+	if err == nil || !strings.Contains(err.Error(), "cheasee-pi-b") {
+		t.Fatalf("rm failure must surface naming the container, got %v", err)
+	}
+}
+
+func TestRunCleanE_emptyEnumerationNoop(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+	cleanMaxAge = 0
+
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}
+		}
+		return &mockCmd{}
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if strings.Contains(stderr, "Removed container") {
+		t.Errorf("empty enumeration must remove nothing, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "No stale pi sessions found") {
+		t.Errorf("expected no-stale message, got %q", stderr)
+	}
+}
+
+func TestRunCleanE_enumerationFailureSurfaces(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
+		}
+		return &mockCmd{}
+	})
+	err := runCleanE(newCleanCmd(), nil)
+	if err == nil || !strings.Contains(err.Error(), "enumerate") {
+		t.Fatalf("enumeration failure must surface, got %v", err)
+	}
+}
+
+func TestRunCleanE_pruneConfirmations(t *testing.T) {
+	resetCleanState(t)
+	cleanYes = true
+	cleanMaxAge = 0
+
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		if len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("cheasee-pi\n"), nil }}
+		}
+		if len(arg) > 0 && arg[0] == "exec" {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
+		}
+		if slices.Contains(arg, "images") {
+			// A dangling image exists → the prune actually runs.
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("sha256:abc\n"), nil }}
+		}
+		return &mockCmd{combinedFn: func() ([]byte, error) { return nil, nil }}
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if !strings.Contains(stderr, "Pruned dangling Docker images") {
+		t.Errorf("dangling-image prune confirmation missing, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "Pruned Docker build cache") {
+		t.Errorf("build-cache prune confirmation missing, got %q", stderr)
 	}
 }

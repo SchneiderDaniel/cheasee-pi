@@ -4,7 +4,8 @@
   "defaultModel": "{{.DefaultModel}}",
   "docker": {
     "memory": "{{.Memory}}",
-    "cpus": "{{.CPUs}}"
+    "cpus": "{{.CPUs}}",
+    "codeflowPort": ""
   },
   "gitIdentity": {
     "name": "{{.GitName}}",

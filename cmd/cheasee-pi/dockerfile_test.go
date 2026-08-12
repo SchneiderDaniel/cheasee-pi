@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,8 +114,30 @@ func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		t.Fatalf("docker-compose.yml must parse as valid YAML: %v", err)
 	}
+	// name: cheasee-pi is the fallback for direct compose usage (the CLI
+	// always injects a per-repo COMPOSE_PROJECT_NAME; the cache-dir basename
+	// — the version key, e.g. "0.50" — would fail compose ≥v2.17 charset
+	// validation without it).
 	if doc["name"] != "cheasee-pi" {
-		t.Errorf("top-level name must be 'cheasee-pi' (up/down resolve the same project from any cache dir), got %v", doc["name"])
+		t.Errorf("top-level name must be 'cheasee-pi' (fallback for direct usage), got %v", doc["name"])
+	}
+	// Both services carry the managed label — clean enumerates by it.
+	services, ok := doc["services"].(map[string]any)
+	if !ok {
+		t.Fatalf("services section missing: %v", doc)
+	}
+	for _, svcName := range []string{"cheasee-pi", "codeflow"} {
+		svc, ok := services[svcName].(map[string]any)
+		if !ok {
+			t.Fatalf("service %q missing", svcName)
+		}
+		labels, ok := svc["labels"].([]any)
+		if !ok || !slices.Contains(labels, managedLabel) {
+			t.Errorf("service %s must carry the managed label %q, got %v", svcName, managedLabel, labels)
+		}
+		if len(labels) != 1 {
+			t.Errorf("service %s must carry no other labels, got %v", svcName, labels)
+		}
 	}
 }
 
