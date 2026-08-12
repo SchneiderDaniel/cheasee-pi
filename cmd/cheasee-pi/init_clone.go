@@ -9,6 +9,39 @@ import (
 	"strings"
 )
 
+// canonicalRepoURL normalizes a repo URL to the canonical https form used by
+// both the clone phase and the settings scaffold: "owner/repo" shorthand and
+// scp-style git@github.com:owner/repo become https://github.com/owner/repo.git;
+// https forms (with/without .git, trailing slash) pass through unchanged;
+// ssh://git@... passes through verbatim (deliberate ssh users keep their
+// transport). Refuses URLs with embedded credentials — git persists
+// remote.origin.url verbatim in .bare/config, so a token-bearing URL would be
+// written to disk in plain text.
+func canonicalRepoURL(repoURL string) (string, error) {
+	owner, repo := ParseGitHubURL(repoURL)
+	if owner == "" || repo == "" {
+		return "", fmt.Errorf("invalid repo URL: %s", redactToken(repoURL))
+	}
+	// Refuse URLs with embedded credentials before git ever sees them.
+	if u, err := url.Parse(repoURL); err == nil && u.User != nil && u.User.Username() != "git" {
+		return "", fmt.Errorf("refusing repo URL with embedded credentials (git would persist them in .bare/config): %s", redactToken(repoURL))
+	}
+
+	// "owner/repo" shorthand → canonical https URL (git would otherwise
+	// treat the bare form as a local filesystem path). scp-style ssh
+	// git@github.com:owner/repo → https too: the clone runs with the gh
+	// credential helper, which speaks https only — ssh dies with publickey
+	// errors on machines without a key. ssh://git@... stays passthrough
+	// (deliberate ssh users keep their transport).
+	switch {
+	case !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") && !strings.Contains(repoURL, ":"):
+		return "https://github.com/" + owner + "/" + repo + ".git", nil
+	case strings.HasPrefix(repoURL, "git@") && strings.Contains(repoURL, "github.com:"):
+		return "https://github.com/" + owner + "/" + repo + ".git", nil
+	}
+	return repoURL, nil
+}
+
 // gitCloneWorktree bare-clones the user's project repo to <parent>/.bare and
 // adds the main worktree (checked out at the bare HEAD, detached) into
 // workdir — the exact layout worktree-fix.sh expects inside the container
@@ -17,7 +50,8 @@ import (
 // Authentication goes through the gh credential helper (git -c
 // credential.helper), never a token-bearing clone URL: git persists
 // remote.origin.url verbatim in .bare/config, so an embedded token would be
-// written to disk in plain text. URLs that carry userinfo are refused.
+// written to disk in plain text. URLs that carry userinfo are refused by
+// canonicalRepoURL.
 //
 // The bare clone is full (no --depth/--single-branch): a later
 // `worktree add` of non-default branches must stay possible from the same
@@ -27,13 +61,9 @@ import (
 // and hard-failed on master-default repos; no-branch add checks out the bare
 // HEAD on both.
 func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
-	owner, repo := ParseGitHubURL(repoURL)
-	if owner == "" || repo == "" {
-		return fmt.Errorf("invalid repo URL: %s", redactToken(repoURL))
-	}
-	// Refuse URLs with embedded credentials before git ever sees them.
-	if u, err := url.Parse(repoURL); err == nil && u.User != nil && u.User.Username() != "git" {
-		return fmt.Errorf("refusing repo URL with embedded credentials (git would persist them in .bare/config): %s", redactToken(repoURL))
+	cloneURL, err := canonicalRepoURL(repoURL)
+	if err != nil {
+		return err
 	}
 
 	parentDir := filepath.Dir(workdir)
@@ -55,20 +85,8 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 		return fmt.Errorf("create parent dir: %w", err)
 	}
 
-	// "owner/repo" shorthand → canonical https URL (git would otherwise
-	// treat the bare form as a local filesystem path). scp-style ssh
-	// git@github.com:owner/repo → https too: the clone runs with the gh
-	// credential helper, which speaks https only — ssh dies with publickey
-	// errors on machines without a key. ssh://git@... stays passthrough
-	// (deliberate ssh users keep their transport).
-	cloneURL := repoURL
-	switch {
-	case !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") && !strings.Contains(repoURL, ":"):
-		cloneURL = "https://github.com/" + owner + "/" + repo + ".git"
-	case strings.HasPrefix(repoURL, "git@") && strings.Contains(repoURL, "github.com:"):
-		cloneURL = "https://github.com/" + owner + "/" + repo + ".git"
-	}
-
+	// cloneURL is already canonical (canonicalRepoURL); the gh credential
+	// helper handles https auth.
 	cmd := runCommandContext(ctx, "git",
 		"-c", "credential.helper=!gh auth git-credential",
 		"clone", "--bare", cloneURL, bareDir,

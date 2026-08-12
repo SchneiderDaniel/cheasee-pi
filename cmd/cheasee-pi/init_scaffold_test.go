@@ -16,7 +16,7 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	if err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
 		d.Provider = "opencode-go"
-	})); err != nil {
+	}), "https://github.com/owner/repo.git", "octocat"); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
@@ -45,9 +45,29 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	if docker["memory"] != "2G" {
 		t.Errorf("expected docker.memory '2G', got %v", docker["memory"])
 	}
+	// Canonical repo URL + GitHub user land in the repository section.
+	repo, ok := raw["repository"].(map[string]any)
+	if !ok {
+		t.Fatal("expected repository section")
+	}
+	if repo["url"] != "https://github.com/owner/repo.git" {
+		t.Errorf("repository.url = %v, want https://github.com/owner/repo.git", repo["url"])
+	}
+	if repo["user"] != "octocat" {
+		t.Errorf("repository.user = %v, want octocat", repo["user"])
+	}
 	// pi's own settings file is NOT scaffolded (pi self-scaffolds on first run).
 	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
 		t.Error("init must not scaffold .pi/settings.json (pi owns it now)")
+	}
+	// .pi skeleton dirs pre-exist (gitignore append + skeleton both run).
+	if _, err := os.Stat(filepath.Join(workdir, ".gitignore")); err != nil {
+		t.Errorf(".gitignore append must still run: %v", err)
+	}
+	for _, dir := range piSkeletonDirs {
+		if _, err := os.Stat(filepath.Join(workdir, ".pi", dir)); err != nil {
+			t.Errorf(".pi/%s missing after scaffold: %v", dir, err)
+		}
 	}
 }
 
@@ -60,7 +80,7 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 		d.Workdir = workdir
 		d.Provider = "opencode-go"
 		d.ConfirmFn = mockConfirmFn(false, nil)
-	})); err != nil {
+	}), "", ""); err != nil {
 		t.Fatalf("scaffold failed: %v", err)
 	}
 
@@ -74,6 +94,59 @@ func TestRunInitScaffold_DefaultsOnEmptyIdentity(t *testing.T) {
 	}
 	if gitID["email"] != "cheasee-pi@localhost" {
 		t.Errorf("expected default gitIdentity.email 'cheasee-pi@localhost', got %v", gitID["email"])
+	}
+	// Direct-callers contract: empty repo URL → no repository section.
+	if _, ok := raw["repository"]; ok {
+		t.Error("empty repo URL must not emit a repository section")
+	}
+}
+
+func TestRunInitScaffold_IdempotentWithRepoURL(t *testing.T) {
+	// Never overwrite an existing settings file, even when a re-scaffold
+	// carries a different URL/user.
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	workdir := t.TempDir()
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Provider = "opencode-go"
+	})
+	if err := runInitScaffold(context.Background(), deps, "https://github.com/owner/repo.git", "octocat"); err != nil {
+		t.Fatalf("first scaffold: %v", err)
+	}
+	first, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runInitScaffold(context.Background(), deps, "https://github.com/other/repo.git", "someone-else"); err != nil {
+		t.Fatalf("second scaffold: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("second scaffold must leave the settings file byte-identical:\nfirst:  %s\nsecond: %s", first, second)
+	}
+}
+
+func TestRunInitScaffold_piIsFileErrorsAfterSettingsWrite(t *testing.T) {
+	// Documented ordering trade-off: settings-before-skeleton. A skeleton
+	// failure after the settings write surfaces the error (blocks re-init via
+	// the probe marker) without rolling back the settings file.
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, ".pi"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runInitScaffold(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+	}), "https://github.com/owner/repo.git", "octocat")
+	if err == nil || !strings.Contains(err.Error(), ".pi") {
+		t.Fatalf("expected error referencing .pi, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); statErr != nil {
+		t.Errorf("settings file must be written before the skeleton error surfaces: %v", statErr)
 	}
 }
 

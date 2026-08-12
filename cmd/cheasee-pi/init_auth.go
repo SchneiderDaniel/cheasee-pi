@@ -8,7 +8,11 @@ import (
 	"charm.land/huh/v2"
 )
 
-// runInitAuth performs GitHub OAuth device flow authentication.
+// runInitAuth performs GitHub OAuth device flow authentication and resolves
+// the GitHub login via GET /user with the in-memory token. The lookup is
+// fail-open: OAuth already succeeded, so an error (or empty login) only
+// warns on stderr and yields an empty user — repository.user stays empty
+// ("when available").
 func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user string, err error) {
 	fmt.Fprintf(os.Stderr, "\n🔐 GitHub Authentication\n")
 	fmt.Fprintf(os.Stderr, "   ─────────────────────\n")
@@ -34,7 +38,13 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 	}
 
 	fmt.Fprintf(os.Stderr, "  ✓ GitHub authentication successful\n")
-	return accessToken.Token, "", nil
+
+	user, err = authenticator.User(ctx, accessToken.Token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ GitHub user lookup failed (continuing without it): %v\n", err)
+		return accessToken.Token, "", nil
+	}
+	return accessToken.Token, user, nil
 }
 
 // runInitAPIKeys guides the user through configuring API keys for pi providers.

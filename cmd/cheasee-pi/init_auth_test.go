@@ -6,6 +6,9 @@ import (
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +24,75 @@ func TestRunInitAuth_Success(t *testing.T) {
 	if token != FakeGitHubToken {
 		t.Errorf("expected %q, got %q", FakeGitHubToken, token)
 	}
+	if user != MockGitHubUser {
+		t.Errorf("expected resolved user %q, got %q", MockGitHubUser, user)
+	}
+}
+
+func TestRunInitAuth_UserLookupFailsOpen(t *testing.T) {
+	// The GitHub login resolution is fail-open: OAuth already succeeded, so a
+	// user lookup failure warns on stderr and yields an empty user — the
+	// repository.user field simply stays empty ("when available").
+	auth := &mockAuthenticator{
+		userFunc: func(ctx context.Context, token string) (string, error) {
+			return "", fmt.Errorf("GET /user failed")
+		},
+	}
+	var token, user string
+	var err error
+	stderr := testutil.CaptureStderr(t, func() {
+		token, user, err = runInitAuth(context.Background(), auth)
+	})
+	if err != nil {
+		t.Fatalf("user lookup failure must not fail init: %v", err)
+	}
+	if token != FakeGitHubToken {
+		t.Errorf("token must survive a failed lookup, got %q", token)
+	}
 	if user != "" {
-		t.Errorf("expected empty user from auth (resolved later), got %q", user)
+		t.Errorf("fail-open user must be empty, got %q", user)
+	}
+	if !strings.Contains(stderr, "GET /user failed") {
+		t.Errorf("stderr must warn about the lookup failure, got: %q", stderr)
+	}
+}
+
+// ──────────────────────────────────────────────
+// deviceFlowAuthenticator.User (adapter, HTTP seam)
+// ──────────────────────────────────────────────
+
+func TestDeviceFlowAuthenticator_User(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q, want Bearer test-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"login":"octocat"}`)
+	}))
+	defer srv.Close()
+
+	a := &deviceFlowAuthenticator{clientID: "test-client", httpClient: srv.Client(), userURL: srv.URL + "/user"}
+	login, err := a.User(context.Background(), "test-token")
+	if err != nil {
+		t.Fatalf("User: %v", err)
+	}
+	if login != "octocat" {
+		t.Errorf("login = %q, want octocat", login)
+	}
+}
+
+func TestDeviceFlowAuthenticator_UserHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad credentials", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	a := &deviceFlowAuthenticator{clientID: "test-client", httpClient: srv.Client(), userURL: srv.URL + "/user"}
+	if _, err := a.User(context.Background(), "test-token"); err == nil {
+		t.Fatal("expected error for HTTP 401")
 	}
 }
 
@@ -127,6 +197,32 @@ func TestRunInit_FullFlow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
 		t.Errorf("init must not scaffold .pi/settings.json: %v", err)
 	}
+	// The scaffold persists what init already knows: the canonical repo URL
+	// (shorthand normalized to https) and the resolved GitHub login, plus the
+	// .pi skeleton dirs that pi needs to exist before it starts.
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
+	repo, ok := raw["repository"].(map[string]any)
+	if !ok {
+		t.Fatal("expected repository section in cheasee-settings.json")
+	}
+	if repo["url"] != "https://github.com/owner/repo.git" {
+		t.Errorf("repository.url = %v, want canonical https://github.com/owner/repo.git", repo["url"])
+	}
+	if repo["user"] != MockGitHubUser {
+		t.Errorf("repository.user = %v, want %q", repo["user"], MockGitHubUser)
+	}
+	for _, dir := range piSkeletonDirs {
+		if _, err := os.Stat(filepath.Join(workdir, ".pi", dir)); err != nil {
+			t.Errorf(".pi/%s missing after full flow: %v", dir, err)
+		}
+	}
+	auth := loadAuthJSON(t)
+	if auth.GitHubUser != MockGitHubUser {
+		t.Errorf("auth.json github_user = %q, want %q", auth.GitHubUser, MockGitHubUser)
+	}
+	if auth.GitHubToken != FakeGitHubToken {
+		t.Errorf("auth.json github_token = %q, want %q", auth.GitHubToken, FakeGitHubToken)
+	}
 }
 
 func TestRunInit_NoGitHubFlag(t *testing.T) {
@@ -168,6 +264,17 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 	if auth.RepoPath != workdir {
 		t.Errorf("expected RepoPath %q, got %q", workdir, auth.RepoPath)
+	}
+	// Legacy path: the repo URL is never threaded, so no repository section —
+	// but the .pi skeleton still exists (pi needs the dirs on both paths).
+	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
+	if _, ok := raw["repository"]; ok {
+		t.Error("--no-github must not write a repository section")
+	}
+	for _, dir := range piSkeletonDirs {
+		if _, err := os.Stat(filepath.Join(workdir, ".pi", dir)); err != nil {
+			t.Errorf(".pi/%s missing on legacy path: %v", dir, err)
+		}
 	}
 }
 
