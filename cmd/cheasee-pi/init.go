@@ -37,6 +37,12 @@ var newInitDeps = func(workdir string) InitDeps {
 // It is a constant so both the CLI and documentation stay in sync.
 const nextStepHint = "cheasee-pi start"
 
+// initTimeout bounds a single init invocation — device-flow OAuth polling
+// dominates the window. Shared by standalone init (runInitE) and start-
+// triggered init (runUpE's empty-folder branch) so both cap the auth window
+// identically instead of polling until the ~900 s device-code expiry.
+const initTimeout = 5 * time.Minute
+
 var (
 	initAPIKey        string
 	initNoDockerCheck bool
@@ -70,8 +76,13 @@ type InitDeps struct {
 	ClientID      string
 	RepoURL       string
 	Workdir       string
-	ConfirmFn     func(string) (bool, error)
-	InputFn       func(title, placeholder string) (string, error)
+	// InStartFlow marks init as triggered by `cheasee-pi start`'s empty-folder
+	// branch: the completion message drops the standalone "Next step:
+	// cheasee-pi start" hint because start continues automatically. Zero value
+	// (false) = standalone init, backward compatible.
+	InStartFlow bool
+	ConfirmFn   func(string) (bool, error)
+	InputFn     func(title, placeholder string) (string, error)
 }
 
 // Validate checks that all required dependencies for the active path are non-nil.
@@ -132,7 +143,7 @@ func runInitE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel = context.WithTimeout(context.Background(), initTimeout)
 		defer cancel()
 	}
 
@@ -225,28 +236,48 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phase 6: Scaffold cheasee-settings.json (never overwrites)
-	if err := runInitScaffold(ctx, deps); err != nil {
-		return fmt.Errorf("settings scaffold: %w", err)
-	}
-
-	// Phase 7: Save auth config
-	if err := cfg.Save(ctx, auth); err != nil {
-		return fmt.Errorf("save auth config: %w", err)
-	}
-
-	path, _ := cfg.Path()
-	fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
-
-	// Phase 8: API key setup for pi providers (interactive only)
-	if !deps.NoInput {
-		if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
-			return fmt.Errorf("API key setup: %w", err)
+	// Phases 6-8 (scaffold → save auth → API key setup) run post-clone; a
+	// failure here would strand a folder that both init (non-empty probe) and
+	// start (WorkspaceRefuse) refuse — the freshly cloned residue (worktree +
+	// sibling .bare) is removed before the error surfaces. The empty-folder
+	// probe guarantees only freshly cloned + scaffolded files exist, so removal
+	// cannot destroy user data.
+	postCloneErr := func() error {
+		// Phase 6: Scaffold cheasee-settings.json (never overwrites)
+		if err := runInitScaffold(ctx, deps); err != nil {
+			return fmt.Errorf("settings scaffold: %w", err)
 		}
+
+		// Phase 7: Save auth config
+		if err := cfg.Save(ctx, auth); err != nil {
+			return fmt.Errorf("save auth config: %w", err)
+		}
+
+		path, _ := cfg.Path()
+		fmt.Fprintf(os.Stderr, "  ✓ Auth config saved to %s\n", path)
+
+		// Phase 8: API key setup for pi providers (interactive only)
+		if !deps.NoInput {
+			if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
+				return fmt.Errorf("API key setup: %w", err)
+			}
+		}
+		return nil
+	}()
+	if postCloneErr != nil {
+		removeInitResidue(deps.Workdir)
+		return postCloneErr
 	}
 
-	fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
-	fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
+	// Completion message. Standalone `cheasee-pi init` points at the next
+	// step; start-triggered init (InStartFlow) continues into start
+	// automatically, so no second-invocation hint is printed.
+	if deps.InStartFlow {
+		fmt.Fprintf(os.Stderr, "\n✅ Init complete.\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
+		fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
+	}
 	return nil
 }
 
