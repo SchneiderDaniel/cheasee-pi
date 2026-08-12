@@ -411,6 +411,38 @@ func TestGitCloneWorktree_realGitMasterDefault(t *testing.T) {
 	}
 }
 
+// ──────────────────────────────────────────────
+// removeInitResidue (post-clone failure cleanup)
+// ──────────────────────────────────────────────
+
+func TestRemoveInitResidue_realGitLayout(t *testing.T) {
+	// Adapter: on a real git worktree layout, removeInitResidue removes the
+	// worktree dir (incl. its .git file) plus the sibling .bare.
+	src := gitRemoteFixture(t, "main")
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "main")
+	bareDir := cloneWorktreeLayout(t, src, parent, workdir)
+
+	removeInitResidue(workdir)
+
+	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
+		t.Errorf("removeInitResidue must remove the worktree dir: %v", err)
+	}
+	if _, err := os.Stat(bareDir); !os.IsNotExist(err) {
+		t.Errorf("removeInitResidue must remove the sibling .bare: %v", err)
+	}
+}
+
+func TestRemoveInitResidue_missingIsNoOp(t *testing.T) {
+	// Best-effort by contract: nothing was ever cloned → silent no-op, no
+	// error, no panic, parent untouched.
+	parent := t.TempDir()
+	removeInitResidue(filepath.Join(parent, "ws"))
+	if _, err := os.Stat(parent); err != nil {
+		t.Errorf("parent must be untouched: %v", err)
+	}
+}
+
 func TestGitCloneWorktree_e2eWorktreeFix(t *testing.T) {
 	// Acceptance "verified by execution": after clone+scaffold+gitignore
 	// append, running worktree-fix.sh against the fixture layout (via its

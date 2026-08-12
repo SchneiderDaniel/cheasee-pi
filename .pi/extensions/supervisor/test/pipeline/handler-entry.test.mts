@@ -3,11 +3,19 @@
 //   pipeline/handler.ts → handler/index.ts → runSupervisorPipeline.
 // Trust gate, bad-args, --debug lifecycle, top-level catch and finally.
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { handleSupervisorCommand } from "../../pipeline/handler.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
+
+// Real repo dir — the run lock is written to cwd/.pi, which a fake "/repo"
+// cannot (permissions), so the lock acquire would fail and early-return.
+const MOCK_REPO = mkdtempSync(join(tmpdir(), "handler-entry-"));
+after(() => rmSync(MOCK_REPO, { recursive: true, force: true }));
 
 interface NotifyCall {
 	msg: string;
@@ -23,7 +31,7 @@ function createMockCtx(opts: { hasUI?: boolean; trusted?: boolean } = {}): {
 	const notifyCalls: NotifyCall[] = [];
 	const statusCalls: string[] = [];
 	const ctx = {
-		cwd: "/repo",
+		cwd: MOCK_REPO,
 		hasUI,
 		isProjectTrusted: () => opts.trusted ?? true,
 		ui: {

@@ -113,6 +113,41 @@ func TestInstallationDoc_GoCliPathVersion(t *testing.T) {
 	}
 }
 
+// TestInstallationDoc_OneShotFirstRun verifies the empty-folder gate bullet
+// describes the single-invocation flow (init + start in one run) — the
+// two-step "run start again" handoff is gone.
+func TestInstallationDoc_OneShotFirstRun(t *testing.T) {
+	data, err := os.ReadFile(docPath())
+	if err != nil {
+		t.Fatalf("reading docs/installation.md: %v", err)
+	}
+	content := string(data)
+
+	if strings.Contains(content, "then you run `start` again") {
+		t.Error("installation.md must not describe a two-step first run (run start again)")
+	}
+	if !strings.Contains(content, "same invocation") {
+		t.Error("installation.md should describe the one-shot continuation (init + start in the same invocation)")
+	}
+}
+
+// TestDailyUsageDoc_OneShotFirstRun verifies daily-usage.md describes the
+// single-invocation auto-init continuation instead of a two-step handoff.
+func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "daily-usage.md"))
+	if err != nil {
+		t.Fatalf("reading docs/daily-usage.md: %v", err)
+	}
+	content := string(data)
+
+	if strings.Contains(content, "auto-inits first.") {
+		t.Error("daily-usage.md must not describe auto-init as a standalone step (no continuation)")
+	}
+	if !strings.Contains(content, "same invocation") {
+		t.Error("daily-usage.md should describe the single-invocation auto-init continuation")
+	}
+}
+
 // TestInstallationDoc_Path verifies that Step 5 bullet 8 of the installation
 // doc matches the path that config.go:fileRepository.configPath() actually
 // writes to — the XDG user config dir, not the legacy ~/.pi/agent/auth.json.
@@ -126,7 +161,7 @@ func TestInstallationDoc_Path(t *testing.T) {
 	// The doc must use the XDG user config directory path (matches
 	// filepath.Join(userConfigDir, "cheasee-pi", "auth.json") in config.go).
 	if !strings.Contains(content, "cheasee-pi/auth.json") &&
-		!strings.Contains(content, "cheasee-pi" + string(os.PathSeparator) + "auth.json") {
+		!strings.Contains(content, "cheasee-pi"+string(os.PathSeparator)+"auth.json") {
 		t.Error("Step 5 bullet 8 should reference cheasee-pi/auth.json (XDG path suffix from config.go)")
 	}
 

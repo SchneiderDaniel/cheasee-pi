@@ -235,6 +235,116 @@ export function deleteCheckpointFile(cwd: string): Result<void> {
 	}
 }
 
+// ─── Run Lock ────────────────────────────────────────────────────
+// One pipeline per repo, enforced. The supervisor design is single-run:
+// a shared .pi/supervisor-state.json, one shared bare repo and one shared
+// worktree base. Nothing enforced it — with N pi terminals open, two runs
+// of the same issue raced on the same worktree path: the second run's
+// createWorktree silently reused the live worktree (dir-exists fallback)
+// and whichever run finished first removed the worktree under the other's
+// agent ("Working directory does not exist" / "Worktree missing").
+// The lock is PID-backed: a crashed run leaves a dead PID behind, and the
+// next run takes over instead of waiting out a timestamp.
+
+export interface RunLock {
+	pid: number;
+	issueNum: number;
+	startedAt: string; // ISO 8601
+}
+
+function runLockPath(cwd: string): string {
+	return resolve(cwd, ".pi", "supervisor-run.json");
+}
+
+/** True if a process with this PID exists (same container → same PID namespace). */
+function pidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err: unknown) {
+		// EPERM = exists but not ours (still alive); ESRCH = dead
+		return (err as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+function readRunLock(path: string): RunLock | null {
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+		if (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			typeof (parsed as RunLock).pid === "number" &&
+			typeof (parsed as RunLock).issueNum === "number"
+		) {
+			return parsed as RunLock;
+		}
+	} catch {
+		// Unreadable/corrupt lock — treat as stale
+	}
+	return null;
+}
+
+/**
+ * Acquire the per-repo run lock. Fails (ok:false) when another pipeline
+ * is live; steals the lock when the holder's PID is dead (crashed run).
+ * Atomic via `wx` (exclusive create) — a simultaneous-acquire race loses
+ * cleanly and the loser re-checks the winner's liveness.
+ */
+export function acquireRunLock(cwd: string, issueNum: number): Result<void> {
+	const stateDir = resolve(cwd, ".pi");
+	const path = runLockPath(cwd);
+	const ownLock: RunLock = {
+		pid: process.pid,
+		issueNum,
+		startedAt: new Date().toISOString(),
+	};
+	try {
+		if (!existsSync(stateDir)) {
+			mkdirSync(stateDir, { recursive: true });
+		}
+		const writeLock = () => writeFileSync(path, JSON.stringify(ownLock), { flag: "wx" });
+		try {
+			writeLock();
+			return { ok: true, value: undefined };
+		} catch (err: unknown) {
+			if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+				throw err;
+			}
+		}
+		// Lock exists — live holder blocks, dead holder gets taken over
+		const existing = readRunLock(path);
+		if (existing && pidAlive(existing.pid)) {
+			return {
+				ok: false,
+				error:
+					`Another supervisor pipeline is already running (pid ${existing.pid}, issue #${existing.issueNum}, started ${existing.startedAt}). ` +
+					"One pipeline at a time per repo — wait for it to finish or stop it first.",
+				source: "run-lock",
+			};
+		}
+		// Stale lock (crashed holder) — steal it
+		unlinkSync(path);
+		writeLock();
+		return { ok: true, value: undefined };
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		getDebugLogger().error("run-lock", `Failed to acquire run lock: ${msg}`);
+		return { ok: false, error: `Failed to acquire run lock: ${msg}`, source: "run-lock" };
+	}
+}
+
+/** Release the run lock — only if we own it (PID match). Idempotent, best-effort. */
+export function releaseRunLock(cwd: string): void {
+	try {
+		const lock = readRunLock(runLockPath(cwd));
+		if (lock && lock.pid === process.pid) {
+			unlinkSync(runLockPath(cwd));
+		}
+	} catch {
+		// Best-effort — nothing to do
+	}
+}
+
 // ─── Cleanup Function ─────────────────────────────────────────────
 
 /**
