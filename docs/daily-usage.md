@@ -75,17 +75,21 @@ Without `--build`, Compose reuses the cached image — start is near-instant (~2
 
 ### Raw docker compose (power users)
 
-Compose lives in the CLI cache dir (never in your repo):
+Compose lives in the CLI cache dir (never in your repo) and interpolates the
+bind mounts from env vars — unset `WORKSPACE_HOST_PATH`/`WORKSPACE_BARE_PATH`
+are a hard error:
 
 ```bash
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
+WORKSPACE_HOST_PATH=$(pwd) \
+WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ## CodeFlow (code-structure visualization)
 
 The stack includes a local CodeFlow service: a browser-based visualizer that renders
 the workspace's module dependency graph, call structure, and architecture (tree-sitter
-AST parsing, 18 languages). It starts automatically with `docker compose up -d` and
+AST parsing, 18 languages). It starts automatically with `cheasee-pi start` and
 serves on port 8470.
 
 Open it in the browser:
@@ -216,7 +220,7 @@ from scratch, including `npm install` (~30-60s).
 docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
 ```
 
-This stops the container but keeps it intact. Next `docker compose up -d` (without
+This stops the container but keeps it intact. Next `cheasee-pi start` (without
 `--build`) restarts the existing container instantly. Use `docker compose stop` for
 short breaks and `down` when you're done for the day.
 
