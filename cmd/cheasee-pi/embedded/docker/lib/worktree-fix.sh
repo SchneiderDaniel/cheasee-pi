@@ -118,9 +118,28 @@ unbreak_worktrees() {
     # ---- Step 4: Lock all worktrees ----
     # Prevent git worktree prune (and git gc which calls it) from deleting
     # worktree registrations. The locked file is a simple presence check by git.
+    # Dead registrations (worktree dir removed by a crash or manual cleanup) are
+    # NOT locked — locking them would block `git worktree prune` forever and
+    # every future `git worktree add` would fail with "already checked out" on a
+    # dir that no longer exists. The supervisor prunes those on the next run.
     if [ -d "$BARE_DIR/worktrees" ]; then
         for wt_dir in "$BARE_DIR/worktrees"/*/; do
             [ -d "$wt_dir" ] || continue
+            # Detect staleness via the registration's gitdir ref (absolute, or
+            # relative to the registration dir): if the worktree's .git file is
+            # gone, the dir was removed — skip the lock so prune can recover.
+            local wt_gitref=""
+            read -r wt_gitref < "$wt_dir/gitdir" 2>/dev/null || true
+            local wt_gitfile=""
+            if [[ "$wt_gitref" == /* ]]; then
+                wt_gitfile="$wt_gitref"
+            elif [ -n "$wt_gitref" ]; then
+                wt_gitfile="$(cd "$wt_dir" 2>/dev/null && pwd -P)/$wt_gitref"
+            fi
+            if [ -n "$wt_gitfile" ] && [ ! -e "$wt_gitfile" ]; then
+                echo "  Skipping lock for stale registration: $(basename "$wt_dir") (worktree dir missing)"
+                continue
+            fi
             local lock_file="$wt_dir/locked"
             [[ -f "$lock_file" ]] && continue            # already locked
             echo "Locked by entrypoint.sh — shared filesystem container worktree" > "$lock_file"
