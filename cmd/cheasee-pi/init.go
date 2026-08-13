@@ -178,17 +178,18 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	}
 
 	// Phase 3: project repo URL (GitHub path only; legacy --no-github skips
-	// the clone entirely). Validated before any git call.
+	// the clone entirely). Canonicalized (shorthand/scp → https) before any
+	// git call; the canonical form is what the scaffold persists.
 	var repoURL string
 	if !deps.NoGitHub {
 		url, err := resolveRepoURL(deps)
 		if err != nil {
 			return err
 		}
-		if owner, repo := ParseGitHubURL(url); owner == "" || repo == "" {
-			return fmt.Errorf("invalid repo URL %q — expected owner/repo or a GitHub repository URL", url)
+		repoURL, err = canonicalRepoURL(url)
+		if err != nil {
+			return fmt.Errorf("invalid repo URL %q — expected owner/repo or a GitHub repository URL: %w", url, err)
 		}
-		repoURL = url
 	}
 
 	// Auth config is file I/O under the OS user config dir — no port.
@@ -243,8 +244,10 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	// probe guarantees only freshly cloned + scaffolded files exist, so removal
 	// cannot destroy user data.
 	postCloneErr := func() error {
-		// Phase 6: Scaffold cheasee-settings.json (never overwrites)
-		if err := runInitScaffold(ctx, deps); err != nil {
+		// Phase 6: Scaffold cheasee-settings.json (never overwrites) — the
+		// canonical repo URL and resolved GitHub login are threaded in; the
+		// legacy --no-github path carries both empty.
+		if err := runInitScaffold(ctx, deps, repoURL, auth.GitHubUser); err != nil {
 			return fmt.Errorf("settings scaffold: %w", err)
 		}
 

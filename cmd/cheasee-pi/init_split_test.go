@@ -40,6 +40,7 @@ var wantInitDecls = map[string]string{
 	"func:resolveRepoURL": "init.go",
 
 	"func:gitCloneWorktree":  "init_clone.go",
+	"func:canonicalRepoURL":  "init_clone.go",
 	"func:removeInitResidue": "init_clone.go",
 
 	"func:runInitAuth":    "init_auth.go",
@@ -195,6 +196,7 @@ var testSplitFiles = []string{
 	"init_auth_test.go",
 	"init_scaffold_test.go",
 	"init_prompt_test.go",
+	"pi_skeleton_test.go",
 }
 
 // initHelperDecls pins the cross-subject helpers to init_helpers_test.go.
@@ -225,12 +227,15 @@ var testSplitRules = []prefixRule{
 	{"TestRemoveInitResidue", "init_clone_test.go"},
 	{"TestParseGitHubURL", "init_clone_test.go"},
 	{"TestRedactToken", "init_clone_test.go"},
+	{"TestCanonicalRepoURL", "init_clone_test.go"},
 	{"TestRunInitAuth", "init_auth_test.go"},
 	{"TestRunInitLegacy", "init_auth_test.go"},
+	{"TestDeviceFlowAuthenticator", "init_auth_test.go"},
 	{"TestRunInitScaffold", "init_scaffold_test.go"},
 	{"TestGitIgnoreCheaseeSettings", "init_scaffold_test.go"},
 	{"TestInitDeps", "init_scaffold_test.go"},
 	{"TestInit_SuccessMessage", "init_scaffold_test.go"},
+	{"TestEnsurePiSkeleton", "pi_skeleton_test.go"},
 	{"TestInitCmd", "init_prompt_test.go"},
 	{"TestInitProbe", "init_usecase_test.go"},
 	{"TestInitUseCase", "init_usecase_test.go"},

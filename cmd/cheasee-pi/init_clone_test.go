@@ -75,6 +75,50 @@ func TestRedactToken_plainTextUntouched(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// canonicalRepoURL (entity — shared clone/scaffold normalization)
+// ──────────────────────────────────────────────
+
+func TestCanonicalRepoURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string // substring the error must mention; empty = success
+	}{
+		{"shorthand", "owner/repo", "https://github.com/owner/repo.git", ""},
+		{"shorthand git suffix", "owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"scp style", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https passthrough", "https://github.com/owner/repo", "https://github.com/owner/repo", ""},
+		{"https git suffix passthrough", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https trailing slash passthrough", "https://github.com/owner/repo/", "https://github.com/owner/repo/", ""},
+		{"ssh scheme passthrough", "ssh://git@github.com/owner/repo", "ssh://git@github.com/owner/repo", ""},
+		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
+		{"unparsable", "not-a-url", "", "invalid repo URL"},
+		{"empty", "", "", "invalid repo URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canonicalRepoURL(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("canonicalRepoURL(%q) error = %v, want mention %q", tc.in, err, tc.wantErr)
+				}
+				if strings.Contains(err.Error(), "SECRETTOKEN") {
+					t.Errorf("token must never leak into the error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonicalRepoURL(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("canonicalRepoURL(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
 // gitCloneWorktree (use case)
 // ──────────────────────────────────────────────
 

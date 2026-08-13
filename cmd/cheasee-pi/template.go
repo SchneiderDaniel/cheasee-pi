@@ -220,17 +220,21 @@ func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 // ──────────────────────────────────────────────
 
 // TemplateSettingsValues holds the values for settings template substitution
-// (pi's .pi/settings.json and the dedicated cheasee-settings.json). ClientID
-// and DefaultModel are only referenced by the cheasee template; the pi
-// template ignores them.
+// (pi's .pi/settings.json and the dedicated cheasee-settings.json). ClientID,
+// DefaultModel, RepositoryURL, and GitHubUser are only referenced by the
+// cheasee template; the pi template ignores them (and must never reference
+// the repository fields — the {{if .RepositoryURL}} guard lives in the
+// cheasee template only).
 type TemplateSettingsValues struct {
-	Provider     string
-	DefaultModel string
-	GitName      string
-	GitEmail     string
-	Memory       string
-	CPUs         string
-	ClientID     string
+	Provider       string
+	DefaultModel   string
+	GitName        string
+	GitEmail       string
+	Memory         string
+	CPUs           string
+	ClientID       string
+	RepositoryURL  string
+	GitHubUser     string
 }
 
 // ──────────────────────────────────────────────
