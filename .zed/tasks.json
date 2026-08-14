@@ -89,7 +89,7 @@
 	},
 	{
 		"label": "Cheasee-Pi: rebuild (no cache)",
-		"command": "cheasee-pi build --no-cache",
+		"command": "cheasee-pi rebuild",
 		"args": [],
 		"cwd": "$ZED_WORKTREE_ROOT",
 		"use_new_terminal": true,
