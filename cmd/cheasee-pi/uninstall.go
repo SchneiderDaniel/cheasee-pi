@@ -113,11 +113,11 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		// Check if parent dir is writable — if not, suggest sudo
 		if f, err := os.Stat(binaryDir); err == nil && f.Mode().Perm()&0o222 == 0 {
 			fmt.Fprintf(os.Stderr, "  ⚠ cannot remove binary — %s is not writable by you\n", binaryDir)
-			fmt.Fprintf(os.Stderr, "    Re-run with: sudo %s uninstall\n", filepath.Base(binaryPath))
+			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", binaryPath)
 		} else if err := os.Remove(binaryPath); err != nil {
 			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove binary at %s\n", binaryPath)
 			fmt.Fprintf(os.Stderr, "    Cause: %v\n", err)
-			fmt.Fprintf(os.Stderr, "    To remove manually: sudo rm %s\n", binaryPath)
+			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", binaryPath)
 		} else {
 			fmt.Fprintf(os.Stderr, "  ✓ Removed binary\n")
 		}

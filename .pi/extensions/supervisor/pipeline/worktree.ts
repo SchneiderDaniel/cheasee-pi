@@ -84,7 +84,6 @@ export async function reconcileToRemoteBranch(
 
 	log.info("worktree", `Remote tracking branch ${remote}/${worktreeBranch} exists — reconciling`);
 
-	// Fetch latest from remote for this branch
 	const fetchRes = await execChecked(pi, "git", ["fetch", remote, worktreeBranch], {
 		cwd,
 		timeout: 30000,
@@ -96,7 +95,6 @@ export async function reconcileToRemoteBranch(
 		return { ok: false, error: msg, source: "worktree" };
 	}
 
-	// Reset worktree to match remote tracking branch
 	const resetRes = await execChecked(
 		pi,
 		"git",
