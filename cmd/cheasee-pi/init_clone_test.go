@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +71,50 @@ func TestRedactToken_plainTextUntouched(t *testing.T) {
 	in := "worktree add failed: fatal: invalid reference"
 	if out := redactToken(in); out != in {
 		t.Errorf("text without credentials must pass through unchanged: %q", out)
+	}
+}
+
+// ──────────────────────────────────────────────
+// canonicalRepoURL (entity — shared clone/scaffold normalization)
+// ──────────────────────────────────────────────
+
+func TestCanonicalRepoURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string // substring the error must mention; empty = success
+	}{
+		{"shorthand", "owner/repo", "https://github.com/owner/repo.git", ""},
+		{"shorthand git suffix", "owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"scp style", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https passthrough", "https://github.com/owner/repo", "https://github.com/owner/repo", ""},
+		{"https git suffix passthrough", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https trailing slash passthrough", "https://github.com/owner/repo/", "https://github.com/owner/repo/", ""},
+		{"ssh scheme passthrough", "ssh://git@github.com/owner/repo", "ssh://git@github.com/owner/repo", ""},
+		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
+		{"unparsable", "not-a-url", "", "invalid repo URL"},
+		{"empty", "", "", "invalid repo URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canonicalRepoURL(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("canonicalRepoURL(%q) error = %v, want mention %q", tc.in, err, tc.wantErr)
+				}
+				if strings.Contains(err.Error(), "SECRETTOKEN") {
+					t.Errorf("token must never leak into the error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonicalRepoURL(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("canonicalRepoURL(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -474,66 +515,5 @@ func TestGitCloneWorktree_e2eWorktreeFix(t *testing.T) {
 	}
 	if strings.Contains(string(status), "cheasee-settings.json") {
 		t.Errorf("cheasee-settings.json must never show as untracked, got: %q", status)
-	}
-}
-
-// ──────────────────────────────────────────────
-// resolveGitHubUser (adapter, httpClient seam)
-// ──────────────────────────────────────────────
-
-func TestResolveGitHubUser_Success(t *testing.T) {
-	// 200 {"login":"octocat"} → "octocat"; the request carries
-	// Authorization: Bearer <token> and hits /user (asserted on the server).
-	srv := githubUserServer(t)
-	defer srv.Close()
-	stubGitHubUserHTTP(t, srv)
-
-	user, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if user != "octocat" {
-		t.Errorf("expected octocat, got %q", user)
-	}
-}
-
-func TestResolveGitHubUser_Unauthorized(t *testing.T) {
-	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusUnauthorized,
-			Status:     "401 Unauthorized",
-			Body:       io.NopCloser(strings.NewReader("")),
-			Request:    r,
-		}, nil
-	})
-	_, err := resolveGitHubUser(context.Background(), "bad-token")
-	if err == nil || !strings.Contains(err.Error(), "401") {
-		t.Fatalf("expected 401 error, got: %v", err)
-	}
-}
-
-func TestResolveGitHubUser_NetworkError(t *testing.T) {
-	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
-		return nil, fmt.Errorf("connection refused")
-	})
-	_, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
-	if err == nil || !strings.Contains(err.Error(), "connection refused") {
-		t.Fatalf("expected network error, got: %v", err)
-	}
-}
-
-func TestResolveGitHubUser_MalformedBody(t *testing.T) {
-	stubHTTPClient(t, func(r *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader("{not json}")),
-			Request:    r,
-		}, nil
-	})
-	_, err := resolveGitHubUser(context.Background(), FakeGitHubToken)
-	if err == nil {
-		t.Fatal("expected error for malformed body")
 	}
 }

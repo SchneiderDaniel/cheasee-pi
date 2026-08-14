@@ -63,12 +63,23 @@ type CheaseeSettings struct {
 	Docker          DockerSettings      `json:"docker,omitempty"`
 	GitIdentity     GitIdentitySettings `json:"gitIdentity,omitempty"`
 	OAuth           OAuthSettings       `json:"oauth,omitempty"`
+	Repository      *RepositorySettings `json:"repository,omitempty"`
 }
 
 // OAuthSettings mirrors the "oauth" section of the cheasee-settings.json
 // scaffold (the GitHub OAuth client ID used at init time).
 type OAuthSettings struct {
 	ClientID string `json:"clientID"`
+}
+
+// RepositorySettings mirrors the "repository" section of the
+// cheasee-settings.json scaffold: the canonical clone URL and the resolved
+// GitHub login, persisted so the workspace knows what init already learned.
+// Pointer on CheaseeSettings keeps the legacy no-github scaffold output
+// section-free (omitempty) and Save byte-stable.
+type RepositorySettings struct {
+	URL  string `json:"url"`
+	User string `json:"user"`
 }
 
 // cheaseeSettingsPath returns the cheasee-settings.json path for a workspace.

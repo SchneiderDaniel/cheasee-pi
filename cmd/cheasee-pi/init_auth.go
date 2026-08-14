@@ -10,7 +10,11 @@ import (
 	"github.com/cli/oauth/device"
 )
 
-// runInitAuth performs GitHub OAuth device flow authentication.
+// runInitAuth performs GitHub OAuth device flow authentication and resolves
+// the GitHub login via GET /user with the in-memory token. The lookup is
+// fail-open: OAuth already succeeded, so an error (or empty login) only
+// warns on stderr and yields an empty user — repository.user stays empty
+// ("when available").
 func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user string, err error) {
 	fmt.Fprintf(os.Stderr, "\n🔐 GitHub Authentication\n")
 	fmt.Fprintf(os.Stderr, "   ─────────────────────\n")
@@ -36,7 +40,13 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 	}
 
 	fmt.Fprintf(os.Stderr, "  ✓ GitHub authentication successful\n")
-	return accessToken.Token, "", nil
+
+	user, err = authenticator.User(ctx, accessToken.Token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ GitHub user lookup failed (continuing without it): %v\n", err)
+		return accessToken.Token, "", nil
+	}
+	return accessToken.Token, user, nil
 }
 
 // runInitAPIKeys guides the user through configuring API keys for pi providers.
@@ -147,17 +157,19 @@ func runReauth(ctx context.Context, deps InitDeps) error {
 	// hard error with a --client-id hint — the legacy API-key fallback (which
 	// re-prompts providers and rewrites the default provider) is wrong here.
 	if !deps.NoGitHub {
-		token, _, err := runInitAuth(ctx, deps.Ports.Auth)
+		// runInitAuth already resolves the login via the Authenticator's User
+		// seam (fail-open: an error warns on stderr and yields an empty user).
+		// On reauth the user is mandatory — a token without a login would
+		// leave auth.json half-written, so the empty login is a hard error.
+		token, user, err := runInitAuth(ctx, deps.Ports.Auth)
 		if err != nil {
 			if errors.Is(err, device.ErrUnsupported) {
 				return fmt.Errorf("GitHub OAuth device flow unavailable — the configured OAuth app may be invalid; use --client-id to provide your own GitHub OAuth app (re-auth does not fall back to API-key-only mode)")
 			}
 			return fmt.Errorf("GitHub authentication failed: %w", err)
 		}
-
-		user, err := resolveGitHubUser(ctx, token)
-		if err != nil {
-			return fmt.Errorf("resolve GitHub user: %w", err)
+		if user == "" {
+			return fmt.Errorf("resolve GitHub user: GET /user failed or returned an empty login")
 		}
 
 		// Merge-safe raw-map patch: preserves every provider entry and the

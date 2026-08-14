@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -337,6 +338,7 @@ var fullCheaseeSchema = &CheaseeSettings{
 	Docker:          DockerSettings{Memory: "4G", CPUs: "4.0"},
 	GitIdentity:     GitIdentitySettings{Name: "Test User", Email: "test@example.com"},
 	OAuth:           OAuthSettings{ClientID: "test-client"},
+	Repository:      &RepositorySettings{URL: "https://github.com/owner/repo.git", User: "octocat"},
 }
 
 func TestCheaseeSettings_roundTrip(t *testing.T) {
@@ -349,8 +351,34 @@ func TestCheaseeSettings_roundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if *loaded != *fullCheaseeSchema {
-		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", *loaded, *fullCheaseeSchema)
+	// Repository is a pointer (omitempty for the legacy no-github output), so
+	// compare values rather than struct equality.
+	if !reflect.DeepEqual(loaded, fullCheaseeSchema) {
+		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", loaded, fullCheaseeSchema)
+	}
+}
+
+func TestCheaseeSettings_nilRepositoryOmitsSection(t *testing.T) {
+	// Legacy/no-github output: {} loads with nil Repository, and a typed Save
+	// must not emit a repository key (omitempty, section-free legacy output).
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
+	s, err := LoadCheaseeSettings(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Repository != nil {
+		t.Fatalf("empty {} must load with nil Repository, got %+v", s.Repository)
+	}
+	if err := s.Save(workdir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(cheaseeSettingsPath(workdir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "repository") {
+		t.Errorf("Save of nil Repository must not emit a repository key, got: %s", data)
 	}
 }
 
