@@ -9,9 +9,9 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import timezone
 
-from dependency_existence_check.helpers import _local
-from dependency_existence_check.models import PackageRecord, RegistryError
-from dependency_existence_check.transport import RateLimiter
+from .helpers import _local
+from .models import PackageRecord, RegistryError
+from .transport import RateLimiter
 
 
 class Registry:
@@ -276,7 +276,7 @@ class RubygemsRegistry(Registry):
                  if isinstance(v, dict) and v.get("built_at")]
         if not times:
             return PackageRecord(True, None)  # core age guard fails closed
-        return PackageRecord(True, min(times))
+        return PackageRecord(True, min(t for t in times if t is not None))
 
 
 class PackagistRegistry(Registry):

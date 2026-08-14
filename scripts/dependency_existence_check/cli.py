@@ -8,8 +8,8 @@ import os
 import sys
 from pathlib import Path
 
-from dependency_existence_check.core import run_check
-from dependency_existence_check.transport import RealFetcher
+from .core import run_check
+from .transport import RealFetcher
 
 # Mirrors .pi/extensions/supervisor/checks/package-safety.ts SAFETY_THRESHOLD_DAYS.
 SAFETY_THRESHOLD_DAYS = 14

@@ -6,7 +6,7 @@ with the same names and object identities as the original single module.
 
 from __future__ import annotations
 
-from dependency_existence_check.adapters import (
+from .adapters import (
     ADAPTERS,
     Adapter,
     CppAdapter,
@@ -21,12 +21,12 @@ from dependency_existence_check.adapters import (
     RustAdapter,
     SwiftAdapter,
 )
-from dependency_existence_check.cli import SAFETY_THRESHOLD_DAYS, main
-from dependency_existence_check.core import ALWAYS_SKIP_DIRS, run_check
-from dependency_existence_check.helpers import days_since
-from dependency_existence_check.matcher import GitignoreMatcher, IgnoreFilter
-from dependency_existence_check.models import Dependency, PackageRecord, RegistryError
-from dependency_existence_check.registries import (
+from .cli import SAFETY_THRESHOLD_DAYS, main
+from .core import ALWAYS_SKIP_DIRS, run_check
+from .helpers import days_since
+from .matcher import GitignoreMatcher, IgnoreFilter
+from .models import Dependency, PackageRecord, RegistryError
+from .registries import (
     REGISTRIES,
     CargoRegistry,
     ConanRegistry,
@@ -42,7 +42,7 @@ from dependency_existence_check.registries import (
     SwiftRegistry,
     VcpkgRegistry,
 )
-from dependency_existence_check.transport import (
+from .transport import (
     CacheStats,
     DiskCache,
     NoCache,

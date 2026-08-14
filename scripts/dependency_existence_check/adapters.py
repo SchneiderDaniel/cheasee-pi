@@ -14,8 +14,8 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from dependency_existence_check.helpers import _local
-from dependency_existence_check.models import Dependency
+from .helpers import _local
+from .models import Dependency
 
 # ─── language adapters ──────────────────────────────────────────────
 
