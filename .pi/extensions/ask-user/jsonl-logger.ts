@@ -441,7 +441,6 @@ export function splitCsvRows(content: string): string[] {
 		}
 	}
 
-	// Add last row if non-empty
 	if (current.trim() !== "") {
 		rows.push(current);
 	}
