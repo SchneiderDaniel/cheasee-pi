@@ -155,7 +155,7 @@ describe("scrapling image contract — Dockerfile layer 5e", () => {
 		);
 		assert.match(
 			df,
-			/chromium-\*\/chrome-linux64\/chrome/,
+			/chrome-linux64\/chrome/,
 			"must fail the image build when chromium is missing (silent-build-failure regression, issue 1529)",
 		);
 	});

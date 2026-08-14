@@ -6,7 +6,7 @@
 
 Web crawling for AI agents is notoriously fragile — bot detection, Cloudflare challenges, JavaScript rendering. Scrapling handles all of this transparently:
 
-- **Automatic Cloudflare bypass** — progressive fetching: lightweight curl_cffi → Playwright with stealth patches
+- **Automatic Cloudflare bypass** — progressive fetching: lightweight curl_cffi → patchright-driven stealth (undetected Chromium)
 - **Markdown extraction** — HTML cleaned via `markdownify`, removes ads, nav bars, footers
 - **Token budget** — `maxTokens` parameter caps output per page, truncates with notice
 - **Concurrency limit** — 2 concurrent crawls max to protect memory (configurable in `config.json`)
@@ -62,7 +62,7 @@ Part of Cheasee-Pi monorepo. Activated automatically.
 
 - Python 3.10+
 - Internet access (pip install on first call)
-- ~200MB disk for venv (Playwright Chromium browser download)
+- ~646M disk for the stealth-fetcher Chromium browser (patchright build, pre-installed in the Docker image)
 
 ## Details
 

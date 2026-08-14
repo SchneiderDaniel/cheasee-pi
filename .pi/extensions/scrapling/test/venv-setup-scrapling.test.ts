@@ -7,6 +7,12 @@
  * NOTE: structural tests (lock lifecycle, venv creation sequence, mock factory)
  * moved to .pi/extensions/lib/ensureVenv.test.ts. This file tests only the
  * adapter boundary.
+ *
+ * Stealth-tier browser contract: the runtime stealth fetcher resolves its
+ * chromium build via patchright's registry (revision 1228 at patchright
+ * 1.61.2), NOT playwright's (revision 1234 at playwright 1.62.0). The adapter
+ * therefore (a) verifies the patchright-expected build exists and (b) installs
+ * it with `python -m patchright install chromium`, never playwright.
  */
 
 import assert from "node:assert/strict";
@@ -28,32 +34,59 @@ function assertEnsureVenvError(err: unknown, expectedFragment: string): void {
 	);
 }
 
+interface TrackedCall {
+	cmd: string;
+	args: string[];
+	opts?: { timeout?: number; signal?: AbortSignal; maxBuffer?: number };
+}
+
+function trackedCalls(exec: ReturnType<typeof mock.fn<ExecFn>>): TrackedCall[] {
+	return exec.mock.calls.map((c) => ({
+		cmd: c.arguments[0] as string,
+		args: c.arguments[1] as string[],
+		opts: c.arguments[2] as TrackedCall["opts"],
+	}));
+}
+
 // ── Simple mock factory ──
 
 interface MockHandlers {
 	verify?: ExecResult;
 	create?: ExecResult;
 	install?: ExecResult;
-	scraplingCli?: ExecResult;
+	patchrightInstall?: ExecResult;
 }
 
 const DEFAULT: Required<MockHandlers> = {
-	verify: { code: 1, stdout: "", stderr: "not found", killed: false },
+	verify: {
+		code: 1,
+		stdout: "",
+		stderr:
+			"Stealth-fetcher Chromium missing: expected /opt/playwright-browsers/chromium-1228. Run 'python -m patchright install chromium'.",
+		killed: false,
+	},
 	create: { code: 0, stdout: "", stderr: "", killed: false },
 	install: { code: 0, stdout: "", stderr: "", killed: false },
-	scraplingCli: { code: 0, stdout: "", stderr: "", killed: false },
+	patchrightInstall: { code: 0, stdout: "", stderr: "", killed: false },
 };
 
-function makeMockExec(handlers: MockHandlers = {}): ExecFn {
+/**
+ * Exec mock that models the browser-check outcome:
+ * - `browserReady` — patchright-expected chromium build present → verify passes
+ *   (exit 0, stdout "ok") regardless of venv state.
+ * - otherwise verify returns `merged.verify` (default: browser-missing failure).
+ * - a successful `-m patchright install` (code 0, not killed) marks the browser
+ *   as ready, so the final verify after a full setup passes.
+ */
+function makeMockExec(handlers: MockHandlers = {}, opts: { browserReady?: boolean } = {}): ExecFn {
 	const merged = { ...DEFAULT, ...handlers };
-	const hasCustomVerify = "verify" in handlers;
+	let browserReady = opts.browserReady ?? false;
 	let setupDone = false;
 
-	return async (cmd: string, args: string[]) => {
+	return async (cmd: string, args: string[]): Promise<ExecResult> => {
 		// Verify check
 		if (cmd.includes("bin/python3") && args[0] === "-c") {
-			// After venv is set up, return success unless test provided custom verify
-			if (setupDone && !hasCustomVerify) {
+			if (browserReady) {
 				return { code: 0, stdout: "ok", stderr: "", killed: false };
 			}
 			return merged.verify;
@@ -77,9 +110,12 @@ function makeMockExec(handlers: MockHandlers = {}): ExecFn {
 			if (result.code === 0) setupDone = true;
 			return result;
 		}
-		// patchright chromium post-install (best-effort browser download)
-		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "patchright")
-			return merged.scraplingCli;
+		// patchright post-install (stealth-tier browser download)
+		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "patchright") {
+			const result = merged.patchrightInstall;
+			if (result.code === 0 && !result.killed) browserReady = true;
+			return result;
+		}
 		// rm -rf cleanup
 		if (cmd === "rm") return { code: 0, stdout: "", stderr: "", killed: false };
 		return { code: 1, stdout: "", stderr: "mock: unhandled", killed: false };
@@ -91,13 +127,13 @@ interface TestContext {
 	exec: ReturnType<typeof mock.fn<ExecFn>>;
 }
 
-function setupTest(handlers: MockHandlers = {}): TestContext {
+function setupTest(handlers: MockHandlers = {}, opts?: { browserReady?: boolean }): TestContext {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "scrapling-adapter-"));
-	const execFn = makeMockExec(handlers);
-	const tracked: Array<{ cmd: string; args: string[] }> = [];
-	const wrapped: ExecFn = async (cmd, args, opts) => {
-		tracked.push({ cmd, args });
-		return execFn(cmd, args, opts);
+	const execFn = makeMockExec(handlers, opts);
+	const tracked: TrackedCall[] = [];
+	const wrapped: ExecFn = async (cmd, args, execOpts) => {
+		tracked.push({ cmd, args, opts: execOpts });
+		return execFn(cmd, args, execOpts);
 	};
 	const exec = mock.fn(wrapped) as ReturnType<typeof mock.fn<ExecFn>>;
 	return { cwd, exec };
@@ -120,10 +156,7 @@ describe("ensureScraplingVenv — adapter", () => {
 
 		await ensureScraplingVenv(exec, cwd);
 
-		const calls = exec.mock.calls.map((c) => ({
-			cmd: c.arguments[0] as string,
-			args: c.arguments[1] as string[],
-		}));
+		const calls = trackedCalls(exec);
 		const pipCall = calls.find(
 			(c) =>
 				c.cmd.includes("bin/python3") &&
@@ -137,24 +170,54 @@ describe("ensureScraplingVenv — adapter", () => {
 		assert.ok(pipCall.args.includes("beautifulsoup4"), "should install beautifulsoup4");
 	});
 
-	it("(entity) runs patchright install chromium as best-effort postInstall hook", async () => {
+	it("(entity) runs 'python -m patchright install chromium' as postInstall hook", async () => {
 		const { cwd, exec } = setupTest();
 
 		await ensureScraplingVenv(exec, cwd);
 
-		const calls = exec.mock.calls.map((c) => ({
-			cmd: c.arguments[0] as string,
-			args: c.arguments[1] as string[],
-		}));
-		const cliCall = calls.find(
-			(c) => c.cmd.includes("bin/python3") && c.args.includes("-m") && c.args[1] === "patchright",
+		const calls = trackedCalls(exec);
+		const prCall = calls.find(
+			(c) => c.cmd.includes("bin/python3") && c.args[0] === "-m" && c.args[1] === "patchright",
 		);
-		assert.ok(cliCall, "should call patchright install chromium");
-		assert.ok(cliCall.args.includes("install"), "should run patchright install");
+		assert.ok(prCall, "should call patchright postInstall");
+		assert.deepEqual(prCall.args.slice(2), ["install", "chromium"]);
+	});
+
+	it("(entity) postInstall patchright install carries timeout 600_000", async () => {
+		const { cwd, exec } = setupTest();
+
+		await ensureScraplingVenv(exec, cwd);
+
+		const calls = trackedCalls(exec);
+		const prCall = calls.find(
+			(c) => c.cmd.includes("bin/python3") && c.args[0] === "-m" && c.args[1] === "patchright",
+		);
+		assert.ok(prCall, "should call patchright postInstall");
+		// Research measured ~2m22s for the chromium download; the old 120s cap
+		// would kill a legit install mid-flight.
+		assert.equal(prCall.opts?.timeout, 600_000);
+	});
+
+	it("(entity) verifyCommand asserts the patchright-expected chromium build", async () => {
+		const { cwd, exec } = setupTest({}, { browserReady: true });
+
+		await ensureScraplingVenv(exec, cwd);
+
+		const calls = trackedCalls(exec);
+		const verifyCall = calls.find((c) => c.cmd.includes("bin/python3") && c.args[0] === "-c");
+		assert.ok(verifyCall, "quick verify should run the verifyCommand");
+		const verifyCommand = verifyCall.args[1];
+		// Reads the chromium revision from patchright's own registry…
+		assert.ok(verifyCommand.includes("import patchright"), "should import patchright");
+		assert.ok(verifyCommand.includes("browsers.json"), "should read patchright browsers.json");
+		assert.ok(verifyCommand.includes("chromium"), "should look up the chromium revision");
+		// …resolves the cache root from the env contract…
 		assert.ok(
-			cliCall.args.includes("chromium"),
-			"should install chromium (patchright rev 1228, not playwright 1234)",
+			verifyCommand.includes("PLAYWRIGHT_BROWSERS_PATH"),
+			"should resolve cache root from PLAYWRIGHT_BROWSERS_PATH",
 		);
+		// …and still prints 'ok' (ensureVenv's success signal) when present.
+		assert.ok(verifyCommand.includes("print('ok')"), "should print('ok') on success");
 	});
 
 	it("(entity) returns the pythonPath from ensureVenv unchanged", async () => {
@@ -180,21 +243,158 @@ describe("ensureScraplingVenv — adapter", () => {
 		assert.equal(ensureScraplingVenv.length, 3); // exec, cwd, onUpdate
 	});
 
-	// ── postInstall best-effort semantics ──
+	// ── postInstall exec failure propagation ──
 
-	it("(entity) patchright chromium non-zero exit does NOT fail venv setup (best-effort)", async () => {
+	it("(error) patchright install non-zero exit → EnsureVenvError with step install", async () => {
 		const { cwd, exec } = setupTest({
-			scraplingCli: { code: 1, stdout: "", stderr: "Download failure, code=1", killed: false },
+			patchrightInstall: { code: 1, stdout: "", stderr: "Download failure, code=1", killed: false },
 		});
 
-		await assert.doesNotReject(() => ensureScraplingVenv(exec, cwd));
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "Download failure, code=1");
 	});
 
-	it("(entity) patchright chromium signal-killed does NOT fail venv setup (best-effort)", async () => {
+	it("(error) patchright install signal-killed → EnsureVenvError with step install", async () => {
 		const { cwd, exec } = setupTest({
-			scraplingCli: { code: 0, stdout: "", stderr: "", killed: true },
+			patchrightInstall: { code: 0, stdout: "", stderr: "", killed: true },
 		});
 
-		await assert.doesNotReject(() => ensureScraplingVenv(exec, cwd));
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "Post-install step failed");
+	});
+
+	it("(error) patchright install failure message includes stderr", async () => {
+		const { cwd, exec } = setupTest({
+			patchrightInstall: {
+				code: 1,
+				stdout: "",
+				stderr: "size mismatch: expected 200MB got 50MB",
+				killed: false,
+			},
+		});
+
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "size mismatch: expected 200MB got 50MB");
+	});
+
+	it("(error) patchright install success (code 0, not killed) does NOT throw", async () => {
+		const { cwd, exec } = setupTest({
+			patchrightInstall: { code: 0, stdout: "installed", stderr: "", killed: false },
+		});
+
+		await assert.doesNotReject(
+			() => ensureScraplingVenv(exec, cwd),
+		);
+	});
+
+	// ── adapter flows (browser-check driven) ──
+
+	it("(adapter) missing browser → full setup (rm → create → pip → patchright postInstall) → verify passes → created", async () => {
+		const { cwd, exec } = setupTest(); // browserReady: false
+
+		const result = await ensureScraplingVenv(exec, cwd);
+
+		const calls = trackedCalls(exec);
+		assert.ok(calls.some((c) => c.cmd === "rm"), "should rm the broken venv");
+		assert.ok(
+			calls.some((c) => c.cmd === "python3" && c.args[0] === "-m" && c.args[1] === "venv"),
+			"should create the venv",
+		);
+		assert.ok(
+			calls.some((c) => c.cmd.includes("bin/python3") && c.args[1] === "pip"),
+			"should pip install",
+		);
+		assert.ok(
+			calls.some(
+				(c) => c.cmd.includes("bin/python3") && c.args[0] === "-m" && c.args[1] === "patchright",
+			),
+			"should run patchright postInstall (self-heal)",
+		);
+		// Final verify passed → venv fully set up.
+		assert.ok(result.includes(".pi/scrapling-venv"), "should return the venv pythonPath");
+	});
+
+	it("(adapter) missing browser AND patchright install fails → EnsureVenvError, never silent pass", async () => {
+		const { cwd, exec } = setupTest({
+			patchrightInstall: {
+				code: 1,
+				stdout: "",
+				stderr: "EACCES: permission denied, mkdir '/opt/playwright-browsers/__dirlock'",
+				killed: false,
+			},
+		});
+
+		let err: unknown;
+		try {
+			await ensureScraplingVenv(exec, cwd);
+		} catch (e) {
+			err = e;
+		}
+		assertEnsureVenvError(err, "EACCES: permission denied");
+	});
+
+	it("(adapter) quick path: browser present + stdout 'ok' → created: false, no pip/postInstall", async () => {
+		const { cwd, exec } = setupTest({}, { browserReady: true });
+
+		const result = await ensureScraplingVenv(exec, cwd);
+
+		const calls = trackedCalls(exec);
+		assert.ok(result.includes(".pi/scrapling-venv"), "should return the venv pythonPath");
+		// Quick verify passed → no rm, no create, no pip, no postInstall.
+		assert.ok(!calls.some((c) => c.cmd === "rm"), "must not rm a verified venv");
+		assert.ok(
+			!calls.some((c) => c.cmd === "python3" && c.args[0] === "-m" && c.args[1] === "venv"),
+			"must not recreate a verified venv",
+		);
+		assert.ok(!calls.some((c) => c.cmd.includes("bin/python3") && c.args[1] === "pip"), "no pip");
+		assert.ok(
+			!calls.some(
+				(c) => c.cmd.includes("bin/python3") && c.args[0] === "-m" && c.args[1] === "patchright",
+			),
+			"no patchright postInstall",
+		);
+	});
+
+	// ── regression: playwright/scrapling.cli never used for the browser ──
+
+	it("(regression) no scrapling.cli invocation remains in venv-setup.ts or its test", async () => {
+		const adapterSource = fs.readFileSync(new URL("../venv-setup.ts", import.meta.url), "utf8");
+		const testSource = fs.readFileSync(new URL(import.meta.url), "utf8");
+		// Build the needle so this test's own source doesn't contain the literal.
+		const cliNeedle = '"' + "scrapling" + ".cli\"";
+		for (const [name, src] of [
+			["venv-setup.ts", adapterSource],
+			["venv-setup-scrapling.test.ts", testSource],
+		]) {
+			// Invocations appear as the quoted arg in exec calls; comments may
+			// legitimately reference the name.
+			assert.ok(
+				!src.includes(cliNeedle),
+				`${name} must not invoke scrapling.cli (it delegates to playwright's registry, wrong revision)`,
+			);
+		}
+	});
+
+	it("(regression) no playwright invocation used for browser provisioning", async () => {
+		const adapterSource = fs.readFileSync(new URL("../venv-setup.ts", import.meta.url), "utf8");
+		assert.ok(
+			!adapterSource.includes('"playwright"'),
+			"venv-setup.ts must not invoke playwright (patchright owns the stealth-tier browser registry)",
+		);
 	});
 });
