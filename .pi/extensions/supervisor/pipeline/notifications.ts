@@ -100,7 +100,7 @@ export function sendPipelineSummary(
 			"supervisor",
 			ctx.ui.theme.fg(
 				"warning",
-				`⚠️ Conflicts remain · ${agentResults.length} agents · ${formatDuration(totalDurationMs)}`,
+				`⚠️ Conflicts remain · ${runsLabel(agentResults.length)} · ${formatDuration(totalDurationMs)}`,
 			),
 		);
 	} else if (effectiveStatus === "success") {
@@ -109,7 +109,7 @@ export function sendPipelineSummary(
 			"supervisor",
 			ctx.ui.theme.fg(
 				"success",
-				`✅ Done · ${agentResults.length} agents · ${formatDuration(totalDurationMs)}`,
+				`✅ Done · ${runsLabel(agentResults.length)} · ${formatDuration(totalDurationMs)}`,
 			),
 		);
 	} else if (effectiveStatus === "pr-failed") {
@@ -118,7 +118,7 @@ export function sendPipelineSummary(
 			"supervisor",
 			ctx.ui.theme.fg(
 				"warning",
-				`⚠️ Done (PR failed) · ${agentResults.length} agents · ${formatDuration(totalDurationMs)}`,
+				`⚠️ Done (PR failed) · ${runsLabel(agentResults.length)} · ${formatDuration(totalDurationMs)}`,
 			),
 		);
 	} else if (effectiveStatus === "failed") {
@@ -188,5 +188,10 @@ export function sendPipelineError(
  */
 function buildFailedStatusLine(agentResults: PipelineAgentResult[]): string {
 	const lastFailed = [...agentResults].reverse().find((a) => a.status === "FAILED");
-	return `❌ Failed at ${lastFailed?.agentName || "unknown"} · ${agentResults.length} agents`;
+	return `❌ Failed at ${lastFailed?.agentName || "unknown"} · ${runsLabel(agentResults.length)}`;
+}
+
+/** Render an entry count with singular/plural noun (each entry is one dispatch). */
+function runsLabel(count: number): string {
+	return `${count} ${count === 1 ? "run" : "runs"}`;
 }
