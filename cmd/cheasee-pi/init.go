@@ -27,6 +27,7 @@ var newInitDeps = func(workdir string) InitDeps {
 		Provider:      initProvider,
 		ClientID:      initClientID,
 		RepoURL:       initRepoURL,
+		SkillRepos:    initSkillRepos,
 		Workdir:       workdir,
 		ConfirmFn:     promptConfirm,
 		InputFn:       promptInput,
@@ -53,6 +54,7 @@ var (
 	initNoInput       bool
 	initRepoURL       string
 	initReauth        bool
+	initSkillRepos    []string
 )
 
 // InitPorts bundles the injected port interfaces used by runInit.
@@ -78,7 +80,13 @@ type InitDeps struct {
 	Provider         string
 	ClientID         string
 	RepoURL          string
-	Workdir          string
+	// SkillRepos are the custom skill/extension repository specs recorded at
+	// init into cheasee-settings.json skillRepos (canonical form — the exact
+	// string `pi install` accepts, so the entrypoint passes it through without
+	// prefix munging) and installed inside the container by the entrypoint via
+	// `pi install -l -a` before pi execs.
+	SkillRepos []string
+	Workdir    string
 	// InStartFlow marks init as triggered by `cheasee-pi start`'s empty-folder
 	// branch: the completion message drops the standalone "Next step:
 	// cheasee-pi start" hint because start continues automatically. Zero value
@@ -116,6 +124,8 @@ The init command will:
   4. Authenticate with GitHub via OAuth device flow (or use --api-key with --no-github)
   5. Bare-clone + add the main worktree
   6. Scaffold cheasee-settings.json with cheasee-pi defaults (never overwrites)
+  7. Ask for custom skill repositories to install into the container (git
+     packages via pi, recorded in cheasee-settings.json skillRepos)
 
 Existing non-empty folders are intentionally NOT supported — run init in a
 fresh empty folder. On an already-initialized workspace (cheasee-settings.json
@@ -143,6 +153,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
 	initCmd.Flags().StringVar(&initRepoURL, "repo-url", "", "Project repository URL for the empty-folder clone (required with --no-input)")
 	initCmd.Flags().BoolVar(&initReauth, "reauth", false, "Redo GitHub and pi API-key authentications on an initialized workspace")
+	initCmd.Flags().StringArrayVar(&initSkillRepos, "skill-repo", nil, "Custom skill repository to install into the container (repeatable; owner/repo, https://…, or git:host/user/repo[@ref])")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
@@ -272,18 +283,24 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phases 6-8 (scaffold → save auth → API key setup) run post-clone; a
-	// failure here would strand a folder that both init (non-empty probe) and
-	// start (WorkspaceRefuse) refuse — the freshly cloned residue (worktree +
-	// sibling .bare) is removed before the error surfaces. The empty-folder
-	// probe guarantees only freshly cloned + scaffolded files exist, so removal
-	// cannot destroy user data.
+	// Phases 6-9 (scaffold → skill repos → save auth → API key setup) run
+	// post-clone; a failure here would strand a folder that both init
+	// (non-empty probe) and start (WorkspaceRefuse) refuse — the freshly
+	// cloned residue (worktree + sibling .bare) is removed before the error
+	// surfaces. The empty-folder probe guarantees only freshly cloned +
+	// scaffolded files exist, so removal cannot destroy user data.
 	postCloneErr := func() error {
 		// Phase 6: Scaffold cheasee-settings.json (never overwrites) — the
 		// canonical repo URL and resolved GitHub login are threaded in; the
 		// legacy --no-github path carries both empty.
 		if err := runInitScaffold(ctx, deps, repoURL, auth.GitHubUser); err != nil {
 			return fmt.Errorf("settings scaffold: %w", err)
+		}
+
+		// Phase 6b: Custom skill repositories — record-only; the container
+		// entrypoint translates the specs to `pi install -l -a` at start.
+		if err := runInitSkillRepos(deps); err != nil {
+			return fmt.Errorf("skill repo setup: %w", err)
 		}
 
 		// Phase 7: Save auth config

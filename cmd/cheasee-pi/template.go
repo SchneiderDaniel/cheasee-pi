@@ -235,6 +235,11 @@ type TemplateSettingsValues struct {
 	ClientID       string
 	RepositoryURL  string
 	GitHubUser     string
+	// SkillRepos are the canonical custom skill repository specs rendered into
+	// the cheasee template's skillRepos array ({{if .SkillRepos}} guard — nil
+	// keeps the scaffold output byte-identical to the pre-feature template).
+	// The pi template must never reference it.
+	SkillRepos []string
 }
 
 // ──────────────────────────────────────────────

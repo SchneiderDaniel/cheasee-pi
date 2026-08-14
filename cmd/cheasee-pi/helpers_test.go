@@ -88,6 +88,65 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 }
 
 // ──────────────────────────────────────────────
+// Custom skill repositories (init Phase 6b) flow helper
+// ──────────────────────────────────────────────
+
+// skillRepoFlowDeps builds the full interactive init deps with a queue-based
+// prompt mock: the first InputFn call answers the repo URL prompt, remaining
+// inputs feed the skill-repo loop; the first confirm answers "Add a custom
+// skill repository?", a false terminates the loop, and the API-key confirm
+// falls through to the exhausted-queue default (false → skip).
+func skillRepoFlowDeps(t *testing.T, workdir string, confirms []bool, inputs []string) InitDeps {
+	t.Helper()
+	confirm, input := mockQueuePrompt(t, confirms, inputs)
+	return initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = false
+		d.ConfirmFn = confirm
+		d.InputFn = input
+	})
+}
+
+// ──────────────────────────────────────────────
+// Mock: queue-based prompt (successive ConfirmFn/InputFn results)
+// ──────────────────────────────────────────────
+
+// mockQueuePrompt returns a confirm/input pair that yield successive results
+// from the pre-filled queues — the skill-repo prompt loop alternates
+// confirm/input (yes → spec → yes → spec → no), and each queue is exhausted
+// to a safe default (false / "") so a loop that prompts one extra time
+// terminates instead of hanging. Used by the runInitSkillRepos and full-flow
+// tests.
+func mockQueuePrompt(t *testing.T, confirms []bool, inputs []string) (func(string) (bool, error), func(string, string) (string, error)) {
+	t.Helper()
+	q := &queuePrompt{confirms: confirms, inputs: inputs}
+	return q.confirm, q.input
+}
+
+type queuePrompt struct {
+	confirms []bool
+	inputs   []string
+}
+
+func (q *queuePrompt) confirm(string) (bool, error) {
+	if len(q.confirms) == 0 {
+		return false, nil
+	}
+	next := q.confirms[0]
+	q.confirms = q.confirms[1:]
+	return next, nil
+}
+
+func (q *queuePrompt) input(string, string) (string, error) {
+	if len(q.inputs) == 0 {
+		return "", nil
+	}
+	next := q.inputs[0]
+	q.inputs = q.inputs[1:]
+	return next, nil
+}
+
+// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
@@ -310,7 +369,7 @@ func initDepsWithRepoURL(t *testing.T, workdir string, opts ...func(*InitDeps)) 
 		d.Workdir = workdir
 		d.NoInput = false
 		d.InputFn = mockInputFn("owner/repo", nil)
-		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys", "Add a custom skill repository")
 	})
 	for _, opt := range opts {
 		opt(&deps)

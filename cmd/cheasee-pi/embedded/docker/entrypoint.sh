@@ -233,6 +233,37 @@ gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-cred
 # mitigation) on every git call inside the container.
 gosu agentuser git config --global --add safe.directory /workspaces/.bare 2>/dev/null || true
 
+# --- Install custom skill repositories (pi git packages) ----------
+# init records canonical skill repo specs in /workspaces/main/cheasee-settings.json
+# (skillRepos); pi runs only inside the container, so the entrypoint is the
+# single translator: `pi install -l -a` per recorded repo — project-local
+# (clones land in the bind-mounted .pi/git/ and survive container recreation)
+# with a one-run trust override (-a) because the workspace is untrusted until
+# pi's own interactive trust prompt is answered. pi owns the settings packages
+# array — this section never hand-writes it. Per-repo failures are
+# tolerated (a bad/private/offline repo must not abort container start);
+# GitHub repos are covered by the gh credential helper, and GIT_TERMINAL_PROMPT=0
+# stops non-GitHub SSH-only repos from hanging on credential prompts.
+install_skill_repos() {
+    local settings="/workspaces/main/cheasee-settings.json"
+    [ -f "$settings" ] || return 0
+    local specs
+    specs=$(jq -r '.skillRepos // empty | .[]' "$settings" 2>/dev/null) || return 0
+    [ -n "$specs" ] || return 0
+    if [ "${PI_OFFLINE:-}" = "1" ] || [ "${PI_OFFLINE:-}" = "true" ] || [ "${PI_OFFLINE:-}" = "yes" ]; then
+        echo "Warning: PI_OFFLINE is set — skill repos will not be installed (pi silently skips missing packages offline)"
+    fi
+    local spec
+    while IFS= read -r spec; do
+        [ -n "$spec" ] || continue
+        echo "Installing skill repo: $spec"
+        if ! GIT_TERMINAL_PROMPT=0 gosu agentuser pi install -l -a "$spec" 2>&1; then
+            echo "Warning: skill repo install failed: $spec (non-fatal — check the spec or network access)"
+        fi
+    done <<< "$specs"
+}
+install_skill_repos
+
 # --- Install workspace npm dependencies if missing -------------------
 # The workspace is a bind-mount from the host; node_modules is local to the
 # container and must be installed at runtime. Skip if already present so

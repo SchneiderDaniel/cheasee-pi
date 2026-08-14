@@ -261,6 +261,16 @@ RUN groupadd --gid 1001 agentuser && \
 #
 # ponytail is removed: it loads hooks from the gitignored .pi/git vendored
 # clone (absent on fresh clones), and a failed extension load kills pi boot.
+#
+# INTENTIONAL DEVIATION FROM PI'S PACKAGE MECHANISM: the baked /opt/cheasee-pi
+# copy is PRODUCT DATA — image-scoped, CHEASEE_REF-pinned, and covered by the
+# re_point marker contract above. It is deliberately NOT a pi package: no pi
+# git-folder layout (.pi/git/<host>/<path>), no npm-install-on-install. User
+# skill repos are WORKSPACE DATA — recorded in cheasee-settings.json
+# (skillRepos) at init and installed by the entrypoint via `pi install -l -a`
+# into .pi/git/ on container start. Aligning the baked copy with the pi
+# package layout would run a second npm install at build and break the
+# dogfooding dedup.
 ARG CHEASEE_REF=main
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \

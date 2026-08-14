@@ -483,6 +483,9 @@ func TestRunUpE_autoInitMissingMarkerFailsClosed(t *testing.T) {
 				_ = os.Remove(filepath.Join(wd, "cheasee-settings.json"))
 				return false, nil
 			}
+			if strings.Contains(title, "Add a custom skill repository") {
+				return false, nil
+			}
 			return true, nil
 		}
 		return deps
@@ -530,8 +533,10 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "auto-init failed") {
 			t.Fatalf("expected 'auto-init failed' wrap, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "API key setup") {
-			t.Errorf("error should carry the underlying API-key setup failure, got %v", err)
+		// The first post-clone prompt is now the skill-repo phase (Phase 6b,
+		// before the API-key phase) — the failure surfaces there.
+		if !strings.Contains(err.Error(), "skill repo setup") {
+			t.Errorf("error should carry the underlying skill-repo setup failure, got %v", err)
 		}
 	})
 	if !strings.Contains(stderr, "removing incomplete workspace residue") {

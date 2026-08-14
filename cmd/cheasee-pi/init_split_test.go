@@ -19,6 +19,7 @@ var initSplitFiles = []string{
 	"init_clone.go",
 	"init_prompt.go",
 	"init_scaffold.go",
+	"init_skillrepos.go",
 }
 
 // wantInitDecls is the full inventory of top-level declarations in the four
@@ -27,7 +28,7 @@ var initSplitFiles = []string{
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
 	"const:initTimeout":  "init.go",
-	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL,initReauth": "init.go",
+	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL,initReauth,initSkillRepos": "init.go",
 	"var:newInitDeps":                   "init.go",
 	"type:InitPorts":                    "init.go",
 	"type:InitDeps":                     "init.go",
@@ -55,6 +56,10 @@ var wantInitDecls = map[string]string{
 	"func:runInitDockerCheck":       "init_scaffold.go",
 	"func:runInitScaffold":          "init_scaffold.go",
 	"func:gitIgnoreCheaseeSettings": "init_scaffold.go",
+
+	"func:runInitSkillRepos":  "init_skillrepos.go",
+	"func:canonicalSkillRepo": "init_skillrepos.go",
+	"func:recordSkillRepos":   "init_skillrepos.go",
 
 	"func:promptConfirm":     "init_prompt.go",
 	"func:promptGitIdentity": "init_prompt.go",
@@ -200,6 +205,7 @@ var testSplitFiles = []string{
 	"init_auth_test.go",
 	"init_scaffold_test.go",
 	"init_prompt_test.go",
+	"init_skillrepos_test.go",
 	"pi_skeleton_test.go",
 }
 
@@ -246,6 +252,9 @@ var testSplitRules = []prefixRule{
 	{"TestInitCmd", "init_prompt_test.go"},
 	{"TestInitProbe", "init_usecase_test.go"},
 	{"TestInitUseCase", "init_usecase_test.go"},
+	{"TestCanonicalSkillRepo", "init_skillrepos_test.go"},
+	{"TestRecordSkillRepos", "init_skillrepos_test.go"},
+	{"TestRunInitSkillRepos", "init_skillrepos_test.go"},
 }
 
 // mergedTestDecls are the decls moved from init_test.go into existing test

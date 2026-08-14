@@ -104,6 +104,24 @@ func TestDockerfile_WorkspacePathsStillMain(t *testing.T) {
 	}
 }
 
+func TestDockerfile_Layer6bDeviationDocumented(t *testing.T) {
+	// The baked /opt/cheasee-pi copy is product data (CHEASEE_REF-pinned,
+	// re_point marker contract) — deliberately NOT a pi package. The
+	// deviation must be documented: no pi git-folder layout, no second npm
+	// install at build.
+	content := readDockerfile(t)
+	for _, want := range []string{
+		"INTENTIONAL DEVIATION",
+		"CHEASEE_REF",
+		"NOT a pi package",
+		"npm install",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Layer 6b comment must document the intentional deviation (%q)", want)
+		}
+	}
+}
+
 // ──────────────────────────────────────────────
 // Phase 8: compose invariants + YAML validity
 // ──────────────────────────────────────────────

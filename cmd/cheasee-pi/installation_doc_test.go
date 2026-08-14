@@ -131,6 +131,26 @@ func TestInstallationDoc_OneShotFirstRun(t *testing.T) {
 	}
 }
 
+// TestInstallationDoc_SkillRepoStep verifies the init step list documents the
+// custom skill-repo phase and its non-interactive --skill-repo flag.
+func TestInstallationDoc_SkillRepoStep(t *testing.T) {
+	data, err := os.ReadFile(docPath())
+	if err != nil {
+		t.Fatalf("reading docs/installation.md: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "custom skill") && !strings.Contains(content, "skill repositor") {
+		t.Error("installation.md should document the custom skill-repo init step")
+	}
+	if !strings.Contains(content, "--skill-repo") {
+		t.Error("installation.md should document the --skill-repo flag")
+	}
+	if !strings.Contains(content, "pi update") {
+		t.Error("installation.md should mention the pi update reconciliation benefit")
+	}
+}
+
 // TestDailyUsageDoc_OneShotFirstRun verifies daily-usage.md describes the
 // single-invocation auto-init continuation instead of a two-step handoff.
 func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
