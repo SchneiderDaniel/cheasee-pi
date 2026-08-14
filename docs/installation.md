@@ -59,6 +59,9 @@ cheasee-pi --version
 
 ## Setup
 
+> Full command reference — what every command does, checks, and needs as input:
+> [CLI Reference](cli.md).
+
 ```bash
 cheasee-pi init
 ```

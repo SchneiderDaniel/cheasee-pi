@@ -18,6 +18,8 @@ nav_order: 3
 
 ## Prerequisites
 
+> Command-level reference (flags, checks, inputs): [CLI Reference](cli.md).
+
 Before running pi via Docker, ensure the following are in place:
 
 - **Docker Engine** running with Compose V2 (verified by `docker compose version`)
