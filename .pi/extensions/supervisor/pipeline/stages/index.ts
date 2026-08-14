@@ -23,16 +23,18 @@ export {
 	buildVulnContext,
 	validateResearcherFindings,
 } from "./core.ts";
-export type {
-	StageState,
-	AuditGateContext,
-	GateRejected,
-	NextStatusResult,
-	AuditScoreInfo,
-} from "./core.ts";
+export type { StageState, AuditGateContext, GateRejected } from "./core.ts";
 export {
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
+	computeAuditGateRejection,
 } from "./auditor-output.ts";
+export {
+	handleEmptyWorktree,
+	gatherChangeOnMain,
+	gatherOpenPrs,
+	dispatchEmptyWorktreeAction,
+} from "./empty-worktree.ts";
+export type { EmptyWorktreeOutcome } from "./empty-worktree.ts";
 export { hasBranchCommits, gitCherryContains } from "./git-ops.ts";
 export { handlePostAgentSuccess } from "./post-agent-success.ts";

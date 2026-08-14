@@ -4,34 +4,35 @@
 // → Audit → Done, incl. PR creation on approval, budget-exceeded
 // degradation, empty-worktree classification and pre-transition hooks.
 //
-// ponytail: this is the one intentionally-long function in the package —
-// a linear state machine where each iteration is a conceptually simple
-// sequence of guarded steps (kernel style permits long-but-simple loops).
-// Split per-step only if the loop ever gains branching complexity.
+// runAgentLoop is intentionally a dispatch skeleton rather than a ≤100-line
+// function: supervisor-pipeline.test.mts / supervisor-issue-525.test.mts /
+// agent-loop-rebase.test.mts / gate-failure-context.test.mts source-pin the
+// task-context assembly, dispatch+retry+push, budget degradation and
+// pre-transition hooks inline in this file (S138 exemption contract, ≤800).
+// Per-stage logic that is not source-pinned lives in stages/
+// (empty-worktree.ts, auditor-output.ts, git-ops.ts) and handler/pr-gates.ts
+// (handlePrApprovalFlow). Same-file helpers below are ≤100 lines each.
 
-import type { AgentOutput } from "../../config/types.ts";
-import type { ClosingPrRef } from "../../github/ports.ts";
-import type { EmptyWorktreeSignals } from "../empty-worktree-policy.ts";
+import type {
+	AgentRunResult,
+	AgentRunner,
+	FilteredIssueData,
+	ParsedAgent,
+	PipelineAgentResult,
+	ProjectField,
+	ProjectItem,
+	SupervisorConfig,
+} from "../../config/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { GitHubPort } from "../../github/ports.ts";
 import { resolveTimeoutMs } from "../../config/config.ts";
 import { buildAgentTask, summarizeComments } from "../../agent/task.ts";
-import {
-	classifyEmptyWorktree,
-	buildResolvedByComment,
-	buildLeaveOpenForPrComment,
-} from "../empty-worktree-policy.ts";
 import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
-import {
-	WORKFLOW,
-	computeAuditScoreFromFindings,
-	getActiveAuditDimensions,
-	evaluateAuditScoreGate,
-} from "../../config/workflow.ts";
-import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../../agent/output.ts";
+import { WORKFLOW, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
 import { writeCheckpointFile } from "../state-checkpoint.ts";
-import { createPrOnApproval } from "../pr-creation.ts";
 import {
 	MAX_PIPELINE_LOOPS,
 	handleBacklogTransition,
@@ -44,18 +45,20 @@ import {
 	handlePostAgentSuccess,
 	shouldSkipResearcher,
 	inferForwardStatus,
-	hasBranchCommits,
-	gitCherryContains,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
 	buildDeadCodeContext,
 	buildVulnContext,
-	type GateRejected,
+	computeAuditGateRejection,
+	handleEmptyWorktree,
+	type EmptyWorktreeOutcome,
+	type StageState,
 } from "../stages/index.ts";
 import { fetchFreshIssueData, loadAgentFile as loadAgentFileHelper } from "../helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { fetchResolvedByInfo, type RunContext } from "./shared.ts";
-import { runPrReadinessGate, blockPipelineOnPrGate } from "./pr-gates.ts";
+import type { ErrorCollector } from "../error-collector.ts";
+import type { RunContext } from "./shared.ts";
+import { handlePrApprovalFlow } from "./pr-gates.ts";
 
 /**
  * Runs the pipeline loop until a terminal status, stop reason or budget
@@ -301,62 +304,21 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			cwdOverride: worktreePath,
 		});
 
-		// Execute agent (initial attempt)
-		let usedRetry = false;
-		const { result: initialResult } = await executeAgent(
+		// Execute agent (initial attempt + bounded retry). budgetExceeded is
+		// NOT retryable; issue #1495 failed-row push order preserved inside.
+		const { result, usedRetry } = await dispatchAgentWithRetry(
 			agent,
 			task,
 			ctx,
 			pi,
 			timeoutMs,
 			worktreePath,
-			config.maxToolCalls,
-			config.agentTokenBudget,
+			config,
 			issueTitle,
 			runCtx._runner,
+			agentResults,
+			agentName,
 		);
-		let result = initialResult;
-		validateAgentResult(result);
-
-		// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
-		if (result.budgetExceeded) {
-			getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
-				budgetExceeded: true,
-			});
-		} else if (!result.success) {
-			getDebugLogger().info("handler", `Agent ${agentName} failed — retrying once`, {
-				success: false,
-			});
-			const { result: retryResult } = await executeAgent(
-				agent,
-				task,
-				ctx,
-				pi,
-				timeoutMs,
-				worktreePath,
-				config.maxToolCalls,
-				config.agentTokenBudget,
-				issueTitle,
-				runCtx._runner,
-			);
-			validateAgentResult(retryResult);
-			usedRetry = true;
-			// Issue #1495: push the validated failed run (FAILED row, own stats) before the retry row
-			agentResults.push(buildAgentResultEntry(result, false, agent.config.model));
-			result = retryResult;
-		}
-
-		getDebugLogger().info("handler", `Agent ${agentName} completed`, {
-			success: result.success,
-			usedRetry,
-			durationMs: result.durationMs,
-			toolCount: result.toolCount,
-			tokenCount: result.tokenCount,
-			budgetExceeded: result.budgetExceeded,
-			summary: result.summaryLine?.slice(0, 200),
-		});
-
-		agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
 
 		// Debug tracing: agentResults after push (R3 requirement)
 		getDebugLogger().info("handler", "agentResults after push", {
@@ -382,29 +344,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// Pre-compute audit score gate decision for auditor
 		// This runs BEFORE handlePostAgentSuccess so the gate rejection
 		// comment can replace the normal approval comment.
-		let gateRejected: GateRejected | undefined;
-		if (agentName === "auditor" && result.success && result.textOutput) {
-			const parseResult = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
-			if (isAgentOutputSuccess(parseResult)) {
-				const output = parseResult as AgentOutput;
-				if (output.action === "APPROVED" && output.findings && output.findings.length > 0) {
-					const dimensions = getActiveAuditDimensions(stageState.researcherSkipped);
-					const score = computeAuditScoreFromFindings(output.findings, dimensions);
-					const gateResult = evaluateAuditScoreGate(score, config.auditScoreThreshold ?? 0.75);
-					if (!gateResult.passes) {
-						gateRejected = {
-							score,
-							required: gateResult.required,
-							total: dimensions.length,
-						};
-						ctx.ui.notify(
-							`Audit score gate rejected: ${score.passing}/${dimensions.length} < ${gateResult.required}/${dimensions.length}`,
-							"warning",
-						);
-					}
-				}
-			}
-		}
+		const gateRejected = computeAuditGateRejection(agentName, result, config, stageState, ctx);
 
 		// Agent result is already sent by executeAgent with eventType: "subagent-result".
 
@@ -467,266 +407,63 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			stopReason: nsStop,
 		});
 
-		// Bug #1343: 3-way empty worktree classification.
-		// When developer produced no commits, determine if we should:
-		//   1. Loop back to Implementation (changes absent on main)
-		//   2. Close with named resolution (changes already on main)
-		//   3. Leave open for PR review (open PR exists for this issue)
+		// Bug #1343: 3-way empty worktree classification (extracted to
+		// stages/empty-worktree.ts): when developer produced no commits,
+		// loop back to Implementation / close with named resolution /
+		// leave open for PR review. { stop: true } → break.
 		if (agentName === "developer" && nextStatus === "Audit" && worktreePath && result.success) {
-			const execFn = (cmd: string, args: string[], opts?: Record<string, unknown>) =>
-				pi.exec(cmd, args, opts);
-			const baseBranch = config.defaultBranch || "main";
-			const headBranch = worktreeBranch || config.branchPrefix! + issueNum;
-
-			const hasCommits = await hasBranchCommits(execFn, worktreePath, headBranch, baseBranch);
-
-			if (!hasCommits) {
-				getDebugLogger().info("handler", "No commits from developer — classifying empty worktree", {
-					worktreeBranch: headBranch,
-					defaultBranch: baseBranch,
-				});
-
-				// Fetch signals for empty worktree classification
-				// 1. changeOnMain: use gitCherryContains to detect if changes are
-				//    already upstream (primary), fall back to git diff --quiet for
-				//    clean-worktree detection (secondary).
-				let changeOnMain = false;
-				try {
-					// Primary: gitCherryContains checks if worktree HEAD commits are
-					// equivalent to changes already applied on the default branch.
-					// In the hasCommits=false case (no unique commits), this returns
-					// false (empty output) — we fall through to the secondary check.
-					changeOnMain = await gitCherryContains(execFn, worktreePath, baseBranch, "HEAD");
-					// Fallback: if gitCherryContains returned false (incl. empty),
-					// use git diff --quiet to check if the worktree is clean.
-					// A clean worktree with no unique commits means the developer
-					// saw no work to do — changes are already on main.
-					if (!changeOnMain) {
-						const diffResult = await execFn("git", ["diff", "--quiet"], {
-							cwd: worktreePath,
-							timeout: 10_000,
-						});
-						changeOnMain = diffResult.code === 0;
-					}
-				} catch {
-					// If git commands fail, assume changes not on main (safe: loop back)
-					changeOnMain = false;
-				}
-
-				// 2. openPrs: check for PRs referencing this issue
-				let openPrs: ClosingPrRef[] = [];
-				try {
-					openPrs = await port.getClosingPrsForIssue(issueNum, config.repo);
-				} catch (prErr: unknown) {
-					const prMsg = prErr instanceof Error ? prErr.message : String(prErr);
-					getDebugLogger().warn("handler", `getClosingPrsForIssue failed: ${prMsg}`);
-					// Fail-open: on API error, force changeOnMain=false so we loop
-					// (case 1) instead of closing (case 2) — matching the test plan.
-					changeOnMain = false;
-				}
-
-				// 3. Classify and dispatch
-				const signals: EmptyWorktreeSignals = { hasCommits: false, changeOnMain, openPrs };
-				const action = classifyEmptyWorktree(signals);
-
-				getDebugLogger().info("handler", "Empty worktree classification", {
-					signals: { hasCommits: false, changeOnMain, openPrCount: openPrs.length },
-					actionKind: action?.kind,
-				});
-
-				if (!action) {
-					// classifier returned null — shouldn't happen with hasCommits=false
-					// but fall through to auditor as safe default
-					getDebugLogger().warn(
-						"handler",
-						"Empty worktree classifier returned null — proceeding to auditor",
-					);
-				} else if (action.kind === "loop") {
-					// Case 1: No commits, changes absent on main → loop back to Implementation
-					stopReason = action.reason;
-					ctx.ui.notify(
-						`Developer produced no commits and changes not on main. Looping back to Implementation: ${action.reason}`,
-						"warning",
-					);
-					getDebugLogger().warn("handler", "Empty worktree — looping to Implementation", {
-						reason: action.reason,
-					});
-					// Don't close issue, don't post comment — just stop the pipeline so it
-					// can be restarted with fresh developer dispatch
-					break;
-				} else if (action.kind === "close") {
-					// Case 2: No commits, changes already on main → close with named resolution
-					// Fetch the actual resolving commit SHA from the default branch.
-					// This ensures the close comment names the real commit, not a placeholder.
-					stopReason = `Changes already on main — closing issue`;
-					const resolvedBy = await fetchResolvedByInfo(
-						execFn,
-						worktreePath,
-						baseBranch,
-						port,
-						issueNum,
-						config.repo,
-					);
-					ctx.ui.notify("Required changes already present on main. Closing issue.", "info");
-					getDebugLogger().info("handler", "Empty worktree — closing with resolution", {
-						resolvedBy,
-					});
-					try {
-						const commentBody = buildResolvedByComment(resolvedBy);
-						await port.postIssueComment(issueNum, config.repo, commentBody);
-						await port.closeIssue(issueNum, config.repo);
-						ctx.ui.notify(`Issue #${issueNum} closed — already resolved on main`, "info");
-					} catch (closeErr: unknown) {
-						const closeMsg = closeErr instanceof Error ? closeErr.message : String(closeErr);
-						ctx.ui.notify(`Failed to close issue: ${closeMsg}`, "warning");
-						collector?.push("handler", "warn", `Failed to close issue #${issueNum}: ${closeMsg}`);
-					}
-					break;
-				} else if (action.kind === "leaveOpenForPr") {
-					// Case 3: No commits, open PR exists → leave open for PR review
-					stopReason = `Open PR #${action.prNumber} targets this issue — leaving open`;
-					ctx.ui.notify(
-						`Open PR #${action.prNumber} (${action.branch}) targets this issue — leaving open.`,
-						"info",
-					);
-					getDebugLogger().info("handler", "Empty worktree — leaving open for PR", {
-						prNumber: action.prNumber,
-						branch: action.branch,
-					});
-					try {
-						const commentBody = buildLeaveOpenForPrComment(action.prNumber, action.branch);
-						await port.postIssueComment(issueNum, config.repo, commentBody);
-						// Do NOT close the issue
-						ctx.ui.notify(
-							`Posted comment linking PR #${action.prNumber} on issue #${issueNum}`,
-							"info",
-						);
-					} catch (commentErr: unknown) {
-						const commentMsg =
-							commentErr instanceof Error ? commentErr.message : String(commentErr);
-						ctx.ui.notify(`Failed to post comment: ${commentMsg}`, "warning");
-						collector?.push("handler", "warn", `Failed to post PR link comment: ${commentMsg}`);
-					}
-					break;
-				}
-			}
-		}
-
-		// PR creation on audit approval — capture result for completion summary
-		// (Bug 2, Bug 6 fix: propagate PR creation result to caller)
-		if (agentName === "auditor" && result.success && nextStatus === "Done") {
-			// Debug tracing: agentResults before PR creation (R3 requirement)
-			getDebugLogger().info("handler", "agentResults before PR creation", {
-				length: agentResults.length,
-				entries: agentResults.map((a) => ({
-					name: a.agentName,
-					status: a.status,
-					tokens: a.tokenCount,
-				})),
-			});
-
-			getDebugLogger().info("handler", "Creating PR on approval");
-			prCreationResult = await createPrOnApproval(
+			const outcome: EmptyWorktreeOutcome = await handleEmptyWorktree(
 				pi,
 				ctx,
-				issueNum,
-				issueTitle,
 				config,
-				agentResults,
+				port,
+				collector,
+				issueNum,
 				worktreePath,
 				worktreeBranch,
-				collector,
-				stageState.gateFailureHistory,
-				undefined,
-				port,
 			);
-
-			// Pre-Done readiness gate (issue #1472): a rebase-conflict PR
-			// creation failure must NOT complete the pipeline. The gate
-			// resolves conflicts (auto-merge → developer dispatch → bounded
-			// 1× retry) and re-polls; on blocked, the issue is moved to a
-			// non-Done status with a blocker comment instead of Done.
-			const gate = await runPrReadinessGate(
-				pi,
-				ctx,
-				issueNum,
-				issueTitle,
-				config,
-				agentResults,
-				worktreePath,
-				worktreeBranch,
-				prCreationResult,
-				collector,
-				port,
-				runCtx._runner,
-			);
-			prCreationResult = gate.prCreationResult;
-			if (gate.blocked) {
-				stopReason = await blockPipelineOnPrGate(
-					port,
-					ctx,
-					config,
-					issueNum,
-					loopItem,
-					projectId,
-					fields,
-					statusField,
-					loopStatus,
-					collector,
-					gate.blockerNote ?? "PR not ready for Done — manual intervention required.",
-				);
-				// The issue now sits in a non-Done status — the post-pipeline
-				// phase must not treat it as complete (never COMPLETED w/o PR).
-				loopStatus = "Implementation";
+			if (outcome.stop) {
+				stopReason = outcome.stopReason;
 				break;
 			}
 		}
 
-		if (result.budgetExceeded) {
-			// Graceful degradation: researcher stops researching, pipeline continues
-			if (agentName === "researcher") {
-				// When result.success is also true, handlePostAgentSuccess already posted
-				// a combined comment (partial findings + "stopped early" header).
-				// Skip separate comment here to avoid duplication.
-				if (!result.success) {
-					const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
-					try {
-						await port.postIssueComment(issueNum, config.repo, budgetExceededMsg);
-						ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
-					} catch (commentErr: unknown) {
-						collector?.push(
-							"handler",
-							"warn",
-							`Failed to post researcher degradation notice: ${
-								commentErr instanceof Error ? commentErr.message : String(commentErr)
-							}`,
-						);
-					}
-				}
-				const nextStatus = inferForwardStatus(step);
-				if (nextStatus) {
-					loopStatus = await applyStatusTransition(
-						port,
-						loopItem.id,
-						projectId,
-						fields,
-						statusField.id,
-						nextStatus,
-					);
-					ctx.ui.notify(
-						`Issue #${issueNum} moved: Research → ${nextStatus} (researcher budget exceeded — graceful degradation)`,
-						"info",
-					);
-					getDebugLogger().info("handler", `Research → ${nextStatus} (budget exceeded)`);
-					continue;
-				}
+		// PR creation on audit approval — capture result for completion summary
+		// (Bug 2, Bug 6 fix: propagate PR creation result to caller). Blocked
+		// gate → non-Done status + stop (handler/pr-gates.ts).
+		if (agentName === "auditor" && result.success && nextStatus === "Done") {
+			const prFlow = await handlePrApprovalFlow(runCtx, loopStatus);
+			prCreationResult = prFlow.prCreationResult;
+			if (prFlow.stop) {
+				stopReason = prFlow.stopReason;
+				loopStatus = prFlow.loopStatus;
+				break;
 			}
-			stopReason = `Agent ${result.agentName} exceeded budget (${result.toolCount} tools, ${result.tokenCount} tokens)`;
-			getDebugLogger().warn("handler", "Budget exceeded", {
-				agentName: result.agentName,
-				toolCount: result.toolCount,
-				tokenCount: result.tokenCount,
-			});
+		}
+
+		// Budget-exceeded degradation: researcher stops researching and the
+		// pipeline continues (graceful), any other agent stops the pipeline.
+		const budgetOutcome = await handleBudgetExceeded(
+			result,
+			agentName,
+			step,
+			port,
+			loopItem,
+			projectId,
+			fields,
+			statusField,
+			issueNum,
+			config,
+			ctx,
+			collector,
+			loopStatus,
+		);
+		if (budgetOutcome.continue) {
+			loopStatus = budgetOutcome.loopStatus;
+			continue;
+		}
+		if (budgetOutcome.stopReason) {
+			stopReason = budgetOutcome.stopReason;
 			break;
 		}
 
@@ -764,68 +501,21 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		}
 
 		// Pre-transition hooks (CI, TSC, LSP, duplicate code)
-		let effectiveNextStatus = nextStatus;
-		if (step.hooks?.some((h) => ["ci", "tsc", "lsp", "dup", "trace"].includes(h))) {
-			try {
-				getDebugLogger().info("handler", "Running pre-transition hooks", {
-					hooks: step.hooks,
-				});
-				const auditResult = await runTscAndLspAudit(
-					issueNum,
-					issueTitle,
-					config,
-					agentName,
-					loopFilteredData,
-					worktreePath!,
-					pi,
-					ctx,
-					collector,
-				);
-				effectiveNextStatus = auditResult.nextStatus;
-				// Capture gate failure context for developer feedback loop
-				// When a pre-transition hook returns Implementation, the failure note
-				// is stored so the next developer iteration receives targeted context.
-				applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, i + 1);
-
-				// Surface gate failure to user so they know developer will re-dispatch
-				// with the failure context injected into the next task prompt.
-				if (effectiveNextStatus === "Implementation" && auditResult.note) {
-					pi.sendMessage({
-						customType: "supervisor",
-						content: `## 🔴 Pre-Transition Gates Blocked — Returning to Developer\n\n${auditResult.note}\n\nFix issues above and the pipeline will retry automatically.`,
-						display: true,
-					});
-					ctx.ui.notify(
-						`Pre-transition gates blocked: ${auditResult.note.slice(0, 120)}… Re-dispatching developer.`,
-						"warning",
-					);
-				}
-
-				// Store dead code result in stage state for auditor context injection
-				if (auditResult.deadCodeResult) {
-					stageState.deadCodeResult = auditResult.deadCodeResult;
-				}
-				// Store duplicate code result in stage state for auditor context injection
-				if (auditResult.duplicateCodeResult) {
-					stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
-				}
-				// Store vuln scan result in stage state for auditor context injection
-				if (auditResult.vulnResult) {
-					stageState.vulnResult = auditResult.vulnResult;
-				}
-				getDebugLogger().info("handler", "Pre-transition hook result", {
-					effectiveNextStatus,
-					note: auditResult.note,
-				});
-			} catch (auditErr: unknown) {
-				const auditMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
-				ctx.ui.notify(`Pre-audit error: ${auditMsg}`, "warning");
-				collector?.push("handler", "warn", `Pre-transition hook error: ${auditMsg}`);
-				getDebugLogger().error("handler", "Pre-transition hook error", {
-					error: auditMsg,
-				});
-			}
-		}
+		const effectiveNextStatus = await runPreTransitionHooks(
+			step,
+			nextStatus,
+			issueNum,
+			issueTitle,
+			config,
+			agentName,
+			loopFilteredData,
+			worktreePath,
+			pi,
+			ctx,
+			collector,
+			stageState,
+			i + 1,
+		);
 
 		// Status transition
 		try {
@@ -933,4 +623,246 @@ async function refreshWorktreeBeforeImplementation(
 		collector?.push("handler", "warn", `Pre-Implementation rebase failed: ${rebaseMsg}`);
 	}
 	return rebaseConflictContext;
+}
+
+/**
+ * Execute the agent once, retry once on non-budget failure. Issue #1495
+ * row order preserved: the validated failed run is pushed as its own
+ * FAILED row BEFORE the retry row. budgetExceeded is NOT retryable (Neel
+ * Mishra taxonomy). Pushes the final row; the skeleton does audit-score
+ * tracking and the post-push tracing log.
+ *
+ * @returns final result (post-retry) + whether a retry was used.
+ */
+async function dispatchAgentWithRetry(
+	agent: ParsedAgent,
+	task: string,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	timeoutMs: number,
+	worktreePath: string | undefined,
+	config: SupervisorConfig,
+	issueTitle: string,
+	runner: AgentRunner | undefined,
+	agentResults: PipelineAgentResult[],
+	agentName: string,
+): Promise<{ result: AgentRunResult; usedRetry: boolean }> {
+	const { result: initialResult } = await executeAgent(
+		agent,
+		task,
+		ctx,
+		pi,
+		timeoutMs,
+		worktreePath,
+		config.maxToolCalls,
+		config.agentTokenBudget,
+		issueTitle,
+		runner,
+	);
+	let result = initialResult;
+	let usedRetry = false;
+	validateAgentResult(result);
+
+	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
+	if (result.budgetExceeded) {
+		getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
+			budgetExceeded: true,
+		});
+	} else if (!result.success) {
+		getDebugLogger().info("handler", `Agent ${agentName} failed — retrying once`, {
+			success: false,
+		});
+		const { result: retryResult } = await executeAgent(
+			agent,
+			task,
+			ctx,
+			pi,
+			timeoutMs,
+			worktreePath,
+			config.maxToolCalls,
+			config.agentTokenBudget,
+			issueTitle,
+			runner,
+		);
+		validateAgentResult(retryResult);
+		usedRetry = true;
+		// Issue #1495: push the validated failed run (FAILED row, own stats) before the retry row
+		agentResults.push(buildAgentResultEntry(result, false, agent.config.model));
+		result = retryResult;
+	}
+
+	getDebugLogger().info("handler", `Agent ${agentName} completed`, {
+		success: result.success,
+		usedRetry,
+		durationMs: result.durationMs,
+		toolCount: result.toolCount,
+		tokenCount: result.tokenCount,
+		budgetExceeded: result.budgetExceeded,
+		summary: result.summaryLine?.slice(0, 200),
+	});
+
+	agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
+
+	return { result, usedRetry };
+}
+
+/**
+ * Budget-exceeded degradation (issue #1495 semantics): researcher stops
+ * researching and the pipeline continues to the next forward status
+ * (posting a degradation comment when the run also failed); any other
+ * agent stops the pipeline with an "exceeded budget" stop reason.
+ * Returns a control-flow signal for the dispatch skeleton — this helper
+ * never breaks/continues the caller's loop.
+ */
+async function handleBudgetExceeded(
+	result: AgentRunResult,
+	agentName: string,
+	step: WorkflowStep,
+	port: GitHubPort,
+	loopItem: ProjectItem,
+	projectId: string,
+	fields: ProjectField[],
+	statusField: ProjectField,
+	issueNum: number,
+	config: SupervisorConfig,
+	ctx: ExtensionCommandContext,
+	collector: ErrorCollector,
+	loopStatus: string,
+): Promise<{ continue: true; loopStatus: string } | { continue: false; stopReason?: string }> {
+	if (result.budgetExceeded) {
+		// Graceful degradation: researcher stops researching, pipeline continues
+		if (agentName === "researcher") {
+			// When result.success is also true, handlePostAgentSuccess already posted
+			// a combined comment (partial findings + "stopped early" header).
+			// Skip separate comment here to avoid duplication.
+			if (!result.success) {
+				const budgetExceededMsg = `## Research Findings — Research stopped early: agent exceeded token budget (${result.tokenCount} tokens used). Pipeline continues without full research findings.`;
+				try {
+					await port.postIssueComment(issueNum, config.repo, budgetExceededMsg);
+					ctx.ui.notify(`Posted researcher degradation notice on issue #${issueNum}`, "info");
+				} catch (commentErr: unknown) {
+					collector?.push(
+						"handler",
+						"warn",
+						`Failed to post researcher degradation notice: ${
+							commentErr instanceof Error ? commentErr.message : String(commentErr)
+						}`,
+					);
+				}
+			}
+			const nextStatus = inferForwardStatus(step);
+			if (nextStatus) {
+				const nextLoopStatus = await applyStatusTransition(
+					port,
+					loopItem.id,
+					projectId,
+					fields,
+					statusField.id,
+					nextStatus,
+				);
+				ctx.ui.notify(
+					`Issue #${issueNum} moved: Research → ${nextStatus} (researcher budget exceeded — graceful degradation)`,
+					"info",
+				);
+				getDebugLogger().info("handler", `Research → ${nextStatus} (budget exceeded)`);
+				return { continue: true, loopStatus: nextLoopStatus };
+			}
+		}
+		const stopReason = `Agent ${result.agentName} exceeded budget (${result.toolCount} tools, ${result.tokenCount} tokens)`;
+		getDebugLogger().warn("handler", "Budget exceeded", {
+			agentName: result.agentName,
+			toolCount: result.toolCount,
+			tokenCount: result.tokenCount,
+		});
+		return { continue: false, stopReason };
+	}
+	return { continue: false };
+}
+
+/**
+ * Pre-transition hooks (CI, TSC, LSP, duplicate code) — issue #787/#1407.
+ * Runs the audit gate chain and returns the effective next status. Kept
+ * in agent-loop.ts because gate-failure-context.test.mts /
+ * pipeline-audit.test.mts source-pin the block inline (S138 exemption
+ * contract). Fail-open: hook exception → warn + collector, proceed with
+ * the unmodified next status.
+ */
+async function runPreTransitionHooks(
+	step: WorkflowStep,
+	nextStatus: string,
+	issueNum: number,
+	issueTitle: string,
+	config: SupervisorConfig,
+	agentName: string,
+	loopFilteredData: FilteredIssueData,
+	worktreePath: string | undefined,
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	collector: ErrorCollector | undefined,
+	stageState: StageState,
+	iteration: number,
+): Promise<string> {
+	let effectiveNextStatus = nextStatus;
+	if (step.hooks?.some((h) => ["ci", "tsc", "lsp", "dup", "trace"].includes(h))) {
+		try {
+			getDebugLogger().info("handler", "Running pre-transition hooks", {
+				hooks: step.hooks,
+			});
+			const auditResult = await runTscAndLspAudit(
+				issueNum,
+				issueTitle,
+				config,
+				agentName,
+				loopFilteredData,
+				worktreePath!,
+				pi,
+				ctx,
+				collector,
+			);
+			effectiveNextStatus = auditResult.nextStatus;
+			// Capture gate failure context for developer feedback loop
+			// When a pre-transition hook returns Implementation, the failure note
+			// is stored so the next developer iteration receives targeted context.
+			applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, iteration);
+
+			// Surface gate failure to user so they know developer will re-dispatch
+			// with the failure context injected into the next task prompt.
+			if (effectiveNextStatus === "Implementation" && auditResult.note) {
+				pi.sendMessage({
+					customType: "supervisor",
+					content: `## 🔴 Pre-Transition Gates Blocked — Returning to Developer\n\n${auditResult.note}\n\nFix issues above and the pipeline will retry automatically.`,
+					display: true,
+				});
+				ctx.ui.notify(
+					`Pre-transition gates blocked: ${auditResult.note.slice(0, 120)}… Re-dispatching developer.`,
+					"warning",
+				);
+			}
+
+			// Store dead code result in stage state for auditor context injection
+			if (auditResult.deadCodeResult) {
+				stageState.deadCodeResult = auditResult.deadCodeResult;
+			}
+			// Store duplicate code result in stage state for auditor context injection
+			if (auditResult.duplicateCodeResult) {
+				stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
+			}
+			// Store vuln scan result in stage state for auditor context injection
+			if (auditResult.vulnResult) {
+				stageState.vulnResult = auditResult.vulnResult;
+			}
+			getDebugLogger().info("handler", "Pre-transition hook result", {
+				effectiveNextStatus,
+				note: auditResult.note,
+			});
+		} catch (auditErr: unknown) {
+			const auditMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
+			ctx.ui.notify(`Pre-audit error: ${auditMsg}`, "warning");
+			collector?.push("handler", "warn", `Pre-transition hook error: ${auditMsg}`);
+			getDebugLogger().error("handler", "Pre-transition hook error", {
+				error: auditMsg,
+			});
+		}
+	}
+	return effectiveNextStatus;
 }

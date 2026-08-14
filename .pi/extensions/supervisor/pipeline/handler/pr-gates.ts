@@ -20,9 +20,11 @@ import type { GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { ensurePrReadyForDone } from "../merge.ts";
 import { applyStatusTransition } from "../stages/index.ts";
+import { createPrOnApproval } from "../pr-creation.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
+import type { RunContext } from "./shared.ts";
 
-export async function runPrReadinessGate(
+async function runPrReadinessGate(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	issueNum: number,
@@ -72,7 +74,7 @@ export async function runPrReadinessGate(
 	return { prCreationResult: final, blocked: false };
 }
 
-export async function blockPipelineOnPrGate(
+async function blockPipelineOnPrGate(
 	port: GitHubPort,
 	ctx: ExtensionCommandContext,
 	config: SupervisorConfig,
@@ -123,4 +125,109 @@ export async function blockPipelineOnPrGate(
 		collector?.push("handler", "error", `Status transition to Implementation failed: ${errMsg}`);
 	}
 	return `PR readiness gate blocked: ${blockerNote}`;
+}
+
+/**
+ * Audit-approval → PR-creation + readiness gate glue, extracted from
+ * runAgentLoop (S104/S138 ceiling, issue #1533). On a blocked verdict
+ * the issue is moved to a non-Done status (never COMPLETED w/o PR) and
+ * the loop stops. prCreationResult is returned on BOTH branches — the
+ * blocked path must still propagate the failed PR result to the
+ * post-pipeline phase (handler.test.mts pins it).
+ */
+export async function handlePrApprovalFlow(
+	runCtx: RunContext,
+	loopStatus: string,
+): Promise<
+	| {
+			stop: true;
+			stopReason: string;
+			loopStatus: string;
+			prCreationResult: PrCreationResult | undefined;
+	  }
+	| { stop: false; prCreationResult: PrCreationResult | undefined }
+> {
+	const {
+		ctx,
+		pi,
+		issueNum,
+		issueTitle,
+		config,
+		agentResults,
+		worktreePath,
+		worktreeBranch,
+		collector,
+		stageState,
+		port,
+		loopItem,
+		projectId,
+		fields,
+		statusField,
+	} = runCtx;
+
+	// Debug tracing: agentResults before PR creation (R3 requirement)
+	getDebugLogger().info("handler", "agentResults before PR creation", {
+		length: agentResults.length,
+		entries: agentResults.map((a) => ({
+			name: a.agentName,
+			status: a.status,
+			tokens: a.tokenCount,
+		})),
+	});
+
+	getDebugLogger().info("handler", "Creating PR on approval");
+	const created = await createPrOnApproval(
+		pi,
+		ctx,
+		issueNum,
+		issueTitle,
+		config,
+		agentResults,
+		worktreePath,
+		worktreeBranch,
+		collector,
+		stageState.gateFailureHistory,
+		undefined,
+		port,
+	);
+
+	// Pre-Done readiness gate (issue #1472): a rebase-conflict PR creation
+	// failure must NOT complete the pipeline. The gate resolves conflicts
+	// (auto-merge → developer dispatch → bounded 1× retry) and re-polls;
+	// on blocked, the issue is moved to a non-Done status with a blocker
+	// comment instead of Done.
+	const gate = await runPrReadinessGate(
+		pi,
+		ctx,
+		issueNum,
+		issueTitle,
+		config,
+		agentResults,
+		worktreePath,
+		worktreeBranch,
+		created,
+		collector,
+		port,
+		runCtx._runner,
+	);
+	const prCreationResult = gate.prCreationResult;
+	if (gate.blocked) {
+		const stopReason = await blockPipelineOnPrGate(
+			port,
+			ctx,
+			config,
+			issueNum,
+			loopItem,
+			projectId,
+			fields,
+			statusField,
+			loopStatus,
+			collector,
+			gate.blockerNote ?? "PR not ready for Done — manual intervention required.",
+		);
+		// The issue now sits in a non-Done status — the post-pipeline
+		// phase must not treat it as complete (never COMPLETED w/o PR).
+		return { stop: true, stopReason, loopStatus: "Implementation", prCreationResult };
+	}
+	return { stop: false, prCreationResult };
 }
