@@ -34,6 +34,11 @@ services:
       - HOST_GID=${HOST_GID:-}
       - HOST_GIT_NAME=${HOST_GIT_NAME:-Cheasee-Pi}
       - HOST_GIT_EMAIL=${HOST_GIT_EMAIL:-cheasee-pi@localhost}
+      # pi.dev's update check nags inside the container: "Run pi update"
+      # is misleading there (npm-global updates are wiped on rebuild), and
+      # the image's pi version is owned by the PI_VERSION build arg + stamp,
+      # not by pi.dev's latest-version API. Skip the check entirely.
+      - PI_SKIP_VERSION_CHECK=1
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
       - ${WORKSPACE_BARE_PATH}:/workspaces/.bare${VOLUME_RELABEL:-}

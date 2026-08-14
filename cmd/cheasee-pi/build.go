@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -76,7 +77,13 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 	}
 
 	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
-	args := []string{"compose", "-f", composeFile, "build"}
+	// Per-build cache-busting stamp so the pi-coding-agent layer always
+	// re-resolves @latest (same as dockerComposeUp): Docker caches RUN
+	// layers on the command text + ARG values, and an unchanging ARG
+	// would serve a stale pi from the layer cache — the "Update
+	// Available" nag pointing at a version the image never carries.
+	stamp := fmt.Sprintf("%d", time.Now().Unix())
+	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
 	if buildNoCache {
 		args = append(args, "--no-cache")
 		// Full rebuild re-extracts every layer beside the existing image;
