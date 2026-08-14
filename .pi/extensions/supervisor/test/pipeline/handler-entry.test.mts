@@ -5,7 +5,7 @@
 
 import { describe, it, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -220,6 +220,30 @@ describe("handler entry — top-level catch + finally", () => {
 
 		assert.equal(emitted.length, 1, "finally emits once");
 		assert.equal(emitted[0], null);
+	});
+
+	it("finally suppresses the null footer-clear when another issue's pipeline is live", async () => {
+		// Simulate a parallel same-host pipeline on a different issue holding
+		// a live lock (pid 1 = alive). Our run's finally must NOT clear the
+		// shared footer data that the other run still owns.
+		mkdirSync(join(MOCK_REPO, ".pi"), { recursive: true });
+		const foreignLock = join(MOCK_REPO, ".pi", "supervisor-run-1507.json");
+		writeFileSync(
+			foreignLock,
+			JSON.stringify({ pid: 1, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+
+		try {
+			const { ctx } = createMockCtx();
+			const { pi, emitted } = createMockPi({ execResult: new Error("mock gh failure") });
+
+			await handleSupervisorCommand("42", ctx, pi);
+
+			assert.equal(emitted.length, 0, "no null footer-clear while another pipeline is live");
+		} finally {
+			// Restore shared MOCK_REPO state for subsequent tests
+			if (existsSync(foreignLock)) unlinkSync(foreignLock);
+		}
 	});
 });
 

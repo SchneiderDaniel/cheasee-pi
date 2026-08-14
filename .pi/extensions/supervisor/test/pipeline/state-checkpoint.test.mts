@@ -29,6 +29,7 @@ import {
 	cleanupStalePipelineState,
 	acquireRunLock,
 	releaseRunLock,
+	isAnyOtherPipelineLive,
 	type SupervisorCheckpointState,
 	type CheckpointName,
 } from "../../pipeline/state-checkpoint.ts";
@@ -175,12 +176,12 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	it("writeCheckpointFile creates .pi/supervisor-state.json with correct JSON content", () => {
+	it("writeCheckpointFile creates .pi/supervisor-state-<issueNum>.json with correct JSON content", () => {
 		const state = createState();
 		const result = writeCheckpointFile(cwd, state);
 		assert.equal(result.ok, true);
 
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		assert.equal(existsSync(statePath), true);
 
 		const parsed = JSON.parse(readFileSync(statePath, "utf-8"));
@@ -197,11 +198,11 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		assert.equal(result.ok, true);
 
 		// Verify no .tmp file remains after write
-		const tmpPath = join(cwd, ".pi", "supervisor-state.json.tmp");
+		const tmpPath = join(cwd, ".pi", "supervisor-state-746.json.tmp");
 		assert.equal(existsSync(tmpPath), false);
 
 		// Verify main file exists
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		assert.equal(existsSync(statePath), true);
 	});
 
@@ -226,9 +227,9 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		}
 	});
 
-	it("writeCheckpointFile overwrites previous state (re-read returns new state)", () => {
-		const state1 = createState({ issueNum: 100, checkpoint: "pre-tsc" });
-		const state2 = createState({ issueNum: 200, checkpoint: "pre-lsp" });
+	it("writeCheckpointFile overwrites previous state for the same issue (re-read returns new state)", () => {
+		const state1 = createState({ issueNum: 1503, checkpoint: "pre-tsc" });
+		const state2 = createState({ issueNum: 1503, checkpoint: "pre-lsp" });
 
 		const r1 = writeCheckpointFile(cwd, state1);
 		assert.equal(r1.ok, true);
@@ -237,35 +238,63 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		assert.equal(r2.ok, true);
 
 		// Re-read should return state2
-		const reread = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const reread = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-1503.json"));
 		assert.notEqual(reread, null);
-		assert.equal(reread!.issueNum, 200);
+		assert.equal(reread!.issueNum, 1503);
 		assert.equal(reread!.checkpoint, "pre-lsp");
 	});
 
-	it("deleteCheckpointFile removes .pi/supervisor-state.json — Result<void> ok", () => {
+	it("writes for two different issues coexist — second write does not clobber first (parallel isolation)", () => {
+		const state1 = createState({ issueNum: 1503, checkpoint: "pre-tsc" });
+		const state2 = createState({ issueNum: 1507, checkpoint: "pre-lsp" });
+
+		writeCheckpointFile(cwd, state1);
+		writeCheckpointFile(cwd, state2);
+
+		// Both per-issue files exist with their own content
+		const r1 = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-1503.json"));
+		const r2 = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-1507.json"));
+		assert.notEqual(r1, null);
+		assert.notEqual(r2, null);
+		assert.equal(r1!.issueNum, 1503);
+		assert.equal(r1!.checkpoint, "pre-tsc");
+		assert.equal(r2!.issueNum, 1507);
+		assert.equal(r2!.checkpoint, "pre-lsp");
+	});
+
+	it("deleteCheckpointFile removes .pi/supervisor-state-<issueNum>.json — Result<void> ok", () => {
 		const state = createState();
 		writeCheckpointFile(cwd, state);
 
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		assert.equal(existsSync(statePath), true);
 
-		const result = deleteCheckpointFile(cwd);
+		const result = deleteCheckpointFile(cwd, 746);
 		assert.equal(result.ok, true);
 		assert.equal(existsSync(statePath), false);
 	});
 
 	it("deleteCheckpointFile idempotent — returns ok when file already missing", () => {
-		const result = deleteCheckpointFile(cwd);
+		const result = deleteCheckpointFile(cwd, 746);
 		assert.equal(result.ok, true);
 	});
 
-	it("deleteCheckpointFile returns ok=false when supervisor-state.json is a directory", () => {
+	it("deleteCheckpointFile removes only the run's own issue file — other issues survive", () => {
+		writeCheckpointFile(cwd, createState({ issueNum: 1503 }));
+		writeCheckpointFile(cwd, createState({ issueNum: 1507 }));
+
+		const result = deleteCheckpointFile(cwd, 1503);
+		assert.equal(result.ok, true);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1507.json")), true);
+	});
+
+	it("deleteCheckpointFile returns ok=false when supervisor-state-<issueNum>.json is a directory", () => {
 		// Create a directory at the state file path
-		const stateDir = join(cwd, ".pi", "supervisor-state.json");
+		const stateDir = join(cwd, ".pi", "supervisor-state-746.json");
 		mkdirSync(stateDir, { recursive: true });
 
-		const result = deleteCheckpointFile(cwd);
+		const result = deleteCheckpointFile(cwd, 746);
 		assert.equal(result.ok, false);
 		if (!result.ok) {
 			assert.equal(result.source, "state-checkpoint");
@@ -284,26 +313,13 @@ describe("writeCheckpointFile / readCheckpointFile / deleteCheckpointFile — fi
 		const writeResult = writeCheckpointFile(cwd, state);
 		assert.equal(writeResult.ok, true);
 
-		const readResult = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const readResult = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-791.json"));
 		assert.notEqual(readResult, null);
 		assert.equal(readResult!.issueNum, state.issueNum);
 		assert.equal(readResult!.checkpoint, state.checkpoint);
 		assert.equal(readResult!.worktreePath, state.worktreePath);
 		assert.equal(readResult!.worktreeBranch, state.worktreeBranch);
 		assert.equal(readResult!.startedAt, state.startedAt);
-	});
-
-	it("two writes in sequence: second overwrites first, readCheckpointFile returns second state", () => {
-		const state1 = createState({ issueNum: 1, checkpoint: "pre-tsc" });
-		const state2 = createState({ issueNum: 2, checkpoint: "pre-lsp" });
-
-		writeCheckpointFile(cwd, state1);
-		writeCheckpointFile(cwd, state2);
-
-		const readResult = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
-		assert.notEqual(readResult, null);
-		assert.equal(readResult!.issueNum, 2);
-		assert.equal(readResult!.checkpoint, "pre-lsp");
 	});
 });
 
@@ -322,28 +338,28 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 	});
 
 	it("readCheckpointFile returns null when file doesn't exist", () => {
-		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-746.json"));
 		assert.equal(result, null);
 	});
 
 	it("readCheckpointFile returns null with corrupted JSON (truncated)", () => {
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		writeFileSync(statePath, '{"issueNum": 746, "checkpoint": "pre-tsc",', "utf-8");
 
-		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-746.json"));
 		assert.equal(result, null);
 	});
 
 	it("readCheckpointFile returns null with JSON missing required fields", () => {
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		writeFileSync(statePath, '{"issueNum": 746}', "utf-8");
 
-		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-746.json"));
 		assert.equal(result, null);
 	});
 
 	it("readCheckpointFile returns null with invalid checkpoint name", () => {
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		writeFileSync(
 			statePath,
 			JSON.stringify({
@@ -356,7 +372,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 			"utf-8",
 		);
 
-		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-746.json"));
 		assert.equal(result, null);
 	});
 
@@ -364,7 +380,7 @@ describe("readCheckpointFile — edge cases (Phase 1)", () => {
 		const state = createState();
 		writeCheckpointFile(cwd, state);
 
-		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state.json"));
+		const result = readCheckpointFileFromPath(join(cwd, ".pi", "supervisor-state-746.json"));
 		assert.notEqual(result, null);
 		assert.equal(result!.issueNum, state.issueNum);
 		assert.equal(result!.checkpoint, state.checkpoint);
@@ -380,7 +396,7 @@ describe("readCheckpointFileFromPath — smoke tests", () => {
 	beforeEach(() => {
 		tmpDir = mkdtempSync(join(tmpdir(), "state-checkpoint-frompath-"));
 		mkdirSync(join(tmpDir, ".pi"), { recursive: true });
-		validFilePath = join(tmpDir, ".pi", "supervisor-state.json");
+		validFilePath = join(tmpDir, ".pi", "supervisor-state-746.json");
 	});
 
 	afterEach(() => {
@@ -422,7 +438,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 	});
 
 	it("cleanup found stale state file → cleans up worktree → returns ok", async () => {
-		// Create .pi/supervisor-state.json in main repo with stale state
+		// Create .pi/supervisor-state-746.json in main repo with stale state
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		const staleState = createState({
 			startedAt: new Date(Date.now() - 7_200_000).toISOString(), // 2h ago → stale
@@ -463,7 +479,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.deepEqual(calls[3].args, ["-rf", "/tmp/stale-worktree"]);
 
 		// State file should be deleted
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		assert.equal(existsSync(statePath), false);
 	});
 
@@ -526,13 +542,13 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 4);
 		// State file should still be deleted
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		assert.equal(existsSync(statePath), false);
 	});
 
 	it("state file parse error (corrupted JSON) → skip file, no git calls → returns ok", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const statePath = join(cwd, ".pi", "supervisor-state.json");
+		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		writeFileSync(statePath, "not-valid-json{", "utf-8");
 
 		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
@@ -633,7 +649,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 	it("finds state file in worktree subdirectory", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 
-		// Create a worktree directory with its own .pi/supervisor-state.json
+		// Create a worktree directory with its own .pi/supervisor-state-999.json
 		const wtDir = join(cwd, "../worktrees/some-worktree");
 		mkdirSync(join(wtDir, ".pi"), { recursive: true });
 		const wtState = createState({
@@ -642,7 +658,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 			worktreePath: wtDir,
 			worktreeBranch: "some-worktree",
 		});
-		const wtStatePath = join(wtDir, ".pi", "supervisor-state.json");
+		const wtStatePath = join(wtDir, ".pi", "supervisor-state-999.json");
 		writeFileSync(wtStatePath, JSON.stringify(wtState), "utf-8");
 
 		const calls: ExecCall[] = [];
@@ -665,6 +681,135 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "--force", wtDir]);
 		assert.equal(existsSync(wtStatePath), false);
 	});
+
+	it("skips a stale checkpoint whose per-issue lock has a LIVE pid (parallel pipeline guard)", async () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		// Stale (2h) checkpoint for 1503 with a live lock (pid 1 = alive, not us)
+		const staleState = createState({
+			issueNum: 1503,
+			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+			worktreePath: "/tmp/live-worktree-1503",
+			worktreeBranch: "worktree-git-issue-1503-live",
+		});
+		writeCheckpointFile(cwd, staleState);
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+
+		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 0, "no git calls — live pipeline owns the worktree");
+		// State file + worktree preserved
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), true);
+	});
+
+	it("cleans a stale checkpoint whose per-issue lock has a DEAD pid (crash recovery intact)", async () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		const staleState = createState({
+			issueNum: 1503,
+			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+			worktreePath: "/tmp/crashed-worktree-1503",
+			worktreeBranch: "worktree-git-issue-1503-crashed",
+		});
+		writeCheckpointFile(cwd, staleState);
+		// Dead-PID lock — does not protect
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+
+		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
+				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
+				{ code: 0, stdout: "", stderr: "" }, // git branch -D
+				{ code: 0, stdout: "", stderr: "" }, // rm -rf
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 4);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+	});
+
+	it("cleans a stale checkpoint with NO lock file present (crash removed lock, checkpoint survived)", async () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		const staleState = createState({
+			issueNum: 1503,
+			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+			worktreePath: "/tmp/orphan-worktree-1503",
+			worktreeBranch: "worktree-git-issue-1503-orphan",
+		});
+		writeCheckpointFile(cwd, staleState);
+		// No lock file at all
+
+		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 4);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+	});
+
+	it("legacy bare-name supervisor-state.json with a live per-issue lock → skipped (guard via state.issueNum)", async () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		// Legacy bare-name file (mid-upgrade orphan) referencing issue 1503
+		const staleState = createState({
+			issueNum: 1503,
+			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+			worktreePath: "/tmp/live-worktree-1503",
+			worktreeBranch: "worktree-git-issue-1503-live",
+		});
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-state.json"),
+			JSON.stringify(staleState),
+			"utf-8",
+		);
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+
+		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 0);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state.json")), true);
+	});
 });
 
 // ─── Tests: acquireRunLock / releaseRunLock ──────────────────────
@@ -681,52 +826,208 @@ describe("acquireRunLock / releaseRunLock", () => {
 	it("acquires on fresh repo, then releases (own pid only)", () => {
 		const acquired = acquireRunLock(cwd, 1503);
 		assert.equal(acquired.ok, true);
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run.json")), true);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1503.json")), true);
 
 		// Release removes the lock
-		releaseRunLock(cwd);
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run.json")), false);
+		releaseRunLock(cwd, 1503);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1503.json")), false);
 	});
 
-	it("blocks when another LIVE pipeline holds the lock", () => {
+	it("acquire for issue A does not block acquire for issue B (cross-issue parallelism)", () => {
+		const acquiredA = acquireRunLock(cwd, 1503);
+		assert.equal(acquiredA.ok, true);
+		const acquiredB = acquireRunLock(cwd, 1507);
+		assert.equal(acquiredB.ok, true, "different issue must not be blocked");
+
+		// Both per-issue lock files exist side by side
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1503.json")), true);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1507.json")), true);
+	});
+
+	it("blocks when another LIVE pipeline holds the SAME issue's lock", () => {
 		const acquired = acquireRunLock(cwd, 1503);
 		assert.equal(acquired.ok, true);
-		// Second acquire — same live pid → blocked
-		const blocked = acquireRunLock(cwd, 1504);
+		// Second acquire of the same issue — same live pid → blocked
+		const blocked = acquireRunLock(cwd, 1503);
 		assert.equal(blocked.ok, false);
 		if (!blocked.ok) {
 			assert.ok(blocked.error.includes("Another supervisor pipeline is already running"));
+			assert.ok(blocked.error.includes(String(process.pid)));
+			assert.ok(blocked.error.includes("issue #1503"));
+			assert.ok(blocked.error.includes("started"));
 			assert.equal(blocked.source, "run-lock");
 		}
 	});
 
-	it("steals a stale lock whose holder PID is dead (crashed run)", () => {
-		// Write a lock claiming a dead PID
+	it("steals a stale lock whose holder PID is dead (crashed run), per issue", () => {
+		// Write a lock for 1503 claiming a dead PID
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		writeFileSync(
-			join(cwd, ".pi", "supervisor-run.json"),
+			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: 99999999, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
-		const acquired = acquireRunLock(cwd, 1504);
+		const acquired = acquireRunLock(cwd, 1503);
 		assert.equal(acquired.ok, true, "stale lock should be taken over");
 		// Our pid now owns it
-		const lock = JSON.parse(readFileSync(join(cwd, ".pi", "supervisor-run.json"), "utf-8"));
+		const lock = JSON.parse(
+			readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"),
+		);
 		assert.equal(lock.pid, process.pid);
-		assert.equal(lock.issueNum, 1504);
+		assert.equal(lock.issueNum, 1503);
 	});
 
-	it("release does NOT delete a lock owned by another pid", () => {
+	it("stealing a stale lock does not touch another issue's LIVE lock", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		// 1507 holds a live lock (pid 1)
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1507.json"),
+			JSON.stringify({ pid: 1, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+		// 1503 has a stale lock
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+
+		const acquired = acquireRunLock(cwd, 1503);
+		assert.equal(acquired.ok, true);
+
+		// 1507's live lock untouched
+		const lock1507 = JSON.parse(
+			readFileSync(join(cwd, ".pi", "supervisor-run-1507.json"), "utf-8"),
+		);
+		assert.equal(lock1507.pid, 1);
+		assert.equal(lock1507.issueNum, 1507);
+	});
+
+	it("release does NOT delete a lock owned by another pid (foreign lock, per issue)", () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		// pid 1 (init) is alive but not us
 		writeFileSync(
-			join(cwd, ".pi", "supervisor-run.json"),
+			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
-		releaseRunLock(cwd);
+		releaseRunLock(cwd, 1503);
 		assert.equal(
-			existsSync(join(cwd, ".pi", "supervisor-run.json")),
+			existsSync(join(cwd, ".pi", "supervisor-run-1503.json")),
 			true,
 			"lock owned by another pid must survive release",
 		);
+	});
+
+	it("release deletes only the run's own issue lock — other issues survive", () => {
+		acquireRunLock(cwd, 1503);
+		acquireRunLock(cwd, 1507);
+
+		releaseRunLock(cwd, 1503);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1503.json")), false);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1507.json")), true);
+
+		// Re-acquire 1503 works while 1507 is still held
+		const reacquired = acquireRunLock(cwd, 1503);
+		assert.equal(reacquired.ok, true);
+	});
+
+	it("corrupt/unparseable lock is treated as stale — acquired", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "not-json{{{", "utf-8");
+
+		const acquired = acquireRunLock(cwd, 1503);
+		assert.equal(acquired.ok, true);
+		const lock = JSON.parse(
+			readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"),
+		);
+		assert.equal(lock.pid, process.pid);
+	});
+
+	it("acquire on repo without .pi/ creates the directory, then writes the lock", () => {
+		// No .pi dir created in beforeEach
+		const acquired = acquireRunLock(cwd, 1503);
+		assert.equal(acquired.ok, true);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run-1503.json")), true);
+	});
+
+	it("steal-race loop terminates within bounded retries on an unstealable path", () => {
+		// A directory at the lock path: writeLock always gets EEXIST and unlink
+		// always fails — the loop must give up after MAX_ACQUIRE_ATTEMPTS, not
+		// spin forever, and never surface a generic EEXIST from the outer catch.
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		mkdirSync(join(cwd, ".pi", "supervisor-run-1503.json"), { recursive: true });
+
+		const result = acquireRunLock(cwd, 1503);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.equal(result.source, "run-lock");
+			assert.ok(result.error.includes("attempts"), "bounded-retry error expected");
+		}
+	});
+});
+
+// ─── Tests: isAnyOtherPipelineLive ────────────────────────────────
+
+describe("isAnyOtherPipelineLive", () => {
+	let cwd: string;
+	beforeEach(() => {
+		cwd = mkdtempSync(join(tmpdir(), "other-live-"));
+	});
+	afterEach(() => {
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("returns false when no run lock files exist", () => {
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), false);
+	});
+
+	it("returns false when only the excluded issue's lock is live", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: process.pid, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), false);
+	});
+
+	it("returns true when another issue's lock is held by a live pid", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1507.json"),
+			JSON.stringify({ pid: 1, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), true);
+	});
+
+	it("returns false when another issue's lock is held by a dead pid", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1507.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), false);
+	});
+
+	it("any live other-issue lock → true; all dead → false", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1501.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1501, startedAt: new Date().toISOString() }),
+		);
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1507.json"),
+			JSON.stringify({ pid: 1, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), true);
+
+		// Make the second one dead too → false
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1507.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1507, startedAt: new Date().toISOString() }),
+		);
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), false);
+	});
+
+	it("corrupt lock JSON in the scan is treated as dead — does not throw", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "supervisor-run-1507.json"), "garbage{", "utf-8");
+		assert.equal(isAnyOtherPipelineLive(cwd, 1503), false);
 	});
 });

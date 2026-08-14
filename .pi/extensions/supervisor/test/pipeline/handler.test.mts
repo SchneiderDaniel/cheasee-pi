@@ -680,7 +680,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			});
 			assert.equal(stateResult.ok, true);
 
-			const statePath = join(tmpDir, ".pi", "supervisor-state.json");
+			const statePath = join(tmpDir, ".pi", "supervisor-state-42.json");
 			assert.equal(existsSync(statePath), true);
 
 			// Create ctx with tmpDir as cwd
@@ -738,7 +738,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			});
 			assert.equal(stateResult.ok, true);
 
-			const statePath = join(tmpDir, ".pi", "supervisor-state.json");
+			const statePath = join(tmpDir, ".pi", "supervisor-state-42.json");
 			assert.equal(existsSync(statePath), true);
 
 			const ctx = createMockCtx(true);
@@ -834,7 +834,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			);
 
 			// The state file should be deleted — verify by reading
-			const readResult = readCheckpointFileFromPath(join(tmpDir, ".pi", "supervisor-state.json"));
+			const readResult = readCheckpointFileFromPath(join(tmpDir, ".pi", "supervisor-state-42.json"));
 			assert.equal(readResult, null, "state file should be deleted");
 
 			rmSync(tmpDir, { recursive: true, force: true });
