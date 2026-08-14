@@ -138,7 +138,6 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			break;
 		}
 
-		// Fetch fresh issue data for this iteration
 		const loopFilteredData = await fetchFreshIssueData(
 			exec,
 			config,
