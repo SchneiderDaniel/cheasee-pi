@@ -9,6 +9,13 @@
 # Usage (via wrapper):
 #   cheasee-pi start
 #
+# The compose project is per-repository: `cheasee-pi start` sets
+# COMPOSE_PROJECT_NAME to cheasee-pi-<repo> (derived from the workspace's
+# bare-clone remote), so two workspaces with different repositories run as
+# independent compose projects with independent containers. The top-level
+# name: below is only the fallback for direct compose usage without the CLI
+# (and for the pre-per-repo single-container setup).
+#
 # Direct usage (compose resolves relative paths against this file's dir):
 #   docker compose -f <cacheDir>/docker-compose.yml up -d --build
 #   docker exec -it cheasee-pi /bin/bash -c 'cd /workspaces/main && pi'
@@ -61,9 +68,11 @@ services:
     #
     #   http://localhost:8470/?repo=local/workspace&run=1
     #
-    # Port mapping: host side via CODEFLOW_PORT (default 8470), container side
-    # from the "port" key in config.json (default 8470) — keep them in sync
-    # when changing either.
+    # Port mapping: host side via CODEFLOW_PORT — `cheasee-pi start` derives a
+    # per-repo port (8470 + repo-slug hash, 8470–9469) so parallel containers
+    # don't collide on the fixed default; an explicit CODEFLOW_PORT env var
+    # overrides. Container side from the "port" key in config.json (default
+    # 8470) — keep them in sync when changing either.
     build:
       context: codeflow
     container_name: ${CODEFLOW_CONTAINER:-codeflow}

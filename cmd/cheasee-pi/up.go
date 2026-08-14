@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -416,6 +418,42 @@ func codeflowContainerName(workspaceRoot string) string {
 	return "codeflow-" + repoSlug(workspaceRoot)
 }
 
+// composeProject is the compose project name for a workspace: the per-repo
+// project "cheasee-pi-<repo>" inside a workspace (parallel repos = parallel
+// compose projects = independent containers, so `up`/`down` in one workspace
+// never touches another's container), falling back to the legacy shared
+// project "cheasee-pi" outside a workspace (`down` from a non-workspace
+// directory keeps targeting the old single container).
+func composeProject(workspaceRoot string) string {
+	if _, err := os.Stat(cheaseeSettingsPath(workspaceRoot)); err == nil {
+		return containerName(workspaceRoot)
+	}
+	return "cheasee-pi"
+}
+
+// codeflowPortBase is the lowest host port codeflowPort derives from;
+// codeflowPortSpan yields 1000 distinct per-repo ports (8470–9469).
+const (
+	codeflowPortBase = 8470
+	codeflowPortSpan = 1000
+)
+
+// codeflowPort derives a host port for the codeflow sidecar from the repo
+// slug: codeflowPortBase + fnv32a(slug) mod codeflowPortSpan. Deterministic
+// per repository, so parallel workspaces bind different host ports; an
+// explicit CODEFLOW_PORT env var overrides the derivation.
+func codeflowPort(workspaceRoot string) string {
+	return codeflowPortForSlug(repoSlug(workspaceRoot))
+}
+
+// codeflowPortForSlug is codeflowPort's slug-level core, separated for tests
+// that want a port for a fixed slug without a workspace fixture.
+func codeflowPortForSlug(slug string) string {
+	h := fnv.New32a()
+	h.Write([]byte(slug))
+	return strconv.Itoa(codeflowPortBase + int(h.Sum32()%codeflowPortSpan))
+}
+
 // repoSlug is the docker-safe repo name for a workspace: the sibling bare
 // repo's remote URL repository name when resolvable, else the workspace
 // basename. Lowercased, non-alphanumerics → '-'
@@ -468,7 +506,18 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
 		// distinct containers (compose interpolates them into container_name).
 		"CHEASEEPI_CONTAINER="+containerName,
 		"CODEFLOW_CONTAINER="+codeflowContainerName(workspaceHostPath),
+		// Per-repo compose project (COMPOSE_PROJECT_NAME outranks the top-level
+		// name: in the compose file — env is the only reliable interpolation
+		// point for the project name): parallel workspaces are separate compose
+		// projects, so up/down/clean in one never touches another's containers.
+		"COMPOSE_PROJECT_NAME="+composeProject(workspaceHostPath),
 	)
+	// Codeflow host port: derived per repo (8470 + slug hash) so parallel
+	// containers don't collide on the fixed default; CODEFLOW_PORT from the
+	// process env (already in os.Environ) overrides the derivation.
+	if os.Getenv("CODEFLOW_PORT") == "" {
+		env = append(env, "CODEFLOW_PORT="+codeflowPort(workspaceHostPath))
+	}
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")
 		fmt.Fprintf(os.Stderr, "  ℹ SELinux relabeling enabled: appending :Z to bind mounts\n")

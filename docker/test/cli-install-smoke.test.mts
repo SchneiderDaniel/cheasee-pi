@@ -32,7 +32,15 @@
 
 import assert from "node:assert";
 import { describe, it, before, after } from "node:test";
-import { mkdtempSync, existsSync, readFileSync, rmSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	existsSync,
+	readFileSync,
+	rmSync,
+	chmodSync,
+	mkdirSync,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -57,7 +65,17 @@ process.on("exit", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
-const CONTAINER_NAME = "cheasee-pi";
+
+// The smoke workspace's sibling bare repo is seeded with this remote
+// (before() below) so the CLI's per-repo slug derivation (PR #1516) is
+// deterministic: bareRepoName reads remote.origin.url from <parent>/.bare,
+// falling back to the workspace basename when unset. Container, compose
+// project and codeflow sidecar names all carry the slug, so `cheasee-pi
+// down` (checkpoint 9) resolves the exact project `cheasee-pi start` used.
+const SLUG = "cli-install-smoke";
+const CONTAINER_NAME = `cheasee-pi-${SLUG}`;
+const COMPOSE_PROJECT = CONTAINER_NAME;
+const CODEFLOW_CONTAINER = `codeflow-${SLUG}`;
 const HEALTH_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 5_000;
 
@@ -173,15 +191,39 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		workdir = mkdtempSync(join(tmpdir(), "cli-install-"));
 		// The sibling bare mount source: the compose file bind-mounts
 		// ${WORKSPACE_BARE_PATH}:/workspaces/.bare, and compose validates
-		// every volume spec even for raw `up`. An empty dir is fine for the
-		// smoke run (worktree-fix skips a bare dir without worktrees).
-		mkdirSync(join(workdir, "..", ".bare"), { recursive: true });
+		// every volume spec even for raw `up`. Seed it as a bare repo with a
+		// remote so the CLI's per-repo slug derivation is deterministic
+		// (container/project = cheasee-pi-cli-install-smoke, same name both
+		// checkpoint 5's raw compose up and checkpoint 9's `down` resolve);
+		// a bare repo without worktrees is still skipped by worktree-fix.
+		const barePath = join(workdir, "..", ".bare");
+		mkdirSync(barePath, { recursive: true });
+		const bareInit = exec(`git init --bare -q "${barePath}"`, { timeout: 10_000 });
+		assert.strictEqual(
+			bareInit.status,
+			0,
+			`git init --bare exited ${bareInit.status}: ${bareInit.stderr}`,
+		);
+		const bareRemote = exec(
+			`git --git-dir "${barePath}" remote add origin https://github.com/example/${SLUG}.git`,
+			{ timeout: 10_000 },
+		);
+		assert.strictEqual(
+			bareRemote.status,
+			0,
+			`bare remote add exited ${bareRemote.status}: ${bareRemote.stderr}`,
+		);
 	});
 
 	after(() => {
 		// Clean up: compose down if container is running
 		if (workdir) {
 			exec(`docker compose -f "${composeFile()}" down -v 2>/dev/null || true`, {
+				timeout: 30_000,
+			});
+			// The per-repo container may not belong to the pinned-name project
+			// above — remove it by name (best-effort safety net on failure).
+			exec(`docker rm -fv ${CONTAINER_NAME} 2>/dev/null || true`, {
 				timeout: 30_000,
 			});
 			// Remove temp directory
@@ -293,6 +335,13 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 				// Sibling bare repo — same resolution the CLI applies
 				// (applyComposeEnv: <parent>/.bare → /workspaces/.bare).
 				WORKSPACE_BARE_PATH: join(workdir, "..", ".bare"),
+				// Mirror the CLI's per-repo compose env (applyComposeEnv): the
+				// project and container names carry the repo slug, so the
+				// container created here is the one `cheasee-pi down`
+				// (checkpoint 9) resolves and removes.
+				COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
+				CHEASEEPI_CONTAINER: CONTAINER_NAME,
+				CODEFLOW_CONTAINER,
 			},
 		});
 		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);
@@ -366,9 +415,11 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 9: cheasee-pi down removes container ────────────
 
 	it("checkpoint 9 — cheasee-pi down removes container", () => {
-		// down resolves the same compose project from the cache dir — no
-		// --workdir needed (top-level `name: cheasee-pi` pins the project).
-		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000 });
+		// down resolves the per-repo compose project (cheasee-pi-<slug>) from
+		// the workspace root like start — run inside the workspace so
+		// findWorkspaceRoot finds cheasee-settings.json, and the slug via the
+		// seeded sibling bare repo's remote, matching checkpoint 5's project.
+		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: workdir });
 		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
 		assert.ok(
 			result.stderr.includes("Container stopped and removed"),
