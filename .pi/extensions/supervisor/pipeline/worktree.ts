@@ -4,9 +4,16 @@
 // All functions return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
+import {
+	accessSync,
+	constants as fsConstants,
+	existsSync,
+	mkdirSync,
+	rmSync,
+	symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, join, relative, resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
@@ -370,6 +377,45 @@ async function copyHostDirs(
 			log.warn("worktree", `Failed to copy ${src}: ${msg} — continuing without`);
 		} else {
 			log.info("worktree", `Copied ${src} to ${dst}`);
+		}
+	}
+
+	await linkWorktreeVenvs(cwd, worktreePath);
+}
+
+/**
+ * Link the main repo's prebuilt web_search/web_crawl venvs into a worktree.
+ *
+ * Worktrees start without `.pi/scrapling-venv` / `.pi/web-search-venv`, so the
+ * first web_crawl call in a subagent triggered a FULL fresh build: pip install
+ * of scrapling[fetchers] over the flaky container network died mid-download,
+ * and ensureVenv's in-memory retry cache then rejected every later call with
+ * "Venv setup previously failed after N attempts" (0.0s instant failures).
+ *
+ * Symlink (not copy): venvs are hundreds of MB and the prebuilt copies already
+ * exist in main's `.pi`. ensureVenv's `rm -rf` on a symlink removes only the
+ * link, so a broken venv still rebuilds in place at the worktree.
+ */
+export async function linkWorktreeVenvs(cwd: string, worktreePath: string): Promise<void> {
+	const log = getDebugLogger();
+	const venvLinks: Array<[string, string]> = [
+		[resolvePath(cwd, ".pi/scrapling-venv"), resolvePath(worktreePath, ".pi/scrapling-venv")],
+		[resolvePath(cwd, ".pi/web-search-venv"), resolvePath(worktreePath, ".pi/web-search-venv")],
+	];
+	for (const [src, dst] of venvLinks) {
+		if (!existsSync(src)) {
+			continue; // no prebuilt venv (bare dev machine) — ensureVenv builds fresh
+		}
+		mkdirSync(dirname(dst), { recursive: true });
+		try {
+			rmSync(dst, { force: true, recursive: true }); // stale dir/link from a previous run
+			symlinkSync(relative(dirname(dst), src), dst, "dir");
+			log.info("worktree", `Linked ${src} -> ${dst}`);
+		} catch (err) {
+			log.warn(
+				"worktree",
+				`Failed to link venv ${src}: ${(err as Error).message} — continuing without`,
+			);
 		}
 	}
 }
