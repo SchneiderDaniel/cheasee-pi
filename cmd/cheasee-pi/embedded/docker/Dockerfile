@@ -151,7 +151,7 @@ ENV LC_ALL=C.UTF-8
 RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
     /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs
 
-# scrapling venv: progressive web crawler (Playwright stealth)
+# scrapling venv: progressive web crawler (patchright-driven stealth)
 RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
     /opt/venvs/scrapling-venv/bin/pip install --no-cache-dir \
         scrapling[fetchers] \
@@ -159,15 +159,23 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
         beautifulsoup4 \
     && rm -rf /root/.cache/pip /tmp/*
 
-# Pre-download Chromium browser for scrapling Playwright fetcher
-# Retry loop handles the ~175 MB download which can glitch on slow/unstable connections.
+# Pre-download Chromium for the scrapling stealth fetcher. Must use patchright,
+# NOT playwright: the stealth tier (StealthyFetcher) resolves its browser via
+# patchright's registry — chromium revision 1228 at patchright 1.61.2, vs 1234
+# at playwright 1.62.0 — so a playwright-installed build never matches.
+# Retry loop handles the ~646M/arch download (chromium + headless shell + ffmpeg)
+# which can glitch on slow/unstable connections. `test -n "$(find …)"` after the
+# loop keeps a total download failure fatal: the loop tail (`sleep 5`, exit 0)
+# would otherwise let the layer report success with an empty browser cache
+# (mirrors Layer 5c's `test -x` guard).
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN for i in 1 2 3; do \
-      /opt/venvs/scrapling-venv/bin/python -m playwright install chromium \
+      /opt/venvs/scrapling-venv/bin/python -m patchright install chromium \
         && break; \
-      echo "[attempt $i] playwright install chromium failed, retrying in 5s…"; \
+      echo "[attempt $i] patchright install chromium failed, retrying in 5s…"; \
       sleep 5; \
     done && \
+    test -n "$(find /opt/playwright-browsers -maxdepth 3 -type f -path '*/chrome-linux64/chrome' -print -quit)" && \
     chmod -R a+rX /opt/playwright-browsers
 
 # World-readable so agentuser (created next layer) can access

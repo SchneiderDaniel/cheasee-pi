@@ -14,9 +14,13 @@ ignore/
 benchmarks/benchmark-results/
 
 # scrapling auto-setup (venv + lock file)
-.pi/scrapling-venv/
+# No trailing slash on venv patterns: worktree .pi venvs are SYMLINKS to the
+# main repo's prebuilt venvs (supervisor pipeline/worktree.ts linkWorktreeVenvs),
+# and a trailing-slash pattern matches only real dirs — a symlink would show up
+# as untracked and get committed by accident.
+.pi/scrapling-venv
 .pi/.scrapling-venv.lock
-.pi/web-search-venv/
+.pi/web-search-venv
 .pi/chromium-deps
 .pi/crawl4ai-venv
 .pi/git/

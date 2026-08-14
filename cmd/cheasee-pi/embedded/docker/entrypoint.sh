@@ -93,6 +93,13 @@ if [ -d /opt/playwright-browsers ]; then
     mkdir -p /home/agentuser/.cache
     ln -sf /opt/playwright-browsers /home/agentuser/.cache/ms-playwright 2>/dev/null || true
 fi
+# Chromium presence guard — web_crawl stealth tier needs patchright's build here.
+# Loud warning (not fatal) at container start; the Dockerfile build itself fails
+# fatally when the download failed (layer 5e), so this only fires on stale images.
+if ! ls /opt/playwright-browsers/chromium-*/chrome-linux64/chrome >/dev/null 2>&1; then
+    echo "WARNING: Chromium missing in /opt/playwright-browsers — web_crawl stealth tier will fail."
+    echo "         Fix: /opt/venvs/scrapling-venv/bin/python -m patchright install chromium"
+fi
 
 # --- Re-point global pi resources at the live repo (dogfooding) ------
 # When the mounted repo IS cheasee-pi, the baked /opt/cheasee-pi copy and the

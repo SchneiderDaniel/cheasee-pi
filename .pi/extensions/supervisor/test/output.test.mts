@@ -607,7 +607,7 @@ describe("buildPipelineSummary — multi-developer-run (Phase 5)", () => {
 		assert.equal(devRows.length, 2, "both developer runs should appear");
 
 		// Total token count = sum of ALL entries
-		assert.ok(output.includes("**Total:** 3 agents"), "total shows 3 agents");
+		assert.ok(output.includes("**Total:** 3 runs"), "total shows 3 runs");
 		assert.ok(output.includes("10.0K tokens"), "total tokens = 5000+3000+2000 = 10000");
 	});
 
@@ -693,7 +693,103 @@ describe("buildPipelineSummary — multi-developer-run (Phase 5)", () => {
 			.filter((l) => l.startsWith("| ") && !l.startsWith("|---") && !l.startsWith("| Agent |"));
 		assert.equal(tableRows.length, 1, "1 row for single developer");
 		assert.ok(output.includes("5.0K tokens"), "token count correct");
-		assert.ok(output.includes("**Total:** 1 agents"), "total shows 1 agent");
+		assert.ok(output.includes("**Total:** 1 run"), "total shows 1 run");
+	});
+});
+
+// ─── Tests: buildPipelineSummary — retry rows (issue #1495) ──────
+// Retry path pushes one row per dispatch: FAILED (failed run stats) +
+// SUCCESS (after retry) (retry run stats). Totals reduce over all runs.
+
+describe("buildPipelineSummary — retry rows (issue #1495)", () => {
+	const makeAgent = (
+		name: string,
+		status: PipelineAgentResult["status"],
+		tokens: number,
+		duration: number,
+		tools: number,
+	): PipelineAgentResult => ({
+		agentName: name,
+		status,
+		tokenCount: tokens,
+		durationMs: duration,
+		toolCount: tools,
+	});
+
+	it("FAILED + SUCCESS (after retry) developer pair renders two rows, each with its own stats", () => {
+		// Issue #1494 exact durations: failed run 30m 0s, retry 17m 49s.
+		const results = [
+			makeAgent("developer", "FAILED", 80_000, 1_800_025, 100),
+			makeAgent("developer", "SUCCESS (after retry)", 60_000, 1_068_861, 80),
+		];
+		const output = buildPipelineSummary(results, "success", 1494, "Test", defaultConfig);
+		const devRows = output
+			.split("\n")
+			.filter((l) => l.startsWith("| developer |"));
+		assert.equal(devRows.length, 2, "both runs appear as rows");
+		assert.ok(
+			devRows[0].includes("✗ FAILED | 30m 0s | 80.0K | 100 |"),
+			`failed row carries failed run's stats, got: ${devRows[0]}`,
+		);
+		assert.ok(
+			devRows[1].includes("✓ SUCCESS (after retry) | 17m 49s | 60.0K | 80 |"),
+			`retry row carries retry run's stats, got: ${devRows[1]}`,
+		);
+	});
+
+	it("totals sum all runs incl. the failed attempt (6 runs · exact total line)", () => {
+		const results = [
+			makeAgent("researcher", "SUCCESS", 100_000, 5_000_000, 50),
+			makeAgent("architect", "SUCCESS", 80_000, 4_000_000, 40),
+			makeAgent("test-designer", "SUCCESS", 60_000, 3_000_000, 30),
+			makeAgent("developer", "FAILED", 80_000, 1_800_025, 100),
+			makeAgent("developer", "SUCCESS (after retry)", 60_000, 1_068_861, 80),
+			makeAgent("auditor", "SUCCESS", 20_000, 500_000, 15),
+		];
+		const output = buildPipelineSummary(results, "success", 1494, "Test", defaultConfig);
+		// 15_368_886 ms = 256m 9s; 400.0K tokens; 315 tool calls.
+		assert.ok(
+			output.includes("**Total:** 6 runs · 256m 9s · 400.0K tokens · 315 tool calls"),
+			"totals reflect all 6 dispatches incl. the failed attempt",
+		);
+		assert.ok(
+			output.includes("**Total:** 6 runs"),
+			"count labeled runs (entries), not distinct agents",
+		);
+	});
+
+	it("retry-also-fails: two FAILED rows, both counted; Stopped at resolves to the LAST FAILED entry", () => {
+		const results = [
+			makeAgent("architect", "FAILED", 0, 100_000, 0),
+			makeAgent("developer", "FAILED", 10_000, 500_000, 20),
+			makeAgent("developer", "FAILED", 8_000, 300_000, 15),
+		];
+		const output = buildPipelineSummary(results, "failed", 1494, "Test", defaultConfig);
+		const devRows = output.split("\n").filter((l) => l.startsWith("| developer |"));
+		assert.equal(devRows.length, 2, "both failed developer runs documented");
+		assert.ok(
+			output.includes("**Stopped at:** developer"),
+			"Stopped at picks the last FAILED entry (developer), not the architect row",
+		);
+		assert.ok(
+			output.includes("**Total:** 3 runs · 15m 0s · 18.0K tokens · 35 tool calls"),
+			"totals count every failed run",
+		);
+	});
+
+	it("FAILED retry row renders errorOutput truncated at 80 chars (Bug #711 path)", () => {
+		const longError =
+			"This is a very long crash diagnostic from the failed first run that exceeds eighty characters and must be truncated in the status column";
+		const results = [
+			{ ...makeAgent("developer", "FAILED", 0, 1_800_025, 0), errorOutput: longError },
+			makeAgent("developer", "SUCCESS (after retry)", 60_000, 1_068_861, 80),
+		];
+		const output = buildPipelineSummary(results, "success", 1494, "Test", defaultConfig);
+		assert.ok(
+			output.includes(longError.slice(0, 80) + "..."),
+			"failed run's error output truncated with ...",
+		);
+		assert.ok(!output.includes(longError.slice(81)), "chars beyond 80 not rendered");
 	});
 });
 
@@ -770,7 +866,7 @@ describe("buildPipelineSummary — failed tool call rendering", () => {
 		const results = [makeAgent("developer", "SUCCESS", 5000, 30000, 10, 1)];
 		const output = buildPipelineSummary(results, "success", 42, "Test", defaultConfig);
 		assert.ok(output.includes("**Total:"), "Total line present");
-		assert.ok(output.includes("1 agents"), "agent count present");
+		assert.ok(output.includes("1 run"), "run count present");
 		assert.ok(output.includes("30s") || output.includes("0m 30s"), "duration present");
 		assert.ok(output.includes("5.0K tokens"), "tokens present");
 		assert.ok(output.includes("10 tool calls"), "tool calls present");

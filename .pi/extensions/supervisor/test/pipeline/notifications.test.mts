@@ -410,6 +410,121 @@ describe("buildFailedStatusLine — extracted helper", () => {
 	});
 });
 
+// ─── Tests: status-line count noun — "runs" not "agents" (issue #1495) ──
+// Each PipelineAgentResult entry is one dispatch (retries push their own row),
+// so the status lines label the count as runs.
+
+describe("status-line count noun — runs (issue #1495)", () => {
+	it("success setStatus → ✅ Done · N runs · duration", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		sendPipelineSummary(pi, ctx, mockAgentResults, "success", 42, "Test issue", mockConfig as any);
+		const doneStatus = statusValues.find((s) => s.includes("Done"));
+		assert.ok(doneStatus, "should set Done status");
+		assert.ok(
+			doneStatus!.includes("✅ Done · 2 runs · 15s"),
+			`expected '✅ Done · 2 runs · 15s', got: ${doneStatus}`,
+		);
+	});
+
+	it("single run → singular 'run' noun", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const single: PipelineAgentResult[] = [mockAgentResults[0]!];
+		sendPipelineSummary(pi, ctx, single, "success", 42, "Test issue", mockConfig as any);
+		const doneStatus = statusValues.find((s) => s.includes("Done"));
+		assert.ok(
+			doneStatus!.includes("✅ Done · 1 run · 10s"),
+			`expected singular '1 run', got: ${doneStatus}`,
+		);
+	});
+
+	it("pr-failed setStatus → ⚠️ Done (PR failed) · N runs · duration", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const prResult: PrCreationResult = { success: false, error: "Push failed" };
+		sendPipelineSummary(
+			pi,
+			ctx,
+			mockAgentResults,
+			"success",
+			42,
+			"Test issue",
+			mockConfig as any,
+			undefined,
+			prResult,
+		);
+		const prFailedStatus = statusValues.find((s) => s.includes("PR failed"));
+		assert.ok(prFailedStatus, "should set PR-failed status");
+		assert.ok(
+			prFailedStatus!.includes("⚠️ Done (PR failed) · 2 runs · 15s"),
+			`expected '⚠️ Done (PR failed) · 2 runs · 15s', got: ${prFailedStatus}`,
+		);
+	});
+
+	it("conflicts setStatus → ⚠️ Conflicts remain · N runs · duration", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		sendPipelineSummary(
+			pi,
+			ctx,
+			mockAgentResults,
+			"success",
+			42,
+			"Test issue",
+			mockConfig as any,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true, // unresolvedConflicts
+		);
+		const conflictsStatus = statusValues.find((s) => s.includes("Conflicts remain"));
+		assert.ok(conflictsStatus, "should set conflicts status");
+		assert.ok(
+			conflictsStatus!.includes("⚠️ Conflicts remain · 2 runs · 15s"),
+			`expected '⚠️ Conflicts remain · 2 runs · 15s', got: ${conflictsStatus}`,
+		);
+	});
+
+	it("buildFailedStatusLine → ❌ Failed at <agent> · N runs", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const resultsWithFailed: PipelineAgentResult[] = [
+			{
+				agentName: "developer",
+				status: "FAILED",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
+			{
+				agentName: "developer",
+				status: "SUCCESS (after retry)",
+				durationMs: 2000,
+				tokenCount: 800,
+				toolCount: 12,
+			},
+		];
+		sendPipelineError(
+			pi,
+			ctx,
+			resultsWithFailed,
+			42,
+			"Test issue",
+			mockConfig as any,
+			"Error message",
+		);
+		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
+		assert.ok(failedStatus, "should set failed status");
+		assert.ok(
+			failedStatus!.includes("❌ Failed at developer · 2 runs"),
+			`expected '❌ Failed at developer · 2 runs', got: ${failedStatus}`,
+		);
+	});
+});
+
 // ─── Tests: sendPipelineError — errorMsg forwarding to summary ────
 
 describe("sendPipelineError — errorMsg in summary", () => {

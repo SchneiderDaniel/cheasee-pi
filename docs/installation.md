@@ -190,6 +190,14 @@ Compose/Dockerfile live in the CLI cache dir. Rebuild and start:
 cheasee-pi start --build
 ```
 
+Still failing? The image may be corrupt — force a full no-cache rebuild plus
+prune:
+
+```bash
+cheasee-pi rebuild
+cheasee-pi start
+```
+
 Raw compose needs the bind-mount env vars (compose interpolates
 `WORKSPACE_HOST_PATH`/`WORKSPACE_BARE_PATH` from the environment — unset
 variables are a hard error, even for `build`):

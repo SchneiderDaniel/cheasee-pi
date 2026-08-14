@@ -105,8 +105,12 @@ export function buildPipelineSummary(
 		totalFailedCalls > 0 || agentResults.some((a) => a.failedToolCount !== undefined)
 			? ` · ${totalFailedCalls} failed (${failedPercentage}%)`
 			: "";
+	// Each entry is one dispatch (retries push their own row), so the count
+	// is runs, not distinct agents (issue #1495).
+	const runCount = agentResults.length;
+	const runLabel = `${runCount} ${runCount === 1 ? "run" : "runs"}`;
 	lines.push(
-		`**Total:** ${agentResults.length} agents · ${formatDuration(totalDurationMs)} · ${formatTokens(totalTokens)} tokens · ${totalToolCalls} tool calls${failedSuffix}`,
+		`**Total:** ${runLabel} · ${formatDuration(totalDurationMs)} · ${formatTokens(totalTokens)} tokens · ${totalToolCalls} tool calls${failedSuffix}`,
 	);
 
 	// Issue link + auto-link PR to issue (cross-reference in GitHub UI)
