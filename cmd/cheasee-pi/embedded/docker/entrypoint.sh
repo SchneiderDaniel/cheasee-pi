@@ -299,7 +299,11 @@ install_skill_repos
 # The workspace is a bind-mount from the host; node_modules is local to the
 # container and must be installed at runtime. Skip if already present so
 # subsequent container starts are fast.
-if [ ! -d /workspaces/main/node_modules ]; then
+# Guard on npm's install marker (.package-lock.json), NOT on the node_modules
+# dir: a stale dir containing only .cache/jiti (created by pi's extension
+# loader) would otherwise skip the install forever and every extension that
+# imports a third-party package fails to load.
+if [ ! -f /workspaces/main/node_modules/.package-lock.json ]; then
     echo "Installing workspace npm dependencies…"
     gosu agentuser bash -c 'cd /workspaces/main && npm install --no-audit --no-fund' \
         || echo "Warning: npm install failed (non-fatal — pi may still work depending on which extensions are loaded)"
