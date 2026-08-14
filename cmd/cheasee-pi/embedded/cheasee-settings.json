@@ -17,5 +17,6 @@
   "repository": {
     "url": "{{.RepositoryURL}}",
     "user": "{{.GitHubUser}}"
-  }{{end}}
+  }{{end}}{{if .SkillRepos}},
+  "skillRepos": [{{range $i, $r := .SkillRepos}}{{if $i}}, {{end}}"{{$r}}"{{end}}]{{end}}
 }

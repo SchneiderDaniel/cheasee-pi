@@ -17,7 +17,7 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expectedFlags := []string{"--workdir", "--no-github", "--client-id", "--provider", "--no-input", "--api-key", "--no-docker-check", "--repo-url", "--reauth"}
+	expectedFlags := []string{"--workdir", "--no-github", "--client-id", "--provider", "--no-input", "--api-key", "--no-docker-check", "--repo-url", "--reauth", "--skill-repo"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)
@@ -51,6 +51,37 @@ func TestRunInitE_ReauthFlagSetsDeps(t *testing.T) {
 	deps = resolveInitDeps(cmd, t.TempDir(), InitDeps{})
 	if deps.Reauth {
 		t.Error("without --reauth, InitDeps.Reauth must be false")
+	}
+}
+
+func TestRunInitE_SkillRepoFlagWiresDeps(t *testing.T) {
+	// Repeated --skill-repo flows into InitDeps.SkillRepos via newInitDeps
+	// (the shared factory both init entry points use).
+	old := initSkillRepos
+	initSkillRepos = nil
+	t.Cleanup(func() { initSkillRepos = old })
+
+	cmd := &cobra.Command{Use: "init"}
+	cmd.Flags().StringArrayVar(&initSkillRepos, "skill-repo", nil, "")
+	cmd.SetArgs([]string{"--skill-repo", "a/b", "--skill-repo", "git:github.com/c/d"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	deps := newInitDeps(t.TempDir())
+	if len(deps.SkillRepos) != 2 || deps.SkillRepos[0] != "a/b" || deps.SkillRepos[1] != "git:github.com/c/d" {
+		t.Errorf("SkillRepos = %v, want [a/b git:github.com/c/d]", deps.SkillRepos)
+	}
+
+	// Without the flag the var must stay nil (a prior run may have set it —
+	// cobra does not reset bound vars on re-execution).
+	initSkillRepos = nil
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute without flag: %v", err)
+	}
+	deps = newInitDeps(t.TempDir())
+	if len(deps.SkillRepos) != 0 {
+		t.Errorf("without --skill-repo, SkillRepos must be empty, got %v", deps.SkillRepos)
 	}
 }
 
