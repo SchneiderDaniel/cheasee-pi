@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -63,7 +64,11 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 		}
 		return &mockCmd{} // docker info
 	})
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+		if name == "git" {
+			// Real .bare config read for identity derivation (fixture remotes).
+			return exec.Command(name, arg...)
+		}
 		if slices.Contains(arg, "ps") {
 			names := ""
 			if running {
@@ -723,6 +728,14 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	// Final exec descends to the workspace root target.
 	if exec.name != containerName(root) || exec.target != "/workspaces/main" {
 		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", containerName(root), exec.name, exec.target)
+	}
+
+	// The per-repo CodeFlow URL is printed after start.
+	if !strings.Contains(stderr, "CodeFlow: http://localhost:") {
+		t.Errorf("start must print the CodeFlow URL, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "repo=local/workspace&run=1") {
+		t.Errorf("CodeFlow URL must carry the workspace params, got: %q", stderr)
 	}
 }
 

@@ -31,9 +31,12 @@ type Settings struct {
 }
 
 // DockerSettings mirrors the "docker" section of the scaffold schema.
+// CodeflowPort pins the host-side CodeFlow port for this workspace (per-repo
+// explicit config); empty = derive from the repo identity.
 type DockerSettings struct {
-	Memory string `json:"memory"`
-	CPUs   string `json:"cpus"`
+	Memory       string `json:"memory"`
+	CPUs         string `json:"cpus"`
+	CodeflowPort string `json:"codeflowPort,omitempty"`
 }
 
 // GitIdentitySettings mirrors the "gitIdentity" section of the scaffold schema.

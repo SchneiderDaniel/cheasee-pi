@@ -19,6 +19,7 @@ import (
 //     containerd shim, invisible inside the container PID namespace, so PPid
 //     reads 0 (never 1) and reaper 1 can't see it. Sessions older than the
 //     threshold are detached stragglers and get reaped by age.
+//
 // CHEASEE_DRY_RUN=1 makes the script only report matches ("killing ..."
 // lines) without signalling them — scanOrphans uses it as a preview pass.
 // TOCTOU races between stat read and kill are tolerated — ESRCH is silently
@@ -61,13 +62,14 @@ var execCommand = func(name string, arg ...string) cmdIface {
 // (detached docker exec stragglers — see orphanScanBash); 0 keeps the
 // original PPid=1-only behaviour.
 func scanOrphans(ctx context.Context, name string, maxAgeMinutes int, dryRun bool) ([]string, error) {
-	// Check container is running
-	cmd := execCommand("docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
-	out, err := cmd.Output()
+	// Check the container is running — exact line-compare against the
+	// substring name filter (a sibling `cheasee-pi-foo-bar` must never make
+	// `cheasee-pi-foo` look running).
+	running, err := containerRunning(name)
 	if err != nil {
-		return nil, fmt.Errorf("docker ps: %w", err)
+		return nil, err
 	}
-	if strings.TrimSpace(string(out)) != name {
+	if !running {
 		return nil, nil
 	}
 

@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -60,7 +58,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(upCmd)
-	upCmd.Flags().StringVar(&upName, "name", "cheasee-pi", "Container name")
+	upCmd.Flags().StringVar(&upName, "name", "cheasee-pi", "Container name (default: derived from the repo, cheasee-pi-<slug>)")
 	upCmd.Flags().StringVar(&upWorkdir, "workdir", "", "Working directory (default: current directory)")
 	upCmd.Flags().BoolVar(&upBuild, "build", false, "Rebuild container image before starting")
 	upCmd.Flags().BoolVar(&upNoDockerCheck, "no-docker-check", false, "Skip Docker Engine check")
@@ -217,6 +215,15 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// CodeFlow URL with the resolved per-repo host port (derived + probed, or
+	// the explicit CODEFLOW_PORT / docker.codeflowPort override). Printed
+	// post-up so the URL reflects the port the container actually bound.
+	if port, err := codeflowHostPort(root); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "  ℹ CodeFlow: http://localhost:%s/?repo=local/workspace&run=1\n", port)
+	}
+
 	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
 	// age reaping is clean's job, a pre-start age sweep could kill a long-
 	// running session the user still has attached elsewhere)
@@ -296,15 +303,6 @@ func classifyWorkspace(workdir string) (WorkspaceState, error) {
 		return WorkspaceRefuse, nil
 	}
 	return WorkspaceEmpty, nil
-}
-
-func containerRunning(name string) (bool, error) {
-	cmd := execCommand("docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
-	out, err := cmd.Output()
-	if err != nil {
-		return false, fmt.Errorf("docker ps: %w", err)
-	}
-	return strings.TrimSpace(string(out)) == name, nil
 }
 
 // dockerComposeUp builds and starts the container from the cache dir. The
@@ -401,122 +399,42 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 // sibling bind mounts (folder→/workspaces/main, bare→/workspaces/.bare), never
 // a single parent-of-folder mount — plus resource limits and git identity
 // from cheasee-settings.json (replacing the old docker/.env file and the
-// pi-coupled .pi/settings.json read). SELinux-enforcing hosts opt in to
-// bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
-// bind mount — documented, not default: relabel cost).
-// containerName returns the daemon container name for a workspace: the repo
-// slug suffixed to the service prefix. The slug comes from the bare repo's
-// remote (the actual repo name), falling back to the workspace folder name.
-// Distinct repos get distinct containers — two workspaces run side by side.
-func containerName(workspaceRoot string) string {
-	return "cheasee-pi-" + repoSlug(workspaceRoot)
-}
-
-// codeflowContainerName follows the same repo-slug scheme for the codeflow
-// sidecar service.
-func codeflowContainerName(workspaceRoot string) string {
-	return "codeflow-" + repoSlug(workspaceRoot)
-}
-
-// composeProject is the compose project name for a workspace: the per-repo
-// project "cheasee-pi-<repo>" inside a workspace (parallel repos = parallel
-// compose projects = independent containers, so `up`/`down` in one workspace
-// never touches another's container), falling back to the legacy shared
-// project "cheasee-pi" outside a workspace (`down` from a non-workspace
-// directory keeps targeting the old single container).
-func composeProject(workspaceRoot string) string {
-	if _, err := os.Stat(cheaseeSettingsPath(workspaceRoot)); err == nil {
-		return containerName(workspaceRoot)
-	}
-	return "cheasee-pi"
-}
-
-// codeflowPortBase is the lowest host port codeflowPort derives from;
-// codeflowPortSpan yields 1000 distinct per-repo ports (8470–9469).
-const (
-	codeflowPortBase = 8470
-	codeflowPortSpan = 1000
-)
-
-// codeflowPort derives a host port for the codeflow sidecar from the repo
-// slug: codeflowPortBase + fnv32a(slug) mod codeflowPortSpan. Deterministic
-// per repository, so parallel workspaces bind different host ports; an
-// explicit CODEFLOW_PORT env var overrides the derivation.
-func codeflowPort(workspaceRoot string) string {
-	return codeflowPortForSlug(repoSlug(workspaceRoot))
-}
-
-// codeflowPortForSlug is codeflowPort's slug-level core, separated for tests
-// that want a port for a fixed slug without a workspace fixture.
-func codeflowPortForSlug(slug string) string {
-	h := fnv.New32a()
-	h.Write([]byte(slug))
-	return strconv.Itoa(codeflowPortBase + int(h.Sum32()%codeflowPortSpan))
-}
-
-// repoSlug is the docker-safe repo name for a workspace: the sibling bare
-// repo's remote URL repository name when resolvable, else the workspace
-// basename. Lowercased, non-alphanumerics → '-'
-// (ponytail: git config call per run, cached only if it ever shows up in
-// profiles — a subprocess read of one config key is sub-millisecond).
-func repoSlug(workspaceRoot string) string {
-	if name := bareRepoName(workspaceRoot); name != "" {
-		return sanitizeSlug(name)
-	}
-	return sanitizeSlug(filepath.Base(workspaceRoot))
-}
-
-// bareRepoName reads remote.origin.url from the sibling bare repo, returning
-// the trailing repo name (e.g. "cheasee-pi" from
-// https://github.com/owner/cheasee-pi.git). Empty on any error.
-func bareRepoName(workspaceRoot string) string {
-	bare := filepath.Join(filepath.Dir(workspaceRoot), ".bare")
-	cmd := execCommand("git", "--git-dir", bare, "config", "--get", "remote.origin.url")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	name := strings.TrimSpace(string(out))
-	name = strings.TrimSuffix(name, ".git")
-	if i := strings.LastIndexAny(name, "/:"); i >= 0 {
-		name = name[i+1:]
-	}
-	return name
-}
-
-// sanitizeSlug lowercases and maps non-alphanumerics to '-' so the slug is
-// a valid docker container-name character set.
-func sanitizeSlug(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
+// pi-coupled .pi/settings.json read), the per-repo compose project name (the
+// isolation key — see composeProjectName) and the resolved CodeFlow host
+// port. SELinux-enforcing hosts opt in to bind-mount relabeling via
+// CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every bind mount — documented,
+// not default: relabel cost).
 func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
-	env := append(os.Environ(),
+	// Derived identity env is authoritative — strip inherited keys so
+	// duplicate KEY= entries (nondeterministic resolution across libc/exec)
+	// can never leak in. A user-set CODEFLOW_PORT is not clobbered: the
+	// resolver returns it verbatim and it is re-appended as the single entry.
+	env := stripEnvKeys(os.Environ(),
+		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
+		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
+	)
+	env = append(env,
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
 		"WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workspaceHostPath), ".bare"),
 		// Container names carry the repo slug so distinct workspaces get
 		// distinct containers (compose interpolates them into container_name).
 		"CHEASEEPI_CONTAINER="+containerName,
 		"CODEFLOW_CONTAINER="+codeflowContainerName(workspaceHostPath),
-		// Per-repo compose project (COMPOSE_PROJECT_NAME outranks the top-level
-		// name: in the compose file — env is the only reliable interpolation
-		// point for the project name): parallel workspaces are separate compose
-		// projects, so up/down/clean in one never touches another's containers.
-		"COMPOSE_PROJECT_NAME="+composeProject(workspaceHostPath),
+		// Per-repo compose project — compose precedence (-p > env > file
+		// name: > dir basename) makes the env win over the file's fallback
+		// name: cheasee-pi; the cache-dir basename (the CLI version key, e.g.
+		// "0.50") is rejected by compose ≥v2.17 charset rules, so the file
+		// name: is the only sane fallback for direct usage.
+		"COMPOSE_PROJECT_NAME="+composeProjectName(workspaceHostPath),
 	)
-	// Codeflow host port: derived per repo (8470 + slug hash) so parallel
-	// containers don't collide on the fixed default; CODEFLOW_PORT from the
-	// process env (already in os.Environ) overrides the derivation.
-	if os.Getenv("CODEFLOW_PORT") == "" {
-		env = append(env, "CODEFLOW_PORT="+codeflowPort(workspaceHostPath))
+	// CodeFlow host port: settings docker.codeflowPort > process env
+	// CODEFLOW_PORT (pass-through) > derived+probed. Resolution failure is
+	// loud (stderr) and leaves the compose fallback (8470) to fail loudly on
+	// its own if occupied.
+	if port, err := codeflowHostPort(workspaceHostPath); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
+	} else {
+		env = append(env, "CODEFLOW_PORT="+port)
 	}
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")

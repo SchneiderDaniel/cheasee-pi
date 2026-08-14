@@ -67,11 +67,15 @@ process.on("exit", () => {
 const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
 
 // The smoke workspace's sibling bare repo is seeded with this remote
-// (before() below) so the CLI's per-repo slug derivation (PR #1516) is
-// deterministic: bareRepoName reads remote.origin.url from <parent>/.bare,
-// falling back to the workspace basename when unset. Container, compose
-// project and codeflow sidecar names all carry the slug, so `cheasee-pi
-// down` (checkpoint 9) resolves the exact project `cheasee-pi start` used.
+// (before() below) so the CLI's per-repo slug derivation is deterministic:
+// repoSlug reads remote.origin.url from <parent>/.bare and maps it to
+// <owner>-<repo> — the remote is seeded owner-less (https://github.com/<SLUG>)
+// so the derived slug equals SLUG exactly and the container/project names
+// below match what `cheasee-pi start`/`down` resolve. Falling back to the
+// workspace basename would not (mkdtemp names are random).
+// Container, compose project and codeflow sidecar names all carry the slug,
+// so `cheasee-pi down` (checkpoint 9) resolves the exact project
+// `cheasee-pi start` used.
 const SLUG = "cli-install-smoke";
 const CONTAINER_NAME = `cheasee-pi-${SLUG}`;
 const COMPOSE_PROJECT = CONTAINER_NAME;
@@ -205,7 +209,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			`git init --bare exited ${bareInit.status}: ${bareInit.stderr}`,
 		);
 		const bareRemote = exec(
-			`git --git-dir "${barePath}" remote add origin https://github.com/example/${SLUG}.git`,
+			`git --git-dir "${barePath}" remote add origin https://github.com/${SLUG}.git`,
 			{ timeout: 10_000 },
 		);
 		assert.strictEqual(

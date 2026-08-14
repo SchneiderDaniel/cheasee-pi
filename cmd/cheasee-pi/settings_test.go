@@ -480,9 +480,28 @@ func TestApplyComposeEnv_ignoresPISettings(t *testing.T) {
 	if !slices.Contains(cmd.env, "CODEFLOW_CONTAINER="+codeflowContainerName(workdir)) {
 		t.Errorf("CODEFLOW_CONTAINER must carry the repo-slug codeflow name, got %v", cmd.env)
 	}
-	// No workspace root (no cheasee-settings.json) → legacy shared project.
-	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME=cheasee-pi") {
-		t.Errorf("outside a workspace the compose project must fall back to 'cheasee-pi', got %v", cmd.env)
+	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+composeProjectName(workdir)) {
+		t.Errorf("compose env must carry the per-repo COMPOSE_PROJECT_NAME, got %v", cmd.env)
+	}
+	assertOneCodeflowPort(t, cmd.env)
+}
+
+// assertOneCodeflowPort asserts cmd.env carries exactly one CODEFLOW_PORT
+// entry with a numeric value in the derived range.
+func assertOneCodeflowPort(t *testing.T, env []string) {
+	t.Helper()
+	var ports []string
+	for _, e := range env {
+		if k, v, ok := strings.Cut(e, "="); ok && k == "CODEFLOW_PORT" {
+			ports = append(ports, v)
+		}
+	}
+	if len(ports) != 1 {
+		t.Fatalf("exactly one CODEFLOW_PORT entry expected, got %v", ports)
+	}
+	n, err := strconv.Atoi(ports[0])
+	if err != nil || n < codeflowPortBase || n >= codeflowPortBase+codeflowPortRange {
+		t.Errorf("CODEFLOW_PORT must be a port in [8470, 9493], got %q", ports[0])
 	}
 }
 
@@ -493,11 +512,12 @@ func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
 	stderr := testutil.CaptureStderr(t, func() {
 		cmd := &mockCmd{}
 		applyComposeEnv(cmd, workdir, containerName(workdir))
-		for _, want := range []string{"CHEASEEPI_MEMORY=4G", "CHEASEEPI_CPUS=3.0", "HOST_GIT_NAME=Cheasee User", "HOST_GIT_EMAIL=c@example.com"} {
+		for _, want := range []string{"CHEASEEPI_MEMORY=4G", "CHEASEEPI_CPUS=3.0", "HOST_GIT_NAME=Cheasee User", "HOST_GIT_EMAIL=c@example.com", "COMPOSE_PROJECT_NAME=" + composeProjectName(workdir)} {
 			if !slices.Contains(cmd.env, want) {
 				t.Errorf("compose env missing %q, got %v", want, cmd.env)
 			}
 		}
+		assertOneCodeflowPort(t, cmd.env)
 	})
 
 	if !strings.Contains(stderr, "Using memory limit 4G from cheasee-settings.json") {
@@ -505,70 +525,71 @@ func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
 	}
 }
 
-// Per-repo compose project: inside a workspace the project is the repo-slug
-// container name, so parallel workspaces are independent compose projects.
-func TestApplyComposeEnv_setsPerRepoComposeProject(t *testing.T) {
-	workdir := t.TempDir()
-	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
-
+func TestApplyComposeEnv_userCodeflowPortPassesThrough(t *testing.T) {
+	t.Setenv("CODEFLOW_PORT", "9000")
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, containerName(workdir))
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
 
-	want := containerName(workdir)
-	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+want) {
-		t.Errorf("COMPOSE_PROJECT_NAME must carry the per-repo project %q, got %v", want, cmd.env)
+	if !slices.Contains(cmd.env, "CODEFLOW_PORT=9000") {
+		t.Errorf("user-set CODEFLOW_PORT must pass through verbatim, got %v", cmd.env)
 	}
-}
-
-func TestComposeProject_fallsBackOutsideWorkspace(t *testing.T) {
-	if got := composeProject(t.TempDir()); got != "cheasee-pi" {
-		t.Errorf("composeProject outside a workspace = %q, want cheasee-pi", got)
-	}
-}
-
-// Codeflow host port derivation: deterministic per repo, inside the derived
-// range, distinct across repositories, and skipped when CODEFLOW_PORT is set.
-func TestCodeflowPort_deterministicAndInRange(t *testing.T) {
-	rootA := t.TempDir()
-
-	portA := codeflowPort(rootA)
-	if codeflowPort(rootA) != portA {
-		t.Errorf("codeflowPort must be deterministic per workspace, got %q then %q", portA, codeflowPort(rootA))
-	}
-	n, err := strconv.Atoi(portA)
-	if err != nil || n < codeflowPortBase || n >= codeflowPortBase+codeflowPortSpan {
-		t.Errorf("codeflowPort %q must be an int in [%d, %d)", portA, codeflowPortBase, codeflowPortBase+codeflowPortSpan)
-	}
-
-	// Distinct repo slugs → distinct derived ports (fixed inputs, so this is
-	// deterministic — a collision would be a genuine defect worth catching).
-	slugA, slugB := "repo-alpha", "repo-beta"
-	if pA, pB := codeflowPortForSlug(slugA), codeflowPortForSlug(slugB); pA == pB {
-		t.Errorf("distinct slugs must derive distinct ports, both %q", pA)
-	}
-}
-
-// Explicit CODEFLOW_PORT wins over the derivation: applyComposeEnv must not
-// append a second, derived CODEFLOW_PORT when the process env already sets it.
-func TestCodeflowPort_envOverrideWins(t *testing.T) {
-	workdir := t.TempDir()
-	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
-	t.Setenv("CODEFLOW_PORT", "9999")
-
-	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, containerName(workdir))
-
-	count := 0
+	var count int
 	for _, e := range cmd.env {
 		if strings.HasPrefix(e, "CODEFLOW_PORT=") {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("explicit CODEFLOW_PORT must not be overridden by a derived value, got %d CODEFLOW_PORT entries: %v", count, cmd.env)
+		t.Errorf("user-set CODEFLOW_PORT must not be duplicated, got %d entries", count)
 	}
-	if !slices.Contains(cmd.env, "CODEFLOW_PORT=9999") {
-		t.Errorf("explicit CODEFLOW_PORT=9999 must pass through, got %v", cmd.env)
+}
+
+func TestApplyComposeEnv_settingsCodeflowPortWins(t *testing.T) {
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"docker": {"codeflowPort": "9100"}}`)
+	t.Setenv("CODEFLOW_PORT", "9000")
+
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, containerName(workdir))
+
+	if !slices.Contains(cmd.env, "CODEFLOW_PORT=9100") {
+		t.Errorf("settings docker.codeflowPort must win over env, got %v", cmd.env)
+	}
+}
+
+func TestApplyComposeEnv_inheritedProjectNameReplaced(t *testing.T) {
+	t.Setenv("COMPOSE_PROJECT_NAME", "user-project")
+	workdir := t.TempDir()
+
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, containerName(workdir))
+
+	var count int
+	for _, e := range cmd.env {
+		if strings.HasPrefix(e, "COMPOSE_PROJECT_NAME=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("inherited COMPOSE_PROJECT_NAME must be replaced (exactly 1 entry), got %d", count)
+	}
+	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+composeProjectName(workdir)) {
+		t.Errorf("derived project name must be injected, got %v", cmd.env)
+	}
+}
+
+func TestApplyComposeEnv_nameOverrideKeepsDerivedProject(t *testing.T) {
+	// --name replaces the container name verbatim, but the compose project
+	// name stays repo-derived so compose labels stay workspace-scoped.
+	workdir := t.TempDir()
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, "my-custom-name")
+
+	if !slices.Contains(cmd.env, "CHEASEEPI_CONTAINER=my-custom-name") {
+		t.Errorf("--name override must replace the container name verbatim, got %v", cmd.env)
+	}
+	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+composeProjectName(workdir)) {
+		t.Errorf("project name must stay repo-derived under --name override, got %v", cmd.env)
 	}
 }
 
@@ -642,12 +663,12 @@ func TestSettingsWriter_updatesCheaseeSettings(t *testing.T) {
 	// stays untouched (init no longer scaffolds it).
 	workdir := t.TempDir()
 	if err := (&CheaseeSettings{
-		Comment:     "Generated by cheasee-pi init",
+		Comment:         "Generated by cheasee-pi init",
 		DefaultProvider: "opencode-go",
 		DefaultModel:    "deepseek-v4-flash",
-		Docker:      DockerSettings{Memory: "2G", CPUs: "2.0"},
-		GitIdentity: GitIdentitySettings{Name: "Test User", Email: "test@example.com"},
-		OAuth:       OAuthSettings{ClientID: "client-a"},
+		Docker:          DockerSettings{Memory: "2G", CPUs: "2.0"},
+		GitIdentity:     GitIdentitySettings{Name: "Test User", Email: "test@example.com"},
+		OAuth:           OAuthSettings{ClientID: "client-a"},
 	}).Save(workdir); err != nil {
 		t.Fatal(err)
 	}
