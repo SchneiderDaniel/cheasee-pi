@@ -747,6 +747,45 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
 	});
 
+	it("cleans a stale checkpoint whose per-issue lock has OUR OWN pid (production ordering: acquireRunLock runs before cleanup)", async () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		// Stale (2h) checkpoint for 1503 — a prior run crashed, leaving the
+		// checkpoint and a dead lock. The next run's acquireRunLock stole the
+		// dead lock and rewrote it with process.pid BEFORE cleanup runs, so the
+		// guard must not treat our own live PID as a protective live pipeline.
+		const staleState = createState({
+			issueNum: 1503,
+			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
+			worktreePath: "/tmp/own-crashed-worktree-1503",
+			worktreeBranch: "worktree-git-issue-1503-own-crashed",
+		});
+		writeCheckpointFile(cwd, staleState);
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run-1503.json"),
+			JSON.stringify({ pid: process.pid, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+
+		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
+				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
+				{ code: 0, stdout: "", stderr: "" }, // git branch -D
+				{ code: 0, stdout: "", stderr: "" }, // rm -rf
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 4, "own-pid lock must NOT protect — cleanup proceeds");
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+	});
+
 	it("cleans a stale checkpoint with NO lock file present (crash removed lock, checkpoint survived)", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		const staleState = createState({

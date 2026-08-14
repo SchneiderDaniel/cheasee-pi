@@ -430,11 +430,13 @@ export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): bo
  * - Wraps each git command in try-catch so failure of one doesn't block others.
  * - Skips self-cleanup: never cleans a checkpoint whose `worktreePath` matches `currentWorktreePath`.
  * - Liveness guard: never cleans a checkpoint whose per-issue run lock is held
- *   by a live process — with per-issue parallelism, run B's preflight must not
- *   prune run A's live worktree just because A's last checkpoint is >1h old.
- *   The lock lives in the main repo `.pi/`, so it survives partial worktree
- *   removal (the `recoverStaleWorktreeRegistration` scenario stays covered).
- *   A dead-PID lock does not protect — the crash case still cleans.
+ *   by a DIFFERENT live process — with per-issue parallelism, run B's preflight
+ *   must not prune run A's live worktree just because A's last checkpoint is
+ *   >1h old. Own-PID locks don't protect (acquireRunLock already wrote our pid
+ *   by the time this runs), so a same-issue rerun after a crash still prunes the
+ *   orphaned worktree. The lock lives in the main repo `.pi/`, so it survives
+ *   partial worktree removal (the `recoverStaleWorktreeRegistration` scenario
+ *   stays covered). A dead-PID lock does not protect — the crash case still cleans.
  * - Non-blocking: if cleanup of one stale checkpoint fails, logs warning and continues to the next.
  * - Runs `git worktree prune` before `git worktree remove --force` so git admin data is synced.
  * - Includes `rm -rf` fallback for the worktree directory after git operations succeed.
@@ -518,11 +520,14 @@ export async function cleanupStalePipelineState(
 			continue;
 		}
 
-		// Liveness guard: a live pipeline owns this issue's worktree. Never
-		// prune it — even a >1h-old checkpoint must not let run B remove run
-		// A's live worktree. Dead-PID locks (crashed runs) still get cleaned.
+		// Liveness guard: a DIFFERENT live process owns this issue's worktree.
+		// Never prune it — even a >1h-old checkpoint must not let run B remove
+		// run A's live worktree. Own-PID locks (acquireRunLock runs before this
+		// cleanup in the handler, so our own lock holds process.pid) do NOT
+		// protect: a same-issue rerun after a crash must still prune the
+		// orphaned worktree left by the dead run. Dead-PID locks also clean.
 		const issueLock = readRunLock(runLockPath(cwd, state.issueNum));
-		if (issueLock && pidAlive(issueLock.pid)) {
+		if (issueLock && issueLock.pid !== process.pid && pidAlive(issueLock.pid)) {
 			log.info("state-checkpoint", "Skipping cleanup — issue has a live pipeline", {
 				issueNum: state.issueNum,
 				pid: issueLock.pid,
