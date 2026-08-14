@@ -181,27 +181,27 @@ func TestRunInit_FullFlow(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called after full flow")
 	}
-	// Clone phase artifacts: sibling bare repo + checked-out main worktree.
+	// Clone phase artifacts: sibling bare repo + checked-out worktree leaf.
 	if len(clone.cloneArgs) != 1 || len(clone.worktreeAdd) != 1 {
 		t.Fatalf("expected one bare clone + one worktree add, got %d/%d", len(clone.cloneArgs), len(clone.worktreeAdd))
 	}
-	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
-		t.Errorf("bare clone should have run (<parent>/.bare missing): %v", err)
+	if _, err := os.Stat(filepath.Join(workdir, ".bare")); err != nil {
+		t.Errorf("bare clone should have run (<workdir>/.bare missing): %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workdir, ".git")); err != nil {
-		t.Errorf("worktree should be checked out (.git missing): %v", err)
+	if _, err := os.Stat(filepath.Join(workdir, "main", ".git")); err != nil {
+		t.Errorf("worktree should be checked out at <workdir>/main (.git missing): %v", err)
 	}
-	// Dedicated settings scaffolded at the folder root; pi's file absent.
-	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
+	// Dedicated settings scaffolded in the worktree leaf; pi's file absent.
+	if _, err := os.Stat(filepath.Join(workdir, "main", "cheasee-settings.json")); err != nil {
 		t.Errorf("cheasee-settings.json missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(workdir, "main", ".pi", "settings.json")); !os.IsNotExist(err) {
 		t.Errorf("init must not scaffold .pi/settings.json: %v", err)
 	}
 	// The scaffold persists what init already knows: the canonical repo URL
 	// (shorthand normalized to https) and the resolved GitHub login, plus the
 	// .pi skeleton dirs that pi needs to exist before it starts.
-	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
+	raw := testutil.ReadCheaseeSettingsRaw(t, filepath.Join(workdir, "main"))
 	repo, ok := raw["repository"].(map[string]any)
 	if !ok {
 		t.Fatal("expected repository section in cheasee-settings.json")
@@ -213,7 +213,7 @@ func TestRunInit_FullFlow(t *testing.T) {
 		t.Errorf("repository.user = %v, want %q", repo["user"], MockGitHubUser)
 	}
 	for _, dir := range piSkeletonDirs {
-		if _, err := os.Stat(filepath.Join(workdir, ".pi", dir)); err != nil {
+		if _, err := os.Stat(filepath.Join(workdir, "main", ".pi", dir)); err != nil {
 			t.Errorf(".pi/%s missing after full flow: %v", dir, err)
 		}
 	}

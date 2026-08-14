@@ -292,10 +292,12 @@ func TestInitUseCase_PostCloneFailureCleansResidue(t *testing.T) {
 	if !strings.Contains(stderr, "removing incomplete workspace residue") {
 		t.Errorf("cleanup must be announced to stderr, got: %q", stderr)
 	}
-	if _, statErr := os.Stat(workdir); !os.IsNotExist(statErr) {
+	// The worktree leaf and its sibling .bare are removed; the init folder
+	// itself stays (empty).
+	if _, statErr := os.Stat(filepath.Join(workdir, "main")); !os.IsNotExist(statErr) {
 		t.Errorf("post-clone failure must remove the worktree: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(workdir, ".bare")); !os.IsNotExist(statErr) {
 		t.Errorf("post-clone failure must remove .bare: %v", statErr)
 	}
 }
@@ -457,11 +459,11 @@ func TestInitUseCase_SkillReposInteractiveFlow(t *testing.T) {
 	if err := os.MkdirAll(workdir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	deps := skillRepoFlowDeps(t, workdir, []bool{true, false}, []string{"owner/repo", "DietrichGebert/ponytail"})
+	deps := skillRepoFlowDeps(t, workdir, []bool{true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("full interactive flow: %v", err)
 	}
-	s, err := LoadCheaseeSettings(workdir)
+	s, err := LoadCheaseeSettings(filepath.Join(workdir, "main"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +491,7 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("flow without skill repos: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	got, err := os.ReadFile(filepath.Join(workdir, "main", "cheasee-settings.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -549,7 +551,7 @@ func TestInitUseCase_NoInputSkillRepoFlagsNoPrompts(t *testing.T) {
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("no-input flow: %v", err)
 	}
-	s, err := LoadCheaseeSettings(workdir)
+	s, err := LoadCheaseeSettings(filepath.Join(workdir, "main"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +629,7 @@ func TestInitUseCase_SkillRepoFailureCleansResidue(t *testing.T) {
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	stubInitGit(t)
 
-	deps := skillRepoFlowDeps(t, workdir, []bool{true}, []string{"owner/repo", "not a repo"})
+	deps := skillRepoFlowDeps(t, workdir, []bool{true}, []string{"owner/repo", "main", "not a repo"})
 	stderr := testutil.CaptureStderr(t, func() {
 		err := runInit(context.Background(), deps)
 		if err == nil || !strings.Contains(err.Error(), "skill repo setup") {
@@ -637,10 +639,10 @@ func TestInitUseCase_SkillRepoFailureCleansResidue(t *testing.T) {
 	if !strings.Contains(stderr, "removing incomplete workspace residue") {
 		t.Errorf("cleanup must be announced to stderr, got: %q", stderr)
 	}
-	if _, statErr := os.Stat(workdir); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(workdir, "main")); !os.IsNotExist(statErr) {
 		t.Errorf("post-clone failure must remove the worktree: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(workdir, ".bare")); !os.IsNotExist(statErr) {
 		t.Errorf("post-clone failure must remove .bare: %v", statErr)
 	}
 }

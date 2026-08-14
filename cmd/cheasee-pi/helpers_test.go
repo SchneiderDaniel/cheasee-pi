@@ -368,7 +368,10 @@ func initDepsWithRepoURL(t *testing.T, workdir string, opts ...func(*InitDeps)) 
 	deps := initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
 		d.NoInput = false
-		d.InputFn = mockInputFn("owner/repo", nil)
+		// First input answers the repo URL prompt; the second the branch that
+		// names the worktree folder (queue exhaustion → "" → default main).
+		_, input := mockQueuePrompt(t, nil, []string{"owner/repo", "main"})
+		d.InputFn = input
 		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys", "Add a custom skill repository")
 	})
 	for _, opt := range opts {

@@ -121,6 +121,23 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
+		// Init lays the worktree at <workdir>/<branch>, so the settings marker
+		// lives one level DOWN from the init folder — resolveStartWorkspace only
+		// walks up. Recover the leaf from the child folders.
+		if state != WorkspaceInitialized {
+			if entries, readErr := os.ReadDir(workdir); readErr == nil {
+				for _, e := range entries {
+					if !e.IsDir() {
+						continue
+					}
+					cand := filepath.Join(workdir, e.Name())
+					if _, statErr := os.Stat(cheaseeSettingsPath(cand)); statErr == nil {
+						root, state = cand, WorkspaceInitialized
+						break
+					}
+				}
+			}
+		}
 		if state != WorkspaceInitialized {
 			return fmt.Errorf("auto-init left %q non-empty without cheasee-settings.json — remove the worktree/.bare residue and re-run `cheasee-pi start` in an empty folder", workdir)
 		}

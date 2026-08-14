@@ -374,15 +374,16 @@ func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
 	if i, j := strings.Index(stderr, "starting pi"), strings.Index(stderr, "EXEC-INVOKED"); i < 0 || j < 0 || i > j {
 		t.Errorf("'starting pi' confirmation must precede the exec invocation, stderr: %q", stderr)
 	}
-	// Init artifacts: worktree checked out, sibling .bare, settings at root.
-	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
-		t.Errorf("auto-init must scaffold cheasee-settings.json: %v", err)
+	// Init artifacts: worktree checked out at the branch-named leaf, its
+	// sibling .bare, settings inside the leaf.
+	if _, err := os.Stat(filepath.Join(workdir, "main", "cheasee-settings.json")); err != nil {
+		t.Errorf("auto-init must scaffold cheasee-settings.json in the worktree leaf: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
-		t.Errorf("auto-init must bare-clone into <parent>/.bare: %v", err)
+	if _, err := os.Stat(filepath.Join(workdir, ".bare")); err != nil {
+		t.Errorf("auto-init must bare-clone into <workdir>/.bare: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workdir, ".git")); err != nil {
-		t.Errorf("auto-init must add the main worktree: %v", err)
+	if _, err := os.Stat(filepath.Join(workdir, "main", ".git")); err != nil {
+		t.Errorf("auto-init must add the main worktree at <workdir>/main: %v", err)
 	}
 	if !authJSONExists(t) {
 		t.Error("auto-init must save auth.json")
@@ -401,15 +402,15 @@ func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
 	if len(c.composeArgs) == 2 && (!slices.Contains(c.composeArgs[0], composeFile) || !slices.Contains(c.composeArgs[1], "up")) {
 		t.Errorf("compose must build + up from the cache dir, got %v", c.composeArgs)
 	}
-	if exec.name != containerName(workdir) || exec.target != "/workspaces/main" {
-		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", containerName(workdir), exec.name, exec.target)
+	if exec.name != containerName(filepath.Join(workdir, "main")) || exec.target != "/workspaces/main" {
+		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", containerName(filepath.Join(workdir, "main")), exec.name, exec.target)
 	}
 	upEnv := c.composeCmds[1].env
-	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+workdir) {
-		t.Errorf("up env must carry WORKSPACE_HOST_PATH=%s, got %v", workdir, upEnv)
+	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+filepath.Join(workdir, "main")) {
+		t.Errorf("up env must carry WORKSPACE_HOST_PATH=%s, got %v", filepath.Join(workdir, "main"), upEnv)
 	}
-	if !slices.Contains(upEnv, "WORKSPACE_BARE_PATH="+filepath.Join(parent, ".bare")) {
-		t.Errorf("up env must carry WORKSPACE_BARE_PATH=%s, got %v", filepath.Join(parent, ".bare"), upEnv)
+	if !slices.Contains(upEnv, "WORKSPACE_BARE_PATH="+filepath.Join(workdir, ".bare")) {
+		t.Errorf("up env must carry WORKSPACE_BARE_PATH=%s, got %v", filepath.Join(workdir, ".bare"), upEnv)
 	}
 }
 
@@ -433,12 +434,12 @@ func TestRunUpE_autoInitMatchesRunInit(t *testing.T) {
 	if err := runUpE(&cobra.Command{}, nil); err != nil {
 		t.Fatalf("runUpE: %v", err)
 	}
-	settingsA, err := os.ReadFile(filepath.Join(dirA, "cheasee-settings.json"))
+	settingsA, err := os.ReadFile(filepath.Join(dirA, "main", "cheasee-settings.json"))
 	if err != nil {
 		t.Fatalf("read start-triggered settings: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(parentA, ".bare")); err != nil {
-		t.Errorf("start-triggered init must bare-clone into <parent>/.bare: %v", err)
+	if _, err := os.Stat(filepath.Join(dirA, ".bare")); err != nil {
+		t.Errorf("start-triggered init must bare-clone into <workdir>/.bare: %v", err)
 	}
 
 	// Same flow via runInit (the `cheasee-pi init` path) on a second folder.
@@ -449,7 +450,7 @@ func TestRunUpE_autoInitMatchesRunInit(t *testing.T) {
 	if err := runInit(context.Background(), initDepsWithRepoURL(t, dirB)); err != nil {
 		t.Fatalf("runInit: %v", err)
 	}
-	settingsB, err := os.ReadFile(filepath.Join(dirB, "cheasee-settings.json"))
+	settingsB, err := os.ReadFile(filepath.Join(dirB, "main", "cheasee-settings.json"))
 	if err != nil {
 		t.Fatalf("read runInit settings: %v", err)
 	}
@@ -480,7 +481,7 @@ func TestRunUpE_autoInitMissingMarkerFailsClosed(t *testing.T) {
 		deps := initDepsWithRepoURL(t, wd)
 		deps.ConfirmFn = func(title string) (bool, error) {
 			if strings.Contains(title, "Configure API keys") {
-				_ = os.Remove(filepath.Join(wd, "cheasee-settings.json"))
+				_ = os.Remove(filepath.Join(wd, "main", "cheasee-settings.json"))
 				return false, nil
 			}
 			if strings.Contains(title, "Add a custom skill repository") {
@@ -542,11 +543,11 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 	if !strings.Contains(stderr, "removing incomplete workspace residue") {
 		t.Errorf("cleanup must be announced to stderr, got: %q", stderr)
 	}
-	// Residue cleaned: worktree + .bare removed, folder left empty.
-	if _, statErr := os.Stat(workdir); !os.IsNotExist(statErr) {
+	// Residue cleaned: worktree leaf + .bare removed, init folder left empty.
+	if _, statErr := os.Stat(filepath.Join(workdir, "main")); !os.IsNotExist(statErr) {
 		t.Errorf("failed auto-init must remove the worktree residue: %v", statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(workdir, ".bare")); !os.IsNotExist(statErr) {
 		t.Errorf("failed auto-init must remove .bare: %v", statErr)
 	}
 	if len(c.composeArgs) != 0 {
@@ -656,8 +657,8 @@ func TestRunUpE_autoInitDsStoreOnlyFolder(t *testing.T) {
 	if len(c.composeArgs) != 2 {
 		t.Errorf(".DS_Store-only folder must take the one-shot path (build + up), got %d: %v", len(c.composeArgs), c.composeArgs)
 	}
-	if exec.name != containerName(workdir) {
-		t.Errorf(".DS_Store-only one-shot must exec into %q, got %q", containerName(workdir), exec.name)
+	if exec.name != containerName(filepath.Join(workdir, "main")) {
+		t.Errorf(".DS_Store-only one-shot must exec into %q, got %q", containerName(filepath.Join(workdir, "main")), exec.name)
 	}
 }
 

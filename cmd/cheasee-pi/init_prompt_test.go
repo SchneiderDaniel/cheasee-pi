@@ -175,16 +175,16 @@ func TestRunInit_GitHubFlowClonesWorktree(t *testing.T) {
 	if len(clone.cloneArgs) != 1 || len(clone.worktreeAdd) != 1 {
 		t.Fatalf("expected one bare clone + one worktree add, got %d/%d", len(clone.cloneArgs), len(clone.worktreeAdd))
 	}
-	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
-		t.Error("init must bare-clone into <parent>/.bare")
+	if _, err := os.Stat(filepath.Join(workdir, ".bare")); err != nil {
+		t.Error("init must bare-clone into <workdir>/.bare")
 	}
-	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); err != nil {
-		t.Error("init must scaffold cheasee-settings.json at the folder root")
+	if _, err := os.Stat(filepath.Join(workdir, "main", "cheasee-settings.json")); err != nil {
+		t.Error("init must scaffold cheasee-settings.json in the worktree leaf")
 	}
-	if _, err := os.Stat(filepath.Join(workdir, "docker")); !os.IsNotExist(err) {
-		t.Error("init must not extract docker/ into the workdir (CLI cache dir owns compose)")
+	if _, err := os.Stat(filepath.Join(workdir, "main", "docker")); !os.IsNotExist(err) {
+		t.Error("init must not extract docker/ into the worktree (CLI cache dir owns compose)")
 	}
-	if _, err := os.Stat(filepath.Join(workdir, ".initremove")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(workdir, "main", ".initremove")); !os.IsNotExist(err) {
 		t.Error("init must not create .initremove")
 	}
 }

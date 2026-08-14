@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -276,11 +277,33 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phase 5: clone phase — bare clone to <parent>/.bare + main worktree.
+	// Phase 5: clone phase — mkdir + cd for the stated branch (typically
+	// main): the worktree leaf <workdir>/<branch> becomes the workspace, its
+	// sibling .bare the bare clone; everything after (scaffold, skill repos,
+	// API keys, failure cleanup) runs inside the leaf as before.
 	if !deps.NoGitHub {
+		branch := "main"
+		if !deps.NoInput {
+			branch, err = deps.InputFn("Branch to check out", "main")
+			if err != nil {
+				return fmt.Errorf("branch prompt failed: %w", err)
+			}
+			if branch = strings.TrimSpace(branch); branch == "" {
+				branch = "main"
+			}
+		}
+		// The branch never touches git directly (the worktree checks out the
+		// bare HEAD detached) — it only names the folder, so keep it a plain
+		// name: a slash would nest folders and break the sibling .bare
+		// cleanup.
+		if branch == "." || branch == ".." || strings.ContainsAny(branch, `/\\`) {
+			return fmt.Errorf("invalid branch %q — the branch names the worktree folder; use a plain name like main (no slashes)", branch)
+		}
+		deps.Workdir = filepath.Join(deps.Workdir, branch)
 		if err := gitCloneWorktree(ctx, repoURL, deps.Workdir); err != nil {
 			return err
 		}
+		auth.RepoPath = deps.Workdir
 	}
 
 	// Phases 6-9 (scaffold → skill repos → save auth → API key setup) run
