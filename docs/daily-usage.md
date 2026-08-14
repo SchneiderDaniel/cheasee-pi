@@ -27,7 +27,9 @@ Before running pi via Docker, ensure the following are in place:
 - **A cheasee-pi workspace** — run `cheasee-pi init` in an empty folder to set
   one up (bare clone + main worktree + `cheasee-settings.json`), or just run
   `cheasee-pi start` in an empty folder — it auto-inits first and continues
-  into start in the same invocation.
+  into start in the same invocation. Re-authenticate later (revoked GitHub
+  token, rotated API keys) with `cheasee-pi init --reauth` in the workspace —
+  it redoes the GitHub OAuth and pi API-key authentications.
 
 The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
 automatically inside the container.

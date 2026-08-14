@@ -13,9 +13,6 @@ import { cleanupWorktree } from "../worktree.ts";
 import { acquireRunLock, deleteCheckpointFile, releaseRunLock } from "../state-checkpoint.ts";
 import { sendPipelineError } from "../notifications.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
-import type { RunContext } from "./shared.ts";
-
-export type { RunContext } from "./shared.ts";
 
 /**
  * Main supervisor handler — processes a GitHub issue through the full Kanban pipeline.
@@ -39,9 +36,11 @@ export async function handleSupervisorCommand(
  * single top-level try/catch/finally. The entry gates (trust check, arg
  * parsing, debug setup) run before the try — matching the pre-refactor
  * control flow where an untrusted project or bad args return without
- * hitting the finally block.
+ * hitting the finally block. Package-private: only handleSupervisorCommand
+ * dispatches the pipeline (the barrel exports the command entry, not the
+ * orchestrator).
  */
-export async function runSupervisorPipeline(
+async function runSupervisorPipeline(
 	args: string | undefined,
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,

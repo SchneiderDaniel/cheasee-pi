@@ -51,6 +51,7 @@ Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee
 ```bash
 cheasee-pi init           # empty-folder setup: repo URL, auth, bare clone + worktree,
                           # scaffold gitignored cheasee-settings.json
+cheasee-pi init --reauth  # initialized workspace: redo GitHub OAuth + pi API-key auth
 cheasee-pi start          # empty folder → auto-init; workspace → start pi (default)
 cheasee-pi down           # stop and remove container
 cheasee-pi clean          # kill orphaned pi sessions + prune Docker garbage

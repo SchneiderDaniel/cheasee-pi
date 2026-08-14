@@ -27,17 +27,20 @@ var initSplitFiles = []string{
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
 	"const:initTimeout":  "init.go",
-	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL": "init.go",
-	"var:newInitDeps":     "init.go",
-	"type:InitPorts":      "init.go",
-	"type:InitDeps":       "init.go",
-	"func:Validate":       "init.go",
-	"var:initCmd":         "init.go",
-	"func:init":           "init.go",
-	"func:runInitE":       "init.go",
-	"func:runInit":        "init.go",
-	"func:runInitProbe":   "init.go",
-	"func:resolveRepoURL": "init.go",
+	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL,initReauth": "init.go",
+	"var:newInitDeps":                   "init.go",
+	"type:InitPorts":                    "init.go",
+	"type:InitDeps":                     "init.go",
+	"func:Validate":                     "init.go",
+	"var:initCmd":                       "init.go",
+	"func:init":                         "init.go",
+	"func:runInitE":                     "init.go",
+	"func:runInit":                      "init.go",
+	"func:resolveInitDeps":              "init.go",
+	"func:runInitProbe":                 "init.go",
+	"func:resolveRepoURL":               "init.go",
+	"type:initMode":                     "init.go",
+	"const:initModeFull,initModeReauth": "init.go",
 
 	"func:gitCloneWorktree":  "init_clone.go",
 	"func:canonicalRepoURL":  "init_clone.go",
@@ -46,6 +49,7 @@ var wantInitDecls = map[string]string{
 	"func:runInitAuth":    "init_auth.go",
 	"func:runInitAPIKeys": "init_auth.go",
 	"func:runInitLegacy":  "init_auth.go",
+	"func:runReauth":      "init_auth.go",
 	"func:promptAPIKey":   "init_auth.go",
 
 	"func:runInitDockerCheck":       "init_scaffold.go",
@@ -206,6 +210,7 @@ var testSplitFiles = []string{
 // consolidated test scaffolding; only the auth helpers remain.
 var initHelperDecls = map[string]string{
 	"func:authJSONExists": "init_helpers_test.go",
+	"func:authJSONBytes":  "init_helpers_test.go",
 	"func:loadAuthJSON":   "init_helpers_test.go",
 }
 
@@ -230,6 +235,8 @@ var testSplitRules = []prefixRule{
 	{"TestCanonicalRepoURL", "init_clone_test.go"},
 	{"TestRunInitAuth", "init_auth_test.go"},
 	{"TestRunInitLegacy", "init_auth_test.go"},
+	{"TestRunReauth", "init_auth_test.go"},
+	{"TestRunInitE", "init_prompt_test.go"},
 	{"TestDeviceFlowAuthenticator", "init_auth_test.go"},
 	{"TestRunInitScaffold", "init_scaffold_test.go"},
 	{"TestGitIgnoreCheaseeSettings", "init_scaffold_test.go"},
