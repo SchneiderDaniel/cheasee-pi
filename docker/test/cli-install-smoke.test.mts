@@ -414,6 +414,15 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			cleaned.includes("SessionID") || cleaned.includes("Docker Engine"),
 			`expected pi output, got (cleaned, last 2000 chars):\n${cleaned.slice(-2000)}`,
 		);
+
+		// Extensions must load cleanly — a boot that only *survives* (pi treats
+		// extension load failure as non-fatal and keeps running) but shows
+		// "Failed to load extension" is a broken image. The stale-dir npm
+		// guard bug (#1561) produced exactly this: pi boots, extensions fail.
+		assert.ok(
+			!cleaned.includes("Failed to load extension"),
+			`extension load failed at pi boot (cleaned, last 2000 chars):\n${cleaned.slice(-2000)}`,
+		);
 	});
 
 	// ── Checkpoint 9: cheasee-pi down removes container ────────────
