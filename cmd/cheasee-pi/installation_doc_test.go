@@ -170,9 +170,9 @@ func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
 
 // TestInstallationDoc_UninstallScriptReference verifies the Uninstall section
 // presents the standalone scripts/uninstall.sh one-liner as the primary path
-// (issue #1510) while retaining the `cheasee-pi uninstall` subcommand for
-// workspace-level cleanup — and drops the misleading `sudo` prefix (under
-// sudo, os.UserCacheDir/UserConfigDir resolve to /root).
+// (issue #1510) while retaining the `cheasee-pi uninstall` subcommand — and
+// drops the misleading `sudo` prefix (under sudo, os.UserCacheDir/
+// UserConfigDir resolve to /root).
 func TestInstallationDoc_UninstallScriptReference(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
