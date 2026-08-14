@@ -75,3 +75,4 @@
 {"datetime":"2026-08-09T16:46:53.119Z","question":"Existing non-empty repo (like the cheasee-pi repo itself) — how does it get its cheasee-settings.json?","answer":"init_empty_only"}
 {"datetime":"2026-08-11T20:28:17.735Z","question":"6 old pi sessions (48–138 min old, ~781 MB total) are candidates for \"stale\". Which do I kill?","answer":"why did cheasee-pi clean not cleaned that up? fix that please"}
 {"datetime":"2026-08-11T20:40:02.447Z","question":"How should the .zed clean task be improved?","answer":"both"}
+{"datetime":"2026-08-14T18:35:45.740Z","question":"Entrypoint npm-install guard checks `[ ! -d node_modules ]`; stale empty dir (jiti cache) defeats it forever. Fix: check `node_modules/.package-lock.json` instead. Want PR (worktree + branch, main locked)?","answer":"fix_pr"}
