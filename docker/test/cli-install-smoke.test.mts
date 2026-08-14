@@ -416,10 +416,10 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 
 	it("checkpoint 9 — cheasee-pi down removes container", () => {
 		// down resolves the per-repo compose project (cheasee-pi-<slug>) from
-		// the workspace root like start — no --workdir needed. The workspace
-		// root is found via cheasee-settings.json and the slug via the seeded
-		// sibling bare repo's remote, matching checkpoint 5's project exactly.
-		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000 });
+		// the workspace root like start — run inside the workspace so
+		// findWorkspaceRoot finds cheasee-settings.json, and the slug via the
+		// seeded sibling bare repo's remote, matching checkpoint 5's project.
+		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: workdir });
 		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
 		assert.ok(
 			result.stderr.includes("Container stopped and removed"),
