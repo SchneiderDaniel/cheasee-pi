@@ -112,7 +112,8 @@ func runInitSkillRepos(deps InitDeps) error {
 		fmt.Fprintf(os.Stderr, "   ───────────────────────────\n")
 		fmt.Fprintf(os.Stderr, "   Skill/extension repos are installed into the container via pi's git\n")
 		fmt.Fprintf(os.Stderr, "   package mechanism (pi install -l → .pi/git/). Enter owner/repo,\n")
-		fmt.Fprintf(os.Stderr, "   https://…, or git:host/user/repo[@ref]; leave empty to stop.\n\n")
+		fmt.Fprintf(os.Stderr, "   https://…, or git:host/user/repo[@ref]. You can add several —\n")
+		fmt.Fprintf(os.Stderr, "   answer no (or leave the input empty) to stop.\n\n")
 		for {
 			ok, err := deps.ConfirmFn("Add a custom skill repository?")
 			if err != nil {
@@ -134,6 +135,7 @@ func runInitSkillRepos(deps InitDeps) error {
 				return err
 			}
 			canonical = append(canonical, c)
+			fmt.Fprintf(os.Stderr, "   ✓ Added %s — the prompt repeats; add another or answer no to finish.\n\n", c)
 		}
 	}
 	if len(canonical) == 0 {
