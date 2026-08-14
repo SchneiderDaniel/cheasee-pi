@@ -287,6 +287,8 @@ For workspace-level cleanup from inside a workspace, `cheasee-pi uninstall` remo
 cheasee-pi uninstall
 ```
 
+Run it **without** `sudo` — under sudo, the config/cache paths resolve to root's account and the command would delete root's state, not yours. If the binary lives in a root-owned directory like `/usr/local/bin`, use the standalone script above instead: it elevates per-operation and never needs sudo. When the CLI itself can't remove the binary, it prints a manual `sudo rm` hint with the full path.
+
 Add `--force` to skip confirmation, `--remove-git` to also delete `.git/`.
 
 ---
