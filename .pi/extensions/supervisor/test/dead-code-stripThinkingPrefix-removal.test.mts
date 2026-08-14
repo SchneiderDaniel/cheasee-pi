@@ -3,12 +3,14 @@
  *
  * Dead-code analysis flagged `stripThinkingPrefix` as unused — zero call
  * sites. The underlying `THINKING_PREFIX_RE` const is LIVE (used inside
- * `extractLastJson`) and must NOT be deleted.
+ * `extractLastJson`) and must NOT be deleted. Since the clean-code split
+ * (#1535) relocated `extractLastJson` and `THINKING_PREFIX_RE` to
+ * last-json-scanner.ts, the live-const assertions now read that file.
  *
  * Verifies:
  *   - `stripThinkingPrefix` is no longer defined in output.ts
- *   - `THINKING_PREFIX_RE` still exists and is still referenced inside
- *     `extractLastJson`
+ *   - `THINKING_PREFIX_RE` still exists in last-json-scanner.ts and is
+ *     still referenced inside `extractLastJson` there
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/dead-code-stripThinkingPrefix-removal.test.mts
@@ -27,6 +29,7 @@ function readSource(relativePath: string): string {
 
 describe("agent/output.ts — dead stripThinkingPrefix removed", () => {
 	const source = readSource("agent/output.ts");
+	const scannerSource = readSource("agent/last-json-scanner.ts");
 
 	it("stripThinkingPrefix is no longer defined in output.ts", () => {
 		assert.equal(
@@ -38,14 +41,14 @@ describe("agent/output.ts — dead stripThinkingPrefix removed", () => {
 
 	it("THINKING_PREFIX_RE still exists (live const, do not delete)", () => {
 		assert.equal(
-			source.includes("const THINKING_PREFIX_RE = /^💭\\s*/gm;"),
+			scannerSource.includes("const THINKING_PREFIX_RE = /^💭\\s*/gm;"),
 			true,
 			"THINKING_PREFIX_RE must be kept — it is used by extractLastJson",
 		);
 	});
 
 	it("THINKING_PREFIX_RE is still referenced inside extractLastJson", () => {
-		const extractSection = source.slice(source.indexOf("function extractLastJson"));
+		const extractSection = scannerSource.slice(scannerSource.indexOf("function extractLastJson"));
 		assert.match(
 			extractSection,
 			/raw\.replace\(THINKING_PREFIX_RE, ""\)/,
