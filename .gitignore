@@ -39,8 +39,10 @@ ignore/
 # Unix core dumps (Go crashes during dev)
 core
 core.*
-# But keep TypeScript modules named core.ts (e.g. supervisor pipeline/stages/core.ts)
+# But keep source modules named core.ts/core.py (e.g. supervisor pipeline/stages/core.ts,
+# dependency_existence_check/core.py)
 !core.ts
+!core.py
 
 # Go build artifacts
 /cheasee-pi
