@@ -10,12 +10,9 @@ import { preparePipelineContext, runPreflight } from "./preflight.ts";
 import { runAgentLoop } from "./agent-loop.ts";
 import { runPostPipelinePhase } from "./post-pipeline.ts";
 import { cleanupWorktree } from "../worktree.ts";
-import { deleteCheckpointFile } from "../state-checkpoint.ts";
+import { acquireRunLock, deleteCheckpointFile, releaseRunLock } from "../state-checkpoint.ts";
 import { sendPipelineError } from "../notifications.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
-import type { RunContext } from "./shared.ts";
-
-export type { RunContext } from "./shared.ts";
 
 /**
  * Main supervisor handler — processes a GitHub issue through the full Kanban pipeline.
@@ -39,9 +36,11 @@ export async function handleSupervisorCommand(
  * single top-level try/catch/finally. The entry gates (trust check, arg
  * parsing, debug setup) run before the try — matching the pre-refactor
  * control flow where an untrusted project or bad args return without
- * hitting the finally block.
+ * hitting the finally block. Package-private: only handleSupervisorCommand
+ * dispatches the pipeline (the barrel exports the command entry, not the
+ * orchestrator).
  */
-export async function runSupervisorPipeline(
+async function runSupervisorPipeline(
 	args: string | undefined,
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
@@ -50,6 +49,16 @@ export async function runSupervisorPipeline(
 	if (!runCtx) return;
 
 	try {
+		// One pipeline per repo — a concurrent run would race on the same
+		// worktree path (second run reuses the live worktree, first finisher
+		// removes it under the other's agent). Refuse to start instead.
+		const lockRes = acquireRunLock(runCtx.ctx.cwd, runCtx.issueNum);
+		if (!lockRes.ok) {
+			runCtx.collector.push("handler", "error", lockRes.error);
+			runCtx.ctx.ui.notify(`Pipeline blocked: ${lockRes.error}`, "error");
+			getDebugLogger().error("handler", "Run lock not acquired", { error: lockRes.error });
+			return;
+		}
 		if (!(await runPreflight(runCtx))) return;
 		await runAgentLoop(runCtx);
 		await runPostPipelinePhase(runCtx);
@@ -90,6 +99,9 @@ export async function runSupervisorPipeline(
 			errMsg,
 		);
 	} finally {
+		// Release the run lock (idempotent — only removed if we own it)
+		releaseRunLock(runCtx.ctx.cwd);
+
 		// Clear supervisor issue data from footer (any outcome)
 		// Uses shared pi.events bus instead of dynamic import.
 		pi.events.emit("supervisor:issue-data", null);

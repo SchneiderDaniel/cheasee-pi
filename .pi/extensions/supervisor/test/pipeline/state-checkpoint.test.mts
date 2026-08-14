@@ -27,6 +27,8 @@ import {
 	writeCheckpointFile,
 	deleteCheckpointFile,
 	cleanupStalePipelineState,
+	acquireRunLock,
+	releaseRunLock,
 	type SupervisorCheckpointState,
 	type CheckpointName,
 } from "../../pipeline/state-checkpoint.ts";
@@ -450,7 +452,13 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		// Should call git worktree prune, remove, branch -D, and rm -rf
 		assert.ok(calls.length >= 4, "should have at least 4 exec calls");
 		assert.deepEqual(calls[0].args, ["worktree", "prune"]);
-		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "/tmp/stale-worktree"]);
+		assert.deepEqual(calls[1].args, [
+			"worktree",
+			"remove",
+			"--force",
+			"--force",
+			"/tmp/stale-worktree",
+		]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "stale-branch"]);
 		assert.deepEqual(calls[3].args, ["-rf", "/tmp/stale-worktree"]);
 
@@ -654,7 +662,71 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(result.ok, true);
 		// Should have cleaned up the worktree
 		assert.equal(calls.length, 4);
-		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", wtDir]);
+		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "--force", wtDir]);
 		assert.equal(existsSync(wtStatePath), false);
+	});
+});
+
+// ─── Tests: acquireRunLock / releaseRunLock ──────────────────────
+
+describe("acquireRunLock / releaseRunLock", () => {
+	let cwd: string;
+	beforeEach(() => {
+		cwd = mkdtempSync(join(tmpdir(), "run-lock-"));
+	});
+	afterEach(() => {
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("acquires on fresh repo, then releases (own pid only)", () => {
+		const acquired = acquireRunLock(cwd, 1503);
+		assert.equal(acquired.ok, true);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run.json")), true);
+
+		// Release removes the lock
+		releaseRunLock(cwd);
+		assert.equal(existsSync(join(cwd, ".pi", "supervisor-run.json")), false);
+	});
+
+	it("blocks when another LIVE pipeline holds the lock", () => {
+		const acquired = acquireRunLock(cwd, 1503);
+		assert.equal(acquired.ok, true);
+		// Second acquire — same live pid → blocked
+		const blocked = acquireRunLock(cwd, 1504);
+		assert.equal(blocked.ok, false);
+		if (!blocked.ok) {
+			assert.ok(blocked.error.includes("Another supervisor pipeline is already running"));
+			assert.equal(blocked.source, "run-lock");
+		}
+	});
+
+	it("steals a stale lock whose holder PID is dead (crashed run)", () => {
+		// Write a lock claiming a dead PID
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run.json"),
+			JSON.stringify({ pid: 99999999, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+		const acquired = acquireRunLock(cwd, 1504);
+		assert.equal(acquired.ok, true, "stale lock should be taken over");
+		// Our pid now owns it
+		const lock = JSON.parse(readFileSync(join(cwd, ".pi", "supervisor-run.json"), "utf-8"));
+		assert.equal(lock.pid, process.pid);
+		assert.equal(lock.issueNum, 1504);
+	});
+
+	it("release does NOT delete a lock owned by another pid", () => {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		// pid 1 (init) is alive but not us
+		writeFileSync(
+			join(cwd, ".pi", "supervisor-run.json"),
+			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
+		);
+		releaseRunLock(cwd);
+		assert.equal(
+			existsSync(join(cwd, ".pi", "supervisor-run.json")),
+			true,
+			"lock owned by another pid must survive release",
+		);
 	});
 });

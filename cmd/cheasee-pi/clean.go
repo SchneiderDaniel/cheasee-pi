@@ -90,11 +90,11 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		if !c.running {
 			continue
 		}
-		n, err := scanOrphans(ctx, c.name)
+		n, err := scanOrphans(ctx, c.name, 0, false)
 		if err != nil {
 			return fmt.Errorf("orphan scan %s: %w", c.name, err)
 		}
-		killed += n
+		killed += len(n)
 	}
 	if killed > 0 {
 		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)

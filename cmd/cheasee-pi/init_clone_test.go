@@ -75,6 +75,50 @@ func TestRedactToken_plainTextUntouched(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// canonicalRepoURL (entity — shared clone/scaffold normalization)
+// ──────────────────────────────────────────────
+
+func TestCanonicalRepoURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string // substring the error must mention; empty = success
+	}{
+		{"shorthand", "owner/repo", "https://github.com/owner/repo.git", ""},
+		{"shorthand git suffix", "owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"scp style", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https passthrough", "https://github.com/owner/repo", "https://github.com/owner/repo", ""},
+		{"https git suffix passthrough", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"https trailing slash passthrough", "https://github.com/owner/repo/", "https://github.com/owner/repo/", ""},
+		{"ssh scheme passthrough", "ssh://git@github.com/owner/repo", "ssh://git@github.com/owner/repo", ""},
+		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
+		{"unparsable", "not-a-url", "", "invalid repo URL"},
+		{"empty", "", "", "invalid repo URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := canonicalRepoURL(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("canonicalRepoURL(%q) error = %v, want mention %q", tc.in, err, tc.wantErr)
+				}
+				if strings.Contains(err.Error(), "SECRETTOKEN") {
+					t.Errorf("token must never leak into the error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonicalRepoURL(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Errorf("canonicalRepoURL(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// ──────────────────────────────────────────────
 // gitCloneWorktree (use case)
 // ──────────────────────────────────────────────
 
@@ -364,6 +408,38 @@ func TestGitCloneWorktree_realGitMasterDefault(t *testing.T) {
 	}
 	if string(data) != "fixture\n" {
 		t.Errorf("master-default worktree content mismatch: %q", data)
+	}
+}
+
+// ──────────────────────────────────────────────
+// removeInitResidue (post-clone failure cleanup)
+// ──────────────────────────────────────────────
+
+func TestRemoveInitResidue_realGitLayout(t *testing.T) {
+	// Adapter: on a real git worktree layout, removeInitResidue removes the
+	// worktree dir (incl. its .git file) plus the sibling .bare.
+	src := gitRemoteFixture(t, "main")
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "main")
+	bareDir := cloneWorktreeLayout(t, src, parent, workdir)
+
+	removeInitResidue(workdir)
+
+	if _, err := os.Stat(workdir); !os.IsNotExist(err) {
+		t.Errorf("removeInitResidue must remove the worktree dir: %v", err)
+	}
+	if _, err := os.Stat(bareDir); !os.IsNotExist(err) {
+		t.Errorf("removeInitResidue must remove the sibling .bare: %v", err)
+	}
+}
+
+func TestRemoveInitResidue_missingIsNoOp(t *testing.T) {
+	// Best-effort by contract: nothing was ever cloned → silent no-op, no
+	// error, no panic, parent untouched.
+	parent := t.TempDir()
+	removeInitResidue(filepath.Join(parent, "ws"))
+	if _, err := os.Stat(parent); err != nil {
+		t.Errorf("parent must be untouched: %v", err)
 	}
 }
 

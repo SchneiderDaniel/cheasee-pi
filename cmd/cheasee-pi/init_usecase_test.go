@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cli/oauth/api"
+	"github.com/cli/oauth/device"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 func TestInitUseCase_DockerNotInstalled(t *testing.T) {
@@ -153,8 +157,12 @@ func TestInitUseCase_ContextCancelled(t *testing.T) {
 }
 
 func TestInitProbe_Empty(t *testing.T) {
-	if err := runInitProbe(t.TempDir()); err != nil {
+	mode, err := runInitProbe(t.TempDir(), false)
+	if err != nil {
 		t.Fatalf("empty dir must proceed, got: %v", err)
+	}
+	if mode != initModeFull {
+		t.Errorf("empty dir without --reauth must select the full flow, got %v", mode)
 	}
 }
 
@@ -164,8 +172,12 @@ func TestInitProbe_DSStoreOnlyProceeds(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".DS_Store"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := runInitProbe(dir); err != nil {
+	mode, err := runInitProbe(dir, false)
+	if err != nil {
 		t.Fatalf(".DS_Store-only dir must proceed, got: %v", err)
+	}
+	if mode != initModeFull {
+		t.Errorf("expected full mode, got %v", mode)
 	}
 }
 
@@ -175,7 +187,7 @@ func TestInitProbe_NonEmptyRefuses(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	err := runInitProbe(dir)
+	_, err := runInitProbe(dir, false)
 	if err == nil || !strings.Contains(err.Error(), "empty folder") {
 		t.Fatalf("non-empty dir must refuse with an empty-folder-only error, got: %v", err)
 	}
@@ -188,12 +200,133 @@ func TestInitProbe_SettingsPresentRefuses(t *testing.T) {
 	// cheasee-settings.json presence = initialized marker — no re-apply prompt.
 	dir := t.TempDir()
 	testutil.WriteCheaseeSettingsFile(t, dir, `{"defaultProvider": "openai"}`)
-	err := runInitProbe(dir)
+	_, err := runInitProbe(dir, false)
 	if err == nil || !strings.Contains(err.Error(), "already initialized") {
 		t.Fatalf("settings present must refuse as already initialized, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "cheasee-pi start") {
 		t.Errorf("refusal should point at `cheasee-pi start`, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--reauth") {
+		t.Errorf("refusal should name `--reauth`, got: %v", err)
+	}
+}
+
+func TestInitProbe_SettingsPresentWithReauthSelectsReauth(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, dir, `{}`)
+	mode, err := runInitProbe(dir, true)
+	if err != nil {
+		t.Fatalf("settings present + --reauth must proceed, got: %v", err)
+	}
+	if mode != initModeReauth {
+		t.Errorf("expected reauth mode, got %v", mode)
+	}
+}
+
+func TestInitProbe_SettingsPresentWithReauthSkipsEmptyFolderProbe(t *testing.T) {
+	// On an initialized workspace the empty-folder probe is skipped — the
+	// workspace has files by design.
+	dir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, dir, `{}`)
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mode, err := runInitProbe(dir, true)
+	if err != nil {
+		t.Fatalf("settings present + --reauth must skip the empty-folder probe, got: %v", err)
+	}
+	if mode != initModeReauth {
+		t.Errorf("expected reauth mode, got %v", mode)
+	}
+}
+
+func TestInitProbe_ReauthInertWithoutSettings(t *testing.T) {
+	// --reauth without settings: flag is inert — full mode on empty dirs,
+	// unchanged empty-folder refusal on non-empty dirs.
+	empty := t.TempDir()
+	mode, err := runInitProbe(empty, true)
+	if err != nil {
+		t.Fatalf("--reauth on an empty dir without settings must proceed full, got: %v", err)
+	}
+	if mode != initModeFull {
+		t.Errorf("expected full mode, got %v", mode)
+	}
+
+	nonEmpty := t.TempDir()
+	if err := os.WriteFile(filepath.Join(nonEmpty, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInitProbe(nonEmpty, true); err == nil || !strings.Contains(err.Error(), "empty folder") {
+		t.Fatalf("--reauth without settings on a non-empty dir must keep the empty-folder refusal, got: %v", err)
+	}
+}
+
+func TestInitUseCase_PostCloneFailureCleansResidue(t *testing.T) {
+	// A post-clone init failure (API-key phase) removes the freshly cloned
+	// worktree + sibling .bare, announces the cleanup, and leaves the folder
+	// empty — otherwise both init (non-empty probe) and start (WorkspaceRefuse)
+	// would refuse the stranded folder.
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	stubInitGit(t)
+
+	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
+		d.ConfirmFn = mockConfirmFn(false, fmt.Errorf("declined"))
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		err := runInit(context.Background(), deps)
+		if err == nil || !strings.Contains(err.Error(), "API key setup") {
+			t.Fatalf("expected API-key setup failure, got %v", err)
+		}
+	})
+
+	if !strings.Contains(stderr, "removing incomplete workspace residue") {
+		t.Errorf("cleanup must be announced to stderr, got: %q", stderr)
+	}
+	if _, statErr := os.Stat(workdir); !os.IsNotExist(statErr) {
+		t.Errorf("post-clone failure must remove the worktree: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+		t.Errorf("post-clone failure must remove .bare: %v", statErr)
+	}
+}
+
+func TestInitUseCase_PreCloneFailureLeavesNoResidue(t *testing.T) {
+	// Pre-clone failure (device-flow/auth error) → no cleanup call and no
+	// .bare created (nothing to remove).
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = false
+		d.InputFn = mockInputFn("owner/repo", nil)
+		d.Ports = InitPorts{Auth: &mockAuthenticator{
+			waitFunc: func(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error) {
+				return nil, fmt.Errorf("device flow wait failed: user cancelled")
+			},
+		}}
+	})
+
+	err := runInit(context.Background(), deps)
+	if err == nil || !strings.Contains(err.Error(), "GitHub authentication failed") {
+		t.Fatalf("expected auth failure, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+		t.Errorf("pre-clone failure must leave no .bare: %v", statErr)
 	}
 }
 

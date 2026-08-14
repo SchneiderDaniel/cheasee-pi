@@ -38,8 +38,9 @@ CLI-managed cache dir; the dedicated cheasee-settings.json (gitignored,
 machine-local) is the initialized marker.
 
 Empty folder → runs cheasee-pi init first (bare clone + main worktree +
-cheasee-settings.json). Non-empty folder without cheasee-settings.json is
-refused — run 'cheasee-pi init' in an empty folder.
+cheasee-settings.json), then continues into start in the same invocation.
+Non-empty folder without cheasee-settings.json is refused — run 'cheasee-pi
+init' in an empty folder.
 
 The image clones the cheasee-pi repo at build time (Dockerfile ARG
 CHEASEE_REF) for its .pi resources. Reads provider API keys from
@@ -90,17 +91,41 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// firstRun marks the one-shot path: init ran in this invocation, so the
+	// pre-exec confirmation announces the workspace setup (init's own
+	// completion message drops the standalone next-step hint via InStartFlow).
+	firstRun := false
 	if state == WorkspaceEmpty {
 		if upDryRun {
-			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` again.\n", workdir)
+			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` — init and start in one invocation.\n", workdir)
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init` first...\n", workdir)
-		if err := runInit(ctx, newInitDeps(workdir)); err != nil {
-			return fmt.Errorf("auto-init failed: %w", err)
+		// Init is time-bounded (device-flow OAuth polling dominates the window);
+		// the continuation after it stays unbounded — image build + npm install
+		// legitimately exceed 5 minutes.
+		initCtx, cancel := context.WithTimeout(ctx, initTimeout)
+		deps := newInitDeps(workdir)
+		deps.InStartFlow = true
+		initErr := runInit(initCtx, deps)
+		cancel()
+		if initErr != nil {
+			return fmt.Errorf("auto-init failed: %w", initErr)
 		}
-		fmt.Fprintf(os.Stderr, "  ℹ Init complete — run `cheasee-pi start` again to launch pi.\n")
-		return nil
+		firstRun = true
+
+		// Re-resolve the workspace state: the continuation needs the resolved
+		// root for container name / compose mounts (the empty state resolved
+		// root=""), and the re-classification fails closed when init left no
+		// settings marker — a worktree without cheasee-settings.json is a
+		// folder both init and start refuse.
+		root, state, err = resolveStartWorkspace(workdir)
+		if err != nil {
+			return err
+		}
+		if state != WorkspaceInitialized {
+			return fmt.Errorf("auto-init left %q non-empty without cheasee-settings.json — remove the worktree/.bare residue and re-run `cheasee-pi start` in an empty folder", workdir)
+		}
 	}
 	if state == WorkspaceRefuse {
 		return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
@@ -134,6 +159,13 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("build env vars: %w", err)
 	}
+
+	// Tag this session so the reaper can find it after the docker exec client
+	// detaches. Disconnected exec sessions stay alive (their parent remains the
+	// host-side shim, so the orphan scan never sees them); killing by this
+	// unique marker is the only way to reap exactly the session we launched.
+	sessionID := newSessionID()
+	envMap["CHEASEE_SESSION_ID"] = sessionID
 
 	if len(envMap) == 0 {
 		fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
@@ -185,17 +217,32 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Phase 7: Run pre-start orphan scan (best-effort)
-	killed, err := scanOrphans(ctx, upName)
+	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
+	// age reaping is clean's job, a pre-start age sweep could kill a long-
+	// running session the user still has attached elsewhere)
+	killed, err := scanOrphans(ctx, upName, 0, false)
 	if err != nil {
 		return fmt.Errorf("pre-start orphan scan: %w", err)
 	}
-	if killed > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", killed)
+	if len(killed) > 0 {
+		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", len(killed))
 	}
 
-	// Phase 8: exec pi
-	return execPIContainer(upName, envMap, target)
+	// Phase 8: exec pi — the one-shot confirmation must print BEFORE the
+	// blocking exec (a post-exec message would only appear when the session
+	// ends).
+	if firstRun {
+		fmt.Fprintf(os.Stderr, "  ✓ Workspace set up — starting pi...\n")
+	}
+	execErr := execPIContainer(upName, envMap, target)
+
+	// The docker exec client just exited (user quit or disconnected). Reap the
+	// session by marker: on disconnect pi keeps running with PPid=0, invisible
+	// to the orphan scan — without this every detached start leaks a pi.
+	if err := killSessionByMarker(ctx, upName, sessionID); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
+	}
+	return execErr
 }
 
 // WorkspaceState is the start-gate classification of a folder.

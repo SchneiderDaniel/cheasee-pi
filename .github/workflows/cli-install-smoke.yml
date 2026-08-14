@@ -125,8 +125,9 @@ jobs:
           docker logs cheasee-pi 2>/dev/null || echo "(no container logs)"
           # ponytail: workflow doesn't know test's temp workdir path;
           # test's after() hook does docker compose down -v.
-          # This safety net removes by container name directly.
+          # This safety net removes by container name directly (legacy
+          # shared name + the per-repo name the smoke flow uses, PR #1516).
           echo "--- Cleaning up container ---"
-          docker rm -fv cheasee-pi 2>/dev/null || echo "(no container to remove)"
+          docker rm -fv cheasee-pi cheasee-pi-cli-install-smoke 2>/dev/null || echo "(no container to remove)"
           echo "--- Pruning build cache ---"
           docker builder prune -f 2>/dev/null || true

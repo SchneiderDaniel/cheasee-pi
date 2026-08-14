@@ -128,10 +128,17 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 						"See ast-grep docs for full list.",
 				}),
 			),
+			directory: Type.Optional(
+				Type.String({
+					description:
+						"Directory to scope the search to (absolute or relative to cwd). " +
+						"Defaults to the current working directory.",
+				}),
+			),
 		}),
 		renderResult: renderStructuralSearchResult as any,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const { pattern } = params;
+			const { pattern, directory } = params;
 			const language =
 				params.language ?? (await detectLanguage(pi.exec.bind(pi), ctx.cwd)) ?? DEFAULT_LANGUAGE;
 
@@ -142,7 +149,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 			}
 
 			// Check cache before executing
-			const cacheKey = makeCacheKey(pattern, language, ctx.cwd);
+			const cacheKey = makeCacheKey(pattern, language, directory ?? ctx.cwd);
 			const cached = getCache(cacheKey);
 			if (cached) {
 				return cached;
@@ -162,6 +169,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 				language,
 				"--no-ignore=hidden",
 			];
+			if (directory) args.push(directory);
 
 			const result = await pi.exec(binary, args, {
 				cwd: ctx.cwd,

@@ -4,8 +4,9 @@
 // All functions return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { existsSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
@@ -107,6 +108,128 @@ export async function reconcileToRemoteBranch(
 	return { ok: true, value: undefined };
 }
 
+/**
+ * Resolve the worktree base directory, falling back to a writable location.
+ *
+ * The configured base (default "../") resolves against the repo cwd and is
+ * used as-is when writable or creatable. In the docker deployment the parent
+ * of the repo mount (/workspaces) is an image-owned overlay (root:root 755),
+ * so `git worktree add` fails with "Permission denied" and the whole pipeline
+ * aborts. Probe writability up front and fall back to
+ * os.tmpdir()/cheasee-pi-worktrees — the pipeline runs instead of dying.
+ *
+ * Deterministic: same cwd + configured base + fs state always yields the same
+ * result, so the stale-state scanner can re-derive the base the worktree was
+ * actually created under.
+ */
+export function resolveWorktreeBase(
+	cwd: string,
+	configuredBase: string,
+	notify?: NotifyFn,
+): string {
+	const log = getDebugLogger();
+	const base = resolvePath(cwd, configuredBase);
+	if (isWritableOrCreatable(base)) {
+		return base;
+	}
+	const fallback = join(tmpdir(), "cheasee-pi-worktrees");
+	log.warn("worktree", `Worktree base ${base} is not writable — falling back to ${fallback}`);
+	notify?.info(`Worktree base ${base} not writable — using ${fallback} for this pipeline`);
+	try {
+		mkdirSync(fallback, { recursive: true });
+	} catch (err) {
+		throw new Error(
+			`Worktree base ${base} is not writable and fallback ${fallback} could not be created: ${
+				err instanceof Error ? err.message : String(err)
+			}`,
+		);
+	}
+	return fallback;
+}
+
+// W_OK on the path itself. Only missing paths (ENOENT) walk up to the
+// nearest existing ancestor — git worktree add creates leading dirs, so a
+// writable ancestor is enough for those. An existing-but-unwritable dir
+// (EACCES, e.g. /workspaces root:root 755) is a hard no: creation inside it
+// fails, so the caller must fall back.
+function isWritableOrCreatable(path: string): boolean {
+	try {
+		accessSync(path, fsConstants.W_OK);
+		return true;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			const parent = dirname(path);
+			if (parent === path) {
+				return false;
+			}
+			return isWritableOrCreatable(parent);
+		}
+		return false;
+	}
+}
+
+/**
+ * Recover a stale worktree registration before creating a new worktree.
+ *
+ * A crashed pipeline can leave a registration in .bare/worktrees/<branch>/ with
+ * its worktree dir already removed (crash cleanup deleted the dir but not the
+ * registration). The entrypoint locks every registration, and `git worktree
+ * prune` skips locked entries — so the stale registration blocks BOTH add
+ * attempts ("already checked out") and the prune that would fix it. Unlock +
+ * prune first, then the normal create flow re-adds cleanly.
+ *
+ * Never throws. Returns void — failures are logged and the create flow simply
+ * runs against the stale state (its own error path reports the failure).
+ */
+export async function recoverStaleWorktreeRegistration(
+	pi: ExtensionAPI,
+	cwd: string,
+	worktreeBase: string,
+	worktreeBranch: string,
+): Promise<void> {
+	const log = getDebugLogger();
+	const base = resolveWorktreeBase(cwd, worktreeBase);
+	const wt = resolvePath(base, worktreeBranch);
+
+	// Only recover when the registration exists but the dir is gone — a live
+	// worktree (dir present) must never be pruned out from under a pipeline.
+	if (existsSync(wt)) {
+		return;
+	}
+
+	// Locate the bare repo's admin dir: .bare/worktrees/<branch>/
+	const commonDir = await execChecked(pi, "git", ["rev-parse", "--git-common-dir"], {
+		cwd,
+		timeout: 10000,
+	});
+	if (commonDir.code !== 0) {
+		log.warn("worktree", "Could not resolve git common dir — skipping stale registration recovery");
+		return;
+	}
+	const bareWorktrees = join(commonDir.stdout.trim(), "worktrees");
+	const regDir = join(bareWorktrees, worktreeBranch);
+	if (!existsSync(regDir)) {
+		return; // no stale registration to recover
+	}
+
+	log.warn("worktree", `Stale registration ${regDir} (worktree dir missing) — unlocking + pruning`);
+
+	// Remove the lock so prune can drop the dead registration.
+	const lockFile = join(regDir, "locked");
+	if (existsSync(lockFile)) {
+		const unlock = await execChecked(pi, "rm", ["-f", lockFile], { timeout: 5000 });
+		if (unlock.code !== 0) {
+			log.warn("worktree", `Failed to remove lock file ${lockFile}: ${unlock.stderr}`);
+			return;
+		}
+	}
+
+	const prune = await execChecked(pi, "git", ["worktree", "prune"], { cwd, timeout: 15000 });
+	if (prune.code !== 0) {
+		log.warn("worktree", `git worktree prune failed during recovery: ${prune.stderr}`);
+	}
+}
+
 export async function createWorktree(
 	pi: ExtensionAPI,
 	cwd: string,
@@ -118,8 +241,14 @@ export async function createWorktree(
 	return withNotify(
 		async () => {
 			const log = getDebugLogger();
-			const wt = resolvePath(cwd, worktreeBase, worktreeBranch);
+			const base = resolveWorktreeBase(cwd, worktreeBase, notify);
+			const wt = resolvePath(base, worktreeBranch);
 			log.info("worktree", `Creating worktree: ${wt}`);
+
+			// Recover a stale registration left by a crashed run BEFORE the add
+			// attempts — otherwise both fail with "already checked out" while
+			// the entrypoint's lock blocks the prune that would fix it.
+			await recoverStaleWorktreeRegistration(pi, cwd, worktreeBase, worktreeBranch);
 
 			// Attempt 1: git worktree add -b (creates new branch + worktree)
 			try {
@@ -338,10 +467,13 @@ export async function cleanupWorktree(
 			// Check result.code explicitly — pi.exec resolves {code} on non-zero
 			// exit (never rejects), so failures surface instead of logging
 			// "removed" unconditionally.
+			// Double --force: git refuses to remove a locked worktree with a
+			// single --force (entrypoint.sh locks every worktree registration).
+			// The lock only protects against prune; we own this worktree.
 			const removeRes = await execChecked(
 				pi,
 				"git",
-				["worktree", "remove", "--force", worktreePath],
+				["worktree", "remove", "--force", "--force", worktreePath],
 				{
 					cwd,
 					timeout: 15000,

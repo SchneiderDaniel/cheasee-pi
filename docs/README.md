@@ -51,6 +51,7 @@ Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee
 ```bash
 cheasee-pi init           # empty-folder setup: repo URL, auth, bare clone + worktree,
                           # scaffold gitignored cheasee-settings.json
+cheasee-pi init --reauth  # initialized workspace: redo GitHub OAuth + pi API-key auth
 cheasee-pi start          # empty folder → auto-init; workspace → start pi (default)
 cheasee-pi down           # stop and remove current workspace's container
 cheasee-pi clean          # remove all cheasee-pi containers (all repos) + prune garbage
@@ -71,8 +72,8 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
 | [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage) | Docker workflow, parallel sessions, troubleshooting |
 | [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
-| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 18 extensions, agent definitions, published packages |
-| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 20 skill definitions (10 auto-loaded, 10 manual) |
+| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 17 extensions, agent definitions, published packages |
+| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 21 skill definitions (11 auto-loaded, 10 manual) |
 | [Methodology](https://schneiderdaniel.github.io/cheasee-pi/methodology) | Kanban pipeline, security, token efficiency, daily use |
 | [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | Internal-only prompts (all Cheasee-Pi prompts converted to skills) |
 | [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
@@ -90,7 +91,9 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 
 ### Update pi
 
-Pi auto-updates to the latest version on every container start (entrypoint checks npm registry). No action needed.
+Pi is installed as `@latest` at image build time; `cheasee-pi start`
+rebuilds the image whenever the container isn't running, so pi updates
+automatically on every start. No action needed.
 
 For Dockerfile / entrypoint changes (new tools, config), rebuild:
 
@@ -101,10 +104,12 @@ cheasee-pi start --build
 ### CodeFlow (code-structure visualization)
 
 The stack ships a local CodeFlow service (browser-based dependency/architecture
-visualizer, tree-sitter AST, 18 languages). It starts with `docker compose up -d`
-and serves on port 8470. See
-[Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization)
-for configuration (`cmd/cheasee-pi/embedded/docker/codeflow/config.json`).
+visualizer, tree-sitter AST, 18 languages). It starts automatically with
+`cheasee-pi start` (a compose-stack service; raw `docker compose up -d` works
+too — the required bind-mount env vars are in
+[Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization))
+and serves on port 8470. Configuration:
+`cmd/cheasee-pi/embedded/docker/codeflow/config.json`.
 
 ## Contributing
 

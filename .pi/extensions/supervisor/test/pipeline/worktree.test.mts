@@ -4,9 +4,9 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createWorktree,
@@ -14,6 +14,7 @@ import {
 	installWorktreeDeps,
 	cleanupWorktree,
 	deleteBranch,
+	recoverStaleWorktreeRegistration,
 } from "../../pipeline/worktree.ts";
 import type { NotifyFn } from "../../pipeline/helpers.ts";
 
@@ -72,14 +73,73 @@ function createMockNotify(): { notify: NotifyFn; calls: Array<{ level: string; m
 	return { notify, calls };
 }
 
+// ─── Tests: recoverStaleWorktreeRegistration() ────────────────────
+
+describe("recoverStaleWorktreeRegistration()", () => {
+	it("unlocks + prunes a stale registration when worktree dir is missing", async () => {
+		// Real fs fixture: bare admin dir with a stale (locked) registration.
+		// worktreeBase "../worktrees" resolves to cwd's parent — the worktree
+		// dir there does NOT exist, so recovery must trigger.
+		const cwd = mkdtempSync(join(tmpdir(), "wt-recover-"));
+		const bareWorktrees = join(cwd, ".bare", "worktrees");
+		const regDir = join(bareWorktrees, "stale-branch");
+		mkdirSync(regDir, { recursive: true });
+		writeFileSync(join(regDir, "locked"), "Locked by entrypoint.sh");
+		writeFileSync(join(regDir, "gitdir"), "../../../stale-branch/.git");
+
+		const calls: ExecCall[] = [];
+		// rev-parse --git-common-dir → bare dir; rm lock ok; prune ok
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: join(cwd, ".bare"), stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+				{ code: 0, stdout: "", stderr: "" },
+			],
+			calls,
+		);
+		await recoverStaleWorktreeRegistration(pi, cwd, "../worktrees", "stale-branch");
+		// exec sequence: probe → rm lock → prune
+		assert.deepEqual(calls[0].args, ["rev-parse", "--git-common-dir"]);
+		assert.equal(calls[1].cmd, "rm");
+		assert.deepEqual(calls[1].args, ["-f", join(regDir, "locked")]);
+		assert.deepEqual(calls[2].args, ["worktree", "prune"]);
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("no-ops when the worktree dir still exists (live worktree — never pruned)", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "wt-recover-live-"));
+		// Live worktree dir exists at the resolved location (cwd's parent
+		// + worktreeBase + branch) → recovery must not run any exec.
+		const liveDir = join(dirname(cwd), "worktrees", "live-branch");
+		mkdirSync(liveDir, { recursive: true });
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([], calls);
+		await recoverStaleWorktreeRegistration(pi, cwd, "../worktrees", "live-branch");
+		assert.equal(calls.length, 0, "live worktree must not trigger any exec");
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("no-ops when no stale registration exists", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "wt-recover-none-"));
+		const calls: ExecCall[] = [];
+		// rev-parse returns a bare dir with no worktrees/ghost-branch registration
+		const pi = createMockPi([{ code: 0, stdout: join(cwd, ".bare"), stderr: "" }], calls);
+		await recoverStaleWorktreeRegistration(pi, cwd, "../worktrees", "ghost-branch");
+		assert.equal(calls.length, 1, "only the probe rev-parse, no unlock/prune");
+		rmSync(cwd, { recursive: true, force: true });
+	});
+});
+
 // ─── Tests: createWorktree() ─────────────────────────────────────
 
 describe("createWorktree()", () => {
 	it("creates worktree with -b flag on first attempt — returns { ok: true, value }", async () => {
 		const calls: ExecCall[] = [];
-		// add succeeds → reconciliation: rev-parse exits 128 (no remote ref)
+		// rev-parse common dir (recovery probe, no stale reg) → add succeeds →
+		// reconciliation: rev-parse exits 128 (no remote ref)
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" },
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
 			],
@@ -98,7 +158,7 @@ describe("createWorktree()", () => {
 		if (result.ok) {
 			assert.ok(result.value.includes("feature-branch"));
 		}
-		assert.deepEqual(calls[0].args, [
+		assert.deepEqual(calls[1].args, [
 			"worktree",
 			"add",
 			"-b",
@@ -106,9 +166,9 @@ describe("createWorktree()", () => {
 			result.ok ? result.value : "",
 			"main",
 		]);
-		// Reconciliation: rev-parse exits 128 → no-op, no fetch/reset
-		assert.equal(calls.length, 2, "should have 2 exec calls (add + rev-parse)");
-		assert.deepEqual(calls[1].args, [
+		// Recovery probe (rev-parse common dir) + add + reconciliation rev-parse
+		assert.equal(calls.length, 3, "should have 3 exec calls (rev-parse, add, rev-parse)");
+		assert.deepEqual(calls[2].args, [
 			"rev-parse",
 			"--verify",
 			"refs/remotes/origin/feature-branch",
@@ -119,6 +179,7 @@ describe("createWorktree()", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" },
 				{ code: 1, stdout: "", stderr: "already exists" },
 				{ code: 0, stdout: "", stderr: "" },
 				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
@@ -135,12 +196,17 @@ describe("createWorktree()", () => {
 			notify,
 		);
 		assert.equal(result.ok, true);
-		assert.equal(calls.length, 3, "should have 3 exec calls (add -b fail, add, rev-parse)");
-		assert.deepEqual(calls[1].args, ["worktree", "add", calls[1].args[2], "feature-branch"]);
+		assert.equal(
+			calls.length,
+			4,
+			"should have 4 exec calls (rev-parse, add -b fail, add, rev-parse)",
+		);
+		assert.deepEqual(calls[2].args, ["worktree", "add", calls[2].args[2], "feature-branch"]);
 	});
 
 	it("succeeds (idempotent) even when both attempts fail — returns { ok: true } from dir exists fallback", async () => {
 		const pi = createMockPi([
+			{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe: no stale reg
 			{ code: 1, stdout: "", stderr: "error" },
 			{ code: 1, stdout: "", stderr: "already exists" },
 			{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
@@ -153,6 +219,7 @@ describe("createWorktree()", () => {
 
 	it("returns { ok: false } when both attempts fail and dir does not exist", async () => {
 		const pi = createMockPi([
+			{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe: no stale reg
 			{ code: 1, stdout: "", stderr: "error" },
 			{ code: 1, stdout: "", stderr: "already exists" },
 			{ code: 1, stdout: "", stderr: "directory not found" }, // test -d fails
@@ -172,8 +239,9 @@ describe("createWorktree()", () => {
 	});
 
 	it("does not call notify.error when create succeeds", async () => {
-		// add succeeds → rev-parse: no remote (128)
+		// recovery probe (no stale reg) → add succeeds → rev-parse: no remote (128)
 		const pi = createMockPi([
+			{ code: 0, stdout: "/repo/.bare", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
 			{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" },
 		]);
@@ -321,7 +389,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 3);
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
 	});
@@ -368,7 +436,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, true);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 2, "Only 2 git commands with skipBranch=true");
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		// No third call for branch -D
 	});
@@ -387,7 +455,7 @@ describe("cleanupWorktree()", () => {
 		const result = await cleanupWorktree(pi, "/repo", "/worktree", "branch", notify, false);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 3, "All 3 git commands with skipBranch=false");
-		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "/worktree"]);
+		assert.deepEqual(calls[0].args, ["worktree", "remove", "--force", "--force", "/worktree"]);
 		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
 		assert.deepEqual(calls[2].args, ["branch", "-D", "branch"]);
 	});
@@ -504,6 +572,7 @@ describe("reconcileToRemoteBranch()", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe: no stale reg
 				{ code: 0, stdout: "", stderr: "" }, // worktree add -b succeeds
 				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }, // rev-parse: no remote
 			],
@@ -512,7 +581,11 @@ describe("reconcileToRemoteBranch()", () => {
 		const { notify } = createMockNotify();
 		const result = await createWorktree(pi, "/repo", "../worktrees", "feature", "main", notify);
 		assert.equal(result.ok, true);
-		// Only 2 calls: worktree add + rev-parse (no fetch/reset since no remote)
-		assert.equal(calls.length, 2, "should have 2 exec calls on first run (add + no-op rev-parse)");
+		// 3 calls: recovery probe rev-parse + worktree add + reconciliation rev-parse (no fetch/reset)
+		assert.equal(
+			calls.length,
+			3,
+			"should have 3 exec calls on first run (probe + add + no-op rev-parse)",
+		);
 	});
 });

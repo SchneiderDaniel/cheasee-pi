@@ -5,8 +5,22 @@
  * (alphabetical order), so it captures the final system prompt after ALL other
  * extensions (caveman, ponytail, session-advice) have applied their modifications.
  *
- * Usage: /dump-context  → writes ignore/dump-context.txt + ignore/dump-context-options.json
- *                          prints context stats to terminal
+ * The model receives ONE assembled system message (verified in pi's
+ * dist/core/system-prompt.js): context files are inlined into <project_context>,
+ * skills into <available_skills>. The options snapshot (dump-context-options.json)
+ * MIRRORS that content — that mirroring is where perceived "duplicates" come
+ * from, not the prompt itself.
+ *
+ * dump-context.txt is written sectioned, each part labeled with its source:
+ *   [1] Base system prompt = pi built-in (no custom system.md configured)
+ *   [2] Extension injections (caveman, ponytail, session-advice)
+ *   [3] Project context = AGENTS.md (inlined from contextFiles)
+ *   [4] Skills (only model-invocation-enabled ones)
+ *   [5] Trailing (cwd)
+ *
+ * Usage: /dump-context  → writes ignore/dump-context.txt (sectioned + attributed)
+ *                          + ignore/dump-context-options.json (raw snapshot)
+ *                          + prints section sizes + duplicate report
  *        /reload        → pick up changes after editing this file
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -19,6 +33,7 @@ interface PromptOptions {
 	promptGuidelines?: string[];
 	contextFiles?: Array<{ path: string; content: string }>;
 	skills?: Array<{ name: string; description: string }>;
+	toolSnippets?: Record<string, string>;
 	appendSystemPrompt?: string;
 	cwd?: string;
 }
@@ -31,14 +46,101 @@ function estimateTokens(text: string): number {
 	return Math.round(text.length / 4);
 }
 
-/** Count top-level sections in system prompt (## or ### headings). */
-function countSections(text: string): number {
-	return (text.match(/^#{2,3}\s/gm) || []).length;
+interface Section {
+	label: string;
+	source: string;
+	body: string;
 }
 
-/** Count XML skill blocks. */
-function countSkillBlocks(text: string): number {
-	return (text.match(/<skill>/g) || []).length;
+/** Headers that extension injections start with (earliest match splits base vs injections). */
+const INJECTION_MARKERS = ["## Caveman Mode", "PONYTAIL MODE ACTIVE", "## Past Session Lessons"];
+
+/** Split the assembled prompt into attributed sections.
+ *  Order follows pi's buildSystemPrompt: base → <project_context> → skills → cwd,
+ *  with extension injections appended at the END via before_agent_start
+ *  (caveman/ponytail modify systemPrompt after the initial build). */
+function splitSections(prompt: string): Section[] {
+	// Grab structural XML blocks first
+	const grab = (open: string, close: string) => {
+		const start = prompt.indexOf(open);
+		const end = start >= 0 ? prompt.indexOf(close, start) : -1;
+		return end >= 0
+			? { start, end: end + close.length, body: prompt.slice(start, end + close.length) }
+			: null;
+	};
+	const ctx = grab("<project_context>", "</project_context>");
+	const skills = grab("<available_skills>", "</available_skills>");
+
+	// Remove structural blocks → rest = base + cwd + injections
+	const ranges = [ctx, skills]
+		.filter((r): r is NonNullable<typeof r> => r !== null)
+		.sort((a, b) => b.start - a.start);
+	let rest = prompt;
+	for (const r of ranges) rest = rest.slice(0, r.start) + "\n" + rest.slice(r.end);
+
+	// Pull out cwd line
+	const cwdMatch = rest.match(/Current working directory: \S+/);
+	if (cwdMatch && cwdMatch.index !== undefined) {
+		rest = rest.slice(0, cwdMatch.index) + "\n" + rest.slice(cwdMatch.index + cwdMatch[0].length);
+	}
+
+	// Base ends where the first injection marker starts
+	let injIdx = -1;
+	for (const m of INJECTION_MARKERS) {
+		const i = rest.indexOf(m);
+		if (i >= 0 && (injIdx < 0 || i < injIdx)) injIdx = i;
+	}
+	const baseBody = (injIdx > 0 ? rest.slice(0, injIdx) : rest).trim();
+	const injBody = injIdx > 0 ? rest.slice(injIdx).trim() : "";
+
+	const sections: Section[] = [];
+	if (baseBody) {
+		sections.push({
+			label: "Base system prompt",
+			source: "pi built-in (dist/core/system-prompt.js) — no custom system.md",
+			body: baseBody,
+		});
+	}
+	if (ctx) {
+		sections.push({
+			label: "Project context",
+			source: "contextFiles (AGENTS.md)",
+			body: ctx.body.trim(),
+		});
+	}
+	if (skills) {
+		sections.push({
+			label: "Skills",
+			source: "skills (model-invocation-enabled only)",
+			body: skills.body.trim(),
+		});
+	}
+	if (cwdMatch) sections.push({ label: "Working directory", source: "cwd", body: cwdMatch[0] });
+	if (injBody) {
+		sections.push({
+			label: "Extension injections",
+			source: "appended via before_agent_start (caveman, ponytail, session-advice)",
+			body: injBody,
+		});
+	}
+	return sections.filter((s) => s.body.length > 0);
+}
+
+/** Exact-duplicate 80-char blocks inside the prompt, ignoring path-like noise
+ *  (pi install paths and .pi/skills prefixes repeat in skill <location> entries — benign). */
+function findPromptDupes(text: string): string[] {
+	const seen = new Set<string>();
+	const dups: string[] = [];
+	for (let i = 0; i + 80 <= text.length; i++) {
+		const block = text.slice(i, i + 80);
+		if (block.includes("/node_modules/") || block.includes("/.pi/skills/")) continue;
+		if (seen.has(block)) {
+			if (!dups.includes(block)) dups.push(block);
+		} else {
+			seen.add(block);
+		}
+	}
+	return dups;
 }
 
 export default function dumpContextExtension(pi: ExtensionAPI): void {
@@ -51,7 +153,7 @@ export default function dumpContextExtension(pi: ExtensionAPI): void {
 
 	// Write + print stats on /dump-context command
 	pi.registerCommand("dump-context", {
-		description: "Write the last system prompt to ignore/dump-context.txt with stats",
+		description: "Write the last system prompt to ignore/dump-context.txt (sectioned) with stats",
 		handler: async (_args: string | undefined, ctx: ExtensionCommandContext) => {
 			if (!lastSystemPrompt) {
 				ctx.ui.notify("No prompt captured. Send a message first.", "warning");
@@ -61,66 +163,68 @@ export default function dumpContextExtension(pi: ExtensionAPI): void {
 			const outDir = join(process.cwd(), "ignore");
 			mkdirSync(outDir, { recursive: true });
 
+			// ── Sectioned, attributed dump ───────────────────────────
+			const sections = splitSections(lastSystemPrompt);
+			const parts: string[] = [
+				`# Context dump — ${new Date().toISOString()}`,
+				"# The model receives ONE assembled system message. Sections below label the source of each part.",
+				"",
+			];
+			sections.forEach((s, i) => {
+				parts.push(
+					`## [${i + 1}] ${s.label} — ${s.source}`,
+					`##     ${s.body.length.toLocaleString()} B · ~${estimateTokens(s.body).toLocaleString()} tok`,
+					"",
+					s.body,
+					"",
+				);
+			});
 			const txtPath = join(outDir, "dump-context.txt");
-			writeFileSync(txtPath, lastSystemPrompt, "utf-8");
+			writeFileSync(txtPath, parts.join("\n"), "utf-8");
 
 			const jsonPath = join(outDir, "dump-context-options.json");
 			writeFileSync(jsonPath, JSON.stringify(lastOptions, null, 2), "utf-8");
 
+			// ── Duplicate report ─────────────────────────────────────
+			const inPromptDupes = findPromptDupes(lastSystemPrompt);
+			const loadedSkills = lastOptions?.skills?.length ?? 0;
+			const inPromptSkills = (lastSystemPrompt.match(/<skill>/g) || []).length;
+
 			// ── Stats ────────────────────────────────────────────────
-			const bytes = lastSystemPrompt.length;
-			const estTokens = estimateTokens(lastSystemPrompt);
-			const sections = countSections(lastSystemPrompt);
-			const skillCount = countSkillBlocks(lastSystemPrompt);
-
-			const tools = lastOptions?.selectedTools ?? [];
-			const builtIn = new Set(["read", "bash", "edit", "write"]);
-			const extTools = tools.filter((t) => !builtIn.has(t));
-			const guidelines = lastOptions?.promptGuidelines?.length ?? 0;
-			const contextFiles = lastOptions?.contextFiles?.length ?? 0;
-
-			// Actual context usage from the model (system + conversation history)
 			const usage = ctx.getContextUsage();
 			const actualTokens = usage?.tokens ?? null;
 			const pct = usage?.percent !== null && usage?.percent !== undefined ? usage.percent : null;
 
-			// Detect active injections from prompt text
-			const hasCaveman = lastSystemPrompt.includes("## Caveman Mode");
-			const hasPonytail = lastSystemPrompt.includes("PONYTAIL MODE ACTIVE");
-			const hasLessons = lastSystemPrompt.includes("Past Session Lessons");
-
 			const lines: string[] = [];
 
 			// Row 1: sizes
-			const sizeParts = [`System prompt: ${bytes.toLocaleString()} B`];
+			const sizeParts = [`System prompt: ${lastSystemPrompt.length.toLocaleString()} B`];
 			if (actualTokens !== null) sizeParts.push(`context: ${actualTokens.toLocaleString()} tok`);
 			if (pct !== null) sizeParts.push(`${pct}%`);
-
-			// Row 2: tokens estimate vs actual
-			const tokParts = [`~${estTokens.toLocaleString()} tok (est)`];
-			if (actualTokens !== null) {
-				const diff = actualTokens - estTokens;
-				const sign = diff >= 0 ? "+" : "";
-				tokParts.push(`API: ${actualTokens.toLocaleString()} tok (${sign}${diff})`);
-			}
 			lines.push(sizeParts.join("  ·  "));
-			lines.push(tokParts.join("  ·  "));
 
-			// Row 3: resources
+			// Row 2: section breakdown
 			lines.push(
-				`${tools.length} tools (${extTools.length} ext)  ·  ${skillCount} skills  ·  ${contextFiles} ctx files  ·  ${guidelines} guidelines  ·  ${sections} sections`,
+				`Sections: ${sections.length} — ${sections.map((s) => s.label.split(" ")[0]).join(" / ")}`,
 			);
 
-			// Row 4: injections
-			const modes: string[] = [];
-			if (hasCaveman) modes.push("caveman");
-			if (hasPonytail) modes.push("ponytail");
-			if (hasLessons) modes.push("lessons");
-			if (modes.length > 0) lines.push(`Injections: ${modes.join(", ")}`);
-			else if (actualTokens === null) lines.push("Context window usage unavailable");
+			// Row 3: skills
+			lines.push(
+				`Skills: ${inPromptSkills}/${loadedSkills} in prompt (${loadedSkills - inPromptSkills} disabled via disable-model-invocation)`,
+			);
 
-			lines.push(`→ ignore/dump-context.txt`);
-			lines.push(`→ ignore/dump-context-options.json`);
+			// Row 4: duplicates
+			lines.push(
+				inPromptDupes.length === 0
+					? "No duplicates inside prompt (path repeats excluded)"
+					: `⚠ ${inPromptDupes.length} duplicate blocks inside prompt`,
+			);
+			lines.push(
+				"JSON mirrors prompt: AGENTS.md, tools, guidelines, skills — same bytes in 2 files, model sees once",
+			);
+
+			lines.push(`→ ignore/dump-context.txt (sectioned)`);
+			lines.push(`→ ignore/dump-context-options.json (raw)`);
 
 			ctx.ui.notify(lines.join("\n"), "info");
 		},

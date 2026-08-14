@@ -255,6 +255,30 @@ func (r *fileRepository) AddProvider(_ context.Context, provider, key string) er
 	return r.writeRawMap(raw)
 }
 
+// UpdateGitHubAuth patches the github_token, github_user, and repo_path
+// fields in the auth config, preserving all provider entries and the legacy
+// flat api_key. Missing auth.json → creates a file containing only the
+// github fields. Merge-safe by construction (raw-map patch, same as
+// AddProvider).
+func (r *fileRepository) UpdateGitHubAuth(_ context.Context, token, user, repoPath string) error {
+	raw, err := r.readRawMap()
+	if err != nil {
+		return err
+	}
+	for key, val := range map[string]string{
+		"github_token": token,
+		"github_user":  user,
+		"repo_path":    repoPath,
+	} {
+		enc, err := json.Marshal(val)
+		if err != nil {
+			return err
+		}
+		raw[key] = enc
+	}
+	return r.writeRawMap(raw)
+}
+
 // RemoveProvider deletes a provider entry from the auth config.
 func (r *fileRepository) RemoveProvider(_ context.Context, provider string) error {
 	raw, err := r.readRawMap()

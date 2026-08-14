@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -49,10 +51,16 @@ func redactToken(text string) string {
 	return tokenUserinfoRe.ReplaceAllString(text, "//***@")
 }
 
-// Authenticator handles GitHub OAuth device flow authentication.
+// Authenticator handles GitHub OAuth device flow authentication and resolves
+// the authenticated user. User goes beyond pure device flow (a mild naming
+// smell, accepted over a second port): init needs the login for the settings
+// scaffold, and the in-memory token is the only window it is available.
 type Authenticator interface {
 	RequestCode(ctx context.Context, scopes []string) (*device.CodeResponse, error)
 	Wait(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error)
+	// User resolves the GitHub login for an in-memory access token via
+	// GET /user. Callers treat an error as an empty user (fail-open).
+	User(ctx context.Context, token string) (string, error)
 }
 
 // deviceFlowAuthenticator is the OAuth device-flow Authenticator used by init.
@@ -61,6 +69,7 @@ type Authenticator interface {
 type deviceFlowAuthenticator struct {
 	clientID   string
 	httpClient *http.Client
+	userURL    string // GET /user endpoint (seam for tests; api.github.com by default)
 }
 
 // NewAuthenticator creates a device flow authenticator with the given GitHub OAuth client ID.
@@ -68,6 +77,7 @@ func NewAuthenticator(clientID string) Authenticator {
 	return &deviceFlowAuthenticator{
 		clientID:   clientID,
 		httpClient: http.DefaultClient,
+		userURL:    "https://api.github.com/user",
 	}
 }
 
@@ -85,4 +95,30 @@ func (a *deviceFlowAuthenticator) Wait(ctx context.Context, code *device.CodeRes
 		ClientID:   a.clientID,
 		DeviceCode: code,
 	})
+}
+
+// User resolves the GitHub login for an in-memory access token via GET /user.
+func (a *deviceFlowAuthenticator) User(ctx context.Context, token string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.userURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET /user: %s", resp.Status)
+	}
+	var u struct {
+		Login string `json:"login"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+		return "", err
+	}
+	return u.Login, nil
 }

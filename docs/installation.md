@@ -43,7 +43,7 @@ curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VE
 
 ```powershell
 # PowerShell
-$version = "0.4"
+$version = "0.50"
 $arch = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
 curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$version/cheasee-pi_${version}_windows_$arch.zip"
 tar -xf cheasee-pi.zip
@@ -69,7 +69,7 @@ Run init in an **empty folder** — cheasee-pi sets the workspace up itself:
 2. Probes the folder — init is empty-folder-only (existing non-empty folders
    are refused; cheasee-pi never auto-initializes them)
 3. Asks for your project repo URL (`owner/repo` or any GitHub URL)
-4. Authenticates with GitHub (OAuth in browser)
+4. Authenticates with GitHub (OAuth device flow — code shown in the terminal, browser opens)
 5. Bare-clones your repo to `<parent>/.bare` and adds the main worktree into
    the folder
 6. Scaffolds the dedicated `cheasee-settings.json` at the folder root
@@ -85,11 +85,19 @@ first run.
 > `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
 > separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
 
+{:.note-title}
+> Already initialized?
+> `cheasee-pi init --reauth` re-runs the authentications (GitHub OAuth device
+> flow + provider API-key setup) without touching the clone or the settings
+> scaffold. Plain `cheasee-pi init` still refuses an initialized workspace —
+> `--reauth` is the explicit redo entry point.
+
 ### Add API keys later
 
 ```bash
 cheasee-pi auth add opencode-go    # pick your provider
 cheasee-pi auth list                # verify
+cheasee-pi auth remove <provider>   # drop a key
 ```
 
 ## Run
@@ -105,23 +113,26 @@ cheasee-pi start
 `cheasee-pi` (alias `start`) gates on the workspace state:
 
 - **Empty folder** → auto-runs `cheasee-pi init` (repo URL prompt, bare clone
-  + main worktree, `cheasee-settings.json`), then you run `start` again
+  + main worktree, `cheasee-settings.json`), then continues into `start` in
+  the same invocation — one command sets the workspace up and starts pi
 - **`cheasee-settings.json` present** → initialized workspace; runs normally
 - **Non-empty folder without `cheasee-settings.json`** → refused with
   “not initialized; run `cheasee-pi init` in an empty folder”
 
 On an initialized workspace it:
 
-1. Extracts compose/Dockerfile to the CLI cache dir
-   (`~/.cache/cheasee-pi/<version>/`); the image build clones the cheasee-pi
-   repo (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi`
-   and symlinks its resources into `~/.pi/agent/`
+1. Extracts the compose stack (Dockerfile, entrypoint, codeflow service) to
+   the CLI cache dir (`~/.cache/cheasee-pi/<version>/`); the image build
+   clones the cheasee-pi repo (Dockerfile `ARG CHEASEE_REF`, default `main`)
+   into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
 2. Starts the container (builds image ~2 min first time) with the workspace
    mounted at `/workspaces/main` and its sibling bare repo at
    `/workspaces/.bare` (the entrypoint rewrites worktree paths and locks them)
 3. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
 
-Pi auto-updates to the latest version on every container start. No manual update needed.
+Pi is installed as `@latest` at image build time, and `cheasee-pi start`
+rebuilds the image whenever the container isn't running — pi updates to the
+latest version automatically on every start. No manual update needed.
 
 Stop the container when done:
 
@@ -147,11 +158,20 @@ through `cheasee-settings.json`.
 
 ### Container doesn't start
 
-Compose/Dockerfile live in the CLI cache dir:
+Compose/Dockerfile live in the CLI cache dir. Rebuild and start:
 
 ```bash
-docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
 cheasee-pi start --build
+```
+
+Raw compose needs the bind-mount env vars (compose interpolates
+`WORKSPACE_HOST_PATH`/`WORKSPACE_BARE_PATH` from the environment — unset
+variables are a hard error, even for `build`):
+
+```bash
+WORKSPACE_HOST_PATH=$(pwd) \
+WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
 ```
 
 ### Permission errors
@@ -162,6 +182,7 @@ On macOS/Windows mounts with unusual ownership, pass them explicitly:
 ```bash
 HOST_UID=$(id -u) HOST_GID=$(id -g) \
   WORKSPACE_HOST_PATH=$(pwd) \
+  WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
   docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up
 ```
 
@@ -201,13 +222,14 @@ Then set the font in your terminal to `JetBrainsMono Nerd Font`.
 
 ### API keys not picked up
 
-Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker:
+Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker, the container is named `cheasee-pi-<repo-slug>` (repo slug, not plain `cheasee-pi`):
 
 ```bash
+CONTAINER=$(docker ps --format '{{.Names}}' | grep '^cheasee-pi-')
 docker exec -it \
   -e OPENCODE_API_KEY=$OPENCODE_API_KEY \
   -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  --user agentuser -w /workspaces/main cheasee-pi pi
+  --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
 
 ## Uninstall

@@ -26,3 +26,19 @@ func loadAuthJSON(t *testing.T) *Auth {
 	}
 	return auth
 }
+
+// authJSONBytes returns the raw auth.json contents for the current config
+// home, failing the test if the file is missing.
+func authJSONBytes(t *testing.T) []byte {
+	t.Helper()
+	cfg := &fileRepository{}
+	path, err := cfg.Path()
+	if err != nil {
+		t.Fatalf("auth path: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read auth.json: %v", err)
+	}
+	return data
+}

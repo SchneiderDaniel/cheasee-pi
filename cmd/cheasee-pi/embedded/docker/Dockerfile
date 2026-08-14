@@ -98,7 +98,11 @@ RUN npm install -g --force \
 # ---------------------------------------------------------------
 # Layer 5b: LSP server binaries (rust-analyzer, gopls)
 # Downloads static binaries — no Rust/Go toolchain needed.
+# Pinned tag (not latest) for reproducibility; --retry-all-errors because
+# transfers from release-assets.githubusercontent.com die mid-flight on
+# flaky connections (curl 56, "Connection died").
 # ---------------------------------------------------------------
+ARG RA_VERSION=2026-08-10.1
 RUN case "$(dpkg --print-architecture)" in \
         amd64) \
             ra_asset="rust-analyzer-x86_64-unknown-linux-gnu.gz" ;; \
@@ -106,7 +110,7 @@ RUN case "$(dpkg --print-architecture)" in \
             ra_asset="rust-analyzer-aarch64-unknown-linux-gnu.gz" ;; \
         *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/${ra_asset}" -o "/tmp/${ra_asset}" && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VERSION}/${ra_asset}" -o "/tmp/${ra_asset}" && \
     gunzip "/tmp/${ra_asset}" && \
     install -m 755 "/tmp/${ra_asset%.gz}" /usr/local/bin/rust-analyzer && \
     rm -f "/tmp/${ra_asset%.gz}"
@@ -114,11 +118,22 @@ RUN case "$(dpkg --print-architecture)" in \
 # ---------------------------------------------------------------
 # Layer 5c: rtk binary (Rust CLI — token-saving bash rewrite)
 # Installs to /usr/local/bin/rtk for all users.
+# Pinned + retry loop: rtk's own install.sh curls the GitHub release asset
+# without --retry, and transfers from release-assets die mid-flight on
+# flaky connections (curl 56, "Connection died"). `test -x` after the loop
+# keeps a total failure fatal (the playwright loop above can't say that).
 # ---------------------------------------------------------------
-RUN RTK_INSTALL_DIR=/usr/local/bin sh -c "\
-    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
-        && rtk --version \
-    "
+ARG RTK_VERSION=0.45.0
+RUN for i in 1 2 3; do \
+        RTK_VERSION=v${RTK_VERSION} RTK_INSTALL_DIR=/usr/local/bin sh -c "\
+            curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh \
+                && rtk --version \
+            " \
+        && break; \
+        echo "[attempt $i] rtk install failed, retrying in 5s…"; \
+        sleep 5; \
+    done && \
+    test -x /usr/local/bin/rtk
 
 # ---------------------------------------------------------------
 # Layer 5d: Set UTF-8 locale for Unicode/emoji support
