@@ -49,8 +49,9 @@ func DefaultModel(provider string) string {
 
 // SettingsWriter writes provider config to cheasee-settings.json (the
 // dedicated cheasee-pi settings file — single source for the default
-// provider), plus .pi/agent/settings.json, and .pi/settings.json when it
-// already exists (pi's own file; cheasee-pi init no longer scaffolds it).
+// provider), plus .pi/settings.json (pi's own file — created for initialized
+// cheasee workspaces so pi sees the selected default model), and
+// .pi/agent/settings.json.
 type SettingsWriter struct {
 	Workdir string
 }
@@ -58,7 +59,10 @@ type SettingsWriter struct {
 // WriteDefaultProvider updates workspace settings files with the given
 // default provider and model. cheasee-settings.json is the primary target
 // (single source — skipped only when absent, e.g. a legacy workspace);
-// .pi/settings.json is updated only if it exists; .pi/agent/settings.json is
+// .pi/settings.json is updated, or created when missing inside an initialized
+// cheasee-pi workspace (pi reads exactly this file for its defaults — without
+// it the selection is lost and pi falls back to its built-in per-provider
+// default, e.g. kimi-k2.6 for opencode-go); .pi/agent/settings.json is
 // always (re)created with the provider.
 func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
 	if err := w.updateCheaseeSettings(provider, model); err != nil {
@@ -92,13 +96,22 @@ func (w *SettingsWriter) updateCheaseeSettings(provider, model string) error {
 	return settings.Save(w.Workdir)
 }
 
+// updatePISettings persists provider + model to .pi/settings.json — the one
+// settings file pi reads for defaults (project overrides the global
+// ~/.pi/agent/settings.json, and it is the only pi settings file that crosses
+// into the container bind-mount). A missing file is created when the
+// workspace is cheasee-pi-initialized (cheasee-settings.json present); outside
+// such a workspace the write stays a no-op (auth add's workspace half).
 func (w *SettingsWriter) updatePISettings(provider, model string) error {
 	settings, err := LoadSettings(w.Workdir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // workspace not initialized, skip
+		if !os.IsNotExist(err) {
+			return err
 		}
-		return err
+		if _, cerr := os.Stat(cheaseeSettingsPath(w.Workdir)); cerr != nil {
+			return nil // not a cheasee-pi workspace, skip
+		}
+		settings = &Settings{}
 	}
 	return settings.SetDefaultProvider(provider, model).Save(w.Workdir)
 }

@@ -721,16 +721,17 @@ func TestSettingsWriter_emptyModelKeepsExisting(t *testing.T) {
 }
 
 func TestSettingsWriter_missingPISettingsSkipped(t *testing.T) {
-	workdir := t.TempDir() // no cheasee-settings.json, no .pi/settings.json
+	// No cheasee-settings.json, no .pi/settings.json → not a cheasee-pi
+	// workspace: both workspace writes stay no-ops.
+	workdir := t.TempDir()
 	sw := &SettingsWriter{Workdir: workdir}
 	if err := sw.WriteDefaultProvider("openai", "gpt-4o"); err != nil {
 		t.Fatalf("missing settings files must be skipped, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); !os.IsNotExist(err) {
-		t.Error("missing cheasee-settings.json must not be created")
-	}
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
-		t.Error("missing .pi/settings.json must not be created")
+	for _, p := range []string{"cheasee-settings.json", ".pi/settings.json"} {
+		if _, err := os.Stat(filepath.Join(workdir, p)); !os.IsNotExist(err) {
+			t.Errorf("missing %s must not be created", p)
+		}
 	}
 }
 
@@ -775,9 +776,13 @@ func TestSettingsWriter_updatesCheaseeSettings(t *testing.T) {
 	if s.OAuth.ClientID != "client-a" {
 		t.Errorf("oauth.clientID must survive: %+v", s.OAuth)
 	}
-	// .pi/settings.json is pi's file — never created by cheasee-pi auth add.
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
-		t.Error("cheasee-pi must not create .pi/settings.json")
+	// pi's own settings file is created with the selection — pi reads the
+	// default model from exactly this file; a fresh workspace has no
+	// .pi/settings.json (pi owns it), so creation is the kimi-k2.6 regression
+	// guard.
+	data, err := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
+	if err != nil || !strings.Contains(string(data), "anthropic") || !strings.Contains(string(data), "claude-sonnet-4-20250514") {
+		t.Fatalf(".pi/settings.json must be created with the selection: %v", err)
 	}
 }
 
