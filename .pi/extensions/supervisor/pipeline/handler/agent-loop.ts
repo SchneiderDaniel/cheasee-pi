@@ -339,9 +339,11 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 				issueTitle,
 				runCtx._runner,
 			);
-			result = retryResult;
-			validateAgentResult(result);
+			validateAgentResult(retryResult);
 			usedRetry = true;
+			// Issue #1495: push the validated failed run (FAILED row, own stats) before the retry row
+			agentResults.push(buildAgentResultEntry(result, false, agent.config.model));
+			result = retryResult;
 		}
 
 		getDebugLogger().info("handler", `Agent ${agentName} completed`, {

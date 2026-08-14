@@ -844,6 +844,11 @@ describe("buildAgentResultEntry()", () => {
 		assert.equal(entry.status, "FAILED");
 	});
 
+	it("maps success=false + usedRetry=true to 'FAILED' (retry-also-fails row must not show retry label)", () => {
+		const entry = buildAgentResultEntry({ ...baseResult, success: false }, true);
+		assert.equal(entry.status, "FAILED");
+	});
+
 	it("copies durationMs/tokenCount/toolCount/agentName from result", () => {
 		const entry = buildAgentResultEntry(
 			{
