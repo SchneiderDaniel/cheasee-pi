@@ -5,35 +5,27 @@
 #      symlink-resolved, go-build/tmp paths skipped)
 #   2. the whole cache parent <UserCacheDir>/cheasee-pi/ (all version keys)
 #   3. the auth config <UserConfigDir>/cheasee-pi/auth.json
-#   4. .pi/ (and .git/ with --remove-git) under --workdir (default: cwd)
+#
+# Workspace files (.pi/, .git/, source checkouts) are never touched.
 #
 # Usage:
 #   curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scripts/uninstall.sh | bash
-#   bash scripts/uninstall.sh [--force] [--dry-run] [--workdir DIR] [--remove-git]
+#   bash scripts/uninstall.sh [--force] [--dry-run]
 #
 # Flags (meaningful when run from a file — under `curl | bash` stdin is the
 # script stream, so the confirmation prompt is skipped automatically):
 #   --force       skip the confirmation prompt
 #   --dry-run     print the deletion list and exit without deleting
-#   --workdir DIR scope .pi/ (and .git/ with --remove-git) cleanup to DIR
-#   --remove-git  also remove .git/ under --workdir
 #   env NONINTERACTIVE=1 skips the prompt (same as --force)
 set -euo pipefail
 
 FORCE=0
 DRY_RUN=0
-REMOVE_GIT=0
-WORKDIR=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=1 ;;
     --dry-run) DRY_RUN=1 ;;
-    --remove-git) REMOVE_GIT=1 ;;
-    --workdir)
-      WORKDIR="${2:-}"
-      shift
-      ;;
     *)
       echo "Unknown option: $1" >&2
       exit 1
@@ -41,8 +33,6 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-
-WORKDIR="${WORKDIR:-$(pwd)}"
 
 # Running as root via sudo: sudoers env_reset sets HOME=/root, so resolve the
 # invoking user's home — root's own cache/config must never be the target.
@@ -151,14 +141,6 @@ config_base="$(user_config_dir)"
 if [ -n "$config_base" ]; then
   auth_path="$config_base/cheasee-pi/auth.json"
   if [ -e "$auth_path" ]; then file_targets+=("$auth_path"); fi
-fi
-
-pi_dir="$WORKDIR/.pi"
-if [ -e "$pi_dir" ]; then tree_targets+=("$pi_dir"); fi
-
-if [ "$REMOVE_GIT" -eq 1 ]; then
-  git_dir="$WORKDIR/.git"
-  if [ -e "$git_dir" ]; then tree_targets+=("$git_dir"); fi
 fi
 
 collect_binaries

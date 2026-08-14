@@ -9,11 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	uninstallWorkdir  string
-	uninstallForce    bool
-	uninstallRemoveGit bool
-)
+var uninstallForce bool
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
@@ -22,11 +18,10 @@ var uninstallCmd = &cobra.Command{
 
 The uninstall command removes:
   1. Cache dir (compose/Dockerfile under the user cache dir)
-  2. .pi/ directory (agent configuration, contexts, themes)
-  3. Auth config (~/.config/cheasee-pi/auth.json)
-  4. cheasee-pi binary (the running executable)
-  5. .git/ directory (if --remove-git is set)
+  2. Auth config (~/.config/cheasee-pi/auth.json)
+  3. cheasee-pi binary (the running executable)
 
+Workspace files (.pi/, .git/, source checkouts) are never touched.
 Use --force to skip the confirmation prompt.`,
 	DisableAutoGenTag: true,
 	RunE:              runUninstallE,
@@ -34,21 +29,10 @@ Use --force to skip the confirmation prompt.`,
 
 func init() {
 	rootCmd.AddCommand(uninstallCmd)
-	uninstallCmd.Flags().StringVar(&uninstallWorkdir, "workdir", "", "Working directory (default: current directory)")
 	uninstallCmd.Flags().BoolVar(&uninstallForce, "force", false, "Skip confirmation prompt")
-	uninstallCmd.Flags().BoolVar(&uninstallRemoveGit, "remove-git", false, "Also remove .git directory")
 }
 
 func runUninstallE(cmd *cobra.Command, _ []string) error {
-	workdir := uninstallWorkdir
-	if workdir == "" {
-		var err error
-		workdir, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("get working directory: %w", err)
-		}
-	}
-
 	identify := func(path string) string {
 		if _, err := os.Stat(path); err == nil {
 			return "will remove"
@@ -58,8 +42,6 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 
 	// CLI-managed assets live in the version-keyed cache dir, never the repo.
 	cacheDir, _ := CacheDir()
-	piDir := filepath.Join(workdir, ".pi")
-	gitDir := filepath.Join(workdir, ".git")
 
 	// Detect binary path — skip if running from Go build cache
 	binaryPath, _ := os.Executable()
@@ -78,13 +60,6 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "The following will be removed:\n")
 	if cacheDir != "" {
 		fmt.Fprintf(os.Stderr, "  %s        — %s\n", cacheDir, identify(cacheDir))
-	}
-	fmt.Fprintf(os.Stderr, "  %s/.pi/      — %s\n", filepath.Base(workdir), identify(piDir))
-	fmt.Fprintf(os.Stderr, "  %s/.git/     — %s", filepath.Base(workdir), identify(gitDir))
-	if uninstallRemoveGit {
-		fmt.Fprintf(os.Stderr, " (--remove-git)\n")
-	} else {
-		fmt.Fprintf(os.Stderr, " (use --remove-git to include)\n")
 	}
 
 	// Auth config
@@ -118,22 +93,6 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove cache dir: %v\n", err)
 		} else {
 			fmt.Fprintf(os.Stderr, "  ✓ Removed cache dir\n")
-		}
-	}
-
-	// Remove .pi/
-	if err := os.RemoveAll(piDir); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ failed to remove .pi/: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "  ✓ Removed .pi/\n")
-	}
-
-	// Remove .git/ (only if --remove-git)
-	if uninstallRemoveGit {
-		if err := os.RemoveAll(gitDir); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove .git/: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "  ✓ Removed .git/\n")
 		}
 	}
 

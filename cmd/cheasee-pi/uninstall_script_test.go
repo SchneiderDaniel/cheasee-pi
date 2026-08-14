@@ -16,8 +16,8 @@ func uninstallScriptPath() string {
 
 // TestUninstallScript_DryRunMatchesGoPaths pins the standalone uninstall
 // script's --dry-run deletion list to the Go-computed paths it must mirror
-// (cache parent, auth config, workdir .pi/, binary). The script removes the
-// whole <cache>/cheasee-pi/ parent while Go removes only the current version
+// (cache parent, auth config, binary). The script removes the whole
+// <cache>/cheasee-pi/ parent while Go removes only the current version
 // key — this intentional divergence is what the test locks in.
 func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 	script := uninstallScriptPath()
@@ -30,15 +30,14 @@ func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 	cacheBase := filepath.Join(tmp, "cache")
 	configBase := filepath.Join(tmp, "config")
 	binDir := filepath.Join(tmp, "bin")
-	workdir := filepath.Join(tmp, "ws")
-	for _, d := range []string{home, cacheBase, configBase, binDir, workdir} {
+	for _, d := range []string{home, cacheBase, configBase, binDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", d, err)
 		}
 	}
 
 	// Install-state fixture: cache parent with two version keys, auth.json,
-	// a .pi/ in the workdir, and a dummy binary on PATH.
+	// and a dummy binary on PATH. (Workspace .pi/.git must never appear.)
 	cacheParent := filepath.Join(cacheBase, "cheasee-pi")
 	for _, v := range []string{"0.49", "0.50"} {
 		if err := os.MkdirAll(filepath.Join(cacheParent, v), 0o755); err != nil {
@@ -52,10 +51,6 @@ func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 	if err := os.WriteFile(authPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write %s: %v", authPath, err)
 	}
-	piDir := filepath.Join(workdir, ".pi")
-	if err := os.MkdirAll(piDir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", piDir, err)
-	}
 	binary := filepath.Join(binDir, "cheasee-pi")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write %s: %v", binary, err)
@@ -66,7 +61,7 @@ func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", configBase)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cmd := exec.Command("bash", script, "--dry-run", "--force", "--workdir", workdir)
+	cmd := exec.Command("bash", script, "--dry-run", "--force")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("uninstall.sh --dry-run failed: %v\n%s", err, out)
@@ -83,7 +78,6 @@ func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 	want := map[string]bool{
 		filepath.Dir(mustCacheDir(t)): true, // whole cache parent (all version keys)
 		authPath:                      true,
-		piDir:                         true,
 		binary:                        true,
 	}
 	if len(got) != len(want) {
@@ -95,7 +89,7 @@ func TestUninstallScript_DryRunMatchesGoPaths(t *testing.T) {
 		}
 	}
 	// Dry run must not delete anything.
-	for _, p := range []string{filepath.Join(cacheParent, "0.49"), authPath, piDir, binary} {
+	for _, p := range []string{filepath.Join(cacheParent, "0.49"), authPath, binary} {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("dry-run deleted %s: %v", p, err)
 		}

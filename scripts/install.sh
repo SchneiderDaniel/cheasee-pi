@@ -71,5 +71,5 @@ fi
 
 chmod +x "$DEST/cheasee-pi"
 echo "✓ Installed: $DEST/cheasee-pi"
-"$DEST/cheasee-pi" version
+"$DEST/cheasee-pi" --version
 

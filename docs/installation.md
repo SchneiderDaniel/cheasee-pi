@@ -277,11 +277,11 @@ docker exec -it \
 curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scripts/uninstall.sh | bash
 ```
 
-Add `--force` to skip the confirmation prompt, `--dry-run` to preview what would be removed. The script removes the binary (from `/usr/local/bin`, `~/.local/bin`, or your PATH), the whole CLI cache dir, the auth config (`cheasee-pi/auth.json` under your user config dir), and the `.pi/` directory in the current folder (`--remove-git` also deletes `.git/`). It works even if the binary is already gone, and never needs `sudo` (root-owned files like `/usr/local/bin` are elevated per-operation).
+Add `--force` to skip the confirmation prompt, `--dry-run` to preview what would be removed. The script removes the binary (from `/usr/local/bin`, `~/.local/bin`, or your PATH), the whole CLI cache dir, and the auth config (`cheasee-pi/auth.json` under your user config dir). Workspace files (`.pi/`, `.git/`, source checkouts) are never touched. It works even if the binary is already gone, and never needs `sudo` (root-owned files like `/usr/local/bin` are elevated per-operation).
 
 ### CLI command
 
-For workspace-level cleanup from inside a workspace, `cheasee-pi uninstall` removes the cache dir, auth config, `.pi/`, and the running binary:
+`cheasee-pi uninstall` removes the cache dir, auth config, and the running binary:
 
 ```bash
 cheasee-pi uninstall
@@ -289,7 +289,7 @@ cheasee-pi uninstall
 
 Run it **without** `sudo` — under sudo, the config/cache paths resolve to root's account and the command would delete root's state, not yours. If the binary lives in a root-owned directory like `/usr/local/bin`, use the standalone script above instead: it elevates per-operation and never needs sudo. When the CLI itself can't remove the binary, it prints a manual `sudo rm` hint with the full path.
 
-Add `--force` to skip confirmation, `--remove-git` to also delete `.git/`.
+Add `--force` to skip confirmation.
 
 ---
 
