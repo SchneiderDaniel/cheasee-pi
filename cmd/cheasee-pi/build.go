@@ -112,5 +112,10 @@ func runBuildE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("docker compose build: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Image built\n")
+	// A running container keeps the old image: compose up -d is the only
+	// thing that recreates it, and `cheasee-pi start` skips compose when
+	// the container is already up. Spell out the apply step so a build
+	// followed by a plain start silently serves the stale image.
+	fmt.Fprintf(os.Stderr, "  ℹ Running containers keep the old image — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`\n")
 	return nil
 }
