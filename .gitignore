@@ -5,7 +5,8 @@
 private-pi/
 
 .pi/sessions
-.pi/supervisor-state.json
+.pi/supervisor-state*.json
+.pi/supervisor-run*.json
 .pi/state/session-extensions.json
 node_modules
 tmp

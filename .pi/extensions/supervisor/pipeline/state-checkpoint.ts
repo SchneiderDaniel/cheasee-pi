@@ -10,6 +10,14 @@
 // State transitions: pre-tsc → pre-lsp → pre-auditor → completed
 // On completion, the state file is deleted.
 //
+// Both the run lock and the checkpoint are keyed per issue:
+//   .pi/supervisor-run-<issueNum>.json
+//   .pi/supervisor-state-<issueNum>.json
+// Two pipelines on DIFFERENT issues run in parallel (worktree paths are
+// per-issue); two pipelines on the SAME issue still serialize on the
+// per-issue lock. The scanner also matches the legacy bare-name
+// `supervisor-state.json` so a mid-upgrade orphan is still cleaned up.
+//
 // Boundaries:
 //   - state-checkpoint.ts — file format, write atomicity, staleness logic
 //   - handler.ts — startup cleanup, auditor checkpoint, completion delete
@@ -46,7 +54,15 @@ export interface SupervisorCheckpointState {
 
 // ─── Constants ─────────────────────────────────────────────────────
 
-const STATE_FILE_NAME = "supervisor-state.json";
+/**
+ * Matches per-issue checkpoint names (`supervisor-state-1503.json`) plus
+ * the legacy bare-name file (`supervisor-state.json`) left behind by the
+ * pre-per-issue build. The `.tmp` suffix never matches.
+ */
+const STATE_FILE_RE = /^supervisor-state(?:-\d+)?\.json$/;
+
+/** Matches per-issue run lock files: `supervisor-run-1503.json`. */
+const RUN_LOCK_FILE_RE = /^supervisor-run-(\d+)\.json$/;
 
 /**
  * Default max age for stale checkpoint detection: 1 hour.
@@ -55,18 +71,39 @@ const STATE_FILE_NAME = "supervisor-state.json";
  */
 const DEFAULT_MAX_AGE_MS = 3_600_000; // 1 hour
 
+/** Bounded retries for the run-lock steal race (read → unlink → write). */
+const MAX_ACQUIRE_ATTEMPTS = 3;
+
 // ─── Internal Helpers ─────────────────────────────────────────────
 
-function stateFilePath(cwd: string): string {
-	return resolve(cwd, ".pi", STATE_FILE_NAME);
+function checkpointFilePath(cwd: string, issueNum: number): string {
+	return resolve(cwd, ".pi", `supervisor-state-${issueNum}.json`);
 }
 
 function isCheckpointName(val: string): val is CheckpointName {
 	return val === "pre-tsc" || val === "pre-lsp" || val === "pre-auditor";
 }
 
+/** All matching state files directly inside a `.pi` directory. */
+function stateFilesInPiDir(piDir: string): string[] {
+	const results: string[] = [];
+	try {
+		if (!existsSync(piDir)) {
+			return results;
+		}
+		for (const f of readdirSync(piDir)) {
+			if (STATE_FILE_RE.test(f)) {
+				results.push(join(piDir, f));
+			}
+		}
+	} catch {
+		// Unreadable — no files found
+	}
+	return results;
+}
+
 /**
- * Recursively find all `supervisor-state.json` files under a directory.
+ * Recursively find all `supervisor-state*.json` files under a directory.
  * Scans direct child directories only (1 level deep) — worktree dirs are
  * flat under worktreeBase.
  */
@@ -76,28 +113,16 @@ function findStateFiles(baseDir: string): string[] {
 		const entries = readdirSync(baseDir, { withFileTypes: true });
 		for (const entry of entries) {
 			if (entry.isDirectory()) {
-				const statePath = join(baseDir, entry.name, ".pi", STATE_FILE_NAME);
-				if (existsSync(statePath)) {
-					results.push(statePath);
-				}
-			}
-			// Also check directly in baseDir (state file could be in baseDir/.pi/)
-			if (entry.name === ".pi" && entry.isDirectory()) {
-				const statePath = join(baseDir, ".pi", STATE_FILE_NAME);
-				if (existsSync(statePath)) {
-					results.push(statePath);
-				}
+				// Worktree subdir: <wt>/.pi/supervisor-state*.json
+				results.push(...stateFilesInPiDir(join(baseDir, entry.name, ".pi")));
 			}
 		}
-		// Also check baseDir/.pi/supervisor-state.json directly
-		const directStatePath = join(baseDir, ".pi", STATE_FILE_NAME);
-		if (existsSync(directStatePath)) {
-			results.push(directStatePath);
-		}
+		// Also baseDir/.pi directly
+		results.push(...stateFilesInPiDir(join(baseDir, ".pi")));
 	} catch {
 		// Directory doesn't exist or can't be read — no files found
 	}
-	return results;
+	return [...new Set(results)];
 }
 
 // ─── Pure Functions ───────────────────────────────────────────────
@@ -167,7 +192,9 @@ export function readCheckpointFileFromPath(filePath: string): SupervisorCheckpoi
 }
 
 /**
- * Write checkpoint state atomically to `.pi/supervisor-state.json`.
+ * Write checkpoint state atomically to `.pi/supervisor-state-<issueNum>.json`.
+ * The file name derives from `state.issueNum`, so parallel pipelines on
+ * different issues never clobber each other's checkpoint.
  *
  * Atomic pattern: write to temp file → rename (atomic on same filesystem).
  * This prevents truncated JSON on crash mid-write.
@@ -178,8 +205,8 @@ export function readCheckpointFileFromPath(filePath: string): SupervisorCheckpoi
  */
 export function writeCheckpointFile(cwd: string, state: SupervisorCheckpointState): Result<void> {
 	const stateDir = resolve(cwd, ".pi");
-	const targetPath = resolve(stateDir, STATE_FILE_NAME);
-	const tmpPath = resolve(stateDir, `${STATE_FILE_NAME}.tmp`);
+	const targetPath = checkpointFilePath(cwd, state.issueNum);
+	const tmpPath = resolve(stateDir, `supervisor-state-${state.issueNum}.json.tmp`);
 
 	try {
 		// Ensure .pi directory exists
@@ -217,15 +244,15 @@ export function writeCheckpointFile(cwd: string, state: SupervisorCheckpointStat
 }
 
 /**
- * Delete the checkpoint state file at `.pi/supervisor-state.json`.
+ * Delete the checkpoint state file at `.pi/supervisor-state-<issueNum>.json`.
  * Idempotent — returns ok even if the file doesn't exist.
  */
-export function deleteCheckpointFile(cwd: string): Result<void> {
-	const filePath = stateFilePath(cwd);
+export function deleteCheckpointFile(cwd: string, issueNum: number): Result<void> {
+	const filePath = checkpointFilePath(cwd, issueNum);
 	try {
 		if (existsSync(filePath)) {
 			unlinkSync(filePath);
-			getDebugLogger().info("state-checkpoint", "Checkpoint file deleted");
+			getDebugLogger().info("state-checkpoint", "Checkpoint file deleted", { issueNum });
 		}
 		return { ok: true, value: undefined };
 	} catch (err: unknown) {
@@ -236,24 +263,24 @@ export function deleteCheckpointFile(cwd: string): Result<void> {
 }
 
 // ─── Run Lock ────────────────────────────────────────────────────
-// One pipeline per repo, enforced. The supervisor design is single-run:
-// a shared .pi/supervisor-state.json, one shared bare repo and one shared
-// worktree base. Nothing enforced it — with N pi terminals open, two runs
-// of the same issue raced on the same worktree path: the second run's
-// createWorktree silently reused the live worktree (dir-exists fallback)
-// and whichever run finished first removed the worktree under the other's
-// agent ("Working directory does not exist" / "Worktree missing").
-// The lock is PID-backed: a crashed run leaves a dead PID behind, and the
-// next run takes over instead of waiting out a timestamp.
+// One pipeline per issue, enforced. Worktree paths are per-issue
+// (`worktree-git-issue-<num>-<slug>`), so two runs of DIFFERENT issues
+// never race on a worktree and run in parallel. Two runs of the SAME
+// issue still race on the same worktree path (the second run's
+// createWorktree silently reuses the live worktree, and whichever run
+// finishes first removes it under the other's agent) — that race is what
+// the per-issue lock guards. The lock is PID-backed: a crashed run leaves
+// a dead PID behind, and the next run takes over instead of waiting out a
+// timestamp.
 
-export interface RunLock {
+interface RunLock {
 	pid: number;
 	issueNum: number;
 	startedAt: string; // ISO 8601
 }
 
-function runLockPath(cwd: string): string {
-	return resolve(cwd, ".pi", "supervisor-run.json");
+function runLockPath(cwd: string, issueNum: number): string {
+	return resolve(cwd, ".pi", `supervisor-run-${issueNum}.json`);
 }
 
 /** True if a process with this PID exists (same container → same PID namespace). */
@@ -285,14 +312,19 @@ function readRunLock(path: string): RunLock | null {
 }
 
 /**
- * Acquire the per-repo run lock. Fails (ok:false) when another pipeline
- * is live; steals the lock when the holder's PID is dead (crashed run).
- * Atomic via `wx` (exclusive create) — a simultaneous-acquire race loses
- * cleanly and the loser re-checks the winner's liveness.
+ * Acquire the per-issue run lock. Fails (ok:false) when another pipeline
+ * for the SAME issue is live; steals the lock when the holder's PID is
+ * dead (crashed run). Atomic via `wx` (exclusive create).
+ *
+ * Steal-race loop: read → unlink → write is not atomic; if two runs steal
+ * the same stale lock simultaneously, one wins the `wx` create and the
+ * loser's write gets EEXIST. The loop re-checks the winner's liveness (a
+ * fresh winner is live → clean "already running" error) and retries a
+ * still-stale lock, bounded by MAX_ACQUIRE_ATTEMPTS.
  */
 export function acquireRunLock(cwd: string, issueNum: number): Result<void> {
 	const stateDir = resolve(cwd, ".pi");
-	const path = runLockPath(cwd);
+	const path = runLockPath(cwd, issueNum);
 	const ownLock: RunLock = {
 		pid: process.pid,
 		issueNum,
@@ -302,30 +334,40 @@ export function acquireRunLock(cwd: string, issueNum: number): Result<void> {
 		if (!existsSync(stateDir)) {
 			mkdirSync(stateDir, { recursive: true });
 		}
-		const writeLock = () => writeFileSync(path, JSON.stringify(ownLock), { flag: "wx" });
-		try {
-			writeLock();
-			return { ok: true, value: undefined };
-		} catch (err: unknown) {
-			if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
-				throw err;
+		for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
+			try {
+				writeFileSync(path, JSON.stringify(ownLock), { flag: "wx" });
+				return { ok: true, value: undefined };
+			} catch (err: unknown) {
+				if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+					throw err;
+				}
+			}
+			// Lock exists — live holder blocks, dead holder gets taken over
+			const existing = readRunLock(path);
+			if (existing && pidAlive(existing.pid)) {
+				return {
+					ok: false,
+					error:
+						`Another supervisor pipeline is already running (pid ${existing.pid}, issue #${existing.issueNum}, started ${existing.startedAt}). ` +
+						"One pipeline at a time per repo — wait for it to finish or stop it first.",
+					source: "run-lock",
+				};
+			}
+			// Stale lock (crashed holder) — steal it and retry the write.
+			try {
+				unlinkSync(path);
+			} catch {
+				// Another acquirer stole it between read and unlink — loop
+				// retries and re-checks the winner's liveness.
 			}
 		}
-		// Lock exists — live holder blocks, dead holder gets taken over
-		const existing = readRunLock(path);
-		if (existing && pidAlive(existing.pid)) {
-			return {
-				ok: false,
-				error:
-					`Another supervisor pipeline is already running (pid ${existing.pid}, issue #${existing.issueNum}, started ${existing.startedAt}). ` +
-					"One pipeline at a time per repo — wait for it to finish or stop it first.",
-				source: "run-lock",
-			};
-		}
-		// Stale lock (crashed holder) — steal it
-		unlinkSync(path);
-		writeLock();
-		return { ok: true, value: undefined };
+		// Persistent EEXIST (unstealable path) — give up after bounded retries.
+		return {
+			ok: false,
+			error: `Failed to acquire run lock: EEXIST after ${MAX_ACQUIRE_ATTEMPTS} attempts`,
+			source: "run-lock",
+		};
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		getDebugLogger().error("run-lock", `Failed to acquire run lock: ${msg}`);
@@ -333,16 +375,46 @@ export function acquireRunLock(cwd: string, issueNum: number): Result<void> {
 	}
 }
 
-/** Release the run lock — only if we own it (PID match). Idempotent, best-effort. */
-export function releaseRunLock(cwd: string): void {
+/** Release the run lock for an issue — only if we own it (PID match). Idempotent, best-effort. */
+export function releaseRunLock(cwd: string, issueNum: number): void {
 	try {
-		const lock = readRunLock(runLockPath(cwd));
+		const lock = readRunLock(runLockPath(cwd, issueNum));
 		if (lock && lock.pid === process.pid) {
-			unlinkSync(runLockPath(cwd));
+			unlinkSync(runLockPath(cwd, issueNum));
 		}
 	} catch {
 		// Best-effort — nothing to do
 	}
+}
+
+/**
+ * True when any OTHER issue's run lock is held by a live process.
+ * Used to decide whether a completing pipeline may clear the shared
+ * footer: with two same-host pipelines, the first finisher must not
+ * clear the second run's footer data.
+ *
+ * Corrupt/unreadable lock files are treated as not live.
+ */
+export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): boolean {
+	try {
+		const stateDir = resolve(cwd, ".pi");
+		if (!existsSync(stateDir)) {
+			return false;
+		}
+		for (const entry of readdirSync(stateDir)) {
+			const m = RUN_LOCK_FILE_RE.exec(entry);
+			if (!m || Number(m[1]) === excludeIssueNum) {
+				continue;
+			}
+			const lock = readRunLock(join(stateDir, entry));
+			if (lock && pidAlive(lock.pid)) {
+				return true;
+			}
+		}
+	} catch {
+		// Unreadable dir — treat as no live pipeline
+	}
+	return false;
 }
 
 // ─── Cleanup Function ─────────────────────────────────────────────
@@ -351,12 +423,20 @@ export function releaseRunLock(cwd: string): void {
  * Scan for stale supervisor state checkpoint files and clean up their worktrees.
  *
  * Searches in two locations:
- * 1. The main repo's `.pi/supervisor-state.json`
- * 2. All worktree subdirectories under `worktreeBase` that contain `.pi/supervisor-state.json`
+ * 1. The main repo's `.pi/` (per-issue files + legacy bare-name)
+ * 2. All worktree subdirectories under `worktreeBase` that contain `.pi/supervisor-state*.json`
  *
  * For each stale checkpoint (age > maxAgeMs), removes the worktree and branch.
  * - Wraps each git command in try-catch so failure of one doesn't block others.
  * - Skips self-cleanup: never cleans a checkpoint whose `worktreePath` matches `currentWorktreePath`.
+ * - Liveness guard: never cleans a checkpoint whose per-issue run lock is held
+ *   by a DIFFERENT live process — with per-issue parallelism, run B's preflight
+ *   must not prune run A's live worktree just because A's last checkpoint is
+ *   >1h old. Own-PID locks don't protect (acquireRunLock already wrote our pid
+ *   by the time this runs), so a same-issue rerun after a crash still prunes the
+ *   orphaned worktree. The lock lives in the main repo `.pi/`, so it survives
+ *   partial worktree removal (the `recoverStaleWorktreeRegistration` scenario
+ *   stays covered). A dead-PID lock does not protect — the crash case still cleans.
  * - Non-blocking: if cleanup of one stale checkpoint fails, logs warning and continues to the next.
  * - Runs `git worktree prune` before `git worktree remove --force` so git admin data is synced.
  * - Includes `rm -rf` fallback for the worktree directory after git operations succeed.
@@ -387,19 +467,16 @@ export async function cleanupStalePipelineState(
 	// when the configured base is not writable (docker /workspaces overlay).
 	const baseDir = resolveWorktreeBase(cwd, worktreeBase, notify);
 
-	// Collect all supervisor-state.json files to check
+	// Collect all supervisor-state*.json files to check
 	const stateFiles: string[] = [];
 
-	// 1. Check main repo's .pi/supervisor-state.json
-	const mainStatePath = stateFilePath(cwd);
-	if (existsSync(mainStatePath)) {
-		stateFiles.push(mainStatePath);
-	}
+	// 1. Check main repo's .pi/ (per-issue + legacy bare-name)
+	stateFiles.push(...stateFilesInPiDir(resolve(cwd, ".pi")));
 
 	// 2. Scan worktree directories for state files
 	if (existsSync(baseDir)) {
 		const found = findStateFiles(baseDir);
-		// Deduplicate — mainStatePath already added
+		// Deduplicate — main state files already added
 		for (const f of found) {
 			if (!stateFiles.includes(f)) {
 				stateFiles.push(f);
@@ -408,7 +485,10 @@ export async function cleanupStalePipelineState(
 	}
 
 	if (stateFiles.length === 0) {
-		log.info("state-checkpoint", "No supervisor-state.json files found — no stale state to clean");
+		log.info(
+			"state-checkpoint",
+			"No supervisor-state*.json files found — no stale state to clean",
+		);
 		return { ok: true, value: undefined };
 	}
 
@@ -436,6 +516,21 @@ export async function cleanupStalePipelineState(
 			log.info("state-checkpoint", "Checkpoint not stale — skipping cleanup", {
 				issueNum: state.issueNum,
 				startedAt: state.startedAt,
+			});
+			continue;
+		}
+
+		// Liveness guard: a DIFFERENT live process owns this issue's worktree.
+		// Never prune it — even a >1h-old checkpoint must not let run B remove
+		// run A's live worktree. Own-PID locks (acquireRunLock runs before this
+		// cleanup in the handler, so our own lock holds process.pid) do NOT
+		// protect: a same-issue rerun after a crash must still prune the
+		// orphaned worktree left by the dead run. Dead-PID locks also clean.
+		const issueLock = readRunLock(runLockPath(cwd, state.issueNum));
+		if (issueLock && issueLock.pid !== process.pid && pidAlive(issueLock.pid)) {
+			log.info("state-checkpoint", "Skipping cleanup — issue has a live pipeline", {
+				issueNum: state.issueNum,
+				pid: issueLock.pid,
 			});
 			continue;
 		}

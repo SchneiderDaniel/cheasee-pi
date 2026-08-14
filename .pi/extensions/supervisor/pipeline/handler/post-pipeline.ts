@@ -162,7 +162,7 @@ export async function handlePostPipeline(
 			}
 		}
 		// Delete checkpoint file on pipeline completion (idempotent)
-		const delResult = deleteCheckpointFile(ctx.cwd);
+		const delResult = deleteCheckpointFile(ctx.cwd, issueNum);
 		if (!delResult.ok) {
 			getDebugLogger().warn("handler", `Failed to delete checkpoint: ${delResult.error}`);
 		}

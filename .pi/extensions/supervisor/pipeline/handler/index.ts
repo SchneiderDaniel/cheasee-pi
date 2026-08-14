@@ -10,7 +10,12 @@ import { preparePipelineContext, runPreflight } from "./preflight.ts";
 import { runAgentLoop } from "./agent-loop.ts";
 import { runPostPipelinePhase } from "./post-pipeline.ts";
 import { cleanupWorktree } from "../worktree.ts";
-import { acquireRunLock, deleteCheckpointFile, releaseRunLock } from "../state-checkpoint.ts";
+import {
+	acquireRunLock,
+	deleteCheckpointFile,
+	isAnyOtherPipelineLive,
+	releaseRunLock,
+} from "../state-checkpoint.ts";
 import { sendPipelineError } from "../notifications.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
 
@@ -49,9 +54,10 @@ async function runSupervisorPipeline(
 	if (!runCtx) return;
 
 	try {
-		// One pipeline per repo — a concurrent run would race on the same
+		// One pipeline per issue — two runs of the same issue race on the same
 		// worktree path (second run reuses the live worktree, first finisher
 		// removes it under the other's agent). Refuse to start instead.
+		// Different issues get different worktree paths and run in parallel.
 		const lockRes = acquireRunLock(runCtx.ctx.cwd, runCtx.issueNum);
 		if (!lockRes.ok) {
 			runCtx.collector.push("handler", "error", lockRes.error);
@@ -81,7 +87,7 @@ async function runSupervisorPipeline(
 		}
 		// Delete checkpoint file on error (idempotent)
 		{
-			const delResult = deleteCheckpointFile(runCtx.ctx.cwd);
+			const delResult = deleteCheckpointFile(runCtx.ctx.cwd, runCtx.issueNum);
 			if (!delResult.ok) {
 				getDebugLogger().warn(
 					"handler",
@@ -100,11 +106,15 @@ async function runSupervisorPipeline(
 		);
 	} finally {
 		// Release the run lock (idempotent — only removed if we own it)
-		releaseRunLock(runCtx.ctx.cwd);
+		releaseRunLock(runCtx.ctx.cwd, runCtx.issueNum);
 
-		// Clear supervisor issue data from footer (any outcome)
+		// Clear supervisor issue data from footer (any outcome) — but only
+		// when no OTHER pipeline is live: with two same-host terminals, the
+		// first finisher must not clear the second run's footer.
 		// Uses shared pi.events bus instead of dynamic import.
-		pi.events.emit("supervisor:issue-data", null);
+		if (!isAnyOtherPipelineLive(runCtx.ctx.cwd, runCtx.issueNum)) {
+			pi.events.emit("supervisor:issue-data", null);
+		}
 
 		// Teardown signal handlers so they don't leak beyond pipeline
 		if (runCtx.crashCleanup) {
