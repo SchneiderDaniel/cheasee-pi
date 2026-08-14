@@ -168,6 +168,38 @@ func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
 	}
 }
 
+// TestInstallationDoc_UninstallScriptReference verifies the Uninstall section
+// presents the standalone scripts/uninstall.sh one-liner as the primary path
+// (issue #1510) while retaining the `cheasee-pi uninstall` subcommand for
+// workspace-level cleanup — and drops the misleading `sudo` prefix (under
+// sudo, os.UserCacheDir/UserConfigDir resolve to /root).
+func TestInstallationDoc_UninstallScriptReference(t *testing.T) {
+	data, err := os.ReadFile(docPath())
+	if err != nil {
+		t.Fatalf("reading docs/installation.md: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "scripts/uninstall.sh") {
+		t.Error("Uninstall section should reference scripts/uninstall.sh")
+	}
+	if !strings.Contains(content, "curl -fsL") {
+		t.Error("Uninstall section should show the curl one-liner (curl -fsL ... | bash)")
+	}
+	if !strings.Contains(content, "--force") {
+		t.Error("Uninstall section should document the --force flag")
+	}
+	if !strings.Contains(content, "cheasee-pi uninstall") {
+		t.Error("Uninstall section should retain 'cheasee-pi uninstall' for workspace-level cleanup")
+	}
+	if strings.Contains(content, "sudo cheasee-pi uninstall") {
+		t.Error("Uninstall section must not present 'sudo cheasee-pi uninstall' as the primary path (sudo resets HOME, deleting root's state)")
+	}
+	if !strings.Contains(content, "cheasee-pi/auth.json") {
+		t.Error("Uninstall section should retain the cheasee-pi/auth.json XDG path reference")
+	}
+}
+
 // TestInstallationDoc_Path verifies that Step 5 bullet 8 of the installation
 // doc matches the path that config.go:fileRepository.configPath() actually
 // writes to — the XDG user config dir, not the legacy ~/.pi/agent/auth.json.
