@@ -14,7 +14,12 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	extractStructuredAuditOutput,
 } from "../../agent/output.ts";
-import type { GateRejected } from "./core.ts";
+import {
+	computeAuditScoreFromFindings,
+	getActiveAuditDimensions,
+	evaluateAuditScoreGate,
+} from "../../config/workflow.ts";
+import type { StageState, GateRejected } from "./core.ts";
 
 export async function handleAuditorOutput(
 	pi: ExtensionAPI,
@@ -108,6 +113,48 @@ export async function handleAuditorOutput(
 			}
 		}
 	}
+}
+
+/**
+ * Pre-compute the audit score gate decision for an auditor result.
+ * Runs BEFORE handlePostAgentSuccess so the gate-rejection comment can
+ * replace the normal approval comment (extracted from runAgentLoop,
+ * S104/S138 ceiling, issue #1533). Sync — no I/O; the warning notify
+ * fires iff the gate rejects.
+ */
+export function computeAuditGateRejection(
+	agentName: string,
+	result: AgentRunResult,
+	config: SupervisorConfig,
+	stageState: StageState,
+	ctx: ExtensionCommandContext,
+): GateRejected | undefined {
+	if (agentName !== "auditor" || !result.success || !result.textOutput) {
+		return undefined;
+	}
+	const parseResult = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
+	if (!isAgentOutputSuccess(parseResult)) {
+		return undefined;
+	}
+	const output = parseResult as AgentOutput;
+	if (output.action !== "APPROVED" || !output.findings || output.findings.length === 0) {
+		return undefined;
+	}
+	const dimensions = getActiveAuditDimensions(stageState.researcherSkipped);
+	const score = computeAuditScoreFromFindings(output.findings, dimensions);
+	const gateResult = evaluateAuditScoreGate(score, config.auditScoreThreshold ?? 0.75);
+	if (gateResult.passes) {
+		return undefined;
+	}
+	ctx.ui.notify(
+		`Audit score gate rejected: ${score.passing}/${dimensions.length} < ${gateResult.required}/${dimensions.length}`,
+		"warning",
+	);
+	return {
+		score,
+		required: gateResult.required,
+		total: dimensions.length,
+	};
 }
 
 /**

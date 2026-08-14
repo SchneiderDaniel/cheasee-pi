@@ -74,68 +74,8 @@ export interface RunContext {
 }
 
 // ─── Resolved-By Info Fetcher ─────────────────────────────────────
-// Fetches the resolving commit SHA and PR number for the default branch.
-// Called when case 2 (close with named resolution) is triggered.
-// Uses git log for the latest commit SHA and the port to find merged PRs.
-// Fail-soft: returns placeholder values if git/API calls fail.
+// Re-export shim: the symbol's home moved to stages/git-ops.ts (issue
+// #1533); this re-export keeps handler-shared.test.mts and any ./shared.ts
+// consumer resolving the unchanged import path.
 
-export async function fetchResolvedByInfo(
-	execFn: (
-		cmd: string,
-		args: string[],
-		opts?: Record<string, unknown>,
-	) => Promise<{ code: number; stdout: string; stderr: string }>,
-	worktreePath: string,
-	baseBranch: string,
-	port: GitHubPort,
-	issueNum: number,
-	repo: string,
-): Promise<{ sha: string; prNumber: number; source: string }> {
-	let sha = "";
-	let prNumber = 0;
-	let source = "main-branch";
-
-	// 1. Get the latest commit SHA from the default branch
-	try {
-		const shaResult = await execFn("git", ["log", "-1", baseBranch, "--format=%H"], {
-			cwd: worktreePath,
-			timeout: 10_000,
-		});
-		if (shaResult.code === 0 && shaResult.stdout?.trim()) {
-			sha = shaResult.stdout.trim();
-		}
-	} catch {
-		// Non-fatal — proceed with empty sha
-	}
-
-	// 2. Try to find a merged PR that references this issue for the PR number
-	try {
-		const refs = await port.getClosingPrsForIssue(issueNum, repo);
-		// Look for a closing-keyword PR (likely merged/main PR, not branch-head)
-		const closingRef = refs.find((r) => r.source === "closing-keyword");
-		if (closingRef) {
-			prNumber = closingRef.number;
-			source = closingRef.source;
-			if (closingRef.sha) {
-				sha = closingRef.sha;
-			}
-		} else if (refs.length > 0) {
-			// Fall back to first PR ref
-			prNumber = refs[0].number;
-			source = refs[0].source;
-			if (refs[0].sha) {
-				sha = refs[0].sha;
-			}
-		}
-	} catch {
-		// Non-fatal — proceed with commit SHA only
-	}
-
-	// Use the actual commit SHA from git log as the authoritative value
-	// (overrides any SHA from the PR which might be a merge commit)
-	if (!sha) {
-		sha = "main";
-	}
-
-	return { sha, prNumber, source };
-}
+export { fetchResolvedByInfo } from "../stages/git-ops.ts";
