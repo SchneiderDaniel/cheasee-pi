@@ -29,12 +29,17 @@ func runInitDockerCheck(ctx context.Context) error {
 
 // runInitScaffold writes cheasee-settings.json from the embedded template at
 // the workspace root, then appends it to the worktree .gitignore (settings
-// are machine-local, never committed). Resolves git identity from the system
-// (git config, prompted only when missing). pi's own .pi/settings.json is
-// intentionally NOT scaffolded — pi self-scaffolds it on first run.
+// are machine-local, never committed), then idempotently pre-creates the .pi
+// skeleton dirs pi needs before it starts. Resolves git identity from the
+// system (git config, prompted only when missing). repoURL is the canonical
+// clone URL (empty on the legacy --no-github path → no repository section);
+// githubUser is the resolved GitHub login, fail-open empty. pi's own
+// .pi/settings.json is intentionally NOT scaffolded — pi owns it.
 func runInitScaffold(
 	ctx context.Context,
 	deps InitDeps,
+	repoURL string,
+	githubUser string,
 ) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Creating cheasee-settings.json...\n")
 
@@ -66,13 +71,15 @@ func runInitScaffold(
 	}
 
 	vals := TemplateSettingsValues{
-		Provider:     deps.Provider,
-		DefaultModel: DefaultModel(deps.Provider),
-		GitName:      gitName,
-		GitEmail:     gitEmail,
-		Memory:       "2G",
-		CPUs:         "2.0",
-		ClientID:     deps.ClientID,
+		Provider:       deps.Provider,
+		DefaultModel:   DefaultModel(deps.Provider),
+		GitName:        gitName,
+		GitEmail:       gitEmail,
+		Memory:         "2G",
+		CPUs:           "2.0",
+		ClientID:       deps.ClientID,
+		RepositoryURL:  repoURL,
+		GitHubUser:     githubUser,
 	}
 
 	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, deps.Workdir, vals); err != nil {
@@ -80,6 +87,11 @@ func runInitScaffold(
 	}
 	if err := gitIgnoreCheaseeSettings(deps.Workdir); err != nil {
 		return fmt.Errorf("gitignore cheasee-settings.json: %w", err)
+	}
+	// The .pi skeleton dirs must exist before pi starts (pi has no init
+	// subcommand to create them); idempotent, never touches a committed tree.
+	if err := ensurePiSkeleton(deps.Workdir); err != nil {
+		return fmt.Errorf("create .pi skeleton: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ cheasee-settings.json created\n")
 	return nil

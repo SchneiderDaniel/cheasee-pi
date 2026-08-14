@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"github.com/spf13/cobra"
 )
 
 func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
@@ -16,11 +17,96 @@ func TestInitCmd_HelpShowsNewFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expectedFlags := []string{"--workdir", "--no-github", "--client-id", "--provider", "--no-input", "--api-key", "--no-docker-check", "--repo-url"}
+	expectedFlags := []string{"--workdir", "--no-github", "--client-id", "--provider", "--no-input", "--api-key", "--no-docker-check", "--repo-url", "--reauth"}
 	for _, flag := range expectedFlags {
 		if !strings.Contains(output, flag) {
 			t.Errorf("init --help output should show %q flag", flag)
 		}
+	}
+}
+
+func TestRunInitE_ReauthFlagSetsDeps(t *testing.T) {
+	// --reauth maps into InitDeps.Reauth; without the flag it stays false.
+	cmd := &cobra.Command{Use: "init"}
+	cmd.Flags().BoolVar(&initReauth, "reauth", false, "")
+	cmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "")
+	cmd.SetArgs([]string{"--reauth"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute --reauth: %v", err)
+	}
+	deps := resolveInitDeps(cmd, t.TempDir(), InitDeps{})
+	if !deps.Reauth {
+		t.Error("--reauth must set InitDeps.Reauth")
+	}
+
+	// Without --reauth the flag var must stay false (a prior run may have
+	// set it — cobra does not reset bound vars on re-execution).
+	old := initReauth
+	initReauth = false
+	t.Cleanup(func() { initReauth = old })
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	deps = resolveInitDeps(cmd, t.TempDir(), InitDeps{})
+	if deps.Reauth {
+		t.Error("without --reauth, InitDeps.Reauth must be false")
+	}
+}
+
+func TestRunInitE_ReauthClientIDResolution(t *testing.T) {
+	// Client-ID resolution on the reauth path: stored oauth.clientID from
+	// cheasee-settings.json wins unless --client-id was explicitly changed;
+	// explicit --client-id wins; no stored ID keeps the flag/default.
+	cases := []struct {
+		name         string
+		settings     string // "" = no settings file
+		clientFlag   bool
+		wantClientID string
+		wantExplicit bool
+	}{
+		{"stored oauth.clientID wins without explicit flag", `{"oauth":{"clientID":"stored-app"}}`, false, "stored-app", false},
+		{"explicit --client-id wins over stored", `{"oauth":{"clientID":"stored-app"}}`, true, "explicit-app", true},
+		{"no stored ID keeps flag/default", "", false, "178c6fc778ccc68e1d6a", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testutil.RedirectConfigHome(t)
+			workdir := t.TempDir()
+			if tc.settings != "" {
+				testutil.WriteCheaseeSettingsFile(t, workdir, tc.settings)
+			}
+			cmd := &cobra.Command{Use: "init"}
+			cmd.Flags().BoolVar(&initReauth, "reauth", false, "")
+			cmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "")
+			args := []string{"--reauth"}
+			if tc.clientFlag {
+				args = append(args, "--client-id", "explicit-app")
+			}
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+
+			// Base mirrors what newInitDeps produces: the flag-bound var value.
+			base := InitDeps{ClientID: initClientID, Ports: InitPorts{Auth: &mockAuthenticator{}}}
+			got := resolveInitDeps(cmd, workdir, base)
+			if got.ClientID != tc.wantClientID {
+				t.Errorf("ClientID = %q, want %q", got.ClientID, tc.wantClientID)
+			}
+			if got.ClientIDExplicit != tc.wantExplicit {
+				t.Errorf("ClientIDExplicit = %v, want %v", got.ClientIDExplicit, tc.wantExplicit)
+			}
+			if !tc.clientFlag && tc.settings != "" {
+				da, ok := got.Ports.Auth.(*deviceFlowAuthenticator)
+				if !ok {
+					t.Fatalf("stored-clientID resolution must rebuild the real authenticator, got %T", got.Ports.Auth)
+				}
+				if da.clientID != "stored-app" {
+					t.Errorf("authenticator clientID = %q, want stored-app", da.clientID)
+				}
+			}
+		})
 	}
 }
 

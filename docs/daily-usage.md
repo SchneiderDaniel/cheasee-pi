@@ -27,7 +27,9 @@ Before running pi via Docker, ensure the following are in place:
 - **A cheasee-pi workspace** — run `cheasee-pi init` in an empty folder to set
   one up (bare clone + main worktree + `cheasee-settings.json`), or just run
   `cheasee-pi start` in an empty folder — it auto-inits first and continues
-  into start in the same invocation.
+  into start in the same invocation. Re-authenticate later (revoked GitHub
+  token, rotated API keys) with `cheasee-pi init --reauth` in the workspace —
+  it redoes the GitHub OAuth and pi API-key authentications.
 
 The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
 automatically inside the container.
@@ -180,7 +182,7 @@ docker exec -it \
 > **Tip:** For automatic API key injection from `~/.config/cheasee-pi/auth.json`, use
 > `cheasee-pi start` instead.
 
-## Parallel sessions
+## Parallel workspaces
 
 Each workspace/repository gets its own container (`cheasee-pi-<repo-slug>`
 plus the `codeflow-<repo-slug>` sidecar, and a per-repo compose project name)
@@ -200,7 +202,7 @@ docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --
 ### Stale process cleanup
 
 Pi processes can become orphaned if a `docker exec` session disconnects or the
-wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each).
+wrapper is killed before cleanup runs. These accumulate RAM (150–280 MB each).
 
 **Cleanup command:**
 

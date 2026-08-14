@@ -85,6 +85,13 @@ first run.
 > `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
 > separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
 
+{:.note-title}
+> Already initialized?
+> `cheasee-pi init --reauth` re-runs the authentications (GitHub OAuth device
+> flow + provider API-key setup) without touching the clone or the settings
+> scaffold. Plain `cheasee-pi init` still refuses an initialized workspace —
+> `--reauth` is the explicit redo entry point.
+
 ### Add API keys later
 
 ```bash

@@ -13,5 +13,9 @@
   },
   "oauth": {
     "clientID": "{{.ClientID}}"
-  }
+  }{{if .RepositoryURL}},
+  "repository": {
+    "url": "{{.RepositoryURL}}",
+    "user": "{{.GitHubUser}}"
+  }{{end}}
 }

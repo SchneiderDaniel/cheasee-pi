@@ -19,9 +19,15 @@ import (
 // Mock: Authenticator
 // ──────────────────────────────────────────────
 
+// MockGitHubUser is the deterministic login the mock Authenticator.User stub
+// returns by default — both init entry points share it, keeping the
+// auto-init byte-identity contract deterministic.
+const MockGitHubUser = "octocat"
+
 type mockAuthenticator struct {
 	requestCodeFunc func(ctx context.Context, scopes []string) (*device.CodeResponse, error)
 	waitFunc        func(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error)
+	userFunc        func(ctx context.Context, token string) (string, error)
 }
 
 func (m *mockAuthenticator) RequestCode(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
@@ -42,6 +48,13 @@ func (m *mockAuthenticator) Wait(ctx context.Context, code *device.CodeResponse)
 		return m.waitFunc(ctx, code)
 	}
 	return &api.AccessToken{Token: FakeGitHubToken}, nil
+}
+
+func (m *mockAuthenticator) User(ctx context.Context, token string) (string, error) {
+	if m.userFunc != nil {
+		return m.userFunc(ctx, token)
+	}
+	return MockGitHubUser, nil
 }
 
 // ──────────────────────────────────────────────
