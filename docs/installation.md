@@ -142,6 +142,20 @@ On an initialized workspace it:
    `/workspaces/.bare` (the entrypoint rewrites worktree paths and locks them)
 3. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
 
+### Global operating instructions
+
+The cheasee-pi **operating instructions** — system role, tool-routing matrix,
+prohibited operations, execution protocols, package-safety audit — live in
+`APPEND_SYSTEM.md` at the cheasee-pi repo root. The image symlinks it into
+`~/.pi/agent/APPEND_SYSTEM.md`, pi's global system-prompt append, so the
+instructions are present in **every** repository the CLI runs in (not just
+cheasee-pi workspaces). The repo-root `AGENTS.md` is a stub holding only
+cheasee-pi-repo-specific policy plus a pointer to the global file.
+
+In cheasee-pi workspaces the entrypoint re-points the global symlink at the
+live mounted repo file, so edits are live; in other repos the baked image
+copy is used (refreshed on image rebuild).
+
 Pi is installed as `@latest` at image build time, and `cheasee-pi start`
 rebuilds the image whenever the container isn't running — pi updates to the
 latest version automatically on every start. No manual update needed.

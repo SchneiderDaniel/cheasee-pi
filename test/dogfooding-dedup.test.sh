@@ -29,9 +29,12 @@ cd "$ROOT"
 IMAGE="cheasee-pi:test-1497"
 DOCKER_CONTEXT="$ROOT/cmd/cheasee-pi/embedded/docker"
 MARKER_SRC="$ROOT/test/fixtures/dogfooding-marker/index.ts"
+APPEND_MARKER_SRC="$ROOT/test/fixtures/dogfooding-append-marker/index.ts"
 MARKER_REPO_DIR=".pi/extensions/marker-dedup"
+APPEND_MARKER_REPO_DIR=".pi/extensions/append-marker"
 OUT_DIR="$(mktemp -d)"
 MARKER_LOG_HOST="$OUT_DIR/marker.log"
+APPEND_MARKER_LOG_HOST="$OUT_DIR/append-marker.log"
 AGENT_STATE="$OUT_DIR/agent"
 
 PASS=0
@@ -41,9 +44,9 @@ fail() { FAIL=$((FAIL + 1)); echo "  ✗ $1"; }
 
 UNRELATED=""
 cleanup() {
-    rm -rf "$MARKER_REPO_DIR"
+    rm -rf "$MARKER_REPO_DIR" "$APPEND_MARKER_REPO_DIR"
     [ -n "$UNRELATED" ] && rm -rf "$UNRELATED"
-    git checkout -- .pi/settings.json go.mod 2>/dev/null || true
+    git checkout -- .pi/settings.json go.mod APPEND_SYSTEM.md 2>/dev/null || true
     rm -rf "$OUT_DIR"
 }
 trap cleanup EXIT
@@ -52,6 +55,33 @@ if ! docker info >/dev/null 2>&1; then
     echo "SKIP: docker daemon not available — container suite requires a running daemon"
     exit 0
 fi
+
+# inject_append_marker — copies the append-content marker into the repo's
+# .pi/extensions/append-marker/ and registers it in .pi/settings.json.
+# The marker asserts in before_agent_start that the assembled prompt carries
+# the global operating instructions exactly once (#1517).
+inject_append_marker() {
+    mkdir -p "$APPEND_MARKER_REPO_DIR"
+    cp "$APPEND_MARKER_SRC" "$APPEND_MARKER_REPO_DIR/index.ts"
+    node -e '
+        const fs = require("fs");
+        const p = ".pi/settings.json";
+        const s = JSON.parse(fs.readFileSync(p, "utf8"));
+        if (!s.extensions.includes(".pi/extensions/append-marker")) s.extensions.push(".pi/extensions/append-marker");
+        fs.writeFileSync(p, JSON.stringify(s, null, "\t") + "\n");
+    '
+}
+
+# assert_append_marker <context> — the append marker must have logged
+# `append:ok:` (instructions present exactly once in the assembled prompt).
+assert_append_marker() {
+    local context="$1"
+    if [ -s "$APPEND_MARKER_LOG_HOST" ] && grep -q '^append:ok:' "$APPEND_MARKER_LOG_HOST"; then
+        pass "$context: global operating instructions present exactly once in assembled prompt ($(tail -1 "$APPEND_MARKER_LOG_HOST"))"
+    else
+        fail "$context: global instructions missing/duplicated in assembled prompt (log: '$(cat "$APPEND_MARKER_LOG_HOST")')"
+    fi
+}
 
 # ------------------------------------------------------------------
 echo "== Phase 0: image + marker setup =="
@@ -81,19 +111,22 @@ inject_marker() {
 # run_pi <outfile> [extra docker args...] — runs a fresh container with the
 # repo mounted at /workspaces/main AND /opt/cheasee-pi (baked copy shadowed so
 # the marker exists on both load paths). pi's exit code is tolerated: without
-# an API key the model call fails after startup, but extension loading (the
-# marker) happens before that and is what the test counts.
+# an API key the model call fails after startup, but before_agent_start (the
+# marker hook) fires before that and is what the tests count.
 run_pi() {
     local outfile="$1"
     shift
     : > "$MARKER_LOG_HOST"
+    : > "$APPEND_MARKER_LOG_HOST"
     set +e
     timeout 300 docker run --rm \
         -e MARKER_LOG=/tmp/marker.log \
+        -e APPEND_MARKER_LOG=/tmp/append-marker.log \
         -e PI_TELEMETRY=0 \
         -v "$ROOT:/workspaces/main" \
         -v "$ROOT:/opt/cheasee-pi" \
         -v "$MARKER_LOG_HOST:/tmp/marker.log" \
+        -v "$APPEND_MARKER_LOG_HOST:/tmp/append-marker.log" \
         "$@" \
         "$IMAGE" pi -a -p "hello" >"$outfile" 2>&1
     local rc=$?
@@ -104,6 +137,7 @@ run_pi() {
 # ------------------------------------------------------------------
 echo "== Phase 1: fixed run — cheasee-pi repo detected, resources deduped =="
 inject_marker ".pi/extensions/marker-dedup"
+inject_append_marker
 run_pi "$OUT_DIR/pi-fixed.log"
 lines=$(wc -l < "$MARKER_LOG_HOST")
 if [ "$lines" -eq 1 ]; then
@@ -126,6 +160,19 @@ if [ "$link_target" = "/workspaces/main/.pi/extensions/marker-dedup" ]; then
 else
     fail "global extension symlink not re-pointed (got '$link_target')"
 fi
+
+# The global APPEND_SYSTEM.md symlink (global operating instructions, #1517)
+# must likewise be re-pointed at the live repo file.
+append_link="$(docker run --rm \
+    -v "$ROOT:/workspaces/main" \
+    -v "$ROOT:/opt/cheasee-pi" \
+    "$IMAGE" readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md 2>/dev/null || true)"
+if [ "$append_link" = "/workspaces/main/APPEND_SYSTEM.md" ]; then
+    pass "global APPEND_SYSTEM.md symlink re-pointed at live repo ($append_link)"
+else
+    fail "global APPEND_SYSTEM.md symlink not re-pointed (got '$append_link')"
+fi
+assert_append_marker "fixed run (cheasee-pi repo)"
 
 # ------------------------------------------------------------------
 echo "== Phase 2: duplication-sensitive control — detection disabled =="
@@ -170,6 +217,19 @@ if [[ "$l1" != *"/.pi/agent/"* ]]; then
 else
     fail "nested symlink detected: $l1"
 fi
+# Same idempotence for the APPEND_SYSTEM.md symlink.
+a1="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md 2>/dev/null || true)"
+a2="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md 2>/dev/null || true)"
+if [ -n "$a1" ] && [ "$a1" = "$a2" ]; then
+    pass "APPEND_SYSTEM.md readlink unchanged across restarts ($a1)"
+else
+    fail "APPEND_SYSTEM.md readlink changed across restarts ('$a1' → '$a2')"
+fi
+if [ "$a1" = "/workspaces/main/APPEND_SYSTEM.md" ]; then
+    pass "APPEND_SYSTEM.md re-pointed at live repo in persisted-home run"
+else
+    fail "APPEND_SYSTEM.md not re-pointed at live repo (got '$a1')"
+fi
 
 # live-edit user journey: edit the marker's message in the mounted repo,
 # restart the container → the new message must appear (edits load live, no
@@ -182,10 +242,30 @@ else
     fail "edited marker message did not appear after restart"
 fi
 
+# live-edit journey for the global append: edit APPEND_SYSTEM.md in the mounted
+# repo, restart → the re-pointed symlink still resolves to the live repo file
+# (no stale baked /opt copy).
+sed -i '/# Global Cheasee-Pi Operating Instructions/a live-edit-marker-append' "$ROOT/APPEND_SYSTEM.md"
+run_pi "$OUT_DIR/pi-liveedit-append.log" -v "$AGENT_STATE:/home/agentuser"
+a3="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md 2>/dev/null || true)"
+if [ "$a3" = "/workspaces/main/APPEND_SYSTEM.md" ]; then
+    pass "APPEND_SYSTEM.md re-pointed target resolves to live repo file after edit ($a3)"
+else
+    fail "APPEND_SYSTEM.md symlink not at live repo after edit (got '$a3')"
+fi
+resolved_has_marker="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" bash -c 'grep -c live-edit-marker-append "$(readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md)"' 2>/dev/null || true)"
+if [ "$resolved_has_marker" = "1" ]; then
+    pass "edited APPEND_SYSTEM.md content reachable through the re-pointed symlink"
+else
+    fail "edited APPEND_SYSTEM.md content not reachable through the symlink (grep count='$resolved_has_marker')"
+fi
+# restore the repo file (cleanup also covers it, but keep the repo clean mid-run)
+git checkout -- APPEND_SYSTEM.md
+
 # ------------------------------------------------------------------
 echo "== Phase 4: non-cheasee-pi repo — global availability unchanged =="
 git checkout -- .pi/settings.json go.mod
-rm -rf "$MARKER_REPO_DIR"
+rm -rf "$MARKER_REPO_DIR" "$APPEND_MARKER_REPO_DIR"
 UNRELATED="$(mktemp -d)"
 (
     cd "$UNRELATED"
@@ -193,13 +273,21 @@ UNRELATED="$(mktemp -d)"
     echo "module example.com/unrelated" > go.mod
     mkdir -p src
     echo "package main" > src/main.go
+    # The foreign repo carries no AGENTS.md at all — only the global
+    # APPEND_SYSTEM.md append must provide the operating instructions.
+    mkdir -p .pi/extensions/append-marker
+    cp "$APPEND_MARKER_SRC" .pi/extensions/append-marker/index.ts
+    node -e 'const fs=require("fs"); fs.writeFileSync(".pi/settings.json", JSON.stringify({extensions:[".pi/extensions/append-marker"]}, null, "\t")+"\n")'
     git add -A
     git -c user.email=test@example.com -c user.name=Test commit -qm init
 )
+: > "$APPEND_MARKER_LOG_HOST"
 set +e
 timeout 300 docker run --rm \
+    -e APPEND_MARKER_LOG=/tmp/append-marker.log \
     -e PI_TELEMETRY=0 \
     -v "$UNRELATED:/workspaces/main" \
+    -v "$APPEND_MARKER_LOG_HOST:/tmp/append-marker.log" \
     "$IMAGE" pi -a -p "hello" >"$OUT_DIR/pi-unrelated.log" 2>&1
 rc=$?
 set -e
@@ -214,6 +302,21 @@ case "$baked_target" in
         fail "global symlink altered for non-cheasee-pi repo (got '$baked_target')"
         ;;
 esac
+baked_append="$(docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md' 2>/dev/null || true)"
+if [ "$baked_append" = "/opt/cheasee-pi/APPEND_SYSTEM.md" ]; then
+    pass "global APPEND_SYSTEM.md symlink unchanged (→ /opt/cheasee-pi) for non-cheasee-pi repo"
+else
+    fail "global APPEND_SYSTEM.md symlink altered for non-cheasee-pi repo (got '$baked_append')"
+fi
+# The baked append file must carry the operating instructions, and the marker
+# must see them in the assembled prompt of the foreign repo (the bug fix).
+baked_append_content="$(docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'grep -c "<tool_routing_matrix>" "$(readlink /home/agentuser/.pi/agent/APPEND_SYSTEM.md)"' 2>/dev/null || true)"
+if [ "$baked_append_content" = "1" ]; then
+    pass "baked APPEND_SYSTEM.md file contains the tool-routing matrix (1 occurrence)"
+else
+    fail "baked APPEND_SYSTEM.md file missing/duplicated matrix (grep count='$baked_append_content')"
+fi
+assert_append_marker "foreign repo (non-cheasee-pi)"
 if grep -q 'conflicts with' "$OUT_DIR/pi-unrelated.log"; then
     fail "extension conflicts in unrelated repo session"
 else
