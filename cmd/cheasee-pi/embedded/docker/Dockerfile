@@ -121,7 +121,9 @@ RUN case "$(dpkg --print-architecture)" in \
 # Pinned + retry loop: rtk's own install.sh curls the GitHub release asset
 # without --retry, and transfers from release-assets die mid-flight on
 # flaky connections (curl 56, "Connection died"). `test -x` after the loop
-# keeps a total failure fatal (the playwright loop above can't say that).
+# keeps a total failure fatal.
+# NOTE: layer 5e's patchright chromium loop uses the same fatal-check pattern
+# (ls on the expected browser path) — build must fail loudly, not ship empty.
 # ---------------------------------------------------------------
 ARG RTK_VERSION=0.45.0
 RUN for i in 1 2 3; do \
@@ -159,15 +161,22 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
         beautifulsoup4 \
     && rm -rf /root/.cache/pip /tmp/*
 
-# Pre-download Chromium browser for scrapling Playwright fetcher
-# Retry loop handles the ~175 MB download which can glitch on slow/unstable connections.
+# Pre-download Chromium for scrapling StealthyFetcher (patchright revision 1228).
+# NOT `playwright install` — StealthyFetcher launches patchright's chromium build
+# (rev 1228); playwright's build (rev 1234 in 1.62.0) never matches, leaving the
+# stealth tier broken with "Executable doesn't exist at .../chromium-1228/...".
+# Retry loop handles the ~175 MB download which can glitch on slow/unstable
+# connections; the `ls .../chromium-*/chrome-linux64/chrome` check after the loop
+# makes a TOTAL failure fatal — without it the last loop command (sleep 5) exits 0
+# and the layer reports success with an empty /opt/playwright-browsers.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN for i in 1 2 3; do \
-      /opt/venvs/scrapling-venv/bin/python -m playwright install chromium \
+      /opt/venvs/scrapling-venv/bin/python -m patchright install chromium \
         && break; \
-      echo "[attempt $i] playwright install chromium failed, retrying in 5s…"; \
+      echo "[attempt $i] patchright install chromium failed, retrying in 5s…"; \
       sleep 5; \
     done && \
+    ls /opt/playwright-browsers/chromium-*/chrome-linux64/chrome >/dev/null 2>&1 && \
     chmod -R a+rX /opt/playwright-browsers
 
 # World-readable so agentuser (created next layer) can access

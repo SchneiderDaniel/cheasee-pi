@@ -289,20 +289,27 @@ or pass `--build` to pick up changes.
 
 ### Full rebuild (ignore cache)
 
-When Docker layer cache is stale or you want a clean build from scratch:
+`cheasee-pi rebuild` performs a full no-cache rebuild plus prune: it ignores
+every cached layer (`--no-cache`), pulls a fresh base image (`--pull`) and
+prunes dangling images + build cache afterwards. Note the naming inversion vs
+VS Code: cheasee-pi's `rebuild` is the no-cache variant, while `build` is the
+cached rebuild.
 
 ```bash
 # CLI
-cheasee-pi build --no-cache
+cheasee-pi rebuild
 
-# Docker compose directly
+# Docker compose directly (same flags rebuild passes)
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
   docker compose -p cheasee-pi-<repo-slug> \
-    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+    -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache --pull
 ```
 
-This ignores all cached layers and rebuilds every step. Use when:
-- Base image (`debian:12-slim`) has security updates
+rebuild = no-cache full rebuild + prune. `cheasee-pi build --no-cache` is kept
+as a compatibility alias (same rebuild, but prunes before the build and does
+not pass `--pull`). Use `rebuild` when:
+- Base image (`debian:12-slim`) has security updates — `rebuild`'s `--pull`
+  refreshes it; `--no-cache` alone would keep the locally cached base image
 - `apt` or `pip` packages need fresh versions
 - You suspect cache corruption
 - You want to verify the Dockerfile is reproducible
@@ -368,11 +375,10 @@ collides with another service still fails "port is already allocated"; check
 with `docker ps` and pick a free port.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
-   WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-     docker compose -p cheasee-pi-<repo-slug> \
-       -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+   cheasee-pi rebuild
    cheasee-pi start
    ```
+   (raw compose equivalent: `docker compose ... build --no-cache --pull`)
 3. **Docker not running:** Verify with `docker ps`.
 
 ### GitHub auth not working inside container

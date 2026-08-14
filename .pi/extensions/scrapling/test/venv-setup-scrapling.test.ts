@@ -77,8 +77,8 @@ function makeMockExec(handlers: MockHandlers = {}): ExecFn {
 			if (result.code === 0) setupDone = true;
 			return result;
 		}
-		// scrapping.cli post-install
-		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "scrapling.cli")
+		// patchright chromium post-install (best-effort browser download)
+		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "patchright")
 			return merged.scraplingCli;
 		// rm -rf cleanup
 		if (cmd === "rm") return { code: 0, stdout: "", stderr: "", killed: false };
@@ -137,7 +137,7 @@ describe("ensureScraplingVenv — adapter", () => {
 		assert.ok(pipCall.args.includes("beautifulsoup4"), "should install beautifulsoup4");
 	});
 
-	it("(entity) runs scrapling.cli install as postInstall hook", async () => {
+	it("(entity) runs patchright install chromium as best-effort postInstall hook", async () => {
 		const { cwd, exec } = setupTest();
 
 		await ensureScraplingVenv(exec, cwd);
@@ -147,10 +147,14 @@ describe("ensureScraplingVenv — adapter", () => {
 			args: c.arguments[1] as string[],
 		}));
 		const cliCall = calls.find(
-			(c) =>
-				c.cmd.includes("bin/python3") && c.args.includes("-m") && c.args[1] === "scrapling.cli",
+			(c) => c.cmd.includes("bin/python3") && c.args.includes("-m") && c.args[1] === "patchright",
 		);
-		assert.ok(cliCall, "should call scrapling.cli");
+		assert.ok(cliCall, "should call patchright install chromium");
+		assert.ok(cliCall.args.includes("install"), "should run patchright install");
+		assert.ok(
+			cliCall.args.includes("chromium"),
+			"should install chromium (patchright rev 1228, not playwright 1234)",
+		);
 	});
 
 	it("(entity) returns the pythonPath from ensureVenv unchanged", async () => {
@@ -176,57 +180,21 @@ describe("ensureScraplingVenv — adapter", () => {
 		assert.equal(ensureScraplingVenv.length, 3); // exec, cwd, onUpdate
 	});
 
-	// ── postInstall exec failure propagation ──
+	// ── postInstall best-effort semantics ──
 
-	it("(error) scrapling.cli install non-zero exit → EnsureVenvError with step install", async () => {
+	it("(entity) patchright chromium non-zero exit does NOT fail venv setup (best-effort)", async () => {
 		const { cwd, exec } = setupTest({
 			scraplingCli: { code: 1, stdout: "", stderr: "Download failure, code=1", killed: false },
 		});
 
-		let err: unknown;
-		try {
-			await ensureScraplingVenv(exec, cwd);
-		} catch (e) {
-			err = e;
-		}
-		assertEnsureVenvError(err, "Download failure, code=1");
+		await assert.doesNotReject(() => ensureScraplingVenv(exec, cwd));
 	});
 
-	it("(error) scrapling.cli install signal-killed → EnsureVenvError with step install", async () => {
+	it("(entity) patchright chromium signal-killed does NOT fail venv setup (best-effort)", async () => {
 		const { cwd, exec } = setupTest({
 			scraplingCli: { code: 0, stdout: "", stderr: "", killed: true },
 		});
 
-		let err: unknown;
-		try {
-			await ensureScraplingVenv(exec, cwd);
-		} catch (e) {
-			err = e;
-		}
-		assertEnsureVenvError(err, "Post-install step failed");
-	});
-
-	it("(error) scrapling.cli install failure message includes stderr", async () => {
-		const { cwd, exec } = setupTest({
-			scraplingCli: { code: 1, stdout: "", stderr: "size mismatch: expected 200MB got 50MB", killed: false },
-		});
-
-		let err: unknown;
-		try {
-			await ensureScraplingVenv(exec, cwd);
-		} catch (e) {
-			err = e;
-		}
-		assertEnsureVenvError(err, "size mismatch: expected 200MB got 50MB");
-	});
-
-	it("(error) scrapling.cli install success (code 0, not killed) does NOT throw", async () => {
-		const { cwd, exec } = setupTest({
-			scraplingCli: { code: 0, stdout: "installed", stderr: "", killed: false },
-		});
-
-		await assert.doesNotReject(
-			() => ensureScraplingVenv(exec, cwd),
-		);
+		await assert.doesNotReject(() => ensureScraplingVenv(exec, cwd));
 	});
 });
