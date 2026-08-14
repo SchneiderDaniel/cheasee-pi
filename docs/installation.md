@@ -246,8 +246,20 @@ docker exec -it \
 
 ## Uninstall
 
+### Standalone script (recommended)
+
 ```bash
-sudo cheasee-pi uninstall
+curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scripts/uninstall.sh | bash
+```
+
+Add `--force` to skip the confirmation prompt, `--dry-run` to preview what would be removed. The script removes the binary (from `/usr/local/bin`, `~/.local/bin`, or your PATH), the whole CLI cache dir, the auth config (`cheasee-pi/auth.json` under your user config dir), and the `.pi/` directory in the current folder (`--remove-git` also deletes `.git/`). It works even if the binary is already gone, and never needs `sudo` (root-owned files like `/usr/local/bin` are elevated per-operation).
+
+### CLI command
+
+For workspace-level cleanup from inside a workspace, `cheasee-pi uninstall` removes the cache dir, auth config, `.pi/`, and the running binary:
+
+```bash
+cheasee-pi uninstall
 ```
 
 Add `--force` to skip confirmation, `--remove-git` to also delete `.git/`.
