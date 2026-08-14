@@ -192,7 +192,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			explicitWorktreePath,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -219,7 +230,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const config = makeConfig();
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -247,7 +269,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const config = makeConfig({ worktreeBase: "../worktrees" });
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -273,7 +306,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const config = makeConfig({ worktreeBase: "/tmp/worktrees" });
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -298,7 +342,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const explicitWorktreePath = `/repo/worktrees/${BRANCH}`;
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, explicitWorktreePath, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			explicitWorktreePath,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const fetchCall = calls.find(
 			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "origin",
@@ -315,7 +370,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
 		// No exec calls — conflict check is via port
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, undefined, undefined, undefined, createMockMergePort(false));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			createMockMergePort(false),
+		);
 
 		// No exec calls should be made since no conflict and no auto-merge
 		assert.equal(calls.length, 0, "no exec calls when no conflict");
@@ -327,7 +393,18 @@ describe("handlePostPipelineMerge() — worktree path resolution", () => {
 		const ctx = createMockCtx(false);
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", makeConfig(), pi, ctx, undefined, undefined, undefined, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			undefined,
+			undefined,
+			undefined,
+			createMockMergePort(true),
+		);
 
 		const gitCalls = calls.filter((c) => c.cmd === "git");
 		assert.equal(gitCalls.length, 0, "no git calls when user declines merge");
@@ -446,7 +523,18 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const port = createMockMergePort(true);
 
 		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
-		await handlePostPipelineMerge(42, "Foo issue", "Done", config, pi, ctx, wt, undefined, runner, createMockMergePort(true));
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config,
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
 
 		assert.ok(runner.mock.callCount() > 0, "should have runAgentSubprocess calls");
 		const args = runner.mock.calls[0]?.arguments;
@@ -573,7 +661,6 @@ function createGateMockRunner(result?: Partial<AgentRunResult>) {
 	);
 }
 
-
 // ═══════════════════════════════════════════════════════════════════
 
 function makeDirtyInfo(): PrConflictInfo {
@@ -642,6 +729,126 @@ function makeFailedPrResult(rebaseConflicts?: string[]): PrCreationResult {
 	};
 }
 
+// ─── classifyMergeability — pure classifier ───────────────────────
+
+describe("classifyMergeability() — mergeability verdict vocabulary", () => {
+	it("clean PR (hasConflict=false, MERGEABLE, CLEAN) → { kind: 'clean', prNumber }", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(makeCleanInfo(), undefined), {
+			kind: "clean",
+			prNumber: 123,
+		});
+	});
+
+	it("NOT_MERGEABLE + BLOCKED → clean (gated/blocked PRs must not false-block Done)", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const blocked = { ...makeCleanInfo(), mergeable: "NOT_MERGEABLE", mergeStateStatus: "BLOCKED" };
+		assert.deepEqual(classifyMergeability(blocked, undefined), { kind: "clean", prNumber: 123 });
+	});
+
+	it("NOT_MERGEABLE + UNSTABLE → clean", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const unstable = {
+			...makeCleanInfo(),
+			mergeable: "NOT_MERGEABLE",
+			mergeStateStatus: "UNSTABLE",
+		};
+		assert.deepEqual(classifyMergeability(unstable, undefined), { kind: "clean", prNumber: 123 });
+	});
+
+	it("NOT_MERGEABLE + BEHIND → clean", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const behind = { ...makeCleanInfo(), mergeable: "NOT_MERGEABLE", mergeStateStatus: "BEHIND" };
+		assert.deepEqual(classifyMergeability(behind, undefined), { kind: "clean", prNumber: 123 });
+	});
+
+	it("hasConflict=true + MERGEABLE → dirty (mergeable field alone never overrides state)", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const info = { ...makeDirtyInfo(), mergeable: "MERGEABLE" };
+		assert.deepEqual(classifyMergeability(info, undefined), { kind: "dirty", prNumber: 123 });
+	});
+
+	it("hasConflict=true + UNKNOWN → dirty (dirty beats computing)", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const info = { ...makeDirtyInfo(), mergeable: "UNKNOWN" };
+		assert.deepEqual(classifyMergeability(info, undefined), { kind: "dirty", prNumber: 123 });
+	});
+
+	it("hasConflict=false + UNKNOWN → computing (UNKNOWN is never a verdict)", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(makeUnknownInfo(), undefined), { kind: "computing" });
+	});
+
+	it("info=null + failed w/ non-empty rebaseConflicts → no-pr rebase-conflicts", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(null, makeFailedPrResult(["src/a.ts"])), {
+			kind: "no-pr",
+			mode: "rebase-conflicts",
+		});
+	});
+
+	it("info=null + failed w/o rebaseConflicts → no-pr creation-failed", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(null, makeFailedPrResult()), {
+			kind: "no-pr",
+			mode: "creation-failed",
+		});
+	});
+
+	it("boundary: failed w/ empty rebaseConflicts array → creation-failed (length check, not array truthiness)", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(null, makeFailedPrResult([])), {
+			kind: "no-pr",
+			mode: "creation-failed",
+		});
+	});
+
+	it("info=null + current success → no-pr propagating", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(
+			classifyMergeability(null, { success: true, prNumber: 123, source: "pr-creation" }),
+			{
+				kind: "no-pr",
+				mode: "propagating",
+			},
+		);
+	});
+
+	it("info=null + current undefined → no-pr propagating", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		assert.deepEqual(classifyMergeability(null, undefined), { kind: "no-pr", mode: "propagating" });
+	});
+
+	it("totality: never throws on any (info, current) combination; prNumber propagated on clean/dirty", async () => {
+		const { classifyMergeability } = await import("../../pipeline/merge.ts");
+		const infos: Array<PrConflictInfo | null> = [
+			null,
+			makeCleanInfo(),
+			makeDirtyInfo(),
+			makeUnknownInfo(),
+		];
+		const currents: Array<PrCreationResult | undefined> = [
+			undefined,
+			{ success: true, prNumber: 1, source: "pr-creation" },
+			makeFailedPrResult(),
+			makeFailedPrResult(["a.ts"]),
+			makeFailedPrResult([]),
+		];
+		for (const info of infos) {
+			for (const current of currents) {
+				const klass = classifyMergeability(info, current);
+				if (klass.kind === "clean" || klass.kind === "dirty") {
+					assert.equal(
+						klass.prNumber,
+						info!.number,
+						"prNumber propagated from info on clean/dirty",
+					);
+				}
+			}
+		}
+	});
+});
+
 // ─── awaitPrMergeability ───────────────────────────────────────────
 
 describe("awaitPrMergeability() — bounded mergeability poll", () => {
@@ -665,7 +872,10 @@ describe("awaitPrMergeability() — bounded mergeability poll", () => {
 
 	it("polls unknown → unknown → clean (exactly 3 polls)", async () => {
 		const calls: PortCall[] = [];
-		const port = createSequencedPort([makeUnknownInfo(), makeUnknownInfo(), makeCleanInfo()], calls);
+		const port = createSequencedPort(
+			[makeUnknownInfo(), makeUnknownInfo(), makeCleanInfo()],
+			calls,
+		);
 		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
 
 		const info = await awaitPrMergeability(port, BRANCH, "owner/repo", NO_BACKOFF);
@@ -679,7 +889,13 @@ describe("awaitPrMergeability() — bounded mergeability poll", () => {
 	it("all 5 attempts UNKNOWN → returns null (bounded, no hang)", async () => {
 		const calls: PortCall[] = [];
 		const port = createSequencedPort(
-			[makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo(), makeUnknownInfo()],
+			[
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+			],
 			calls,
 		);
 		const { awaitPrMergeability } = await import("../../pipeline/merge.ts");
@@ -748,7 +964,10 @@ describe("ensurePrReadyForDone() — pre-Done readiness gate", () => {
 	it("PR dirty (#1457) → auto-merge → push → re-poll clean → { ok: true }", async () => {
 		const calls: PortCall[] = [];
 		const execCalls: ExecCall[] = [];
-		const port = createSequencedPort([makeDirtyInfo(), makeDirtyInfo(), makeCleanInfo(), makeCleanInfo()], calls);
+		const port = createSequencedPort(
+			[makeDirtyInfo(), makeDirtyInfo(), makeCleanInfo(), makeCleanInfo()],
+			calls,
+		);
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
@@ -796,7 +1015,10 @@ describe("ensurePrReadyForDone() — pre-Done readiness gate", () => {
 	it("PR dirty + auto-merge fails → developer dispatch succeeds → createPrOnApproval retried exactly once → re-poll → { ok: true }", async () => {
 		const calls: PortCall[] = [];
 		const execCalls: ExecCall[] = [];
-		const port = createSequencedPort([makeDirtyInfo(), makeDirtyInfo(), null, makeCleanInfo(), makeCleanInfo()], calls);
+		const port = createSequencedPort(
+			[makeDirtyInfo(), makeDirtyInfo(), null, makeCleanInfo(), makeCleanInfo()],
+			calls,
+		);
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
@@ -1016,6 +1238,324 @@ describe("ensurePrReadyForDone() — pre-Done readiness gate", () => {
 	});
 });
 
+// ─── ensurePrReadyForDone — additive seam coverage ────────────────
+
+describe("ensurePrReadyForDone() — additive seam coverage", () => {
+	const NO_BACKOFF = { attempts: 5, backoffMs: [0, 0, 0, 0, 0] };
+
+	it("port undefined → { ok: false } + 'GitHubPort not available' blockerNote", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			undefined,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, false, "no port fails closed");
+		assert.ok(verdict.blockerNote!.includes("GitHubPort not available"));
+		assert.equal(execCalls.length, 0, "no git calls without a port");
+		assert.equal(runner.mock.callCount(), 0, "no developer dispatch without a port");
+	});
+
+	it("initial port read throws → { ok: true } fail-open; no git exec, no dispatch", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const port = createMockGitHubPort({
+			listPullRequestsForBranch: async () => {
+				throw new Error("network down");
+			},
+		});
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "port error fails open");
+		assert.equal(verdict.prCreationResult!.prNumber, 123, "current result preserved");
+		assert.equal(execCalls.length, 0, "no git exec on port error");
+		assert.equal(runner.mock.callCount(), 0, "no developer dispatch on port error");
+	});
+
+	it("no-PR + current success, PR appears during propagation poll → { ok: true }", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort([null, makeCleanInfo()], calls);
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "PR appearing during propagation poll passes");
+		assert.equal(
+			calls.filter((c) => c.method === "listPullRequestsForBranch").length,
+			2,
+			"initial fetch + 1 propagation poll",
+		);
+	});
+
+	it("no-PR + current success, PR stays invisible → propagation poll capped at min(attempts, 3), { ok: true } fail-open", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort(
+			[
+				null,
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+				makeUnknownInfo(),
+			],
+			calls,
+		);
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "no PR after propagation poll fails open");
+		assert.equal(
+			calls.filter((c) => c.method === "listPullRequestsForBranch").length,
+			4,
+			"1 initial + 3 propagation polls (capped at min(attempts, 3), not 5)",
+		);
+	});
+
+	it("3 rounds all dirty with auto-merge success each round → loop exhausts → { ok: false } + 'did not settle'", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort(
+			[
+				makeDirtyInfo(),
+				makeDirtyInfo(),
+				makeDirtyInfo(),
+				makeDirtyInfo(),
+				makeDirtyInfo(),
+				makeDirtyInfo(),
+			],
+			calls,
+		);
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls); // default exec results: all git calls succeed
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, false, "three dirty rounds without settling blocks the gate");
+		assert.ok(verdict.blockerNote!.includes("did not settle"));
+		assert.equal(
+			calls.filter((c) => c.method === "listPullRequestsForBranch").length,
+			6,
+			"2 polls per round × 3 rounds",
+		);
+		assert.equal(execCalls.length, 9, "3 git execs (fetch, merge, push) per round × 3 rounds");
+	});
+
+	it("dirty + dev dispatch → verdict.prCreationResult reflects retried createPrOnApproval (prNumber 456)", async () => {
+		const calls: PortCall[] = [];
+		const execCalls: ExecCall[] = [];
+		const port = createSequencedPort(
+			[makeDirtyInfo(), makeDirtyInfo(), null, makeCleanInfo(), makeCleanInfo()],
+			calls,
+		);
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // tryAutoMerge fetch
+				{ code: 1, stdout: "", stderr: "merge failed" }, // tryAutoMerge merge fails
+				{ code: 0, stdout: "file1.ts\n", stderr: "" }, // diff-filter=U
+				{ code: 0, stdout: "", stderr: "" }, // merge --abort
+				{ code: 0, stdout: "fetch ok", stderr: "" }, // retry rebase fetch
+				{ code: 0, stdout: "rebase ok", stderr: "" }, // retry rebase
+				{ code: 0, stdout: "push ok", stderr: "" }, // retry push
+			],
+			execCalls,
+		);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			wt,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true, "dev-resolved dirty PR passes the gate");
+		assert.equal(verdict.prCreationResult!.prNumber, 456, "retried creation result, not stale 123");
+		assert.equal(runner.mock.callCount(), 1, "exactly 1 developer dispatch");
+	});
+
+	it("finally clears status + agent-developer widget after ok:true verdict", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort([makeCleanInfo()], calls);
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const statusCalls: Array<[string, string | undefined]> = [];
+		(ctx as any).ui.setStatus = (id: string, status?: string) => statusCalls.push([id, status]);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			port,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, true);
+		assert.deepEqual(
+			statusCalls[statusCalls.length - 1],
+			["supervisor", undefined],
+			"status cleared in finally on ok:true",
+		);
+		assert.ok(
+			(ctx as any).setWidgetCalls.some(
+				(w: { id: string; lines?: string[] }) =>
+					w.id === "agent-developer" && w.lines === undefined,
+			),
+			"agent-developer widget cleared in finally on ok:true",
+		);
+	});
+
+	it("finally clears status + agent-developer widget after ok:false verdict", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const runner = createGateMockRunner();
+		const ctx = createMockCtx(true);
+		const statusCalls: Array<[string, string | undefined]> = [];
+		(ctx as any).ui.setStatus = (id: string, status?: string) => statusCalls.push([id, status]);
+
+		const { ensurePrReadyForDone } = await import("../../pipeline/merge.ts");
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			ctx,
+			42,
+			"Foo issue",
+			makeConfig(),
+			[],
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 123, source: "pr-creation" },
+			undefined,
+			undefined,
+			runner,
+			NO_BACKOFF,
+		);
+
+		assert.equal(verdict.ok, false, "no port fails closed");
+		assert.deepEqual(
+			statusCalls[statusCalls.length - 1],
+			["supervisor", undefined],
+			"status cleared in finally on ok:false",
+		);
+		assert.ok(
+			(ctx as any).setWidgetCalls.some(
+				(w: { id: string; lines?: string[] }) =>
+					w.id === "agent-developer" && w.lines === undefined,
+			),
+			"agent-developer widget cleared in finally on ok:false",
+		);
+	});
+});
+
 // ─── handlePostPipelineMerge — rebaseConflicts (no-PR) backstop ────
 
 describe("handlePostPipelineMerge() — rebaseConflicts (#1455 no-PR) backstop", () => {
@@ -1081,9 +1621,7 @@ describe("handlePostPipelineMerge() — rebaseConflicts (#1455 no-PR) backstop",
 
 		assert.equal(result, false, "resolution succeeded → no unresolved conflicts");
 		assert.equal(runner.mock.callCount(), 1, "developer dispatched for #1455 resolution");
-		const fetchCalls = execCalls.filter(
-			(c) => c.cmd === "git" && c.args[0] === "fetch",
-		);
+		const fetchCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "fetch");
 		assert.ok(fetchCalls.length > 0, "auto-merge fetch ran — early return was skipped");
 	});
 
