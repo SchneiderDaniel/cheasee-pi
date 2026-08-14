@@ -240,9 +240,12 @@ RUN groupadd --gid 1001 agentuser && \
 # The cheasee-pi repo is cloned to /opt/cheasee-pi and its resource dirs
 # (.pi/skills, .pi/prompts, .pi/extensions, .pi/themes) symlinked into
 # agentuser's global pi resource dir (~/.pi/agent) so the Cheasee-Pi
-# experience is available inside ANY mounted repo. Cloning (vs embedding a
-# generated copy into the Go binary) keeps the repo the single source of
-# truth — no pi-resources mirror to sync.
+# experience is available inside ANY mounted repo. The global operating
+# instructions (APPEND_SYSTEM.md at repo root) are symlinked the same way
+# into ~/.pi/agent/APPEND_SYSTEM.md — pi appends that file to the system
+# prompt in every repository. Cloning (vs embedding a generated copy into
+# the Go binary) keeps the repo the single source of truth — no
+# pi-resources mirror to sync.
 #
 # Explicit /home/agentuser/.pi/agent/... paths — Docker's USER directive
 # does not set $HOME (defaults to /root), so `~` after a user switch would
@@ -294,6 +297,7 @@ RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts 
          && mkdir -p /home/agentuser/.pi/agent/extensions \
          && ln -sfn /opt/cheasee-pi/private-pi/extensions/check-extensions /home/agentuser/.pi/agent/extensions/check-extensions; \
        fi \
+    && if [ -f /opt/cheasee-pi/APPEND_SYSTEM.md ]; then ln -sfn /opt/cheasee-pi/APPEND_SYSTEM.md /home/agentuser/.pi/agent/APPEND_SYSTEM.md; fi \
     && chown -R agentuser:agentuser /home/agentuser/.pi
 
 # ---------------------------------------------------------------

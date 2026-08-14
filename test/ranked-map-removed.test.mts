@@ -3,7 +3,7 @@
  * - ranked-map directory no longer exists
  * - No ranked_map / rankedMap references remain in source files
  * - settings.json has no rankedMap config block
- * - AGENTS.md uses ripgrep_search / structural_search guidance
+ * - APPEND_SYSTEM.md uses ripgrep_search / structural_search guidance
  *
  * This test must FAIL when the removal is reverted (TDD gate verification).
  */
@@ -16,6 +16,9 @@ import { resolve, join } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const RANKED_MAP_DIR = join(ROOT, ".pi/extensions/ranked-map");
 const SETTINGS_PATH = join(ROOT, ".pi/settings.json");
+// Tool-routing guidance now lives in the global append (installed as
+// ~/.pi/agent/APPEND_SYSTEM.md) — the AGENTS.md split (#1517).
+const APPEND_SYSTEM_MD_PATH = join(ROOT, "APPEND_SYSTEM.md");
 const AGENTS_MD_PATH = join(ROOT, "AGENTS.md");
 const PACKAGE_JSON_PATH = join(ROOT, "package.json");
 
@@ -77,32 +80,43 @@ describe("ranked_map extension removal", () => {
 		});
 	});
 
-	// ─── Phase 3: AGENTS.md references removed ─────────────────────────
+	// ─── Phase 3: APPEND_SYSTEM.md references removed ────────────────
 
-	describe("Phase 3: AGENTS.md updated", () => {
-		it("AGENTS.md exists", () => {
-			assert.ok(existsSync(AGENTS_MD_PATH), `AGENTS.md not found at ${AGENTS_MD_PATH}`);
+	describe("Phase 3: APPEND_SYSTEM.md updated", () => {
+		it("APPEND_SYSTEM.md exists", () => {
+			assert.ok(
+				existsSync(APPEND_SYSTEM_MD_PATH),
+				`APPEND_SYSTEM.md not found at ${APPEND_SYSTEM_MD_PATH}`,
+			);
 		});
 
-		it("AGENTS.md does not mention ranked_map", () => {
-			const content = readFileSync(AGENTS_MD_PATH, "utf-8");
-			assert.ok(!content.includes("ranked_map"), "AGENTS.md still references 'ranked_map'");
+		it("APPEND_SYSTEM.md does not mention ranked_map", () => {
+			const content = readFileSync(APPEND_SYSTEM_MD_PATH, "utf-8");
+			assert.ok(
+				!content.includes("ranked_map"),
+				"APPEND_SYSTEM.md still references 'ranked_map'",
+			);
 		});
 
-		it("AGENTS.md mentions ripgrep_search for literal text", () => {
-			const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+		it("APPEND_SYSTEM.md mentions ripgrep_search for literal text", () => {
+			const content = readFileSync(APPEND_SYSTEM_MD_PATH, "utf-8");
 			assert.ok(
 				content.includes("ripgrep_search"),
-				"AGENTS.md should mention ripgrep_search for literal text search",
+				"APPEND_SYSTEM.md should mention ripgrep_search for literal text search",
 			);
 		});
 
-		it("AGENTS.md mentions structural_search for AST patterns", () => {
-			const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+		it("APPEND_SYSTEM.md mentions structural_search for AST patterns", () => {
+			const content = readFileSync(APPEND_SYSTEM_MD_PATH, "utf-8");
 			assert.ok(
 				content.includes("structural_search"),
-				"AGENTS.md should mention structural_search for AST pattern matching",
+				"APPEND_SYSTEM.md should mention structural_search for AST pattern matching",
 			);
+		});
+
+		it("AGENTS.md stub does not mention ranked_map", () => {
+			const content = readFileSync(AGENTS_MD_PATH, "utf-8");
+			assert.ok(!content.includes("ranked_map"), "AGENTS.md stub still references 'ranked_map'");
 		});
 	});
 

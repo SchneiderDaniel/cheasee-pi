@@ -86,6 +86,20 @@ func TestDockerfile_SymlinkLayerCoversResources(t *testing.T) {
 	}
 }
 
+func TestDockerfile_AppendSystemPromptSymlink(t *testing.T) {
+	content := readDockerfile(t)
+	// Layer 6b must create the global append symlink — explicit
+	// /home/agentuser path (USER-switch HOME pitfall) and guarded by
+	// [ -f ] so old CHEASEE_REF tags without the repo-root file leave no
+	// dangling link.
+	if !strings.Contains(content, "ln -sfn /opt/cheasee-pi/APPEND_SYSTEM.md /home/agentuser/.pi/agent/APPEND_SYSTEM.md") {
+		t.Error("Layer 6b must symlink /opt/cheasee-pi/APPEND_SYSTEM.md into /home/agentuser/.pi/agent/APPEND_SYSTEM.md")
+	}
+	if !strings.Contains(content, "[ -f /opt/cheasee-pi/APPEND_SYSTEM.md ]") {
+		t.Error("APPEND_SYSTEM.md symlink must be guarded by [ -f /opt/cheasee-pi/APPEND_SYSTEM.md ] (no dangling links on old CHEASEE_REF tags)")
+	}
+}
+
 func TestDockerfile_PrivatePiSymlinkGuarded(t *testing.T) {
 	content := readDockerfile(t)
 	if !strings.Contains(content, "if [ -d /opt/cheasee-pi/private-pi ]") {

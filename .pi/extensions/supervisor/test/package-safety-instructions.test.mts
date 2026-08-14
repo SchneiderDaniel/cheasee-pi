@@ -1,7 +1,8 @@
 /**
  * Tests for npm package age check instructions in agent prompt files.
  *
- * Verifies AGENTS.md, .pi/extensions/supervisor/agents/developer.md, and .pi/extensions/supervisor/agents/researcher.md
+ * Verifies APPEND_SYSTEM.md (global operating instructions, installed as
+ * ~/.pi/agent/APPEND_SYSTEM.md — see #1517), and .pi/extensions/supervisor/agents/researcher.md
  * all contain the required package safety rules.
  *
  * Run with:
@@ -22,11 +23,11 @@ function readFile(relativePath: string): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 1: AGENTS.md content tests
+// Phase 1: APPEND_SYSTEM.md content tests
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("AGENTS.md — Package Safety section", () => {
-	const content = readFile("../../../AGENTS.md");
+describe("APPEND_SYSTEM.md — Package Safety section", () => {
+	const content = readFile("../../../APPEND_SYSTEM.md");
 
 	it("contains '<package_safety_audit>' XML section", () => {
 		assert.ok(content.includes("<package_safety_audit>"));
@@ -113,30 +114,30 @@ describe("researcher.md — Package age reference", () => {
 // The Package Safety Check moved to the pipeline gate in stages.ts.
 
 describe("Cross-file consistency", () => {
-	const agentsContent = readFile("../../../AGENTS.md");
+	const agentsContent = readFile("../../../APPEND_SYSTEM.md");
 	const resContent = readFile("agents/researcher.md");
 
-	it("AGENTS.md and researcher.md reference same 14-day threshold", () => {
+	it("APPEND_SYSTEM.md and researcher.md reference same 14-day threshold", () => {
 		for (const [name, c] of [
-			["AGENTS.md", agentsContent],
+			["APPEND_SYSTEM.md", agentsContent],
 			["researcher.md", resContent],
 		]) {
 			assert.ok(c.includes("14-day"), `${name} must reference 14-day threshold`);
 		}
 	});
 
-	it('AGENTS.md and researcher.md reference "npm view" command', () => {
+	it('APPEND_SYSTEM.md and researcher.md reference "npm view" command', () => {
 		for (const [name, c] of [
-			["AGENTS.md", agentsContent],
+			["APPEND_SYSTEM.md", agentsContent],
 			["researcher.md", resContent],
 		]) {
 			assert.ok(c.includes("npm view"), `${name} must reference npm view command`);
 		}
 	});
 
-	it("AGENTS.md and researcher.md specify fail-closed behavior", () => {
+	it("APPEND_SYSTEM.md and researcher.md specify fail-closed behavior", () => {
 		for (const [name, c] of [
-			["AGENTS.md", agentsContent],
+			["APPEND_SYSTEM.md", agentsContent],
 			["researcher.md", resContent],
 		]) {
 			assert.ok(

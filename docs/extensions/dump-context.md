@@ -19,7 +19,7 @@ nav_order: 20
 
 ## Why use it
 
-The system prompt is assembled from many sources — pi's default prompt, AGENTS.md, skills XML, plus injections from caveman and ponytail. There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
+The system prompt is assembled from many sources — pi's default prompt, the global `APPEND_SYSTEM.md` append (cheasee-pi operating instructions), AGENTS.md, skills XML, plus injections from caveman and ponytail. There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
 
 ## Commands
 
@@ -51,6 +51,19 @@ Injections: caveman, ponytail, lessons
 | `guidelines` | `promptGuidelines.length` |
 | `sections` | Markdown heading count (`##` / `###`) |
 | Injections | Detected by substring match in prompt text |
+
+## Section attribution
+
+`dump-context.txt` labels each part of the assembled prompt with its source:
+
+| Section | Source |
+|---------|--------|
+| `[1] Base system prompt` | pi built-in (no custom `system.md`) |
+| `[2] System prompt append (APPEND_SYSTEM.md)` | `~/.pi/agent/APPEND_SYSTEM.md` — the global cheasee-pi operating instructions, appended by pi in every repo (split seam: the file's H1 anchor) |
+| `[3] Project context` | `contextFiles` — AGENTS.md/CLAUDE.md files |
+| `[4] Skills` | model-invocation-enabled skills |
+| `[5] Working directory` | cwd line |
+| `[6] Extension injections` | appended via `before_agent_start` (caveman, ponytail, lessons) |
 
 ## Details
 

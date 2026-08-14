@@ -213,6 +213,55 @@ func TestEntrypoint_SkipsDotfiles(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// Phase 2b: single-file re-pointing — re_point_file()
+// ──────────────────────────────────────────────
+
+func TestEntrypoint_DefinesRepointFile(t *testing.T) {
+	content := readEntrypoint(t)
+	if !strings.Contains(content, "re_point_file() {") {
+		t.Error("entrypoint must define re_point_file()")
+	}
+	// Invocation must sit inside the is_cheasee_pi_repo block (definition
+	// legitimately precedes it) and carry both paths.
+	const invocation = "re_point_file /home/agentuser/.pi/agent/APPEND_SYSTEM.md /workspaces/main/APPEND_SYSTEM.md"
+	idx := strings.Index(content, "if is_cheasee_pi_repo; then")
+	if idx < 0 {
+		t.Fatal("entrypoint must contain the is_cheasee_pi_repo block")
+	}
+	if !strings.Contains(content[idx:], invocation) {
+		t.Error("re_point_file must be invoked inside the is_cheasee_pi_repo block with both paths")
+	}
+}
+
+func TestEntrypoint_RepointFileContract(t *testing.T) {
+	content := readEntrypoint(t)
+	for _, want := range []string{
+		"[ -L \"$agent_file\" ]",                 // re-link only under a [ -L ] guard
+		"readlink \"$agent_file\"",              // readlink no-op detection
+		"= \"$repo_file\"",                      // skip when already at the repo file
+		"ln -sfn \"$repo_file\" \"$agent_file\"", // re-point with ln -sfn
+		"chown -h agentuser:agentuser \"$agent_file\"", // chown -h the link
+		"[ -e \"$repo_file\" ] || return 0",      // missing repo file → baked link stays
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("re_point_file must honor the re_point contract (%q)", want)
+		}
+	}
+}
+
+func TestEntrypoint_RepointFileConflictRefusal(t *testing.T) {
+	content := readEntrypoint(t)
+	// A real file at the link name must be left untouched — the helper may
+	// only create a link when nothing occupies the link name (elif branch).
+	if !strings.Contains(content, "elif [ ! -e \"$agent_file\" ]") {
+		t.Error("re_point_file must create missing links only when nothing occupies the link name")
+	}
+	if strings.Contains(content, "rm -rf") {
+		t.Error("re_point_file must not rm -rf anything (AC: no container FS mutation)")
+	}
+}
+
+// ──────────────────────────────────────────────
 // Phase 3: committed dogfooding settings rework
 // ──────────────────────────────────────────────
 

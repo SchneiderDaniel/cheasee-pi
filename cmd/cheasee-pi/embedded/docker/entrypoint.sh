@@ -149,12 +149,36 @@ re_point() {
     done
 }
 
+# re_point_file <agent_file> <repo_file> — re-point a single-file global
+# symlink (~/.pi/agent/APPEND_SYSTEM.md) at the live repo's canonical source.
+# Mirrors re_point's contract for single files: re-links only under a [ -L ]
+# guard, no-ops when readlink already equals the repo file (idempotent across
+# restarts), never links a missing repo file (the baked /opt symlink stays —
+# no dangling links), and leaves a real file occupying the link name untouched
+# (Stow conflict refusal — a user-mounted ~/.pi wins).
+re_point_file() {
+    local agent_file="$1" repo_file="$2"
+    [ -e "$repo_file" ] || return 0
+    if [ -L "$agent_file" ]; then
+        # existing symlink: re-point unless already at the repo file
+        [ "$(readlink "$agent_file")" = "$repo_file" ] && return 0
+        ln -sfn "$repo_file" "$agent_file"
+        chown -h agentuser:agentuser "$agent_file" 2>/dev/null || true
+    elif [ ! -e "$agent_file" ]; then
+        # no link yet: create it (baked link missing → keep global availability)
+        ln -s "$repo_file" "$agent_file"
+        chown -h agentuser:agentuser "$agent_file" 2>/dev/null || true
+    fi
+    # real file at the link name → left untouched (conflict refusal)
+}
+
 if is_cheasee_pi_repo; then
     echo "Detected cheasee-pi repo at /workspaces/main — re-pointing global pi resources at the live repo"
     re_point skills /workspaces/main/.pi/skills
     re_point extensions /workspaces/main/.pi/extensions
     re_point prompts /workspaces/main/.pi/prompts
     re_point themes /workspaces/main/.pi/themes
+    re_point_file /home/agentuser/.pi/agent/APPEND_SYSTEM.md /workspaces/main/APPEND_SYSTEM.md
     # Whole-dir custom/ link (gitignored, absent on most clones)
     if [ -d /workspaces/main/custom ]; then
         if [ -L /home/agentuser/.pi/agent/custom ]; then

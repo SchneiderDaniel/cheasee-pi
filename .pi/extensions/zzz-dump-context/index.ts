@@ -13,10 +13,11 @@
  *
  * dump-context.txt is written sectioned, each part labeled with its source:
  *   [1] Base system prompt = pi built-in (no custom system.md configured)
- *   [2] Extension injections (caveman, ponytail, session-advice)
+ *   [2] System prompt append = APPEND_SYSTEM.md (global append, every repo)
  *   [3] Project context = AGENTS.md (inlined from contextFiles)
  *   [4] Skills (only model-invocation-enabled ones)
  *   [5] Trailing (cwd)
+ *   [6] Extension injections (caveman, ponytail, session-advice)
  *
  * Usage: /dump-context  → writes ignore/dump-context.txt (sectioned + attributed)
  *                          + ignore/dump-context-options.json (raw snapshot)
@@ -55,11 +56,18 @@ interface Section {
 /** Headers that extension injections start with (earliest match splits base vs injections). */
 const INJECTION_MARKERS = ["## Caveman Mode", "PONYTAIL MODE ACTIVE", "## Past Session Lessons"];
 
+/** Anchors marking the start of the global append (APPEND_SYSTEM.md) text.
+ *  pi concatenates the append as bare text immediately after the base prompt,
+ *  before <project_context>; the first line of APPEND_SYSTEM.md is an H1 that
+ *  acts as the split seam, with <system_role> as fallback. */
+const APPEND_ANCHORS = ["# Global Cheasee-Pi Operating Instructions", "<system_role>"];
+
 /** Split the assembled prompt into attributed sections.
- *  Order follows pi's buildSystemPrompt: base → <project_context> → skills → cwd,
- *  with extension injections appended at the END via before_agent_start
- *  (caveman/ponytail modify systemPrompt after the initial build). */
-function splitSections(prompt: string): Section[] {
+ *  Order follows pi's buildSystemPrompt: base → append (APPEND_SYSTEM.md) →
+ *  <project_context> → skills → cwd, with extension injections appended at
+ *  the END via before_agent_start (caveman/ponytail modify systemPrompt after
+ *  the initial build). */
+export function splitSections(prompt: string): Section[] {
 	// Grab structural XML blocks first
 	const grab = (open: string, close: string) => {
 		const start = prompt.indexOf(open);
@@ -71,7 +79,7 @@ function splitSections(prompt: string): Section[] {
 	const ctx = grab("<project_context>", "</project_context>");
 	const skills = grab("<available_skills>", "</available_skills>");
 
-	// Remove structural blocks → rest = base + cwd + injections
+	// Remove structural blocks → rest = base + append + cwd + injections
 	const ranges = [ctx, skills]
 		.filter((r): r is NonNullable<typeof r> => r !== null)
 		.sort((a, b) => b.start - a.start);
@@ -90,7 +98,18 @@ function splitSections(prompt: string): Section[] {
 		const i = rest.indexOf(m);
 		if (i >= 0 && (injIdx < 0 || i < injIdx)) injIdx = i;
 	}
-	const baseBody = (injIdx > 0 ? rest.slice(0, injIdx) : rest).trim();
+	const tailEnd = injIdx > 0 ? injIdx : rest.length;
+
+	// The append starts at the first anchor found before the injections
+	let appendIdx = -1;
+	for (const a of APPEND_ANCHORS) {
+		const i = rest.indexOf(a);
+		if (i >= 0 && i < tailEnd && (appendIdx < 0 || i < appendIdx)) appendIdx = i;
+	}
+
+	const baseBody = (appendIdx > 0 ? rest.slice(0, appendIdx) : rest.slice(0, tailEnd)).trim();
+	const appendBody =
+		appendIdx >= 0 ? rest.slice(appendIdx, tailEnd).trim() : "";
 	const injBody = injIdx > 0 ? rest.slice(injIdx).trim() : "";
 
 	const sections: Section[] = [];
@@ -99,6 +118,13 @@ function splitSections(prompt: string): Section[] {
 			label: "Base system prompt",
 			source: "pi built-in (dist/core/system-prompt.js) — no custom system.md",
 			body: baseBody,
+		});
+	}
+	if (appendBody) {
+		sections.push({
+			label: "System prompt append (APPEND_SYSTEM.md)",
+			source: "~/.pi/agent/APPEND_SYSTEM.md (global pi append, every repo)",
+			body: appendBody,
 		});
 	}
 	if (ctx) {
@@ -128,7 +154,7 @@ function splitSections(prompt: string): Section[] {
 
 /** Exact-duplicate 80-char blocks inside the prompt, ignoring path-like noise
  *  (pi install paths and .pi/skills prefixes repeat in skill <location> entries — benign). */
-function findPromptDupes(text: string): string[] {
+export function findPromptDupes(text: string): string[] {
 	const seen = new Set<string>();
 	const dups: string[] = [];
 	for (let i = 0; i + 80 <= text.length; i++) {
