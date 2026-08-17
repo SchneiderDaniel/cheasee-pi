@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -83,7 +84,12 @@ func scanOrphans(ctx context.Context, name string, maxAgeMinutes int, dryRun boo
 		name, "bash", "-c", orphanScanBash)
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("orphan scan: %w", err)
+		// Sidecar images (e.g. the codeflow/code-server container) ship
+		// without bash — the scan script cannot run there and no pi process
+		// ever does. Aborting the whole clean over a container that has
+		// nothing to reap is worse than skipping: warn and move on.
+		fmt.Fprintf(os.Stderr, "  ⚠ orphan scan skipped for %s: %v\n", name, err)
+		return nil, nil
 	}
 
 	var killed []string
