@@ -18,7 +18,7 @@ concurrency:
 
 defaults:
   run:
-    working-directory: docs
+    shell: bash
 
 jobs:
   build:
@@ -42,6 +42,7 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build with Jekyll
         run: bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
+        working-directory: docs
         env:
           JEKYLL_ENV: production
       - name: Upload artifact
