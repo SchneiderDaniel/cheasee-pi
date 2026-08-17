@@ -259,6 +259,20 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "gi
 gosu agentuser git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" 2>/dev/null || true
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
+
+# The host authenticates gh via the OS keyring — and only ~/.config/gh
+# (hosts.yml/config.yml) is bind-mounted, the keyring is NOT, so a fresh
+# container starts with NO gh token and every private-repo git operation
+# (skill-repo clones above all) dies with "could not read Username".
+# cheasee-pi auth persists the GitHub token in auth.json (bind-mounted), so
+# feed it to gh once. Skip when gh already works — never clobber a token the
+# user set up interactively inside the container.
+if [ -f /home/agentuser/.config/cheasee-pi/auth.json ]; then
+    token=$(jq -r '.github_token // empty' /home/agentuser/.config/cheasee-pi/auth.json 2>/dev/null || true)
+    if [ -n "$token" ] && ! gosu agentuser gh auth status >/dev/null 2>&1; then
+        echo "$token" | gosu agentuser gh auth login --with-token 2>/dev/null || true
+    fi
+fi
 # Mark the bare repo safe for container git ops — a host-owned .bare mount
 # would otherwise trip "detected dubious ownership" (CVE-2022-24765
 # mitigation) on every git call inside the container.

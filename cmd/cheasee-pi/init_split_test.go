@@ -44,6 +44,7 @@ var wantInitDecls = map[string]string{
 	"const:initModeFull,initModeReauth": "init.go",
 
 	"func:gitCloneWorktree":  "init_clone.go",
+	"func:gitDefaultBranch":  "init_clone.go",
 	"func:canonicalRepoURL":  "init_clone.go",
 	"func:removeInitResidue": "init_clone.go",
 

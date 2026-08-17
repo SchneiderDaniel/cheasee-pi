@@ -77,3 +77,4 @@
 {"datetime":"2026-08-11T20:40:02.447Z","question":"How should the .zed clean task be improved?","answer":"both"}
 {"datetime":"2026-08-14T18:35:45.740Z","question":"Entrypoint npm-install guard checks `[ ! -d node_modules ]`; stale empty dir (jiti cache) defeats it forever. Fix: check `node_modules/.package-lock.json` instead. Want PR (worktree + branch, main locked)?","answer":"fix_pr"}
 {"datetime":"2026-08-14T20:30:42.246Z","question":"Freed space: what should I run? (safe ones need no sudo)","answer":"docker_only"}
+{"datetime":"2026-08-17T19:23:12.537Z","question":"Stale /usr/local/bin/cheasee-pi (v0.52, installed today 20:47 presumably by container workflow) breaks `go test` — the uninstall dry-run test expects only one cheasee-pi on PATH. Remove it? Or keep it? (Go toolchain install itself works; fresh host build works and tests pass once stale binary gone.)","answer":"remove"}

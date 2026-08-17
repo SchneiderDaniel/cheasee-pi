@@ -422,10 +422,18 @@ func stubInitGit(t *testing.T) *cloneCapture {
 	return c
 }
 
-// gitCloneCapture records the git clone/worktree argv from stubGitClone.
+// gitCloneCapture records the git clone/worktree argv from stubGitClone. It
+// also carries the fake `symbolic-ref HEAD` output/error the default-branch
+// probe must see (tune via symRefOut/symRefErr between stub and call).
+//
+// symRefOut defaults to "refs/heads/main\n" (the common case); set symRefErr
+// to exercise the detached-HEAD fallback.
 type gitCloneCapture struct {
 	cloneArgs    []string
 	worktreeArgs []string
+	symRefArgs   []string
+	symRefOut    string
+	symRefErr    error
 }
 
 // stubGitClone stubs the git seam for gitCloneWorktree tests: captures the
@@ -434,7 +442,7 @@ type gitCloneCapture struct {
 // commands fall through to the real seam.
 func stubGitClone(t *testing.T, cloneErr, worktreeErr error) *gitCloneCapture {
 	t.Helper()
-	c := &gitCloneCapture{}
+	c := &gitCloneCapture{symRefOut: "refs/heads/main\n"}
 	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name == "git" && slices.Contains(arg, "clone") {
@@ -448,6 +456,10 @@ func stubGitClone(t *testing.T, cloneErr, worktreeErr error) *gitCloneCapture {
 				return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("fatal: remote error"), cloneErr }}
 			}
 			return &mockCmd{}
+		}
+		if name == "git" && slices.Contains(arg, "symbolic-ref") {
+			c.symRefArgs = append(append([]string(nil), name), arg...)
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(c.symRefOut), c.symRefErr }}
 		}
 		if name == "git" && slices.Contains(arg, "worktree") {
 			c.worktreeArgs = append(append([]string(nil), name), arg...)
@@ -489,12 +501,17 @@ func gitRemoteFixture(t *testing.T, branch string) string {
 	return src
 }
 
-// cloneWorktreeLayout builds the init-clone layout (bare clone +
-// worktree add --detach, no branch) exactly as gitCloneWorktree does.
+// cloneWorktreeLayout builds the init-clone layout (bare clone + default
+// branch probe + worktree add <branch>) exactly as gitCloneWorktree does.
 func cloneWorktreeLayout(t *testing.T, src, parent, workdir string) string {
 	t.Helper()
 	bareDir := filepath.Join(parent, ".bare")
 	runGit(t, "clone", "--bare", "-q", src, bareDir)
-	runGit(t, "--git-dir", bareDir, "worktree", "add", "--detach", workdir)
+	out, err := exec.Command("git", "--git-dir", bareDir, "symbolic-ref", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("symbolic-ref HEAD: %v\n%s", err, out)
+	}
+	branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "refs/heads/")
+	runGit(t, "--git-dir", bareDir, "worktree", "add", workdir, branch)
 	return bareDir
 }

@@ -145,10 +145,55 @@ func TestGitCloneWorktree_exactArgv(t *testing.T) {
 			t.Errorf("clone argv must not contain %s (full bare clone), got %v", banned, c.cloneArgs)
 		}
 	}
-	// worktree add --detach with NO branch argument (bare HEAD checkout).
-	wantWT := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "worktree", "add", "--detach", workdir}
+	// default-branch probe: symbolic-ref HEAD on the bare repo.
+	wantSym := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "symbolic-ref", "HEAD"}
+	if !slices.Equal(c.symRefArgs, wantSym) {
+		t.Errorf("symbolic-ref argv = %v, want %v", c.symRefArgs, wantSym)
+	}
+	// worktree add attached to the repo's default branch (not detached).
+	wantWT := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "worktree", "add", workdir, "main"}
 	if !slices.Equal(c.worktreeArgs, wantWT) {
 		t.Errorf("worktree argv = %v, want %v", c.worktreeArgs, wantWT)
+	}
+}
+
+func TestGitCloneWorktree_masterDefaultAttached(t *testing.T) {
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := stubGitClone(t, nil, nil)
+	c.symRefOut = "refs/heads/master\n"
+	if err := gitCloneWorktree(context.Background(), "https://github.com/owner/repo", workdir); err != nil {
+		t.Fatalf("gitCloneWorktree: %v", err)
+	}
+	wantWT := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "worktree", "add", workdir, "master"}
+	if !slices.Equal(c.worktreeArgs, wantWT) {
+		t.Errorf("master-default worktree argv = %v, want %v", c.worktreeArgs, wantWT)
+	}
+}
+
+func TestGitCloneWorktree_detachedHeadFallback(t *testing.T) {
+	// Exotic edge: the bare HEAD cannot be resolved to a branch name — the
+	// clone degrades to the old detached bare-HEAD checkout instead of
+	// failing the workspace init.
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := stubGitClone(t, nil, nil)
+	c.symRefOut = ""
+	c.symRefErr = errors.New("fatal: ref HEAD is not a symbolic ref")
+	if err := gitCloneWorktree(context.Background(), "https://github.com/owner/repo", workdir); err != nil {
+		t.Fatalf("gitCloneWorktree: %v", err)
+	}
+	wantWT := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "worktree", "add", "--detach", workdir}
+	if !slices.Equal(c.worktreeArgs, wantWT) {
+		t.Errorf("fallback worktree argv = %v, want %v", c.worktreeArgs, wantWT)
 	}
 }
 
@@ -356,8 +401,9 @@ func TestGitCloneWorktree_worktreeAddFailureWrapped(t *testing.T) {
 // Real-git adapter/e2e tests (acceptance: verified by execution)
 // ──────────────────────────────────────────────
 // These exercise the exact CLI sequence gitCloneWorktree builds — bare clone
-// + `worktree add --detach` with NO branch argument — against the real git
-// binary on temp repos, plus the worktree-fix.sh container path rewrite.
+// + default-branch probe + `worktree add <branch>` (attached, not detached)
+// — against the real git binary on temp repos, plus the worktree-fix.sh
+// container path rewrite.
 
 func TestGitCloneWorktree_realGitMainDefault(t *testing.T) {
 	src := gitRemoteFixture(t, "main")
@@ -366,7 +412,15 @@ func TestGitCloneWorktree_realGitMainDefault(t *testing.T) {
 
 	bareDir := cloneWorktreeLayout(t, src, parent, workdir)
 
-	// HEAD checked out (detached) — no branch arg picked the bare HEAD.
+	// Attached to the named default branch, not a detached HEAD — the pi
+	// footer shows the branch ("detached [main]" stays away).
+	out, err := exec.Command("git", "-C", workdir, "branch", "--show-current").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git branch --show-current: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != "main" {
+		t.Errorf("worktree must be attached to branch 'main', got %q", strings.TrimSpace(string(out)))
+	}
 	data, err := os.ReadFile(filepath.Join(workdir, "README.md"))
 	if err != nil {
 		t.Fatalf("worktree must check out HEAD: %v", err)
@@ -383,7 +437,7 @@ func TestGitCloneWorktree_realGitMainDefault(t *testing.T) {
 		t.Errorf(".git must reference .bare/worktrees/main, got: %q", gitFile)
 	}
 	// git worktree list is valid.
-	out, err := exec.Command("git", "--git-dir", bareDir, "worktree", "list").CombinedOutput()
+	out, err = exec.Command("git", "--git-dir", bareDir, "worktree", "list").CombinedOutput()
 	if err != nil {
 		t.Fatalf("git worktree list: %v\n%s", err, out)
 	}
@@ -393,21 +447,36 @@ func TestGitCloneWorktree_realGitMainDefault(t *testing.T) {
 }
 
 func TestGitCloneWorktree_realGitMasterDefault(t *testing.T) {
-	// Regression pin for the old symbolic-ref pitfall: a master-default repo
-	// must not hard-fail with "invalid reference: main" — no-branch
-	// `worktree add --detach` checks out the bare HEAD on both defaults.
 	src := gitRemoteFixture(t, "master")
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "main")
 
-	cloneWorktreeLayout(t, src, parent, workdir)
+	bareDir := cloneWorktreeLayout(t, src, parent, workdir)
 
+	// Attached to 'master'; the old symbolic-ref pitfall (hard-fail
+	// "invalid reference: main") is gone because the branch name comes from
+	// the bare HEAD, never an assumption.
+	out, err := exec.Command("git", "-C", workdir, "branch", "--show-current").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git branch --show-current: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != "master" {
+		t.Errorf("master-default worktree must be attached to 'master', got %q", strings.TrimSpace(string(out)))
+	}
 	data, err := os.ReadFile(filepath.Join(workdir, "README.md"))
 	if err != nil {
 		t.Fatalf("master-default worktree must check out HEAD: %v", err)
 	}
 	if string(data) != "fixture\n" {
 		t.Errorf("master-default worktree content mismatch: %q", data)
+	}
+	// git worktree list is valid on the master-default layout too.
+	out, err = exec.Command("git", "--git-dir", bareDir, "worktree", "list").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git worktree list: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), workdir) {
+		t.Errorf("worktree list must contain the worktree %s:\n%s", workdir, out)
 	}
 }
 
@@ -503,7 +572,7 @@ func TestGitCloneWorktree_e2eWorktreeFix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git worktree list after fix: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "(detached HEAD)") || !strings.Contains(string(out), "locked") {
+	if !strings.Contains(string(out), "main") || !strings.Contains(string(out), "locked") {
 		t.Errorf("worktree list must show the fixed, locked worktree:\n%s", out)
 	}
 	// git status --porcelain shows no untracked cheasee-settings.json (the
