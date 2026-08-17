@@ -196,8 +196,8 @@ func TestCLIDoc_DockerGate(t *testing.T) {
 
 // TestCLIDoc_InitGates verifies the init preconditions: empty-folder gate,
 // cheasee-settings.json as initialized marker, non-empty refusal, 5-minute
-// timeout, --no-input requiring --repo-url, --no-github legacy path, and
-// start auto-init in the same invocation.
+// timeout, --no-input requiring --repo-url, --no-github legacy path, and the
+// init-stops-then-start handoff.
 func TestCLIDoc_InitGates(t *testing.T) {
 	content := readCliDoc(t)
 	checks := []struct {
@@ -209,7 +209,7 @@ func TestCLIDoc_InitGates(t *testing.T) {
 		{"5-minute", "5-minute init/OAuth timeout"},
 		{"--no-input` requires `--repo-url", "--no-input requires --repo-url"},
 		{"--no-github", "--no-github legacy path"},
-		{"same invocation", "start auto-init continuation"},
+		{"re-run `start` to launch pi", "init-stops-then-start handoff"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(content, c.want) {

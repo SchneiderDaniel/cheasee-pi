@@ -113,21 +113,21 @@ func TestInstallationDoc_GoCliPathVersion(t *testing.T) {
 	}
 }
 
-// TestInstallationDoc_OneShotFirstRun verifies the empty-folder gate bullet
-// describes the single-invocation flow (init + start in one run) — the
-// two-step "run start again" handoff is gone.
-func TestInstallationDoc_OneShotFirstRun(t *testing.T) {
+// TestInstallationDoc_TwoStepFirstRun verifies the empty-folder gate bullet
+// describes the two-step flow: init runs and STOPS (init never launches pi),
+// and the user re-runs start to launch.
+func TestInstallationDoc_TwoStepFirstRun(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
 		t.Fatalf("reading docs/installation.md: %v", err)
 	}
 	content := string(data)
 
-	if strings.Contains(content, "then you run `start` again") {
-		t.Error("installation.md must not describe a two-step first run (run start again)")
+	if strings.Contains(content, "same invocation") {
+		t.Error("installation.md must not describe a one-shot continuation (init + start fused)")
 	}
-	if !strings.Contains(content, "same invocation") {
-		t.Error("installation.md should describe the one-shot continuation (init + start in the same invocation)")
+	if !strings.Contains(content, "run `cheasee-pi start` again") {
+		t.Error("installation.md should describe the two-step handoff (run start again after init)")
 	}
 }
 
@@ -151,9 +151,9 @@ func TestInstallationDoc_SkillRepoStep(t *testing.T) {
 	}
 }
 
-// TestDailyUsageDoc_OneShotFirstRun verifies daily-usage.md describes the
-// single-invocation auto-init continuation instead of a two-step handoff.
-func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
+// TestDailyUsageDoc_TwoStepFirstRun verifies daily-usage.md describes the
+// two-step handoff: init auto-runs and stops, then the user re-runs start.
+func TestDailyUsageDoc_TwoStepFirstRun(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "daily-usage.md"))
 	if err != nil {
 		t.Fatalf("reading docs/daily-usage.md: %v", err)
@@ -163,8 +163,11 @@ func TestDailyUsageDoc_OneShotFirstRun(t *testing.T) {
 	if strings.Contains(content, "auto-inits first.") {
 		t.Error("daily-usage.md must not describe auto-init as a standalone step (no continuation)")
 	}
-	if !strings.Contains(content, "same invocation") {
-		t.Error("daily-usage.md should describe the single-invocation auto-init continuation")
+	if strings.Contains(content, "same invocation") {
+		t.Error("daily-usage.md must not describe a one-shot continuation")
+	}
+	if !strings.Contains(content, "run `cheasee-pi start` again") {
+		t.Error("daily-usage.md should describe the two-step handoff (run start again after init)")
 	}
 }
 

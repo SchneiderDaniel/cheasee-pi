@@ -268,29 +268,3 @@ func TestInit_SuccessMessage(t *testing.T) {
 	}
 }
 
-func TestInit_SuccessMessageInStartFlow(t *testing.T) {
-	// Start-triggered init (InStartFlow) prints "✅ Init complete" WITHOUT the
-	// standalone "Next step: cheasee-pi start" hint — start continues into
-	// the launch automatically.
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.RedirectConfigHome(t)
-
-	output := testutil.CaptureStderr(t, func() {
-		err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
-			d.NoGitHub = true
-			d.APIKey = FakeAPIKey
-			d.InStartFlow = true
-		}))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "✅ Init complete") {
-		t.Error("success message must contain the checkmark and 'Init complete'")
-	}
-	if strings.Contains(output, "Next step:") || strings.Contains(output, "cheasee-pi start") {
-		t.Errorf("start-triggered init must not print the second-invocation hint, got: %q", output)
-	}
-}

@@ -35,10 +35,9 @@ bind-mounted at /workspaces/main and its sibling bare repo at
 CLI-managed cache dir; the dedicated cheasee-settings.json (gitignored,
 machine-local) is the initialized marker.
 
-Empty folder → runs cheasee-pi init first (bare clone + main worktree +
-cheasee-settings.json), then continues into start in the same invocation.
-Non-empty folder without cheasee-settings.json is refused — run 'cheasee-pi
-init' in an empty folder.
+Empty folder → runs cheasee-pi init and stops (init never launches pi);
+run 'cheasee-pi start' again to launch. Non-empty folder without
+cheasee-settings.json is refused — run 'cheasee-pi init' in an empty folder.
 
 The image clones the cheasee-pi repo at build time (Dockerfile ARG
 CHEASEE_REF) for its .pi resources. Reads provider API keys from
@@ -82,65 +81,30 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("resolve workdir: %w", err)
 	}
 
-	// Phase 1: workspace gate — empty folder → auto-init; cheasee-settings.json
+	// Phase 1: workspace gate — empty folder → auto-init and stop; cheasee-settings.json
 	// present → run; anything else → refuse. Runs before any docker/git call so
 	// a non-initialized cwd is refused fast (and dry-run touches nothing).
 	root, state, err := resolveStartWorkspace(workdir)
 	if err != nil {
 		return err
 	}
-	// firstRun marks the one-shot path: init ran in this invocation, so the
-	// pre-exec confirmation announces the workspace setup (init's own
-	// completion message drops the standalone next-step hint via InStartFlow).
-	firstRun := false
 	if state == WorkspaceEmpty {
 		if upDryRun {
-			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then `cheasee-pi start` — init and start in one invocation.\n", workdir)
+			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then stop. Run `cheasee-pi start` again to launch pi.\n", workdir)
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init` first...\n", workdir)
-		// Init is time-bounded (device-flow OAuth polling dominates the window);
-		// the continuation after it stays unbounded — image build + npm install
-		// legitimately exceed 5 minutes.
+		fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init`...\n", workdir)
+		// Init is time-bounded (device-flow OAuth polling dominates the window).
 		initCtx, cancel := context.WithTimeout(ctx, initTimeout)
-		deps := newInitDeps(workdir)
-		deps.InStartFlow = true
-		initErr := runInit(initCtx, deps)
+		initErr := runInit(initCtx, newInitDeps(workdir))
 		cancel()
 		if initErr != nil {
 			return fmt.Errorf("auto-init failed: %w", initErr)
 		}
-		firstRun = true
-
-		// Re-resolve the workspace state: the continuation needs the resolved
-		// root for container name / compose mounts (the empty state resolved
-		// root=""), and the re-classification fails closed when init left no
-		// settings marker — a worktree without cheasee-settings.json is a
-		// folder both init and start refuse.
-		root, state, err = resolveStartWorkspace(workdir)
-		if err != nil {
-			return err
-		}
-		// Init lays the worktree at <workdir>/<branch>, so the settings marker
-		// lives one level DOWN from the init folder — resolveStartWorkspace only
-		// walks up. Recover the leaf from the child folders.
-		if state != WorkspaceInitialized {
-			if entries, readErr := os.ReadDir(workdir); readErr == nil {
-				for _, e := range entries {
-					if !e.IsDir() {
-						continue
-					}
-					cand := filepath.Join(workdir, e.Name())
-					if _, statErr := os.Stat(cheaseeSettingsPath(cand)); statErr == nil {
-						root, state = cand, WorkspaceInitialized
-						break
-					}
-				}
-			}
-		}
-		if state != WorkspaceInitialized {
-			return fmt.Errorf("auto-init left %q non-empty without cheasee-settings.json — remove the worktree/.bare residue and re-run `cheasee-pi start` in an empty folder", workdir)
-		}
+		// Init never launches pi: stop here and let the next invocation start.
+		// If init left the folder non-empty without a settings marker, the next
+		// `cheasee-pi start` refuses via WorkspaceRefuse (fail-closed).
+		return nil
 	}
 	if state == WorkspaceRefuse {
 		return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
@@ -252,12 +216,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", len(killed))
 	}
 
-	// Phase 8: exec pi — the one-shot confirmation must print BEFORE the
-	// blocking exec (a post-exec message would only appear when the session
-	// ends).
-	if firstRun {
-		fmt.Fprintf(os.Stderr, "  ✓ Workspace set up — starting pi...\n")
-	}
+	// Phase 8: exec pi.
 	execErr := execPIContainer(upName, envMap, target)
 
 	// The docker exec client just exited (user quit or disconnected). Reap the
