@@ -282,7 +282,10 @@ func TestScanOrphans_countsKilled(t *testing.T) {
 	}
 }
 
-func TestScanOrphans_dockerExecFails(t *testing.T) {
+func TestScanOrphans_skipsWhenBashMissing(t *testing.T) {
+	// Sidecar containers (codeflow/code-server style images) ship without
+	// bash: docker exec fails with exit 127. The scan must not abort the
+	// whole clean over a container that never hosts pi — skip gracefully.
 	step := 0
 	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
 		step++
@@ -295,14 +298,17 @@ func TestScanOrphans_dockerExecFails(t *testing.T) {
 		}
 		return &mockCmd{
 			combinedFn: func() ([]byte, error) {
-				return nil, fmt.Errorf("container stopped")
+				return []byte("exec: \"bash\": executable file not found in $PATH"), fmt.Errorf("exit status 127")
 			},
 		}
 	})
 
-	_, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
-	if err == nil {
-		t.Fatal("expected error when docker exec fails, got nil")
+	killed, err := scanOrphans(context.Background(), "cheasee-pi", 0, false)
+	if err != nil {
+		t.Fatalf("missing bash must skip, not abort: %v", err)
+	}
+	if len(killed) != 0 {
+		t.Errorf("expected 0 killed for unscannable container, got %d", len(killed))
 	}
 }
 
