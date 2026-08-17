@@ -473,6 +473,39 @@ func TestInitUseCase_SkillReposInteractiveFlow(t *testing.T) {
 	}
 }
 
+func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
+	// "You can add several": the prompt loop records every entered spec, not
+	// just the first — two confirms + two specs → both canonical URLs in
+	// cheasee-settings.json skillRepos.
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deps := skillRepoFlowDeps(t, workdir, []bool{true, true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail", "some-org/another-skill"})
+	if err := runInit(context.Background(), deps); err != nil {
+		t.Fatalf("full interactive flow: %v", err)
+	}
+	s, err := LoadCheaseeSettings(filepath.Join(workdir, "main"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"https://github.com/DietrichGebert/ponytail", "https://github.com/some-org/another-skill"}
+	if len(s.SkillRepos) != len(want) {
+		t.Fatalf("skillRepos = %v, want %v", s.SkillRepos, want)
+	}
+	for i, w := range want {
+		if s.SkillRepos[i] != w {
+			t.Errorf("skillRepos[%d] = %q, want %q (full: %v)", i, s.SkillRepos[i], w, s.SkillRepos)
+		}
+	}
+}
+
 func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	// Full flow without skill repos: the skill-repo phase records nothing and
 	// performs no Save — cheasee-settings.json stays byte-identical to the
