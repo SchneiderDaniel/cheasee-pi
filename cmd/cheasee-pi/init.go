@@ -14,10 +14,10 @@ import (
 )
 
 // newInitDeps builds the shared InitDeps used by both `cheasee-pi init`
-// (runInitE) and start-triggered init (runUpE's empty-folder branch), so the
-// two entry points run byte-identical flows. Package-var seam (newRepository
-// pattern): tests replace it to drive either entry point with stubbed
-// OAuth/prompt boundaries instead of a real device flow or TTY.
+// (runInitE) and the empty-folder branch of runUpE, so the two entry points
+// run byte-identical flows. Package-var seam (newRepository pattern): tests
+// replace it to drive either entry point with stubbed OAuth/prompt boundaries
+// instead of a real device flow or TTY.
 var newInitDeps = func(workdir string) InitDeps {
 	return InitDeps{
 		Ports:         InitPorts{Auth: NewAuthenticator(initClientID)},
@@ -40,9 +40,9 @@ var newInitDeps = func(workdir string) InitDeps {
 const nextStepHint = "cheasee-pi start"
 
 // initTimeout bounds a single init invocation — device-flow OAuth polling
-// dominates the window. Shared by standalone init (runInitE) and start-
-// triggered init (runUpE's empty-folder branch) so both cap the auth window
-// identically instead of polling until the ~900 s device-code expiry.
+// dominates the window. Shared by `cheasee-pi init` (runInitE) and the
+// empty-folder branch of runUpE so both cap the auth window identically
+// instead of polling until the ~900 s device-code expiry.
 const initTimeout = 5 * time.Minute
 
 var (
@@ -69,7 +69,8 @@ type InitPorts struct {
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
 // Provider/ClientID/RepoURL carry the flag-derived init inputs so the
 // shared factory (newInitDeps) fully encapsulates them — no package-global
-// reads inside the flow (start-triggered init and runInitE run identically).
+// reads inside the flow (the runUpE empty-folder branch and runInitE run
+// identically).
 type InitDeps struct {
 	Ports            InitPorts
 	APIKey           string
@@ -88,13 +89,8 @@ type InitDeps struct {
 	// `pi install -l -a` before pi execs.
 	SkillRepos []string
 	Workdir    string
-	// InStartFlow marks init as triggered by `cheasee-pi start`'s empty-folder
-	// branch: the completion message drops the standalone "Next step:
-	// cheasee-pi start" hint because start continues automatically. Zero value
-	// (false) = standalone init, backward compatible.
-	InStartFlow bool
-	ConfirmFn   func(string) (bool, error)
-	InputFn     func(title, placeholder string) (string, error)
+	ConfirmFn  func(string) (bool, error)
+	InputFn    func(title, placeholder string) (string, error)
 }
 
 // Validate checks that all required dependencies for the active path are non-nil.
@@ -347,15 +343,11 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		return postCloneErr
 	}
 
-	// Completion message. Standalone `cheasee-pi init` points at the next
-	// step; start-triggered init (InStartFlow) continues into start
-	// automatically, so no second-invocation hint is printed.
-	if deps.InStartFlow {
-		fmt.Fprintf(os.Stderr, "\n✅ Init complete.\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
-		fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
-	}
+	// Init never launches pi — init sets the workspace up and hands off to
+	// `cheasee-pi start` (the runUpE empty-folder branch returns after init;
+	// a second invocation then starts the container).
+	fmt.Fprintf(os.Stderr, "\n✅ Init complete! Next step:\n")
+	fmt.Fprintf(os.Stderr, "   %s\n", nextStepHint)
 	return nil
 }
 

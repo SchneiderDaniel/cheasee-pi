@@ -155,9 +155,9 @@ func mkWorkspace(t *testing.T, settingsContent string) (parent, root string) {
 	return parent, root
 }
 
-// stubAutoInitDeps replaces the shared newInitDeps factory so start-triggered
-// init runs with the stubbed OAuth/prompt boundaries (the same seam runInitE
-// tests use) instead of a real device flow or TTY.
+// stubAutoInitDeps replaces the shared newInitDeps factory so the empty-
+// folder auto-init path runs with the stubbed OAuth/prompt boundaries (the
+// same seam runInitE tests use) instead of a real device flow or TTY.
 func stubAutoInitDeps(t *testing.T) {
 	t.Helper()
 	saved := newInitDeps
@@ -286,8 +286,8 @@ func TestRunUpE_dryRunOnEmptyFolder(t *testing.T) {
 	if !strings.Contains(stderr, "would run `cheasee-pi init`") {
 		t.Errorf("dry-run on empty must announce the would-be init, got: %q", stderr)
 	}
-	if !strings.Contains(stderr, "one invocation") {
-		t.Errorf("dry-run on empty must describe the one-shot continuation, got: %q", stderr)
+	if !strings.Contains(stderr, "again to launch pi") {
+		t.Errorf("dry-run on empty must point at re-running start, got: %q", stderr)
 	}
 	if _, err := os.Stat(filepath.Join(workdir, "cheasee-settings.json")); !os.IsNotExist(err) {
 		t.Errorf("dry-run must not scaffold cheasee-settings.json: %v", err)
@@ -325,7 +325,10 @@ func TestRunUpE_dryRunOnInitialized(t *testing.T) {
 	}
 }
 
-func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
+func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
+	// Empty folder → runUpE runs init and STOPS (init never launches pi): no
+	// compose, no docker exec. The next-step hint tells the user to re-run
+	// start — the initialized-workspace start path is covered separately.
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")
 	if err := os.MkdirAll(workdir, 0755); err != nil {
@@ -335,20 +338,13 @@ func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
 	// Stub order matters: stubUpFlow installs the execCommand/runCommandContext
-	// seams the continuation needs and must sit before stubInitGit so init's
-	// clone chains to stubUpFlow's docker/version handlers.
+	// seams and must sit before stubInitGit so init's clone chains to
+	// stubUpFlow's docker/version handlers.
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	c := stubUpFlow(t, workdir, false)
 	stubInitGit(t)
 	stubAutoInitDeps(t)
 	exec := stubExecPIContainer(t)
-	// Ordering pin: the one-shot confirmation must print BEFORE the blocking
-	// exec (a post-exec message would only appear when the session ends).
-	savedExec := execPIContainer
-	execPIContainer = func(name string, env map[string]string, target string) error {
-		fmt.Fprintf(os.Stderr, "EXEC-INVOKED\n")
-		return savedExec(name, env, target)
-	}
 
 	stderr := testutil.CaptureStderr(t, func() {
 		if err := runUpE(&cobra.Command{}, nil); err != nil {
@@ -356,23 +352,16 @@ func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(stderr, "running `cheasee-pi init` first") {
+	if !strings.Contains(stderr, "running `cheasee-pi init`") {
 		t.Errorf("empty folder must announce auto-init, got: %q", stderr)
 	}
 	if !strings.Contains(stderr, "Cloned (bare + worktree)") {
 		t.Errorf("user should see the clone notice during auto-init, got: %q", stderr)
 	}
-	if strings.Contains(stderr, "run `cheasee-pi start` again") {
-		t.Errorf("one-shot start must not hand off to a second start, got: %q", stderr)
-	}
-	if strings.Contains(stderr, "Next step:") {
-		t.Errorf("start-triggered init must not print the standalone next-step hint, got: %q", stderr)
-	}
-	if !strings.Contains(stderr, "starting pi") {
-		t.Errorf("one-shot start must confirm pi is starting, got: %q", stderr)
-	}
-	if i, j := strings.Index(stderr, "starting pi"), strings.Index(stderr, "EXEC-INVOKED"); i < 0 || j < 0 || i > j {
-		t.Errorf("'starting pi' confirmation must precede the exec invocation, stderr: %q", stderr)
+	// Init never launches pi: the standalone next-step hint is printed and the
+	// invocation ends — no compose, no exec.
+	if !strings.Contains(stderr, "Next step:") || !strings.Contains(stderr, "cheasee-pi start") {
+		t.Errorf("auto-init must hand off to a second `cheasee-pi start`, got: %q", stderr)
 	}
 	// Init artifacts: worktree checked out at the branch-named leaf, its
 	// sibling .bare, settings inside the leaf.
@@ -388,29 +377,11 @@ func TestRunUpE_autoInitEmptyFolder(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("auto-init must save auth.json")
 	}
-
-	// Continuation: compose build + up from the cache dir with the two sibling
-	// mounts, then exec into the derived container.
-	if len(c.composeArgs) != 2 {
-		t.Errorf("one-shot start must build + up via compose, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
+	if len(c.composeArgs) != 0 {
+		t.Errorf("auto-init must stop after init — compose must not run, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
 	}
-	cacheDir, err := CacheDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
-	if len(c.composeArgs) == 2 && (!slices.Contains(c.composeArgs[0], composeFile) || !slices.Contains(c.composeArgs[1], "up")) {
-		t.Errorf("compose must build + up from the cache dir, got %v", c.composeArgs)
-	}
-	if exec.name != containerName(filepath.Join(workdir, "main")) || exec.target != "/workspaces/main" {
-		t.Errorf("exec must target -w /workspaces/main in container %q, got name=%q target=%q", containerName(filepath.Join(workdir, "main")), exec.name, exec.target)
-	}
-	upEnv := c.composeCmds[1].env
-	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+filepath.Join(workdir, "main")) {
-		t.Errorf("up env must carry WORKSPACE_HOST_PATH=%s, got %v", filepath.Join(workdir, "main"), upEnv)
-	}
-	if !slices.Contains(upEnv, "WORKSPACE_BARE_PATH="+filepath.Join(workdir, ".bare")) {
-		t.Errorf("up env must carry WORKSPACE_BARE_PATH=%s, got %v", filepath.Join(workdir, ".bare"), upEnv)
+	if exec.name != "" || exec.target != "" {
+		t.Errorf("auto-init must not exec pi, got name=%q target=%q", exec.name, exec.target)
 	}
 }
 
@@ -459,11 +430,12 @@ func TestRunUpE_autoInitMatchesRunInit(t *testing.T) {
 	}
 }
 
-func TestRunUpE_autoInitMissingMarkerFailsClosed(t *testing.T) {
+func TestRunUpE_autoInitWithoutMarkerThenNextRunRefuses(t *testing.T) {
 	// init returns nil but leaves no settings marker (ConfirmFn deletes
-	// cheasee-settings.json during the API-key phase and declines) → the
-	// post-init re-resolution re-classifies the folder as non-initialized and
-	// start fails closed naming the residue; no compose, no exec.
+	// cheasee-settings.json during the API-key phase and declines): the empty-
+	// folder branch stops after init (it no longer re-resolves the workspace),
+	// so the residue lingers — the NEXT start classifies the folder as
+	// non-initialized and refuses. No compose, no exec.
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")
 	if err := os.MkdirAll(workdir, 0755); err != nil {
@@ -475,7 +447,7 @@ func TestRunUpE_autoInitMissingMarkerFailsClosed(t *testing.T) {
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	c := stubUpFlow(t, workdir, false)
 	stubInitGit(t)
-	stubExecPIContainer(t)
+	exec := stubExecPIContainer(t)
 	saved := newInitDeps
 	newInitDeps = func(wd string) InitDeps {
 		deps := initDepsWithRepoURL(t, wd)
@@ -493,15 +465,27 @@ func TestRunUpE_autoInitMissingMarkerFailsClosed(t *testing.T) {
 	}
 	t.Cleanup(func() { newInitDeps = saved })
 
-	err := runUpE(&cobra.Command{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "worktree/.bare residue") {
-		t.Fatalf("expected fail-closed error naming the residue, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "cheasee-pi start") {
-		t.Errorf("refusal should point at re-running start in an empty folder, got %v", err)
+	// First start: empty folder → init runs, then stops. No compose/exec even
+	// though the marker is gone (init reported success).
+	if err := runUpE(&cobra.Command{}, nil); err != nil {
+		t.Fatalf("first runUpE: %v", err)
 	}
 	if len(c.composeArgs) != 0 {
-		t.Errorf("missing marker must never reach compose, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
+		t.Errorf("post-init stop must never reach compose, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
+	}
+	if exec.name != "" {
+		t.Errorf("post-init stop must never exec pi, got name=%q", exec.name)
+	}
+
+	// Second start: non-empty (worktree + .bare residue) without the settings
+	// marker → refused with the empty-folder hint, message includes the error
+	// the user asked for ('run in an empty folder').
+	err := runUpE(&cobra.Command{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("second runUpE must refuse the non-initialized residue, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "cheasee-pi init") || !strings.Contains(err.Error(), "empty folder") {
+		t.Errorf("refusal should point at init in an empty folder, got %v", err)
 	}
 }
 
@@ -555,51 +539,6 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 	}
 }
 
-func TestRunUpE_autoInitContinuationDockerRecheck(t *testing.T) {
-	// runInit's docker check (call 1) passes; the continuation's re-check
-	// (call 2) fails → error surfaces post-init, no compose. The re-check is
-	// a UX gate after a long OAuth stall, not a correctness requirement.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	setUpRunMode(t, workdir, false)
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubInitGit(t)
-	stubAutoInitDeps(t)
-	stubExecPIContainer(t)
-
-	var infoCalls int
-	saved := runCommandContext
-	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
-		if name == "docker" && len(arg) > 0 && arg[0] == "info" {
-			infoCalls++
-			if infoCalls > 1 {
-				return &mockCmd{runFn: func() error { return fmt.Errorf("Cannot connect to the Docker daemon") }}
-			}
-			return &mockCmd{}
-		}
-		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
-		}
-		return saved(ctx, name, arg...)
-	})
-	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
-		return &mockCmd{}
-	})
-
-	err := runUpE(&cobra.Command{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "not running") {
-		t.Fatalf("expected continuation docker-check failure, got %v", err)
-	}
-	if infoCalls != 2 {
-		t.Errorf("docker check must run twice on the one-shot path (init + continuation), got %d", infoCalls)
-	}
-}
-
 func TestRunUpE_autoInitPreCancelledFailsFast(t *testing.T) {
 	// A pre-cancelled parent ctx propagates into the 5-min initTimeout child
 	// ctx → auto-init fails fast with the ctx error; no compose, no exec.
@@ -633,7 +572,7 @@ func TestRunUpE_autoInitPreCancelledFailsFast(t *testing.T) {
 
 func TestRunUpE_autoInitDsStoreOnlyFolder(t *testing.T) {
 	// A Finder-touched folder (.DS_Store only) classifies as empty and takes
-	// the same one-shot path.
+	// the same init-then-stop path: init runs, no compose, no exec.
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")
 	if err := os.MkdirAll(workdir, 0755); err != nil {
@@ -654,11 +593,11 @@ func TestRunUpE_autoInitDsStoreOnlyFolder(t *testing.T) {
 	if err := runUpE(&cobra.Command{}, nil); err != nil {
 		t.Fatalf("runUpE: %v", err)
 	}
-	if len(c.composeArgs) != 2 {
-		t.Errorf(".DS_Store-only folder must take the one-shot path (build + up), got %d: %v", len(c.composeArgs), c.composeArgs)
+	if len(c.composeArgs) != 0 {
+		t.Errorf(".DS_Store-only folder must stop after init — no compose, got %d: %v", len(c.composeArgs), c.composeArgs)
 	}
-	if exec.name != containerName(filepath.Join(workdir, "main")) {
-		t.Errorf(".DS_Store-only one-shot must exec into %q, got %q", containerName(filepath.Join(workdir, "main")), exec.name)
+	if exec.name != "" {
+		t.Errorf(".DS_Store-only folder must not exec pi, got name=%q", exec.name)
 	}
 }
 
@@ -685,8 +624,8 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	if strings.Contains(stderr, "Created .pi/settings.json") {
 		t.Errorf("start must not announce a .pi/settings.json scaffold, got: %q", stderr)
 	}
-	// Regression: the one-shot confirmation is auto-init-only — an initialized
-	// workspace start must not print it.
+	// Regression: the 'starting pi' confirmation was the one-shot auto-init's
+	// message — an initialized-workspace start must never print it.
 	if strings.Contains(stderr, "starting pi") {
 		t.Errorf("initialized-workspace start must not print the first-run confirmation, got: %q", stderr)
 	}

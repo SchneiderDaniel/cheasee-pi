@@ -40,8 +40,8 @@ subcommand.
 | 5 | `cheasee-pi down` | stop and remove this workspace's container |
 | 6 | `cheasee-pi clean` | sweep every container + orphan sessions, prune |
 
-An empty folder can skip step 1: `cheasee-pi start` auto-inits it and
-continues into start in the same invocation.
+An empty folder can skip step 1: `cheasee-pi start` auto-runs init and
+stops (init never launches pi); run `cheasee-pi start` again to launch.
 
 ## `cheasee-pi` (no args) / `start`
 
@@ -51,7 +51,7 @@ without a subcommand executes the same handler as `start`.
 | | |
 |---|---|
 | **Does** | Mounts the workspace at `/workspaces/main` and its sibling bare clone at `/workspaces/.bare`, starts the container (`docker compose up` if not running), injects provider keys from `~/.config/cheasee-pi/auth.json` as environment variables, launches pi, and prints the CodeFlow URL (`http://localhost:<port>/?repo=local/workspace&run=1`) once the container is healthy. |
-| **Checks** | Workspace gate: empty folder → runs `init` first and continues into start in the same invocation; `cheasee-settings.json` present → run; non-empty folder without it → refused. Docker gate (binary present + `docker info` responds + Engine ≥ 24.0.0, 5 s timeout) unless `--no-docker-check`. |
+| **Checks** | Workspace gate: empty folder → runs `init` and stops (re-run `start` to launch pi); `cheasee-settings.json` present → run; non-empty folder without it → refused with an empty-folder hint. Docker gate (binary present + `docker info` responds + Engine ≥ 24.0.0, 5 s timeout) unless `--no-docker-check`. |
 | **Inputs** | Flags: `--workdir`, `--name`, `--build`, `--no-docker-check`, `--api-key` (session-only, not saved), `--dry-run` (print injected env vars, then exit). Reads `auth.json` + `cheasee-settings.json`; writes the version-keyed compose/Dockerfile cache. |
 
 ## `cheasee-pi init`
@@ -65,7 +65,7 @@ path (no clone, no repo URL).
 
 | | |
 |---|---|
-| **Does** | Bare-clones the project repo, adds the main worktree in a branch-named subfolder of the workspace (`<workdir>/main` unless a different branch is stated), scaffolds `cheasee-settings.json` in the worktree leaf (never overwrites an existing one), authenticates GitHub, records custom skill repos, saves auth config, and sets up the provider API key. Prints `cheasee-pi start` as the next step (or continues into start automatically when triggered by `start`). |
+| **Does** | Bare-clones the project repo, adds the main worktree in a branch-named subfolder of the workspace (`<workdir>/main` unless a different branch is stated), scaffolds `cheasee-settings.json` in the worktree leaf (never overwrites an existing one), authenticates GitHub, records custom skill repos, saves auth config, and sets up the provider API key. Prints `cheasee-pi start` as the next step — init never launches pi (the second `start` invocation does). |
 | **Checks** | Docker gate unless `--no-docker-check`. Empty-folder probe: non-empty folders are refused (`.DS_Store` tolerated). `cheasee-settings.json` presence marks the workspace initialized — init refuses it unless `--reauth` (which re-runs only the GitHub + API-key authentications). Single invocation capped at a 5-minute timeout (device-flow OAuth polling dominates). `--no-input` requires `--repo-url`. |
 | **Inputs** | Repo URL (`--repo-url` or interactive prompt), branch naming the worktree folder (interactive prompt, default `main`), GitHub OAuth device flow, API key (`--api-key` or prompt), provider name. Files written: `cheasee-settings.json` in the worktree leaf, `~/.config/cheasee-pi/auth.json`, `.pi/` agent settings, sibling `.bare` clone + worktree leaf. |
 

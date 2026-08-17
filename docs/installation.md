@@ -128,8 +128,8 @@ cheasee-pi start
 `cheasee-pi` (alias `start`) gates on the workspace state:
 
 - **Empty folder** → auto-runs `cheasee-pi init` (repo URL prompt, bare clone
-  + main worktree, `cheasee-settings.json`), then continues into `start` in
-  the same invocation — one command sets the workspace up and starts pi
+  + main worktree, `cheasee-settings.json`), then stops — init never launches
+  pi; run `cheasee-pi start` again to start
 - **`cheasee-settings.json` present** → initialized workspace; runs normally
 - **Non-empty folder without `cheasee-settings.json`** → refused with
   “not initialized; run `cheasee-pi init` in an empty folder”

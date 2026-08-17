@@ -122,8 +122,8 @@ The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to 
 - **Empty folder** → auto-runs `cheasee-pi init` (repo-URL prompt → bare clone
   to `<parent>/.bare` → worktree attach on the repo's default branch (bare
   HEAD via `symbolic-ref`) → `cheasee-settings.json`),
-  then falls through into the normal start phases in the same invocation
-  (docker check → compose up → exec pi).
+  then stops — init never launches pi; a second `cheasee-pi start` runs the
+  normal start phases (docker check → compose up → exec pi).
 - **`cheasee-settings.json` present** → initialized; runs normally.
 - **Non-empty folder without settings** → refused (“not initialized; run
   `cheasee-pi init` in an empty folder”).

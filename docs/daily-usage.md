@@ -28,10 +28,10 @@ Before running pi via Docker, ensure the following are in place:
 - **First-time build complete** — the Docker image must be built at least once. See [Start](#start-the-container) below.
 - **A cheasee-pi workspace** — run `cheasee-pi init` in an empty folder to set
   one up (bare clone + main worktree + `cheasee-settings.json`), or just run
-  `cheasee-pi start` in an empty folder — it auto-inits first and continues
-  into start in the same invocation. Re-authenticate later (revoked GitHub
-  token, rotated API keys) with `cheasee-pi init --reauth` in the workspace —
-  it redoes the GitHub OAuth and pi API-key authentications.
+  `cheasee-pi start` in an empty folder — it auto-runs init and stops (init
+  never launches pi); run `cheasee-pi start` again to start pi. Re-authenticate
+  later (revoked GitHub token, rotated API keys) with `cheasee-pi init --reauth`
+  in the workspace — it redoes the GitHub OAuth and pi API-key authentications.
 
 The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
 automatically inside the container.
@@ -151,9 +151,10 @@ cheasee-pi
 ```
 
 `cheasee-pi` (no subcommand, alias `start`) gates on the workspace: empty
-folder → auto-runs `cheasee-pi init` and continues into start in the same
-invocation; `cheasee-settings.json` present → runs; non-empty folder without
-settings → refused with a hint to run init. It then starts the container if
+folder → auto-runs `cheasee-pi init` and stops (init never launches pi —
+run `cheasee-pi start` again to start); `cheasee-settings.json` present →
+runs; non-empty folder without settings → refused with a hint to run init in
+an empty folder. On an initialized workspace it starts the container if
 needed, reads `~/.config/cheasee-pi/auth.json`,
 injects API keys as env vars, and launches pi with your repo mounted at
 `/workspaces/main`.
