@@ -1,5 +1,7 @@
 # Cheasee-Pi: Build Your Own PI. Cheap. Easy. Secure.
 
+> Early Access, stable version still in works
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE)
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D0.79.1-6e3bf0)](https://pi.dev)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/CONTRIBUTING.md)
