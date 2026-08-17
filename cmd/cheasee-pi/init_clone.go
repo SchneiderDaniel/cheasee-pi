@@ -43,7 +43,7 @@ func canonicalRepoURL(repoURL string) (string, error) {
 }
 
 // gitCloneWorktree bare-clones the user's project repo to <parent>/.bare and
-// adds the main worktree (checked out at the bare HEAD, detached) into
+// adds the main worktree (checked out on the repo's default branch) into
 // workdir — the exact layout worktree-fix.sh expects inside the container
 // (/workspaces/main + /workspaces/.bare as sibling mounts).
 //
@@ -55,11 +55,14 @@ func canonicalRepoURL(repoURL string) (string, error) {
 //
 // The bare clone is full (no --depth/--single-branch): a later
 // `worktree add` of non-default branches must stay possible from the same
-// .bare. `worktree add --detach` takes NO branch argument — bare clones
-// leave no refs/remotes/origin/HEAD symbolic ref, so the old
-// symbolic-ref-based default-branch detection silently fell back to "main"
-// and hard-failed on master-default repos; no-branch add checks out the bare
-// HEAD on both.
+// .bare. Bare clones carry the default branch directly as refs/heads/<name>
+// (no refs/remotes/origin/HEAD symbolic ref), so the default branch is read
+// from the bare HEAD itself via symbolic-ref; the worktree is then attached
+// to it. This keeps the workspace on a named branch (no "detached HEAD"
+// footer state for pi) and works for every default-branch name (main,
+// master, …). A bare HEAD that cannot be resolved to a branch name (exotic
+// detached-edge case) falls back to the old `worktree add --detach` bare
+// HEAD checkout.
 func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	cloneURL, err := canonicalRepoURL(repoURL)
 	if err != nil {
@@ -111,16 +114,37 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	default:
 	}
 
-	wtCmd := runCommandContext(ctx, "git",
-		"--git-dir", bareDir,
-		"worktree", "add", "--detach", workdir,
-	)
+	wtArgs := []string{"--git-dir", bareDir, "worktree", "add"}
+	if branch := gitDefaultBranch(ctx, bareDir); branch != "" {
+		wtArgs = append(wtArgs, workdir, branch)
+	} else {
+		wtArgs = append(wtArgs, "--detach", workdir)
+	}
+	wtCmd := runCommandContext(ctx, "git", wtArgs...)
 	if out, err := wtCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("worktree add failed: %w\n%s", err, redactToken(string(out)))
 	}
 
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned (bare + worktree) to %s\n", workdir)
 	return nil
+}
+
+// gitDefaultBranch resolves the bare repo's default branch name from its
+// HEAD symbolic ref (refs/heads/<name>). Bare clones keep branches directly
+// under refs/heads and carry no refs/remotes/origin/HEAD, so HEAD is the
+// single source of truth. Returns "" when HEAD is detached or missing — the
+// caller then falls back to a detached worktree add (bare HEAD checkout).
+func gitDefaultBranch(ctx context.Context, bareDir string) string {
+	out, err := runCommandContext(ctx, "git", "--git-dir", bareDir, "symbolic-ref", "HEAD").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	ref := strings.TrimSpace(string(out)) // e.g. refs/heads/main
+	const headsPrefix = "refs/heads/"
+	if !strings.HasPrefix(ref, headsPrefix) {
+		return ""
+	}
+	return strings.TrimPrefix(ref, headsPrefix)
 }
 
 // removeInitResidue best-effort cleans a half-initialized workspace after a
