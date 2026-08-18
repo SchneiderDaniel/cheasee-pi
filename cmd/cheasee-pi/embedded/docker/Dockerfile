@@ -195,7 +195,12 @@ RUN case "$(dpkg --print-architecture)" in \
             osv_asset="osv-scanner_linux_arm64" ;; \
         *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac && \
-    curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/usr/local/bin/osv-scanner" && \
+    for i in 1 2 3; do \
+      curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/usr/local/bin/osv-scanner" \
+        && break; \
+      echo "[attempt $i] osv-scanner download failed, retrying in 5s…"; \
+      sleep 5; \
+    done && \
     chmod +x /usr/local/bin/osv-scanner && \
     osv-scanner --version
 
