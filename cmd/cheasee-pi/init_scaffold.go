@@ -71,15 +71,19 @@ func runInitScaffold(
 	}
 
 	vals := TemplateSettingsValues{
-		Provider:       deps.Provider,
-		DefaultModel:   DefaultModel(deps.Provider),
-		GitName:        gitName,
-		GitEmail:       gitEmail,
-		Memory:         "2G",
-		CPUs:           "2.0",
-		ClientID:       deps.ClientID,
-		RepositoryURL:  repoURL,
-		GitHubUser:     githubUser,
+		Provider:      deps.Provider,
+		DefaultModel:  DefaultModel(deps.Provider),
+		GitName:       gitName,
+		GitEmail:      gitEmail,
+		Memory:        "2G",
+		CPUs:          "2.0",
+		ClientID:      deps.ClientID,
+		RepositoryURL: repoURL,
+		GitHubUser:    githubUser,
+		// Every init records the default pi repos (ponytail) so the container
+		// entrypoint installs them uniformly; user-added custom repos are
+		// merged additively afterwards via recordSkillRepos.
+		SkillRepos: defaultSkillRepos,
 	}
 
 	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, deps.Workdir, vals); err != nil {

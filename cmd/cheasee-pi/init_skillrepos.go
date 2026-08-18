@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+// defaultSkillRepos are canonical external pi git repos cheasee-pi installs
+// into every container by default, seeded into cheasee-settings.json skillRepos
+// at init and installed by the entrypoint through the same `pi install -l -a`
+// mechanism as user-added custom repos — one uniform install path for all
+// external pi packages (ponytail among them). Canonical form, stored verbatim.
+var defaultSkillRepos = []string{"https://github.com/DietrichGebert/ponytail"}
+
 // canonicalSkillRepo validates and normalizes a custom skill repository spec
 // to the canonical form the entrypoint passes to `pi install -l -a` verbatim
 // (clones land in the bind-mounted .pi/git/ and pi owns the settings
