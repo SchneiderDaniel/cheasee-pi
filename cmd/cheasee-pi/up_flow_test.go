@@ -237,6 +237,82 @@ func TestFindWorkspaceRoot_notFound(t *testing.T) {
 	}
 }
 
+// workspaceParentFixture builds the cheasee-pi parent layout: a parent folder
+// with a sibling .bare and one worktree leaf holding cheasee-settings.json
+// (the exact layout init leaves behind).
+func workspaceParentFixture(t *testing.T) (parent, leaf string) {
+	t.Helper()
+	parent = t.TempDir()
+	leaf = filepath.Join(parent, "main")
+	if err := os.MkdirAll(filepath.Join(parent, ".bare"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(leaf, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCheaseeSettingsFile(t, leaf, `{}`)
+	return parent, leaf
+}
+
+func TestResolveWorkspaceParent_fromParent(t *testing.T) {
+	parent, leaf := workspaceParentFixture(t)
+	got, ok := resolveWorkspaceParent(parent)
+	if !ok || got != leaf {
+		t.Errorf("resolveWorkspaceParent(parent) = %q, %v; want %q, true", got, ok, leaf)
+	}
+}
+
+func TestResolveWorkspaceParent_noBare(t *testing.T) {
+	dir := t.TempDir()
+	leaf := filepath.Join(dir, "main")
+	if err := os.MkdirAll(leaf, 0755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteCheaseeSettingsFile(t, leaf, `{}`)
+	if _, ok := resolveWorkspaceParent(dir); ok {
+		t.Error("parent without .bare sibling must not resolve")
+	}
+}
+
+func TestResolveWorkspaceParent_ambiguousRefuse(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(parent, ".bare"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range []string{"main", "feature"} {
+		leaf := filepath.Join(parent, branch)
+		if err := os.MkdirAll(leaf, 0755); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WriteCheaseeSettingsFile(t, leaf, `{}`)
+	}
+	if _, ok := resolveWorkspaceParent(parent); ok {
+		t.Error("two settings-bearing leaves must not resolve (ambiguous)")
+	}
+}
+
+func TestFindWorkspaceRoot_fromParent(t *testing.T) {
+	parent, leaf := workspaceParentFixture(t)
+	got, ok := findWorkspaceRoot(parent)
+	if !ok || got != leaf {
+		t.Errorf("findWorkspaceRoot(parent) = %q, %v; want %q, true", got, ok, leaf)
+	}
+}
+
+func TestResolveStartWorkspace_fromParent(t *testing.T) {
+	parent, leaf := workspaceParentFixture(t)
+	root, state, err := resolveStartWorkspace(parent)
+	if err != nil {
+		t.Fatalf("resolveStartWorkspace: %v", err)
+	}
+	if state != WorkspaceInitialized {
+		t.Errorf("from parent → WorkspaceInitialized, got %v", state)
+	}
+	if root != leaf {
+		t.Errorf("from parent → root %q, want %q", root, leaf)
+	}
+}
+
 // ──────────────────────────────────────────────
 // Phase 1: start gate use cases
 // ──────────────────────────────────────────────

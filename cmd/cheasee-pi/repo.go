@@ -96,8 +96,11 @@ func pinnedCEEnv() []string {
 // findWorkspaceRoot walks up from workdir looking for cheasee-settings.json —
 // the initialized marker — and returns the workspace root (the folder
 // cheasee-pi set up) with true. Returns false when no ancestor is
-// initialized (the caller then classifies the cwd itself: empty → auto-init,
-// else refuse).
+// initialized; the caller then classifies the cwd itself (empty → auto-init,
+// else refuse). Falls back to resolveWorkspaceParent when workdir sits
+// outside the worktree but IS the cheasee-pi parent folder (the folder init
+// ran in) — the workspace leaf is then the child holding the settings
+// marker, so `cheasee-pi start`/`down` work from the parent without a cd.
 func findWorkspaceRoot(workdir string) (string, bool) {
 	dir, err := filepath.Abs(workdir)
 	if err != nil {
@@ -109,8 +112,38 @@ func findWorkspaceRoot(workdir string) (string, bool) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", false
+			return resolveWorkspaceParent(workdir)
 		}
 		dir = parent
 	}
+}
+
+// resolveWorkspaceParent detects the cheasee-pi workspace-parent layout and
+// returns the workspace root: init runs in an EMPTY folder and leaves exactly
+// a sibling .bare plus one worktree leaf holding cheasee-settings.json — the
+// .bare sibling is the invariant, the settings-bearing leaf the workspace.
+// Runs only when no ancestor walk found a marker, so a genuine
+// non-initialized folder never resolves. Fail-closed: no .bare, no settings
+// leaf, or more than one settings leaf (user-created ambiguity) → false.
+func resolveWorkspaceParent(parent string) (string, bool) {
+	if _, err := os.Stat(filepath.Join(parent, ".bare")); err != nil {
+		return "", false
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return "", false
+	}
+	var leaf string
+	for _, e := range entries {
+		if e.Name() == ".bare" || !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(cheaseeSettingsPath(filepath.Join(parent, e.Name()))); err == nil {
+			if leaf != "" {
+				return "", false // ambiguous — refuse, user should cd
+			}
+			leaf = e.Name()
+		}
+	}
+	return filepath.Join(parent, leaf), leaf != ""
 }

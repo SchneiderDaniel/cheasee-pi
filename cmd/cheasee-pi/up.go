@@ -237,27 +237,17 @@ const (
 	WorkspaceRefuse                            // non-empty, no settings → refuse
 )
 
-// resolveStartWorkspace resolves the start gate in a single pass: walks up
-// from workdir looking for cheasee-settings.json (the initialized marker) and
-// returns the workspace root when an ancestor is initialized; when no ancestor
-// is, classifies the cwd itself (empty → auto-init, else refuse). One stat
-// per ancestor level — no second pass over the cwd.
+// resolveStartWorkspace resolves the start gate: findWorkspaceRoot walks up
+// from workdir (falling back to the cheasee-pi parent layout — .bare sibling
+// + settings-bearing leaf) for the initialized marker and returns the
+// workspace root when found; when no ancestor is initialized, classifyWorkspace
+// classifies the cwd itself (empty → auto-init, else refuse).
 func resolveStartWorkspace(workdir string) (root string, state WorkspaceState, err error) {
-	dir, err := filepath.Abs(workdir)
-	if err != nil {
-		dir = workdir
+	if root, ok := findWorkspaceRoot(workdir); ok {
+		return root, WorkspaceInitialized, nil
 	}
-	for {
-		if _, err := os.Stat(cheaseeSettingsPath(dir)); err == nil {
-			return dir, WorkspaceInitialized, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			state, err := classifyWorkspace(workdir)
-			return "", state, err
-		}
-		dir = parent
-	}
+	state, err = classifyWorkspace(workdir)
+	return "", state, err
 }
 
 // classifyWorkspace classifies a folder for the start gate: an empty folder
