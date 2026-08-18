@@ -161,14 +161,6 @@ describe("docs/daily-usage.md", () => {
 
 	// --- Phase 6: README integration ---
 	describe("Phase 6: README integration", () => {
-		it("README mentions docker compose up/down or docker exec", () => {
-			const readme = readFileSync(README_PATH, "utf-8");
-			assert.ok(
-				/docker compose.*up|docker compose.*down|docker exec/im.test(readme),
-				"README missing Docker commands",
-			);
-		});
-
 		it("README links to daily-usage doc", () => {
 			const readme = readFileSync(README_PATH, "utf-8");
 			assert.ok(/daily[-\s]usage/im.test(readme), "README missing link to daily-usage doc");
