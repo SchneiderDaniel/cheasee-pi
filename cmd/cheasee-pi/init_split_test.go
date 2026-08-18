@@ -61,6 +61,7 @@ var wantInitDecls = map[string]string{
 	"func:runInitSkillRepos":  "init_skillrepos.go",
 	"func:canonicalSkillRepo": "init_skillrepos.go",
 	"func:recordSkillRepos":   "init_skillrepos.go",
+	"var:defaultSkillRepos":   "init_skillrepos.go",
 
 	"func:promptConfirm":     "init_prompt.go",
 	"func:promptGitIdentity": "init_prompt.go",

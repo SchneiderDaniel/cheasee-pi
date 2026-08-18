@@ -507,9 +507,9 @@ func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
 }
 
 func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
-	// Full flow without skill repos: the skill-repo phase records nothing and
-	// performs no Save — cheasee-settings.json stays byte-identical to the
-	// scaffold template output.
+	// Full flow without user skill repos: the skill-repo phase records nothing
+	// and performs no Save — cheasee-settings.json stays byte-identical to the
+	// scaffold template output, which now carries the default repos (ponytail).
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
 	stubDockerCheck(t, nil, "24.0.9", nil)
@@ -528,13 +528,13 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(got), "skillRepos") {
-		t.Errorf("no skill repos → no skillRepos key, got: %s", got)
+	if !strings.Contains(string(got), "DietrichGebert/ponytail") {
+		t.Errorf("scaffold must carry the default ponytail repo, got: %s", got)
 	}
 
 	// Baseline: the embedded template rendered with the exact values
 	// runInitScaffold used (identity from SetGitConfig, defaults, canonical
-	// repo URL, resolved GitHub user).
+	// repo URL, resolved GitHub user, default skill repos).
 	baseline := t.TempDir()
 	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), baseline, TemplateSettingsValues{
 		Provider:      deps.Provider,
@@ -546,6 +546,7 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 		ClientID:      deps.ClientID,
 		RepositoryURL: "https://github.com/owner/repo.git",
 		GitHubUser:    MockGitHubUser,
+		SkillRepos:    defaultSkillRepos,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -588,8 +589,11 @@ func TestInitUseCase_NoInputSkillRepoFlagsNoPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/owner/repo"}
-	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
+	want := []string{
+		defaultSkillRepos[0],
+		"https://github.com/owner/repo",
+	}
+	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
@@ -615,8 +619,11 @@ func TestInitUseCase_NoGitHubRecordsSkillRepos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/owner/repo"}
-	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
+	want := []string{
+		defaultSkillRepos[0],
+		"https://github.com/owner/repo",
+	}
+	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
