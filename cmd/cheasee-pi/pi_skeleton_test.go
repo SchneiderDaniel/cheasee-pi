@@ -38,13 +38,9 @@ func TestEnsurePiSkeleton_freshWorktree(t *testing.T) {
 		t.Errorf(".pi contains %d entries, want exactly %d: %v", len(entries), len(piSkeletonDirs), entries)
 	}
 
-	// pi owns settings.json (never scaffolded) and .piignore is deliberately
-	// NOT created (inert without the piignore extension).
+	// pi owns settings.json (never scaffolded).
 	if _, err := os.Stat(filepath.Join(workdir, ".pi", "settings.json")); !os.IsNotExist(err) {
 		t.Errorf("ensurePiSkeleton must not create .pi/settings.json: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(workdir, ".pi", ".piignore")); !os.IsNotExist(err) {
-		t.Errorf("ensurePiSkeleton must not create .piignore: %v", err)
 	}
 }
 

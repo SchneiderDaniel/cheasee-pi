@@ -27,8 +27,6 @@ var piSkeletonDirs = []string{
 // re-creates them on every init; os.MkdirAll on an existing dir is a no-op
 // returning nil, so a repo-committed .pi tree (cheasee-pi itself commits
 // .pi/settings.json) is never modified — the never-overwrite contract.
-// .piignore is deliberately NOT created: it is inert without the piignore
-// extension, which is not on npm.
 func ensurePiSkeleton(workdir string) error {
 	for _, dir := range piSkeletonDirs {
 		if err := os.MkdirAll(filepath.Join(workdir, ".pi", dir), 0755); err != nil {

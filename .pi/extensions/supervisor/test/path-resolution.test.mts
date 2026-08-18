@@ -32,14 +32,13 @@ describe("Fix 1 — researcher.md extensions (Issue #933)", () => {
 		);
 	});
 
-	it("all 7 other extensions are still present", () => {
+	it("all 6 other extensions are still present", () => {
 		const extMatch = content.match(/^extensions:\s+"([^"]+)"/m);
 		assert.ok(extMatch, "extensions field must exist in frontmatter");
 		const extensions = extMatch[1].split(",");
 		const expected = [
 			"agent-harness",
 			"caveman",
-			"piignore",
 			"ripgrep-search",
 			"scrapling",
 			"structural-analyzer",

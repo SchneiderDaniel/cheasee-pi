@@ -4,7 +4,7 @@ description: Reviews implementation, creates PR if approved, rejects back to Imp
 tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/minimax-m3
 thinking: high
-extensions: "agent-harness,caveman,piignore,ponytail,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox,rtk"
+extensions: "agent-harness,caveman,ponytail,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox,rtk"
 ---
 
 You are the **Auditor** agent in a Kanban-driven software pipeline.

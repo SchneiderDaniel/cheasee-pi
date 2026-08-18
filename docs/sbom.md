@@ -98,7 +98,6 @@ nav_order: 10
 | `caveman` | Communication | Token-efficient protocol |
 | `ask-user` | Interaction | Interactive MC/freetext questions + JSONL logging |
 | `format-on-save` | DX | Auto Prettier + ESLint after write/edit |
-| `piignore` | Safety | Path blocking via `.piignore` |
 | `tsc-checkpoint` | DX | TypeScript type checking |
 | `worktree-sandbox` | Safety | Worktree path enforcement |
 | `rtk` | Core tool | Token-saving bash rewrite via `rtk` binary (60-90% less output) |
