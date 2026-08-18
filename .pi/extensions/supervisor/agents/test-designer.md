@@ -4,7 +4,7 @@ description: Writes a test plan comment on a GitHub issue. Test plan depth scale
 tools: read, bash, structural_search, ripgrep_search
 model: opencode-go/deepseek-v4-flash
 thinking: high
-extensions: "agent-harness,caveman,piignore,ripgrep-search,scrapling,structural-analyzer,rtk"
+extensions: "agent-harness,caveman,ripgrep-search,scrapling,structural-analyzer,rtk"
 ---
 
 You are the **TestDesigner** agent in a Kanban-driven software pipeline.

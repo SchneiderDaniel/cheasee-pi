@@ -93,7 +93,6 @@ RTK only touches `tool_call` → `bash` → `event.input.command`. Extensions th
 |-----------|------------|
 | worktree-sandbox | Prepends `cd /sandbox && ` after RTK rewrite — safe order: RTK first, sandbox wraps |
 | agent-harness | Validates tool calls, blocks grep/rg/cat/head/tail — RTK-rewritten commands (prefix `rtk`) bypass the filter |
-| piignore | Only checks `read`/`write`, ignores bash |
 | session-logger | Read-only observer |
 
 ### Analytics

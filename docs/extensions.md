@@ -30,7 +30,6 @@ This page lists all Cheasee-Pi extensions. Each has its own page with **Why** (b
 | `.pi/extensions/format-on-save/` | [Format on Save](extensions/format-on-save) |
 | `.pi/extensions/lsp-auditor/` | [LSP Auditor](extensions/lsp-auditor) |
 | `.pi/extensions/ponytail/` | [Ponytail](extensions/ponytail) |
-| `.pi/extensions/piignore/` | [PiIgnore](extensions/piignore) |
 | `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
 | `.pi/extensions/worktree-sandbox/` | [Worktree Sandbox](extensions/worktree-sandbox) |
 | `.pi/extensions/rtk/` | [RTK](extensions/rtk) |
@@ -45,7 +44,6 @@ Selected extensions are published as npm packages under the `@cheasee-pi` scope.
 | `@cheasee-pi/ask-user` | [Ask User](extensions/ask-user) | `pi install npm:@cheasee-pi/ask-user` |
 | `@cheasee-pi/ripgrep-search` | [Ripgrep Search](extensions/ripgrep-search) | `pi install npm:@cheasee-pi/ripgrep-search` |
 | `@cheasee-pi/lsp-auditor` | [LSP Auditor](extensions/lsp-auditor) | `pi install npm:@cheasee-pi/lsp-auditor` |
-| `@cheasee-pi/piignore` | [PiIgnore](extensions/piignore) | `pi install npm:@cheasee-pi/piignore` |
 | `@cheasee-pi/structural-analyzer` | [Structural Analyzer](extensions/structural-analyzer) | `pi install npm:@cheasee-pi/structural-analyzer` |
 
 **Why publish separately?** Not all extensions belong on pi.dev — some are Cheasee-Pi-specific (supervisor, session-logger, context-info). Published packages are self-contained, useful in any Pi setup.

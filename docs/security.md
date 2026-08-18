@@ -35,14 +35,6 @@ The [Agent Harness](extensions/agent-harness) extension intercepts every tool ca
 
 Rules are configurable via `.pi/harness-config.json`.
 
-## PiIgnore — path blocking
-
-The [PiIgnore](extensions/piignore) extension blocks agent access to sensitive paths using `.piignore` patterns (gitignore format). Intercepts `read`, `write`, `edit`, `grep`, `find`, `ls`, and `bash` when a target path matches.
-
-**Dual trust model:**
-- **Trusted project** — `.piignore` patterns are loaded and enforced as written, walking up from project root to filesystem root
-- **Untrusted project** — `.piignore` patterns are **not honored**. Instead, a hardcoded safe-default block list is enforced: `*.env`, `.env.*`, `secrets/`, `**/*.pem`, `**/*.key`. Prevents attacker-controlled repo from weaponizing `.piignore`
-
 ## Worktree Sandbox — isolation enforcement
 
 The [Worktree Sandbox](extensions/worktree-sandbox) extension enforces that pipeline agents operate ONLY within their assigned git worktree:
@@ -60,7 +52,6 @@ Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitiv
 
 | Extension | What's gated | Behavior when untrusted |
 |-----------|-------------|------------------------|
-| PiIgnore | `.piignore` file loading | Uses hardcoded safe-defaults instead |
 | Worktree Sandbox | Sandbox enforcement | Skipped entirely |
 | LSP Auditor | LSP diagnostics | Returns `{ proceed: true }` with warning |
 | Format on Save | Prettier + ESLint | No formatting or linting |
@@ -72,7 +63,7 @@ Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitiv
 | Supervisor dead-code gate | knip execution | Dead code check skipped |
 | Supervisor duplicate-code gate | jscpd execution | Duplicate code check skipped |
 
-The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from running attacker-controlled configurations that could weaponize LSP servers, formatter configs, tsconfig paths, or `.piignore` patterns.
+The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from running attacker-controlled configurations that could weaponize LSP servers, formatter configs, or tsconfig paths.
 
 ## Docker security
 

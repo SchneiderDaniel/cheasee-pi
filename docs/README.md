@@ -32,7 +32,6 @@ All components run locally. No code leaves your machine (except LLM API calls to
 | **Ponytail** | Lazy senior dev mode — YAGNI, stdlib-first, minimal code |
 | **Ask User** | Interactive MC dialogs + CSV logging |
 | **Format on Save** | Auto Prettier + ESLint after write/edit |
-| **PiIgnore** | Path blocking via `.piignore` patterns |
 | **TSC Checkpoint** | `/check` command: `tsc --noEmit` |
 | **Worktree Sandbox** | Worktree path enforcement |
 | **RTK** | Token-saving bash rewrite — 60-90% less output per command |

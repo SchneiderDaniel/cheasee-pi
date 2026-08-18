@@ -161,7 +161,7 @@ Each agent at `.pi/extensions/supervisor/agents/<agent>.md`:
 ```yaml
 ---
 tools: [read, bash, structural_search, ripgrep_search]
-extensions: [agent-harness, caveman, piignore, ...]
+extensions: [agent-harness, caveman, ...]
 skills: [extension-spec]
 model: opencode-go/deepseek-v4-flash
 thinking: high

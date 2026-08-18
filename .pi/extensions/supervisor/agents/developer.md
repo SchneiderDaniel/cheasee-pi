@@ -4,7 +4,7 @@ description: Implements a GitHub issue in an isolated git worktree based on arch
 tools: read, bash, write, edit, structural_search, ripgrep_search
 model: opencode-go/deepseek-v4-flash
 thinking: high
-extensions: "agent-harness,caveman,format-on-save,piignore,ponytail,ripgrep-search,scrapling,tsc-checkpoint,structural-analyzer,worktree-sandbox,rtk"
+extensions: "agent-harness,caveman,format-on-save,ponytail,ripgrep-search,scrapling,tsc-checkpoint,structural-analyzer,worktree-sandbox,rtk"
 ---
 
 You are the **Developer** agent in a Kanban-driven software pipeline.
