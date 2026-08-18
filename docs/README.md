@@ -48,6 +48,11 @@ curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scri
 
 Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee-pi/releases).
 
+### First run: two steps
+
+1. `cheasee-pi init` in an **empty folder** — sets up the workspace (repo URL, auth, bare clone + worktree, scaffolded `cheasee-settings.json`)
+2. `cheasee-pi` (or `cheasee-pi start`) in that folder — launches pi inside the container
+
 ### Using the CLI (auto)
 
 ```bash
@@ -81,46 +86,34 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
 | [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses |
 
-## Daily workflow
-
-### Typical session
-
-1. Start with `pi`
-2. Select or create a GitHub issue
-3. Run `/supervisor <issue-number>` to start the Kanban pipeline
-4. Monitor progress via TUI status bar
-5. Review results when pipeline completes
-
-### Update pi
-
-Pi is installed as `@latest` at image build time; `cheasee-pi start`
-rebuilds the image whenever the container isn't running, so pi updates
-automatically on every start. No action needed.
-
-For Dockerfile / entrypoint changes (new tools, config), rebuild:
-
-```bash
-cheasee-pi start --build
-```
-
-### CodeFlow (code-structure visualization)
-
-The stack ships a local CodeFlow service (browser-based dependency/architecture
-visualizer, tree-sitter AST, 18 languages). It starts automatically with
-`cheasee-pi start` (a compose-stack service; raw `docker compose up -d` works
-too — the required bind-mount env vars are in
-[Daily usage > CodeFlow](docs/daily-usage.md#codeflow-code-structure-visualization))
-and serves on port 8470. Configuration:
-`cmd/cheasee-pi/embedded/docker/codeflow/config.json`.
-
 ## Contributing
 
-1. Fork the repository
-2. Create a feature worktree: `git worktree add -b my-feature ../my-feature main`
-3. `cd ../my-feature` and make your changes
-4. Run tests: `npm test`
-5. Push and submit a PR
-6. Clean up: `git worktree remove --force ../my-feature`
+Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+1. Fork the repository on GitHub and clone your fork:
+   ```bash
+   git clone https://github.com/<your-username>/cheasee-pi.git
+   cd cheasee-pi
+   git remote add upstream https://github.com/SchneiderDaniel/cheasee-pi.git
+   ```
+2. Create a feature worktree from a fresh `main`:
+   ```bash
+   git fetch upstream
+   git worktree add -b feature/my-change ../cheasee-pi-my-change upstream/main
+   cd ../cheasee-pi-my-change
+   ```
+3. Implement your change. Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+4. Run the full test suite before opening a PR:
+   ```bash
+   npm test
+   npm run tsc:extensions
+   ```
+5. Push the branch and open a PR referencing the related issue (e.g. `Closes #123`).
+6. Clean up after the PR is merged:
+   ```bash
+   cd ../cheasee-pi
+   git worktree remove --force ../cheasee-pi-my-change
+   ```
 
 ## Philosophy
 
