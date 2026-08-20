@@ -106,13 +106,13 @@ func recordSkillRepos(workdir string, specs []string) error {
 // loop; --no-input records flag specs only (no prompt). An empty/whitespace
 // input answers "done"; an invalid spec fails fast naming the accepted forms.
 func runInitSkillRepos(deps InitDeps) error {
-	canonical := make([]string, 0, len(deps.SkillRepos))
+	custom := make([]string, 0, len(deps.SkillRepos))
 	for _, spec := range deps.SkillRepos {
 		c, err := canonicalSkillRepo(spec)
 		if err != nil {
 			return err
 		}
-		canonical = append(canonical, c)
+		custom = append(custom, c)
 	}
 	if !deps.NoInput {
 		fmt.Fprintf(os.Stderr, "\n🧩 Custom Skill Repositories\n")
@@ -141,12 +141,14 @@ func runInitSkillRepos(deps InitDeps) error {
 			if err != nil {
 				return err
 			}
-			canonical = append(canonical, c)
+			custom = append(custom, c)
 			fmt.Fprintf(os.Stderr, "   ✓ Added %s — the prompt repeats; add another or answer no to finish.\n\n", c)
 		}
 	}
-	if len(canonical) == 0 {
-		return nil
-	}
-	return recordSkillRepos(deps.Workdir, canonical)
+	// Always seed the default repos (ponytail) on top of what's already
+	// recorded: the scaffold skips an existing cheasee-settings.json, so a
+	// file predating skillRepos would otherwise never get the fixed default.
+	// Custom repos merge additively after; both dedupe in recordSkillRepos.
+	specs := append(append([]string{}, defaultSkillRepos...), custom...)
+	return recordSkillRepos(deps.Workdir, specs)
 }
