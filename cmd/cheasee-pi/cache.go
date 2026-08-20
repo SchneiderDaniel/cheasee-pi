@@ -24,7 +24,7 @@ func CacheDir() (string, error) {
 // cliVersionKey is the cache-dir key: the CLI's own semver. Kept as a const
 // (referenced by rootCmd.Version too) so the cache path never participates in
 // a rootCmd initialization cycle.
-const cliVersionKey = "0.55"
+const cliVersionKey = "0.55.1"
 
 // cliVersion is the cache-dir key: the CLI's own semver.
 func cliVersion() string {
