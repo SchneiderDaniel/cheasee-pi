@@ -432,6 +432,9 @@ type gitCloneCapture struct {
 	cloneArgs    []string
 	worktreeArgs []string
 	symRefArgs   []string
+	configArgs   []string
+	updateRefs   []string
+	upstreamArgs []string
 	symRefOut    string
 	symRefErr    error
 }
@@ -468,6 +471,20 @@ func stubGitClone(t *testing.T, cloneErr, worktreeErr error) *gitCloneCapture {
 			}
 			return &mockCmd{}
 		}
+		// Upstream wiring (wireUpstream): config fetch refspec, local
+		// update-ref of the remote-tracking ref, branch --set-upstream-to.
+		if name == "git" && slices.Contains(arg, "config") && slices.Contains(arg, "remote.origin.fetch") {
+			c.configArgs = append(append([]string(nil), name), arg...)
+			return &mockCmd{}
+		}
+		if name == "git" && slices.Contains(arg, "update-ref") {
+			c.updateRefs = append(append([]string(nil), name), arg...)
+			return &mockCmd{}
+		}
+		if name == "git" && slices.Contains(arg, "--set-upstream-to") {
+			c.upstreamArgs = append(append([]string(nil), name), arg...)
+			return &mockCmd{}
+		}
 		return saved(ctx, name, arg...)
 	})
 	return c
@@ -502,7 +519,9 @@ func gitRemoteFixture(t *testing.T, branch string) string {
 }
 
 // cloneWorktreeLayout builds the init-clone layout (bare clone + default
-// branch probe + worktree add <branch>) exactly as gitCloneWorktree does.
+// branch probe + worktree add <branch>) exactly as gitCloneWorktree does,
+// including the wireUpstream remote-tracking setup (refspec, tracking ref,
+// upstream binding).
 func cloneWorktreeLayout(t *testing.T, src, parent, workdir string) string {
 	t.Helper()
 	bareDir := filepath.Join(parent, ".bare")
@@ -513,5 +532,9 @@ func cloneWorktreeLayout(t *testing.T, src, parent, workdir string) string {
 	}
 	branch := strings.TrimPrefix(strings.TrimSpace(string(out)), "refs/heads/")
 	runGit(t, "--git-dir", bareDir, "worktree", "add", workdir, branch)
+	// Mirror wireUpstream so the layout tracks origin like the real init.
+	runGit(t, "--git-dir", bareDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+	runGit(t, "--git-dir", bareDir, "update-ref", "refs/remotes/origin/"+branch, branch)
+	runGit(t, "--git-dir", bareDir, "branch", "--set-upstream-to", "origin/"+branch, branch)
 	return bareDir
 }
