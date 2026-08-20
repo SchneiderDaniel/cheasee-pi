@@ -155,6 +155,20 @@ func TestGitCloneWorktree_exactArgv(t *testing.T) {
 	if !slices.Equal(c.worktreeArgs, wantWT) {
 		t.Errorf("worktree argv = %v, want %v", c.worktreeArgs, wantWT)
 	}
+	// Upstream wiring (wireUpstream) so the default branch tracks origin
+	// instead of silently diverging (editor pull/push must have a target).
+	wantCfg := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"}
+	if !slices.Equal(c.configArgs, wantCfg) {
+		t.Errorf("config argparse = %v, want %v", c.configArgs, wantCfg)
+	}
+	wantUR := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "update-ref", "refs/remotes/origin/main", "main"}
+	if !slices.Equal(c.updateRefs, wantUR) {
+		t.Errorf("update-ref argv = %v, want %v", c.updateRefs, wantUR)
+	}
+	wantUS := []string{"git", "--git-dir", filepath.Join(parent, ".bare"), "branch", "--set-upstream-to", "origin/main", "main"}
+	if !slices.Equal(c.upstreamArgs, wantUS) {
+		t.Errorf("set-upstream argv = %v, want %v", c.upstreamArgs, wantUS)
+	}
 }
 
 func TestGitCloneWorktree_masterDefaultAttached(t *testing.T) {
@@ -477,6 +491,32 @@ func TestGitCloneWorktree_realGitMasterDefault(t *testing.T) {
 	}
 	if !strings.Contains(string(out), workdir) {
 		t.Errorf("worktree list must contain the worktree %s:\n%s", workdir, out)
+	}
+}
+
+func TestGitCloneWorktree_realGitTracksOrigin(t *testing.T) {
+	// Acceptance: after the CLI layout, the default-branch worktree tracks
+	// origin (upstream resolves, status shows ahead/behind) — a bare clone
+	// gives none of that on its own, which previously left editor pull/push
+	// targetless and let the branch diverge in silence.
+	src := gitRemoteFixture(t, "main")
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "main")
+	cloneWorktreeLayout(t, src, parent, workdir)
+
+	out, err := exec.Command("git", "-C", workdir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse @{u}: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "origin/main" {
+		t.Errorf("worktree must track origin/main, got %q", strings.TrimSpace(string(out)))
+	}
+	out, err = exec.Command("git", "-C", workdir, "status", "-sb").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "...origin/main") {
+		t.Errorf("status must show the tracking relationship, got: %q", strings.TrimSpace(string(out)))
 	}
 }
 

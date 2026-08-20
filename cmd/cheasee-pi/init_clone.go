@@ -63,6 +63,13 @@ func canonicalRepoURL(repoURL string) (string, error) {
 // master, …). A bare HEAD that cannot be resolved to a branch name (exotic
 // detached-edge case) falls back to the old `worktree add --detach` bare
 // HEAD checkout.
+//
+// A bare clone carries no remote-tracking setup: `remote.origin.fetch` is
+// unset and the default branch has no upstream, so the worktree branch
+// would silently diverge from origin (editors like Zed then show no
+// ahead/behind, their pull targets nothing, and a push is rejected
+// non-fast-forward). wireUpstream restores the normal-clone tracking so the
+// workspace behaves like a regular checkout from the start.
 func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	cloneURL, err := canonicalRepoURL(repoURL)
 	if err != nil {
@@ -114,8 +121,9 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 	default:
 	}
 
+	branch := gitDefaultBranch(ctx, bareDir)
 	wtArgs := []string{"--git-dir", bareDir, "worktree", "add"}
-	if branch := gitDefaultBranch(ctx, bareDir); branch != "" {
+	if branch != "" {
 		wtArgs = append(wtArgs, workdir, branch)
 	} else {
 		wtArgs = append(wtArgs, "--detach", workdir)
@@ -125,7 +133,39 @@ func gitCloneWorktree(ctx context.Context, repoURL, workdir string) error {
 		return fmt.Errorf("worktree add failed: %w\n%s", err, redactToken(string(out)))
 	}
 
+	// Named-branch worktree: give it a remote-tracking ref and an upstream
+	// (stored in the shared .bare config, visible to every worktree). A bare
+	// clone ships without remote.origin.fetch and without a tracking ref, so
+	// without this the branch diverges from origin in silence. Purely local
+	// operations — the objects already came down with the full bare clone.
+	if branch != "" {
+		if err := wireUpstream(ctx, bareDir, branch); err != nil {
+			return err
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "  ✓ Cloned (bare + worktree) to %s\n", workdir)
+	return nil
+}
+
+// wireUpstream adds the remote-tracking setup a bare clone omits: the
+// remote.origin.fetch refspec (so later `git fetch` in any worktree resolves
+// all branches), the default branch's remote-tracking ref, and the upstream
+// binding branch.<name>.remote/merge. All three write into the shared .bare
+// config, so every worktree on the repo sees the tracking. All local, no
+// network round trip.
+func wireUpstream(ctx context.Context, bareDir, branch string) error {
+	trackingRef := "refs/remotes/origin/" + branch
+	cmds := [][]string{
+		{"--git-dir", bareDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"},
+		{"--git-dir", bareDir, "update-ref", trackingRef, branch},
+		{"--git-dir", bareDir, "branch", "--set-upstream-to", "origin/" + branch, branch},
+	}
+	for _, args := range cmds {
+		if out, err := runCommandContext(ctx, "git", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("set upstream tracking for %s: %w\n%s", branch, err, redactToken(string(out)))
+		}
+	}
 	return nil
 }
 

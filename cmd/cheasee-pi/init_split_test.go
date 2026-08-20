@@ -47,6 +47,7 @@ var wantInitDecls = map[string]string{
 	"func:gitDefaultBranch":  "init_clone.go",
 	"func:canonicalRepoURL":  "init_clone.go",
 	"func:removeInitResidue": "init_clone.go",
+	"func:wireUpstream":     "init_clone.go",
 
 	"func:runInitAuth":    "init_auth.go",
 	"func:runInitAPIKeys": "init_auth.go",
