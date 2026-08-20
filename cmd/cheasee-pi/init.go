@@ -37,7 +37,7 @@ var newInitDeps = func(workdir string) InitDeps {
 
 // nextStepHint is the post-init instruction printed after a successful init run.
 // It is a constant so both the CLI and documentation stay in sync.
-const nextStepHint = "cheasee-pi start"
+const nextStepHint = "cd <branch> -> cheasee-pi start"
 
 // initTimeout bounds a single init invocation — device-flow OAuth polling
 // dominates the window. Shared by `cheasee-pi init` (runInitE) and the
