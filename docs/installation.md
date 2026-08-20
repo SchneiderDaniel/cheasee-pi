@@ -23,7 +23,7 @@ nav_order: 2
 
 ```bash
 # Set version (check latest at https://github.com/SchneiderDaniel/cheasee-pi/releases)
-VERSION="0.54"
+VERSION="0.55"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -43,7 +43,7 @@ curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VE
 
 ```powershell
 # PowerShell
-$version = "0.54"
+$version = "0.55"
 $arch = if ((Get-CimInstance Win32_ComputerSystem).SystemType -match "ARM") { "arm64" } else { "amd64" }
 curl -Lo cheasee-pi.zip "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v$version/cheasee-pi_${version}_windows_$arch.zip"
 tar -xf cheasee-pi.zip
