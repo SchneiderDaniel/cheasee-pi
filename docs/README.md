@@ -47,9 +47,10 @@ curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scri
 
 Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee-pi/releases).
 
-### First run: two steps
+### First run: three steps
 
 1. `cheasee-pi init` in an **empty folder** — sets up the workspace (repo URL, auth, bare clone + worktree, scaffolded `cheasee-settings.json`)
+2. `cd <branch/worktree>`
 2. `cheasee-pi` (or `cheasee-pi start`) in that folder — launches pi inside the container
 
 ### Using the CLI (auto)
