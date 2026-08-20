@@ -152,14 +152,15 @@ func TestRunInitSkillRepos_InteractiveLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/owner/repo", "git:github.com/x/y"}
-	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
+	want := []string{defaultSkillRepos[0], "https://github.com/owner/repo", "git:github.com/x/y"}
+	if len(s.SkillRepos) != 3 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] || s.SkillRepos[2] != want[2] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
 
 func TestRunInitSkillRepos_EmptyInputStopsLoop(t *testing.T) {
-	// Empty/whitespace InputFn input is the silent done signal.
+	// Empty/whitespace InputFn input is the silent done signal — it stops the
+	// loop but still seeds the fixed default repo (ponytail).
 	workdir := t.TempDir()
 	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
 	confirm, input := mockQueuePrompt(t, []bool{true}, []string{"   "})
@@ -176,8 +177,8 @@ func TestRunInitSkillRepos_EmptyInputStopsLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.SkillRepos) != 0 {
-		t.Errorf("empty input must record nothing, got %v", s.SkillRepos)
+	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != defaultSkillRepos[0] {
+		t.Errorf("empty input must stop the loop but seed the default repo, got %v", s.SkillRepos)
 	}
 }
 
@@ -230,9 +231,34 @@ func TestRunInitSkillRepos_PromptErrorWrapped(t *testing.T) {
 	}
 }
 
-func TestRunInitSkillRepos_NoInputNoFlagsNoop(t *testing.T) {
-	// --no-input without --skill-repo: phase skipped entirely, no skillRepos
-	// key emitted.
+func TestRunInitSkillRepos_SeedsDefaultAlongsideExistingCustom(t *testing.T) {
+	// Regression: an existing cheasee-settings.json whose skillRepos holds a
+	// custom repo (private-pi) but not the fixed default (ponytail) must gain
+	// ponytail — the scaffold skipped writing, so the default was lost.
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"skillRepos":["https://github.com/SchneiderDaniel/private-pi.git"]}`)
+	deps := initDeps(t, func(d *InitDeps) { d.Workdir = workdir }) // NoInput defaults true
+	if err := runInitSkillRepos(deps); err != nil {
+		t.Fatalf("seed default: %v", err)
+	}
+	s, err := LoadCheaseeSettings(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"https://github.com/SchneiderDaniel/private-pi.git",
+		defaultSkillRepos[0],
+	}
+	got := s.SkillRepos
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("skillRepos = %v, want %v", got, want)
+	}
+}
+
+func TestRunInitSkillRepos_NoInputNoFlagsSeedsDefault(t *testing.T) {
+	// --no-input without --skill-repo: no custom repos, but the fixed default
+	// (ponytail) is still ensured — a pre-existing cheasee-settings.json that
+	// predates skillRepos must gain it.
 	workdir := t.TempDir()
 	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
 	deps := initDeps(t, func(d *InitDeps) { d.Workdir = workdir }) // NoInput defaults true
@@ -243,12 +269,8 @@ func TestRunInitSkillRepos_NoInputNoFlagsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.SkillRepos) != 0 {
-		t.Errorf("no-input without flags must record nothing, got %v", s.SkillRepos)
-	}
-	raw := testutil.ReadCheaseeSettingsRaw(t, workdir)
-	if _, ok := raw["skillRepos"]; ok {
-		t.Error("no-input without flags must not emit a skillRepos key")
+	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != defaultSkillRepos[0] {
+		t.Errorf("no-input without flags must seed the default repo, got %v", s.SkillRepos)
 	}
 }
 
@@ -267,8 +289,8 @@ func TestRunInitSkillRepos_NoInputFlagsRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/owner/repo", "git:github.com/x/y"}
-	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
+	want := []string{defaultSkillRepos[0], "https://github.com/owner/repo", "git:github.com/x/y"}
+	if len(s.SkillRepos) != 3 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] || s.SkillRepos[2] != want[2] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
@@ -293,9 +315,9 @@ func TestRunInitSkillRepos_FlagsPreseedDeduped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/owner/repo"}
-	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
-		t.Errorf("skillRepos = %v, want %v (flag+prompt dupes collapsed)", s.SkillRepos, want)
+	want := []string{defaultSkillRepos[0], "https://github.com/owner/repo"}
+	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
+		t.Errorf("skillRepos = %v, want %v (default + flag/prompt dupes collapsed)", s.SkillRepos, want)
 	}
 }
 
