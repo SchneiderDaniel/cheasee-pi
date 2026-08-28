@@ -1,19 +1,30 @@
 {
-	"defaultProvider": "opencode-go",
 	"defaultModel": "deepseek-v4-flash",
+	"defaultProvider": "opencode-go",
 	"docker": {
 		"memory": "5G",
 		"cpus": "4.0"
 	},
+	"extensions": [
+		"rtk",
+		"/opt/cheasee-pi/private-pi/extensions/check-extensions"
+	],
 	"gitIdentity": {
 		"name": "",
 		"email": ""
 	},
-	"skills": [".pi/skills", "/opt/cheasee-pi/private-pi/skills"],
-	"prompts": ["/opt/cheasee-pi/private-pi/prompts"],
-	"extensions": ["rtk", "/opt/cheasee-pi/private-pi/extensions/check-extensions"],
-	"theme": "cheasee-pi",
+	"packages": [
+		"https://github.com/DietrichGebert/ponytail",
+		"https://github.com/SchneiderDaniel/private-pi.git"
+	],
+	"prompts": [
+		"/opt/cheasee-pi/private-pi/prompts"
+	],
 	"sessionDir": ".pi/sessions",
+	"skills": [
+		".pi/skills",
+		"/opt/cheasee-pi/private-pi/skills"
+	],
 	"supervisor": {
 		"repo": "SchneiderDaniel/cheasee-pi",
 		"projectNumber": 3,
@@ -26,14 +37,13 @@
 			"Audit": "auditor"
 		},
 		"maxRejections": 3,
-		"codeowners": ["SchneiderDaniel"],
+		"codeowners": [
+			"SchneiderDaniel"
+		],
 		"agentTimeoutsMin": {},
 		"agentTokenBudget": 300000,
 		"bellOnComplete": false,
 		"enableExperimentalFeatures": false
 	},
-	"packages": [
-		"https://github.com/DietrichGebert/ponytail",
-		"https://github.com/SchneiderDaniel/private-pi.git"
-	]
+	"theme": "cheasee-pi"
 }
