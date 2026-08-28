@@ -386,7 +386,7 @@ func TestCompose_CodeflowPointsAtWorkspace(t *testing.T) {
 func TestCompose_DefaultsPresent(t *testing.T) {
 	content := readCompose(t)
 	for _, want := range []string{
-		"${CHEASEEPI_MEMORY:-2G}",
+		"${CHEASEEPI_MEMORY:-5G}",
 		"${CHEASEEPI_CPUS:-4.0}",
 		"${CODEFLOW_PORT:-8470}",
 	} {

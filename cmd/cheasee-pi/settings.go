@@ -9,14 +9,12 @@ import (
 	"strings"
 )
 
-// Settings is the canonical schema for .pi/settings.json. Field order matches
-// the embedded scaffold template (embedded/pi/settings.json) so Save output is
-// byte-stable: no map-key lexicographic reordering, no HTML escaping.
+// Settings holds cheasee-pi managed fields in .pi/settings.json. Save output
+// is byte-stable and does not HTML-escape values.
 //
 // Skills and Prompts are hand-edited arrays that may be absent; everything else
-// mirrors the scaffold. Unknown keys on load are tolerated (v1 compat), but a
-// typed Save drops keys it does not declare — the "//" comment key is the one
-// preserved escape hatch.
+// mirrors the scaffold. Unknown keys are preserved across load/save so
+// cheasee-pi never removes pi or extension configuration it does not own.
 type Settings struct {
 	Comment         string              `json:"//,omitempty"`
 	DefaultProvider string              `json:"defaultProvider,omitempty"`
@@ -28,6 +26,8 @@ type Settings struct {
 	Extensions      []string            `json:"extensions,omitempty"`
 	Theme           string              `json:"theme,omitempty"`
 	SessionDir      string              `json:"sessionDir,omitempty"`
+
+	extra map[string]json.RawMessage
 }
 
 // DockerSettings mirrors the "docker" section of the scaffold schema.
@@ -143,6 +143,18 @@ func loadSettingsFile(path string) (*Settings, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	for key, value := range fields {
+		if !isSettingsKey(key) {
+			if s.extra == nil {
+				s.extra = make(map[string]json.RawMessage)
+			}
+			s.extra[key] = value
+		}
+	}
 	return &s, nil
 }
 
@@ -156,14 +168,37 @@ func (s *Settings) Save(workdir string) error {
 // saveSettingsFile is Save for an explicit path, reused by the
 // .pi/agent/settings.json path (same package).
 func saveSettingsFile(path string, s *Settings) error {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "\t")
+	var known bytes.Buffer
+	enc := json.NewEncoder(&known)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(s); err != nil {
 		return err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(known.Bytes(), &fields); err != nil {
+		return err
+	}
+	for key, value := range s.extra {
+		fields[key] = value
+	}
+
+	var buf bytes.Buffer
+	enc = json.NewEncoder(&buf)
+	enc.SetIndent("", "\t")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(fields); err != nil {
+		return err
+	}
 	return atomicWrite(path, buf.Bytes(), 0644)
+}
+
+func isSettingsKey(key string) bool {
+	for _, known := range []string{"//", "defaultProvider", "defaultModel", "docker", "gitIdentity", "skills", "prompts", "extensions", "theme", "sessionDir"} {
+		if strings.EqualFold(key, known) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetDefaultProvider sets the default provider and, when non-empty, the

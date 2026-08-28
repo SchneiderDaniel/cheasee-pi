@@ -247,11 +247,11 @@ func TestLoadSettings_emptyObject(t *testing.T) {
 	}
 }
 
-func TestLoadSettings_lenientUnknownAndCaseVariantKeys(t *testing.T) {
+func TestLoadSettings_preservesUnknownAndCaseVariantKeys(t *testing.T) {
 	workdir := t.TempDir()
-	// Unknown keys and case-variant keys were accepted by the old map reads
-	// (encoding/json matches keys case-insensitively) — v1 compat.
-	testutil.WriteSettingsFile(t, workdir, `{"DefaultProvider": "openai", "futureKey": 42}`)
+	// encoding/json accepts case-variant keys. Preserve all other pi and
+	// extension settings when cheasee-pi later updates its provider fields.
+	testutil.WriteSettingsFile(t, workdir, `{"DefaultProvider":"openai","futureKey":42,"supervisor":{"repo":"owner/repo"}}`)
 	s, err := LoadSettings(workdir)
 	if err != nil {
 		t.Fatalf("case-variant/unknown keys must load, got %v", err)
@@ -259,14 +259,12 @@ func TestLoadSettings_lenientUnknownAndCaseVariantKeys(t *testing.T) {
 	if s.DefaultProvider != "openai" {
 		t.Errorf("DefaultProvider = %q, want openai (case-insensitive key match)", s.DefaultProvider)
 	}
-
-	// But a typed Save drops undeclared keys (documented trade-off).
 	if err := s.Save(workdir); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(workdir, ".pi", "settings.json"))
-	if strings.Contains(string(data), "futureKey") {
-		t.Errorf("Save must drop undeclared keys, got: %s", data)
+	if !strings.Contains(string(data), "futureKey") || !strings.Contains(string(data), "supervisor") || !strings.Contains(string(data), `"repo": "owner/repo"`) {
+		t.Errorf("Save lost unknown settings: %s", data)
 	}
 }
 

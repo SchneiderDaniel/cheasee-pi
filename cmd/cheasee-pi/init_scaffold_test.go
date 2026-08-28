@@ -42,8 +42,11 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	if !ok {
 		t.Fatal("expected docker object")
 	}
-	if docker["memory"] != "2G" {
-		t.Errorf("expected docker.memory '2G', got %v", docker["memory"])
+	if docker["memory"] != "5G" {
+		t.Errorf("expected docker.memory '5G', got %v", docker["memory"])
+	}
+	if docker["cpus"] != "4.0" {
+		t.Errorf("expected docker.cpus '4.0', got %v", docker["cpus"])
 	}
 	// Canonical repo URL + GitHub user land in the repository section.
 	repo, ok := raw["repository"].(map[string]any)
@@ -267,4 +270,3 @@ func TestInit_SuccessMessage(t *testing.T) {
 		t.Error("success message must contain the checkmark and 'Init complete'")
 	}
 }
-
