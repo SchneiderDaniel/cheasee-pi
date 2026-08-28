@@ -23,7 +23,7 @@ nav_order: 2
 
 ```bash
 # Set version (check latest at https://github.com/SchneiderDaniel/cheasee-pi/releases)
-VERSION="0.55.2"
+VERSION="0.55.3"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
