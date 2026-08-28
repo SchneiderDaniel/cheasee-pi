@@ -44,7 +44,7 @@ services:
       - ${WORKSPACE_BARE_PATH}:/workspaces/.bare${VOLUME_RELABEL:-}
       - ~/.config/gh:/home/agentuser/.config/gh:rw${VOLUME_RELABEL:-}
       - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw${VOLUME_RELABEL:-}
-    mem_limit: ${CHEASEEPI_MEMORY:-2G}
+    mem_limit: ${CHEASEEPI_MEMORY:-5G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
     init: true
     stdin_open: true
