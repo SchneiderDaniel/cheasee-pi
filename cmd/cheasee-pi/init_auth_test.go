@@ -30,6 +30,31 @@ func TestRunInitAuth_Success(t *testing.T) {
 	}
 }
 
+func TestRunInitAuth_RequestsProjectScope(t *testing.T) {
+	var got []string
+	auth := &mockAuthenticator{
+		requestCodeFunc: func(_ context.Context, scopes []string) (*device.CodeResponse, error) {
+			got = scopes
+			return &device.CodeResponse{UserCode: "ABCD-1234", VerificationURI: "https://github.com/login/device"}, nil
+		},
+	}
+	if _, _, err := runInitAuth(context.Background(), auth); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"repo", "read:org", "project"} {
+		found := false
+		for _, s := range got {
+			if s == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("requested scopes %v missing %q — supervisor project-board updates need it", got, want)
+		}
+	}
+}
+
 func TestRunInitAuth_UserLookupFailsOpen(t *testing.T) {
 	// The GitHub login resolution is fail-open: OAuth already succeeded, so a
 	// user lookup failure warns on stderr and yields an empty user — the
