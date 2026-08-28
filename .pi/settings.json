@@ -1,42 +1,29 @@
 {
-	"defaultProvider": "opencode-go",
-	"defaultModel": "deepseek-v4-flash",
-	"packages": [
-		{
-			"source": "https://github.com/DietrichGebert/ponytail",
-			"extensions": [],
-			"skills": []
-		}
-	],
-	"docker": {
-		"memory": "5G",
-		"cpus": "4.0"
-	},
-	"gitIdentity": {
-		"name": "",
-		"email": ""
-	},
-	"skills": [".pi/skills", "/opt/cheasee-pi/private-pi/skills"],
-	"prompts": ["/opt/cheasee-pi/private-pi/prompts"],
-	"extensions": ["rtk", "/opt/cheasee-pi/private-pi/extensions/check-extensions"],
-	"theme": "cheasee-pi",
-	"sessionDir": ".pi/sessions",
-	"supervisor": {
-		"repo": "SchneiderDaniel/cheasee-pi",
-		"projectNumber": 3,
-		"statusField": "Status",
-		"statusMapping": {
-			"Research": "researcher",
-			"Architecture": "architect",
-			"TestDesign": "test-designer",
-			"Implementation": "developer",
-			"Audit": "auditor"
-		},
-		"maxRejections": 3,
-		"codeowners": ["SchneiderDaniel"],
-		"agentTimeoutsMin": {},
-		"agentTokenBudget": 300000,
-		"bellOnComplete": false,
-		"enableExperimentalFeatures": false
-	}
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "docker": {
+    "memory": "5G",
+    "cpus": "4.0"
+  },
+  "gitIdentity": {
+    "name": "",
+    "email": ""
+  },
+  "skills": [
+    ".pi/skills",
+    "/opt/cheasee-pi/private-pi/skills"
+  ],
+  "prompts": [
+    "/opt/cheasee-pi/private-pi/prompts"
+  ],
+  "extensions": [
+    "rtk",
+    "/opt/cheasee-pi/private-pi/extensions/check-extensions"
+  ],
+  "theme": "cheasee-pi",
+  "sessionDir": ".pi/sessions",
+  "packages": [
+    "https://github.com/DietrichGebert/ponytail",
+    "https://github.com/SchneiderDaniel/private-pi.git"
+  ]
 }
