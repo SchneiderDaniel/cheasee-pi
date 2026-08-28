@@ -21,7 +21,7 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 	fmt.Fprintf(os.Stderr, "   ⚠ SECURITY: Only enter the code at https://github.com/login/device\n")
 	fmt.Fprintf(os.Stderr, "   Do NOT search for this URL — type it directly.\n\n")
 
-	code, err := authenticator.RequestCode(ctx, []string{"repo", "read:org"})
+	code, err := authenticator.RequestCode(ctx, []string{"repo", "read:org", "project"})
 	if err != nil {
 		return "", "", fmt.Errorf("device code request failed: %w", err)
 	}
