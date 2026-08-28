@@ -1,6 +1,6 @@
 {
 	"name": "main",
-	"version": "0.55.1",
+	"version": "0.55.2",
 	"description": "---",
 	"main": "index.js",
 	"scripts": {

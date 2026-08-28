@@ -144,7 +144,7 @@ func TestRootCmd_Version_IsValidSemver(t *testing.T) {
 }
 
 func TestRootCmd_Version_IsExpectedRelease(t *testing.T) {
-	expected := "0.55.1"
+	expected := "0.55.2"
 	if rootCmd.Version != expected {
 		t.Errorf("rootCmd.Version = %q, want %q", rootCmd.Version, expected)
 	}
