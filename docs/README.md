@@ -16,6 +16,13 @@ Cheasee-Pi is a **Pi agent harness** built on the [Pi coding agent](https://pi.d
 
 All components run locally. No code leaves your machine (except LLM API calls to your provider).
 
+## Philosophy
+
+Everyone should build their own Pi. This repo is **my personal** Pi agent harness. Fork it as a starting point, but the real power comes from shaping it into **your own** — your preferred tools, your workflows, your guardrails.
+
+Customize ruthlessly. Make it yours.
+
+
 ## Extensions overview
 
 | Extension | Purpose |
@@ -107,7 +114,7 @@ Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
    ```bash
    npm test
    npm run tsc:extensions
-   ```
+   ```s
 5. Push the branch and open a PR referencing the related issue (e.g. `Closes #123`).
 6. Clean up after the PR is merged:
    ```bash
@@ -115,11 +122,6 @@ Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
    git worktree remove --force ../cheasee-pi-my-change
    ```
 
-## Philosophy
-
-Everyone should build their own Pi. This repo is **my personal** Pi agent harness. Fork it as a starting point, but the real power comes from shaping it into **your own** — your preferred tools, your workflows, your guardrails.
-
-Customize ruthlessly. Make it yours.
 
 ## License
 
