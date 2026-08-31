@@ -21,6 +21,7 @@ import {
 	resolveDiagnosticFilePath,
 	formatDiagnostics,
 	formatDiagnosticsJson,
+	directionLabel,
 	runTscCheckpoint,
 	diagnosticToTscDiagnostic,
 } from "../index.ts";
@@ -166,7 +167,7 @@ function createCheckHandler(mockCtx?: {
 				const formatted = formatDiagnostics(diagnostics);
 				let msg = `## TSC Checkpoint — ${diagnostics.length} Type Error(s) Found`;
 				if (trend) {
-					msg += ` (${trend.direction === "regressed" ? "⚠️ regression" : trend.direction === "improved" ? "✓ improved" : "→ stable"})`;
+					msg += ` (${directionLabel(trend.direction, "tui")})`;
 				}
 				msg += `\n\n${formatted}`;
 				messages.push({ content: msg, options: { deliverAs: "followUp" } });
@@ -623,6 +624,35 @@ describe("Mode-adapted output (/check with ctx.mode)", () => {
 	it("resolveDiagnosticFilePath is still exported from index.ts", async () => {
 		const mod = await import("../index.ts");
 		assert.strictEqual(typeof mod.resolveDiagnosticFilePath, "function");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Issue #1547 — direction-label consolidation (verify-removal guard)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("direction-label consolidation", () => {
+	it("index.ts no longer contains the inlined direction ternary", () => {
+		const content = fs.readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf-8");
+		const ternaryLine = content
+			.split("\n")
+			.find((line) => line.includes("trend.direction === ") && line.includes("?"));
+		assert.ok(
+			ternaryLine === undefined,
+			`Expected inlined direction ternary to be removed from index.ts, but found: "${ternaryLine?.trim()}"`,
+		);
+	});
+
+	it("index.test.ts no longer re-implements the direction ternary", () => {
+		const marker = "trend.direction" + ' === "regressed"';
+		const content = fs.readFileSync(resolve(import.meta.dirname, "index.test.ts"), "utf-8");
+		const ternaryLine = content
+			.split("\n")
+			.find((line) => line.includes(marker) && line.includes("?"));
+		assert.ok(
+			ternaryLine === undefined,
+			`Expected inlined direction ternary to be removed from index.test.ts, but found: "${ternaryLine?.trim()}"`,
+		);
 	});
 });
 

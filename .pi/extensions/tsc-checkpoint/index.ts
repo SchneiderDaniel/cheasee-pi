@@ -25,7 +25,7 @@ import {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 import { DiagnosticsWatcher } from "./watcher.ts";
-import { formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
+import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./format.ts";
 import { runTscCheckpoint } from "./checkpoint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ export {
 	resolveDiagnosticFilePath,
 } from "./adapter.ts";
 export { DiagnosticsWatcher } from "./watcher.ts";
-export { formatDiagnostics, formatDiagnosticsJson } from "./format.ts";
+export { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./format.ts";
 export { runTscCheckpoint } from "./checkpoint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -130,13 +130,7 @@ export default function tscCheckpoint(pi: ExtensionAPI): void {
 					const errorCount = diagnostics.length;
 					let msg = `## TSC Checkpoint — ${errorCount} Type Error(s) Found`;
 					if (trend) {
-						const directionLabel =
-							trend.direction === "regressed"
-								? "⚠️ regression"
-								: trend.direction === "improved"
-									? "✓ improved"
-									: "→ stable";
-						msg += ` (${directionLabel})`;
+						msg += ` (${directionLabel(trend.direction, "tui")})`;
 					}
 					msg += `\n\n${formatted}`;
 					pi.sendUserMessage?.(msg, { deliverAs: "followUp" });

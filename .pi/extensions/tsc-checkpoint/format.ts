@@ -8,6 +8,28 @@
 import type { TscDiagnostic, DiagnosticTrend } from "./types.ts";
 
 /**
+ * Direction → label mapping, shared by TUI and JSON/structured output.
+ * Keyed on the literal direction union so a new direction value fails
+ * compilation until a label is added here.
+ */
+const DIRECTION_LABELS: Record<DiagnosticTrend["direction"], { tui: string; json: string }> = {
+	regressed: { tui: "⚠️ regression", json: "regressed ↑" },
+	improved: { tui: "✓ improved", json: "improved ↓" },
+	stable: { tui: "→ stable", json: "stable →" },
+};
+
+/**
+ * Resolve the display label for a trend direction in a given output style.
+ * Call sites select the style ("tui" for markdown, "json" for structured).
+ */
+export function directionLabel(
+	direction: DiagnosticTrend["direction"],
+	style: "tui" | "json",
+): string {
+	return DIRECTION_LABELS[direction][style];
+}
+
+/**
  * Format diagnostics as grouped, sorted, developer-readable output.
  *
  * Groups diagnostics by file, sorts files alphabetically, sorts
@@ -66,13 +88,7 @@ export function formatDiagnosticsJson(
 	} else {
 		const baseSummary = `${diagnostics.length} type error(s) found`;
 		if (trend) {
-			const directionLabel =
-				trend.direction === "regressed"
-					? "regressed ↑"
-					: trend.direction === "improved"
-						? "improved ↓"
-						: "stable →";
-			summary = `${baseSummary} (${directionLabel} ${trend.delta}, was ${trend.previous})`;
+			summary = `${baseSummary} (${directionLabel(trend.direction, "json")} ${trend.delta}, was ${trend.previous})`;
 		} else {
 			summary = baseSummary;
 		}
