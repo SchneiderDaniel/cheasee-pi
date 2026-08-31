@@ -236,12 +236,12 @@ func TestEntrypoint_DefinesRepointFile(t *testing.T) {
 func TestEntrypoint_RepointFileContract(t *testing.T) {
 	content := readEntrypoint(t)
 	for _, want := range []string{
-		"[ -L \"$agent_file\" ]",                 // re-link only under a [ -L ] guard
-		"readlink \"$agent_file\"",              // readlink no-op detection
-		"= \"$repo_file\"",                      // skip when already at the repo file
-		"ln -sfn \"$repo_file\" \"$agent_file\"", // re-point with ln -sfn
+		"[ -L \"$agent_file\" ]",                       // re-link only under a [ -L ] guard
+		"readlink \"$agent_file\"",                     // readlink no-op detection
+		"= \"$repo_file\"",                             // skip when already at the repo file
+		"ln -sfn \"$repo_file\" \"$agent_file\"",       // re-point with ln -sfn
 		"chown -h agentuser:agentuser \"$agent_file\"", // chown -h the link
-		"[ -e \"$repo_file\" ] || return 0",      // missing repo file → baked link stays
+		"[ -e \"$repo_file\" ] || return 0",            // missing repo file → baked link stays
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("re_point_file must honor the re_point contract (%q)", want)
@@ -288,10 +288,10 @@ func TestCommittedSettings_PrivatePathsPointAtOpt(t *testing.T) {
 func TestCommittedSettings_TrackedPathsRepoLocal(t *testing.T) {
 	content := readCommittedSettings(t)
 	for _, want := range []string{
-		"\"rtk\"",          // extensions: tracked local extension kept
-		"\".pi/skills\"",   // skills: tracked local dir kept
-		"\"cheasee-pi\"",   // theme unchanged
-		"ponytail",         // packages unchanged
+		"\"rtk\"",        // extensions: tracked local extension kept
+		"\".pi/skills\"", // skills: tracked local dir kept
+		"\"cheasee-pi\"", // theme unchanged
+		"ponytail",       // packages unchanged
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("committed settings must keep %q", want)
@@ -446,5 +446,42 @@ func TestEntrypoint_InstallSkillReposMissingSettingsNoop(t *testing.T) {
 func TestEntrypoint_SyntaxValidBash(t *testing.T) {
 	if err := exec.Command("bash", "-n", entrypointPath()).Run(); err != nil {
 		t.Errorf("entrypoint.sh must pass bash -n: %v", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 5b: container gh credential sync (single source of truth)
+// ──────────────────────────────────────────────
+
+func TestEntrypoint_GhTokenSyncReadsAuthJSON(t *testing.T) {
+	content := readEntrypoint(t)
+	for _, want := range []string{
+		"/home/agentuser/.config/cheasee-pi/auth.json",
+		"jq -r '.github_token // empty'",
+		"gh auth token",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("gh token sync must read auth.json and compare against gh's current token (%q)", want)
+		}
+	}
+}
+
+func TestEntrypoint_GhTokenSyncImportsOnMismatch(t *testing.T) {
+	content := readEntrypoint(t)
+	if !strings.Contains(content, `[ "$token" != "$current" ]`) {
+		t.Error("gh token sync must import auth.json's token when gh's current token differs (not only when gh has no token)")
+	}
+	if !strings.Contains(content, "gh auth login --with-token") {
+		t.Error("gh token sync must import via gh auth login --with-token")
+	}
+	if strings.Contains(content, "! gosu agentuser gh auth status") {
+		t.Error("gh token sync must not gate on gh auth status (a bind-mounted stale token would always pass it)")
+	}
+}
+
+func TestEntrypoint_GhTokenSyncNoopWhenAuthMissing(t *testing.T) {
+	content := readEntrypoint(t)
+	if !strings.Contains(content, `[ -n "$token" ]`) {
+		t.Error("gh token sync must no-op when auth.json has no github_token")
 	}
 }
