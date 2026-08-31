@@ -45,14 +45,21 @@ func runDownE(_ *cobra.Command, _ []string) error {
 
 	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
 
-	// Resolve the workspace root (nearest ancestor with cheasee-settings.json)
-	// like start does; fall back to the cwd so down keeps working outside a
-	// workspace (the identity then derives from the folder basename).
+	// Resolve the workspace root like start does: nearest ancestor with
+	// cheasee-settings.json (or the cheasee-pi parent layout). WorkspaceInitialized
+	// → target the root; anything else → fall back to the cwd so down keeps
+	// working outside a workspace (the identity then derives from the folder
+	// basename). Resolve errors propagate — an unreadable cwd must hard-error,
+	// not silently derive identity from an unverifiable folder.
 	workspace, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
-	if root, ok := findWorkspaceRoot(workspace); ok {
+	root, state, err := resolveStartWorkspace(workspace)
+	if err != nil {
+		return fmt.Errorf("resolve workspace: %w", err)
+	}
+	if state == WorkspaceInitialized {
 		workspace = root
 	}
 

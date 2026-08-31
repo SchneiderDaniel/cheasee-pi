@@ -231,13 +231,38 @@ const (
 	WorkspaceRefuse                            // non-empty, no settings → refuse
 )
 
-// resolveStartWorkspace resolves the start gate: findWorkspaceRoot walks up
-// from workdir (falling back to the cheasee-pi parent layout — .bare sibling
-// + settings-bearing leaf) for the initialized marker and returns the
-// workspace root when found; when no ancestor is initialized, classifyWorkspace
+// resolveStartWorkspace resolves the start gate: walks up from workdir
+// looking for cheasee-settings.json — the initialized marker — and returns
+// the workspace root (the folder cheasee-pi set up) with state
+// WorkspaceInitialized. When no ancestor is initialized, classifyWorkspace
 // classifies the cwd itself (empty → auto-init, else refuse).
+//
+// Falls back to resolveWorkspaceParent when workdir sits outside the
+// worktree but IS the cheasee-pi parent folder (the folder init ran in) —
+// the workspace leaf is then the child holding the settings marker, so
+// `cheasee-pi start`/`down` work from the parent without a cd.
+//
+// Fail-closed on stat errors: a permission-denied ancestor (EACCES) is a
+// hard error, never a silent "keep walking" — walking past an unreadable
+// ancestor would redirect the project target to the wrong folder.
 func resolveStartWorkspace(workdir string) (root string, state WorkspaceState, err error) {
-	if root, ok := findWorkspaceRoot(workdir); ok {
+	dir, err := filepath.Abs(workdir)
+	if err != nil {
+		dir = workdir
+	}
+	for {
+		if _, err := os.Stat(cheaseeSettingsPath(dir)); err == nil {
+			return dir, WorkspaceInitialized, nil
+		} else if !os.IsNotExist(err) {
+			return "", 0, fmt.Errorf("check workspace marker %q: %w", cheaseeSettingsPath(dir), err)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break // filesystem root — parent-layout fallback, then cwd classification
+		}
+		dir = parent
+	}
+	if root, ok := resolveWorkspaceParent(workdir); ok {
 		return root, WorkspaceInitialized, nil
 	}
 	state, err = classifyWorkspace(workdir)

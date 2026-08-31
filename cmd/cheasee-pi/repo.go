@@ -93,31 +93,6 @@ func pinnedCEEnv() []string {
 	return append(env, "LC_ALL=C", "LANG=C")
 }
 
-// findWorkspaceRoot walks up from workdir looking for cheasee-settings.json —
-// the initialized marker — and returns the workspace root (the folder
-// cheasee-pi set up) with true. Returns false when no ancestor is
-// initialized; the caller then classifies the cwd itself (empty → auto-init,
-// else refuse). Falls back to resolveWorkspaceParent when workdir sits
-// outside the worktree but IS the cheasee-pi parent folder (the folder init
-// ran in) — the workspace leaf is then the child holding the settings
-// marker, so `cheasee-pi start`/`down` work from the parent without a cd.
-func findWorkspaceRoot(workdir string) (string, bool) {
-	dir, err := filepath.Abs(workdir)
-	if err != nil {
-		dir = workdir
-	}
-	for {
-		if _, err := os.Stat(cheaseeSettingsPath(dir)); err == nil {
-			return dir, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return resolveWorkspaceParent(workdir)
-		}
-		dir = parent
-	}
-}
-
 // resolveWorkspaceParent detects the cheasee-pi workspace-parent layout and
 // returns the workspace root: init runs in an EMPTY folder and leaves exactly
 // a sibling .bare plus one worktree leaf holding cheasee-settings.json — the

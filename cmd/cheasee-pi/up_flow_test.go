@@ -214,7 +214,7 @@ func TestClassifyWorkspace_nonEmptyRefuse(t *testing.T) {
 	}
 }
 
-func TestFindWorkspaceRoot_fromSubdir(t *testing.T) {
+func TestResolveStartWorkspace_fromSubdir(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "ws")
 	if err := os.MkdirAll(filepath.Join(root, "sub", "dir"), 0755); err != nil {
@@ -222,15 +222,22 @@ func TestFindWorkspaceRoot_fromSubdir(t *testing.T) {
 	}
 	testutil.WriteCheaseeSettingsFile(t, root, `{}`)
 
-	got, ok := findWorkspaceRoot(filepath.Join(root, "sub", "dir"))
-	if !ok || got != root {
-		t.Errorf("findWorkspaceRoot(subdir) = %q, %v; want %q, true", got, ok, root)
+	got, state, err := resolveStartWorkspace(filepath.Join(root, "sub", "dir"))
+	if err != nil {
+		t.Fatalf("resolveStartWorkspace: %v", err)
+	}
+	if got != root || state != WorkspaceInitialized {
+		t.Errorf("resolveStartWorkspace(subdir) = %q, %v; want %q, WorkspaceInitialized", got, state, root)
 	}
 }
 
-func TestFindWorkspaceRoot_notFound(t *testing.T) {
-	if _, ok := findWorkspaceRoot(t.TempDir()); ok {
-		t.Error("no ancestor with cheasee-settings.json → not found")
+func TestResolveStartWorkspace_onEmptyDir(t *testing.T) {
+	root, state, err := resolveStartWorkspace(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolveStartWorkspace: %v", err)
+	}
+	if root != "" || state != WorkspaceEmpty {
+		t.Errorf("no ancestor with cheasee-settings.json → (\"\", WorkspaceEmpty), got (%q, %v)", root, state)
 	}
 }
 
@@ -285,14 +292,6 @@ func TestResolveWorkspaceParent_ambiguousRefuse(t *testing.T) {
 	}
 	if _, ok := resolveWorkspaceParent(parent); ok {
 		t.Error("two settings-bearing leaves must not resolve (ambiguous)")
-	}
-}
-
-func TestFindWorkspaceRoot_fromParent(t *testing.T) {
-	parent, leaf := workspaceParentFixture(t)
-	got, ok := findWorkspaceRoot(parent)
-	if !ok || got != leaf {
-		t.Errorf("findWorkspaceRoot(parent) = %q, %v; want %q, true", got, ok, leaf)
 	}
 }
 
