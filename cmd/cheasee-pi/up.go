@@ -464,11 +464,21 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 		}
 	}
 
-	// 4. Extract gh token if not already in env
-	if os.Getenv("GH_TOKEN") == "" {
-		if token, err := extractGHToken(); err == nil && token != "" {
-			envMap["GH_TOKEN"] = token
-		}
+	// 4. GitHub token. The container's GH_TOKEN must be the credential
+	// cheasee-pi init/--reauth minted into auth.json — its scope list
+	// (repo, read:org, project) is what the supervisor needs for the
+	// project-board status moves. A GH_TOKEN exported in the host shell or
+	// gh's own credential (gh auth token) may predate the project scope and
+	// silently strip that permission, so auth.json wins when present; fall
+	// back to the process env, then gh's credential store.
+	// ponytail: single-precedence if-chain; revisit if multiple GitHub
+	// identities per host become a real use case.
+	if auth, err := repo.Load(ctx); err == nil && auth.GitHubToken != "" {
+		envMap["GH_TOKEN"] = auth.GitHubToken
+	} else if val := os.Getenv("GH_TOKEN"); val != "" {
+		envMap["GH_TOKEN"] = val
+	} else if token, err := extractGHToken(); err == nil && token != "" {
+		envMap["GH_TOKEN"] = token
 	}
 
 	return envMap, nil
