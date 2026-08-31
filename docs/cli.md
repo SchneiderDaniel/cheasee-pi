@@ -137,8 +137,8 @@ Remove cheasee-pi configuration and CLI-managed assets.
 
 | | |
 |---|---|
-| **Does** | Removes the version-keyed cache dir (compose/Dockerfile), `~/.config/cheasee-pi/auth.json`, and the running binary. Workspace files (`.pi/`, `.git/`, source checkouts) are never touched. |
-| **Checks** | Shows a summary and asks for confirmation (`--force` skips). Skips binary removal when running from a Go build cache; warns when the binary's directory is not writable. |
+| **Does** | Removes the version-keyed cache dir (compose/Dockerfile), `~/.config/cheasee-pi/auth.json`, and every cheasee-pi binary (the running executable plus the canonical install locations `~/.local/bin` and `/usr/local/bin`, deduped). Workspace files (`.pi/`, `.git/`, source checkouts) are never touched. |
+| **Checks** | Shows a summary and asks for confirmation (`--force` skips). Skips build-cache/tmp binaries; warns when a binary's directory is not writable. |
 | **Inputs** | Flags: `--force`. |
 
 ## Environment variables

@@ -19,7 +19,8 @@ var uninstallCmd = &cobra.Command{
 The uninstall command removes:
   1. Cache dir (compose/Dockerfile under the user cache dir)
   2. Auth config (~/.config/cheasee-pi/auth.json)
-  3. cheasee-pi binary (the running executable)
+  3. cheasee-pi binaries (the running executable plus every canonical
+     install location: ~/.local/bin and /usr/local/bin)
 
 Workspace files (.pi/, .git/, source checkouts) are never touched.
 Use --force to skip the confirmation prompt.`,
@@ -43,18 +44,12 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 	// CLI-managed assets live in the version-keyed cache dir, never the repo.
 	cacheDir, _ := CacheDir()
 
-	// Detect binary path — skip if running from Go build cache
-	binaryPath, _ := os.Executable()
-	if binaryPath != "" {
-		// Resolve symlinks to get real path
-		if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil {
-			binaryPath = resolved
-		}
-		// Skip removal if binary is in a Go build cache or temp directory
-		if strings.Contains(binaryPath, "/go-build") || strings.Contains(binaryPath, "/tmp/go") {
-			binaryPath = ""
-		}
-	}
+	// Binary targets: the running executable plus every canonical install
+	// location (deduped, existing files). Removing only the executable
+	// stranded sibling copies — PATH order or sudo's secure_path can make
+	// the running copy differ from the one the next shell call resolves,
+	// leaving a stale binary shadowing the fresh install.
+	binaries := canonicalBinaryPaths()
 
 	// Show summary
 	fmt.Fprintf(os.Stderr, "The following will be removed:\n")
@@ -71,9 +66,9 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Binary
-	if binaryPath != "" {
-		fmt.Fprintf(os.Stderr, "  %s — will remove\n", binaryPath)
+	// Binaries
+	for _, p := range binaries {
+		fmt.Fprintf(os.Stderr, "  %s — will remove\n", p)
 	}
 
 	if !uninstallForce {
@@ -107,22 +102,54 @@ func runUninstallE(cmd *cobra.Command, _ []string) error {
 		os.Remove(filepath.Dir(authPath)) // best-effort
 	}
 
-	// Remove binary (last — running process keeps the file handle)
-	if binaryPath != "" {
-		binaryDir := filepath.Dir(binaryPath)
+	// Remove binaries (last — running process keeps the file handle)
+	for _, p := range binaries {
+		binaryDir := filepath.Dir(p)
 		// Check if parent dir is writable — if not, suggest sudo
 		if f, err := os.Stat(binaryDir); err == nil && f.Mode().Perm()&0o222 == 0 {
 			fmt.Fprintf(os.Stderr, "  ⚠ cannot remove binary — %s is not writable by you\n", binaryDir)
-			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", binaryPath)
-		} else if err := os.Remove(binaryPath); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove binary at %s\n", binaryPath)
+			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", p)
+		} else if err := os.Remove(p); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ failed to remove binary at %s\n", p)
 			fmt.Fprintf(os.Stderr, "    Cause: %v\n", err)
-			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", binaryPath)
+			fmt.Fprintf(os.Stderr, "    Remove it manually: sudo rm %s\n", p)
 		} else {
-			fmt.Fprintf(os.Stderr, "  ✓ Removed binary\n")
+			fmt.Fprintf(os.Stderr, "  ✓ Removed binary %s\n", p)
 		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n✅ Uninstall complete.\n")
 	return nil
+}
+
+// canonicalBinaryPaths returns the binary targets uninstall must remove: the
+// running executable (symlink-resolved; Go build-cache/tmp runs skipped)
+// plus the canonical install locations ~/.local/bin and /usr/local/bin.
+// Deduped; only existing files are listed so the summary stays quiet about
+// absent paths.
+func canonicalBinaryPaths() []string {
+	add := func(seen map[string]bool, out []string, p string) []string {
+		if p == "" || seen[p] {
+			return out
+		}
+		if _, err := os.Stat(p); err != nil {
+			return out
+		}
+		seen[p] = true
+		return append(out, p)
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		if !strings.Contains(exe, "/go-build") && !strings.Contains(exe, "/tmp/go") {
+			out = add(seen, out, exe)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		out = add(seen, out, filepath.Join(home, ".local", "bin", "cheasee-pi"))
+	}
+	return add(seen, out, "/usr/local/bin/cheasee-pi")
 }

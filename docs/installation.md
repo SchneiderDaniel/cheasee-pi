@@ -22,22 +22,19 @@ nav_order: 2
 ### Linux / macOS
 
 ```bash
-# Set version (check latest at https://github.com/SchneiderDaniel/cheasee-pi/releases)
-VERSION="0.55.3"
+curl -fsL https://raw.githubusercontent.com/SchneiderDaniel/cheasee-pi/main/scripts/install.sh | bash
+```
 
-# Detect platform
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-case "$ARCH" in x86_64) ARCH="amd64" ;; aarch64|arm64) ARCH="arm64" ;; esac
+Installs to `~/.local/bin` (the single canonical location — no sudo needed).
+If `~/.local/bin` is not on your PATH, add it to your shell config:
 
-# Download, extract, install
-curl -fsL "https://github.com/SchneiderDaniel/cheasee-pi/releases/download/v${VERSION}/cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz" \
-  | tar xz && sudo mv cheasee-pi /usr/local/bin/
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 ```
 
 {:.note-title}
 > macOS
-> Gatekeeper may block the unsigned binary. Run `xattr -d com.apple.quarantine /usr/local/bin/cheasee-pi` or Ctrl-click → Open in Finder.
+> Gatekeeper may block the unsigned binary. Run `xattr -d com.apple.quarantine ~/.local/bin/cheasee-pi` or Ctrl-click → Open in Finder.
 
 ### Windows
 
@@ -281,7 +278,9 @@ Add `--force` to skip the confirmation prompt, `--dry-run` to preview what would
 
 ### CLI command
 
-`cheasee-pi uninstall` removes the cache dir, auth config, and the running binary:
+`cheasee-pi uninstall` removes the cache dir, auth config, and every
+cheasee-pi binary (the running executable plus the canonical install
+locations `~/.local/bin` and `/usr/local/bin`):
 
 ```bash
 cheasee-pi uninstall

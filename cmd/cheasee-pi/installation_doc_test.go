@@ -13,18 +13,22 @@ func docPath() string {
 	return filepath.Join("..", "..", "docs", "installation.md")
 }
 
-// TestInstallationDoc_VersionMatchesRootCmd verifies that the VERSION
-// placeholder in docs/installation.md matches rootCmd.Version.
-func TestInstallationDoc_VersionMatchesRootCmd(t *testing.T) {
+// TestInstallationDoc_OneLineInstaller verifies the install flow is the
+// version-agnostic one-liner — the doc must NOT hardcode a version (a pinned
+// VERSION="x.y.z" in docs goes stale and silently installs an old release;
+// the one-liner always fetches latest).
+func TestInstallationDoc_OneLineInstaller(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
 		t.Fatalf("reading docs/installation.md: %v", err)
 	}
 	content := string(data)
 
-	// Find the VERSION assignment line in the Go CLI path section
-	if !strings.Contains(content, `VERSION="`+rootCmd.Version+`"`) {
-		t.Errorf("docs/installation.md should contain VERSION=%q matching rootCmd.Version (%q)", rootCmd.Version, rootCmd.Version)
+	if !strings.Contains(content, "scripts/install.sh") {
+		t.Error("docs/installation.md should document the scripts/install.sh one-liner as the canonical install path")
+	}
+	if strings.Contains(content, `VERSION="`) {
+		t.Error("docs/installation.md must not hardcode VERSION=\"…\" — the one-liner installs the latest release; a pinned version goes stale")
 	}
 }
 
@@ -42,25 +46,28 @@ func TestInstallationDoc_NoIgnoreMissing(t *testing.T) {
 	}
 }
 
-// TestInstallationDoc_DownloadURLPattern verifies the doc contains a download
-// URL pattern matching GoReleaser archive naming for any supported platform.
-// linux/darwin use .tar.gz, windows uses .zip.
-func TestInstallationDoc_DownloadURLPattern(t *testing.T) {
-	data, err := os.ReadFile(docPath())
+// installScriptPath is the path to scripts/install.sh relative to this
+// package dir (tests run from cmd/cheasee-pi/).
+func installScriptPath() string {
+	return filepath.Join("..", "..", "scripts", "install.sh")
+}
+
+// TestInstallScript_DownloadURLPattern verifies the installer downloads
+// GoReleaser archives using the naming pattern for every supported platform
+// (linux/darwin .tar.gz, windows .zip).
+func TestInstallScript_DownloadURLPattern(t *testing.T) {
+	script := installScriptPath()
+	data, err := os.ReadFile(script)
 	if err != nil {
-		t.Fatalf("reading docs/installation.md: %v", err)
+		t.Fatalf("reading scripts/install.sh: %v", err)
 	}
 	content := string(data)
 
-	if !strings.Contains(content, ".tar.gz") && !strings.Contains(content, ".zip") {
-		t.Error("doc must reference .tar.gz (linux/mac) or .zip (windows) archive files")
+	if !strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}") {
+		t.Error("install.sh must build the GoReleaser asset name: cheasee-pi_${VERSION}_${OS}_${ARCH}.${SUFFIX}")
 	}
-	hasTarball := strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}.tar.gz")
-	hasZip := strings.Contains(content, "cheasee-pi_${VERSION}_${OS}_${ARCH}.zip") ||
-		strings.Contains(content, "cheasee-pi_${VERSION}_windows_${ARCH}.zip") ||
-		strings.Contains(content, "_windows_${ARCH}.zip")
-	if !hasTarball && !hasZip {
-		t.Error("doc curl URL must use GoReleaser naming pattern: cheasee-pi_${VERSION}_${OS}_${ARCH}.(tar.gz|zip)")
+	if !strings.Contains(content, "tar.gz") || !strings.Contains(content, "zip") {
+		t.Error("install.sh must map linux/darwin → SUFFIX=tar.gz and windows → SUFFIX=zip")
 	}
 }
 

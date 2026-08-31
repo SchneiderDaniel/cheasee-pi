@@ -55,18 +55,21 @@ else
   tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
 fi
 
-# Prefer /usr/local/bin (sudo if needed), fall back to ~/.local/bin
-if [ -w /usr/local/bin ]; then
-  DEST="/usr/local/bin"
-  mv "$TMPDIR/cheasee-pi" "$DEST/"
-elif command -v sudo &>/dev/null; then
-  DEST="/usr/local/bin"
-  sudo mv "$TMPDIR/cheasee-pi" "$DEST/"
-else
-  DEST="${HOME}/.local/bin"
-  mkdir -p "$DEST"
-  mv "$TMPDIR/cheasee-pi" "$DEST/"
-  echo "  Installed to $DEST — ensure it's on your PATH"
+# Single canonical location: ~/.local/bin — no sudo, no /usr/local/bin
+# branch. Two possible homes caused stale-copy shadowing: an install or
+# uninstall run from one PATH position left the sibling binary behind, and
+# the leftover copy won every bare `cheasee-pi` call (e.g. a pre-v0.55.3
+# binary shadowing a fresh install). A legacy /usr/local/bin copy is swept
+# best-effort, keeping the invariant: at most one cheasee-pi binary on PATH.
+DEST="${HOME}/.local/bin"
+mkdir -p "$DEST"
+mv "$TMPDIR/cheasee-pi" "$DEST/"
+if [ -e /usr/local/bin/cheasee-pi ]; then
+  if rm -f /usr/local/bin/cheasee-pi 2>/dev/null; then
+    echo "  ✓ Removed legacy copy /usr/local/bin/cheasee-pi (single-location policy)"
+  else
+    echo "  ⚠ Legacy copy still at /usr/local/bin/cheasee-pi — remove manually: sudo rm /usr/local/bin/cheasee-pi" >&2
+  fi
 fi
 
 chmod +x "$DEST/cheasee-pi"
