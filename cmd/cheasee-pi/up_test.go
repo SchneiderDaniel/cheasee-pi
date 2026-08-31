@@ -610,6 +610,43 @@ func TestBuildEnvFlags_passthroughEnvVars(t *testing.T) {
 	}
 }
 
+func TestBuildEnvFlags_authGitHubTokenWinsOverProcessEnv(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "tkn-from-auth", "octocat", ""); err != nil {
+		t.Fatalf("seed github_token: %v", err)
+	}
+	t.Setenv("GH_TOKEN", "stale-process-token")
+
+	env := buildEnvFlagsOrFatal(t)
+	if got := env["GH_TOKEN"]; got != "tkn-from-auth" {
+		t.Errorf("auth.json github_token should win over process env GH_TOKEN, got %q", got)
+	}
+}
+
+func TestBuildEnvFlags_authGitHubTokenUsedWithoutProcessEnv(t *testing.T) {
+	pinPassthroughEnv(t)
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "tkn-from-auth", "octocat", ""); err != nil {
+		t.Fatalf("seed github_token: %v", err)
+	}
+
+	env := buildEnvFlagsOrFatal(t)
+	if got := env["GH_TOKEN"]; got != "tkn-from-auth" {
+		t.Errorf("expected auth.json github_token, got %q", got)
+	}
+}
+
+func TestBuildEnvFlags_noAuthTokenFallsBackToProcessEnv(t *testing.T) {
+	pinPassthroughEnv(t)
+	t.Setenv("GH_TOKEN", "process-token")
+
+	env := buildEnvFlagsOrFatal(t)
+	if got := env["GH_TOKEN"]; got != "process-token" {
+		t.Errorf("expected process GH_TOKEN fallback when auth.json has no github_token, got %q", got)
+	}
+}
+
 func TestBuildEnvFlags_authWinsOverProcessEnv(t *testing.T) {
 	pinPassthroughEnv(t)
 	seedAuth(t, map[string]string{"openai": "from-auth"})

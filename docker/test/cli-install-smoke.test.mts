@@ -88,7 +88,7 @@ const POLL_INTERVAL_MS = 5_000;
  * The cache dir is version-keyed so an upgraded binary never mixes stale
  * compose/Dockerfile content with new embedded assets.
  */
-const CLI_VERSION = "0.55.2";
+const CLI_VERSION = "0.55.3";
 
 /**
  * Compute the CLI cache dir (compose/Dockerfile live there,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,5 +99,21 @@ func TestCacheDir_neverInsideUserRepo(t *testing.T) {
 	}
 	if !strings.HasPrefix(dir, xdg) {
 		t.Errorf("cache dir %q must live under the user cache dir %q", dir, xdg)
+	}
+}
+
+// TestSmokeTestCLIVersionMatchesCliVersionKey guards the DinD smoke test's
+// hardcoded CLI_VERSION against cliVersionKey drift. The smoke computes the
+// compose cache dir from it, so a stale value only fails in CI as a cryptic
+// "docker-compose.yml: no such file or directory" (v0.55.3 bump missed it).
+func TestSmokeTestCLIVersionMatchesCliVersionKey(t *testing.T) {
+	path := filepath.Join("..", "..", "docker", "test", "cli-install-smoke.test.mts")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read smoke test %s: %v", path, err)
+	}
+	want := fmt.Sprintf(`CLI_VERSION = "%s"`, cliVersionKey)
+	if !strings.Contains(string(data), want) {
+		t.Errorf("smoke test must pin CLI_VERSION to %q to match cliVersionKey (cache dir is version-keyed)", cliVersionKey)
 	}
 }

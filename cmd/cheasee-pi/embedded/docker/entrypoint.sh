@@ -260,16 +260,17 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "ss
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
 
-# The host authenticates gh via the OS keyring — and only ~/.config/gh
-# (hosts.yml/config.yml) is bind-mounted, the keyring is NOT, so a fresh
-# container starts with NO gh token and every private-repo git operation
-# (skill-repo clones above all) dies with "could not read Username".
-# cheasee-pi auth persists the GitHub token in auth.json (bind-mounted), so
-# feed it to gh once. Skip when gh already works — never clobber a token the
-# user set up interactively inside the container.
+# cheasee-pi auth persists the GitHub token in auth.json (bind-mounted) and
+# that file is the single source of truth for the container's GitHub
+# credential: init/--reauth mint it with the scopes the supervisor needs
+# (repo, read:org, project). The bind-mounted ~/.config/gh may hold an older
+# token minted before the project scope existed, so import auth.json's token
+# into gh whenever gh's current token differs — not just when gh has none.
+# gating on gh auth status would keep the stale token forever.
 if [ -f /home/agentuser/.config/cheasee-pi/auth.json ]; then
     token=$(jq -r '.github_token // empty' /home/agentuser/.config/cheasee-pi/auth.json 2>/dev/null || true)
-    if [ -n "$token" ] && ! gosu agentuser gh auth status >/dev/null 2>&1; then
+    current=$(gosu agentuser gh auth token 2>/dev/null || true)
+    if [ -n "$token" ] && [ "$token" != "$current" ]; then
         echo "$token" | gosu agentuser gh auth login --with-token 2>/dev/null || true
     fi
 fi
