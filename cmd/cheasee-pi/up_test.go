@@ -211,7 +211,7 @@ func TestOrphanScanBash_ageReaperGatedByEnv(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestScanOrphans_containerNotRunning(t *testing.T) {
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{
 			outputFn: func() ([]byte, error) {
 				return []byte(""), nil
@@ -230,7 +230,7 @@ func TestScanOrphans_containerNotRunning(t *testing.T) {
 
 func TestScanOrphans_noOrphans(t *testing.T) {
 	step := 0
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -257,7 +257,7 @@ func TestScanOrphans_noOrphans(t *testing.T) {
 
 func TestScanOrphans_countsKilled(t *testing.T) {
 	step := 0
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -287,7 +287,7 @@ func TestScanOrphans_skipsWhenBashMissing(t *testing.T) {
 	// bash: docker exec fails with exit 127. The scan must not abort the
 	// whole clean over a container that never hosts pi — skip gracefully.
 	step := 0
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -316,7 +316,7 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 	var capturedName string
 	var capturedArgs []string
 	step := 0
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -371,7 +371,7 @@ func TestScanOrphans_constructsDockerExecCommand(t *testing.T) {
 func TestScanOrphans_forwardsMaxAgeEnv(t *testing.T) {
 	step := 0
 	var capturedArgs []string
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -397,7 +397,7 @@ func TestScanOrphans_forwardsMaxAgeEnv(t *testing.T) {
 func TestScanOrphans_dryRunEnvFlag(t *testing.T) {
 	step := 0
 	var capturedArgs []string
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		step++
 		if step == 1 {
 			return &mockCmd{
@@ -419,7 +419,7 @@ func TestScanOrphans_dryRunEnvFlag(t *testing.T) {
 
 func TestKillSessionByMarker_killsMatchingSession(t *testing.T) {
 	var capturedArgs []string
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
 		capturedArgs = arg
 		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
 	})
@@ -441,17 +441,22 @@ func TestKillSessionByMarker_killsMatchingSession(t *testing.T) {
 }
 
 func TestKillSessionByMarker_emptyIDIsNoop(t *testing.T) {
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	calls := 0
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
+		calls++
 		t.Fatal("no docker exec expected for empty session id")
 		return nil
 	})
 	if err := killSessionByMarker(context.Background(), "cheasee-pi", ""); err != nil {
 		t.Fatalf("empty id returned error: %v", err)
 	}
+	if calls != 0 {
+		t.Errorf("empty id must not touch the seam, got %d call(s)", calls)
+	}
 }
 
 func TestScanOrphans_dockerPsFails(t *testing.T) {
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{
 			outputFn: func() ([]byte, error) {
 				return nil, fmt.Errorf("docker daemon not running")
@@ -793,5 +798,3 @@ func TestRedactEnvValue(t *testing.T) {
 		t.Errorf("empty value should print in full, got %q", got)
 	}
 }
-
-// ──────────────────────────────────────────────

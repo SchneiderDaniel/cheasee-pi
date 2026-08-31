@@ -155,7 +155,7 @@ var (
 )
 
 // ──────────────────────────────────────────────
-// Mock: cmdIface
+// Mock: runner (single exec seam)
 // ──────────────────────────────────────────────
 
 type mockCmd struct {
@@ -165,9 +165,12 @@ type mockCmd struct {
 	// Captured Set* config, for callers that configure the command
 	dir    string
 	env    []string
+	stdin  io.Reader
 	stdout interface{ Write([]byte) (int, error) }
 	stderr interface{ Write([]byte) (int, error) }
 }
+
+var _ runner = (*mockCmd)(nil)
 
 func (m *mockCmd) Output() ([]byte, error) {
 	if m.outputFn != nil {
@@ -192,6 +195,7 @@ func (m *mockCmd) Run() error {
 
 func (m *mockCmd) SetDir(d string)       { m.dir = d }
 func (m *mockCmd) SetEnv(e []string)     { m.env = e }
+func (m *mockCmd) SetStdin(r io.Reader)  { m.stdin = r }
 func (m *mockCmd) SetStdout(w io.Writer) { m.stdout = w }
 func (m *mockCmd) SetStderr(w io.Writer) { m.stderr = w }
 
@@ -199,22 +203,14 @@ func (m *mockCmd) SetStderr(w io.Writer) { m.stderr = w }
 // Seam stubs (docker/git CLI tests)
 // ──────────────────────────────────────────────
 
-// stubRunCommandContext replaces the runCommandContext seam for the duration
-// of the test. Serialized (no t.Parallel) — package-var swap is race-free
-// only under serial execution.
+// stubRunCommandContext replaces the runCommandContext seam — the ONLY exec
+// seam — for the duration of the test. Serialized (no t.Parallel) — package-var
+// swap is race-free only under serial execution.
 func stubRunCommandContext(t *testing.T, fn func(context.Context, string, ...string) runner) {
 	t.Helper()
 	saved := runCommandContext
 	runCommandContext = fn
 	t.Cleanup(func() { runCommandContext = saved })
-}
-
-// stubExecCommand replaces the execCommand seam for the duration of the test.
-func stubExecCommand(t *testing.T, fn func(string, ...string) cmdIface) {
-	t.Helper()
-	saved := execCommand
-	execCommand = fn
-	t.Cleanup(func() { execCommand = saved })
 }
 
 // stubLookPath replaces the lookPath seam for the duration of the test.
@@ -227,11 +223,16 @@ func stubLookPath(t *testing.T, fn func(string) (string, error)) {
 
 // stubDockerCheck stubs the docker seams. daemonErr, when non-nil, makes
 // `docker info` fail; version is the docker version output (versionErr wins
-// over version when set).
+// over version when set). Non-docker commands (git config identity reads,
+// clone fall-throughs) stay on the real seam.
 func stubDockerCheck(t *testing.T, daemonErr error, version string, versionErr error) {
 	t.Helper()
 	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
-	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return saved(ctx, name, arg...)
+		}
 		if len(arg) > 0 && arg[0] == "version" {
 			return &mockCmd{outputFn: func() ([]byte, error) {
 				if versionErr != nil {

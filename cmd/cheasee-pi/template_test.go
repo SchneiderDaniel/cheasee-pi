@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -329,6 +331,52 @@ func TestOSGitIdentity_NoConfig(t *testing.T) {
 	}
 	if name != "" || email != "" {
 		t.Errorf("expected empty name/email for empty config, got %q/%q", name, email)
+	}
+}
+
+func TestOSGitIdentity_touchesSeamForBothConfigReads(t *testing.T) {
+	// osGitIdentity is the first raw-exec.Command site routed through the
+	// seam: Lookup must issue exactly two Output-only commands, one per
+	// config key, with no writer configuration.
+	var seenCmd []string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		seenCmd = append(seenCmd, strings.Join(append([]string{name}, arg...), " "))
+		m := &mockCmd{}
+		switch name + " " + strings.Join(arg, " ") {
+		case "git config --global user.name":
+			m.outputFn = func() ([]byte, error) { return []byte("Test User\n"), nil }
+		case "git config --global user.email":
+			m.outputFn = func() ([]byte, error) { return []byte("test@example.com\n"), nil }
+		}
+		return m
+	})
+
+	name, email, err := (&osGitIdentity{}).Lookup()
+	if err != nil {
+		t.Fatalf("Lookup failed: %v", err)
+	}
+	if name != "Test User" || email != "test@example.com" {
+		t.Errorf("Lookup = %q/%q, want Test User/test@example.com", name, email)
+	}
+	want := []string{"git config --global user.name", "git config --global user.email"}
+	if !slices.Equal(seenCmd, want) {
+		t.Errorf("seam calls = %v, want %v (Output-only, no writers)", seenCmd, want)
+	}
+}
+
+func TestOSGitIdentity_configFailureYieldsEmptyFields(t *testing.T) {
+	// A failing git config read must not error Lookup — empty fields, nil
+	// err (the scaffold then falls back to the prompt/defaults).
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
+		return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("not a git repository") }}
+	})
+
+	name, email, err := (&osGitIdentity{}).Lookup()
+	if err != nil {
+		t.Fatalf("Lookup must not error on config failure, got %v", err)
+	}
+	if name != "" || email != "" {
+		t.Errorf("expected empty name/email on config failure, got %q/%q", name, email)
 	}
 }
 

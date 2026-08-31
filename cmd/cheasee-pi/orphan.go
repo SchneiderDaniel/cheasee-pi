@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -43,17 +42,6 @@ const orphanScanBash = `for pid in /proc/[0-9]*/stat; do
   fi
 done || true`
 
-// cmdIface is the subset of *exec.Cmd used by scanOrphans.
-type cmdIface interface {
-	Output() ([]byte, error)
-	CombinedOutput() ([]byte, error)
-}
-
-// execCommand is os/exec.Command wrapped in cmdIface, overridable in tests.
-var execCommand = func(name string, arg ...string) cmdIface {
-	return exec.Command(name, arg...)
-}
-
 // scanOrphans runs the orphan-scan bash inside the container and returns the
 // "killing ..." report lines — one per session that matched a reaper. With
 // dryRun=true the script only reports matches without signalling them, so the
@@ -66,7 +54,7 @@ func scanOrphans(ctx context.Context, name string, maxAgeMinutes int, dryRun boo
 	// Check the container is running — exact line-compare against the
 	// substring name filter (a sibling `cheasee-pi-foo-bar` must never make
 	// `cheasee-pi-foo` look running).
-	running, err := containerRunning(name)
+	running, err := containerRunning(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +66,17 @@ func scanOrphans(ctx context.Context, name string, maxAgeMinutes int, dryRun boo
 	if dryRun {
 		dryFlag = "1"
 	}
-	execCmd := execCommand("docker", "exec",
+	output, err := runCommandContext(ctx, "docker", "exec",
 		"-e", fmt.Sprintf("CHEASEE_MAX_AGE_MIN=%d", maxAgeMinutes),
 		"-e", "CHEASEE_DRY_RUN="+dryFlag,
-		name, "bash", "-c", orphanScanBash)
-	output, err := execCmd.CombinedOutput()
+		name, "bash", "-c", orphanScanBash).CombinedOutput()
 	if err != nil {
+		// A canceled scan must not be mislabeled as a bash-less container:
+		// surface the ctx error, keep the warn-skip only for genuine exec
+		// failures on a live ctx.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		// Sidecar images (e.g. the codeflow/code-server container) ship
 		// without bash — the scan script cannot run there and no pi process
 		// ever does. Aborting the whole clean over a container that has
@@ -116,8 +109,7 @@ func killSessionByMarker(ctx context.Context, name, sessionID string) error {
     echo "killing session $(basename "$(dirname "$p")")" && kill "$(basename "$(dirname "$p")")" 2>/dev/null
   fi
 done || true`, sessionID)
-	execCmd := execCommand("docker", "exec", name, "bash", "-c", script)
-	if _, err := execCmd.CombinedOutput(); err != nil {
+	if _, err := runCommandContext(ctx, "docker", "exec", name, "bash", "-c", script).CombinedOutput(); err != nil {
 		return fmt.Errorf("session reaper: %w", err)
 	}
 	return nil

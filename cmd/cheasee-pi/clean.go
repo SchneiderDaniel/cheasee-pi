@@ -61,13 +61,11 @@ func init() {
 // pruneDanglingImages removes all dangling (<none>:<none>) Docker images.
 // Tagged/in-use images are never affected.
 func pruneDanglingImages() {
-	ls := execCommand("docker", "images", "--filter", "dangling=true", "-q")
-	out, err := ls.Output()
+	out, err := runCommandContext(context.Background(), "docker", "images", "--filter", "dangling=true", "-q").Output()
 	if err != nil || len(out) == 0 {
 		return
 	}
-	cmd := execCommand("docker", "image", "prune", "-f")
-	if _, err := cmd.CombinedOutput(); err != nil {
+	if _, err := runCommandContext(context.Background(), "docker", "image", "prune", "-f").CombinedOutput(); err != nil {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
@@ -95,7 +93,7 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 	if cmd.Flags().Changed("name") {
 		targets = []string{cleanName}
 	} else {
-		targets, err = listManagedContainers()
+		targets, err = listManagedContainers(ctx)
 		if err != nil {
 			return fmt.Errorf("clean: enumerate containers: %w", err)
 		}
@@ -189,14 +187,13 @@ func cleanAndRemove(ctx context.Context, targets []string) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 	}
-	return removeContainers(targets)
+	return removeContainers(ctx, targets)
 }
 
 // pruneBuildCache removes the Docker buildx build cache.
 // Safe to run unconditionally — fast when empty.
 func pruneBuildCache() {
-	cmd := execCommand("docker", "buildx", "prune", "-f")
-	if _, err := cmd.CombinedOutput(); err == nil {
+	if _, err := runCommandContext(context.Background(), "docker", "buildx", "prune", "-f").CombinedOutput(); err == nil {
 		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
 	}
 }

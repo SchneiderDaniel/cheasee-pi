@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -9,11 +10,11 @@ import (
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
-// stubDockerPS stubs the execCommand seam so docker ps returns psOutput
-// (a function of the --filter value) for any enumeration.
+// stubDockerPS stubs the single runCommandContext seam so docker ps returns
+// psOutput (a function of the --filter value) for any enumeration.
 func stubDockerPS(t *testing.T, psOutput func(filter string) string) {
 	t.Helper()
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" || !slices.Contains(arg, "ps") {
 			return &mockCmd{}
 		}
@@ -48,7 +49,7 @@ func TestListManagedContainers_labelUnionLegacyDedup(t *testing.T) {
 		return ""
 	})
 
-	got, err := listManagedContainers()
+	got, err := listManagedContainers(context.Background())
 	if err != nil {
 		t.Fatalf("listManagedContainers: %v", err)
 	}
@@ -59,13 +60,13 @@ func TestListManagedContainers_labelUnionLegacyDedup(t *testing.T) {
 }
 
 func TestListManagedContainers_psFailureSurfaces(t *testing.T) {
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
 		}
 		return &mockCmd{}
 	})
-	if _, err := listManagedContainers(); err == nil {
+	if _, err := listManagedContainers(context.Background()); err == nil {
 		t.Fatal("docker ps failure must surface")
 	}
 }
@@ -92,39 +93,39 @@ func TestIsLegacyContainerName_postFilter(t *testing.T) {
 func TestContainerRunning_exactMatchNotSubstring(t *testing.T) {
 	// `--filter name=cheasee-pi-foo` also matches cheasee-pi-foo-bar
 	// (substring) — the line-exact compare must report false.
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("cheasee-pi-foo-bar\n"), nil }}
 	})
-	ok, err := containerRunning("cheasee-pi-foo")
+	ok, err := containerRunning(context.Background(), "cheasee-pi-foo")
 	if err != nil || ok {
 		t.Errorf("cheasee-pi-foo must not count as running when only cheasee-pi-foo-bar exists: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestContainerRunning_multilineMatchesExact(t *testing.T) {
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{outputFn: func() ([]byte, error) {
 			return []byte("cheasee-pi-foo\ncheasee-pi-foo-bar\n"), nil
 		}}
 	})
-	ok, err := containerRunning("cheasee-pi-foo")
+	ok, err := containerRunning(context.Background(), "cheasee-pi-foo")
 	if err != nil || !ok {
 		t.Errorf("exact line in multi-line output must count as running: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestContainerRunning_psFailureSurfaces(t *testing.T) {
-	stubExecCommand(t, func(_ string, _ ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, _ string, _ ...string) runner {
 		return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
 	})
-	if _, err := containerRunning("cheasee-pi"); err == nil {
+	if _, err := containerRunning(context.Background(), "cheasee-pi"); err == nil {
 		t.Error("docker ps failure must surface")
 	}
 }
 
 func TestRemoveContainers_failsClosedNamingContainer(t *testing.T) {
 	var removed []string
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && len(arg) > 0 && arg[0] == "rm" {
 			removed = append(removed, arg[len(arg)-1])
 			if arg[len(arg)-1] == "cheasee-pi-bad" {
@@ -135,7 +136,7 @@ func TestRemoveContainers_failsClosedNamingContainer(t *testing.T) {
 	})
 
 	testutil.CaptureStderr(t, func() {
-		err := removeContainers([]string{"cheasee-pi-a", "cheasee-pi-bad", "cheasee-pi-c"})
+		err := removeContainers(context.Background(), []string{"cheasee-pi-a", "cheasee-pi-bad", "cheasee-pi-c"})
 		if err == nil || !strings.Contains(err.Error(), "cheasee-pi-bad") {
 			t.Errorf("rm failure must surface naming the container, got %v", err)
 		}
@@ -152,7 +153,7 @@ func TestProjectContainers_usesProjectLabel(t *testing.T) {
 		seenFilter = filter
 		return "cheasee-pi-alice-foo\n"
 	})
-	got, err := projectContainers("cheasee-pi-alice-foo")
+	got, err := projectContainers(context.Background(), "cheasee-pi-alice-foo")
 	if err != nil || len(got) != 1 || got[0] != "cheasee-pi-alice-foo" {
 		t.Errorf("projectContainers = %v, err %v", got, err)
 	}

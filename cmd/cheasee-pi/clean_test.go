@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,7 +19,7 @@ import (
 func cleanTestStub(t *testing.T, containerName, scanOutput string) *int {
 	t.Helper()
 	execCalls := 0
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			return &mockCmd{}
 		}
@@ -181,7 +182,7 @@ func TestRunCleanE_noCandidatesStillPrunes(t *testing.T) {
 // docker exec scan returns the given report lines.
 func cleanMultiStub(t *testing.T, containers []string, scanOutput string) {
 	t.Helper()
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			return &mockCmd{}
 		}
@@ -250,7 +251,7 @@ func TestRunCleanE_rmFailureSurfaces(t *testing.T) {
 	cleanYes = true
 	cleanMaxAge = 0
 
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			return &mockCmd{}
 		}
@@ -277,7 +278,7 @@ func TestRunCleanE_emptyEnumerationNoop(t *testing.T) {
 	cleanYes = true
 	cleanMaxAge = 0
 
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}
 		}
@@ -301,7 +302,7 @@ func TestRunCleanE_enumerationFailureSurfaces(t *testing.T) {
 	resetCleanState(t)
 	cleanYes = true
 
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
 		}
@@ -318,7 +319,7 @@ func TestRunCleanE_pruneConfirmations(t *testing.T) {
 	cleanYes = true
 	cleanMaxAge = 0
 
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			return &mockCmd{}
 		}
