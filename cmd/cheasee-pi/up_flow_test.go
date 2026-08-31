@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -32,6 +31,7 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 	t.Helper()
 	c := &upCapture{}
 	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
+	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name == "git" {
 			if slices.Contains(arg, "--is-inside-work-tree") {
@@ -51,6 +51,10 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 				}
 				return &mockCmd{outputFn: func() ([]byte, error) { return []byte(prefix), nil }}
 			}
+			if slices.Contains(arg, "config") {
+				// Real .bare config read for identity derivation (fixture remotes).
+				return saved(ctx, name, arg...)
+			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(root), nil }}
 		}
 		if name == "docker" && slices.Contains(arg, "compose") {
@@ -62,25 +66,18 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
 		}
-		return &mockCmd{} // docker info
-	})
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
-		if name == "git" {
-			// Real .bare config read for identity derivation (fixture remotes).
-			return exec.Command(name, arg...)
-		}
-		if slices.Contains(arg, "ps") {
+		if name == "docker" && slices.Contains(arg, "ps") {
 			names := ""
 			if running {
 				names = containerName(root)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(names), nil }}
 		}
-		if slices.Contains(arg, "inspect") {
+		if name == "docker" && slices.Contains(arg, "inspect") {
 			// Ready-marker healthcheck: entrypoint setup assumed complete.
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
-		return &mockCmd{}
+		return &mockCmd{} // docker info
 	})
 	return c
 }
@@ -413,8 +410,8 @@ func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
-	// Stub order matters: stubUpFlow installs the execCommand/runCommandContext
-	// seams and must sit before stubInitGit so init's clone chains to
+	// Stub order matters: stubUpFlow installs the single runCommandContext
+	// seam and must sit before stubInitGit so init's clone chains to
 	// stubUpFlow's docker/version handlers.
 	stubDockerCheck(t, nil, "24.0.9", nil)
 	c := stubUpFlow(t, workdir, false)
@@ -774,7 +771,7 @@ func TestRunUpE_settingsButNoBareFailsClosed(t *testing.T) {
 
 	var composeCalls int
 	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
-	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && slices.Contains(arg, "compose") {
 			composeCalls++
 			return &mockCmd{}
@@ -782,10 +779,7 @@ func TestRunUpE_settingsButNoBareFailsClosed(t *testing.T) {
 		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
 		}
-		return &mockCmd{}
-	})
-	stubExecCommand(t, func(_ string, arg ...string) cmdIface {
-		if slices.Contains(arg, "ps") {
+		if name == "docker" && slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}
 		}
 		return &mockCmd{}

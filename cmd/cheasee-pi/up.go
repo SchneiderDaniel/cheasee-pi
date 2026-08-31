@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -176,7 +175,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Phase 6: Ensure container running
-	running, err := containerRunning(upName)
+	running, err := containerRunning(ctx, upName)
 	if err != nil {
 		return fmt.Errorf("check container: %w", err)
 	}
@@ -302,8 +301,7 @@ func waitHealthy(ctx context.Context, name string) error {
 
 // containerHealth returns the container's health status via docker inspect.
 func containerHealth(ctx context.Context, name string) (string, error) {
-	cmd := execCommand("docker", "inspect", "--format", "{{.State.Health.Status}}", name)
-	out, err := cmd.Output()
+	out, err := runCommandContext(ctx, "docker", "inspect", "--format", "{{.State.Health.Status}}", name).Output()
 	if err != nil {
 		return "", fmt.Errorf("docker inspect: %w", err)
 	}
@@ -494,8 +492,7 @@ func redactEnvValue(v string) string {
 }
 
 func extractGHToken() (string, error) {
-	cmd := exec.Command("gh", "auth", "token")
-	out, err := cmd.Output()
+	out, err := runCommandContext(context.Background(), "gh", "auth", "token").Output()
 	if err != nil {
 		return "", err
 	}
@@ -530,10 +527,10 @@ func execArgs(env map[string]string, name, target string) []string {
 var execPIContainer = func(name string, env map[string]string, target string) error {
 	args := execArgs(env, name, target)
 
-	cmd := exec.Command("docker", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := runCommandContext(context.Background(), "docker", args...)
+	cmd.SetStdin(os.Stdin)
+	cmd.SetStdout(os.Stdout)
+	cmd.SetStderr(os.Stderr)
 
 	return cmd.Run()
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -17,9 +18,8 @@ const managedLabel = "com.cheaseepi.managed=true"
 // {{.Names}} listing is compared line-by-line: `cheasee-pi-foo` is never
 // treated as running merely because `cheasee-pi-foo-bar` also matches the
 // filter.
-func containerRunning(name string) (bool, error) {
-	cmd := execCommand("docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
-	out, err := cmd.Output()
+func containerRunning(ctx context.Context, name string) (bool, error) {
+	out, err := runCommandContext(ctx, "docker", "ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}").Output()
 	if err != nil {
 		return false, fmt.Errorf("docker ps: %w", err)
 	}
@@ -37,7 +37,7 @@ func containerRunning(name string) (bool, error) {
 // (cheasee-pi / cheasee-pi-* and codeflow / codeflow-*), Go-side
 // post-filtered so the substring name filter can never over-match foreign
 // containers. Deduped, order-stable.
-func listManagedContainers() ([]string, error) {
+func listManagedContainers(ctx context.Context) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	add := func(name string) {
@@ -47,7 +47,7 @@ func listManagedContainers() ([]string, error) {
 		}
 	}
 
-	names, err := dockerPS("label=" + managedLabel)
+	names, err := dockerPS(ctx, "label="+managedLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func listManagedContainers() ([]string, error) {
 	// name filter is substring-based — the Go post-filter keeps only names
 	// that are actually ours.
 	for _, prefix := range []string{"cheasee-pi", "codeflow"} {
-		names, err := dockerPS("name=" + prefix)
+		names, err := dockerPS(ctx, "name="+prefix)
 		if err != nil {
 			return nil, err
 		}
@@ -82,9 +82,8 @@ func isLegacyContainerName(name string) bool {
 
 // dockerPS runs `docker ps -a` with a filter and returns the trimmed
 // {{.Names}} lines.
-func dockerPS(filter string) ([]string, error) {
-	cmd := execCommand("docker", "ps", "-a", "--filter", filter, "--format", "{{.Names}}")
-	out, err := cmd.Output()
+func dockerPS(ctx context.Context, filter string) ([]string, error) {
+	out, err := runCommandContext(ctx, "docker", "ps", "-a", "--filter", filter, "--format", "{{.Names}}").Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker ps: %w", err)
 	}
@@ -99,10 +98,9 @@ func dockerPS(filter string) ([]string, error) {
 
 // removeContainers force-removes each container by name. A failed rm aborts
 // with an error naming the container — never a silent partial clean.
-func removeContainers(names []string) error {
+func removeContainers(ctx context.Context, names []string) error {
 	for _, name := range names {
-		cmd := execCommand("docker", "rm", "-f", name)
-		if _, err := cmd.CombinedOutput(); err != nil {
+		if _, err := runCommandContext(ctx, "docker", "rm", "-f", name).CombinedOutput(); err != nil {
 			return fmt.Errorf("remove container %s: %w", name, err)
 		}
 		fmt.Fprintf(os.Stderr, "  ✓ Removed container %s\n", name)
@@ -113,6 +111,6 @@ func removeContainers(names []string) error {
 // projectContainers lists the container names (all states) belonging to a
 // compose project via its com.docker.compose.project label — the precise
 // scope for `down` (label filters are exact-match, no prefix semantics).
-func projectContainers(project string) ([]string, error) {
-	return dockerPS("label=com.docker.compose.project=" + project)
+func projectContainers(ctx context.Context, project string) ([]string, error) {
+	return dockerPS(ctx, "label=com.docker.compose.project="+project)
 }

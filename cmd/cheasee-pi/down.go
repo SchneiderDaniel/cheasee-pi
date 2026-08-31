@@ -61,7 +61,7 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	// containers (project "cheasee-pi") are deliberately not targeted —
 	// documented semantic shift; clean removes those.
 	project := composeProjectName(workspace)
-	containers, err := projectContainers(project)
+	containers, err := projectContainers(ctx, project)
 	if err != nil {
 		return fmt.Errorf("check project containers: %w", err)
 	}

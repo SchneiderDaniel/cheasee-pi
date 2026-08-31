@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -12,24 +11,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// stubDownFlow stubs the docker seams for runDownE tests: project-container
-// enumeration (execCommand ps) and the compose down invocation
-// (runCommandContext), capturing argv + env. git reads fall through to the
-// real binary so fixture .bare remotes resolve.
+// stubDownFlow stubs the single exec seam for runDownE tests: project-container
+// enumeration (docker ps) and the compose down invocation, capturing argv +
+// env. git reads fall through to the real seam so fixture .bare remotes
+// resolve.
 func stubDownFlow(t *testing.T, psOutput string) (*mockCmd, *[]string) {
 	t.Helper()
 	composeCmd := &mockCmd{}
 	composeArgs := &[]string{}
+	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			return saved(ctx, name, arg...)
+		}
 		if name == "docker" && slices.Contains(arg, "compose") {
 			*composeArgs = append([]string(nil), arg...)
 			return composeCmd
-		}
-		return &mockCmd{}
-	})
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
-		if name == "git" {
-			return exec.Command(name, arg...)
 		}
 		if name == "docker" && slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(psOutput), nil }}
@@ -96,13 +93,10 @@ func TestRunDownE_noContainerNoop(t *testing.T) {
 	chdir(t, t.TempDir())
 
 	composeCalled := false
-	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && slices.Contains(arg, "compose") {
 			composeCalled = true
 		}
-		return &mockCmd{}
-	})
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
 		if name == "docker" && slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}
 		}
@@ -129,13 +123,10 @@ func TestRunDownE_legacyProjectNotTargeted(t *testing.T) {
 	chdir(t, t.TempDir())
 
 	composeCalled := false
-	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" && slices.Contains(arg, "compose") {
 			composeCalled = true
 		}
-		return &mockCmd{}
-	})
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
 		if name == "docker" && slices.Contains(arg, "ps") {
 			// Only the legacy fixed-project container exists on the host.
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(""), nil }}

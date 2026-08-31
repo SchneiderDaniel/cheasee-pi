@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -141,12 +140,12 @@ func (r *osUIDResolver) Current() (uid, gid string, err error) {
 		return uid, gid, nil
 	}
 
-	// 3. Fallback to id -u / id -g via os/exec
-	uidBytes, err := exec.Command("id", "-u").Output()
+	// 3. Fallback to id -u / id -g via the exec seam
+	uidBytes, err := runCommandContext(context.Background(), "id", "-u").Output()
 	if err != nil {
 		return "", "", fmt.Errorf("all UID resolution methods failed (os/user, env, id -u): %w", err)
 	}
-	gidBytes, err := exec.Command("id", "-g").Output()
+	gidBytes, err := runCommandContext(context.Background(), "id", "-g").Output()
 	if err != nil {
 		return "", "", fmt.Errorf("GID resolution via id -g failed: %w", err)
 	}
@@ -167,13 +166,13 @@ func NewGitIdentity() *osGitIdentity {
 
 func (id *osGitIdentity) Lookup() (name, email string, err error) {
 	// Try user.name
-	nameBytes, err := exec.Command("git", "config", "--global", "user.name").Output()
+	nameBytes, err := runCommandContext(context.Background(), "git", "config", "--global", "user.name").Output()
 	if err == nil {
 		name = strings.TrimSpace(string(nameBytes))
 	}
 
 	// Try user.email
-	emailBytes, err := exec.Command("git", "config", "--global", "user.email").Output()
+	emailBytes, err := runCommandContext(context.Background(), "git", "config", "--global", "user.email").Output()
 	if err == nil {
 		email = strings.TrimSpace(string(emailBytes))
 	}

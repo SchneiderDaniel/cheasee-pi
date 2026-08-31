@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -82,8 +83,7 @@ func repoSlug(workspaceRoot string) string {
 // back to the folder basename).
 func bareRepoURL(workspaceRoot string) string {
 	bare := filepath.Join(filepath.Dir(workspaceRoot), ".bare")
-	cmd := execCommand("git", "--git-dir", bare, "config", "--get", "remote.origin.url")
-	out, err := cmd.Output()
+	out, err := runCommandContext(context.Background(), "git", "--git-dir", bare, "config", "--get", "remote.origin.url").Output()
 	if err != nil {
 		return ""
 	}

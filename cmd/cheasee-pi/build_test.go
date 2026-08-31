@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -64,28 +63,23 @@ func (s *buildTestStub) install(t *testing.T) {
 	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name != "docker" {
-			return saved(ctx, name, arg...) // git (repoRoot, gitCommand)
+			return saved(ctx, name, arg...) // git (repoRoot, gitCommand, bareRepoURL)
+		}
+		switch {
+		case slices.Contains(arg, "images"): // docker images --filter dangling=true -q
+			s.log = append(s.log, "exec:"+strings.Join(append([]string{name}, arg...), " "))
+			if s.noDangling {
+				return &mockCmd{outputFn: func() ([]byte, error) { return nil, nil }}
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("sha256:abc\n"), nil }}
+		case len(arg) > 0 && (arg[0] == "image" || arg[0] == "buildx"): // docker image prune -f / buildx prune -f
+			s.log = append(s.log, "exec:"+strings.Join(append([]string{name}, arg...), " "))
+			return &mockCmd{combinedFn: func() ([]byte, error) { return nil, s.pruneErr }}
 		}
 		s.log = append(s.log, "run:"+strings.Join(append([]string{name}, arg...), " "))
 		c := &mockCmd{runFn: func() error { return s.buildErr }}
 		s.compose = append(s.compose, c)
 		return c
-	})
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
-		if name != "docker" {
-			return exec.Command(name, arg...) // git (bareRepoURL)
-		}
-		s.log = append(s.log, "exec:"+strings.Join(append([]string{name}, arg...), " "))
-		switch {
-		case slices.Contains(arg, "images"): // docker images --filter dangling=true -q
-			if s.noDangling {
-				return &mockCmd{outputFn: func() ([]byte, error) { return nil, nil }}
-			}
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("sha256:abc\n"), nil }}
-		case arg[0] == "image" || arg[0] == "buildx": // docker image prune -f / buildx prune -f
-			return &mockCmd{combinedFn: func() ([]byte, error) { return nil, s.pruneErr }}
-		}
-		return &mockCmd{}
 	})
 }
 
@@ -456,12 +450,6 @@ func TestRunRebuildE_DockerCheckRespected(t *testing.T) {
 		return &mockCmd{runFn: func() error { return nil }} // docker info + compose build
 	})
 	stubLookPath(t, func(string) (string, error) { return "/usr/bin/docker", nil })
-	stubExecCommand(t, func(name string, arg ...string) cmdIface {
-		if name == "git" {
-			return exec.Command(name, arg...)
-		}
-		return &mockCmd{}
-	})
 	stderr := testutil.CaptureStderr(t, func() {
 		if err := runRebuildE(&cobra.Command{}, nil); err != nil {
 			t.Fatalf("runRebuildE: %v", err)
