@@ -862,7 +862,7 @@ func TestSettingsScaffold_PreservesParentPathEntries(t *testing.T) {
 	}
 
 	// Scaffold is idempotent: existing settings.json is left untouched.
-	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{}); err != nil {
+	if err := (&templateSettingsRenderer{source: embeddedFS, templatePath: "embedded/pi/settings.json", dest: func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") }}).Scaffold(context.Background(), workdir, TemplateSettingsValues{}); err != nil {
 		t.Fatalf("scaffold: %v", err)
 	}
 

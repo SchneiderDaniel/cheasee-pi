@@ -11,10 +11,8 @@ import (
 	"strings"
 )
 
-//go:embed embedded
-var embeddedFS embed.FS
-
-// AssetFS returns the embedded filesystem containing embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,lib/worktree-fix.sh},
+// embeddedFS holds the embedded filesystem containing
+// embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,lib/worktree-fix.sh},
 // embedded/docker/codeflow/{Dockerfile,server.py,config.json}, and the embedded/pi/
 // settings template. Canonical source is embedded/docker/ (checked in, required
 // by //go:embed; the build fails if the pattern matches no files). The repo-root
@@ -23,9 +21,9 @@ var embeddedFS embed.FS
 // (.pi/) is NOT embedded: the Dockerfile clones the cheasee-pi repo at build
 // time (ARG CHEASEE_REF), keeping the repo the single source of truth with no
 // generated mirror to sync.
-func AssetFS() fs.FS {
-	return embeddedFS
-}
+//
+//go:embed embedded
+var embeddedFS embed.FS
 
 // ──────────────────────────────────────────────
 // Adapter: FSExtractor

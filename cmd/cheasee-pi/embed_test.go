@@ -34,7 +34,7 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"codeflow/server.py",
 	}
 
-	assetFS := AssetFS()
+	assetFS := embeddedFS
 
 	for _, name := range expectedFiles {
 		embeddedPath := filepath.Join("embedded", "docker", name)

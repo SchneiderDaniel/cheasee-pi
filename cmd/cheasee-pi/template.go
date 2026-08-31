@@ -71,15 +71,10 @@ func (s WorkdirState) IsComplete() bool {
 }
 
 // ──────────────────────────────────────────────
-// Adapter: flatEnvRenderer
+// flatEnvRenderer
 // ──────────────────────────────────────────────
 
 type flatEnvRenderer struct{}
-
-// NewEnvRenderer creates an env renderer that writes flat KEY=VALUE lines.
-func NewEnvRenderer() *flatEnvRenderer {
-	return &flatEnvRenderer{}
-}
 
 func shellEscape(val string) string {
 	// If the value contains whitespace or special characters, quote it.
@@ -116,16 +111,10 @@ func (r *flatEnvRenderer) Render(_ context.Context, dest string, vals EnvValues)
 }
 
 // ──────────────────────────────────────────────
-// Adapter: osUIDResolver
+// osUIDResolver
 // ──────────────────────────────────────────────
 
 type osUIDResolver struct{}
-
-// NewUIDResolver creates a UID resolver that tries os/user.Current first,
-// then falls back to $UID/$GID env vars, then id -u / id -g.
-func NewUIDResolver() *osUIDResolver {
-	return &osUIDResolver{}
-}
 
 func (r *osUIDResolver) Current() (uid, gid string, err error) {
 	// 1. Try os/user.Current()
@@ -181,15 +170,10 @@ func (id *osGitIdentity) Lookup() (name, email string, err error) {
 }
 
 // ──────────────────────────────────────────────
-// Adapter: osWorkingDirProbe
+// osWorkingDirProbe
 // ──────────────────────────────────────────────
 
 type osWorkingDirProbe struct{}
-
-// NewWorkingDirProbe creates a probe that checks the filesystem for markers.
-func NewWorkingDirProbe() *osWorkingDirProbe {
-	return &osWorkingDirProbe{}
-}
 
 func (p *osWorkingDirProbe) Inspect(dir string) (WorkdirState, error) {
 	hasRepo := false
@@ -249,18 +233,6 @@ type templateSettingsRenderer struct {
 	source       fs.FS
 	templatePath string
 	dest         func(workdir string) string // target path for the rendered file
-}
-
-// NewSettingsScaffold creates a settings scaffold that renders the embedded
-// pi/settings.json template (pi's own settings file) using text/template
-// substitution. pi self-scaffolds its settings on first run; this renderer
-// remains for the committed template + tests.
-func NewSettingsScaffold() *templateSettingsRenderer {
-	return &templateSettingsRenderer{
-		source:       embeddedFS,
-		templatePath: "embedded/pi/settings.json",
-		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
-	}
 }
 
 // NewCheaseeSettingsScaffold creates a settings scaffold that renders the
