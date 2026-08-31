@@ -64,11 +64,6 @@ func init() {
 	upCmd.Flags().BoolVar(&upDryRun, "dry-run", false, "Print env vars that would be passed, then exit")
 }
 
-// newRepository is the auth config constructor, overridable in tests.
-var newRepository = func() *fileRepository {
-	return &fileRepository{}
-}
-
 func runUpE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -431,7 +426,7 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 	envMap := make(map[string]string)
 
 	// 1. Provider keys from auth.json
-	repo := newRepository()
+	repo := &fileRepository{}
 	providers, err := repo.ListProviders(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read auth.json: %w", err)
