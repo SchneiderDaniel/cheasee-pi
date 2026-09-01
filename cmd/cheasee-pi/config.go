@@ -3,92 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// Auth represents the authentication configuration.
-//
-// Serialization produces per-provider JSON when Provider is set:
-//
-//	{"<provider>": {"key": "..."}, "github_token": "...", ...}
-//
-// When Provider is empty (legacy or GitHub-only), the api_key field
-// is written at the top level for backward compatibility.
-type Auth struct {
-	APIKey      string `json:"-"`
-	GitHubToken string `json:"github_token,omitempty"`
-	GitHubUser  string `json:"github_user,omitempty"`
-	RepoPath    string `json:"repo_path,omitempty"`
-	Provider    string `json:"-"`
-}
-
-// MarshalJSON implements json.Marshaler for Auth.
-// When Provider is set and APIKey is non-empty, the key is written under
-// a per-provider object: {"<provider>": {"key": "..."}}.
-// When Provider is empty, api_key is written at the top level for backward
-// compatibility.
-func (a *Auth) MarshalJSON() ([]byte, error) {
-	m := make(map[string]any)
-	if a.Provider != "" && a.APIKey != "" {
-		m[a.Provider] = map[string]string{"key": a.APIKey}
-	} else if a.Provider == "" {
-		m["api_key"] = a.APIKey
-	}
-	if a.GitHubToken != "" {
-		m["github_token"] = a.GitHubToken
-	}
-	if a.GitHubUser != "" {
-		m["github_user"] = a.GitHubUser
-	}
-	if a.RepoPath != "" {
-		m["repo_path"] = a.RepoPath
-	}
-	return json.Marshal(m)
-}
-
-// UnmarshalJSON implements json.Unmarshaler for Auth.
-// Supports both the per-provider format and the legacy flat format.
-func (a *Auth) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// Handle flat api_key (legacy format)
-	if apiKeyRaw, ok := raw["api_key"]; ok {
-		var v string
-		if err := json.Unmarshal(apiKeyRaw, &v); err == nil {
-			a.APIKey = v
-		}
-	}
-
-	// Scan all keys — any key with a nested {"key": "..."} is a provider entry
-	for k, v := range raw {
-		switch k {
-		case "github_token":
-			json.Unmarshal(v, &a.GitHubToken) //nolint: errcheck
-		case "github_user":
-			json.Unmarshal(v, &a.GitHubUser) //nolint: errcheck
-		case "repo_path":
-			json.Unmarshal(v, &a.RepoPath) //nolint: errcheck
-		case "api_key":
-			// already handled above
-		default:
-			var entry struct {
-				Key string `json:"key"`
-			}
-			if err := json.Unmarshal(v, &entry); err == nil && entry.Key != "" {
-				a.Provider = k
-				a.APIKey = entry.Key
-			}
-		}
-	}
-
-	return nil
-}
-
-// fileRepository persists and loads Auth config as a JSON file on disk.
+// fileRepository persists and reads the auth config as a JSON file on disk.
+// One dialect: fileRepository owns the raw-map patch module
+// (readRawMap / writeRawMap / updateAuth) and every caller goes through it,
+// so multi-provider files survive all mutations — the typed codec that
+// clobbered all but one provider is gone.
 type fileRepository struct{}
 
 func (r *fileRepository) configPath() (string, error) {
@@ -139,48 +63,58 @@ func (r *fileRepository) Path() (string, error) {
 	return r.configPath()
 }
 
-// Load reads the auth config from disk. Returns empty Auth if file does not exist.
-func (r *fileRepository) Load(_ context.Context) (*Auth, error) {
-	path, err := r.configPath()
+// updateAuth is the single read-merge-write chokepoint for auth.json: every
+// writer reads the current map, applies its patch via fn, then atomically
+// rewrites. Malformed existing content errors before any write, so a corrupt
+// auth.json is never overwritten. Cross-process writer serialization (flock)
+// lands here later if parallel cheasee-pi processes become a use case.
+// ponytail: single-writer assumption; serialize here if that ever breaks.
+func (r *fileRepository) updateAuth(ctx context.Context, fn func(map[string]json.RawMessage) error) error {
+	raw, err := r.readRawMap()
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &Auth{}, nil
-		}
-		return nil, err
+	if err := fn(raw); err != nil {
+		return err
 	}
-
-	var auth Auth
-	if err := json.Unmarshal(data, &auth); err != nil {
-		return nil, err
-	}
-	return &auth, nil
+	return r.writeRawMap(raw)
 }
 
-// Save writes the auth config to disk atomically (write to .tmp then rename).
-func (r *fileRepository) Save(_ context.Context, auth *Auth) error {
-	auth.APIKey = dedupeKey(auth.APIKey) // guard against accidental double-paste
+// reservedAuthKeys are the top-level auth.json fields that are not provider
+// entries. Enumerated once here; AddProvider/SetLegacyAuth refuse them
+// (fail-closed against the `pi auth add github_token` clobber foot-gun) and
+// ListProviders filters them.
+var reservedAuthKeys = map[string]struct{}{
+	"github_token": {},
+	"github_user":  {},
+	"repo_path":    {},
+	"api_key":      {},
+}
 
-	path, err := r.configPath()
+// isReservedAuthKey reports whether key names a reserved auth.json field
+// rather than a provider entry.
+func isReservedAuthKey(key string) bool {
+	_, ok := reservedAuthKeys[key]
+	return ok
+}
+
+// GitHubToken returns the github_token from auth.json. Missing file and
+// absent key both yield ("", nil) — the fail-to-fallback behavior pi up
+// relies on for GH_TOKEN assembly; malformed content errors instead.
+func (r *fileRepository) GitHubToken(ctx context.Context) (string, error) {
+	raw, err := r.readRawMap()
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	rawToken, ok := raw["github_token"]
+	if !ok {
+		return "", nil
 	}
-
-	data, err := json.MarshalIndent(auth, "", "  ")
-	if err != nil {
-		return err
+	var token string
+	if err := json.Unmarshal(rawToken, &token); err != nil {
+		return "", err
 	}
-
-	return atomicWrite(path, data, 0600)
+	return token, nil
 }
 
 // readRawAuth reads the auth config file as a raw JSON map.
@@ -240,19 +174,18 @@ func dedupeKey(key string) string {
 
 // AddProvider adds or updates a provider API key in the auth config.
 // Other providers and GitHub token fields are preserved.
-func (r *fileRepository) AddProvider(_ context.Context, provider, key string) error {
+func (r *fileRepository) AddProvider(ctx context.Context, provider, key string) error {
+	if isReservedAuthKey(provider) {
+		return fmt.Errorf("provider name %q is reserved for an auth.json field and cannot be used as a provider", provider)
+	}
 	key = dedupeKey(key) // guard against accidental double-paste
 
-	raw, err := r.readRawMap()
-	if err != nil {
-		return err
-	}
-
-	// Build the provider entry: {"<provider>": {"key": "..."}}
-	entry, _ := json.Marshal(map[string]string{"key": key})
-	raw[provider] = entry
-
-	return r.writeRawMap(raw)
+	return r.updateAuth(ctx, func(raw map[string]json.RawMessage) error {
+		// Build the provider entry: {"<provider>": {"key": "..."}}
+		entry, _ := json.Marshal(map[string]string{"key": key})
+		raw[provider] = entry
+		return nil
+	})
 }
 
 // UpdateGitHubAuth patches the github_token, github_user, and repo_path
@@ -260,39 +193,60 @@ func (r *fileRepository) AddProvider(_ context.Context, provider, key string) er
 // flat api_key. Missing auth.json → creates a file containing only the
 // github fields. Merge-safe by construction (raw-map patch, same as
 // AddProvider).
-func (r *fileRepository) UpdateGitHubAuth(_ context.Context, token, user, repoPath string) error {
-	raw, err := r.readRawMap()
-	if err != nil {
-		return err
-	}
-	for key, val := range map[string]string{
-		"github_token": token,
-		"github_user":  user,
-		"repo_path":    repoPath,
-	} {
-		enc, err := json.Marshal(val)
-		if err != nil {
-			return err
+func (r *fileRepository) UpdateGitHubAuth(ctx context.Context, token, user, repoPath string) error {
+	return r.updateAuth(ctx, func(raw map[string]json.RawMessage) error {
+		for key, val := range map[string]string{
+			"github_token": token,
+			"github_user":  user,
+			"repo_path":    repoPath,
+		} {
+			enc, err := json.Marshal(val)
+			if err != nil {
+				return err
+			}
+			raw[key] = enc
 		}
-		raw[key] = enc
+		return nil
+	})
+}
+
+// SetLegacyAuth writes the legacy init credentials (--no-github or the
+// device-flow fallback) as a merge-safe raw-map patch: the per-provider
+// entry {"<provider>": {"key": …}}, the flat api_key, and repo_path — the
+// legacy top-level api_key write becomes one more raw-map key. Preserves
+// every provider entry and the github fields; the typed Save it replaces
+// was a whole-file reset that clobbered them.
+func (r *fileRepository) SetLegacyAuth(ctx context.Context, provider, apiKey, repoPath string) error {
+	if isReservedAuthKey(provider) {
+		return fmt.Errorf("provider name %q is reserved for an auth.json field and cannot be used as a provider", provider)
 	}
-	return r.writeRawMap(raw)
+	apiKey = dedupeKey(apiKey) // guard against accidental double-paste
+
+	return r.updateAuth(ctx, func(raw map[string]json.RawMessage) error {
+		entry, _ := json.Marshal(map[string]string{"key": apiKey})
+		raw[provider] = entry
+		apiKeyJSON, _ := json.Marshal(apiKey)
+		raw["api_key"] = apiKeyJSON
+		repoPathJSON, _ := json.Marshal(repoPath)
+		raw["repo_path"] = repoPathJSON
+		return nil
+	})
 }
 
 // RemoveProvider deletes a provider entry from the auth config.
-func (r *fileRepository) RemoveProvider(_ context.Context, provider string) error {
-	raw, err := r.readRawMap()
-	if err != nil {
-		return err
+func (r *fileRepository) RemoveProvider(ctx context.Context, provider string) error {
+	if isReservedAuthKey(provider) {
+		return fmt.Errorf("provider name %q is reserved for an auth.json field and cannot be removed", provider)
 	}
-
-	delete(raw, provider)
-	return r.writeRawMap(raw)
+	return r.updateAuth(ctx, func(raw map[string]json.RawMessage) error {
+		delete(raw, provider)
+		return nil
+	})
 }
 
 // ListProviders returns all configured provider API keys.
-// Filters out non-provider keys (github_token, github_user, repo_path, api_key).
-func (r *fileRepository) ListProviders(_ context.Context) (map[string]string, error) {
+// Filters out the reserved (non-provider) keys.
+func (r *fileRepository) ListProviders(ctx context.Context) (map[string]string, error) {
 	raw, err := r.readRawMap()
 	if err != nil {
 		return nil, err
@@ -300,8 +254,7 @@ func (r *fileRepository) ListProviders(_ context.Context) (map[string]string, er
 
 	result := make(map[string]string)
 	for k, v := range raw {
-		switch k {
-		case "github_token", "github_user", "repo_path", "api_key":
+		if isReservedAuthKey(k) {
 			continue
 		}
 		var entry struct {

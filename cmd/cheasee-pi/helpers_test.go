@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -330,16 +329,6 @@ func pinPassthroughEnv(t *testing.T) string {
 	}
 	t.Setenv("PATH", bin)
 	return xdg
-}
-
-// marshalAuth JSON-marshals auth, failing the test on error.
-func marshalAuth(t *testing.T, auth *Auth) []byte {
-	t.Helper()
-	data, err := json.Marshal(auth)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-	return data
 }
 
 // initDeps builds a runInit dependency set with the common test defaults:

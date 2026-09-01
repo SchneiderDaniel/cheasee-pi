@@ -216,11 +216,15 @@ var testSplitFiles = []string{
 // The rest of the original init_test.go helpers moved to helpers_test.go
 // (mocks, seam stubs, initDeps) and testutil/ (SetGitConfig,
 // RedirectConfigHome, ReadEnvFile, ReadSettingsRaw, CaptureStderr) when main
-// consolidated test scaffolding; only the auth helpers remain.
+// consolidated test scaffolding; only the auth helpers remain (loadAuthJSON
+// became readAuthJSON when the typed codec died — tests now read the
+// raw-map dialect).
 var initHelperDecls = map[string]string{
 	"func:authJSONExists": "init_helpers_test.go",
 	"func:authJSONBytes":  "init_helpers_test.go",
-	"func:loadAuthJSON":   "init_helpers_test.go",
+	"func:readAuthJSON":   "init_helpers_test.go",
+	"func:authField":      "init_helpers_test.go",
+	"func:providerKey":    "init_helpers_test.go",
 }
 
 // runInitFlowDecls pins the TestRunInit_* decls (colliding prefix) by flow
@@ -262,22 +266,12 @@ var testSplitRules = []prefixRule{
 
 // mergedTestDecls are the decls moved from init_test.go into existing test
 // files. The check is one-directional: the moved decls must be present, but
-// pre-existing decls in those files are not part of the inventory.
+// pre-existing decls in those files are not part of the inventory. All
+// config_test.go entries were removed when the typed dialect (Auth +
+// MarshalJSON/UnmarshalJSON/Load/Save) collapsed into the raw-map module —
+// the codec pins and backward-compat Load tests died with it and their
+// contracts re-homed against GitHubToken/ListProviders.
 var mergedTestDecls = map[string][]string{
-	"config_test.go": {
-		"func:TestAuthPerProvider_MarshalHasProviderSlot",
-		"func:TestAuthPerProvider_MarshalNoProviderWritesFlat",
-		"func:TestAuthPerProvider_MarshalEmptyProviderNoKey",
-		"func:TestAuthPerProvider_UnmarshalProviderFormat",
-		"func:TestAuthPerProvider_UnmarshalFlatFormat",
-		"func:TestAuthPerProvider_SaveWritesJqParseableOutput",
-		"func:TestAuthPerProvider_UnmarshalEmptyObject",
-		"func:TestAuthPerProvider_UnmarshalMalformedJSON",
-		"func:TestAuthPerProvider_RoundTripWithProvider",
-		"func:TestAuthPerProvider_MarshalOmitGitHubTokenWhenEmpty",
-		"func:TestConfigBackwardCompat_OldAuthLoads",
-		"func:TestConfigBackwardCompat_RoundTripPreservesNewFields",
-	},
 	"embed_test.go": {
 		"func:TestExtract_SkipsPiSubtree",
 	},
