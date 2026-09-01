@@ -470,7 +470,11 @@ func TestSettingsScaffold_Idempotent(t *testing.T) {
 	})
 
 	// Second call: should no-op (file exists)
-	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
+	if err := (&templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/pi/settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
+	}).Scaffold(context.Background(), workdir, TemplateSettingsValues{
 		Provider: "overwrite",
 		GitName:  "Overwrite",
 		GitEmail: "overwrite@example.com",
@@ -521,7 +525,11 @@ func TestSettingsScaffold_EmptyValues(t *testing.T) {
 }
 
 func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
-	scaffold := NewSettingsScaffold()
+	scaffold := &templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/pi/settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
+	}
 
 	vals := TemplateSettingsValues{
 		Provider: "opencode-go",
@@ -545,7 +553,11 @@ func TestSettingsScaffold_InvalidWorkdir(t *testing.T) {
 }
 
 func TestSettingsScaffold_ContextCancelled(t *testing.T) {
-	scaffold := NewSettingsScaffold()
+	scaffold := &templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/pi/settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
+	}
 	workdir := t.TempDir()
 
 	vals := TemplateSettingsValues{

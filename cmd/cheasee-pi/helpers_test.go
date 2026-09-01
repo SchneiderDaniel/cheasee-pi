@@ -257,7 +257,11 @@ const testGitIdentityConfig = "[user]\n\tname = Test User\n\temail = test@exampl
 func ScaffoldSettings(t *testing.T, vals TemplateSettingsValues) string {
 	t.Helper()
 	workdir := t.TempDir()
-	if err := NewSettingsScaffold().Scaffold(context.Background(), workdir, vals); err != nil {
+	if err := (&templateSettingsRenderer{
+		source:       embeddedFS,
+		templatePath: "embedded/pi/settings.json",
+		dest:         func(workdir string) string { return filepath.Join(workdir, ".pi", "settings.json") },
+	}).Scaffold(context.Background(), workdir, vals); err != nil {
 		t.Fatalf("Scaffold failed: %v", err)
 	}
 	return workdir
@@ -267,7 +271,7 @@ func ScaffoldSettings(t *testing.T, vals TemplateSettingsValues) string {
 func RenderEnv(t *testing.T, vals EnvValues) string {
 	t.Helper()
 	dest := filepath.Join(t.TempDir(), "docker", ".env")
-	if err := NewEnvRenderer().Render(context.Background(), dest, vals); err != nil {
+	if err := (&flatEnvRenderer{}).Render(context.Background(), dest, vals); err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
 	data, err := os.ReadFile(dest)
