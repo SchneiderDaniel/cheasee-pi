@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -86,6 +87,31 @@ func TestRunDownE_parallelWorkspaceUntouched(t *testing.T) {
 	}
 }
 
+func TestRunDownE_fromSubdirTargetsWorkspaceRoot(t *testing.T) {
+	// down resolves the workspace root like start does: from a subdirectory
+	// the ancestor holding cheasee-settings.json wins over the cwd — the
+	// derived project and mounts target the workspace, not the subdir.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	parent, root := mkWorkspace(t, `{}`) // project cheasee-pi-alice-repo-a
+	writeBareRemote(t, parent, "https://github.com/alice/repo-a.git")
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, sub)
+
+	composeCmd, _ := stubDownFlow(t, "cheasee-pi-alice-repo-a\n")
+	if err := runDownE(&cobra.Command{}, nil); err != nil {
+		t.Fatalf("runDownE: %v", err)
+	}
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != "cheasee-pi-alice-repo-a" {
+		t.Errorf("down from a subdir must target the workspace's derived project, got %q (env %v)", got, composeCmd.env)
+	}
+	if !slices.Contains(composeCmd.env, "WORKSPACE_HOST_PATH="+root) {
+		t.Errorf("down from a subdir must mount the ancestor workspace root (not cwd), got %v", composeCmd.env)
+	}
+}
+
 func TestRunDownE_noContainerNoop(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	// cwd is a temp dir outside any workspace — the project derives from its
@@ -152,16 +178,11 @@ func composeEnvValue(env []string, key string) string {
 	return ""
 }
 
-// chdir changes into dir for the test duration (serial suite — no
-// t.Parallel).
+// chdir changes into dir for the test duration via t.Chdir: it restores the
+// previous directory on cleanup AND keeps PWD consistent with os.Getwd, so
+// workspace-root assertions byte-match on macOS (serial suite — no
+// t.Parallel, t.Chdir's constraint).
 func chdir(t *testing.T, dir string) {
 	t.Helper()
-	oldwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chdir(oldwd) })
+	t.Chdir(dir)
 }
