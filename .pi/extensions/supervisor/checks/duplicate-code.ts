@@ -78,6 +78,17 @@ export function mapJscpdType(type: number): NormalizedClone["type"] {
 }
 
 /**
+ * Similarity percentage per normalized clone type.
+ * Same partitions as mapJscpdType — keyed by the normalized label so
+ * the two mappings stay in lockstep (adding a union member forces both).
+ */
+const SIMILARITY_BY_TYPE: Record<NormalizedClone["type"], number> = {
+	exact: 100,
+	renamed: 90,
+	"near-miss": 70,
+};
+
+/**
  * Normalize a jscpd clone into our internal format.
  */
 function normalizeClone(clone: JscpdClone): NormalizedClone {
@@ -87,17 +98,11 @@ function normalizeClone(clone: JscpdClone): NormalizedClone {
 		endLine: frag.end,
 	}));
 
-	// jscpd similarity is implicitly 100 for type=1, or we can compute
-	// from the ratio. For simplicity, use:
-	// - type 1 → 100
-	// - type 2 → 90
-	// - type 3 → 70
-	const similarity = clone.type === 1 ? 100 : clone.type === 2 ? 90 : 70;
-
+	const type = mapJscpdType(clone.type);
 	return {
-		type: mapJscpdType(clone.type),
+		type,
 		lines: clone.lines,
-		similarity,
+		similarity: SIMILARITY_BY_TYPE[type],
 		locations,
 	};
 }
