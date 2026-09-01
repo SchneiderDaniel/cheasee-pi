@@ -106,6 +106,9 @@ func setUpRunMode(t *testing.T, workdir string, dryRun bool) {
 	upWorkdir = workdir
 	upDryRun = dryRun
 	upName = "cheasee-pi"
+	// Hermetic CodeFlow port: a host CODEFLOW_PORT must not leak into the
+	// derived-case assertions (the env-override cases set it explicitly).
+	t.Setenv("CODEFLOW_PORT", "")
 	t.Cleanup(func() {
 		upWorkdir = savedWorkdir
 		upDryRun = savedDryRun
@@ -753,6 +756,16 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "repo=local/workspace&run=1") {
 		t.Errorf("CodeFlow URL must carry the workspace params, got: %q", stderr)
+	}
+
+	// The resolved CodeFlow port must reach the exec env (derived case: no
+	// codeflowPort setting, no host CODEFLOW_PORT) so the in-container hint
+	// matches the actually-bound port — and it must equal the printed URL.
+	port := exec.env["CODEFLOW_PORT"]
+	if port == "" {
+		t.Errorf("exec env must carry CODEFLOW_PORT, got %v", exec.env)
+	} else if !strings.Contains(stderr, "http://localhost:"+port+"/") {
+		t.Errorf("exec env CODEFLOW_PORT=%s must match the printed CodeFlow URL, stderr: %q", port, stderr)
 	}
 }
 

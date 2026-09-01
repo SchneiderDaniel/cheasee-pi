@@ -13,7 +13,9 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 import { loadConfig, readPiSetting } from "./config.ts";
+import { codeflowUrl } from "./codeflow.ts";
 import { installFooter } from "./footer.ts";
 import { FooterState } from "./footer-state.ts";
 import { listLocalExtensions } from "./extensions.ts";
@@ -290,6 +292,19 @@ export default function contextInfo(pi: ExtensionAPI): void {
 
 		// ── Startup hint ────────────────────────────────────
 		ctx.ui.notify("For Info:  /cheasee-pi-info", "info");
+
+		// ── CodeFlow URL hint ───────────────────────────────
+		// Post the live CodeFlow URL (resolved from the same source of truth
+		// the CLI uses; the CLI forwards its bound port via CODEFLOW_PORT) as
+		// a clickable hyperlink. Gate the OSC 8 wrap on terminal capabilities
+		// (conservative default = plain URL text survives OSC 8-swallowing
+		// terminals), mirroring the markdown component's gate. Unresolvable
+		// workspace → no second notify, never throws.
+		const url = await codeflowUrl(ctx.cwd);
+		if (url) {
+			const caps = getCapabilities();
+			ctx.ui.notify("CodeFlow:  " + (caps.hyperlinks ? hyperlink(url, url) : url), "info");
+		}
 	});
 
 	// Clear explain-* widgets on first user interaction

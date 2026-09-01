@@ -29,8 +29,14 @@ import { listLocalPrompts, promptsLocator, promptsNameOf } from "../prompts.ts";
 import { listLocalSkills, skillsLocator, skillsNameOf } from "../skills.ts";
 import { listMarkdownResources, type ResourceMeta } from "../markdown-resources.ts";
 
+// CodeFlow URL resolver + pi-tui capability seam for the session_start hint
+// tests (setCapabilities gates the OSC 8 hyperlink branch deterministically).
+import { codeflowPortFromSlug } from "../codeflow.ts";
+import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
+
 // Temp-directory helpers for walker tests
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -323,6 +329,22 @@ describe("contextInfo from index.ts", () => {
 		};
 	}
 
+	/** Temp workspace root + sibling bare clone with remote git@github.com:alice/foo.git
+	 * (slug "alice-foo" → deterministic port) for the CodeFlow hint tests. */
+	function makeCodeflowWorkspace(): { root: string; parent: string } {
+		const parent = mkdtempSync(join(tmpdir(), "codeflow-hint-"));
+		const root = join(parent, "ws");
+		mkdirSync(root, { recursive: true });
+		writeFileSync(join(root, "cheasee-settings.json"), "{}");
+		const bare = join(parent, ".bare");
+		mkdirSync(bare, { recursive: true });
+		execSync(`git --git-dir "${bare}" init --bare`, { stdio: "ignore" });
+		execSync(`git --git-dir "${bare}" config remote.origin.url "git@github.com:alice/foo.git"`, {
+			stdio: "ignore",
+		});
+		return { root, parent };
+	}
+
 	it("session_start handler reads session name from pi.getSessionName()", async () => {
 		const handlers = new Map<string, (...args: any[]) => void>();
 		let capturedFooterArg: unknown = undefined;
@@ -391,6 +413,172 @@ describe("contextInfo from index.ts", () => {
 
 		await handlers.get("session_start")!({}, ctx);
 		assert.ok(true, "session_start with untrusted project completed without error");
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("session_start emits the CodeFlow URL as an OSC 8 hyperlink when terminal supports it", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		const { root } = makeCodeflowWorkspace();
+		const url = `http://localhost:${codeflowPortFromSlug("alice-foo")}/?repo=local/workspace&run=1`;
+		const notifies: string[] = [];
+		const ctx = {
+			...createMockCtx(),
+			cwd: root,
+			ui: {
+				...createMockCtx().ui,
+				notify: (msg: string) => {
+					notifies.push(msg);
+				},
+			},
+		};
+
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		assert.strictEqual(notifies[0], "For Info:  /cheasee-pi-info");
+		assert.strictEqual(
+			notifies[1],
+			`CodeFlow:  \x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`,
+			"hyperlinks-capable terminals must get the OSC 8-wrapped URL (ST terminator, via pi-tui hyperlink)",
+		);
+		assert.ok(notifies[1].includes("\x1b]8;;"), "expected the OSC 8 hyperlink sequence");
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("session_start emits the plain CodeFlow URL when terminal lacks hyperlink support", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		const { root } = makeCodeflowWorkspace();
+		const url = `http://localhost:${codeflowPortFromSlug("alice-foo")}/?repo=local/workspace&run=1`;
+		const notifies: string[] = [];
+		const ctx = {
+			...createMockCtx(),
+			cwd: root,
+			ui: {
+				...createMockCtx().ui,
+				notify: (msg: string) => {
+					notifies.push(msg);
+				},
+			},
+		};
+
+		try {
+			setCapabilities({ hyperlinks: false, images: null, trueColor: false });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		assert.strictEqual(notifies[0], "For Info:  /cheasee-pi-info");
+		assert.strictEqual(
+			notifies[1],
+			`CodeFlow:  ${url}`,
+			"terminals without hyperlink capabilities must get the plain URL text",
+		);
+		assert.ok(
+			!notifies[1].includes("\x1b]8;;"),
+			"no OSC 8 sequence may appear when hyperlinks are unsupported",
+		);
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("session_start degrades gracefully when the CodeFlow URL is unresolvable", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		const notifies: string[] = [];
+		const ctx = {
+			...createMockCtx(),
+			cwd: mkdtempSync(join(tmpdir(), "codeflow-unresolvable-")), // outside any workspace marker
+			ui: {
+				...createMockCtx().ui,
+				notify: (msg: string) => {
+					notifies.push(msg);
+				},
+			},
+		};
+
+		await handlers.get("session_start")!({}, ctx);
+		assert.strictEqual(notifies.length, 1, "unresolvable workspace must emit only the For Info hint");
+		assert.strictEqual(notifies[0], "For Info:  /cheasee-pi-info");
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("repeated session_start re-emits the CodeFlow notify without duplicate-row or throw behavior", async () => {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		contextInfo(pi as any);
+
+		const { root } = makeCodeflowWorkspace();
+		const notifies: string[] = [];
+		const ctx = {
+			...createMockCtx(),
+			cwd: root,
+			ui: {
+				...createMockCtx().ui,
+				notify: (msg: string) => {
+					notifies.push(msg);
+				},
+			},
+		};
+
+		try {
+			setCapabilities({ hyperlinks: false, images: null, trueColor: false });
+			await handlers.get("session_start")!({}, ctx);
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		assert.strictEqual(notifies.length, 4, "two session_starts must emit 2 For Info + 2 CodeFlow notifies");
+		assert.ok(notifies[1].startsWith("CodeFlow:  "), "first CodeFlow notify present");
+		assert.ok(notifies[3].startsWith("CodeFlow:  "), "second CodeFlow notify present");
 
 		// Cleanup: stop timer via session_shutdown
 		await handlers.get("session_shutdown")!();

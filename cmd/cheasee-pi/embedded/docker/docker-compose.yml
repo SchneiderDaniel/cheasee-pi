@@ -72,7 +72,7 @@ services:
     #   http://localhost:8470/?repo=local/workspace&run=1
     #
     # Port mapping: host side via CODEFLOW_PORT — `cheasee-pi start` derives a
-    # per-repo port (8470 + repo-slug hash, 8470–9469) so parallel containers
+    # per-repo port (8470 + repo-slug hash, 8470–9493) so parallel containers
     # don't collide on the fixed default; an explicit CODEFLOW_PORT env var
     # overrides. Container side from the "port" key in config.json (default
     # 8470) — keep them in sync when changing either.

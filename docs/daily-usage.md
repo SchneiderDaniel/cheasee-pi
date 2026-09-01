@@ -104,11 +104,21 @@ the workspace's module dependency graph, call structure, and architecture (tree-
 AST parsing, 18 languages). It starts automatically with `cheasee-pi start`.
 
 The host port is **derived per repository** (8470 + a deterministic hash of the
-repo identity, probed with a next-free fallback) so parallel workspaces never
-collide on one port. `cheasee-pi start` prints the URL after starting:
+repo identity, probed with a next-free fallback; the range is 8470–9493) so
+parallel workspaces never collide on one port. `cheasee-pi start` prints the
+URL after starting:
 
 ```
 ℹ CodeFlow: http://localhost:8891/?repo=local/workspace&run=1
+```
+
+Each session start *also* posts the same URL as a clickable hyperlink inside
+pi, right below the existing startup hint (terminals without OSC 8 hyperlink
+support see the plain URL text):
+
+```
+For Info:  /cheasee-pi-info
+CodeFlow:  http://localhost:8891/?repo=local/workspace&run=1
 ```
 
 Open the printed URL in the browser (the `repo` and `run` parameters trigger
