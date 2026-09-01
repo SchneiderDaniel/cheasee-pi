@@ -14,6 +14,7 @@ import {
 	type DuplicateCodeResult,
 	type JscpdClone,
 	type JscpdOutput,
+	type NormalizedClone,
 	filterClonesToChangedFiles,
 	mapJscpdType,
 	sumDuplicateLines,
@@ -195,6 +196,97 @@ describe("mapJscpdType()", () => {
 		assert.equal(mapJscpdType(0), "near-miss");
 		assert.equal(mapJscpdType(4), "near-miss");
 		assert.equal(mapJscpdType(-1), "near-miss");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Domain: similarity lookup keyed by normalized type (via normalizeClone)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("similarity via filterClonesToChangedFiles()", () => {
+	// SIMILARITY_BY_TYPE is module-private; exercise through the public
+	// normalize path (filterClonesToChangedFiles → normalizeClone).
+	const normalizeOne = (clone: JscpdClone): NormalizedClone => {
+		const [normalized] = filterClonesToChangedFiles([clone], ["src/a.ts"]);
+		assert.ok(normalized, "clone should pass the changed-file filter");
+		return normalized;
+	};
+
+	it("type 1 → { type: 'exact', similarity: 100 }", () => {
+		assert.deepEqual(normalizeOne(makeClone({ type: 1 })), {
+			type: "exact",
+			lines: 10,
+			similarity: 100,
+			locations: [{ file: "src/a.ts", startLine: 1, endLine: 10 }],
+		});
+	});
+
+	it("type 2 → { type: 'renamed', similarity: 90 }", () => {
+		assert.deepEqual(normalizeOne(makeClone({ type: 2 })), {
+			type: "renamed",
+			lines: 10,
+			similarity: 90,
+			locations: [{ file: "src/a.ts", startLine: 1, endLine: 10 }],
+		});
+	});
+
+	it("type 3 → { type: 'near-miss', similarity: 70 }", () => {
+		assert.deepEqual(normalizeOne(makeClone({ type: 3 })), {
+			type: "near-miss",
+			lines: 10,
+			similarity: 70,
+			locations: [{ file: "src/a.ts", startLine: 1, endLine: 10 }],
+		});
+	});
+
+	it("out-of-range types 0, 4, -1 → { type: 'near-miss', similarity: 70 }", () => {
+		for (const type of [0, 4, -1]) {
+			const normalized = normalizeOne(makeClone({ type }));
+			assert.equal(normalized.type, "near-miss");
+			assert.equal(normalized.similarity, 70);
+		}
+	});
+
+	it("clone without type field → { type: 'near-miss', similarity: 70 } (real jscpd shape)", () => {
+		// Real jscpd output sets no numeric type; makeClone's `?? 1` cannot
+		// produce undefined, so build the literal inline.
+		const noTypeClone = {
+			id: "clone-no-type",
+			format: "typescript",
+			lines: 10,
+			tokens: 50,
+			fragments: [{ fragment: "code fragment", file: "src/a.ts", start: 1, end: 10 }],
+		} as unknown as JscpdClone;
+		const normalized = normalizeOne(noTypeClone);
+		assert.equal(normalized.type, "near-miss");
+		assert.equal(normalized.similarity, 70);
+	});
+
+	it("lockstep: (type, similarity) pairs match the SIMILARITY_BY_TYPE partitions for all inputs", () => {
+		const expected: Array<[number | undefined, string, number]> = [
+			[1, "exact", 100],
+			[2, "renamed", 90],
+			[3, "near-miss", 70],
+			[0, "near-miss", 70],
+			[4, "near-miss", 70],
+			[-1, "near-miss", 70],
+			[undefined, "near-miss", 70],
+		];
+		for (const [type, label, similarity] of expected) {
+			const clone =
+				type === undefined
+					? ({
+							id: "clone-no-type",
+							format: "typescript",
+							lines: 10,
+							tokens: 50,
+							fragments: [{ fragment: "code fragment", file: "src/a.ts", start: 1, end: 10 }],
+						} as unknown as JscpdClone)
+					: makeClone({ type });
+			const normalized = normalizeOne(clone);
+			assert.equal(normalized.type, label, `type ${String(type)} → label`);
+			assert.equal(normalized.similarity, similarity, `type ${String(type)} → similarity`);
+		}
 	});
 });
 
