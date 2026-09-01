@@ -9,7 +9,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
-import { formatDiagnostics, formatDiagnosticsJson } from "../format.ts";
+import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "../format.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../types.ts";
 
@@ -243,6 +243,29 @@ describe("formatDiagnosticsJson", () => {
 		assert.ok(result.summary.includes("was 1"));
 	});
 
+	it("summary includes stable → label for stable trend", () => {
+		const diags: TscDiagnostic[] = [
+			{
+				file: "src/a.ts",
+				line: 5,
+				column: 3,
+				severity: "Error",
+				message: "err",
+				code: "TS2304",
+				filePath: "/project/src/a.ts",
+			},
+		];
+		const trend: DiagnosticTrend = {
+			current: 2,
+			previous: 2,
+			direction: "stable",
+			delta: 0,
+		};
+		const result = formatDiagnosticsJson(diags, trend);
+		assert.ok(result.summary.includes("stable →"));
+		assert.ok(result.summary.includes("1 type error(s) found"));
+	});
+
 	it("fileCount counts unique filePaths", () => {
 		const diags: TscDiagnostic[] = [
 			{
@@ -276,5 +299,23 @@ describe("formatDiagnosticsJson", () => {
 		const result = formatDiagnosticsJson(diags);
 		assert.strictEqual(result.diagnostics.length, 3);
 		assert.strictEqual(result.fileCount, 2); // Two unique files
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// directionLabel — shared direction→label mapping (Issue #1547)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("directionLabel", () => {
+	it("maps every direction to its TUI label (hardcoded literals)", () => {
+		assert.strictEqual(directionLabel("regressed", "tui"), "⚠️ regression");
+		assert.strictEqual(directionLabel("improved", "tui"), "✓ improved");
+		assert.strictEqual(directionLabel("stable", "tui"), "→ stable");
+	});
+
+	it("maps every direction to its JSON label (hardcoded literals)", () => {
+		assert.strictEqual(directionLabel("regressed", "json"), "regressed ↑");
+		assert.strictEqual(directionLabel("improved", "json"), "improved ↓");
+		assert.strictEqual(directionLabel("stable", "json"), "stable →");
 	});
 });
