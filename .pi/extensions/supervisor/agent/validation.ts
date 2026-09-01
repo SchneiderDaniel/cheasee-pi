@@ -11,6 +11,94 @@ interface ValidationResult {
 	errors: string[];
 }
 
+// ─── Nested validation helpers (extracted from validateAgentOutput, #1548) ──
+// Each helper owns one nested block, flattened to guard clauses (≤2 control-
+// flow nesting levels). They mutate the shared errors array in call order so
+// push order across fields is preserved byte-for-byte.
+
+function validateAuditScore(value: unknown, errors: string[]): void {
+	// absent/null auditScore passes
+	if (value === undefined || value === null) {
+		return;
+	}
+	if (typeof value !== "object" || Array.isArray(value)) {
+		errors.push("'auditScore' must be an object with 'passing' and 'total' fields");
+		return;
+	}
+	const score = value as Record<string, unknown>;
+	if (typeof score.passing !== "number" || typeof score.total !== "number") {
+		errors.push("'auditScore.passing' and 'auditScore.total' must be numbers");
+		return;
+	}
+	// Two independent ifs, never else-if: negative inputs where passing > total
+	// must push BOTH errors (verified pre-refactor behavior).
+	if (score.passing < 0 || score.total < 0) {
+		errors.push("'auditScore.passing' and 'auditScore.total' must be non-negative");
+	}
+	if (score.passing > score.total) {
+		errors.push(
+			`'auditScore.passing' (${score.passing}) cannot exceed 'auditScore.total' (${score.total})`,
+		);
+	}
+}
+
+function validateFinding(item: unknown, index: number, errors: string[]): void {
+	if (typeof item !== "object" || item === null) {
+		errors.push(`findings[${index}] must be an object`);
+		return; // maps the loop `continue` — skip this entry's remaining field checks
+	}
+	const finding = item as Record<string, unknown>;
+
+	// severity
+	if (
+		typeof finding.severity !== "string" ||
+		!VALID_SEVERITIES.has(finding.severity as FindingSeverity)
+	) {
+		errors.push(
+			`findings[${index}].severity must be one of: ${Array.from(VALID_SEVERITIES).join(", ")}`,
+		);
+	}
+
+	// dimension
+	if (typeof finding.dimension !== "string") {
+		errors.push(`findings[${index}].dimension must be a string`);
+	}
+
+	// symptom, consequence, remedy are required strings
+	if (typeof finding.symptom !== "string" || finding.symptom.trim() === "") {
+		errors.push(`findings[${index}].symptom is required and must be a non-empty string`);
+	}
+	if (typeof finding.consequence !== "string" || finding.consequence.trim() === "") {
+		errors.push(`findings[${index}].consequence is required and must be a non-empty string`);
+	}
+	if (typeof finding.remedy !== "string" || finding.remedy.trim() === "") {
+		errors.push(`findings[${index}].remedy is required and must be a non-empty string`);
+	}
+
+	// location (optional)
+	if (
+		finding.location !== undefined &&
+		finding.location !== null &&
+		typeof finding.location !== "string"
+	) {
+		errors.push(`findings[${index}].location must be a string if provided`);
+	}
+}
+
+function validateFindings(value: unknown, errors: string[]): void {
+	// absent/null findings passes
+	if (value === undefined || value === null) {
+		return;
+	}
+	if (!Array.isArray(value)) {
+		errors.push("'findings' must be an array if provided");
+		return;
+	}
+	for (let i = 0; i < value.length; i++) {
+		validateFinding(value[i], i, errors);
+	}
+}
+
 function validateAgentOutput(data: Record<string, unknown>): ValidationResult {
 	const errors: string[] = [];
 
@@ -61,77 +149,11 @@ function validateAgentOutput(data: Record<string, unknown>): ValidationResult {
 		errors.push("'summary' must be a string if provided");
 	}
 
-	// auditScore validation
-	if (data.auditScore !== undefined && data.auditScore !== null) {
-		if (typeof data.auditScore !== "object" || Array.isArray(data.auditScore)) {
-			errors.push("'auditScore' must be an object with 'passing' and 'total' fields");
-		} else {
-			const score = data.auditScore as Record<string, unknown>;
-			if (typeof score.passing !== "number" || typeof score.total !== "number") {
-				errors.push("'auditScore.passing' and 'auditScore.total' must be numbers");
-			} else {
-				if (score.passing < 0 || score.total < 0) {
-					errors.push("'auditScore.passing' and 'auditScore.total' must be non-negative");
-				}
-				if (score.passing > score.total) {
-					errors.push(
-						`'auditScore.passing' (${score.passing}) cannot exceed 'auditScore.total' (${score.total})`,
-					);
-				}
-			}
-		}
-	}
+	// auditScore validation — nested checks live in validateAuditScore
+	validateAuditScore(data.auditScore, errors);
 
-	// findings validation
-	if (data.findings !== undefined && data.findings !== null) {
-		if (!Array.isArray(data.findings)) {
-			errors.push("'findings' must be an array if provided");
-		} else {
-			for (let i = 0; i < data.findings.length; i++) {
-				const f = data.findings[i];
-				if (typeof f !== "object" || f === null) {
-					errors.push(`findings[${i}] must be an object`);
-					continue;
-				}
-				const finding = f as Record<string, unknown>;
-
-				// severity
-				if (
-					typeof finding.severity !== "string" ||
-					!VALID_SEVERITIES.has(finding.severity as FindingSeverity)
-				) {
-					errors.push(
-						`findings[${i}].severity must be one of: ${Array.from(VALID_SEVERITIES).join(", ")}`,
-					);
-				}
-
-				// dimension
-				if (typeof finding.dimension !== "string") {
-					errors.push(`findings[${i}].dimension must be a string`);
-				}
-
-				// symptom, consequence, remedy are required strings
-				if (typeof finding.symptom !== "string" || finding.symptom.trim() === "") {
-					errors.push(`findings[${i}].symptom is required and must be a non-empty string`);
-				}
-				if (typeof finding.consequence !== "string" || finding.consequence.trim() === "") {
-					errors.push(`findings[${i}].consequence is required and must be a non-empty string`);
-				}
-				if (typeof finding.remedy !== "string" || finding.remedy.trim() === "") {
-					errors.push(`findings[${i}].remedy is required and must be a non-empty string`);
-				}
-
-				// location (optional)
-				if (
-					finding.location !== undefined &&
-					finding.location !== null &&
-					typeof finding.location !== "string"
-				) {
-					errors.push(`findings[${i}].location must be a string if provided`);
-				}
-			}
-		}
-	}
+	// findings validation — nested checks live in validateFindings/validateFinding
+	validateFindings(data.findings, errors);
 
 	// targetStatus (optional, must be string if present)
 	if (
