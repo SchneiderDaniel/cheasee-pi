@@ -133,6 +133,17 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("build env vars: %w", err)
 	}
 
+	// Forward the resolved CodeFlow host port into the exec env (buildEnvFlags
+	// passthroughs only provider keys + GH_TOKEN/CLOUDFLARE_ACCOUNT_ID), so the
+	// in-container context-info extension can print the exact bound URL instead
+	// of re-deriving (its derive-only copy matches except in probe-shift cases).
+	// Resolution failure is already surfaced by the post-up print below and by
+	// applyComposeEnv; the key stays absent and the extension falls back to its
+	// own derivation.
+	if port, err := codeflowHostPort(root); err == nil {
+		envMap["CODEFLOW_PORT"] = port
+	}
+
 	// Tag this session so the reaper can find it after the docker exec client
 	// detaches. Disconnected exec sessions stay alive (their parent remains the
 	// host-side shim, so the orphan scan never sees them); killing by this
