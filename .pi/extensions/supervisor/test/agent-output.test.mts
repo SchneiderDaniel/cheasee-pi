@@ -269,6 +269,25 @@ describe("parseAgentOutput — schema validation", () => {
 		const result = parseAgentOutput(input);
 		assert.ok(isFailedParse(result));
 	});
+
+	it("pins exact FailedParse.error string built from errors.join('; ') (#1548 Phase 3)", () => {
+		// Union payload: missing agentName + dual-error auditScore + non-object finding —
+		// pushes scalar → auditScore → findings in exact order into the agent-facing string.
+		const input = JSON.stringify({
+			action: "COMPLETE",
+			auditScore: { passing: -1, total: -2 },
+			findings: [42],
+		});
+		const result = parseAgentOutput(input);
+		assert.ok(isFailedParse(result));
+		assert.equal(
+			(result as FailedParse).error,
+			"Agent output schema validation failed: Missing required field: 'agentName'; " +
+				"'auditScore.passing' and 'auditScore.total' must be non-negative; " +
+				"'auditScore.passing' (-1) cannot exceed 'auditScore.total' (-2); " +
+				"findings[0] must be an object",
+		);
+	});
 });
 
 // ─── Tests: parseAgentOutput — JSON in code fences ────────────────
