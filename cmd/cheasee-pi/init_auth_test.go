@@ -242,12 +242,12 @@ func TestRunInit_FullFlow(t *testing.T) {
 			t.Errorf(".pi/%s missing after full flow: %v", dir, err)
 		}
 	}
-	auth := loadAuthJSON(t)
-	if auth.GitHubUser != MockGitHubUser {
-		t.Errorf("auth.json github_user = %q, want %q", auth.GitHubUser, MockGitHubUser)
+	authRaw := readAuthJSON(t)
+	if got := authField(t, authRaw, "github_user"); got != MockGitHubUser {
+		t.Errorf("auth.json github_user = %q, want %q", got, MockGitHubUser)
 	}
-	if auth.GitHubToken != FakeGitHubToken {
-		t.Errorf("auth.json github_token = %q, want %q", auth.GitHubToken, FakeGitHubToken)
+	if got := authField(t, authRaw, "github_token"); got != FakeGitHubToken {
+		t.Errorf("auth.json github_token = %q, want %q", got, FakeGitHubToken)
 	}
 }
 
@@ -284,12 +284,15 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called on legacy path")
 	}
-	auth := loadAuthJSON(t)
-	if auth.APIKey != FakeAPIKey {
-		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
+	authRaw := readAuthJSON(t)
+	if got := providerKey(t, authRaw, "opencode-go"); got != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, got)
 	}
-	if auth.RepoPath != workdir {
-		t.Errorf("expected RepoPath %q, got %q", workdir, auth.RepoPath)
+	if got := authField(t, authRaw, "repo_path"); got != workdir {
+		t.Errorf("expected repo_path %q, got %q", workdir, got)
+	}
+	if got := authField(t, authRaw, "api_key"); got != FakeAPIKey {
+		t.Errorf("expected flat api_key %q, got %q", FakeAPIKey, got)
 	}
 	// Legacy path: the repo URL is never threaded, so no repository section —
 	// but the .pi skeleton still exists (pi needs the dirs on both paths).
@@ -304,20 +307,19 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 }
 
-func TestRunInitLegacy_ReturnsAuth(t *testing.T) {
-	// runInitLegacy is auth-only: returns *Auth, does NOT save/extract/render
-	auth, err := runInitLegacy(context.Background(), &fileRepository{}, FakeAPIKey, "opencode-go")
+func TestRunInitLegacy_ReturnsScalars(t *testing.T) {
+	// runInitLegacy is auth-only: returns (provider, apiKey) scalars, does
+	// NOT save/extract/render — the orchestrator threads them into the
+	// phase-7 SetLegacyAuth raw-map patch.
+	provider, apiKey, err := runInitLegacy(context.Background(), FakeAPIKey, "opencode-go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if auth.APIKey != FakeAPIKey {
-		t.Errorf("expected API key %q, got %q", FakeAPIKey, auth.APIKey)
+	if apiKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, apiKey)
 	}
-	if auth.RepoPath != "" {
-		t.Errorf("expected empty RepoPath from runInitLegacy (orchestrator fills it), got %q", auth.RepoPath)
-	}
-	if auth.GitHubToken != "" {
-		t.Errorf("expected empty GitHubToken, got %q", auth.GitHubToken)
+	if provider != "opencode-go" {
+		t.Errorf("expected provider %q, got %q", "opencode-go", provider)
 	}
 }
 
@@ -411,15 +413,15 @@ func TestRunReauth_RedoesAuthAndPreservesProviders(t *testing.T) {
 		t.Errorf("reauth must not create <parent>/.bare: %v", statErr)
 	}
 
-	auth := loadAuthJSON(t)
-	if auth.GitHubToken != FakeGitHubToken {
-		t.Errorf("expected fresh github_token %q, got %q", FakeGitHubToken, auth.GitHubToken)
+	raw := readAuthJSON(t)
+	if got := authField(t, raw, "github_token"); got != FakeGitHubToken {
+		t.Errorf("expected fresh github_token %q, got %q", FakeGitHubToken, got)
 	}
-	if auth.GitHubUser != "octocat" {
-		t.Errorf("expected github_user %q, got %q", "octocat", auth.GitHubUser)
+	if got := authField(t, raw, "github_user"); got != "octocat" {
+		t.Errorf("expected github_user %q, got %q", "octocat", got)
 	}
-	if auth.RepoPath != workdir {
-		t.Errorf("expected repo_path %q, got %q", workdir, auth.RepoPath)
+	if got := authField(t, raw, "repo_path"); got != workdir {
+		t.Errorf("expected repo_path %q, got %q", workdir, got)
 	}
 	providers, err := (&fileRepository{}).ListProviders(context.Background())
 	if err != nil {
@@ -468,9 +470,15 @@ func TestRunReauth_NoInputSkipsProviderPhase(t *testing.T) {
 	if confirmCalled {
 		t.Error("--no-input must not call ConfirmFn (the flag is the confirmation)")
 	}
-	auth := loadAuthJSON(t)
-	if auth.GitHubToken != FakeGitHubToken || auth.GitHubUser != "octocat" || auth.RepoPath != workdir {
-		t.Errorf("auth.json must carry the fresh github fields, got %+v", auth)
+	raw := readAuthJSON(t)
+	if got := authField(t, raw, "github_token"); got != FakeGitHubToken {
+		t.Errorf("auth.json must carry the fresh github_token, got %q", got)
+	}
+	if got := authField(t, raw, "github_user"); got != "octocat" {
+		t.Errorf("auth.json must carry the fresh github_user, got %q", got)
+	}
+	if got := authField(t, raw, "repo_path"); got != workdir {
+		t.Errorf("auth.json must carry the fresh repo_path, got %q", got)
 	}
 }
 
@@ -491,9 +499,15 @@ func TestRunReauth_CreatesAuthJSONWhenMissing(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Fatal("reauth must create auth.json when missing")
 	}
-	auth := loadAuthJSON(t)
-	if auth.GitHubToken != FakeGitHubToken || auth.GitHubUser != "octocat" || auth.RepoPath != workdir {
-		t.Errorf("expected fresh github fields, got %+v", auth)
+	raw := readAuthJSON(t)
+	if got := authField(t, raw, "github_token"); got != FakeGitHubToken {
+		t.Errorf("expected fresh github_token, got %q", got)
+	}
+	if got := authField(t, raw, "github_user"); got != "octocat" {
+		t.Errorf("expected fresh github_user, got %q", got)
+	}
+	if got := authField(t, raw, "repo_path"); got != workdir {
+		t.Errorf("expected fresh repo_path, got %q", got)
 	}
 }
 

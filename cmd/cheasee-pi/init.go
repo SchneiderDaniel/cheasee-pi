@@ -238,38 +238,43 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	// Auth config is file I/O under the OS user config dir — no port.
 	cfg := &fileRepository{}
 
-	// Phase 4: Authentication
-	var auth *Auth
-	var err error
+	// Phase 4: Authentication. Credentials are threaded to the phase-7
+	// raw-map patch as scalars — either the legacy (provider, apiKey) pair
+	// or the GitHub (token, user) pair; usingLegacyAuth picks the patch
+	// shape (a typed *Auth round-trip would clobber other providers).
+	var (
+		legacyProvider, legacyAPIKey string
+		ghToken, ghUser              string
+		usingLegacyAuth              bool
+		err                          error
+	)
 	if deps.NoGitHub {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", deps.Provider)
-		auth, err = runInitLegacy(ctx, cfg, deps.APIKey, deps.Provider)
+		legacyProvider, legacyAPIKey, err = runInitLegacy(ctx, deps.APIKey, deps.Provider)
 		if err != nil {
 			return err
 		}
-		auth.RepoPath = deps.Workdir
+		usingLegacyAuth = true
 	} else {
-		token, user, err := runInitAuth(ctx, deps.Ports.Auth)
+		var token, user string
+		token, user, err = runInitAuth(ctx, deps.Ports.Auth)
 		if err != nil {
 			if errors.Is(err, device.ErrUnsupported) {
 				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
 				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
-				auth, err = runInitLegacy(ctx, cfg, deps.APIKey, deps.Provider)
+				legacyProvider, legacyAPIKey, err = runInitLegacy(ctx, deps.APIKey, deps.Provider)
 				if err != nil {
 					return err
 				}
-				auth.RepoPath = deps.Workdir
+				usingLegacyAuth = true
 			} else {
 				return fmt.Errorf("GitHub authentication failed: %w", err)
 			}
 		} else {
-			auth = &Auth{
-				GitHubToken: token,
-				GitHubUser:  user,
-				RepoPath:    deps.Workdir,
-			}
+			ghToken = token
+			ghUser = user
 		}
 	}
 
@@ -299,7 +304,6 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		if err := gitCloneWorktree(ctx, repoURL, deps.Workdir); err != nil {
 			return err
 		}
-		auth.RepoPath = deps.Workdir
 	}
 
 	// Phases 6-9 (scaffold → skill repos → save auth → API key setup) run
@@ -312,7 +316,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		// Phase 6: Scaffold cheasee-settings.json (never overwrites) — the
 		// canonical repo URL and resolved GitHub login are threaded in; the
 		// legacy --no-github path carries both empty.
-		if err := runInitScaffold(ctx, deps, repoURL, auth.GitHubUser); err != nil {
+		if err := runInitScaffold(ctx, deps, repoURL, ghUser); err != nil {
 			return fmt.Errorf("settings scaffold: %w", err)
 		}
 
@@ -322,9 +326,18 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			return fmt.Errorf("skill repo setup: %w", err)
 		}
 
-		// Phase 7: Save auth config
-		if err := cfg.Save(ctx, auth); err != nil {
-			return fmt.Errorf("save auth config: %w", err)
+		// Phase 7: Save auth config — merge-safe raw-map patches on the single
+		// auth.json format (the typed codec that clobbered other providers is
+		// gone). Legacy: provider entry + api_key + repo_path; GitHub:
+		// github_token/github_user/repo_path with all providers preserved.
+		if usingLegacyAuth {
+			if err := cfg.SetLegacyAuth(ctx, legacyProvider, legacyAPIKey, deps.Workdir); err != nil {
+				return fmt.Errorf("save auth config: %w", err)
+			}
+		} else {
+			if err := cfg.UpdateGitHubAuth(ctx, ghToken, ghUser, deps.Workdir); err != nil {
+				return fmt.Errorf("save auth config: %w", err)
+			}
 		}
 
 		path, _ := cfg.Path()

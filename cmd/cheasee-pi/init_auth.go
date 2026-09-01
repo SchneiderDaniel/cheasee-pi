@@ -198,18 +198,19 @@ func runReauth(ctx context.Context, deps InitDeps) error {
 	return nil
 }
 
-// runInitLegacy is an auth-only helper that returns an *Auth with the API key.
-// It does NOT save, extract, or render — the orchestrator handles those.
-func runInitLegacy(ctx context.Context, cfg *fileRepository, apiKey string, provider string) (*Auth, error) {
+// runInitLegacy is an auth-only helper that returns the provider and API key
+// as scalars. It does NOT save, extract, or render — the orchestrator
+// threads them into the phase-7 SetLegacyAuth raw-map patch.
+func runInitLegacy(ctx context.Context, apiKey string, provider string) (string, string, error) {
 	if apiKey == "" {
 		key, err := promptAPIKey(provider)
 		if err != nil {
-			return nil, fmt.Errorf("API key prompt failed: %w", err)
+			return "", "", fmt.Errorf("API key prompt failed: %w", err)
 		}
 		apiKey = key
 	}
 
-	return &Auth{APIKey: apiKey, Provider: provider}, nil
+	return provider, apiKey, nil
 }
 
 // promptAPIKey prompts the user for an API key (legacy).

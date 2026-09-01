@@ -90,7 +90,7 @@ func TestInitUseCase_NoDockerCheckFlag(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called when --no-docker-check is set")
 	}
-	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+	if got := providerKey(t, readAuthJSON(t), "opencode-go"); got != FakeAPIKey {
 		t.Errorf("expected saved key %q, got %q", FakeAPIKey, got)
 	}
 }
@@ -110,7 +110,7 @@ func TestInitUseCase_HappyPathWithAPIKeyFlag(t *testing.T) {
 	if !authJSONExists(t) {
 		t.Error("Save should be called on happy path")
 	}
-	if got := loadAuthJSON(t).APIKey; got != FakeAPIKey {
+	if got := providerKey(t, readAuthJSON(t), "opencode-go"); got != FakeAPIKey {
 		t.Errorf("expected API key %q, got %q", FakeAPIKey, got)
 	}
 }

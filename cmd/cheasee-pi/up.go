@@ -502,8 +502,8 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 	// back to the process env, then gh's credential store.
 	// ponytail: single-precedence if-chain; revisit if multiple GitHub
 	// identities per host become a real use case.
-	if auth, err := repo.Load(ctx); err == nil && auth.GitHubToken != "" {
-		envMap["GH_TOKEN"] = auth.GitHubToken
+	if tok, err := repo.GitHubToken(ctx); err == nil && tok != "" {
+		envMap["GH_TOKEN"] = tok
 	} else if val := os.Getenv("GH_TOKEN"); val != "" {
 		envMap["GH_TOKEN"] = val
 	} else if token, err := extractGHToken(); err == nil && token != "" {
