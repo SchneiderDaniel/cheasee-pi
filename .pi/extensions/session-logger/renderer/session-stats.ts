@@ -16,6 +16,9 @@ import type { PerTurnState } from "../per-turn.ts";
 import { handleModelChanges } from "../session-utils.ts";
 import { loadSessionEntries } from "./parse.ts";
 
+/** Tool calls that modify files on disk — everything else is filtered out of fileModifications. */
+const FILE_MOD_TOOLS = new Set(["read", "write", "edit"]);
+
 // ── Parsed session data (used by metadata + markdown) ──
 
 export interface ParsedSessionStats {
@@ -111,14 +114,7 @@ function accumulateMessageStats(acc: StatsAccumulator, entry: any): void {
 		// File modifications from tool calls
 		for (const c of msg.content ?? []) {
 			if (c.type === "toolCall") {
-				const action =
-					c.name === "read"
-						? "read"
-						: c.name === "write"
-							? "write"
-							: c.name === "edit"
-								? "edit"
-								: null;
+				const action = FILE_MOD_TOOLS.has(c.name) ? c.name : null;
 				if (action) {
 					acc.fileMods.push({
 						action,
