@@ -119,7 +119,7 @@ func (r *templateSettingsRenderer) Scaffold(ctx context.Context, workdir string,
 	if err := tmpl.Execute(&buf, vals); err != nil {
 		return fmt.Errorf("execute settings template: %w", err)
 	}
-	if err := atomicWrite(destPath, buf.Bytes(), 0644); err != nil {
+	if err := atomicWrite(destPath, buf.Bytes(), 0644, false); err != nil {
 		return fmt.Errorf("write settings file: %w", err)
 	}
 

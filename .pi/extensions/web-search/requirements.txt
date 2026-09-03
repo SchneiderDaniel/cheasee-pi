@@ -1,1 +1,6 @@
 ddgs>=0.8
+# Pin idna to the post-CVE-2026-45409 release (PYSEC-2026-215): older ddgs
+# resolutions pulled requests → idna, and idna<3.15 is DoS-vulnerable on
+# crafted long inputs. The pin guarantees a patched idna regardless of how
+# the ddgs dependency tree resolves.
+idna>=3.15

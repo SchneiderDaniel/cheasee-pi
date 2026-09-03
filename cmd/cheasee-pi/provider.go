@@ -57,13 +57,15 @@ type SettingsWriter struct {
 }
 
 // WriteDefaultProvider updates workspace settings files with the given
-// default provider and model. cheasee-settings.json is the primary target
-// (single source — skipped only when absent, e.g. a legacy workspace);
-// .pi/settings.json is updated, or created when missing inside an initialized
-// cheasee-pi workspace (pi reads exactly this file for its defaults — without
-// it the selection is lost and pi falls back to its built-in per-provider
-// default, e.g. kimi-k2.6 for opencode-go); .pi/agent/settings.json is
-// always (re)created with the provider.
+// default provider and model. All three targets flow through the one
+// writeSettingsFile helper — the missing-file policy and created-content
+// shape differ per file, the write path does not. cheasee-settings.json is
+// the primary target (single source — skipped only when absent, e.g. a
+// legacy workspace); .pi/settings.json is updated, or created when missing
+// inside an initialized cheasee-pi workspace (pi reads exactly this file for
+// its defaults — without it the selection is lost and pi falls back to its
+// built-in per-provider default, e.g. kimi-k2.6 for opencode-go);
+// .pi/agent/settings.json is always (re)created with the provider.
 func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
 	if err := w.updateCheaseeSettings(provider, model); err != nil {
 		return fmt.Errorf("update cheasee-settings.json: %w", err)
@@ -77,23 +79,63 @@ func (w *SettingsWriter) WriteDefaultProvider(provider, model string) error {
 	return nil
 }
 
+// missingPolicy governs what writeSettingsFile does when the target file is
+// absent — one policy per file kind, explicit instead of triplicated.
+type missingPolicy int
+
+const (
+	// skipIfMissing leaves the file untouched (cheasee-settings.json outside
+	// an initialized workspace: auth add's workspace half stays a no-op).
+	skipIfMissing missingPolicy = iota
+	// createIfInitialized creates the file only inside an initialized
+	// cheasee-pi workspace (cheasee-settings.json present).
+	createIfInitialized
+	// alwaysCreate recreates the file from the seed value.
+	alwaysCreate
+)
+
+// writeSettingsFile is the single write path for every settings target: load
+// through the schema's loader (its two-pass decode keeps unknown top-level
+// keys as extra), apply mutate, save through the schema's saver. Missing-file
+// policy and the created-content shape (seed) are explicit parameters — the
+// three sibling writers used to encode them in triplicate.
+func writeSettingsFile[T any](path string, policy missingPolicy, workdir string, load func() (*T, error), save func(*T) error, seed func() *T, mutate func(*T)) error {
+	s, err := load()
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		switch policy {
+		case skipIfMissing:
+			return nil
+		case createIfInitialized:
+			if _, cerr := os.Stat(cheaseeSettingsPath(workdir)); cerr != nil {
+				return nil // not a cheasee-pi workspace, skip
+			}
+			s = seed()
+		case alwaysCreate:
+			s = seed()
+		}
+	}
+	mutate(s)
+	return save(s)
+}
+
 // updateCheaseeSettings persists the default provider (+ model when non-empty)
 // to the dedicated cheasee-settings.json. Missing file → skipped (not an
 // error): auth add outside a cheasee-pi workspace stays a no-op for the
 // workspace half of its job, matching the legacy .pi behavior.
 func (w *SettingsWriter) updateCheaseeSettings(provider, model string) error {
-	settings, err := LoadCheaseeSettings(w.Workdir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	settings.DefaultProvider = provider
-	if model != "" {
-		settings.DefaultModel = model
-	}
-	return settings.Save(w.Workdir)
+	return writeSettingsFile(cheaseeSettingsPath(w.Workdir), skipIfMissing, w.Workdir,
+		func() (*CheaseeSettings, error) { return LoadCheaseeSettings(w.Workdir) },
+		func(s *CheaseeSettings) error { return s.Save(w.Workdir) },
+		func() *CheaseeSettings { return &CheaseeSettings{} }, // unreachable under skipIfMissing
+		func(s *CheaseeSettings) {
+			s.DefaultProvider = provider
+			if model != "" {
+				s.DefaultModel = model
+			}
+		})
 }
 
 // updatePISettings persists provider + model to .pi/settings.json — the one
@@ -103,32 +145,20 @@ func (w *SettingsWriter) updateCheaseeSettings(provider, model string) error {
 // workspace is cheasee-pi-initialized (cheasee-settings.json present); outside
 // such a workspace the write stays a no-op (auth add's workspace half).
 func (w *SettingsWriter) updatePISettings(provider, model string) error {
-	settings, err := LoadSettings(w.Workdir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-		if _, cerr := os.Stat(cheaseeSettingsPath(w.Workdir)); cerr != nil {
-			return nil // not a cheasee-pi workspace, skip
-		}
-		settings = &Settings{}
-	}
-	return settings.SetDefaultProvider(provider, model).Save(w.Workdir)
+	return writeSettingsFile(settingsPath(w.Workdir), createIfInitialized, w.Workdir,
+		func() (*Settings, error) { return LoadSettings(w.Workdir) },
+		func(s *Settings) error { return s.Save(w.Workdir) },
+		func() *Settings { return &Settings{} },
+		func(s *Settings) { s.SetDefaultProvider(provider, model) })
 }
 
 func (w *SettingsWriter) updateAgentSettings(provider string) error {
 	path := filepath.Join(w.Workdir, ".pi", "agent", "settings.json")
-
-	settings, err := loadSettingsFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create with just defaultProvider
-			return saveSettingsFile(path, &Settings{DefaultProvider: provider})
-		}
-		return err
-	}
-	settings.DefaultProvider = provider
-	return saveSettingsFile(path, settings)
+	return writeSettingsFile(path, alwaysCreate, w.Workdir,
+		func() (*Settings, error) { return loadSettingsFile(path) },
+		func(s *Settings) error { return saveSettingsFile(path, s) },
+		func() *Settings { return &Settings{DefaultProvider: provider} }, // created provider-only, no defaultModel
+		func(s *Settings) { s.DefaultProvider = provider })
 }
 
 // ProviderToEnvVar maps provider name to its canonical env var.

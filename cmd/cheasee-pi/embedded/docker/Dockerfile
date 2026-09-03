@@ -147,9 +147,11 @@ ENV LC_ALL=C.UTF-8
 #           Packages + Chromium pre-installed so agent workflows
 #           skip first-call venv setup.
 # ---------------------------------------------------------------
-# web_search venv: ddgs (DuckDuckGo search)
+# web_search venv: ddgs (DuckDuckGo search). idna pinned to the
+# post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
+# and idna<3.15 is DoS-vulnerable on crafted long inputs.
 RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs
+    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15'
 
 # scrapling venv: progressive web crawler (patchright-driven stealth)
 RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \

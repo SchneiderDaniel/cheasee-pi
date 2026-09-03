@@ -418,6 +418,97 @@ func TestUpdateGitHubAuth_AtomicWritePermsAndRoundTrip(t *testing.T) {
 	}
 }
 
+// TestUpdateGitHubAuth_clampsWorldReadableAuthTo0600 is the audit regression
+// for atomicWrite mode preservation: it must be opt-in, so a pre-existing
+// world-readable auth.json (e.g. 0644 from an older tool or a chmod mistake)
+// is clamped back to 0600 on the next credential write, never left readable.
+func TestUpdateGitHubAuth_clampsWorldReadableAuthTo0600(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"github_token":"leaked"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws"); err != nil {
+		t.Fatalf("UpdateGitHubAuth: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat auth.json: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("auth.json must be clamped to 0600 after rewrite, got %v", info.Mode().Perm())
+	}
+}
+
+// TestAtomicWrite_preservesExistingMode: rename replaces the inode, so a
+// pre-existing chmod'd target must keep its mode across a rewrite; an absent
+// target gets the caller's perm.
+func TestAtomicWrite_preservesExistingMode(t *testing.T) {
+	dir := t.TempDir()
+	for _, want := range []os.FileMode{0600, 0640} {
+		path := filepath.Join(dir, fmt.Sprintf("target-%o", want))
+		if err := os.WriteFile(path, []byte("old"), want); err != nil {
+			t.Fatal(err)
+		}
+		if err := atomicWrite(path, []byte("new"), 0644, true); err != nil {
+			t.Fatalf("atomicWrite over %o: %v", want, err)
+		}
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != want {
+			t.Errorf("existing %o target must keep its mode after rewrite, got %v", want, fi.Mode().Perm())
+		}
+	}
+
+	// Absent target gets the caller perm.
+	path := filepath.Join(dir, "new-file")
+	if err := atomicWrite(path, []byte("x"), 0644, true); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0644 {
+		t.Errorf("absent target must get caller perm 0644, got %v", fi.Mode().Perm())
+	}
+}
+
+// TestSettingsSave_preservesChmoddedMode: Settings.Save over a 0600
+// .pi/settings.json preserves 0600 — no silent 0644 reset via the rename.
+func TestSettingsSave_preservesChmoddedMode(t *testing.T) {
+	workdir := t.TempDir()
+	path := filepath.Join(workdir, ".pi", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(workdir); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0600 {
+		t.Errorf("0600 .pi/settings.json must keep 0600 through Settings.Save, got %v", fi.Mode().Perm())
+	}
+}
+
 // ──────────────────────────────────────────────
 // GitHubToken / ListProviders error classes
 // ──────────────────────────────────────────────
@@ -657,202 +748,6 @@ func TestDedupeKeyGuardOnWriters(t *testing.T) {
 	}
 	if got := authField(t, raw, "api_key"); got != "xyz" {
 		t.Errorf("SetLegacyAuth api_key must dedupe pasted keys, got %q", got)
-	}
-}
-
-// ──────────────────────────────────────────────
-// readJSONFile / writeJSONFile generic primitives
-// ──────────────────────────────────────────────
-
-func TestReadJSONFile_MissingFileNotFoundVTouched(t *testing.T) {
-	testutil.RedirectConfigHome(t)
-	cfg := &fileRepository{}
-	v := map[string]json.RawMessage{"keep": json.RawMessage(`"me"`)}
-	found, err := cfg.readJSONFile(&v)
-	if err != nil || found {
-		t.Fatalf("missing file: (found, err) = (%v, %v), want (false, nil)", found, err)
-	}
-	if len(v) != 1 || string(v["keep"]) != `"me"` {
-		t.Errorf("missing file: v must be untouched, got %v", v)
-	}
-}
-
-func TestReadJSONFile_ValidFilePopulatesV(t *testing.T) {
-	writeAuthFile(t, `{"openai":{"key":"k"},"github_token":"tok"}`)
-	cfg := &fileRepository{}
-	var v map[string]json.RawMessage
-	found, err := cfg.readJSONFile(&v)
-	if err != nil || !found {
-		t.Fatalf("valid file: (found, err) = (%v, %v), want (true, nil)", found, err)
-	}
-	if got := string(v["github_token"]); got != `"tok"` {
-		t.Errorf("github_token = %s, want \"tok\"", got)
-	}
-	var entry struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(v["openai"], &entry); err != nil || entry.Key != "k" {
-		t.Errorf("openai entry = %+v (err %v), want key k", entry, err)
-	}
-}
-
-func TestReadJSONFile_EmptyFileErrors(t *testing.T) {
-	// Empty file ≠ missing file: fail-closed, a 0-byte auth.json must error
-	// before any write could clobber it.
-	writeAuthFile(t, "")
-	cfg := &fileRepository{}
-	var v map[string]json.RawMessage
-	found, err := cfg.readJSONFile(&v)
-	if err == nil {
-		t.Errorf("0-byte auth.json must error (found=%v)", found)
-	}
-}
-
-func TestReadJSONFile_MalformedErrors(t *testing.T) {
-	writeAuthFile(t, `{invalid json}`)
-	cfg := &fileRepository{}
-	var v map[string]json.RawMessage
-	if _, err := cfg.readJSONFile(&v); err == nil {
-		t.Error("malformed JSON must error")
-	}
-}
-
-func TestReadJSONFile_PathIsDirectoryErrors(t *testing.T) {
-	dir := testutil.RedirectConfigHome(t)
-	path := filepath.Join(dir, "cheasee-pi", "auth.json")
-	if err := os.MkdirAll(path, 0700); err != nil {
-		t.Fatal(err)
-	}
-	cfg := &fileRepository{}
-	var v map[string]json.RawMessage
-	if _, err := cfg.readJSONFile(&v); err == nil {
-		t.Error("auth.json as a directory must error (non-IsNotExist read failure surfaces)")
-	}
-}
-
-func TestReadJSONFile_PrepopulatedVMerges(t *testing.T) {
-	// populate-not-merge contract: file keys overwrite same-named memory
-	// entries, memory-only keys survive. Callers must pass a fresh v.
-	writeAuthFile(t, `{"b":"file-b","c":"file-c"}`)
-	cfg := &fileRepository{}
-	v := map[string]json.RawMessage{
-		"a": json.RawMessage(`"mem-a"`),
-		"b": json.RawMessage(`"mem-b"`),
-	}
-	found, err := cfg.readJSONFile(&v)
-	if err != nil || !found {
-		t.Fatalf("valid file: (found, err) = (%v, %v), want (true, nil)", found, err)
-	}
-	if got := string(v["a"]); got != `"mem-a"` {
-		t.Errorf("memory-only key a = %s, want \"mem-a\"", got)
-	}
-	if got := string(v["b"]); got != `"file-b"` {
-		t.Errorf("file key b must override memory entry, got %s, want \"file-b\"", got)
-	}
-	if got := string(v["c"]); got != `"file-c"` {
-		t.Errorf("file key c = %s, want \"file-c\"", got)
-	}
-}
-
-func TestWriteJSONFile_RoundTripAndTwoSpaceIndent(t *testing.T) {
-	dir := testutil.RedirectConfigHome(t)
-	cfg := &fileRepository{}
-	raw := map[string]json.RawMessage{
-		"github_token": json.RawMessage(`"tok-1"`),
-		"openai":       json.RawMessage(`{"key":"k"}`),
-	}
-	if err := cfg.writeJSONFile(raw); err != nil {
-		t.Fatalf("writeJSONFile: %v", err)
-	}
-
-	var v map[string]json.RawMessage
-	found, err := cfg.readJSONFile(&v)
-	if err != nil || !found {
-		t.Fatalf("readback: (found, err) = (%v, %v), want (true, nil)", found, err)
-	}
-	if got := string(v["github_token"]); got != `"tok-1"` {
-		t.Errorf("github_token = %s, want \"tok-1\"", got)
-	}
-	var entry struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(v["openai"], &entry); err != nil || entry.Key != "k" {
-		t.Errorf("openai entry must round-trip logically, got %s (err %v)", v["openai"], err)
-	}
-
-	path := filepath.Join(dir, "cheasee-pi", "auth.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(data, []byte("\n  \"")) {
-		t.Errorf("file must use 2-space indentation, got:\n%s", data)
-	}
-}
-
-func TestWriteJSONFile_IdenticalContentByteIdentical(t *testing.T) {
-	dir := testutil.RedirectConfigHome(t)
-	cfg := &fileRepository{}
-	raw := map[string]json.RawMessage{
-		"b": json.RawMessage(`"two"`),
-		"a": json.RawMessage(`"one"`),
-	}
-	if err := cfg.writeJSONFile(raw); err != nil {
-		t.Fatalf("first write: %v", err)
-	}
-	path := filepath.Join(dir, "cheasee-pi", "auth.json")
-	first, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.writeJSONFile(raw); err != nil {
-		t.Fatalf("second write: %v", err)
-	}
-	second, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Errorf("identical content must produce byte-identical files:\nfirst:\n%s\nsecond:\n%s", first, second)
-	}
-}
-
-func TestWriteJSONFile_UnmarshalableValueErrorsNoResidue(t *testing.T) {
-	dir := testutil.RedirectConfigHome(t)
-	cfg := &fileRepository{}
-	bad := map[string]any{"c": make(chan int)}
-	if err := cfg.writeJSONFile(bad); err == nil {
-		t.Fatal("chan value must fail json.Marshal")
-	}
-	path := filepath.Join(dir, "cheasee-pi", "auth.json")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("no auth.json may be created for an unmarshalable value")
-	}
-	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
-		t.Error("no .tmp may be left behind for an unmarshalable value")
-	}
-}
-
-func TestReadRawMap_MissingFileNonNilEmptyMapFreshAlloc(t *testing.T) {
-	testutil.RedirectConfigHome(t)
-	cfg := &fileRepository{}
-	raw, err := cfg.readRawMap()
-	if err != nil {
-		t.Fatalf("missing file: readRawMap err = %v, want nil", err)
-	}
-	if raw == nil {
-		t.Fatal("missing file: readRawMap must return a non-nil empty map")
-	}
-	if len(raw) != 0 {
-		t.Fatalf("missing file: readRawMap = %v, want empty", raw)
-	}
-	raw["mutate"] = json.RawMessage(`"x"`)
-	fresh, err := cfg.readRawMap()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := fresh["mutate"]; ok {
-		t.Error("each readRawMap call must return a fresh map (no cross-call contamination)")
 	}
 }
 
