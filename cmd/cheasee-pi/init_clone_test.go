@@ -12,39 +12,6 @@ import (
 )
 
 // ──────────────────────────────────────────────
-// ParseGitHubURL (entity)
-// ──────────────────────────────────────────────
-
-func TestParseGitHubURL(t *testing.T) {
-	cases := []struct {
-		name      string
-		url       string
-		wantOwner string
-		wantRepo  string
-	}{
-		{"shorthand", "owner/repo", "owner", "repo"},
-		{"shorthand git suffix", "owner/repo.git", "owner", "repo"},
-		{"https", "https://github.com/owner/repo", "owner", "repo"},
-		{"https git suffix", "https://github.com/owner/repo.git", "owner", "repo"},
-		{"https trailing slash", "https://github.com/owner/repo/", "owner", "repo"},
-		{"ssh colon form", "git@github.com:owner/repo", "owner", "repo"},
-		{"ssh colon git suffix", "git@github.com:owner/repo.git", "owner", "repo"},
-		{"ssh scheme", "ssh://git@github.com/owner/repo", "owner", "repo"},
-		{"invalid no repo", "owner", "", ""},
-		{"invalid junk", "not-a-url", "", ""},
-		{"invalid empty", "", "", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			owner, repo := ParseGitHubURL(tc.url)
-			if owner != tc.wantOwner || repo != tc.wantRepo {
-				t.Errorf("ParseGitHubURL(%q) = (%q, %q), want (%q, %q)", tc.url, owner, repo, tc.wantOwner, tc.wantRepo)
-			}
-		})
-	}
-}
-
-// ──────────────────────────────────────────────
 // redactToken (security, defense in depth)
 // ──────────────────────────────────────────────
 
@@ -88,10 +55,17 @@ func TestCanonicalRepoURL(t *testing.T) {
 		{"shorthand", "owner/repo", "https://github.com/owner/repo.git", ""},
 		{"shorthand git suffix", "owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"scp style", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"scp mixed-case host", "git@GitHub.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"https passthrough", "https://github.com/owner/repo", "https://github.com/owner/repo", ""},
 		{"https git suffix passthrough", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"https trailing slash passthrough", "https://github.com/owner/repo/", "https://github.com/owner/repo/", ""},
 		{"ssh scheme passthrough", "ssh://git@github.com/owner/repo", "ssh://git@github.com/owner/repo", ""},
+		{"gitlab https refused", "https://gitlab.com/a/b", "", "invalid repo URL"},
+		{"gitlab scp refused", "git@gitlab.com:a/b", "", "invalid repo URL"},
+		{"scheme URL no authority", "https:///owner/repo", "", "invalid repo URL"},
+		{"deep GitHub URL refused", "https://github.com/o/r/tree/main", "", "invalid repo URL"},
+		{"relative dot path refused", "./repo", "", "invalid repo URL"},
+		{"relative parent path refused", "../repo", "", "invalid repo URL"},
 		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
 		{"unparsable", "not-a-url", "", "invalid repo URL"},
 		{"empty", "", "", "invalid repo URL"},
@@ -292,6 +266,35 @@ func TestGitCloneWorktree_invalidURL(t *testing.T) {
 	}
 	if len(c.cloneArgs) != 0 {
 		t.Errorf("no git call may run for an invalid URL, got %v", c.cloneArgs)
+	}
+}
+
+func TestGitCloneWorktree_gitlabURLRefused(t *testing.T) {
+	// Fail-fast tightening: a non-GitHub remote URL was previously accepted
+	// by the three-way split ("https:" owner garbage) and died late inside
+	// git; now it is refused before any git invocation runs.
+	workdir := t.TempDir()
+	c := stubGitClone(t, nil, nil)
+	err := gitCloneWorktree(context.Background(), "https://gitlab.com/a/b", workdir)
+	if err == nil || !strings.Contains(err.Error(), "invalid repo URL") {
+		t.Fatalf("expected invalid repo URL error for a gitlab URL, got %v", err)
+	}
+	if len(c.cloneArgs) != 0 {
+		t.Errorf("no git call may run for a gitlab URL, got %v", c.cloneArgs)
+	}
+}
+
+func TestGitCloneWorktree_schemeURLWithoutAuthorityRefused(t *testing.T) {
+	// Fail-closed regression (audit): a scheme URL with no authority
+	// (https:///owner/repo) must never reach git as if it were shorthand.
+	workdir := t.TempDir()
+	c := stubGitClone(t, nil, nil)
+	err := gitCloneWorktree(context.Background(), "https:///owner/repo", workdir)
+	if err == nil || !strings.Contains(err.Error(), "invalid repo URL") {
+		t.Fatalf("expected invalid repo URL error for an authority-less scheme URL, got %v", err)
+	}
+	if len(c.cloneArgs) != 0 {
+		t.Errorf("no git call may run for an authority-less scheme URL, got %v", c.cloneArgs)
 	}
 }
 

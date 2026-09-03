@@ -18,7 +18,7 @@ import (
 // remote.origin.url verbatim in .bare/config, so a token-bearing URL would be
 // written to disk in plain text.
 func canonicalRepoURL(repoURL string) (string, error) {
-	owner, repo := ParseGitHubURL(repoURL)
+	owner, repo := parseGitHubRemote(repoURL)
 	if owner == "" || repo == "" {
 		return "", fmt.Errorf("invalid repo URL: %s", redactToken(repoURL))
 	}
@@ -32,11 +32,14 @@ func canonicalRepoURL(repoURL string) (string, error) {
 	// git@github.com:owner/repo → https too: the clone runs with the gh
 	// credential helper, which speaks https only — ssh dies with publickey
 	// errors on machines without a key. ssh://git@... stays passthrough
-	// (deliberate ssh users keep their transport).
+	// (deliberate ssh users keep their transport). The host match is
+	// case-insensitive (GitHub itself is): parseGitRemote accepted the
+	// mixed-case host, so the scp → https rewrite must agree or a valid
+	// git@GitHub.com:... URL would reach git clone over ssh unchanged.
 	switch {
 	case !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") && !strings.Contains(repoURL, ":"):
 		return "https://github.com/" + owner + "/" + repo + ".git", nil
-	case strings.HasPrefix(repoURL, "git@") && strings.Contains(repoURL, "github.com:"):
+	case strings.HasPrefix(repoURL, "git@") && strings.Contains(strings.ToLower(repoURL), "github.com:"):
 		return "https://github.com/" + owner + "/" + repo + ".git", nil
 	}
 	return repoURL, nil

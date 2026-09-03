@@ -47,13 +47,15 @@ func TestCanonicalSkillRepo_Rejects(t *testing.T) {
 	}{
 		{"empty", "", "empty skill repo spec"},
 		{"whitespace", "   ", "empty skill repo spec"},
-		{"local dot", "./x", "local paths"},
+		{"local dot", "./repo", "local paths"},
 		{"local abs", "/abs/x", "local paths"},
-		{"local parent", "../x", "local paths"},
+		{"local parent", "../repo", "local paths"},
 		{"npm source", "npm:@earendil-works/pi-coding-agent", "npm:"},
 		{"bare scp no prefix", "git@github.com:user/repo", "git:"},
 		{"credential bearer", "https://token@github.com/user/repo", "embedded credentials"},
 		{"garbage", "not a repo", "invalid skill repo"},
+		{"gitlab https refused", "https://gitlab.com/a/b", "invalid skill repo"},
+		{"scheme URL no authority", "https:///owner/repo", "invalid skill repo"},
 		{"git prefix without path", "git:onlyhost", "git:"},
 	}
 	for _, tc := range rejects {

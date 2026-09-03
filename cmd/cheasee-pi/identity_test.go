@@ -22,27 +22,114 @@ func writeBareRemote(t *testing.T, parent, url string) {
 }
 
 // ──────────────────────────────────────────────
-// parseGitRemote (entity)
+// parseGitRemote / parseGitHubRemote (entity)
 // ──────────────────────────────────────────────
 
-func TestParseGitRemote_variants(t *testing.T) {
-	cases := []struct{ raw, owner, repo string }{
-		{"https://github.com/alice/foo.git", "alice", "foo"},
-		{"https://github.com/alice/foo", "alice", "foo"},
-		{"git@github.com:alice/foo.git", "alice", "foo"},
-		{"git@github.com:alice/foo", "alice", "foo"},
-		{"ssh://git@github.com/alice/foo.git", "alice", "foo"},
-		{"git://github.com/alice/foo.git", "alice", "foo"},
-		{"https://gitlab.com/group/sub/foo.git", "group/sub", "foo"},
-		{"alice/foo", "alice", "foo"},
-		{"", "", ""},
-		{"not-a-url", "", "not-a-url"},
-		{"   ", "", ""},
+func TestParseGitRemote(t *testing.T) {
+	// Union of the old TestParseGitHubURL + TestParseGitRemote_variants
+	// tables, plus the divergence rows pinning the merged semantics
+	// (3-tuple asserts: owner, repo, host).
+	cases := []struct{ raw, owner, repo, host string }{
+		// shorthand
+		{"alice/foo", "alice", "foo", ""},
+		{"owner/repo.git", "owner", "repo", ""},
+		{"alice/foo/", "alice", "foo", ""},
+		// https
+		{"https://github.com/alice/foo.git", "alice", "foo", "github.com"},
+		{"https://github.com/alice/foo", "alice", "foo", "github.com"},
+		{"https://github.com/owner/repo/", "owner", "repo", "github.com"},
+		// canonical strip order fixes .git + trailing slash
+		{"https://github.com/owner/repo.git/", "owner", "repo", "github.com"},
+		// ssh colon (scp-like)
+		{"git@github.com:alice/foo.git", "alice", "foo", "github.com"},
+		{"git@github.com:alice/foo", "alice", "foo", "github.com"},
+		// ssh scheme; userinfo and :port stripped from the host
+		{"ssh://git@github.com/alice/foo.git", "alice", "foo", "github.com"},
+		{"ssh://git@github.com:2222/owner/repo", "owner", "repo", "github.com"},
+		// git:// kept from the old table (dead on GitHub, not rejected here)
+		{"git://github.com/alice/foo.git", "alice", "foo", "github.com"},
+		// host lowercased (kills the old case-sensitive anchor bug)
+		{"https://GitHub.com/owner/repo", "owner", "repo", "github.com"},
+		{"git@GitHub.com:owner/repo", "owner", "repo", "github.com"},
+		// nested groups (GitLab) — all-but-last-segment owner
+		{"https://gitlab.com/group/sub/foo.git", "group/sub", "foo", "gitlab.com"},
+		{"https://gitlab.com/a/b", "a", "b", "gitlab.com"},
+		{"git@gitlab.com:group/sub/foo.git", "group/sub", "foo", "gitlab.com"},
+		// deep GitHub URL — no silent segment-drop (old SplitN("/", 3))
+		{"https://github.com/o/r/tree/main", "o/r/tree", "main", "github.com"},
+		// form order (git-clone(1)): scp-like only when no slash precedes
+		// the FIRST colon
+		{"host:2222:o/r", "2222:o", "r", "host"},
+		{"foo/bar:baz", "", "", ""}, // local-path-with-colon → ownerless
+		// empty authorities are malformed — never shorthand (kills the
+		// audit finding: a scheme/scp URL with no host must fail closed)
+		{"https:///owner/repo", "", "", ""},
+		{"https://:2222/owner/repo", "", "", ""},
+		{":owner/repo", "", "", ""},
+		{"@:owner/repo", "", "", ""},
+		// reject semantic: single-segment ownerless keeps the repo
+		{"not-a-url", "", "not-a-url", ""},
+		{"alice", "", "alice", ""},
+		// relative/absolute local paths — git can clone them but they carry
+		// no owner/repo; empty tuple keeps repoSlug's basename fallback and
+		// makes the init gates refuse (never github.com/./repo.git)
+		{"./repo", "", "", ""},
+		{"../repo", "", "", ""},
+		{"/tmp/abs/repo", "", "", ""},
+		{"~/repo", "", "", ""},
+		// file:// URLs are local paths too — the authority is a filesystem
+		// location, never a remote host (kills the audit finding: "localhost"
+		// must not become a host with owner tmp/repo project)
+		{"file://localhost/tmp/project.git", "", "", ""},
+		{"file:///tmp/project.git", "", "", ""},
+		{"file://server/share/repo", "", "", ""},
+		// empty / whitespace
+		{"", "", "", ""},
+		{"   ", "", "", ""},
 	}
 	for _, c := range cases {
-		owner, repo := parseGitRemote(c.raw)
+		owner, repo, host := parseGitRemote(c.raw)
+		if owner != c.owner || repo != c.repo || host != c.host {
+			t.Errorf("parseGitRemote(%q) = (%q, %q, %q), want (%q, %q, %q)", c.raw, owner, repo, host, c.owner, c.repo, c.host)
+		}
+	}
+}
+
+func TestParseGitHubRemote(t *testing.T) {
+	accepted := []struct{ raw, owner, repo string }{
+		{"owner/repo", "owner", "repo"},
+		{"owner/repo.git", "owner", "repo"},
+		{"https://github.com/o/r", "o", "r"},
+		{"https://github.com/o/r.git", "o", "r"},
+		{"https://github.com/o/r/", "o", "r"},
+		{"ssh://git@github.com/o/r", "o", "r"},
+		{"git@github.com:o/r", "o", "r"},
+		{"https://GitHub.com/o/r", "o", "r"}, // host lowercased by the parser
+	}
+	for _, c := range accepted {
+		owner, repo := parseGitHubRemote(c.raw)
 		if owner != c.owner || repo != c.repo {
-			t.Errorf("parseGitRemote(%q) = (%q, %q), want (%q, %q)", c.raw, owner, repo, c.owner, c.repo)
+			t.Errorf("parseGitHubRemote(%q) = (%q, %q), want (%q, %q)", c.raw, owner, repo, c.owner, c.repo)
+		}
+	}
+
+	refused := []string{
+		"https://gitlab.com/a/b",
+		"git@gitlab.com:a/b",
+		"https://github.com/o/r/tree/main", // multi-segment owner
+		"https:///owner/repo",              // scheme with no authority
+		":owner/repo",                      // scp-like with no authority
+		"alice",                            // ownerless
+		"not-a-url",
+		"",
+		"foo/bar:baz", // local-path-with-colon
+		"./repo",       // relative local path (never github.com/./repo)
+		"../repo",      // relative local path
+		"file://localhost/tmp/project.git", // file URL → local path, not a host
+	}
+	for _, raw := range refused {
+		if owner, repo := parseGitHubRemote(raw); owner != "" || repo != "" {
+			t.Errorf("parseGitHubRemote(%q) = (%q, %q), want (\"\", \"\")", raw, owner, repo)
 		}
 	}
 }
@@ -183,6 +270,18 @@ func TestRepoSlug_scpLikeRemote(t *testing.T) {
 	writeBareRemote(t, parent, "git@github.com:alice/foo.git")
 	if got := repoSlug(root); got != "alice-foo" {
 		t.Errorf("repoSlug = %q, want alice-foo", got)
+	}
+}
+
+func TestRepoSlug_fileURLFallsBackToBasename(t *testing.T) {
+	// A file:// remote is a local path, not a remote identity: deriving
+	// tmp/project from the URL's pseudo-host "localhost" would rename the
+	// workspace after an unrelated path. repoSlug must fall back to the
+	// workspace basename instead.
+	parent, root := mkWorkspace(t, `{}`)
+	writeBareRemote(t, parent, "file://localhost/tmp/project.git")
+	if got := repoSlug(root); got != filepath.Base(root) {
+		t.Errorf("repoSlug = %q, want basename %q", got, filepath.Base(root))
 	}
 }
 

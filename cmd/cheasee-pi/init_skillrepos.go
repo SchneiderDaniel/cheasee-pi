@@ -54,10 +54,18 @@ func canonicalSkillRepo(spec string) (string, error) {
 		return spec, nil
 	}
 	if strings.HasPrefix(spec, "https://") || strings.HasPrefix(spec, "ssh://") {
+		// Direct clone forms are GitHub-only at init (the clone phase runs
+		// the gh https credential helper); git: package specs stay
+		// host-agnostic. The gate refuses non-GitHub hosts, ownerless URLs
+		// and multi-segment owners (nested groups) before the spec is
+		// persisted verbatim.
+		if owner, repo := parseGitHubRemote(spec); owner == "" || repo == "" {
+			return "", fmt.Errorf("invalid skill repo %q — expected owner/repo, an https/ssh git URL, or git:host/user/repo[@ref]", redactToken(spec))
+		}
 		return spec, nil
 	}
 	// Shorthand owner/repo → canonical https GitHub URL.
-	owner, repo := ParseGitHubURL(spec)
+	owner, repo := parseGitHubRemote(spec)
 	if owner == "" || repo == "" {
 		return "", fmt.Errorf("invalid skill repo %q — expected owner/repo, an https/ssh git URL, or git:host/user/repo[@ref]", redactToken(spec))
 	}
