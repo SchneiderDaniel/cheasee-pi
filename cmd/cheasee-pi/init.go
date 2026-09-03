@@ -252,7 +252,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		// Legacy path: API key only
 		fmt.Fprintf(os.Stderr, "  ℹ Using API-key-only mode.\n")
 		fmt.Fprintf(os.Stderr, "  ℹ Provider: %s\n", deps.Provider)
-		legacyProvider, legacyAPIKey, err = runInitLegacy(ctx, deps.APIKey, deps.Provider)
+		legacyProvider, legacyAPIKey, err = runInitLegacyAuth(ctx, deps)
 		if err != nil {
 			return err
 		}
@@ -264,7 +264,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 			if errors.Is(err, device.ErrUnsupported) {
 				fmt.Fprintf(os.Stderr, "  ⚠ GitHub OAuth device flow unavailable (the configured OAuth app may be invalid).\n")
 				fmt.Fprintf(os.Stderr, "  ℹ Falling back to API-key-only mode. Use --client-id to provide your own GitHub OAuth app.\n\n")
-				legacyProvider, legacyAPIKey, err = runInitLegacy(ctx, deps.APIKey, deps.Provider)
+				legacyProvider, legacyAPIKey, err = runInitLegacyAuth(ctx, deps)
 				if err != nil {
 					return err
 				}

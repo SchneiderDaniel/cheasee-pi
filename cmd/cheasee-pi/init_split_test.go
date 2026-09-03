@@ -47,13 +47,14 @@ var wantInitDecls = map[string]string{
 	"func:gitDefaultBranch":  "init_clone.go",
 	"func:canonicalRepoURL":  "init_clone.go",
 	"func:removeInitResidue": "init_clone.go",
-	"func:wireUpstream":     "init_clone.go",
+	"func:wireUpstream":      "init_clone.go",
 
-	"func:runInitAuth":    "init_auth.go",
-	"func:runInitAPIKeys": "init_auth.go",
-	"func:runInitLegacy":  "init_auth.go",
-	"func:runReauth":      "init_auth.go",
-	"func:promptAPIKey":   "init_auth.go",
+	"func:runInitAuth":       "init_auth.go",
+	"func:runInitAPIKeys":    "init_auth.go",
+	"func:runInitLegacy":     "init_auth.go",
+	"func:runInitLegacyAuth": "init_auth.go",
+	"func:runReauth":         "init_auth.go",
+	"func:promptAPIKey":      "init_auth.go",
 
 	"func:runInitDockerCheck":       "init_scaffold.go",
 	"func:runInitScaffold":          "init_scaffold.go",
@@ -230,11 +231,12 @@ var initHelperDecls = map[string]string{
 // runInitFlowDecls pins the TestRunInit_* decls (colliding prefix) by flow
 // stage: auth seam, scaffold-only orchestration with mockAuthenticator.
 var runInitFlowDecls = map[string]string{
-	"func:TestRunInit_FullFlow":                   "init_auth_test.go",
-	"func:TestRunInit_NoGitHubFlag":               "init_auth_test.go",
-	"func:TestRunInit_ContextCancelledMidFlow":    "init_auth_test.go",
-	"func:TestRunInit_GitHubFlowClonesWorktree":   "init_prompt_test.go",
-	"func:TestRunInit_NoGitHubLegacySkipsGitInit": "init_prompt_test.go",
+	"func:TestRunInit_FullFlow":                        "init_auth_test.go",
+	"func:TestRunInit_NoGitHubFlag":                    "init_auth_test.go",
+	"func:TestRunInit_ErrUnsupportedFallsBackToLegacy": "init_auth_test.go",
+	"func:TestRunInit_ContextCancelledMidFlow":         "init_auth_test.go",
+	"func:TestRunInit_GitHubFlowClonesWorktree":        "init_prompt_test.go",
+	"func:TestRunInit_NoGitHubLegacySkipsGitInit":      "init_prompt_test.go",
 }
 
 // testSplitRules map decl name prefixes to their subject file. Rules are

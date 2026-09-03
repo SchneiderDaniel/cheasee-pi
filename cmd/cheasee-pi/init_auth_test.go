@@ -307,6 +307,62 @@ func TestRunInit_NoGitHubFlag(t *testing.T) {
 	}
 }
 
+func TestRunInit_ErrUnsupportedFallsBackToLegacy(t *testing.T) {
+	// GitHub device flow failing with device.ErrUnsupported must fall back to
+	// the legacy API-key path (call site #2): clone still runs and auth.json
+	// is written in the legacy patch shape (provider entry + repo_path, no
+	// github_token/github_user), with the fallback stderr contract intact.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	clone := stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	stderr := testutil.CaptureStderr(t, func() {
+		err = runInit(context.Background(), initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
+			d.APIKey = FakeAPIKey
+			d.Ports = InitPorts{Auth: &mockAuthenticator{
+				requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
+					return nil, device.ErrUnsupported
+				},
+			}}
+		}))
+	})
+	if err != nil {
+		t.Fatalf("ErrUnsupported must fall back to legacy, got: %v", err)
+	}
+	// Fallback stderr contract: both lines stay at the orchestrator call site.
+	if !strings.Contains(stderr, "⚠ GitHub OAuth device flow unavailable") {
+		t.Errorf("stderr must carry the device-flow-unavailable warning, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "ℹ Falling back to API-key-only mode") {
+		t.Errorf("stderr must carry the fallback notice, got:\n%s", stderr)
+	}
+	// Clone phase still runs on the fallback path.
+	if len(clone.cloneArgs) != 1 || len(clone.worktreeAdd) != 1 {
+		t.Fatalf("expected one bare clone + one worktree add, got %d/%d", len(clone.cloneArgs), len(clone.worktreeAdd))
+	}
+	// Legacy patch shape: provider entry + repo_path, no github fields.
+	authRaw := readAuthJSON(t)
+	if got := providerKey(t, authRaw, "opencode-go"); got != FakeAPIKey {
+		t.Errorf("expected API key %q under provider opencode-go, got %q", FakeAPIKey, got)
+	}
+	if got := authField(t, authRaw, "repo_path"); got != filepath.Join(workdir, "main") {
+		t.Errorf("expected repo_path %q, got %q", filepath.Join(workdir, "main"), got)
+	}
+	if _, ok := authRaw["github_token"]; ok {
+		t.Error("legacy fallback must not write github_token")
+	}
+	if _, ok := authRaw["github_user"]; ok {
+		t.Error("legacy fallback must not write github_user")
+	}
+}
+
 func TestRunInitLegacy_ReturnsScalars(t *testing.T) {
 	// runInitLegacy is auth-only: returns (provider, apiKey) scalars, does
 	// NOT save/extract/render — the orchestrator threads them into the
@@ -320,6 +376,59 @@ func TestRunInitLegacy_ReturnsScalars(t *testing.T) {
 	}
 	if provider != "opencode-go" {
 		t.Errorf("expected provider %q, got %q", "opencode-go", provider)
+	}
+}
+
+func TestRunInitLegacyAuth_ReturnsScalars(t *testing.T) {
+	// The helper is the shared tail of the two Phase-4 legacy branches in
+	// runInit: returns the legacy (provider, apiKey) scalar pair, no
+	// repo-path stamping.
+	provider, apiKey, err := runInitLegacyAuth(context.Background(), initDeps(t, func(d *InitDeps) {
+		d.APIKey = FakeAPIKey
+		d.Provider = "opencode-go"
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if apiKey != FakeAPIKey {
+		t.Errorf("expected API key %q, got %q", FakeAPIKey, apiKey)
+	}
+	if provider != "opencode-go" {
+		t.Errorf("expected provider %q, got %q", "opencode-go", provider)
+	}
+}
+
+func TestRunInitLegacyAuth_NoPrintsNoWorkdir(t *testing.T) {
+	// The helper is auth-only: it must neither print (the orchestrator owns
+	// the ℹ/⚠ stderr contract) nor consume the workdir (the orchestrator
+	// stamps repo_path in the phase-7 patch). The error path is a bare
+	// return from runInitLegacy — no seam forces promptAPIKey to fail, so no
+	// error-passthrough test is added for this refactor.
+	sentinel := t.TempDir()
+	var provider, apiKey string
+	var err error
+	stderr := testutil.CaptureStderr(t, func() {
+		provider, apiKey, err = runInitLegacyAuth(context.Background(), initDeps(t, func(d *InitDeps) {
+			d.APIKey = FakeAPIKey
+			d.Provider = "opencode-go"
+			d.Workdir = sentinel
+		}))
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("helper must not print to stderr, got: %q", stderr)
+	}
+	if provider != "opencode-go" || apiKey != FakeAPIKey {
+		t.Errorf("expected (opencode-go, %q), got (%q, %q)", FakeAPIKey, provider, apiKey)
+	}
+	entries, err := os.ReadDir(sentinel)
+	if err != nil {
+		t.Fatalf("read sentinel dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("helper must not write into the workdir, found %d entries", len(entries))
 	}
 }
 
