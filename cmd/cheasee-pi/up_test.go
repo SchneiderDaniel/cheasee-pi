@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // ──────────────────────────────────────────────
@@ -796,5 +798,35 @@ func TestRedactEnvValue(t *testing.T) {
 	}
 	if got := redactEnvValue(""); got != "" {
 		t.Errorf("empty value should print in full, got %q", got)
+	}
+}
+
+func TestClassifyWorkspace_settingsBeatsNonEmpty(t *testing.T) {
+	// Marker precedes refuse: an initialized workspace with stray files is
+	// WorkspaceInitialized, never WorkspaceRefuse.
+	dir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, dir, `{}`)
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := classifyWorkspace(dir)
+	if err != nil {
+		t.Fatalf("classifyWorkspace: %v", err)
+	}
+	if state != WorkspaceInitialized {
+		t.Errorf("settings + stray files → WorkspaceInitialized, got %v", state)
+	}
+}
+
+func TestClassifyWorkspace_brokenPathError(t *testing.T) {
+	// A workdir that can't be inspected surfaces the workdir-wrapping error.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "somefile.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	broken := filepath.Join(dir, "somefile.txt", "sub")
+	_, err := classifyWorkspace(broken)
+	if err == nil || !strings.Contains(err.Error(), "inspect workspace") || !strings.Contains(err.Error(), broken) {
+		t.Fatalf("broken workdir must surface inspect-workspace error naming the dir, got: %v", err)
 	}
 }
