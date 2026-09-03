@@ -294,25 +294,35 @@ func TestEntrypoint_ChownNewLinks(t *testing.T) {
 	}
 }
 
-func TestEntrypoint_LinkOwnedBehavior(t *testing.T) {
-	// link_owned's low-level primitives in real bash: create-when-absent,
-	// re-point-when-target-differs, no-op when readlink already equals the
-	// target, and a real file at the link name left untouched (conflict
-	// refusal — never over a real file/dir, never rm -rf). Mirrors the
-	// TestDockerfile_BrowserGuardBehavior precedent.
-	script := `
-set -e
-link_owned() {
-    local link="$1" target="$2"
-    if [ -L "$link" ]; then
-        [ "$(readlink "$link")" = "$target" ] && return 0
-        ln -sfn "$target" "$link"
-        chown -h agentuser:agentuser "$link" 2>/dev/null || true
-    elif [ ! -e "$link" ]; then
-        ln -s "$target" "$link"
-        chown -h agentuser:agentuser "$link" 2>/dev/null || true
-    fi
+// extractLinkOwned pulls the actual link_owned() function definition out of
+// entrypoint.sh (from `link_owned() {` to the closing brace at column 0) so
+// behavioral checks execute the production function, never a test-side copy
+// (audit: extract-or-execute).
+func extractLinkOwned(t *testing.T) string {
+	t.Helper()
+	content := readEntrypoint(t)
+	start := strings.Index(content, "link_owned() {")
+	if start < 0 {
+		t.Fatal("entrypoint must define link_owned()")
+	}
+	rel := content[start:]
+	// Body lines are indented; the definition closes with a bare } at column 0.
+	end := strings.Index(rel, "\n}\n")
+	if end < 0 {
+		t.Fatal("link_owned() definition must close with } at column 0")
+	}
+	return rel[:end+len("\n}\n")]
 }
+
+func TestEntrypoint_LinkOwnedBehavior(t *testing.T) {
+	// link_owned's low-level primitives in real bash, running the function text
+	// EXTRACTED from entrypoint.sh: create-when-absent, re-point-when-
+	// target-differs, no-op when readlink already equals the target, and a real
+	// file at the link name left untouched (conflict refusal — never over a
+	// real file/dir, never rm -rf). chown -h in the extracted body fails
+	// harmlessly here (2>/dev/null || true swallow is part of the production
+	// function).
+	body := `
 root="$1"; t1="$root/t1"; t2="$root/t2"; l="$root/link"
 mkdir -p "$t1" "$t2"
 link_owned "$l" "$t1"                                   # create when absent
@@ -326,6 +336,7 @@ link_owned "$root/real" "$t1"                           # conflict refusal
 [ ! -L "$root/real" ] && [ "$(cat "$root/real")" = "real file" ]
 echo OK
 `
+	script := "set -e\n" + extractLinkOwned(t) + body
 	root := t.TempDir()
 	out, err := exec.Command("bash", "-c", script, "bash", root).CombinedOutput()
 	if err != nil {
