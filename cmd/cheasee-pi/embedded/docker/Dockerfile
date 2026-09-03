@@ -226,21 +226,6 @@ RUN case "$(dpkg --print-architecture)" in \
 ENV PATH=/usr/local/go/bin:${PATH}
 
 # ---------------------------------------------------------------
-# Layer 5h: pi-coding-agent (last npm layer — pi version bumps
-#           don't invalidate expensive binary layers above)
-# ---------------------------------------------------------------
-ARG PI_VERSION=latest
-# Cache-busting stamp: any change to this ARG invalidates the npm layer,
-# so @latest is re-resolved on every build instead of reusing a stale layer.
-# Set it to a per-build value (e.g. $(date +%s)) via `docker compose build
-# --build-arg PI_BUILD_STAMP=$(date +%s)`.
-ARG PI_BUILD_STAMP
-RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
-    && npm cache clean --force \
-    && rm -rf /tmp/* \
-    && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
-
-# ---------------------------------------------------------------
 # Layer 6: Non-root user + workspace directory
 # ---------------------------------------------------------------
 RUN groupadd --gid 1001 agentuser && \
@@ -314,6 +299,26 @@ RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts 
        fi \
     && if [ -f /opt/cheasee-pi/APPEND_SYSTEM.md ]; then ln -sfn /opt/cheasee-pi/APPEND_SYSTEM.md /home/agentuser/.pi/agent/APPEND_SYSTEM.md; fi \
     && chown -R agentuser:agentuser /home/agentuser/.pi
+
+# ---------------------------------------------------------------
+# Layer 6c: pi-coding-agent (last npm layer — pi bumps don't
+#           invalidate the expensive clone/npm-ci layer above)
+# ---------------------------------------------------------------
+# Placed AFTER Layer 6b (clone + npm ci + symlink wiring) so a pi update —
+# every build busts this layer via PI_BUILD_STAMP — only re-runs this npm
+# install; the expensive clone/npm-ci layers stay cached. Kept BEFORE
+# Layer 7's entrypoint COPY because that layer changes most frequently:
+# if pi sat absolute-last, every entrypoint/lib change would reinstall it.
+ARG PI_VERSION=latest
+# Cache-busting stamp: any change to this ARG invalidates the npm layer,
+# so @latest is re-resolved on every build instead of reusing a stale layer.
+# Set it to a per-build value (e.g. $(date +%s)) via `docker compose build
+# --build-arg PI_BUILD_STAMP=$(date +%s)`.
+ARG PI_BUILD_STAMP
+RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
+    && npm cache clean --force \
+    && rm -rf /tmp/* \
+    && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
 
 # ---------------------------------------------------------------
 # Layer 7: Entrypoint + worktree fix library (last – changes most frequently)
