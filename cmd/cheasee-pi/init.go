@@ -381,24 +381,22 @@ const (
 // reauth is set (→ initModeReauth; the empty-folder probe is skipped — an
 // initialized workspace has files by design), and refuses non-empty folders
 // for the full flow (cheasee-pi never auto-initializes existing folders).
-// .DS_Store is tolerated so Finder-touched folders still auto-init.
+// Workspace facts (marker + empty probe + .DS_Store tolerance) come from
+// workspaceFacts; this mapping just applies the init policy to them.
 // Returns initModeFull to proceed with the full flow.
 func runInitProbe(workdir string, reauth bool) (initMode, error) {
-	if _, err := os.Stat(cheaseeSettingsPath(workdir)); err == nil {
+	settingsPresent, empty, firstEntry, err := workspaceFacts(workdir)
+	if err != nil {
+		return initModeFull, fmt.Errorf("inspect folder: %w", err)
+	}
+	if settingsPresent {
 		if reauth {
 			return initModeReauth, nil
 		}
 		return initModeFull, fmt.Errorf("already initialized: %s exists — run `cheasee-pi start`, or `cheasee-pi init --reauth` to redo the GitHub and pi API-key authentications", cheaseeSettingsPath(workdir))
 	}
-	entries, err := os.ReadDir(workdir)
-	if err != nil {
-		return initModeFull, fmt.Errorf("inspect folder: %w", err)
-	}
-	for _, e := range entries {
-		if e.Name() == ".DS_Store" {
-			continue
-		}
-		return initModeFull, fmt.Errorf("init requires an empty folder: %q is not empty (found %q) — cheasee-pi init sets the workspace up itself (bare clone + worktree) and never initializes existing folders", workdir, e.Name())
+	if !empty {
+		return initModeFull, fmt.Errorf("init requires an empty folder: %q is not empty (found %q) — cheasee-pi init sets the workspace up itself (bare clone + worktree) and never initializes existing folders", workdir, firstEntry)
 	}
 	return initModeFull, nil
 }
