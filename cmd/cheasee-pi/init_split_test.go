@@ -245,7 +245,6 @@ var runInitFlowDecls = map[string]string{
 var testSplitRules = []prefixRule{
 	{"TestGitCloneWorktree", "init_clone_test.go"},
 	{"TestRemoveInitResidue", "init_clone_test.go"},
-	{"TestParseGitHubURL", "init_clone_test.go"},
 	{"TestRedactToken", "init_clone_test.go"},
 	{"TestCanonicalRepoURL", "init_clone_test.go"},
 	{"TestRunInitAuth", "init_auth_test.go"},

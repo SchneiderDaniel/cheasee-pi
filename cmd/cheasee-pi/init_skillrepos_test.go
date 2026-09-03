@@ -54,6 +54,7 @@ func TestCanonicalSkillRepo_Rejects(t *testing.T) {
 		{"bare scp no prefix", "git@github.com:user/repo", "git:"},
 		{"credential bearer", "https://token@github.com/user/repo", "embedded credentials"},
 		{"garbage", "not a repo", "invalid skill repo"},
+		{"gitlab https refused", "https://gitlab.com/a/b", "invalid skill repo"},
 		{"git prefix without path", "git:onlyhost", "git:"},
 	}
 	for _, tc := range rejects {

@@ -22,27 +22,90 @@ func writeBareRemote(t *testing.T, parent, url string) {
 }
 
 // ──────────────────────────────────────────────
-// parseGitRemote (entity)
+// parseGitRemote / parseGitHubRemote (entity)
 // ──────────────────────────────────────────────
 
-func TestParseGitRemote_variants(t *testing.T) {
-	cases := []struct{ raw, owner, repo string }{
-		{"https://github.com/alice/foo.git", "alice", "foo"},
-		{"https://github.com/alice/foo", "alice", "foo"},
-		{"git@github.com:alice/foo.git", "alice", "foo"},
-		{"git@github.com:alice/foo", "alice", "foo"},
-		{"ssh://git@github.com/alice/foo.git", "alice", "foo"},
-		{"git://github.com/alice/foo.git", "alice", "foo"},
-		{"https://gitlab.com/group/sub/foo.git", "group/sub", "foo"},
-		{"alice/foo", "alice", "foo"},
-		{"", "", ""},
-		{"not-a-url", "", "not-a-url"},
-		{"   ", "", ""},
+func TestParseGitRemote(t *testing.T) {
+	// Union of the old TestParseGitHubURL + TestParseGitRemote_variants
+	// tables, plus the divergence rows pinning the merged semantics
+	// (3-tuple asserts: owner, repo, host).
+	cases := []struct{ raw, owner, repo, host string }{
+		// shorthand
+		{"alice/foo", "alice", "foo", ""},
+		{"owner/repo.git", "owner", "repo", ""},
+		{"alice/foo/", "alice", "foo", ""},
+		// https
+		{"https://github.com/alice/foo.git", "alice", "foo", "github.com"},
+		{"https://github.com/alice/foo", "alice", "foo", "github.com"},
+		{"https://github.com/owner/repo/", "owner", "repo", "github.com"},
+		// canonical strip order fixes .git + trailing slash
+		{"https://github.com/owner/repo.git/", "owner", "repo", "github.com"},
+		// ssh colon (scp-like)
+		{"git@github.com:alice/foo.git", "alice", "foo", "github.com"},
+		{"git@github.com:alice/foo", "alice", "foo", "github.com"},
+		// ssh scheme; userinfo and :port stripped from the host
+		{"ssh://git@github.com/alice/foo.git", "alice", "foo", "github.com"},
+		{"ssh://git@github.com:2222/owner/repo", "owner", "repo", "github.com"},
+		// git:// kept from the old table (dead on GitHub, not rejected here)
+		{"git://github.com/alice/foo.git", "alice", "foo", "github.com"},
+		// host lowercased (kills the old case-sensitive anchor bug)
+		{"https://GitHub.com/owner/repo", "owner", "repo", "github.com"},
+		{"git@GitHub.com:owner/repo", "owner", "repo", "github.com"},
+		// nested groups (GitLab) — all-but-last-segment owner
+		{"https://gitlab.com/group/sub/foo.git", "group/sub", "foo", "gitlab.com"},
+		{"https://gitlab.com/a/b", "a", "b", "gitlab.com"},
+		{"git@gitlab.com:group/sub/foo.git", "group/sub", "foo", "gitlab.com"},
+		// deep GitHub URL — no silent segment-drop (old SplitN("/", 3))
+		{"https://github.com/o/r/tree/main", "o/r/tree", "main", "github.com"},
+		// form order (git-clone(1)): scp-like only when no slash precedes
+		// the FIRST colon
+		{"host:2222:o/r", "2222:o", "r", "host"},
+		{"foo/bar:baz", "", "", ""}, // local-path-with-colon → ownerless
+		// reject semantic: single-segment ownerless keeps the repo
+		{"not-a-url", "", "not-a-url", ""},
+		{"alice", "", "alice", ""},
+		// empty / whitespace
+		{"", "", "", ""},
+		{"   ", "", "", ""},
 	}
 	for _, c := range cases {
-		owner, repo := parseGitRemote(c.raw)
+		owner, repo, host := parseGitRemote(c.raw)
+		if owner != c.owner || repo != c.repo || host != c.host {
+			t.Errorf("parseGitRemote(%q) = (%q, %q, %q), want (%q, %q, %q)", c.raw, owner, repo, host, c.owner, c.repo, c.host)
+		}
+	}
+}
+
+func TestParseGitHubRemote(t *testing.T) {
+	accepted := []struct{ raw, owner, repo string }{
+		{"owner/repo", "owner", "repo"},
+		{"owner/repo.git", "owner", "repo"},
+		{"https://github.com/o/r", "o", "r"},
+		{"https://github.com/o/r.git", "o", "r"},
+		{"https://github.com/o/r/", "o", "r"},
+		{"ssh://git@github.com/o/r", "o", "r"},
+		{"git@github.com:o/r", "o", "r"},
+		{"https://GitHub.com/o/r", "o", "r"}, // host lowercased by the parser
+	}
+	for _, c := range accepted {
+		owner, repo := parseGitHubRemote(c.raw)
 		if owner != c.owner || repo != c.repo {
-			t.Errorf("parseGitRemote(%q) = (%q, %q), want (%q, %q)", c.raw, owner, repo, c.owner, c.repo)
+			t.Errorf("parseGitHubRemote(%q) = (%q, %q), want (%q, %q)", c.raw, owner, repo, c.owner, c.repo)
+		}
+	}
+
+	refused := []string{
+		"https://gitlab.com/a/b",
+		"git@gitlab.com:a/b",
+		"https://github.com/o/r/tree/main", // multi-segment owner
+		"alice",                            // ownerless
+		"not-a-url",
+		"",
+		"foo/bar:baz", // local-path-with-colon
+	}
+	for _, raw := range refused {
+		if owner, repo := parseGitHubRemote(raw); owner != "" || repo != "" {
+			t.Errorf("parseGitHubRemote(%q) = (%q, %q), want (\"\", \"\")", raw, owner, repo)
 		}
 	}
 }

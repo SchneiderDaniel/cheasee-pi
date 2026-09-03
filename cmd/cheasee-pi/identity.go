@@ -67,7 +67,7 @@ func truncateSlug(slug string, max int) string {
 // else the workspace basename. Lowercased, non-alphanumerics → '-'.
 func repoSlug(workspaceRoot string) string {
 	if url := bareRepoURL(workspaceRoot); url != "" {
-		owner, repo := parseGitRemote(url)
+		owner, repo, _ := parseGitRemote(url)
 		switch {
 		case owner != "" && repo != "":
 			return sanitizeSlug(owner + "-" + repo)
@@ -90,39 +90,100 @@ func bareRepoURL(workspaceRoot string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// parseGitRemote parses a git remote URL into (owner, repo):
+// parseGitRemote parses a git remote URL into (owner, repo, host) following
+// git-clone(1) URL grammar — scheme (`://`) first, scp-like only when no
+// slash precedes the FIRST colon (else the input is a local path, where a
+// colon keeps its path meaning), else shorthand/local:
 //
-//	https://github.com/owner/repo.git   → (owner, repo)
-//	git@github.com:owner/repo.git      → (owner, repo)
-//	ssh://git@github.com/owner/repo    → (owner, repo)
-//	https://gitlab.com/group/sub/foo   → (group/sub, foo)  (nested groups)
+//	https://github.com/owner/repo.git   → (owner, repo, github.com)
+//	git@github.com:owner/repo.git      → (owner, repo, github.com)
+//	ssh://git@github.com/owner/repo    → (owner, repo, github.com)
+//	https://gitlab.com/group/sub/foo   → (group/sub, foo, gitlab.com)
+//	owner/repo                         → (owner, repo, "")     (shorthand)
+//	not-a-url                          → ("", not-a-url, "")  (ownerless)
 //
-// ".git" stripped; unparseable/owner-less input → ("", repo-or-empty) so the
-// caller's fallback chain can proceed.
-func parseGitRemote(raw string) (owner, repo string) {
+// host is the lowercased authority minus userinfo and :port ("" for
+// shorthand/local input). ".git" and trailing slashes are stripped in a
+// canonical order (slashes first, so "repo.git/" cleans up fully); an
+// unparseable/owner-less input yields a repo-or-empty pair so the caller's
+// fallback chain can proceed.
+func parseGitRemote(raw string) (owner, repo, host string) {
 	url := strings.TrimSpace(raw)
-	url = strings.TrimSuffix(url, ".git")
-	if i := strings.Index(url, "://"); i >= 0 {
-		// scheme://host/path — drop the scheme and the host
-		url = url[i+3:]
-		if j := strings.Index(url, "/"); j >= 0 {
-			url = url[j+1:]
-		} else {
-			return "", ""
+	// Canonical strip: trailing slashes before ".git", repeated until stable
+	// ("repo.git/" → "repo", "repo/.git/" → "repo").
+	for {
+		next := strings.TrimRight(url, "/")
+		next = strings.TrimSuffix(next, ".git")
+		if next == url {
+			break
 		}
-	} else if i := strings.LastIndex(url, ":"); i >= 0 {
-		// scp-like git@host:owner/repo — drop everything through the colon
-		url = url[i+1:]
+		url = next
 	}
-	url = strings.Trim(url, "/")
-	parts := strings.Split(url, "/")
+
+	path := url
+	if i := strings.Index(url, "://"); i >= 0 {
+		// scheme://[user@]host[:port]/path — drop the scheme, keep the path
+		host = url[i+3:]
+		if j := strings.Index(host, "/"); j >= 0 {
+			host, path = host[:j], host[j+1:]
+		} else {
+			return "", "", "" // scheme://host with no path — nothing to split
+		}
+		host = authorityHost(host)
+	} else if i := strings.Index(url, ":"); i >= 0 && !strings.Contains(url[:i], "/") {
+		// scp-like [user@]host:path — only when no slash precedes the first
+		// colon (git-clone(1) disambiguates local paths containing colons).
+		host = authorityHost(url[:i])
+		path = url[i+1:]
+	} else if strings.Contains(url, ":") {
+		// No scheme and a slash before the first colon → local path with a
+		// colon, not a remote: ownerless and repo-less (repoSlug falls back
+		// to the workspace basename, the init gate refuses).
+		return "", "", ""
+	}
+
+	parts := strings.Split(path, "/")
 	if len(parts) >= 2 && parts[len(parts)-1] != "" {
-		return strings.Join(parts[:len(parts)-1], "/"), parts[len(parts)-1]
+		return strings.Join(parts[:len(parts)-1], "/"), parts[len(parts)-1], host
 	}
 	if len(parts) == 1 && parts[0] != "" {
-		return "", parts[0]
+		return "", parts[0], host
 	}
-	return "", ""
+	return "", "", host
+}
+
+// authorityHost normalizes a URL authority to the bare lowercased host:
+// userinfo ("git@") and any :port are stripped.
+func authorityHost(authority string) string {
+	host := authority
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+	if colon := strings.Index(host, ":"); colon >= 0 {
+		host = host[:colon]
+	}
+	return strings.ToLower(host)
+}
+
+// parseGitHubRemote is the GitHub-only acceptance gate for the init call
+// sites (canonicalRepoURL, canonicalSkillRepo): parseGitRemote must yield
+// non-empty owner+repo, the host must be shorthand-empty or github.com
+// (parseGitRemote lowercases, so the match is case-insensitive), and the
+// owner must be a single segment — GitHub paths are exactly owner/repo, so
+// any multi-segment owner (nested groups, /tree/main refs) is refused here
+// instead of failing late inside git.
+func parseGitHubRemote(raw string) (owner, repo string) {
+	owner, repo, host := parseGitRemote(raw)
+	if owner == "" || repo == "" {
+		return "", ""
+	}
+	if host != "" && host != "github.com" {
+		return "", ""
+	}
+	if strings.Contains(owner, "/") {
+		return "", ""
+	}
+	return owner, repo
 }
 
 // sanitizeSlug lowercases and maps non-alphanumerics to '-' so the slug is a

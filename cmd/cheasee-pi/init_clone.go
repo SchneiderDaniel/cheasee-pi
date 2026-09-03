@@ -18,7 +18,7 @@ import (
 // remote.origin.url verbatim in .bare/config, so a token-bearing URL would be
 // written to disk in plain text.
 func canonicalRepoURL(repoURL string) (string, error) {
-	owner, repo := ParseGitHubURL(repoURL)
+	owner, repo := parseGitHubRemote(repoURL)
 	if owner == "" || repo == "" {
 		return "", fmt.Errorf("invalid repo URL: %s", redactToken(repoURL))
 	}
