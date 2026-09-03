@@ -26,7 +26,6 @@ nav_order: 10
 | `@ast-grep/cli` | — | MIT | AST-aware code search |
 | `typescript` | ^6.0.3 | Apache-2.0 | TypeScript compiler |
 | `prettier` | ^3.8.3 | MIT | Code formatting |
-| `boxen` | ^7.1.1 | MIT | TUI box rendering |
 | `proper-lockfile` | ^4.1.2 | MIT | File-based locking for session logs |
 | `shell-quote` | ^1.9.0 | MIT | Shell command parsing for worktree sandbox |
 | `typebox` | ^1.2.8 | MIT | Runtime type validation |
