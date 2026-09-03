@@ -266,27 +266,13 @@ func ScaffoldSettings(t *testing.T, vals TemplateSettingsValues) string {
 	return workdir
 }
 
-// RenderEnv renders docker/.env from vals and returns the file content.
-func RenderEnv(t *testing.T, vals EnvValues) string {
-	t.Helper()
-	dest := filepath.Join(t.TempDir(), "docker", ".env")
-	if err := (&flatEnvRenderer{}).Render(context.Background(), dest, vals); err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read .env: %v", err)
-	}
-	return string(data)
-}
-
 // ──────────────────────────────────────────────
 // Auth/config seeding + package-var mutation
 // ──────────────────────────────────────────────
 
 // defaultMocks returns a set of working mock implementations for the genuine
 // seam ports (network/external-service boundaries). In-process adapters
-// (probe, extract, env, scaffold, remover, uid, git identity) are real.
+// (extract, env, scaffold, remover, git identity) are real.
 func defaultMocks() InitPorts {
 	return InitPorts{
 		Auth: &mockAuthenticator{},
