@@ -188,8 +188,30 @@ echo "== build 3 (entrypoint.sh byte change, SAME PI_BUILD_STAMP as build 2) =="
 # only the entrypoint COPY can differ. Restore the context file afterwards
 # so the cache dir is left pristine.
 cp "$ENTRYPOINT_CACHE" "$ENTRYPOINT_BAK"
-restore_entrypoint() { cp "$ENTRYPOINT_BAK" "$ENTRYPOINT_CACHE" 2>/dev/null || true; }
-trap 'restore_entrypoint; rm -rf "$TMP"' EXIT
+# restore_entrypoint must NOT swallow failure: a failed restore leaves the
+# persistent build context (the CLI cache-dir entrypoint.sh) modified,
+# contaminating every later build. On success it returns 0; on failure it
+# reports to stderr and returns 1. The EXIT trap forces a non-zero exit when
+# the restore fails while still preserving the script's original failure
+# status when it was already exiting non-zero.
+restore_entrypoint() {
+  if ! cp "$ENTRYPOINT_BAK" "$ENTRYPOINT_CACHE" 2>/dev/null; then
+    echo "error: failed to restore $ENTRYPOINT_CACHE from backup — the persistent build context is left modified" >&2
+    return 1
+  fi
+}
+trap '
+  orig=$?
+  if restore_entrypoint; then
+    rm -rf "$TMP"
+    exit "$orig"
+  fi
+  # Restore failed (reported to stderr above): force non-zero, preferring the
+  # original failure status when the script was already failing.
+  rm -rf "$TMP"
+  if [ "$orig" -ne 0 ]; then exit "$orig"; fi
+  exit 1
+' EXIT
 printf '\n# verify-pi-layer-cache.sh marker\n' >>"$ENTRYPOINT_CACHE"
 compose_build "$STAMP2" "$TMP/build3.log"
 restore_entrypoint
