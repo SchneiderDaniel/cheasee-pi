@@ -314,6 +314,187 @@ func TestRunCleanE_enumerationFailureSurfaces(t *testing.T) {
 	}
 }
 
+func TestRunCleanE_dryRunYesComboStaysReportOnly(t *testing.T) {
+	// --dry-run --yes must behave exactly like --dry-run alone: dry-run
+	// precedence wins, one preview scan, nothing killed/removed/pruned.
+	resetCleanState(t)
+	cleanDryRun = true
+
+	dryCalls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
+	dryStderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+	if *dryCalls != 1 {
+		t.Errorf("dry-run must run exactly one scan, got %d", *dryCalls)
+	}
+
+	resetCleanState(t)
+	cleanDryRun = true
+	cleanYes = true
+	comboCalls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
+	comboStderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if *comboCalls != 1 {
+		t.Errorf("--dry-run --yes must run exactly one preview scan, got %d", *comboCalls)
+	}
+	if comboStderr != dryStderr {
+		t.Errorf("--dry-run --yes output must match dry-run alone:\ncombo:   %q\ndry-run: %q", comboStderr, dryStderr)
+	}
+	for _, forbidden := range []string{"Killed", "Removed container", "Pruned"} {
+		if strings.Contains(comboStderr, forbidden) {
+			t.Errorf("--dry-run --yes must not %q, got %q", forbidden, comboStderr)
+		}
+	}
+}
+
+func TestRunCleanE_dryRunEmptyEnumeration(t *testing.T) {
+	resetCleanState(t)
+	cleanDryRun = true
+
+	// docker ps lists nothing → zero targets → zero exec scans.
+	calls := cleanTestStub(t, "", "killing 42\n")
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if *calls != 0 {
+		t.Errorf("zero targets must not scan, got %d exec calls", *calls)
+	}
+	if !strings.Contains(stderr, "No stale pi sessions found") {
+		t.Errorf("expected no-stale message, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Would remove") {
+		t.Errorf("zero targets must not list removals, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Pruned") {
+		t.Errorf("dry-run must never prune, got %q", stderr)
+	}
+}
+
+func TestRunCleanE_dryRunPreviewScanErrorSurfaces(t *testing.T) {
+	resetCleanState(t)
+	cleanDryRun = true
+
+	// --name skips enumeration, so the first docker ps is the preview scan's
+	// containerRunning check; its failure must surface as a wrapped clean error.
+	cmd := newCleanCmd()
+	if err := cmd.Flags().Set("name", "cheasee-pi"); err != nil {
+		t.Fatal(err)
+	}
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
+		}
+		return &mockCmd{}
+	})
+	err := runCleanE(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "clean: ") || !strings.Contains(err.Error(), "docker ps") {
+		t.Fatalf("dry-run preview scan error must surface wrapped, got %v", err)
+	}
+}
+
+func TestRunCleanE_confirmPreviewScanErrorSurfaces(t *testing.T) {
+	// Same failing containerRunning check, confirm mode: the hoisted preview
+	// scan must surface the identical wrapped error in its second consumer.
+	resetCleanState(t)
+
+	cmd := newCleanCmd()
+	if err := cmd.Flags().Set("name", "cheasee-pi"); err != nil {
+		t.Fatal(err)
+	}
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name == "docker" && len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
+		}
+		return &mockCmd{}
+	})
+	err := runCleanE(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "clean: ") || !strings.Contains(err.Error(), "docker ps") {
+		t.Fatalf("confirm preview scan error must surface wrapped, got %v", err)
+	}
+}
+
+func TestRunCleanE_confirmAbortStillPrunes(t *testing.T) {
+	// Issue-mandated fall-through: abort skips kill/remove but still prunes
+	// dangling images + build cache at the function tail.
+	resetCleanState(t)
+	saved := cleanConfirmFn
+	cleanConfirmFn = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { cleanConfirmFn = saved })
+
+	execCalls := 0
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		if len(arg) > 0 && arg[0] == "exec" {
+			execCalls++
+			return &mockCmd{combinedFn: func() ([]byte, error) { return []byte("killing 42 (age 60m)\n"), nil }}
+		}
+		if len(arg) > 0 && arg[0] == "ps" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("cheasee-pi\n"), nil }}
+		}
+		if slices.Contains(arg, "images") {
+			// A dangling image exists → the prune actually runs.
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("sha256:abc\n"), nil }}
+		}
+		return &mockCmd{combinedFn: func() ([]byte, error) { return nil, nil }}
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if execCalls != 1 {
+		t.Errorf("aborted clean must only preview (one scan), got %d", execCalls)
+	}
+	if !strings.Contains(stderr, "Aborted") {
+		t.Errorf("abort must be reported, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Killed") || strings.Contains(stderr, "Removed container") {
+		t.Errorf("abort must not kill or remove, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "Pruned dangling Docker images") {
+		t.Errorf("abort must still prune dangling images, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "Pruned Docker build cache") {
+		t.Errorf("abort must still prune build cache, got %q", stderr)
+	}
+}
+
+func TestRunCleanE_confirmPromptUsesHoistedCandidates(t *testing.T) {
+	// The confirm prompt must consume the hoisted preview candidates instead
+	// of re-scanning: exact prompt + two scans total (preview + real kill).
+	resetCleanState(t)
+	prompt := "not-called"
+	saved := cleanConfirmFn
+	cleanConfirmFn = func(p string) (bool, error) { prompt = p; return true, nil }
+	t.Cleanup(func() { cleanConfirmFn = saved })
+
+	calls := cleanTestStub(t, "cheasee-pi", "killing 42 (age 60m)\n")
+	testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("runCleanE: %v", err)
+		}
+	})
+
+	if *calls != 2 {
+		t.Errorf("confirmed clean must preview then kill (two scans), got %d", *calls)
+	}
+	if want := "Kill 1 pi session(s) and remove 1 container(s)?"; prompt != want {
+		t.Errorf("prompt must reuse hoisted candidates, got %q, want %q", prompt, want)
+	}
+}
+
 func TestRunCleanE_pruneConfirmations(t *testing.T) {
 	resetCleanState(t)
 	cleanYes = true

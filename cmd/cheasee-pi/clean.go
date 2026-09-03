@@ -99,11 +99,17 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	if cleanDryRun {
-		candidates, err := scanTargets(ctx, targets, true)
+	// Preview scan: feeds the dry-run report and the confirm prompt. Skipped
+	// only for plain --yes, which scans for real inside cleanAndRemove.
+	var candidates []string
+	if cleanDryRun || !cleanYes {
+		candidates, err = scanTargets(ctx, targets, true)
 		if err != nil {
 			return fmt.Errorf("clean: %w", err)
 		}
+	}
+
+	if cleanDryRun {
 		if len(candidates) == 0 {
 			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 		} else {
@@ -121,10 +127,6 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("clean: %w", err)
 		}
 	} else {
-		candidates, err := scanTargets(ctx, targets, true)
-		if err != nil {
-			return fmt.Errorf("clean: %w", err)
-		}
 		if len(candidates) == 0 && len(targets) == 0 {
 			fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 		} else {
