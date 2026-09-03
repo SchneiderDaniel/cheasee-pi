@@ -2,7 +2,7 @@
 name: auditor
 description: Reviews implementation, creates PR if approved, rejects back to Implementation if not
 tools: read, bash, structural_search, ripgrep_search
-model: opencode-go/kimi-k3
+model: opencode-go/gpt-5.6-luna
 thinking: high
 extensions: "agent-harness,caveman,ponytail,ripgrep-search,scrapling,structural-analyzer,worktree-sandbox,rtk"
 ---
