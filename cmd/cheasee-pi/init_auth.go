@@ -213,6 +213,17 @@ func runInitLegacy(ctx context.Context, apiKey string, provider string) (string,
 	return provider, apiKey, nil
 }
 
+// runInitLegacyAuth runs the API-key-only auth path and returns the legacy
+// (provider, apiKey) scalar pair. It is the shared tail of the two Phase-4
+// legacy fallback branches in runInit (--no-github and the ErrUnsupported
+// fallback); it does not print or stamp the workdir — the orchestrator owns
+// the stderr contract, the usingLegacyAuth flag, and the phase-7 patch.
+// Errors propagate bare (no %w re-wrap) so identity and messages stay
+// byte-identical.
+func runInitLegacyAuth(ctx context.Context, deps InitDeps) (string, string, error) {
+	return runInitLegacy(ctx, deps.APIKey, deps.Provider)
+}
+
 // promptAPIKey prompts the user for an API key (legacy).
 func promptAPIKey(provider string) (string, error) {
 	var apiKey string
