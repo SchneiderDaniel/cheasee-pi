@@ -287,21 +287,20 @@ func resolveStartWorkspace(workdir string) (root string, state WorkspaceState, e
 }
 
 // classifyWorkspace classifies a folder for the start gate: an empty folder
-// (or one containing only .DS_Store) is ready for auto-init, a folder with
-// cheasee-settings.json is an initialized workspace, and anything else is
-// refused — cheasee-pi never auto-initializes existing folders.
+// is ready for auto-init, a folder with cheasee-settings.json is an
+// initialized workspace, and anything else is refused — cheasee-pi never
+// auto-initializes existing folders. Workspace facts (marker + empty probe +
+// .DS_Store tolerance) come from workspaceFacts; this mapping just applies
+// the WorkspaceState policy to them.
 func classifyWorkspace(workdir string) (WorkspaceState, error) {
-	if _, err := os.Stat(cheaseeSettingsPath(workdir)); err == nil {
-		return WorkspaceInitialized, nil
-	}
-	entries, err := os.ReadDir(workdir)
+	settingsPresent, empty, _, err := workspaceFacts(workdir)
 	if err != nil {
 		return 0, fmt.Errorf("inspect workspace %q: %w", workdir, err)
 	}
-	for _, e := range entries {
-		if e.Name() == ".DS_Store" {
-			continue
-		}
+	if settingsPresent {
+		return WorkspaceInitialized, nil
+	}
+	if !empty {
 		return WorkspaceRefuse, nil
 	}
 	return WorkspaceEmpty, nil

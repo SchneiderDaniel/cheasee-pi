@@ -262,6 +262,36 @@ func TestInitProbe_ReauthInertWithoutSettings(t *testing.T) {
 	}
 }
 
+func TestInitProbe_SettingsPresentBeatsEmptyFolderProbe(t *testing.T) {
+	// The marker branch precedes the empty branch in the mapping: an
+	// initialized workspace with stray files refuses as "already initialized",
+	// never as "not empty".
+	dir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, dir, `{}`)
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runInitProbe(dir, false)
+	if err == nil || !strings.Contains(err.Error(), "already initialized") {
+		t.Fatalf("settings present must refuse as already initialized, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "empty folder") {
+		t.Errorf("settings present must not trigger the empty-folder probe, got: %v", err)
+	}
+}
+
+func TestInitProbe_BrokenPathInspectFolderError(t *testing.T) {
+	// A workdir that can't be inspected surfaces the ReadDir wrapper.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "somefile.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runInitProbe(filepath.Join(dir, "somefile.txt", "sub"), false)
+	if err == nil || !strings.Contains(err.Error(), "inspect folder:") {
+		t.Fatalf("broken workdir must surface inspect-folder error, got: %v", err)
+	}
+}
+
 func TestInitUseCase_PostCloneFailureCleansResidue(t *testing.T) {
 	// A post-clone init failure (API-key phase) removes the freshly cloned
 	// worktree + sibling .bare, announces the cleanup, and leaves the folder
