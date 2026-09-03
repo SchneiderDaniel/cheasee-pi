@@ -1,12 +1,7 @@
 import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import {
-	formatTokens,
-	formatDuration,
-	getTermWidth,
-	thinkingLabel,
-	thinkingColor,
-} from "../../lib/formatting.ts";
+import { formatTokens, formatDuration, getTermWidth } from "../../lib/formatting.ts";
+import { thinkingLabel, thinkingColor } from "../../../lib/thinking-level.ts";
 import { renderTextLines, renderToolCallText } from "../../lib/render-helpers.ts";
 import { MAX_EXPANDED_TOOL_CALLS } from "./constants.ts";
 import type { SubagentDetails, AgentToolResult } from "../../subagent/types.ts";

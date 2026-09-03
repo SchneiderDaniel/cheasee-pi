@@ -4,7 +4,8 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
-import { formatTokens, formatDuration, thinkingLabel } from "../lib/formatting.ts";
+import { formatTokens, formatDuration } from "../lib/formatting.ts";
+import { thinkingLabel } from "../../lib/thinking-level.ts";
 
 /**
  * Build widget lines from state. Pure function — no side effects.
