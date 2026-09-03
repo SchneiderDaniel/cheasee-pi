@@ -235,6 +235,18 @@ func TestLoadSettings_nonObjectJSON(t *testing.T) {
 	}
 }
 
+func TestLoadSettings_nullJSON(t *testing.T) {
+	// The JSON literal null unmarshals cleanly into both the typed struct and
+	// the raw map (leaving the map nil), so it must be rejected explicitly:
+	// a null .pi/settings.json is a hard error, never an empty schema that a
+	// subsequent Save silently overwrites.
+	workdir := t.TempDir()
+	testutil.WriteSettingsFile(t, workdir, `null`)
+	if _, err := LoadSettings(workdir); err == nil {
+		t.Fatal("expected error for null JSON, got nil")
+	}
+}
+
 func TestLoadSettings_emptyObject(t *testing.T) {
 	workdir := t.TempDir()
 	testutil.WriteSettingsFile(t, workdir, `{}`)
@@ -428,6 +440,16 @@ func TestLoadCheaseeSettings_failureModes(t *testing.T) {
 		testutil.WriteCheaseeSettingsFile(t, workdir, `[1,2]`)
 		if _, err := LoadCheaseeSettings(workdir); err == nil {
 			t.Fatal("non-object JSON must be a hard error")
+		}
+	})
+	t.Run("null JSON", func(t *testing.T) {
+		// null unmarshals cleanly into both the typed struct and the raw map
+		// (leaving the map nil) — it must be a hard error, not an empty schema
+		// a later Save would silently overwrite.
+		workdir := t.TempDir()
+		testutil.WriteCheaseeSettingsFile(t, workdir, `null`)
+		if _, err := LoadCheaseeSettings(workdir); err == nil {
+			t.Fatal("null JSON must be a hard error")
 		}
 	})
 	t.Run("empty object zero value", func(t *testing.T) {

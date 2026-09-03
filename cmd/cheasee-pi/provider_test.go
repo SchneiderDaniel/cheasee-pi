@@ -202,6 +202,46 @@ func TestWriteDefaultProvider_roundTrip(t *testing.T) {
 		})
 	})
 
+	t.Run("null file is a hard error, not an empty schema", func(t *testing.T) {
+		// null unmarshals cleanly into both the typed struct and the raw map
+		// (leaving the map nil); it must surface as a hard error naming the
+		// target — never be treated as valid and overwritten.
+		files := []struct {
+			name    string
+			setup   func(string)
+			wantErr string
+		}{
+			{"cheasee-settings.json",
+				func(wd string) { testutil.WriteCheaseeSettingsFile(t, wd, `null`) },
+				"cheasee-settings.json"},
+			{".pi/settings.json",
+				func(wd string) {
+					testutil.WriteCheaseeSettingsFile(t, wd, `{}`)
+					testutil.WriteSettingsFile(t, wd, `null`)
+				},
+				".pi/settings.json"},
+			{".pi/agent/settings.json",
+				func(wd string) {
+					testutil.WriteCheaseeSettingsFile(t, wd, `{}`)
+					agentPath := filepath.Join(wd, ".pi", "agent", "settings.json")
+					os.MkdirAll(filepath.Dir(agentPath), 0755)
+					os.WriteFile(agentPath, []byte(`null`), 0644)
+				},
+				".pi/agent/settings.json"},
+		}
+		for _, tc := range files {
+			t.Run(tc.name, func(t *testing.T) {
+				workdir := t.TempDir()
+				tc.setup(workdir)
+				sw := &SettingsWriter{Workdir: workdir}
+				err := sw.WriteDefaultProvider("openai", "gpt-4o")
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected wrapped error mentioning %s, got %v", tc.wantErr, err)
+				}
+			})
+		}
+	})
+
 	t.Run("no tmp residue and chmod'd mode preserved", func(t *testing.T) {
 		workdir := t.TempDir()
 		cheaseePath := filepath.Join(workdir, "cheasee-settings.json")

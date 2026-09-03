@@ -128,7 +128,7 @@ func (s *CheaseeSettings) Save(workdir string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(cheaseeSettingsPath(workdir), buf, 0644)
+	return atomicWrite(cheaseeSettingsPath(workdir), buf, 0644, true)
 }
 
 // LoadSettings reads .pi/settings.json from the workspace. Returns
@@ -168,7 +168,7 @@ func saveSettingsFile(path string, s *Settings) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(path, buf, 0644)
+	return atomicWrite(path, buf, 0644, true)
 }
 
 // decodeSettingsJSON is the unknown-key-preserving two-pass decode shared by
@@ -186,6 +186,13 @@ func decodeSettingsJSON(data []byte, v any, isKnown func(string) bool) (map[stri
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, err
+	}
+	// The JSON literal null unmarshals cleanly into both the struct and the
+	// map (leaving the map nil), so it must be rejected explicitly: a null
+	// settings file is not an object and must be a hard configuration error,
+	// never treated as an empty schema and silently overwritten.
+	if fields == nil {
+		return nil, fmt.Errorf("settings file must be a JSON object, got null")
 	}
 	var extra map[string]json.RawMessage
 	for key, value := range fields {

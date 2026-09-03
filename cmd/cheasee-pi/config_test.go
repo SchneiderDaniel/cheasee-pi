@@ -418,6 +418,34 @@ func TestUpdateGitHubAuth_AtomicWritePermsAndRoundTrip(t *testing.T) {
 	}
 }
 
+// TestUpdateGitHubAuth_clampsWorldReadableAuthTo0600 is the audit regression
+// for atomicWrite mode preservation: it must be opt-in, so a pre-existing
+// world-readable auth.json (e.g. 0644 from an older tool or a chmod mistake)
+// is clamped back to 0600 on the next credential write, never left readable.
+func TestUpdateGitHubAuth_clampsWorldReadableAuthTo0600(t *testing.T) {
+	dir := testutil.RedirectConfigHome(t)
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"github_token":"leaked"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &fileRepository{}
+	if err := cfg.UpdateGitHubAuth(context.Background(), "new-token", "octocat", "/ws"); err != nil {
+		t.Fatalf("UpdateGitHubAuth: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat auth.json: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("auth.json must be clamped to 0600 after rewrite, got %v", info.Mode().Perm())
+	}
+}
+
 // TestAtomicWrite_preservesExistingMode: rename replaces the inode, so a
 // pre-existing chmod'd target must keep its mode across a rewrite; an absent
 // target gets the caller's perm.
@@ -428,7 +456,7 @@ func TestAtomicWrite_preservesExistingMode(t *testing.T) {
 		if err := os.WriteFile(path, []byte("old"), want); err != nil {
 			t.Fatal(err)
 		}
-		if err := atomicWrite(path, []byte("new"), 0644); err != nil {
+		if err := atomicWrite(path, []byte("new"), 0644, true); err != nil {
 			t.Fatalf("atomicWrite over %o: %v", want, err)
 		}
 		fi, err := os.Stat(path)
@@ -442,7 +470,7 @@ func TestAtomicWrite_preservesExistingMode(t *testing.T) {
 
 	// Absent target gets the caller perm.
 	path := filepath.Join(dir, "new-file")
-	if err := atomicWrite(path, []byte("x"), 0644); err != nil {
+	if err := atomicWrite(path, []byte("x"), 0644, true); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(path)

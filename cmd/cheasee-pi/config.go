@@ -27,16 +27,25 @@ func (r *fileRepository) configPath() (string, error) {
 // The temp file is fsynced before the rename and the parent dir after, so a
 // crash cannot leave a 0-byte or partial file behind. Dir sync is best-effort
 // (ENOTSUP/Windows) and ignored.
-func atomicWrite(path string, data []byte, perm os.FileMode) error {
+//
+// preserveMode opts into inheriting an existing target's permission bits
+// across the rename (which replaces the inode): true for user-editable
+// settings files, so a user-chmod'd 0600/0640 file survives the next save
+// instead of silently resetting to the caller's perm. False for credential
+// files (auth.json): the caller's perm is authoritative, so a pre-existing
+// world-readable mode is clamped (0600), never inherited. New files always
+// get perm. Stat failures other than NotExist are surfaced, not swallowed.
+func atomicWrite(path string, data []byte, perm os.FileMode, preserveMode bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	// Rename replaces the inode, so preserve an existing target's mode —
-	// without this a user-chmod'd settings file (0600/0640) silently resets to
-	// the caller's perm on the next save. New files keep the caller's perm.
-	if fi, err := os.Stat(path); err == nil {
-		perm = fi.Mode().Perm()
+	if preserveMode {
+		if fi, err := os.Stat(path); err == nil {
+			perm = fi.Mode().Perm()
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, perm); err != nil {
@@ -163,7 +172,9 @@ func (r *fileRepository) writeRawMap(raw map[string]json.RawMessage) error {
 		return err
 	}
 
-	return atomicWrite(path, data, 0600)
+	// Auth never inherits an existing target's mode: credentials must stay
+	// clamped to 0600 even if a legacy/accidental write left auth.json at 0644.
+	return atomicWrite(path, data, 0600, false)
 }
 
 // dedupeKey detects if a key was accidentally pasted twice (first half == second
