@@ -27,6 +27,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 # Layer 3: Toolchain packages (Python, ctags, ripgrep, gosu, …)
 #          + Playwright system libraries for scrapling Chromium fetcher
 # ---------------------------------------------------------------
+# Enable Noto Color Emoji as fallback for emoji/icon characters
+# The package installs fonts in /usr/share/fonts/truetype/noto/
+# and a fontconfig snippet in /etc/fonts/conf.avail/66-noto-color-emoji.conf
+# fd-find ships as fdfind; symlink to fd so pi finds it
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
@@ -38,7 +42,6 @@ RUN apt-get update && \
         ripgrep \
         fd-find \
         git \
-        wget \
         make \
         gosu \
         libasound2 \
@@ -58,16 +61,10 @@ RUN apt-get update && \
         libxfixes3 \
         libxrandr2 \
         fonts-noto-color-emoji \
+    && fc-cache -f \
+    && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Enable Noto Color Emoji as fallback for emoji/icon characters
-# The package installs fonts in /usr/share/fonts/truetype/noto/
-# and a fontconfig snippet in /etc/fonts/conf.avail/66-noto-color-emoji.conf
-RUN fc-cache -f -v
-
-# fd-find ships as fdfind; symlink to fd so pi finds it
-RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
 # ---------------------------------------------------------------
 # Layer 4: GitHub CLI
@@ -103,13 +100,9 @@ RUN npm install -g --force \
 # flaky connections (curl 56, "Connection died").
 # ---------------------------------------------------------------
 ARG RA_VERSION=2026-08-10.1
-RUN case "$(dpkg --print-architecture)" in \
-        amd64) \
-            ra_asset="rust-analyzer-x86_64-unknown-linux-gnu.gz" ;; \
-        arm64) \
-            ra_asset="rust-analyzer-aarch64-unknown-linux-gnu.gz" ;; \
-        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac && \
+# uname -m yields exactly x86_64/aarch64 (emulated arch under qemu) — the
+# rust-analyzer asset names; other arches 404 (curl exit 22).
+RUN ra_asset="rust-analyzer-$(uname -m)-unknown-linux-gnu.gz" && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VERSION}/${ra_asset}" -o "/tmp/${ra_asset}" && \
     gunzip "/tmp/${ra_asset}" && \
     install -m 755 "/tmp/${ra_asset%.gz}" /usr/local/bin/rust-analyzer && \
@@ -138,9 +131,7 @@ RUN for i in 1 2 3; do \
 # ---------------------------------------------------------------
 # Layer 5d: Set UTF-8 locale for Unicode/emoji support
 # ---------------------------------------------------------------
-ENV LANG=C.UTF-8
-ENV LC_CTYPE=C.UTF-8
-ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 
 # ---------------------------------------------------------------
 # Layer 5e: Pre-built Python venvs for web_search + web_crawl
@@ -190,19 +181,11 @@ RUN chmod -R a+rX /opt/venvs && \
 # Pinned to v2.4.0 per research (Jun 18, 2026).
 # ---------------------------------------------------------------
 ARG OSV_SCANNER_VERSION=2.4.0
-RUN case "$(dpkg --print-architecture)" in \
-        amd64) \
-            osv_asset="osv-scanner_linux_amd64" ;; \
-        arm64) \
-            osv_asset="osv-scanner_linux_arm64" ;; \
-        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac && \
-    for i in 1 2 3; do \
-      curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/usr/local/bin/osv-scanner" \
-        && break; \
-      echo "[attempt $i] osv-scanner download failed, retrying in 5s…"; \
-      sleep 5; \
-    done && \
+# osv-scanner asset names are dpkg arches (amd64/arm64). curl --retry-all-errors
+# (covers mid-flight curl 56 deaths plain --retry skips) replaces the shell
+# retry wrapper; --retry-delay 2 keeps failure latency ≈ parity.
+RUN osv_asset="osv-scanner_linux_$(dpkg --print-architecture)" && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/${osv_asset}" -o "/usr/local/bin/osv-scanner" && \
     chmod +x /usr/local/bin/osv-scanner && \
     osv-scanner --version
 
@@ -211,14 +194,9 @@ RUN case "$(dpkg --print-architecture)" in \
 # Pinned to Go 1.25.x for compatibility with huh v2.0.3 (requires go >= 1.25.8).
 # ---------------------------------------------------------------
 ARG GO_VERSION=1.25.8
-RUN case "$(dpkg --print-architecture)" in \
-        amd64) \
-            go_asset="go${GO_VERSION}.linux-amd64.tar.gz" ;; \
-        arm64) \
-            go_asset="go${GO_VERSION}.linux-arm64.tar.gz" ;; \
-        *) echo "Unsupported arch: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac && \
-    curl -fsSL "https://go.dev/dl/${go_asset}" -o "/tmp/${go_asset}" && \
+# dpkg --print-architecture yields exactly amd64/arm64 — Go's asset names.
+RUN go_asset="go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" && \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://go.dev/dl/${go_asset}" -o "/tmp/${go_asset}" && \
     tar -C /usr/local -xzf "/tmp/${go_asset}" && \
     rm -f "/tmp/${go_asset}" && \
     /usr/local/go/bin/go version
@@ -286,14 +264,10 @@ RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDani
 # command as `[ -e "$d" ]` → exit 1 → the && chain dies. `|| continue` makes
 # unmatched globs a no-op while real ln failures still propagate.
 RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts /home/agentuser/.pi/agent/extensions /home/agentuser/.pi/agent/themes \
-    && for d in /opt/cheasee-pi/.pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
-    && for d in /opt/cheasee-pi/.pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
-    && for d in /opt/cheasee-pi/.pi/extensions/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/extensions/; done \
-    && for d in /opt/cheasee-pi/.pi/themes/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/themes/; done \
+    && for t in skills prompts extensions themes; do for d in /opt/cheasee-pi/.pi/$t/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/$t/; done; done \
     && if [ -d /opt/cheasee-pi/custom ]; then ln -sfn /opt/cheasee-pi/custom /home/agentuser/.pi/agent/custom; fi \
     && if [ -d /opt/cheasee-pi/private-pi ]; then \
-         for d in /opt/cheasee-pi/private-pi/skills/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/skills/; done \
-         && for d in /opt/cheasee-pi/private-pi/prompts/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/prompts/; done \
+         for t in skills prompts; do for d in /opt/cheasee-pi/private-pi/$t/*; do [ -e "$d" ] || continue; ln -sfn "$d" /home/agentuser/.pi/agent/$t/; done; done \
          && mkdir -p /home/agentuser/.pi/agent/extensions \
          && ln -sfn /opt/cheasee-pi/private-pi/extensions/check-extensions /home/agentuser/.pi/agent/extensions/check-extensions; \
        fi \

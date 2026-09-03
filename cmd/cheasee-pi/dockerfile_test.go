@@ -73,11 +73,14 @@ func TestDockerfile_SymlinkLayerUsesExplicitHome(t *testing.T) {
 
 func TestDockerfile_SymlinkLayerCoversResources(t *testing.T) {
 	content := readDockerfile(t)
+	// The nested loop maps all four resource dirs from the baked copy into
+	// agent's global resource dir in one pass (type list + shared loop body) —
+	// every resource must survive the loop collapse. "custom" and
+	// "check-extensions" stay as guarded single links under it.
 	for _, want := range []string{
-		".pi/skills",     // skills + .pi/skills resource dir
-		".pi/prompts",    // prompts
-		".pi/extensions", // extensions (caveman/supervisor/…) load globally
-		"themes",         // themes
+		"for t in skills prompts extensions themes",
+		"/opt/cheasee-pi/.pi/$t/*",
+		"/home/agentuser/.pi/agent/$t/",
 		"custom",         // custom/* (guarded — gitignored, absent on fresh clones)
 		"check-extensions",
 	} {
@@ -368,8 +371,165 @@ func writeFakeChrome(t *testing.T, root, buildDir string) {
 }
 
 // ──────────────────────────────────────────────
-// Phase 8: compose invariants + YAML validity
+// Phase 9c: docker build surface simplification (#1609)
 // ──────────────────────────────────────────────
+
+func TestDockerfile_ArchMappingsDirect(t *testing.T) {
+	content := readDockerfile(t)
+	// The three arch-case blocks must be replaced by direct stdlib-queried
+	// asset names. The query asymmetry is load-bearing: rust-analyzer's assets
+	// use uname -m names (x86_64/aarch64), osv-scanner and Go use dpkg names
+	// (amd64/arm64); both report the emulated arch under buildx qemu.
+	for _, want := range []string{
+		"rust-analyzer-$(uname -m)-unknown-linux-gnu.gz",
+		"osv-scanner_linux_$(dpkg --print-architecture)",
+		"go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("direct arch mapping %q must replace the case block", want)
+		}
+	}
+	if strings.Contains(content, "Unsupported arch") {
+		t.Error("unsupported-arch guards must be gone (other arches 404 via curl -fsSL exit 22)")
+	}
+}
+
+func TestDockerfile_OsvRetryLoopReplaced(t *testing.T) {
+	content := readDockerfile(t)
+	// osv-scanner's shell retry loop is replaced by curl's own retry:
+	// --retry-all-errors covers the mid-flight "Connection died" (curl 56)
+	// case the loop existed for (plain --retry skips it), and --retry-delay 2
+	// keeps persistent-failure latency ≈ parity with the 3×5s sleeps.
+	if !strings.Contains(content, `curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/google/osv-scanner`) {
+		t.Error("osv-scanner download must use curl -fsSL --retry 5 --retry-all-errors --retry-delay 2")
+	}
+	// rtk (5c) and patchright (5e) loops must stay — they wrap non-curl
+	// commands (and curl | sh output is not reset on retry).
+	if got := strings.Count(content, "for i in 1 2 3"); got != 2 {
+		t.Errorf("exactly the rtk + patchright retry loops may remain, got %d 'for i in 1 2 3'", got)
+	}
+}
+
+func TestDockerfile_LocaleSingleEnv(t *testing.T) {
+	content := readDockerfile(t)
+	// Three locale ENVs collapse into one instruction (same values, one layer
+	// boundary); the other ENVs stay untouched.
+	if !strings.Contains(content, "ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8") {
+		t.Error("the three locale ENV lines must collapse into one ENV line")
+	}
+	if strings.Contains(content, "ENV LC_CTYPE=C.UTF-8\n") || strings.Contains(content, "ENV LC_ALL=C.UTF-8\n") {
+		t.Error("no standalone per-key locale ENV lines may remain")
+	}
+	if !strings.Contains(content, "ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers") {
+		t.Error("PLAYWRIGHT_BROWSERS_PATH ENV must be retained")
+	}
+	if !strings.Contains(content, "ENV PATH=") {
+		t.Error("PATH ENV must be retained")
+	}
+}
+
+func TestDockerfile_FontcacheFdfindChained(t *testing.T) {
+	content := readDockerfile(t)
+	// fc-cache + the fdfind symlink fold into the Layer 3 apt RUN via &&
+	// (two fewer layers); standalone RUN layers must be gone.
+	if !strings.Contains(content, "&& fc-cache -f \\") {
+		t.Error("fc-cache must be chained into the apt RUN with && fc-cache -f")
+	}
+	if !strings.Contains(content, "&& ln -sf /usr/bin/fdfind /usr/local/bin/fd \\") {
+		t.Error("fdfind symlink must be chained into the apt RUN")
+	}
+	if strings.Contains(content, "RUN fc-cache") || strings.Contains(content, "RUN ln -sf") {
+		t.Error("no standalone RUN fc-cache / RUN ln -sf layer may remain")
+	}
+}
+
+func TestDockerfile_NoWget(t *testing.T) {
+	content := readDockerfile(t)
+	if strings.Contains(content, "wget") {
+		t.Error("wget must be removed from the image (curl already installed in Layer 1; no in-image consumer)")
+	}
+	// Docs mirror the image dependency inventory — stale wget listings would
+	// mislead SBOM/architecture readers.
+	for _, rel := range []string{
+		filepath.Join("..", "..", "docs", "sbom.md"),
+		filepath.Join("..", "..", "docs", "architecture.md"),
+	} {
+		data, err := os.ReadFile(rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if strings.Contains(string(data), "wget") {
+			t.Errorf("%s must no longer list wget as an image dependency", rel)
+		}
+	}
+}
+
+func TestDockerfile_SymlinkLoopRunsWithEmptyGlob(t *testing.T) {
+	// Behavioral check of the extracted nested symlink loop in real bash: an
+	// EMPTY resource dir (e.g. .pi/prompts this checkout) must not kill the
+	// &&-chained RUN — the inner `[ -e "$d" ] || continue` guard turns an
+	// unmatched glob into a no-op, links are created for non-empty dirs only.
+	// Mirrors the TestDockerfile_BrowserGuardBehavior precedent.
+	script := `
+set -e
+src="$1"; dst="$2"
+for t in skills prompts extensions themes; do
+    for d in "$src"/$t/*; do
+        [ -e "$d" ] || continue
+        ln -sfn "$d" "$dst"/$t/
+    done
+done
+find "$dst" -type l | wc -l
+`
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	dst := filepath.Join(root, "dst")
+	for _, d := range []string{"skills", "prompts", "extensions", "themes"} {
+		if err := os.MkdirAll(filepath.Join(src, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dst, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// prompts stays empty; the other three each carry one entry.
+	for _, d := range []string{"skills", "extensions", "themes"} {
+		if err := os.WriteFile(filepath.Join(src, d, "entry"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := exec.Command("bash", "-c", script, "bash", src, dst).CombinedOutput()
+	if err != nil {
+		t.Fatalf("nested symlink loop failed with an empty resource dir: %v (%s)", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "3" {
+		t.Errorf("expected 3 links (prompts empty → none), got %s", got)
+	}
+}
+
+func TestDockerfile_SymlinkLoopNoNestingOnDirTarget(t *testing.T) {
+	// ln -sfn's -n is load-bearing: re-linking a symlink that points at a
+	// directory must replace the link, never write the new link inside the
+	// old target dir (ln's default dereferences symlink-to-directory).
+	root := t.TempDir()
+	target1 := filepath.Join(root, "target1")
+	target2 := filepath.Join(root, "target2")
+	link := filepath.Join(root, "link")
+	for _, d := range []string{target1, target2} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := `
+set -e
+ln -sfn "$1" "$3"
+ln -sfn "$2" "$3"
+[ "$(readlink "$3")" = "$2" ]
+`
+	if out, err := exec.Command("bash", "-c", script, "bash", target1, target2, link).CombinedOutput(); err != nil {
+		t.Fatalf("ln -sfn re-link against a dir target must not nest: %v (%s)", err, out)
+	}
+}
 
 func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
 	content := readCompose(t)

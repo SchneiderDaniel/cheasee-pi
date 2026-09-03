@@ -149,21 +149,28 @@ func TestEntrypoint_DefinesRepoint(t *testing.T) {
 
 func TestEntrypoint_SymlinkOnlyRelink(t *testing.T) {
 	content := readEntrypoint(t)
+	// The link semantics live in link_owned: re-link only under a [ -L guard,
+	// via ln -sfn; re_point delegates each repo entry to it.
 	if !strings.Contains(content, "[ -L \"$link\" ]") {
-		t.Error("re_point must re-link only under a [ -L \"$link\" ] guard")
+		t.Error("link_owned must re-link only under a [ -L \"$link\" ] guard")
 	}
-	if !strings.Contains(content, "ln -sfn \"$d\" \"$link\"") {
-		t.Error("re_point must use ln -sfn against the repo entry")
+	if !strings.Contains(content, "ln -sfn \"$target\" \"$link\"") {
+		t.Error("link_owned must re-point via ln -sfn against the target")
+	}
+	if !strings.Contains(content, "link_owned \"$agent_dir/$name\" \"$d\"") {
+		t.Error("re_point must delegate each repo entry to link_owned")
 	}
 }
 
 func TestEntrypoint_NoOpOnSameTarget(t *testing.T) {
 	content := readEntrypoint(t)
+	// link_owned's readlink idempotency: skip when the link already points at
+	// the target (no churn across restarts).
 	if !strings.Contains(content, "readlink \"$link\"") {
-		t.Error("re_point must readlink the existing link to detect no-op")
+		t.Error("link_owned must readlink the existing link to detect no-op")
 	}
-	if !strings.Contains(content, "= \"$d\"") {
-		t.Error("re_point must skip when readlink already equals the repo entry")
+	if !strings.Contains(content, "= \"$target\"") {
+		t.Error("link_owned must skip when readlink already equals the target")
 	}
 }
 
@@ -178,13 +185,6 @@ func TestEntrypoint_NoRmRf(t *testing.T) {
 	content := readEntrypoint(t)
 	if strings.Contains(content, "rm -rf") {
 		t.Error("entrypoint must not rm -rf anything (AC: no container FS mutation)")
-	}
-}
-
-func TestEntrypoint_ChownNewLinks(t *testing.T) {
-	content := readEntrypoint(t)
-	if !strings.Contains(content, "chown -h agentuser:agentuser \"$link\"") {
-		t.Error("re_point must chown -h each re-pointed link to agentuser")
 	}
 }
 
@@ -235,13 +235,16 @@ func TestEntrypoint_DefinesRepointFile(t *testing.T) {
 
 func TestEntrypoint_RepointFileContract(t *testing.T) {
 	content := readEntrypoint(t)
+	// The single-file contract lives in link_owned (shared primitives) plus a
+	// thin re_point_file wrapper that keeps the missing-repo-file guard.
 	for _, want := range []string{
-		"[ -L \"$agent_file\" ]",                       // re-link only under a [ -L ] guard
-		"readlink \"$agent_file\"",                     // readlink no-op detection
-		"= \"$repo_file\"",                             // skip when already at the repo file
-		"ln -sfn \"$repo_file\" \"$agent_file\"",       // re-point with ln -sfn
-		"chown -h agentuser:agentuser \"$agent_file\"", // chown -h the link
-		"[ -e \"$repo_file\" ] || return 0",            // missing repo file → baked link stays
+		"[ -L \"$link\" ]",                       // re-link only under a [ -L ] guard
+		"readlink \"$link\"",                     // readlink no-op detection
+		"= \"$target\"",                          // skip when already at the target
+		"ln -sfn \"$target\" \"$link\"",          // re-point with ln -sfn
+		"chown -h agentuser:agentuser \"$link\"", // chown -h the link
+		"[ -e \"$repo_file\" ] || return 0",      // missing repo file → baked link stays
+		"link_owned \"$agent_file\" \"$repo_file\"",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("re_point_file must honor the re_point contract (%q)", want)
@@ -251,13 +254,102 @@ func TestEntrypoint_RepointFileContract(t *testing.T) {
 
 func TestEntrypoint_RepointFileConflictRefusal(t *testing.T) {
 	content := readEntrypoint(t)
-	// A real file at the link name must be left untouched — the helper may
+	// A real file at the link name must be left untouched — link_owned may
 	// only create a link when nothing occupies the link name (elif branch).
-	if !strings.Contains(content, "elif [ ! -e \"$agent_file\" ]") {
-		t.Error("re_point_file must create missing links only when nothing occupies the link name")
+	if !strings.Contains(content, "elif [ ! -e \"$link\" ]") {
+		t.Error("link_owned must create missing links only when nothing occupies the link name")
 	}
 	if strings.Contains(content, "rm -rf") {
-		t.Error("re_point_file must not rm -rf anything (AC: no container FS mutation)")
+		t.Error("link_owned must not rm -rf anything (AC: no container FS mutation)")
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 2c: extracted link_owned helper + venv loop (#1609)
+// ──────────────────────────────────────────────
+
+func TestEntrypoint_LinkOwnedDefinedAndUsed(t *testing.T) {
+	content := readEntrypoint(t)
+	if !strings.Contains(content, "link_owned() {") {
+		t.Error("entrypoint must define link_owned()")
+	}
+	// All three call sites must route through the helper (re_point delegation,
+	// the re_point_file wrapper, the custom/ block).
+	for _, want := range []string{
+		"link_owned \"$agent_dir/$name\" \"$d\"",
+		"link_owned \"$agent_file\" \"$repo_file\"",
+		"link_owned /home/agentuser/.pi/agent/custom /workspaces/main/custom",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("link_owned must be used by all three call sites (%q)", want)
+		}
+	}
+}
+
+func TestEntrypoint_ChownNewLinks(t *testing.T) {
+	content := readEntrypoint(t)
+	// The repeated `chown -h … || true` swallow concentrates in link_owned.
+	if !strings.Contains(content, "chown -h agentuser:agentuser \"$link\"") {
+		t.Error("link_owned must chown -h each re-pointed link to agentuser")
+	}
+}
+
+func TestEntrypoint_LinkOwnedBehavior(t *testing.T) {
+	// link_owned's low-level primitives in real bash: create-when-absent,
+	// re-point-when-target-differs, no-op when readlink already equals the
+	// target, and a real file at the link name left untouched (conflict
+	// refusal — never over a real file/dir, never rm -rf). Mirrors the
+	// TestDockerfile_BrowserGuardBehavior precedent.
+	script := `
+set -e
+link_owned() {
+    local link="$1" target="$2"
+    if [ -L "$link" ]; then
+        [ "$(readlink "$link")" = "$target" ] && return 0
+        ln -sfn "$target" "$link"
+        chown -h agentuser:agentuser "$link" 2>/dev/null || true
+    elif [ ! -e "$link" ]; then
+        ln -s "$target" "$link"
+        chown -h agentuser:agentuser "$link" 2>/dev/null || true
+    fi
+}
+root="$1"; t1="$root/t1"; t2="$root/t2"; l="$root/link"
+mkdir -p "$t1" "$t2"
+link_owned "$l" "$t1"                                   # create when absent
+[ -L "$l" ] && [ "$(readlink "$l")" = "$t1" ]
+link_owned "$l" "$t2"                                   # re-point when differs
+[ "$(readlink "$l")" = "$t2" ]
+link_owned "$l" "$t2"                                   # no-op when same target
+[ "$(readlink "$l")" = "$t2" ]
+echo "real file" > "$root/real"
+link_owned "$root/real" "$t1"                           # conflict refusal
+[ ! -L "$root/real" ] && [ "$(cat "$root/real")" = "real file" ]
+echo OK
+`
+	root := t.TempDir()
+	out, err := exec.Command("bash", "-c", script, "bash", root).CombinedOutput()
+	if err != nil {
+		t.Fatalf("link_owned behavioral check failed: %v (%s)", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "OK" {
+		t.Errorf("link_owned behavioral check = %q, want OK", got)
+	}
+}
+
+func TestEntrypoint_VenvCopyLoop(t *testing.T) {
+	content := readEntrypoint(t)
+	// The two identical venv copy blocks fold into one loop; both guards,
+	// mkdir, and cp -a survive per iteration.
+	for _, want := range []string{
+		"for v in web-search-venv scrapling-venv",
+		"[ -d \"/opt/venvs/$v\" ]",
+		"[ ! -d \"/workspaces/main/.pi/$v\" ]",
+		"mkdir -p /workspaces/main/.pi",
+		"cp -a \"/opt/venvs/$v\" \"/workspaces/main/.pi/$v\"",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("venv pre-install loop must contain %q", want)
+		}
 	}
 }
 

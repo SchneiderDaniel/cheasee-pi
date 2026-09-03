@@ -76,18 +76,14 @@ source "$SCRIPT_DIR/lib/worktree-fix.sh"
 unbreak_worktrees
 
 # --- Pre-install Python venvs for web tools -------------------------
-# Copy pre-built venvs from /opt/venvs/ to .pi/ if missing.
-# This saves first-call latency in web_search and web_crawl extensions.
-if [ -d /opt/venvs/web-search-venv ] && [ ! -d /workspaces/main/.pi/web-search-venv ]; then
-    echo "Pre-installing web-search venv…"
+# Copy pre-built venvs from /opt/venvs/ to .pi/ if missing (saves first-call
+# latency in web_search / web_crawl).
+for v in web-search-venv scrapling-venv; do
+    [ -d "/opt/venvs/$v" ] && [ ! -d "/workspaces/main/.pi/$v" ] || continue
+    echo "Pre-installing $v…"
     mkdir -p /workspaces/main/.pi
-    cp -a /opt/venvs/web-search-venv /workspaces/main/.pi/web-search-venv
-fi
-if [ -d /opt/venvs/scrapling-venv ] && [ ! -d /workspaces/main/.pi/scrapling-venv ]; then
-    echo "Pre-installing scrapling venv…"
-    mkdir -p /workspaces/main/.pi
-    cp -a /opt/venvs/scrapling-venv /workspaces/main/.pi/scrapling-venv
-fi
+    cp -a "/opt/venvs/$v" "/workspaces/main/.pi/$v"
+done
 # Symlink Playwright browser cache so agentuser finds Chromium
 if [ -d /opt/playwright-browsers ]; then
     mkdir -p /home/agentuser/.cache
@@ -122,61 +118,48 @@ is_cheasee_pi_repo() {
     return 0
 }
 
+# link_owned <link> <target> — create or re-point <link> at <target>, owned by
+# agentuser. Owner of the low-level symlink semantics shared by re_point /
+# re_point_file / the custom/ link: re-links only under a [ -L ] guard,
+# no-ops when readlink already equals the target (idempotent), creates
+# missing links, leaves a real file/dir at the link name untouched (Stow
+# conflict refusal). Load-bearing: -n (a symlink-to-dir destination would be
+# written through) and chown -h/lchown (bare chown re-owns the live repo file).
+link_owned() {
+    local link="$1" target="$2"
+    if [ -L "$link" ]; then
+        [ "$(readlink "$link")" = "$target" ] && return 0
+        ln -sfn "$target" "$link"
+        chown -h agentuser:agentuser "$link" 2>/dev/null || true
+    elif [ ! -e "$link" ]; then
+        ln -s "$target" "$link"
+        chown -h agentuser:agentuser "$link" 2>/dev/null || true
+    fi
+}
+
 # re_point <agent_subdir> <repo_dir> — re-point the global resource symlinks
-# in ~/.pi/agent/<agent_subdir> at the live repo's entries. Re-links existing
-# symlinks under a [ -L ] guard and creates missing links; a real file/dir
-# occupying a link name is left untouched (Stow conflict refusal — never
-# ln -sfn over a real dir). No-ops when the link already points at the repo
-# entry (idempotent across restarts), skips dotfiles (.gitkeep), and never
-# links a repo entry whose target is missing — the /opt/cheasee-pi symlink
-# stays, no dangling links.
+# at the live repo's entries. Policy only: dirs, dotfile skip, missing-target
+# guards — the link semantics live in link_owned.
 re_point() {
     local agent_subdir="$1" repo_dir="$2"
     local agent_dir="/home/agentuser/.pi/agent/$agent_subdir"
     [ -d "$agent_dir" ] || return 0
     [ -d "$repo_dir" ] || return 0
-    local d name link
+    local d name
     for d in "$repo_dir"/*; do
         [ -e "$d" ] || continue
         name="$(basename "$d")"
         [[ "$name" == .* ]] && continue
-        link="$agent_dir/$name"
-        if [ -L "$link" ]; then
-            # existing symlink: re-point unless already at the repo entry
-            [ "$(readlink "$link")" = "$d" ] && continue
-            ln -sfn "$d" "$link"
-            chown -h agentuser:agentuser "$link" 2>/dev/null || true
-        elif [ ! -e "$link" ]; then
-            # no link yet: create it (repo resources added after image build
-            # keep global availability; realpath dedup collapses the double path)
-            ln -s "$d" "$link"
-            chown -h agentuser:agentuser "$link" 2>/dev/null || true
-        fi
-        # real file/dir at the link name → left untouched (conflict refusal)
+        link_owned "$agent_dir/$name" "$d"
     done
 }
 
-# re_point_file <agent_file> <repo_file> — re-point a single-file global
-# symlink (~/.pi/agent/APPEND_SYSTEM.md) at the live repo's canonical source.
-# Mirrors re_point's contract for single files: re-links only under a [ -L ]
-# guard, no-ops when readlink already equals the repo file (idempotent across
-# restarts), never links a missing repo file (the baked /opt symlink stays —
-# no dangling links), and leaves a real file occupying the link name untouched
-# (Stow conflict refusal — a user-mounted ~/.pi wins).
+# re_point_file — thin link_owned wrapper for single-file links
+# (missing repo file → baked /opt link stays, no dangling links).
 re_point_file() {
     local agent_file="$1" repo_file="$2"
     [ -e "$repo_file" ] || return 0
-    if [ -L "$agent_file" ]; then
-        # existing symlink: re-point unless already at the repo file
-        [ "$(readlink "$agent_file")" = "$repo_file" ] && return 0
-        ln -sfn "$repo_file" "$agent_file"
-        chown -h agentuser:agentuser "$agent_file" 2>/dev/null || true
-    elif [ ! -e "$agent_file" ]; then
-        # no link yet: create it (baked link missing → keep global availability)
-        ln -s "$repo_file" "$agent_file"
-        chown -h agentuser:agentuser "$agent_file" 2>/dev/null || true
-    fi
-    # real file at the link name → left untouched (conflict refusal)
+    link_owned "$agent_file" "$repo_file"
 }
 
 if is_cheasee_pi_repo; then
@@ -188,13 +171,7 @@ if is_cheasee_pi_repo; then
     re_point_file /home/agentuser/.pi/agent/APPEND_SYSTEM.md /workspaces/main/APPEND_SYSTEM.md
     # Whole-dir custom/ link (gitignored, absent on most clones)
     if [ -d /workspaces/main/custom ]; then
-        if [ -L /home/agentuser/.pi/agent/custom ]; then
-            ln -sfn /workspaces/main/custom /home/agentuser/.pi/agent/custom
-            chown -h agentuser:agentuser /home/agentuser/.pi/agent/custom 2>/dev/null || true
-        elif [ ! -e /home/agentuser/.pi/agent/custom ]; then
-            ln -s /workspaces/main/custom /home/agentuser/.pi/agent/custom
-            chown -h agentuser:agentuser /home/agentuser/.pi/agent/custom 2>/dev/null || true
-        fi
+        link_owned /home/agentuser/.pi/agent/custom /workspaces/main/custom
     fi
 fi
 
