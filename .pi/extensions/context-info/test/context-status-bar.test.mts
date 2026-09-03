@@ -2,7 +2,7 @@
  * Tests for context-info extension (Agent Castle Terminal Revamp)
  *
  * Covers: formatTokens, resolveColor, pickThreshold, loadConfig,
- * thinkingIcon, thinkingColor, getWorktreeName, getGitBranch,
+ * getWorktreeName, getGitBranch, thinking-level footer rendering,
  * and integration with custom footer.
  *
  * Run with:
@@ -14,6 +14,8 @@ import { describe, it } from "node:test";
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createDefaultFooterConfig } from "../footer-state.ts";
+import { installFooter } from "../footer.ts";
 
 // ---------------------------------------------------------------------------
 // Duplicated helpers from .pi/extensions/context-info.ts
@@ -47,44 +49,6 @@ function pickThreshold(tokens: number, thresholds: ThresholdEntry[]): ThresholdE
 		if (tokens <= entry.maxTokens) return entry;
 	}
 	return sorted[sorted.length - 1]!;
-}
-
-function thinkingIcon(level: string | undefined): string {
-	switch (level) {
-		case "off":
-			return "○";
-		case "minimal":
-			return "◐";
-		case "low":
-			return "◑";
-		case "medium":
-			return "◒";
-		case "high":
-			return "◓";
-		case "xhigh":
-			return "●";
-		default:
-			return "·";
-	}
-}
-
-function thinkingColor(level: string | undefined): string {
-	switch (level) {
-		case "off":
-			return "dim";
-		case "minimal":
-			return "dim";
-		case "low":
-			return "muted";
-		case "medium":
-			return "accent";
-		case "high":
-			return "warning";
-		case "xhigh":
-			return "error";
-		default:
-			return "dim";
-	}
 }
 
 function getWorktreeName(cwd: string): string | null {
@@ -461,46 +425,6 @@ describe("loadConfig", () => {
 });
 
 // ---------------------------------------------------------------------------
-// thinkingIcon tests
-// ---------------------------------------------------------------------------
-
-describe("thinkingIcon", () => {
-	it("returns correct icons for each level", () => {
-		assert.strictEqual(thinkingIcon("off"), "○");
-		assert.strictEqual(thinkingIcon("minimal"), "◐");
-		assert.strictEqual(thinkingIcon("low"), "◑");
-		assert.strictEqual(thinkingIcon("medium"), "◒");
-		assert.strictEqual(thinkingIcon("high"), "◓");
-		assert.strictEqual(thinkingIcon("xhigh"), "●");
-	});
-
-	it("returns default for unknown/undefined", () => {
-		assert.strictEqual(thinkingIcon(undefined), "·");
-		assert.strictEqual(thinkingIcon("unknown"), "·");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// thinkingColor tests
-// ---------------------------------------------------------------------------
-
-describe("thinkingColor", () => {
-	it("returns correct theme colors for each level", () => {
-		assert.strictEqual(thinkingColor("off"), "dim");
-		assert.strictEqual(thinkingColor("minimal"), "dim");
-		assert.strictEqual(thinkingColor("low"), "muted");
-		assert.strictEqual(thinkingColor("medium"), "accent");
-		assert.strictEqual(thinkingColor("high"), "warning");
-		assert.strictEqual(thinkingColor("xhigh"), "error");
-	});
-
-	it("returns dim for unknown/undefined", () => {
-		assert.strictEqual(thinkingColor(undefined), "dim");
-		assert.strictEqual(thinkingColor("unknown"), "dim");
-	});
-});
-
-// ---------------------------------------------------------------------------
 // getWorktreeName tests
 // ---------------------------------------------------------------------------
 
@@ -832,5 +756,109 @@ describe("loadConfig — showCache", () => {
 		assert.strictEqual(result.config!.showTimer, false);
 		assert.strictEqual(result.config!.showTps, false);
 		assert.strictEqual(result.config!.showCache, false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Footer thinking-level rendering — wired to lib/thinking-level.ts (no local
+// switch/case copies; byte-identical output, canonical icon/color mapping).
+// ---------------------------------------------------------------------------
+
+interface FooterFixture {
+	rows: string[];
+	fgCalls: Array<[string, string]>;
+}
+
+/** Render the context-info footer with the given thinking level (empty string == unset). */
+function renderFooterWithThinkingLevel(thinkingLevel: string): FooterFixture {
+	const config = {
+		enabled: true,
+		thresholds: [],
+		showTimer: false,
+		showTps: false,
+		showCache: false,
+		welcomeTimeoutMs: 0,
+	};
+	const footerConfig = createDefaultFooterConfig();
+	footerConfig.thinkingLevel = thinkingLevel;
+
+	const fgCalls: Array<[string, string]> = [];
+	let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setFooter: (fn: unknown) => {
+				if (typeof fn === "function") {
+					footerComponent = fn(
+						{ requestRender: () => {}, setClearOnShrink: () => {} },
+						{
+							fg: (color: string, text: string) => {
+								fgCalls.push([color, text]);
+								return text;
+							},
+						},
+						{
+							onBranchChange: () => () => {},
+							getGitBranch: () => "main",
+							getExtensionStatuses: () => new Map(),
+						},
+					);
+				}
+			},
+			setStatus: () => {},
+		},
+		getContextUsage: () => undefined,
+		model: { id: "test-model" },
+	};
+
+	installFooter(ctx as any, config as any, footerConfig);
+
+	if (!footerComponent) throw new Error("footer component was not created");
+	return { rows: footerComponent.render(80), fgCalls };
+}
+
+describe("footer thinking-level rendering (lib/thinking-level.ts wired)", () => {
+	it("thinkingLevel='medium' renders '· ◒ medium' center segment colored accent", () => {
+		const { rows, fgCalls } = renderFooterWithThinkingLevel("medium");
+		assert.ok(rows[0]!.includes("· ◒ medium"), `should contain '· ◒ medium', got: ${rows[0]}`);
+		assert.ok(
+			fgCalls.some(([color, text]) => color === "accent" && text === "◒ medium"),
+			"'◒ medium' should be rendered with the canonical 'accent' color",
+		);
+	});
+
+	it("omits reasoning segment when thinkingLevel is unset/empty", () => {
+		for (const level of ["", " "]) {
+			const { rows } = renderFooterWithThinkingLevel(level);
+			assert.ok(!rows[0]!.includes("◒"), `no icon expected, got: ${rows[0]}`);
+			assert.ok(!rows[0]!.includes("medium"), `no level name expected, got: ${rows[0]}`);
+		}
+	});
+
+	it("unknown level 'bogus' renders '· bogus' fallback in dim (identical to pre-change)", () => {
+		const { rows, fgCalls } = renderFooterWithThinkingLevel("bogus");
+		assert.ok(rows[0]!.includes("· bogus"), `fallback should render '· bogus', got: ${rows[0]}`);
+		assert.ok(
+			fgCalls.some(([color, text]) => color === "dim" && text === "· bogus"),
+			"fallback color should be the canonical 'dim'",
+		);
+	});
+
+	it("all 6 known levels render icons identical to canonical lib mapping", () => {
+		const iconMap: Record<string, string> = {
+			off: "○",
+			minimal: "◐",
+			low: "◑",
+			medium: "◒",
+			high: "◓",
+			xhigh: "●",
+		};
+		for (const [level, icon] of Object.entries(iconMap)) {
+			const { rows } = renderFooterWithThinkingLevel(level);
+			assert.ok(
+				rows[0]!.includes(`${icon} ${level}`),
+				`'${level}' should render '${icon} ${level}', got: ${rows[0]}`,
+			);
+		}
 	});
 });
