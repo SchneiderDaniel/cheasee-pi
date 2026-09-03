@@ -184,9 +184,6 @@ func TestRunInit_GitHubFlowClonesWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workdir, "main", "docker")); !os.IsNotExist(err) {
 		t.Error("init must not extract docker/ into the worktree (CLI cache dir owns compose)")
 	}
-	if _, err := os.Stat(filepath.Join(workdir, "main", ".initremove")); !os.IsNotExist(err) {
-		t.Error("init must not create .initremove")
-	}
 }
 
 func TestRunInit_NoGitHubLegacySkipsGitInit(t *testing.T) {

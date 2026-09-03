@@ -37,7 +37,6 @@ Refactor `.pi/extensions/ripgrep-search.ts` from a 806-line monolith into a dire
 | Output format `{ total_returned, results[] }` | Tool result     | All consumers                          |
 | `--exclude-dir` list for grep fallback        | Internal        | `buildGrepArgs()`                      |
 | `--max-columns`, `--max-count`, `--vimgrep`   | Internal        | `buildRgArgs()`                        |
-| File path `.pi/extensions/ripgrep-search.ts`  | Extension load  | `benchmarks/benchmark-tools.sh`        |
 
 ## Architecture
 
