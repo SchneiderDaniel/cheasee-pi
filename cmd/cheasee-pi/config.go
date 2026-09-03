@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -117,24 +118,50 @@ func (r *fileRepository) GitHubToken(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-// readRawAuth reads the auth config file as a raw JSON map.
-// Returns empty map if file does not exist.
-func (r *fileRepository) readRawMap() (map[string]json.RawMessage, error) {
+// readJSONFile unmarshals the auth config file into v. found=false exactly
+// when the file does not exist (v untouched); a 0-byte or malformed file
+// errors instead (fail-closed: corrupt auth.json is never read as zero-value
+// where a write could clobber it). v is populated, not merged — callers must
+// pass a fresh value.
+func (r *fileRepository) readJSONFile(v any) (found bool, err error) {
 	path, err := r.configPath()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-
 	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]json.RawMessage), nil
-		}
-		return nil, err
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(data, v)
+}
 
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+// writeJSONFile marshals v and writes it atomically with the auth.json
+// perms: 0700 parent dir, 0600 file, no .tmp residue. The MkdirAll(dir, 0700)
+// is load-bearing — atomicWrite's internal MkdirAll(dir, 0755) is a no-op
+// behind it and the config dir must stay private.
+func (r *fileRepository) writeJSONFile(v any) error {
+	path, err := r.configPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(path, data, 0600)
+}
+
+// readRawMap reads the auth config file as a raw JSON map.
+// Returns empty map if file does not exist.
+func (r *fileRepository) readRawMap() (map[string]json.RawMessage, error) {
+	raw := make(map[string]json.RawMessage)
+	if _, err := r.readJSONFile(&raw); err != nil {
 		return nil, err
 	}
 	return raw, nil
@@ -142,22 +169,7 @@ func (r *fileRepository) readRawMap() (map[string]json.RawMessage, error) {
 
 // writeRawMap writes a raw JSON map to the auth config file atomically.
 func (r *fileRepository) writeRawMap(raw map[string]json.RawMessage) error {
-	path, err := r.configPath()
-	if err != nil {
-		return err
-	}
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return atomicWrite(path, data, 0600)
+	return r.writeJSONFile(raw)
 }
 
 // dedupeKey detects if a key was accidentally pasted twice (first half == second
