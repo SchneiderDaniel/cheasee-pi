@@ -170,34 +170,10 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Phase 5: ensure the version-keyed cache dir with embedded compose
-	// assets (regenerable; a fresh extraction overwrites cleanly).
-	cacheDir, err := ensureCacheDir(ctx)
-	if err != nil {
-		return fmt.Errorf("cache dir: %w", err)
-	}
-	if err := NewExtractor().Extract(ctx, cacheDir); err != nil {
-		return fmt.Errorf("extract compose files: %w", err)
-	}
-
-	// Phase 6: Ensure container running
-	running, err := containerRunning(ctx, upName)
-	if err != nil {
-		return fmt.Errorf("check container: %w", err)
-	}
-
-	if upBuild || !running {
-		if err := dockerComposeUp(ctx, cacheDir, root, upName); err != nil {
-			return fmt.Errorf("docker compose up: %w", err)
-		}
-	}
-
-	// Gate the exec behind first-run setup: compose up -d returns as soon as
-	// the container starts, long before the entrypoint finishes (worktree
-	// fix, ownership, workspace npm install). The healthcheck only passes
-	// once the entrypoint wrote its ready marker, so a fresh container
-	// starts pi with all deps in place.
-	if err := waitHealthy(ctx, upName); err != nil {
+	// Phases 5-6: extract the version-keyed compose cache, start the container
+	// when missing or --build, and wait for the entrypoint ready marker before
+	// execing pi (see ensureContainerReady).
+	if _, err := ensureContainerReady(ctx, root, upName, upBuild); err != nil {
 		return err
 	}
 
@@ -231,6 +207,36 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
 	}
 	return execErr
+}
+
+// ensureContainerReady extracts the version-keyed compose cache, starts the
+// container when missing or --build, and waits for the entrypoint ready marker.
+func ensureContainerReady(ctx context.Context, root, name string, build bool) (cacheDir string, err error) {
+	cacheDir, err = ensureCacheDir(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cache dir: %w", err)
+	}
+	if err := NewExtractor().Extract(ctx, cacheDir); err != nil {
+		return "", fmt.Errorf("extract compose files: %w", err)
+	}
+	running, err := containerRunning(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("check container: %w", err)
+	}
+	if build || !running {
+		if err := dockerComposeUp(ctx, cacheDir, root, name); err != nil {
+			return "", fmt.Errorf("docker compose up: %w", err)
+		}
+	}
+	// Gate the exec behind first-run setup: compose up -d returns as soon as
+	// the container starts, long before the entrypoint finishes (worktree
+	// fix, ownership, workspace npm install). The healthcheck only passes
+	// once the entrypoint wrote its ready marker, so a fresh container
+	// starts pi with all deps in place.
+	if err := waitHealthy(ctx, name); err != nil {
+		return "", err
+	}
+	return cacheDir, nil
 }
 
 // WorkspaceState is the start-gate classification of a folder.
