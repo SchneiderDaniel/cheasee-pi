@@ -6,28 +6,34 @@
 #
 # Asserts the Docker layer-cache behavior of the reordered Dockerfile:
 #
-#   build 1:  cheasee-pi build              (warms the cache)
-#   build 2:  cheasee-pi build              (PI_BUILD_STAMP differs → pi layer re-runs)
+#   build 1:  cheasee-pi build    (real CLI path — warms the cache)
+#   build 2:  compose build, stamp S2 held by the script (S2 != build 1's stamp)
 #             → clone / npm ci / symlink RUN layers report CACHED   (AC1)
 #             → pi install RUN does NOT report CACHED (stamp bust works, AC4)
-#   build 3:  entrypoint.sh byte change (via extractor re-write) -> build
+#   build 3:  entrypoint.sh byte change (cache-dir context file) + compose build
+#             with the SAME stamp S2 as build 2
 #             → pi install RUN reports CACHED                        (AC3)
 #             → clone / npm ci still CACHED                          (AC1)
 #             → entrypoint COPY re-runs (bytes changed)
-#   boot:     docker run --rm cheasee-pi pi --version  → version printed     (AC5)
+#   boot:     docker run --rm <project>-cheasee-pi pi --version → version printed (AC5)
 #             stamp file present in the final image                          (AC4)
+#
+# WHY COMPOSE-DIRECT FOR BUILDS 2/3: `cheasee-pi build` always injects a
+# fresh PI_BUILD_STAMP (build.go: fmt.Sprintf("%d", time.Now().Unix())) by
+# design. AC3 (entrypoint-only change must not reinstall pi) is only testable
+# when the stamp is HELD CONSTANT across builds 2→3, so those builds run
+# through `docker compose build` directly with the script's own stamp. Build 1
+# still exercises the real CLI path end-to-end.
 #
 # Scope: the cache-hit guarantee holds ONLY for default builds. --prune /
 # --no-cache / --pull wipe the cache by design, and the floating
 # FROM debian:12-slim digest drift is the upper bound on any pi-only rebuild.
 #
-# The stamp is second-granular (build.go: fmt.Sprintf("%d", time.Now().Unix())),
-# so the script sleeps >= 1s between builds — same-second runs produce an
-# identical ARG and a full cache hit that proves nothing.
-#
 # Requires: cheasee-pi on PATH (or CHEASEE_PI_BIN=/path/to/cheasee-pi), a
-# working docker daemon, go toolchain (build 3 re-embeds the entrypoint
-# change), ~15-25 min. Run manually — never inside a CI/Auditor timebox.
+# working docker daemon, ~15-25 min. Run manually — never inside a CI/Auditor
+# timebox. The compose/Dockerfile/entrypoint build context is the CLI's
+# version-keyed cache dir (populated by build 1's extract), which the script
+# resolves from `cheasee-pi --version`.
 #
 # Usage: bash scripts/verify-pi-layer-cache.sh [workspace-dir]
 #        (workspace-dir defaults to this repo's root; must be a git repo)
@@ -37,17 +43,30 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="${1:-$REPO_ROOT}"
 CLI="${CHEASEE_PI_BIN:-cheasee-pi}"
-ENTRYPOINT_SRC="$REPO_ROOT/cmd/cheasee-pi/embedded/docker/entrypoint.sh"
 
 command -v "$CLI" >/dev/null 2>&1 || { echo "error: cheasee-pi CLI not found on PATH (set CHEASEE_PI_BIN)" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "error: docker not found" >&2; exit 1; }
-command -v go >/dev/null 2>&1 || { echo "error: go not found (needed to rebuild the CLI with the entrypoint change for build 3)" >&2; exit 1; }
-if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- cmd/cheasee-pi/embedded/docker/entrypoint.sh)" ]]; then
-  echo "error: entrypoint.sh has uncommitted changes — refusing to touch it (build 3 modifies then git-restores it)" >&2
+
+# The compose build context lives in the CLI's version-keyed cache dir
+# (cache.go: os.UserCacheDir()/cheasee-pi/<cliVersion>). Version from the
+# CLI binary itself (--version → "cheasee-pi version 0.55.3"), so a custom
+# CHEASEE_PI_BIN build resolves its own cache key.
+CLI_VERSION="$("$CLI" --version | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $i; exit }')"
+if [[ -z "$CLI_VERSION" ]]; then
+  echo "error: could not parse a semver from \`$CLI --version\` (got: $("$CLI" --version)) — cannot resolve the cache dir" >&2
   exit 1
 fi
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cheasee-pi/${CLI_VERSION}"
+COMPOSE_FILE="$CACHE_DIR/docker-compose.yml"
+# Compose project for the script's own builds — compose tags the image as
+# <project>-cheasee-pi (the file's `name: cheasee-pi` and the CLI's per-repo
+# project name produce different tags, so the boot check resolves the image
+# dynamically instead of assuming a name).
+PROJECT="cheasee-pi-cacheverify"
 
 TMP="$(mktemp -d)"
+ENTRYPOINT_CACHE="$CACHE_DIR/entrypoint.sh"
+ENTRYPOINT_BAK="$TMP/entrypoint.sh.orig"
 trap 'rm -rf "$TMP"' EXIT
 # ──────────────────────────────────────────────
 # Build-log helpers. Two formats occur depending on who prints the progress:
@@ -119,6 +138,22 @@ build() { # <out-log> — runs `cheasee-pi build` (default flags) in WORKDIR
   (cd "$WORKDIR" && "$CLI" build) 2>&1 | tee "$1"
 }
 
+# compose_build <stamp> <out-log> — runs `docker compose build` directly with
+# the given PI_BUILD_STAMP (default flags), from the CLI's cache-dir build
+# context. Mirrors what build.go does for its compose argv (minus the CLI's
+# own stamp injection, which is the point: AC3 needs the stamp held constant).
+# Compose validates every volume spec even for `build`, so the workspace env
+# vars must be set (same env application as applyComposeEnv).
+compose_build() { # <stamp> <out-log>
+  local stamp=$1 out=$2
+  (cd "$CACHE_DIR" \
+    && WORKSPACE_HOST_PATH="$WORKDIR" \
+       WORKSPACE_BARE_PATH="$(dirname "$WORKDIR")/.bare" \
+       COMPOSE_PROJECT_NAME="$PROJECT" \
+       docker compose -f "$COMPOSE_FILE" build \
+         --build-arg "PI_BUILD_STAMP=$stamp") 2>&1 | tee "$out"
+}
+
 failures=0
 fail() { echo "  ✗ $1" >&2; failures=$((failures + 1)); }
 
@@ -127,40 +162,67 @@ symlink_pat='RUN mkdir -p /home/agentuser/.pi/agent/skills'
 pi_pat='RUN npm install -g --force @earendil-works/pi-coding-agent'
 copy_pat='COPY entrypoint.sh /usr/local/bin/entrypoint.sh'
 
-echo "== build 1 (warm the cache) =="
+echo "== build 1 (warm the cache, real CLI path) =="
 build "$TMP/build1.log"
-sleep 1 # stamp is second-granular — same-second builds would cache-hit entirely
+sleep 1 # stamp is second-granular — build 2's held stamp must differ from build 1's CLI stamp
 
-echo "== build 2 (same sources, new PI_BUILD_STAMP) =="
-build "$TMP/build2.log"
+# The CLI's build-1 stamp was generated inside the binary; we cannot observe
+# it. To guarantee build 2's stamp differs, derive it from the wall clock >=
+# 1s later (sleep above). Builds 2 and 3 share this stamp: AC3 requires
+# holding PI_BUILD_STAMP constant while only entrypoint bytes change.
+STAMP2="$(date +%s)"
+
+echo "== build 2 (same sources, new PI_BUILD_STAMP held by script) =="
+compose_build "$STAMP2" "$TMP/build2.log"
 echo "— AC1: expensive 6b layers stay cached on a pi-only rebuild —"
 assert_cached "$TMP/build2.log" "clone + npm ci (6b)" "$clone_pat" || fail "clone/npm-ci layer must be CACHED on build 2"
 assert_cached "$TMP/build2.log" "symlink wiring (6b)" "$symlink_pat" || fail "symlink layer must be CACHED on build 2"
 echo "— AC4: stamp bust still re-runs the pi install —"
 assert_rerun "$TMP/build2.log" "pi install (6c)" "$pi_pat" || fail "pi layer must re-execute on build 2 (stamp bust)"
 
-echo "== build 3 (entrypoint.sh byte change → extractor re-writes it) =="
-# Emulate an entrypoint-only release: append a marker to the embedded source,
-# rebuild the CLI (the extractor re-writes the cache dir's entrypoint.sh from
-# the new binary on `cheasee-pi build`), then restore the source.
-printf '\n# verify-pi-layer-cache.sh marker\n' >>"$ENTRYPOINT_SRC"
-restore_entrypoint() { git -C "$REPO_ROOT" checkout -- cmd/cheasee-pi/embedded/docker/entrypoint.sh 2>/dev/null || true; }
+echo "== build 3 (entrypoint.sh byte change, SAME PI_BUILD_STAMP as build 2) =="
+# Emulate an entrypoint-only release by appending a marker to the build
+# context's entrypoint.sh (the CLI cache-dir copy — the file Layer 7 COPYs
+# into the image). Build through compose with the stamp held at STAMP2 so the
+# pi layer's cache key (RUN text + ARG value) is byte-identical to build 2's:
+# only the entrypoint COPY can differ. Restore the context file afterwards
+# so the cache dir is left pristine.
+cp "$ENTRYPOINT_CACHE" "$ENTRYPOINT_BAK"
+restore_entrypoint() { cp "$ENTRYPOINT_BAK" "$ENTRYPOINT_CACHE" 2>/dev/null || true; }
 trap 'restore_entrypoint; rm -rf "$TMP"' EXIT
-(cd "$REPO_ROOT" && go build -o "$TMP/cheasee-pi" ./cmd/cheasee-pi/)
+printf '\n# verify-pi-layer-cache.sh marker\n' >>"$ENTRYPOINT_CACHE"
+compose_build "$STAMP2" "$TMP/build3.log"
 restore_entrypoint
-CLI="$TMP/cheasee-pi" build "$TMP/build3.log"
+# Build 3 done — the entrypoint context file is restored; relax the trap to
+# only clean the temp dir (a later failure must not re-clobber a deliberately
+# edited context).
+trap 'rm -rf "$TMP"' EXIT
 echo "— AC3: entrypoint-only change must NOT reinstall pi —"
 assert_cached "$TMP/build3.log" "pi install (6c)" "$pi_pat" || fail "pi layer must be CACHED on build 3 (entrypoint-only change)"
 assert_cached "$TMP/build3.log" "clone + npm ci (6b)" "$clone_pat" || fail "clone/npm-ci layer must stay CACHED on build 3"
 assert_rerun "$TMP/build3.log" "entrypoint COPY (7)" "$copy_pat" || fail "entrypoint COPY must re-execute on build 3 (bytes changed)"
 
 echo "== boot checks =="
-if docker run --rm cheasee-pi pi --version; then
-  echo "  ✓ docker run --rm cheasee-pi pi --version (AC5)"
-else
-  fail "image must boot: docker run --rm cheasee-pi pi --version"
+# Compose tags the built image as <project>-cheasee-pi (no `image:` key in
+# docker-compose.yml), so resolve it from the project instead of assuming
+# the bare name `cheasee-pi`. `docker compose build` only builds; no
+# containers exist, so `docker compose images` (which lists containers'
+# images) would print nothing. Resolve via the compose project label, with
+# the <project>-<service> name-scheme fallback.
+IMAGE="$(docker image ls --filter label=com.docker.compose.project="$PROJECT" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | head -n1)"
+if [[ -z "$IMAGE" ]]; then
+  IMAGE="$(docker image ls --format '{{.Repository}}:{{.Tag}}' "${PROJECT}-cheasee-pi" 2>/dev/null | head -n1)"
 fi
-if docker run --rm cheasee-pi sh -c 'test -f /var/lib/pi-build-stamp'; then
+if [[ -z "$IMAGE" ]]; then
+  echo "error: expected image from compose project $PROJECT was not built (docker image ls found nothing)" >&2
+  fail "image ${PROJECT}-cheasee-pi must exist after compose build"
+fi
+if docker run --rm "$IMAGE" pi --version; then
+  echo "  ✓ docker run --rm $IMAGE pi --version (AC5)"
+else
+  fail "image must boot: docker run --rm $IMAGE pi --version"
+fi
+if docker run --rm "$IMAGE" sh -c 'test -f /var/lib/pi-build-stamp'; then
   echo "  ✓ stamp file /var/lib/pi-build-stamp present in the final image (AC4)"
 else
   fail "stamp file /var/lib/pi-build-stamp missing from the final image"
