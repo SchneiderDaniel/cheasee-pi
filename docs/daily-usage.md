@@ -318,9 +318,7 @@ WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache --pull
 ```
 
-rebuild = no-cache full rebuild + prune. `cheasee-pi build --no-cache` is kept
-as a compatibility alias (same rebuild, but prunes before the build and does
-not pass `--pull`). Use `rebuild` when:
+rebuild = no-cache full rebuild + prune. Use `rebuild` when:
 - Base image (`debian:12-slim`) has security updates — `rebuild`'s `--pull`
   refreshes it; `--no-cache` alone would keep the locally cached base image
 - `apt` or `pip` packages need fresh versions
