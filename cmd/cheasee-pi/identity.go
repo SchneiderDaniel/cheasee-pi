@@ -152,6 +152,12 @@ func parseGitRemote(raw string) (owner, repo, host string) {
 		// colon, not a remote: ownerless and repo-less (repoSlug falls back
 		// to the workspace basename, the init gate refuses).
 		return "", "", ""
+	} else if strings.HasPrefix(url, "./") || strings.HasPrefix(url, "../") || strings.HasPrefix(url, "/") || strings.HasPrefix(url, "~/") || url == "." || url == ".." {
+		// Relative or absolute local path (./repo, ../repo, /tmp/repo, ~/repo)
+		// — git can clone it but it carries no owner/repo. Return the empty
+		// tuple so repoSlug keeps its basename fallback and the init gates
+		// refuse instead of fabricating a GitHub URL like https://github.com/./repo.git.
+		return "", "", ""
 	}
 
 	parts := strings.Split(path, "/")

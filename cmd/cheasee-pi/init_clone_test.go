@@ -63,6 +63,8 @@ func TestCanonicalRepoURL(t *testing.T) {
 		{"gitlab scp refused", "git@gitlab.com:a/b", "", "invalid repo URL"},
 		{"scheme URL no authority", "https:///owner/repo", "", "invalid repo URL"},
 		{"deep GitHub URL refused", "https://github.com/o/r/tree/main", "", "invalid repo URL"},
+		{"relative dot path refused", "./repo", "", "invalid repo URL"},
+		{"relative parent path refused", "../repo", "", "invalid repo URL"},
 		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
 		{"unparsable", "not-a-url", "", "invalid repo URL"},
 		{"empty", "", "", "invalid repo URL"},

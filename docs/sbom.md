@@ -44,7 +44,7 @@ nav_order: 10
 | `github.com/cli/oauth` | v1.2.2 | MIT | Device-flow OAuth for GitHub auth |
 | `github.com/go-git/go-git/v5` | v5.19.1 | Apache-2.0 | Git repository operations |
 | `github.com/spf13/cobra` | v1.10.2 | Apache-2.0 | CLI framework |
-| `golang.org/x/mod` | v0.35.0 | BSD-3-Clause | Go module utilities |
+| `golang.org/x/mod` | v0.40.0 | BSD-3-Clause | Go module utilities |
 
 ## System dependencies
 

@@ -70,6 +70,13 @@ func TestParseGitRemote(t *testing.T) {
 		// reject semantic: single-segment ownerless keeps the repo
 		{"not-a-url", "", "not-a-url", ""},
 		{"alice", "", "alice", ""},
+		// relative/absolute local paths — git can clone them but they carry
+		// no owner/repo; empty tuple keeps repoSlug's basename fallback and
+		// makes the init gates refuse (never github.com/./repo.git)
+		{"./repo", "", "", ""},
+		{"../repo", "", "", ""},
+		{"/tmp/abs/repo", "", "", ""},
+		{"~/repo", "", "", ""},
 		// empty / whitespace
 		{"", "", "", ""},
 		{"   ", "", "", ""},
@@ -110,6 +117,8 @@ func TestParseGitHubRemote(t *testing.T) {
 		"not-a-url",
 		"",
 		"foo/bar:baz", // local-path-with-colon
+		"./repo",       // relative local path (never github.com/./repo)
+		"../repo",      // relative local path
 	}
 	for _, raw := range refused {
 		if owner, repo := parseGitHubRemote(raw); owner != "" || repo != "" {
