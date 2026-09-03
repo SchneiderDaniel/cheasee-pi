@@ -105,6 +105,9 @@ func runBuild(ctx context.Context, opts buildOptions) error {
 	// layers on the command text + ARG values, and an unchanging ARG
 	// would serve a stale pi from the layer cache — the "Update
 	// Available" nag pointing at a version the image never carries.
+	// The pi layer sits after the clone/npm-ci layers (Layer 6c), so this
+	// per-build bust re-runs only the pi install — clone + npm ci stay
+	// cached across builds.
 	stamp := fmt.Sprintf("%d", time.Now().Unix())
 	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
 	if opts.noCache {

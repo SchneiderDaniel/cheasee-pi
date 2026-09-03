@@ -363,6 +363,8 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 	// Build with a per-build cache-busting stamp so the pi-coding-agent
 	// layer always re-resolves @latest (Docker caches RUN layers on the
 	// command text + ARG values; an unchanging ARG means a stale pi).
+	// The pi layer sits after the clone/npm-ci layers, so the bust re-runs
+	// only the pi install — clone + npm ci stay cached across builds.
 	stamp := fmt.Sprintf("%d", time.Now().Unix())
 	build := runCommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
