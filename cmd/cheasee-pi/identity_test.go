@@ -61,6 +61,12 @@ func TestParseGitRemote(t *testing.T) {
 		// the FIRST colon
 		{"host:2222:o/r", "2222:o", "r", "host"},
 		{"foo/bar:baz", "", "", ""}, // local-path-with-colon → ownerless
+		// empty authorities are malformed — never shorthand (kills the
+		// audit finding: a scheme/scp URL with no host must fail closed)
+		{"https:///owner/repo", "", "", ""},
+		{"https://:2222/owner/repo", "", "", ""},
+		{":owner/repo", "", "", ""},
+		{"@:owner/repo", "", "", ""},
 		// reject semantic: single-segment ownerless keeps the repo
 		{"not-a-url", "", "not-a-url", ""},
 		{"alice", "", "alice", ""},
@@ -98,6 +104,8 @@ func TestParseGitHubRemote(t *testing.T) {
 		"https://gitlab.com/a/b",
 		"git@gitlab.com:a/b",
 		"https://github.com/o/r/tree/main", // multi-segment owner
+		"https:///owner/repo",              // scheme with no authority
+		":owner/repo",                      // scp-like with no authority
 		"alice",                            // ownerless
 		"not-a-url",
 		"",

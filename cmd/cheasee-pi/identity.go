@@ -104,7 +104,9 @@ func bareRepoURL(workspaceRoot string) string {
 //
 // host is the lowercased authority minus userinfo and :port ("" for
 // shorthand/local input). ".git" and trailing slashes are stripped in a
-// canonical order (slashes first, so "repo.git/" cleans up fully); an
+// canonical order (slashes first, so "repo.git/" cleans up fully); a scheme
+// or scp-like URL with an EMPTY authority (https:///owner/repo, :owner/repo)
+// is malformed and yields ("","","") so the init gates refuse it, while an
 // unparseable/owner-less input yields a repo-or-empty pair so the caller's
 // fallback chain can proceed.
 func parseGitRemote(raw string) (owner, repo, host string) {
@@ -130,10 +132,20 @@ func parseGitRemote(raw string) (owner, repo, host string) {
 			return "", "", "" // scheme://host with no path — nothing to split
 		}
 		host = authorityHost(host)
+		if host == "" {
+			// scheme URL with no authority (https:///owner/repo) is malformed
+			// — refuse rather than hand the init gates a shorthand-looking
+			// pair that would reach git.
+			return "", "", ""
+		}
 	} else if i := strings.Index(url, ":"); i >= 0 && !strings.Contains(url[:i], "/") {
 		// scp-like [user@]host:path — only when no slash precedes the first
-		// colon (git-clone(1) disambiguates local paths containing colons).
+		// colon (git-clone(1) disambiguates local paths containing colons)
+		// and the authority is non-empty (":owner/repo" is not scp-like).
 		host = authorityHost(url[:i])
+		if host == "" {
+			return "", "", ""
+		}
 		path = url[i+1:]
 	} else if strings.Contains(url, ":") {
 		// No scheme and a slash before the first colon → local path with a

@@ -61,6 +61,7 @@ func TestCanonicalRepoURL(t *testing.T) {
 		{"ssh scheme passthrough", "ssh://git@github.com/owner/repo", "ssh://git@github.com/owner/repo", ""},
 		{"gitlab https refused", "https://gitlab.com/a/b", "", "invalid repo URL"},
 		{"gitlab scp refused", "git@gitlab.com:a/b", "", "invalid repo URL"},
+		{"scheme URL no authority", "https:///owner/repo", "", "invalid repo URL"},
 		{"deep GitHub URL refused", "https://github.com/o/r/tree/main", "", "invalid repo URL"},
 		{"embedded credentials refused", "https://oauth2:SECRETTOKEN@github.com/owner/repo", "", "embedded credentials"},
 		{"unparsable", "not-a-url", "", "invalid repo URL"},
@@ -277,6 +278,20 @@ func TestGitCloneWorktree_gitlabURLRefused(t *testing.T) {
 	}
 	if len(c.cloneArgs) != 0 {
 		t.Errorf("no git call may run for a gitlab URL, got %v", c.cloneArgs)
+	}
+}
+
+func TestGitCloneWorktree_schemeURLWithoutAuthorityRefused(t *testing.T) {
+	// Fail-closed regression (audit): a scheme URL with no authority
+	// (https:///owner/repo) must never reach git as if it were shorthand.
+	workdir := t.TempDir()
+	c := stubGitClone(t, nil, nil)
+	err := gitCloneWorktree(context.Background(), "https:///owner/repo", workdir)
+	if err == nil || !strings.Contains(err.Error(), "invalid repo URL") {
+		t.Fatalf("expected invalid repo URL error for an authority-less scheme URL, got %v", err)
+	}
+	if len(c.cloneArgs) != 0 {
+		t.Errorf("no git call may run for an authority-less scheme URL, got %v", c.cloneArgs)
 	}
 }
 
