@@ -418,6 +418,69 @@ func TestUpdateGitHubAuth_AtomicWritePermsAndRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAtomicWrite_preservesExistingMode: rename replaces the inode, so a
+// pre-existing chmod'd target must keep its mode across a rewrite; an absent
+// target gets the caller's perm.
+func TestAtomicWrite_preservesExistingMode(t *testing.T) {
+	dir := t.TempDir()
+	for _, want := range []os.FileMode{0600, 0640} {
+		path := filepath.Join(dir, fmt.Sprintf("target-%o", want))
+		if err := os.WriteFile(path, []byte("old"), want); err != nil {
+			t.Fatal(err)
+		}
+		if err := atomicWrite(path, []byte("new"), 0644); err != nil {
+			t.Fatalf("atomicWrite over %o: %v", want, err)
+		}
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != want {
+			t.Errorf("existing %o target must keep its mode after rewrite, got %v", want, fi.Mode().Perm())
+		}
+	}
+
+	// Absent target gets the caller perm.
+	path := filepath.Join(dir, "new-file")
+	if err := atomicWrite(path, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0644 {
+		t.Errorf("absent target must get caller perm 0644, got %v", fi.Mode().Perm())
+	}
+}
+
+// TestSettingsSave_preservesChmoddedMode: Settings.Save over a 0600
+// .pi/settings.json preserves 0600 — no silent 0644 reset via the rename.
+func TestSettingsSave_preservesChmoddedMode(t *testing.T) {
+	workdir := t.TempDir()
+	path := filepath.Join(workdir, ".pi", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSettings(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(workdir); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0600 {
+		t.Errorf("0600 .pi/settings.json must keep 0600 through Settings.Save, got %v", fi.Mode().Perm())
+	}
+}
+
 // ──────────────────────────────────────────────
 // GitHubToken / ListProviders error classes
 // ──────────────────────────────────────────────

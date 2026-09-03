@@ -32,6 +32,12 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
+	// Rename replaces the inode, so preserve an existing target's mode —
+	// without this a user-chmod'd settings file (0600/0640) silently resets to
+	// the caller's perm on the next save. New files keep the caller's perm.
+	if fi, err := os.Stat(path); err == nil {
+		perm = fi.Mode().Perm()
+	}
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, perm); err != nil {
 		return err
