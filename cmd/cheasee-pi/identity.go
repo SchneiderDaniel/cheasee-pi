@@ -101,6 +101,7 @@ func bareRepoURL(workspaceRoot string) string {
 //	https://gitlab.com/group/sub/foo   → (group/sub, foo, gitlab.com)
 //	owner/repo                         → (owner, repo, "")     (shorthand)
 //	not-a-url                          → ("", not-a-url, "")  (ownerless)
+//	file://localhost/tmp/project       → ("", "", "")          (local path)
 //
 // host is the lowercased authority minus userinfo and :port ("" for
 // shorthand/local input). ".git" and trailing slashes are stripped in a
@@ -120,6 +121,16 @@ func parseGitRemote(raw string) (owner, repo, host string) {
 			break
 		}
 		url = next
+	}
+
+	if strings.HasPrefix(url, "file://") {
+		// file:// URLs are local paths, not remotes — git clones them from
+		// the local filesystem without touching a host, so they carry no
+		// owner/repo. Return the empty tuple before the generic scheme
+		// branch (which would otherwise treat "localhost" or any authority
+		// as a remote host and fabricate tmp/project from the path):
+		// repoSlug keeps its basename fallback, the init gates refuse.
+		return "", "", ""
 	}
 
 	path := url

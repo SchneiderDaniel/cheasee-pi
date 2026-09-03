@@ -77,6 +77,12 @@ func TestParseGitRemote(t *testing.T) {
 		{"../repo", "", "", ""},
 		{"/tmp/abs/repo", "", "", ""},
 		{"~/repo", "", "", ""},
+		// file:// URLs are local paths too — the authority is a filesystem
+		// location, never a remote host (kills the audit finding: "localhost"
+		// must not become a host with owner tmp/repo project)
+		{"file://localhost/tmp/project.git", "", "", ""},
+		{"file:///tmp/project.git", "", "", ""},
+		{"file://server/share/repo", "", "", ""},
 		// empty / whitespace
 		{"", "", "", ""},
 		{"   ", "", "", ""},
@@ -119,6 +125,7 @@ func TestParseGitHubRemote(t *testing.T) {
 		"foo/bar:baz", // local-path-with-colon
 		"./repo",       // relative local path (never github.com/./repo)
 		"../repo",      // relative local path
+		"file://localhost/tmp/project.git", // file URL → local path, not a host
 	}
 	for _, raw := range refused {
 		if owner, repo := parseGitHubRemote(raw); owner != "" || repo != "" {
@@ -263,6 +270,18 @@ func TestRepoSlug_scpLikeRemote(t *testing.T) {
 	writeBareRemote(t, parent, "git@github.com:alice/foo.git")
 	if got := repoSlug(root); got != "alice-foo" {
 		t.Errorf("repoSlug = %q, want alice-foo", got)
+	}
+}
+
+func TestRepoSlug_fileURLFallsBackToBasename(t *testing.T) {
+	// A file:// remote is a local path, not a remote identity: deriving
+	// tmp/project from the URL's pseudo-host "localhost" would rename the
+	// workspace after an unrelated path. repoSlug must fall back to the
+	// workspace basename instead.
+	parent, root := mkWorkspace(t, `{}`)
+	writeBareRemote(t, parent, "file://localhost/tmp/project.git")
+	if got := repoSlug(root); got != filepath.Base(root) {
+		t.Errorf("repoSlug = %q, want basename %q", got, filepath.Base(root))
 	}
 }
 

@@ -55,6 +55,7 @@ func TestCanonicalRepoURL(t *testing.T) {
 		{"shorthand", "owner/repo", "https://github.com/owner/repo.git", ""},
 		{"shorthand git suffix", "owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"scp style", "git@github.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
+		{"scp mixed-case host", "git@GitHub.com:owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"https passthrough", "https://github.com/owner/repo", "https://github.com/owner/repo", ""},
 		{"https git suffix passthrough", "https://github.com/owner/repo.git", "https://github.com/owner/repo.git", ""},
 		{"https trailing slash passthrough", "https://github.com/owner/repo/", "https://github.com/owner/repo/", ""},
