@@ -1,7 +1,0 @@
-# Files and directories to remove after clone
-# This file uses gitignore-style pattern syntax.
-# Lines starting with # are comments.
-# Patterns are relative to repository root.
-
-.github/
-test.md
