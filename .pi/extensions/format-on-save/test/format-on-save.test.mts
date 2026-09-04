@@ -2504,4 +2504,40 @@ describe("handler — [config error] prefix for SyntaxError config errors", () =
 			cleanup();
 		}
 	});
+
+	it("real adapter result (broken config SyntaxError) through handler → [config error] prefix", async () => {
+		// Integration: real EslintLinter + real eslint on a broken
+		// eslint.config.mjs fixture; the resulting LintResult.error flows
+		// through the handler, which must classify it as a config error
+		// (relies on getErrorMessage preserving the "SyntaxError" name).
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, jsFile, cleanup } = createBrokenConfigFixture();
+		const linter = new EslintLinter(); // real eslint + real fs
+		const { consoleErrorCalls, cleanup: handlerCleanup } = await runHandlerWithMocks(
+			{ canHandle: () => false, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{ input: { path: jsFile } },
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(dir, "fixture dir exists");
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(
+				match!.includes("SyntaxError"),
+				"preserved error name must reach the handler message",
+			);
+			assert.ok(
+				match!.includes("[config error]"),
+				"real broken-config result must be prefixed as a config error",
+			);
+			assert.ok(
+				!match!.includes("Invalid Options") && !match!.includes("useEslintrc"),
+				"removed-option constructor error must never surface",
+			);
+		} finally {
+			handlerCleanup();
+			cleanup();
+		}
+	});
 });

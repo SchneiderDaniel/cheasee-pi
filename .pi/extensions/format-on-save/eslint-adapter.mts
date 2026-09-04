@@ -296,12 +296,29 @@ export class EslintLinter implements Linter {
 	 * Extract a human-readable message from an unknown error value.
 	 * Handles Error instances, plain objects with a `message` property, and
 	 * any other value via String().
+	 *
+	 * Preserves the error name (e.g. "SyntaxError: Unexpected end of input")
+	 * so config-error detection by name still works on the user-visible
+	 * error string — a bare message like "Unexpected end of input" would
+	 * otherwise lose the "SyntaxError" marker the handler keys on.
 	 */
 	private getErrorMessage(err: unknown): string {
-		if (err instanceof Error) return err.message;
-		const msg = (err as { message?: unknown } | null)?.message;
-		if (typeof msg === "string") return msg;
-		return String(err);
+		let message: string;
+		if (err instanceof Error) {
+			message = err.message;
+		} else {
+			const msg = (err as { message?: unknown } | null)?.message;
+			if (typeof msg === "string") {
+				message = msg;
+			} else {
+				return String(err);
+			}
+		}
+		const name = (err as { name?: unknown } | null)?.name;
+		if (typeof name === "string" && name.length > 0 && name !== "Error") {
+			return `${name}: ${message}`;
+		}
+		return message;
 	}
 
 	/**
