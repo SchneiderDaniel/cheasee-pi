@@ -82,9 +82,6 @@ export const MULTI_VERB_TOOLS = new Set([
 	"gh",
 ]);
 
-/** Max errors tracked per tool before triggering retry block. */
-export const MAX_ERRORS_PER_TOOL = 3;
-
 // ── Types ──
 
 /** Per-tool metadata for harness configuration. */
@@ -118,14 +115,10 @@ export function getToolMeta(toolName: string): ToolMeta {
  * Build a structured redirect message for the LLM.
  * Returns a [SYSTEM OVERRIDE] block with forbidden action and tool name.
  *
- * When `schemaExample` is provided, it is appended as an "Example call:" line.
- * Without it, no schema example line is included (default).
- *
  * @param toolName — the pi tool to redirect to
- * @param schemaExample — optional example call string (e.g., '{ "path": "/path/to/file" }')
  * @returns formatted redirect message, or "" for unknown tools
  */
-export function buildRedirectMessage(toolName: string, schemaExample?: string): string {
+export function buildRedirectMessage(toolName: string): string {
 	const guidance = REDIRECT_GUIDANCE[toolName];
 	if (!guidance) return "";
 
@@ -133,10 +126,6 @@ export function buildRedirectMessage(toolName: string, schemaExample?: string): 
 		`[SYSTEM OVERRIDE] Action Blocked. Do not use ${guidance.forbidden}.`,
 		`You MUST use the dedicated '${guidance.tool}' tool.`,
 	];
-
-	if (schemaExample) {
-		lines.push(`Example call: ${schemaExample}`);
-	}
 
 	return lines.join("\n");
 }
