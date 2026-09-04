@@ -368,6 +368,116 @@ describe("rewritePath", () => {
 		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
 		assert.equal(result, undefined);
 	});
+
+	// ── Absolute path with `..` components (traversal, CWE-22) ────
+
+	it("blocks absolute path with .. that escapes sandbox (file operations)", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/../../../../etc/passwd`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("blocks absolute path with .. that escapes sandbox (writes)", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/../../../../etc/passwd`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("blocks absolute path with .. that escapes sandbox (edits)", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/../../../../etc/passwd`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("edit", event, SANDBOX_ROOT, ctx, "edits");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("blocks absolute path with .. resolving above the root", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/sub/../../../..`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("blocks absolute path with double-slash and .. (Vite CVE class)", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}//../..`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("passes through absolute path with in-sandbox .. and normalizes event.input.path", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/sub/../file.txt`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.equal(result, undefined);
+		assert.equal(event.input.path, join(SANDBOX_ROOT, "file.txt"));
+	});
+
+	it("passes through already-normal absolute in-sandbox path (idempotent no-op)", () => {
+		const event = makeEvent(join(SANDBOX_ROOT, "some/file.txt"));
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
+		assert.equal(result, undefined);
+		assert.equal(event.input.path, join(SANDBOX_ROOT, "some/file.txt"));
+	});
+
+	it("blocks read on absolute in-sandbox directory even with .. in the raw path (reason names original)", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/sub/../subdir`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("directory"));
+		assert.ok((result.reason ?? "").includes("bash ls"));
+	});
+
+	it("read on outside directory via .. reports 'outside the worktree' not 'directory'", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}/../../../../tmp`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("trailing slash on root is contained; read blocked as directory, write/edit normalize to root", () => {
+		const readEvent = makeEvent(`${SANDBOX_ROOT}/`);
+		const readResult = mod.rewritePath("read", readEvent, SANDBOX_ROOT, makeCtx(false), "file operations");
+		assert.ok(readResult !== undefined);
+		assert.ok((readResult.reason ?? "").includes("directory"));
+
+		const writeEvent = makeEvent(`${SANDBOX_ROOT}/`);
+		const writeResult = mod.rewritePath("write", writeEvent, SANDBOX_ROOT, makeCtx(false), "writes");
+		assert.equal(writeResult, undefined);
+		assert.equal(writeEvent.input.path, SANDBOX_ROOT);
+	});
+
+	it("blocks prefix-sibling path <root>-evil/file", () => {
+		const event = makeEvent(`${SANDBOX_ROOT}-evil/file`);
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("read", event, SANDBOX_ROOT, ctx, "file operations");
+		assert.ok(result !== undefined);
+		assert.equal(result.block, true);
+		assert.ok((result.reason ?? "").includes("outside the worktree"));
+	});
+
+	it("Windows-form path C:\\x is treated as relative on POSIX (contained inside sandbox)", () => {
+		const event = makeEvent("C:\\x");
+		const ctx = makeCtx(false);
+		const result = mod.rewritePath("write", event, SANDBOX_ROOT, ctx, "writes");
+		assert.equal(result, undefined);
+	});
 });
 
 // ─── Phase 2a: hasShellExpansion ───────────────────────────────────

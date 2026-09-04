@@ -337,6 +337,53 @@ describe("worktree-sandbox gates", () => {
 	// Phase 4: Integration through sandbox handler — bash tool
 	// ═════════════════════════════════════════════════════════════
 
+	// ═════════════════════════════════════════════════════════════
+	// User-journey: sub-agent confinement against absolute `..` traversal
+	// ═════════════════════════════════════════════════════════════
+
+	describe("User journey: absolute `..` traversal confinement", () => {
+		it("sub-agent read of escaped absolute path is blocked and notified", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const notifications: Array<{ msg: string; level?: string }> = [];
+			const event = makeToolCallEvent("read", {
+				path: `${sandboxDir}/../../../../etc/passwd`,
+			});
+			const ctx = makeCtx({
+				hasUI: true,
+				mode: "tui",
+				isProjectTrusted: () => true,
+				ui: {
+					notify: (message: string, type?: string) => {
+						notifications.push({ msg: message, level: type });
+					},
+				},
+			});
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("outside the worktree"));
+			assert.equal(notifications.length, 1);
+			assert.ok(notifications[0]!.msg.includes("Blocked read to outside worktree"));
+		});
+
+		it("sub-agent write with in-sandbox .. passes through and normalizes path", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeToolCallEvent("write", { path: `${sandboxDir}/sub/../note.txt` });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.equal(result, undefined);
+			assert.equal(event.input.path, `${sandboxDir}/note.txt`);
+		});
+	});
+
 	describe("Phase 4: Integration — bash handler blocks unsafe commands", () => {
 		it("safe cd src passes through", async () => {
 			const pi = makeMockPi();

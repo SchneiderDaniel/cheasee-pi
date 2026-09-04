@@ -206,6 +206,22 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it("absolute paths with .. that escape sandbox are blocked (traversal)", () => {
+		assert.equal(
+			mod.findUnsafeWriteInBash(`echo x > ${SB}/../../../../etc/passwd`, SB),
+			`outside sandbox: ${SB}/../../../../etc/passwd`,
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash(`cp a ${SB}/../../../tmp/out`, SB),
+			`outside sandbox: ${SB}/../../../tmp/out`,
+		);
+	});
+
+	it("in-sandbox .. targets stay null (not over-blocked)", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`touch ${SB}/sub/../new.txt`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`echo x > ${SB}/sub/../out.txt`, SB), null);
+	});
+
 	it("all inside-sandbox variants pass", () => {
 		assert.equal(mod.findUnsafeWriteInBash(`echo x > ${SB}/out.txt`, SB), null);
 		assert.equal(mod.findUnsafeWriteInBash(`cp ${SB}/a.txt ${SB}/b.txt`, SB), null);

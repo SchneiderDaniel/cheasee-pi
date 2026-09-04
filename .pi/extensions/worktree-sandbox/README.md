@@ -133,10 +133,33 @@ flowchart TD
 | Input | Type | Result |
 |-------|------|--------|
 | `relative/path.ts` | relative | Rewritten to `<sandbox>/relative/path.ts` |
-| `/absolute/within/sandbox` | absolute (within) | Pass through |
+| `/absolute/within/sandbox` | absolute (within) | Pass through, normalized |
 | `/absolute/outside` | absolute (outside) | Blocked |
 | `../../outside` | traversal | Blocked |
+| `<sandbox>/../../../../etc/passwd` | absolute traversal | Blocked (resolved before check) |
 | Directory for `read` | any | Blocked, suggest `bash ls` |
+
+### Threat Model
+
+The sandbox is a **best-effort interceptor**, not a process-level boundary. Absolute
+defense requires OS-level isolation (container, seccomp, mount namespaces).
+
+- **Lexical containment** — All paths are normalized with `node:path.resolve`
+  (collapsing `..`, `//`, trailing slashes) *before* the containment check, and
+the normalized path is what reaches the tool. This defeats `..` traversal
+deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
+(containment check must run on normalized input).
+- **Symlink-escape residual** — `path.resolve` is lexical: it never resolves
+  symlinks. A symlink inside the worktree pointing outside defeats the check
+  (node-tar CVE-2021-32803 class). Realpath-based physical containment is
+  deliberately not applied here to keep the token-scanning detectors I/O-free;
+  the trust gate (untrusted projects skip sandbox entirely) mitigates the
+  practical exposure. If physical containment is ever required, apply
+  `fs.realpathSync` to the deepest existing ancestor and re-check containment.
+- **TOCTOU** — The interceptor's `statSync` check and the tool's later open are
+  separate syscalls (CWE-367). A concurrent attacker could swap a path between
+  check and use. The resolve-first fix closes the deterministic escape; the
+  remaining window is best-effort only.
 
 ## License
 

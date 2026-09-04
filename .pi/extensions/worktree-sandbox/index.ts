@@ -26,7 +26,7 @@
 import type { ExtensionAPI, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { findUnsafeCd } from "./unsafe-cd.ts";
 import { findUnsafeWriteInBash } from "./unsafe-write.ts";
 import { isPathWithinSandbox } from "./meaningful-token.ts";
@@ -99,8 +99,13 @@ export function rewritePath(
 	const originalPath = event.input.path;
 	if (!originalPath) return undefined;
 
-	if (originalPath.startsWith("/")) {
-		if (!isPathWithinSandbox(originalPath, sandboxRoot)) {
+	if (isAbsolute(originalPath)) {
+		// Resolve lexically (collapse `..`, `//`, trailing slashes) BEFORE the
+		// containment check so an absolute path with `..` components cannot pass
+		// a raw prefix test and escape to the filesystem. The resolved path is
+		// what reaches the OS — no code path keeps the raw string for the tool.
+		const resolvedAbs = resolvePath(originalPath);
+		if (!isPathWithinSandbox(resolvedAbs, sandboxRoot)) {
 			if (ctx.hasUI) {
 				const mode = (ctx as Record<string, unknown>).mode;
 				const level = mode && mode !== "tui" ? "error" : "warning";
@@ -111,8 +116,9 @@ export function rewritePath(
 				reason: `Path "${originalPath}" is outside the worktree. All ${blockNoun} must stay within the worktree.`,
 			};
 		}
-		const dirCheck = checkReadIsDirectory(originalPath, toolName, originalPath);
+		const dirCheck = checkReadIsDirectory(resolvedAbs, toolName, originalPath);
 		if (dirCheck) return dirCheck;
+		event.input.path = resolvedAbs;
 		return undefined;
 	}
 

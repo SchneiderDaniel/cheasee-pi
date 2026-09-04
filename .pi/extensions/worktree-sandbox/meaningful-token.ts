@@ -12,14 +12,29 @@
  * runtime is CJS where a require() cycle would yield undefined exports.
  */
 
-import { resolve as resolvePath } from "node:path";
+import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { parse } from "shell-quote";
 import type { ParseEntry } from "shell-quote";
 
 // ─── Path containment ──────────────────────────────────────────────
 
+/**
+ * True when `absolutePath` lexically resolves inside `sandboxRoot`.
+ *
+ * Normalizes the input via `path.resolve` (collapsing `..`, `//`, trailing
+ * slashes) BEFORE the containment test, so an absolute path with `..`
+ * components (e.g. `<sandbox>/../../../../etc/passwd`) cannot pass a raw
+ * string-prefix check and escape to the filesystem (CWE-22 / Vite
+ * CVE-2023-34092 class: check-before-normalize). The containment test uses
+ * `path.relative`, which rejects `..`-prefixed, `..`-equal, and cross-drive
+ * results in a separator-agnostic way.
+ */
 export function isPathWithinSandbox(absolutePath: string, sandboxRoot: string): boolean {
-	return absolutePath === sandboxRoot || absolutePath.startsWith(sandboxRoot + "/");
+	const resolved = resolvePath(absolutePath);
+	const rel = relativePath(sandboxRoot, resolved);
+	if (rel === "") return true;
+	if (isAbsolute(rel)) return false; // different drive / root (Windows)
+	return rel !== ".." && !rel.startsWith(".." + sep);
 }
 
 export function isPathSafe(target: string, sandboxRoot: string): boolean {
