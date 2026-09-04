@@ -192,9 +192,16 @@ describe("ask_user_read trust gating", () => {
 		const parsed = JSON.parse(result.content[0]!.text);
 		assert.strictEqual(parsed.count, 2);
 		assert.strictEqual(parsed.entries.length, 2);
+		assert.strictEqual(parsed.total, 2, "list payload must carry total history size");
+		assert.deepStrictEqual(
+			parsed.entries.map((e: any) => e.id),
+			[1, 2],
+			"list payload entries must carry absolute ids",
+		);
 
 		assert.strictEqual(result.details.format, "qna-result-v1");
 		assert.strictEqual(result.details.count, 2);
+		assert.strictEqual(result.details.total, 2);
 		assert.ok(!result.details.untrusted, "untrusted flag should not be present when trusted");
 	});
 
@@ -680,5 +687,242 @@ describe("jsonl-logger defensive trust parameter", () => {
 
 	it("appendQnaEntry still validates even when trusted=false", async () => {
 		await assert.rejects(() => appendQnaEntry(tmpDir, "bad-date", "Q1", "A1", false), /Datetime/);
+	});
+});
+
+// ============================================================================
+// Tests: list/get absolute ids across /qna and ask_user_read (issue #1614)
+// ============================================================================
+
+describe("list/get absolute ids (issue #1614)", () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-abs-adapter-"));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	/** Append N entries; optional marker prefix for specific positions. */
+	async function appendN(n: number, marker?: (i: number) => string): Promise<void> {
+		for (let i = 1; i <= n; i++) {
+			const ts = new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
+			await appendQnaEntry(tmpDir, ts, `${marker ? marker(i) : ""}Entry ${i}`, `Answer ${i}`);
+		}
+	}
+
+	async function makeFixture(): Promise<{
+		commands: Record<string, any>;
+		messages: Array<{ msg: string; opts?: any }>;
+		tools: Record<string, any>;
+		ctx: any;
+	}> {
+		const { mockPi, commands, messages, tools } = makeMockPi();
+		askUser(mockPi as any);
+		const ctx = {
+			sessionManager: { getCwd: () => tmpDir },
+			isProjectTrusted: async () => true,
+		};
+		return { commands, messages, tools, ctx };
+	}
+
+	it("/qna list with 30 entries renders absolute ids + total footer", async () => {
+		await appendN(30);
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("list", ctx);
+
+		const msg = messages[0]!.msg;
+		assert.ok(
+			msg.includes("| 11 | 2026-01-01T00:00:11.000Z | Entry 11 | Answer 11 |"),
+			"row 1 should be labeled with absolute id 11",
+		);
+		assert.ok(
+			msg.includes("| 30 | 2026-01-01T00:00:30.000Z | Entry 30 | Answer 30 |"),
+			"last row should be labeled with absolute id 30",
+		);
+		assert.ok(msg.includes("Showing #11–#30 of 30"), "footer must show sliced range and total");
+	});
+
+	it("/qna list with fewer entries than limit → ids 1..N and full footer", async () => {
+		await appendN(3);
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("list", ctx);
+
+		const msg = messages[0]!.msg;
+		assert.ok(msg.includes("| 1 | 2026-01-01T00:00:01.000Z | Entry 1 | Answer 1 |"));
+		assert.ok(msg.includes("| 3 | 2026-01-01T00:00:03.000Z | Entry 3 | Answer 3 |"));
+		assert.ok(msg.includes("Showing #1–#3 of 3"), "footer always rendered when list succeeds");
+	});
+
+	it("/qna list empty log → no history message, no table, no footer", async () => {
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("list", ctx);
+
+		assert.strictEqual(messages[0]!.msg, "No Q&A history yet.");
+		assert.ok(!messages[0]!.msg.includes("Showing #"), "no footer for empty log");
+	});
+
+	it("/qna search rows carry absolute match ids and roundtrip through get", async () => {
+		await appendN(26, (i) => (i === 5 || i === 20 ? "needle " : ""));
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("search needle", ctx);
+
+		const msg = messages[0]!.msg;
+		assert.ok(msg.includes("| 5 | 2026-01-01T00:00:05.000Z | needle Entry 5 | Answer 5 |"));
+		assert.ok(msg.includes("| 20 | 2026-01-01T00:00:20.000Z | needle Entry 20 | Answer 20 |"));
+
+		// Displayed id roundtrips through get (shared root cause with list)
+		messages.length = 0;
+		await commands["qna"].handler("get 5", ctx);
+		assert.ok(messages[0]!.msg.includes("needle Entry 5"), "get returns the search-row question");
+		assert.ok(messages[0]!.msg.includes("Answer 5"), "get returns the search-row answer");
+	});
+
+	it("regression: --limit parse (custom honored, invalid falls back to 20)", async () => {
+		await appendN(30);
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("list --limit 5", ctx);
+		assert.ok(
+			messages[0]!.msg.includes("Showing #26–#30 of 30"),
+			"custom limit 5 should show last 5 entries",
+		);
+
+		messages.length = 0;
+		await commands["qna"].handler("list --limit abc", ctx);
+		assert.ok(
+			messages[0]!.msg.includes("Showing #11–#30 of 30"),
+			"invalid limit falls back to default 20",
+		);
+	});
+
+	it("ask_user_read list payload: per-entry ids, count and total (truncated)", async () => {
+		await appendN(25);
+		const { tools, ctx } = await makeFixture();
+
+		const result: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "list", limit: 20 },
+			null,
+			null,
+			ctx,
+		);
+
+		const parsed = JSON.parse(result.content[0]!.text);
+		assert.strictEqual(parsed.count, 20);
+		assert.strictEqual(parsed.total, 25, "payload carries full history size");
+		assert.deepStrictEqual(
+			parsed.entries.map((e: any) => e.id),
+			Array.from({ length: 20 }, (_, i) => i + 6),
+			"ids are absolute (6..25 for last 20 of 25)",
+		);
+		for (const e of parsed.entries) {
+			assert.ok(typeof e.id === "number" && e.datetime && e.question && e.answer);
+		}
+		assert.strictEqual(result.details.total, 25);
+	});
+
+	it("ask_user_read query payload: matched entries carry absolute ids", async () => {
+		await appendN(26, (i) => (i === 5 || i === 20 ? "needle " : ""));
+		const { tools, ctx } = await makeFixture();
+
+		const result: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "query", text: "needle" },
+			null,
+			null,
+			ctx,
+		);
+
+		const parsed = JSON.parse(result.content[0]!.text);
+		assert.strictEqual(parsed.count, 2, "count == number of matches");
+		assert.deepStrictEqual(
+			parsed.entries.map((e: any) => e.id),
+			[5, 20],
+			"query results keep absolute ids",
+		);
+	});
+
+	it("ask_user_read get payload unchanged; list-then-get roundtrip with payload ids", async () => {
+		await appendN(30);
+		const { tools, ctx } = await makeFixture();
+
+		const listResult: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "list", limit: 5 },
+			null,
+			null,
+			ctx,
+		);
+		const listed = JSON.parse(listResult.content[0]!.text);
+		assert.strictEqual(listed.entries.length, 5);
+		const firstId: number = listed.entries[0]!.id;
+		assert.strictEqual(firstId, 26, "first of last 5 of 30");
+
+		const getResult: any = await tools["ask_user_read"].execute(
+			"call2",
+			{ action: "get", id: firstId },
+			null,
+			null,
+			ctx,
+		);
+		const got = JSON.parse(getResult.content[0]!.text);
+		assert.strictEqual(got.count, 1);
+		assert.strictEqual(got.entries[0]!.datetime, "2026-01-01T00:00:26.000Z");
+		assert.strictEqual(got.entries[0]!.question, "Entry 26");
+		assert.strictEqual(got.entries[0]!.answer, "Answer 26");
+		assert.ok(!("id" in got.entries[0]), "get payload entry shape has no id (unchanged)");
+	});
+
+	it("human journey: displayed row id → /qna get returns same question/answer", async () => {
+		await appendN(30);
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("list", ctx);
+		assert.ok(
+			messages[0]!.msg.includes("| 11 | 2026-01-01T00:00:11.000Z | Entry 11 | Answer 11 |"),
+		);
+
+		messages.length = 0;
+		await commands["qna"].handler("get 11", ctx);
+		assert.ok(messages[0]!.msg.includes("Entry 11"), "get shows the row-11 question");
+		assert.ok(messages[0]!.msg.includes("Answer 11"), "get shows the row-11 answer");
+	});
+
+	it("regression: get 0 → usage; get 999 → not found; context-dir-as-file → error surfaced", async () => {
+		await appendN(5);
+		const { commands, messages, ctx } = await makeFixture();
+
+		await commands["qna"].handler("get 0", ctx);
+		assert.ok(messages[0]!.msg.includes("positive number"), "id < 1 shows usage");
+
+		messages.length = 0;
+		await commands["qna"].handler("get 999", ctx);
+		assert.strictEqual(messages[0]!.msg, "Entry #999 not found.");
+
+		// .pi/context replaced by a regular file → list error surfaces
+		messages.length = 0;
+		const fileDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-abs-file-"));
+		try {
+			await fs.promises.mkdir(path.join(fileDir, ".pi"), { recursive: true });
+			await fs.promises.writeFile(path.join(fileDir, ".pi", "context"), "not a dir", "utf-8");
+			const fileCtx = {
+				sessionManager: { getCwd: () => fileDir },
+				isProjectTrusted: async () => true,
+			};
+			await commands["qna"].handler("list", fileCtx);
+			assert.ok(
+				messages[0]!.msg.startsWith("Error reading Q&A history"),
+				`list error surfaced, got: ${messages[0]!.msg}`,
+			);
+		} finally {
+			fs.rmSync(fileDir, { recursive: true, force: true });
+		}
 	});
 });

@@ -14,6 +14,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { QuestionParams, QnaReadParams } from "./types.ts";
+import type { QnaEntry, QnaListedEntry } from "./types.ts";
 import {
 	migrateIfCsvExists,
 	listQnaEntries,
@@ -32,19 +33,16 @@ function truncate(s: string, maxLen: number): string {
 	return s.slice(0, maxLen - 1) + "…";
 }
 
-function formatTable(
-	entries: Array<{ datetime: string; question: string; answer: string }>,
-): string {
+function formatTable(entries: QnaListedEntry[]): string {
 	const rows: string[] = [];
 	rows.push("| # | Datetime | Question | Answer |");
 	rows.push("|---|---|---|---|");
-	for (let i = 0; i < entries.length; i++) {
-		const e = entries[i]!;
-		const id = i + 1;
+	for (const e of entries) {
 		const q = truncate(e.question, 60).replace(/\|/g, "\\|").replace(/\n/g, " ");
 		const a = truncate(e.answer, 40).replace(/\|/g, "\\|").replace(/\n/g, " ");
 		const dt = truncate(e.datetime, 24);
-		rows.push(`| ${id} | ${dt} | ${q} | ${a} |`);
+		// Render the absolute id the storage layer tagged — never renumber.
+		rows.push(`| ${e.id} | ${dt} | ${q} | ${a} |`);
 	}
 	return rows.join("\n");
 }
@@ -142,9 +140,9 @@ export default function askUser(pi: ExtensionAPI): void {
 					limit = parseInt(limitMatch[1]!, 10);
 				}
 
-				let entries: Array<{ datetime: string; question: string; answer: string }>;
+				let result: { entries: QnaListedEntry[]; total: number };
 				try {
-					entries = await listQnaEntries(projectDir, limit);
+					result = await listQnaEntries(projectDir, limit);
 				} catch (err) {
 					pi.sendUserMessage?.(`Error reading Q&A history: ${(err as Error).message}`, {
 						deliverAs: "followUp",
@@ -152,13 +150,16 @@ export default function askUser(pi: ExtensionAPI): void {
 					return;
 				}
 
-				if (entries.length === 0) {
+				if (result.entries.length === 0) {
 					pi.sendUserMessage?.("No Q&A history yet.", { deliverAs: "followUp" });
 					return;
 				}
 
-				const table = formatTable(entries);
-				pi.sendUserMessage?.(table, { deliverAs: "followUp" });
+				const table = formatTable(result.entries);
+				const first = result.entries[0]!.id;
+				const last = result.entries[result.entries.length - 1]!.id;
+				const footer = `Showing #${first}–#${last} of ${result.total}`;
+				pi.sendUserMessage?.([table, "", footer].join("\n"), { deliverAs: "followUp" });
 				return;
 			}
 
@@ -215,7 +216,7 @@ export default function askUser(pi: ExtensionAPI): void {
 					return;
 				}
 
-				let entries: Array<{ datetime: string; question: string; answer: string }>;
+				let entries: QnaListedEntry[];
 				try {
 					entries = await queryQnaEntries(projectDir, subargs);
 				} catch (err) {
@@ -247,9 +248,10 @@ export default function askUser(pi: ExtensionAPI): void {
 		},
 	});
 
-	function successResult<T extends { datetime: string; question: string; answer: string }>(
+	function successResult<T extends QnaEntry>(
 		entries: T[],
 		count: number,
+		total?: number,
 	): {
 		content: Array<{ type: "text"; text: string }>;
 		details: Record<string, unknown>;
@@ -261,11 +263,17 @@ export default function askUser(pi: ExtensionAPI): void {
 					text: JSON.stringify({
 						entries,
 						count,
+						...(total !== undefined ? { total } : {}),
 						...(entries.length === 0 ? { message: "No Q&A history yet" } : {}),
 					}),
 				},
 			],
-			details: { format: "qna-result-v1", entries, count },
+			details: {
+				format: "qna-result-v1",
+				entries,
+				count,
+				...(total !== undefined ? { total } : {}),
+			},
 		};
 	}
 
@@ -330,8 +338,8 @@ export default function askUser(pi: ExtensionAPI): void {
 
 			try {
 				if (action === "list") {
-					const entries = await listQnaEntries(projectDir, limit);
-					return successResult(entries, entries.length);
+					const { entries, total } = await listQnaEntries(projectDir, limit);
+					return successResult(entries, entries.length, total);
 				}
 
 				if (action === "get") {

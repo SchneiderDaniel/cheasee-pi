@@ -40,6 +40,15 @@ export interface QnaEntry {
 }
 
 /**
+ * A Q&A entry tagged with its absolute 1-based id — its position in the
+ * full merged history (archives + active file). `getQnaEntry` consumes the
+ * same numbering, so list/search rows are always `get`-able.
+ */
+export interface QnaListedEntry extends QnaEntry {
+	id: number;
+}
+
+/**
  * Schema for the ask_user_read tool parameters.
  * Uses TypeBox for runtime validation.
  */
