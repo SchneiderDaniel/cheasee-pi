@@ -6,6 +6,7 @@
  */
 
 import type { ServerMapping } from "./types.ts";
+import { fileExtension } from "./lib/file-ext.ts";
 
 // ─── Git Diff Parsing ────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export function groupFilesByServer(
 	const unsupported: string[] = [];
 
 	for (const file of files) {
-		const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
+		const ext = fileExtension(file);
 		let found = false;
 		for (const mapping of mappings) {
 			if (mapping.extensions.includes(ext)) {

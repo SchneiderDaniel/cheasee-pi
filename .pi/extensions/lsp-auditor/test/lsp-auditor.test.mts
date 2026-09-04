@@ -20,6 +20,7 @@ import {
 } from "../formatting.ts";
 import { buildServerMappings } from "../server-mappings.ts";
 import { extractModifiedFiles, groupFilesByServer } from "../file-discovery.ts";
+import { fileExtension } from "../lib/file-ext.ts";
 import { countRetryAttempts, shouldRetry, MAX_RETRIES } from "../retry.ts";
 import { mergeAuditResults, mapSessionEntriesToRetryEntries, checkProjectTrust } from "../run-pre-audit.ts";
 import { formatForMode } from "../output-adapter.ts";
@@ -405,6 +406,78 @@ describe("shouldRetry", () => {
 	it("3 attempts → false", () => assert.strictEqual(shouldRetry(3), false));
 	it("negative → treated as 0 → true", () => assert.strictEqual(shouldRetry(-1), true));
 	it("NaN → treated as 0 → true", () => assert.strictEqual(shouldRetry(NaN), true));
+});
+
+describe("fileExtension", () => {
+	it("no-dot file → '' (bug case: must NOT yield last character)", () => {
+		assert.strictEqual(fileExtension("Makefile"), "");
+		assert.strictEqual(fileExtension("Dockerfile"), "");
+		assert.strictEqual(fileExtension("README"), "");
+		assert.strictEqual(fileExtension("changelog"), "");
+	});
+
+	it("case normalization → lowercased extension", () => {
+		assert.strictEqual(fileExtension("a.TS"), ".ts");
+	});
+
+	it("dotfile → '' (path.extname convention)", () => {
+		assert.strictEqual(fileExtension(".gitignore"), "");
+	});
+
+	it("matches path.extname edge cases exactly", () => {
+		assert.strictEqual(fileExtension("file."), ".");
+		assert.strictEqual(fileExtension(""), "");
+	});
+
+	it("dotted dirs/names → extension of last segment", () => {
+		assert.strictEqual(fileExtension("dir.with.dot/file.ts"), ".ts");
+		assert.strictEqual(fileExtension("a.b.ts"), ".ts");
+	});
+
+	it("normal path unchanged", () => {
+		assert.strictEqual(fileExtension("a.ts"), ".ts");
+	});
+});
+
+describe("groupFilesByServer no-dot regression", () => {
+	const mappings: ServerMapping[] = [
+		{ extensions: [".ts"], command: "ts-ls", args: ["--stdio"], severityThreshold: "warning" },
+		{
+			extensions: [".py"],
+			command: "pyright-langserver",
+			args: ["--stdio"],
+			severityThreshold: "warning",
+		},
+	];
+
+	it("extension-less file → unsupported, no server group (repro step 2)", () => {
+		const { serverFiles, errors } = groupFilesByServer(["Makefile"], mappings);
+		assert.strictEqual(serverFiles.size, 0);
+		assert.strictEqual(errors.length, 1);
+		assert.ok(errors[0]!.includes("Makefile"));
+	});
+
+	it("extension-less file NOT spuriously matched to single-char extension mapping", () => {
+		const withE: ServerMapping[] = [
+			{ extensions: ["e"], command: "e-ls", args: [], severityThreshold: "warning" },
+		];
+		const { serverFiles, errors } = groupFilesByServer(["Makefile"], withE);
+		assert.strictEqual(serverFiles.size, 0, "Makefile must not match extension 'e'");
+		assert.ok(errors[0]!.includes("Makefile"));
+	});
+
+	it("extension-less mixed with supported files → only supported grouped", () => {
+		const { serverFiles, errors } = groupFilesByServer(["Makefile", "a.ts", "b.py"], mappings);
+		const allFiles = [...serverFiles.values()].flat();
+		assert.deepStrictEqual(allFiles.sort(), ["a.ts", "b.py"]);
+		assert.ok(errors[0]!.includes("Makefile"));
+	});
+
+	it("dotfile → unsupported bucket, never matched", () => {
+		const { serverFiles, errors } = groupFilesByServer([".gitignore"], mappings);
+		assert.strictEqual(serverFiles.size, 0);
+		assert.ok(errors[0]!.includes(".gitignore"));
+	});
 });
 
 describe("groupFilesByServer", () => {
