@@ -68,7 +68,6 @@ nav_order: 10
 | universal-ctags | latest | GPL-2.0 | Code index for tag generation |
 | jq | latest | MIT | JSON processor for shell scripts |
 | unzip | latest | Info-ZIP | Archive extraction |
-| wget | latest | GPL-3.0 | HTTP file download |
 | git | — | GPL-2.0 | Version control, worktrees |
 | gosu | — | Apache-2.0 | UID/GID mapping in container |
 

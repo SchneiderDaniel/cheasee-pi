@@ -96,7 +96,7 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 - jq (JSON processor)
 - universal-ctags (code indexing)
 - jscpd (duplicate code detection)
-- wget / curl (HTTP clients)
+- curl (HTTP client)
 - unzip (archive extraction)
 - GitHub CLI (gh)
 
