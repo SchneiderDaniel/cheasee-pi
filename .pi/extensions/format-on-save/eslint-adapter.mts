@@ -22,6 +22,15 @@ import type { Linter } from "./ports.mts";
 
 const SUPPORTED_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"] as const;
 
+/**
+ * Files glob for the fallback's minimal flat config.
+ * Mirrors SUPPORTED_EXTENSIONS plus common JS/TS variants so the
+ * no-config fallback actually matches the linted file. Without a
+ * files-matching object, flat config reports "File ignored because no
+ * matching configuration was supplied" instead of linting.
+ */
+const FALLBACK_FILES = "**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}";
+
 // ─── ESLint Result Types ──────────────────────────────────────────────
 
 /** A single message from ESLint result. */
@@ -193,14 +202,72 @@ export class EslintLinter implements Linter {
 
 	/**
 	 * Create a fallback ESLint instance with no project config.
+	 *
+	 * ESLint v9+ is flat-config-only: `useEslintrc` was removed and the
+	 * constructor throws "Invalid Options" on it, so "no project config"
+	 * must be expressed as `overrideConfigFile: true` (skip config-file
+	 * lookup) plus a minimal files-matching `overrideConfig`. v8 (EOL
+	 * 2024-10-05) and below keep the legacy eslintrc-era option.
 	 */
 	private async createFallbackESLint(): Promise<ESLintInstance> {
 		const { ESLint } = await import("eslint");
-		const instance = new ESLint({
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			useEslintrc: false,
-		} as any) as unknown as ESLintInstance;
+		const version = String((ESLint as unknown as { version?: string }).version ?? "");
+		const config = await this.buildFallbackConfig();
+		const options = this.buildFallbackOptions(version, config);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const instance = new ESLint(options as any) as unknown as ESLintInstance;
 		return instance;
+	}
+
+	/**
+	 * Fallback constructor options for the installed ESLint major.
+	 * Flat config (>= 9): skip config-file lookup and apply the minimal
+	 * `overrideConfig`. Legacy eslintrc (<= 8): `--no-eslintrc` equivalent.
+	 */
+	private buildFallbackOptions(version: string, config: unknown[]): unknown {
+		const major = Number(version.split(".")[0]);
+		return major >= 9
+			? { overrideConfigFile: true, overrideConfig: config }
+			: { useEslintrc: false };
+	}
+
+	/**
+	 * Minimal flat config for the fallback: modern ECMAScript parsing for
+	 * all supported extensions, plus the typescript-eslint parser when the
+	 * package happens to be installed (throws nothing otherwise — espree's
+	 * TS parse failures surface as messages, not throws).
+	 */
+	private async buildFallbackConfig(): Promise<unknown[]> {
+		const config: unknown[] = [
+			{
+				files: [FALLBACK_FILES],
+				languageOptions: { ecmaVersion: "latest", sourceType: "module" },
+			},
+		];
+		const tsParser = await this.resolveTsParser();
+		if (tsParser) {
+			config.push({
+				files: ["**/*.{ts,mts,cts,tsx}"],
+				languageOptions: { parser: tsParser },
+			});
+		}
+		return config;
+	}
+
+	/**
+	 * Resolve the typescript-eslint parser when installed, else null.
+	 * The parser is optional: without it the fallback still lints `.ts`
+	 * files (espree reports fatal parse diagnostics instead of throwing).
+	 */
+	private async resolveTsParser(): Promise<unknown> {
+		try {
+			// @ts-expect-error — typescript-eslint is an optional peer; the
+			// package is only resolved at runtime when the project has it
+			const mod = await import("typescript-eslint");
+			return (mod as { parser?: unknown }).parser ?? null;
+		} catch {
+			return null;
+		}
 	}
 
 	/**
@@ -245,9 +312,11 @@ export class EslintLinter implements Linter {
 	 *   2. Keyword matching — fallback for legacy eslintrc error formats
 	 */
 	private isConfigError(err: unknown): boolean {
-		// Tier 1: precise name check for ESLint v9+ flat config ConfigError
+		// Tier 1: precise name checks — ConfigError for ESLint v9+ flat
+		// config; SyntaxError for syntax-broken config files (throws while
+		// loading, while linted-source parse failures come back as messages)
 		const name = (err as { name?: string } | null)?.name;
-		if (name === "ConfigError") {
+		if (name === "ConfigError" || name === "SyntaxError") {
 			return true;
 		}
 		// Tier 2: keyword fallback for legacy eslintrc error formats
