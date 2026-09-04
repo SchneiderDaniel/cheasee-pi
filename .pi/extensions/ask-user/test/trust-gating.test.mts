@@ -828,6 +828,37 @@ describe("list/get absolute ids (issue #1614)", () => {
 		assert.strictEqual(result.details.total, 25);
 	});
 
+	it("ask_user_read fractional limit → integer ids, list-then-get roundtrip", async () => {
+		await appendN(30);
+		const { tools, ctx } = await makeFixture();
+
+		// QnaReadParams.limit is Type.Number, so a fractional value reaches
+		// listQnaEntries; it must be truncated to an integer so payload ids
+		// are integral and resolve through get.
+		const listResult: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "list", limit: 1.5 },
+			null,
+			null,
+			ctx,
+		);
+		const listed = JSON.parse(listResult.content[0]!.text);
+		assert.strictEqual(listed.count, 1, "trunc(1.5) = 1 entry");
+		assert.ok(Number.isInteger(listed.entries[0]!.id), "payload id must be an integer");
+		assert.strictEqual(listed.entries[0]!.id, 30);
+
+		const getResult: any = await tools["ask_user_read"].execute(
+			"call2",
+			{ action: "get", id: listed.entries[0]!.id },
+			null,
+			null,
+			ctx,
+		);
+		const got = JSON.parse(getResult.content[0]!.text);
+		assert.strictEqual(got.entries[0]!.question, "Entry 30");
+		assert.strictEqual(got.entries[0]!.answer, "Answer 30");
+	});
+
 	it("ask_user_read query payload: matched entries carry absolute ids", async () => {
 		await appendN(26, (i) => (i === 5 || i === 20 ? "needle " : ""));
 		const { tools, ctx } = await makeFixture();

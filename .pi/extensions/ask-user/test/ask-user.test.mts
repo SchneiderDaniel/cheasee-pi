@@ -649,6 +649,21 @@ describe("list/search absolute ids (issue #1614)", () => {
 		assert.strictEqual(entries[0]!.id, 30);
 	});
 
+	it("fractional limit → truncated integer, ids integral and get-able", async () => {
+		await appendN(30);
+		// 1.5 must behave exactly like 1 (slice truncates its index toward
+		// zero, so ids must come from the same integer). The bug produced
+		// fractional ids (29.5/30.5) that no get could resolve.
+		const { entries, total } = await listQnaEntries(tmpDir, 1.5);
+		assert.strictEqual(total, 30);
+		assert.strictEqual(entries.length, 1, "trunc(1.5) = 1 entry, not 2");
+		assert.ok(Number.isInteger(entries[0]!.id), "id must be an integer");
+		assert.strictEqual(entries[0]!.id, 30);
+		const fetched = await getQnaEntry(tmpDir, entries[0]!.id);
+		assert.ok(fetched !== null && fetched !== undefined);
+		assert.deepStrictEqual(fetched, stripId(entries[0]!));
+	});
+
 	it("limit=0 → empty entries, total N", async () => {
 		await appendN(30);
 		const { entries, total } = await listQnaEntries(tmpDir, 0);

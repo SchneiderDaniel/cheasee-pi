@@ -353,9 +353,14 @@ export async function listQnaEntries(
 ): Promise<{ entries: QnaListedEntry[]; total: number }> {
 	const entries = await readQnaEntries(projectDir);
 	const total = entries.length;
+	// Normalize limit to a non-negative integer BEFORE both slicing and id
+	// assignment: Array.prototype.slice truncates its index toward zero, so
+	// a fractional limit (e.g. 1.5) would slice at index 1 but compute ids
+	// 2.5/3.5 — ids nobody can `get`. Clamp negatives to 0 (empty list).
+	const normalized = Number.isFinite(limit) ? Math.max(0, Math.trunc(limit)) : 0;
 	// start and id math share one source, so the slice offset and the
 	// absolute ids can never disagree (start = total - limit + 1 for ids)
-	const start = Math.max(0, total - limit);
+	const start = Math.max(0, total - normalized);
 	const listed = entries.slice(start).map((e, i) => ({ ...e, id: start + i + 1 }));
 	return { entries: listed, total };
 }
