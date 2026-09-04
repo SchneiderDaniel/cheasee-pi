@@ -40,6 +40,15 @@ export interface QnaEntry {
 }
 
 /**
+ * A Q&A entry tagged with its absolute 1-based id — its position in the
+ * full merged history (archives + active file). `getQnaEntry` consumes the
+ * same numbering, so list/search rows are always `get`-able.
+ */
+export interface QnaListedEntry extends QnaEntry {
+	id: number;
+}
+
+/**
  * Schema for the ask_user_read tool parameters.
  * Uses TypeBox for runtime validation.
  */
@@ -55,7 +64,8 @@ export const QnaReadParams = Type.Object({
 	),
 	id: Type.Optional(
 		Type.Number({
-			description: "1-based line number of the entry (used with get action)",
+			description:
+				"Absolute id of the entry to fetch — the id value that list and query return with each entry. Do not count rows or array positions: they do not match absolute ids when the list is truncated.",
 		}),
 	),
 	text: Type.Optional(
