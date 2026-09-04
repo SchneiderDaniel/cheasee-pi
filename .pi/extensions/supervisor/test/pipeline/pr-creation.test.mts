@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig, PipelineAgentResult, PrConflictInfo } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
+import type { PortCall } from "../helper/mock-github-port.ts";
 import { readFileSync } from "node:fs";
 
 import { createPrOnApproval } from "../../pipeline/pr-creation.ts";
@@ -74,6 +75,39 @@ function createMockPi(
 		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
 		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
 	} as ExtensionAPI;
+}
+
+/**
+ * Mock ExtensionAPI matching the REAL pi.exec contract: always RESOLVES
+ * {code, stdout, stderr, killed} — never rejects on non-zero exit
+ * (pi-core execCommand resolves {code} even for failed commands).
+ * The push-failure gate must read result.code/killed, not try/catch.
+ */
+function createResolvingPi(
+	results: Array<{ code: number; stdout: string; stderr: string; killed?: boolean }>,
+	calls?: ExecCall[],
+): ExtensionAPI {
+	const callLog = calls || [];
+	let idx = 0;
+	return {
+		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
+			callLog.push({ cmd, args: args || [], opts: opts || {} });
+			const result = results[idx++] ?? { code: 0, stdout: "", stderr: "" };
+			return Promise.resolve({ killed: false, ...result });
+		}) as ExtensionAPI["exec"],
+		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
+		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
+	} as ExtensionAPI;
+}
+
+/**
+ * Drain the microtask queue (setImmediate fires only once the microtask
+ * queue is empty) so a pending mock-timer retry delay can be ticked. Node 22
+ * MockTimers has no tickAsync — tick() is synchronous, so each delay needs
+ * flush → tick → flush.
+ */
+function flushQueue(): Promise<void> {
+	return new Promise((resolve) => setImmediate(resolve));
 }
 
 /**
@@ -684,7 +718,9 @@ describe("createPrOnApproval()", () => {
 				{ code: 0, stdout: "rebase ok", stderr: "" },
 				// 3. git push --force attempt 1 FAILS
 				{ code: 1, stdout: "", stderr: "push failed: network error" },
-				// 4. git push --force attempt 2 succeeds
+				// 4. lease refresh before retry
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				// 5. git push --force attempt 2 succeeds
 				{ code: 0, stdout: "Everything up-to-date", stderr: "" },
 			],
 			execCalls,
@@ -732,7 +768,11 @@ describe("createPrOnApproval()", () => {
 				{ code: 0, stdout: "rebase ok", stderr: "" },
 				// 3-5. git push --force all 3 retry attempts FAIL
 				{ code: 1, stdout: "", stderr: "push failed: error 1" },
+				// lease refresh before retry 2
+				{ code: 0, stdout: "prune ok", stderr: "" },
 				{ code: 1, stdout: "", stderr: "push failed: error 2" },
+				// lease refresh before retry 3
+				{ code: 0, stdout: "prune ok", stderr: "" },
 				{ code: 1, stdout: "", stderr: "push failed: error 3" },
 			],
 			execCalls,
@@ -766,6 +806,408 @@ describe("createPrOnApproval()", () => {
 		// Verify no gh calls
 		const ghCalls = execCalls.filter((c) => c.cmd === "gh");
 		assert.equal(ghCalls.length, 0, "should not attempt PR after push failure");
+	});
+
+	// ─── Push failure gate (pi.exec resolves {code} — never rejects) ───
+	// Issue #1613: a failed push resolved normally, logged "Push OK", set
+	// pushSucceeded=true, and the pipeline updated/created a PR against a
+	// remote branch that was never updated. These tests use the always-
+	// resolve mock (real pi.exec contract) so they fail on the pre-fix code.
+
+	it("push {code:1} stderr excerpt ×3 → 3 push attempts, failure, zero PR lifecycle calls", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const portCalls: PortCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "error: failed to push some refs" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "error: failed to push some refs" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "error: failed to push some refs" },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockGitHubPort(
+			{
+				compareBranches: async () => 3,
+				listPullRequestsForBranch: async () => null,
+				createPullRequest: async () => ({ number: 456 }),
+				updatePullRequest: async () => {},
+			},
+			portCalls,
+		);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		// 3 real push attempts, each preceded on retry by a lease-refresh fetch
+		const pushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+		const pruneCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune");
+		assert.equal(pushCalls.length, 3, "should make exactly 3 push attempts");
+		assert.equal(pruneCalls.length, 2, "lease refresh before each retry");
+
+		// Failure contract: {success:false}, stderr excerpt in error + notify
+		assert.equal(result!.success, false, "failed push must not report success");
+		assert.ok(result!.error!.includes("error: failed to push some refs"), "error embeds stderr excerpt");
+		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
+		assert.ok(
+			errorNotifies.some((n) => n.message.includes("push failed") && n.message.includes("failed to push some refs")),
+			"error notification delivered with stderr excerpt",
+		);
+
+		// Phase 4/5 unreachable — no PR lifecycle calls on failed push
+		const prLifecycle = portCalls.filter((c) =>
+			["listPullRequestsForBranch", "createPullRequest", "updatePullRequest"].includes(c.method),
+		);
+		assert.equal(prLifecycle.length, 0, "zero PR lifecycle calls after failed push");
+	});
+
+	it("push {code:0, killed:true} ×3 (timeout kill) → same failure contract", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 0, stdout: "", stderr: "", killed: true },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 0, stdout: "", stderr: "", killed: true },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 0, stdout: "", stderr: "", killed: true },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, false, "timeout-killed push (code 0) must still fail");
+		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
+		assert.ok(errorNotifies.some((n) => n.message.includes("push failed")), "error notification delivered");
+	});
+
+	it("boundary: attempt 3 {code:0, killed:true} → still {success:false} (killed gate independent of attempt count)", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "rejected" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "rejected" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 0, stdout: "", stderr: "", killed: true },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, false, "killed on final attempt must still fail");
+		const pushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+		assert.equal(pushCalls.length, 3, "3 push attempts made");
+	});
+
+	it("push {code:128} fatal transport error ×3 → failure with 'fatal' excerpt", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 128, stdout: "", stderr: "fatal: unable to access" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 128, stdout: "", stderr: "fatal: unable to access" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 128, stdout: "", stderr: "fatal: unable to access" },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, false, "transport failure must not report success");
+		assert.ok(result!.error!.includes("fatal: unable to access"), "error embeds fatal excerpt");
+		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
+		assert.ok(errorNotifies.some((n) => n.message.includes("fatal: unable to access")), "notify carries fatal excerpt");
+	});
+
+	it("retry wiring: push {code:1} stale-info → git fetch --prune → push {code:0} → retry succeeds, PR created once", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const portCalls: PortCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "! [rejected] main -> main (stale info)" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 0, stdout: "push ok", stderr: "" },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockGitHubPort(
+			{
+				compareBranches: async () => 3,
+				listPullRequestsForBranch: async () => null,
+				createPullRequest: async () => ({ number: 456 }),
+				updatePullRequest: async () => {},
+			},
+			portCalls,
+		);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, true, "retry with refreshed lease should succeed");
+		assert.equal(result!.prNumber, 456, "PR created once");
+
+		// Order: rebase fetch, rebase, push, fetch --prune, push — prune BEFORE retry push
+		const seq = execCalls.map((c) => ({ cmd: c.cmd, args: c.args, opts: c.opts }));
+		assert.deepEqual(seq[0].args.slice(0, 3), ["fetch", "origin", "main"], "rebase fetch first");
+		assert.equal(seq[1].args[0], "rebase", "rebase second");
+		assert.equal(seq[2].args[0], "push", "push attempt 1 third");
+		assert.deepEqual(seq[3].args, ["fetch", "--prune", "origin"], "lease refresh precedes retry");
+		assert.equal(seq[3].opts?.cwd, "/worktrees/wt-42", "prune runs in the worktree");
+		assert.equal(seq[4].args[0], "push", "push attempt 2 fifth");
+
+		const createCalls = portCalls.filter((c) => c.method === "createPullRequest");
+		assert.equal(createCalls.length, 1, "PR created exactly once after successful retry");
+	});
+
+	it("boundary: retry fetch --prune {code:128} → attempt fails; 3 attempts → {success:false}", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "rejected" },
+				{ code: 128, stdout: "", stderr: "fatal: unable to access" },
+				{ code: 1, stdout: "", stderr: "rejected" },
+				{ code: 128, stdout: "", stderr: "fatal: unable to access" },
+				{ code: 1, stdout: "", stderr: "rejected" },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, false, "failed lease refresh must not set pushSucceeded");
+		assert.ok(
+			result!.error!.includes("git fetch --prune origin failed"),
+			"prune failure surfaces in the error",
+		);
+		// Each retry fails at the lease refresh (prune precedes push), so only
+		// attempt 1 reaches the push; 2 prune retries prove the loop iterated.
+		const pushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
+		const pruneCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune");
+		assert.equal(pushCalls.length, 1, "only attempt 1 reaches the push");
+		assert.equal(pruneCalls.length, 2, "lease refresh attempted on both retries");
+	});
+
+	it("boundary: push {code:1} with empty stderr/stdout → fallback error, never 'Push OK'", async () => {
+		const execCalls: ExecCall[] = [];
+		const notifyCalls: NotifyCall[] = [];
+		const pi = createResolvingPi(
+			[
+				{ code: 0, stdout: "fetch ok", stderr: "" },
+				{ code: 0, stdout: "rebase ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "" },
+				{ code: 0, stdout: "prune ok", stderr: "" },
+				{ code: 1, stdout: "", stderr: "" },
+			],
+			execCalls,
+		);
+		const ctx = createMockCtx(notifyCalls);
+		const port = createMockComparePort(3);
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let result: Awaited<ReturnType<typeof createPrOnApproval>> | undefined;
+		try {
+			const promise = createPrOnApproval(
+				pi,
+				ctx,
+				42,
+				"Test issue",
+				mockConfig as any,
+				[mockAgentResult],
+				"/worktrees/wt-42",
+				"worktree-git-issue-42-test",
+				undefined,
+				undefined,
+				undefined,
+				port,
+			);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			result = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(result!.success, false, "code 1 with empty output still fails");
+		assert.ok(
+			result!.error!.includes("git push failed (exit 1)"),
+			"fallback message used when stderr/stdout empty",
+		);
 	});
 
 	it("returns PrCreationResult with success=false when PR conflict check throws", async () => {
@@ -1499,6 +1941,7 @@ describe("createPrOnApproval()", () => {
 					{ code: 0, stdout: "fetch ok", stderr: "" },
 					{ code: 0, stdout: "rebase ok", stderr: "" },
 					{ code: 1, stdout: "", stderr: "push failed" },
+					{ code: 0, stdout: "prune ok", stderr: "" },
 					{ code: 0, stdout: "push ok", stderr: "" },
 				],
 				execCalls,
