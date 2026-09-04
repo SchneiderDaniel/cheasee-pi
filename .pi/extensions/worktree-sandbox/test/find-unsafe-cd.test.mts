@@ -263,6 +263,27 @@ describe("findUnsafeCd", () => {
 		assert.equal(result, "/");
 	});
 
+	it("returns non-null for cd to absolute path with .. that escapes sandbox", () => {
+		const result = findUnsafeCd(`cd ${SANDBOX_ROOT}/../../../../etc/passwd`, SANDBOX_ROOT);
+		assert.notEqual(result, null);
+		assert.equal(result, `${SANDBOX_ROOT}/../../../../etc/passwd`);
+	});
+
+	it("returns non-null for cd to double-slash + .. variant", () => {
+		const result = findUnsafeCd(`cd ${SANDBOX_ROOT}//..`, SANDBOX_ROOT);
+		assert.notEqual(result, null);
+	});
+
+	it("returns null for cd to in-sandbox .. (not over-blocked)", () => {
+		const result = findUnsafeCd(`cd ${SANDBOX_ROOT}/sub/../safe`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
+	it("returns null for cd to contained double-slash subdir", () => {
+		const result = findUnsafeCd(`cd ${SANDBOX_ROOT}//sub`, SANDBOX_ROOT);
+		assert.equal(result, null);
+	});
+
 	// ═════════════════════════════════════════════════════════════
 	// Boundary / edge cases
 	// ═════════════════════════════════════════════════════════════
