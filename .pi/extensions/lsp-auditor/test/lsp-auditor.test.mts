@@ -466,6 +466,15 @@ describe("groupFilesByServer no-dot regression", () => {
 		assert.ok(errors[0]!.includes("Makefile"));
 	});
 
+	it("empty-extension mapping [''] must not capture extension-less files", () => {
+		const withEmpty: ServerMapping[] = [
+			{ extensions: [""], command: "empty-ls", args: [], severityThreshold: "warning" },
+		];
+		const { serverFiles, errors } = groupFilesByServer(["Makefile"], withEmpty);
+		assert.strictEqual(serverFiles.size, 0, "Makefile must not match extensions: ['']");
+		assert.ok(errors[0]!.includes("Makefile"));
+	});
+
 	it("extension-less mixed with supported files → only supported grouped", () => {
 		const { serverFiles, errors } = groupFilesByServer(["Makefile", "a.ts", "b.py"], mappings);
 		const allFiles = [...serverFiles.values()].flat();
