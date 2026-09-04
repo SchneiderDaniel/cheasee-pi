@@ -24,11 +24,9 @@ func resetBuildState(t *testing.T) {
 	t.Helper()
 	buildWorkdir = ""
 	buildNoDockerCheck = false
-	buildNoCache = false
 	t.Cleanup(func() {
 		buildWorkdir = ""
 		buildNoDockerCheck = false
-		buildNoCache = false
 	})
 }
 
@@ -89,9 +87,7 @@ func logIndex(log []string, prefix string) int {
 }
 
 // composeArgv returns the captured compose-build argv ("docker compose -f ...")
-// from the serial log, or nil when no compose build ran. The prune commands
-// may precede the build (`build --no-cache` compat), so never assume the
-// compose entry is log[0].
+// from the serial log, or nil when no compose build ran.
 func (s *buildTestStub) composeArgv() []string {
 	for _, entry := range s.log {
 		if strings.HasPrefix(entry, "run:docker compose") {
@@ -132,6 +128,60 @@ func TestRebuildCmd_Flags(t *testing.T) {
 	}
 	if rebuildCmd.Flags().Lookup("no-cache") != nil {
 		t.Error("rebuild must NOT expose --no-cache (no-cache is inherent to the command)")
+	}
+}
+
+func TestBuildCmd_Registered(t *testing.T) {
+	found := false
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == "build" {
+			found = true
+			if c.RunE == nil {
+				t.Error("buildCmd.RunE must be non-nil (use RunE, not Run)")
+			}
+		}
+	}
+	if !found {
+		t.Error("buildCmd must be registered on rootCmd")
+	}
+}
+
+func TestBuildCmd_NoNoCacheFlag(t *testing.T) {
+	if buildCmd.Flags().Lookup("workdir") == nil {
+		t.Error("build must expose --workdir")
+	}
+	if buildCmd.Flags().Lookup("no-docker-check") == nil {
+		t.Error("build must expose --no-docker-check")
+	}
+	if buildCmd.Flags().Lookup("no-cache") != nil {
+		t.Error("build must NOT expose --no-cache (rebuild is the no-cache path)")
+	}
+}
+
+func TestBuildCmd_Help_NoAlias(t *testing.T) {
+	output, err := testutil.RunCobra(t, rootCmd, "build", "--help")
+	if err != nil {
+		t.Fatalf("build --help: %v", err)
+	}
+	if !strings.Contains(output, "cheasee-pi rebuild") {
+		t.Errorf("build --help should point at 'cheasee-pi rebuild' for the full no-cache path\n--- output:\n%s", output)
+	}
+	for _, forbid := range []string{"--no-cache", "compatibility alias"} {
+		if strings.Contains(output, forbid) {
+			t.Errorf("build --help must not mention %q\n--- output:\n%s", forbid, output)
+		}
+	}
+}
+
+func TestBuildCmd_NoCacheFlagRejected(t *testing.T) {
+	stub := &buildTestStub{}
+	stub.install(t)
+	_, err := testutil.RunCobra(t, rootCmd, "build", "--no-cache")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --no-cache") {
+		t.Fatalf("build --no-cache must fail with 'unknown flag: --no-cache', got %v", err)
+	}
+	if len(stub.log) != 0 {
+		t.Errorf("build --no-cache must invoke zero docker commands, got %v", stub.log)
 	}
 }
 
@@ -217,9 +267,11 @@ func TestRunBuildE_CachedBuildNoFlagsNoPrune(t *testing.T) {
 
 	stub := &buildTestStub{}
 	stub.install(t)
-	if err := runBuildE(&cobra.Command{}, nil); err != nil {
-		t.Fatalf("runBuildE: %v", err)
-	}
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runBuildE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runBuildE: %v", err)
+		}
+	})
 	argv := stub.composeArgv()
 	for _, flag := range []string{"--no-cache", "--pull"} {
 		if slices.Contains(argv, flag) {
@@ -231,37 +283,11 @@ func TestRunBuildE_CachedBuildNoFlagsNoPrune(t *testing.T) {
 			t.Errorf("cached build must issue zero prune commands, got %v", stub.log)
 		}
 	}
-}
-
-func TestRunBuildE_NoCacheKeepsPreBuildPrune(t *testing.T) {
-	resetBuildState(t)
-	buildNoDockerCheck = true
-	buildNoCache = true
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	root := buildWorkspaceFixture(t)
-	chdir(t, root)
-
-	stub := &buildTestStub{}
-	stub.install(t)
-	if err := runBuildE(&cobra.Command{}, nil); err != nil {
-		t.Fatalf("runBuildE: %v", err)
+	if !strings.Contains(stderr, "Building container image...\n") {
+		t.Errorf("cached build must print the plain build label, got %q", stderr)
 	}
-	argv := stub.composeArgv()
-	if !slices.Contains(argv, "--no-cache") {
-		t.Errorf("build --no-cache must pass --no-cache, got %v", argv)
-	}
-	if slices.Contains(argv, "--pull") {
-		t.Errorf("build --no-cache must NOT pass --pull (compat path unchanged), got %v", argv)
-	}
-	composeIdx := logIndex(stub.log, "run:docker compose")
-	imagesIdx := logIndex(stub.log, "exec:docker images")
-	pruneIdx := logIndex(stub.log, "exec:docker image prune")
-	buildxIdx := logIndex(stub.log, "exec:docker buildx")
-	if composeIdx == -1 || imagesIdx == -1 || pruneIdx == -1 || buildxIdx == -1 {
-		t.Fatalf("expected compose build + full prune sequence, log: %v", stub.log)
-	}
-	if !(imagesIdx < composeIdx) {
-		t.Errorf("build --no-cache must prune BEFORE the build (compat ordering), log: %v", stub.log)
+	if strings.Contains(stderr, "full rebuild") {
+		t.Errorf("cached build must not carry the full-rebuild marker, got %q", stderr)
 	}
 }
 
@@ -540,8 +566,33 @@ func TestDailyUsageDoc_RebuildCommand(t *testing.T) {
 	if !strings.Contains(section, "rebuild = no-cache full rebuild + prune") {
 		t.Error("the section must state 'rebuild = no-cache full rebuild + prune' (naming inversion vs VS Code)")
 	}
-	if !strings.Contains(section, "compatibility") || !strings.Contains(section, "build --no-cache") {
-		t.Error("the section must demote 'cheasee-pi build --no-cache' to a compatibility note")
+	// The raw compose line keeps --no-cache --pull (direct docker compose, not
+	// the CLI flag); the CLI alias `cheasee-pi build --no-cache` must be gone.
+	if strings.Contains(section, "cheasee-pi build --no-cache") {
+		t.Error("the section must not claim 'cheasee-pi build --no-cache' as a compat path (rebuild is the only no-cache path)")
+	}
+}
+
+func TestCLIDoc_BuildNoAlias(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+	if err != nil {
+		t.Fatalf("reading docs/cli.md: %v", err)
+	}
+	content := string(data)
+	start := strings.Index(content, "## `cheasee-pi build` / `rebuild`")
+	if start == -1 {
+		t.Fatal("cli.md must have a '## `cheasee-pi build` / `rebuild`' section")
+	}
+	section := content[start:]
+
+	if !strings.Contains(section, "rebuild") {
+		t.Error("the build/rebuild section must point at `rebuild` as the no-cache path")
+	}
+	if strings.Contains(section, "--no-cache") {
+		t.Error("the build/rebuild section must not list --no-cache (rebuild is the no-cache path)")
+	}
+	if strings.Contains(section, "compatibility alias") {
+		t.Error("the build/rebuild section must not claim a compatibility alias")
 	}
 }
 

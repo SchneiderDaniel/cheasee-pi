@@ -25,8 +25,7 @@ pruned (containers are left untouched; that is 'cheasee-pi clean').
 
 Note: rebuild = no-cache full rebuild + prune. This inverts VS Code's
 "Rebuild Container" naming (which is the cached variant) — use 'cheasee-pi
-build' for the cached rebuild, or 'cheasee-pi build --no-cache' for the
-legacy flag path.
+build' for the cached rebuild.
 
 Examples:
   cheasee-pi rebuild               # full rebuild from scratch + prune
@@ -48,11 +47,5 @@ func runRebuildE(cmd *cobra.Command, _ []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return runBuild(ctx, buildOptions{
-		noCache:   true,
-		pull:      true,
-		prune:     true,
-		prunePost: true,
-		label:     true,
-	})
+	return runBuild(ctx, true, true)
 }

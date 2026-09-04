@@ -13,7 +13,6 @@ import (
 var (
 	buildWorkdir       string
 	buildNoDockerCheck bool
-	buildNoCache       bool
 )
 
 var buildCmd = &cobra.Command{
@@ -28,13 +27,11 @@ runtime.
 The compose/Dockerfile come from the CLI-managed cache dir
 (version-keyed, extracted on demand); the workspace is only used for git
 verification and resource settings. build reuses the Docker layer cache;
-use 'cheasee-pi rebuild' for a full no-cache rebuild plus prune, or the
---no-cache flag (kept as a compatibility alias).
+use 'cheasee-pi rebuild' for a full no-cache rebuild plus prune.
 
 Examples:
   cheasee-pi build                 # rebuild image (cached)
   cheasee-pi rebuild               # full rebuild from scratch (no cache + prune)
-  cheasee-pi build --no-cache      # legacy alias for a full rebuild
   cheasee-pi build --workdir ..     # rebuild in specific workspace`,
 	DisableAutoGenTag: true,
 	RunE:              runBuildE,
@@ -44,36 +41,22 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	buildCmd.Flags().StringVar(&buildWorkdir, "workdir", "", "Working directory (default: current directory)")
 	buildCmd.Flags().BoolVar(&buildNoDockerCheck, "no-docker-check", false, "Skip Docker Engine check")
-	buildCmd.Flags().BoolVar(&buildNoCache, "no-cache", false, "Force full rebuild from scratch (ignore Docker layer cache)")
 }
 
-// buildOptions parameterizes the compose-build core shared by `build` and
-// `rebuild`: which flags compose receives, whether dangling images/build
-// cache are pruned around the build, and how the build step is labelled.
-type buildOptions struct {
-	noCache   bool // pass --no-cache (ignore the Docker layer cache)
-	pull      bool // pass --pull (refresh the base image)
-	prune     bool // prune dangling images + build cache
-	prunePost bool // prune AFTER the build (rebuild); false = before (build --no-cache compat)
-	label     bool // mark the build label as a full rebuild
-}
 
 func runBuildE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return runBuild(ctx, buildOptions{
-		noCache: buildNoCache,
-		prune:   buildNoCache,
-	})
+	return runBuild(ctx, false, false)
 }
 
 // runBuild is the shared build core: compose-arg construction, stamp
-// injection, prune ordering and labels. `build` is the cached surface,
-// `rebuild` the no-cache full rebuild; the --no-cache flag on `build` keeps
-// its historical pre-build prune as a compat path.
-func runBuild(ctx context.Context, opts buildOptions) error {
+// injection, prune and label. `build` is the cached surface (noCache=false,
+// pull=false); `rebuild` is the single no-cache path (noCache=true,
+// pull=true), pruning dangling images + build cache after the build.
+func runBuild(ctx context.Context, noCache, pull bool) error {
 	workdir, err := resolveWorkdir(buildWorkdir)
 	if err != nil {
 		return fmt.Errorf("resolve workdir: %w", err)
@@ -110,18 +93,11 @@ func runBuild(ctx context.Context, opts buildOptions) error {
 	// cached across builds.
 	stamp := fmt.Sprintf("%d", time.Now().Unix())
 	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
-	if opts.noCache {
+	if noCache {
 		args = append(args, "--no-cache")
 	}
-	if opts.pull {
+	if pull {
 		args = append(args, "--pull")
-	}
-
-	if opts.prune && !opts.prunePost {
-		// Full rebuild re-extracts every layer beside the existing image;
-		// stale build cache + dangling images can fill the disk first.
-		pruneDanglingImages()
-		pruneBuildCache()
 	}
 
 	buildCmd := runCommandContext(ctx, "docker", args...)
@@ -136,11 +112,8 @@ func runBuild(ctx context.Context, opts buildOptions) error {
 	buildCmd.SetStderr(os.Stderr)
 
 	label := "Building container image"
-	if opts.noCache {
-		label += " (no cache)"
-	}
-	if opts.label {
-		label += ", full rebuild"
+	if noCache {
+		label += " (no cache), full rebuild"
 	}
 	fmt.Fprintf(os.Stderr, "  ℹ %s...\n", label)
 	if err := buildCmd.Run(); err != nil {
@@ -153,12 +126,11 @@ func runBuild(ctx context.Context, opts buildOptions) error {
 	// followed by a plain start silently serves the stale image.
 	fmt.Fprintf(os.Stderr, "  ℹ Running containers keep the old image — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`\n")
 
-	if opts.prune && opts.prunePost {
+	if noCache {
 		// Rebuild reclaims the image it just orphaned: the previous image
-		// turns dangling the moment the new build finishes (vs the pre-build
-		// prune of `build --no-cache`, which only reclaims leftovers of
-		// prior runs). Failed builds skip this — BuildKit self-cleans
-		// intermediates and `clean` is the deep-clean path.
+		// turns dangling the moment the new build finishes. Failed builds
+		// skip this — BuildKit self-cleans intermediates and `clean` is the
+		// deep-clean path.
 		pruneDanglingImages()
 		pruneBuildCache()
 	}
