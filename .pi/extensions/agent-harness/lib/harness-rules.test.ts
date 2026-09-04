@@ -34,7 +34,7 @@ describe("BASH_SEARCH_SIGNALS", () => {
 // ── buildRedirectMessage ──
 
 describe("buildRedirectMessage", () => {
-	it("returns system override format for ripgrep_search (no schemaExample)", () => {
+	it("returns system override format for ripgrep_search", () => {
 		const msg = buildRedirectMessage("ripgrep_search");
 		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
 		assert.ok(msg.includes("grep"));
@@ -42,7 +42,7 @@ describe("buildRedirectMessage", () => {
 		assert.ok(!msg.includes("Example call"), "should NOT contain Example call line by default");
 	});
 
-	it("returns system override format for read (no schemaExample)", () => {
+	it("returns system override format for read", () => {
 		const msg = buildRedirectMessage("read");
 		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
 		assert.ok(msg.includes("cat"));
@@ -50,31 +50,12 @@ describe("buildRedirectMessage", () => {
 		assert.ok(!msg.includes("Example call"), "should NOT contain Example call line by default");
 	});
 
-	it("includes schemaExample line when provided for read", () => {
-		const msg = buildRedirectMessage("read", '{ "path": "/path/to/file" }');
-		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
-		assert.ok(msg.includes("Example call:"));
-		assert.ok(msg.includes("/path/to/file"));
-	});
-
-	it("includes schemaExample line when provided for ripgrep_search", () => {
-		const msg = buildRedirectMessage("ripgrep_search", '{ "query": "pattern" }');
-		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
-		assert.ok(msg.includes("Example call:"));
-		assert.ok(msg.includes("pattern"));
-	});
-
-	it("returns empty string for unknown tool regardless of schemaExample", () => {
+	it("returns empty string for unknown tool", () => {
 		assert.equal(buildRedirectMessage("unknown_tool"), "");
-		assert.equal(buildRedirectMessage("unknown_tool", "any example"), "");
 	});
 
-	it("handles empty string schemaExample without trailing empty line", () => {
-		const msg = buildRedirectMessage("read", "");
-		assert.ok(msg.includes("[SYSTEM OVERRIDE]"));
-		assert.ok(!msg.includes("Example call:"), "empty schemaExample should not add Example call line");
-		// Should not end with newline or extra whitespace
-		assert.equal(msg.trim(), msg);
+	it("takes exactly one argument (schemaExample param removed)", () => {
+		assert.equal(buildRedirectMessage.length, 1);
 	});
 });
 
