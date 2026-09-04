@@ -957,3 +957,39 @@ describe("list/get absolute ids (issue #1614)", () => {
 		}
 	});
 });
+
+// ============================================================================
+// Tests: ask_user_read registration guidance (issue #1614 audit)
+// ============================================================================
+
+// Locks the tool description/guidelines that tell consumers to use the
+// absolute entries[].id for get — never array positions (1..N over a
+// truncated slice). If the guidance regresses to "recent entries / 1-based
+// line number", agents recreate the wrong historical lookup this issue fixes.
+describe("ask_user_read registration guidance (issue #1614)", () => {
+	it("description and guidelines require entries[].id usage and explain total", () => {
+		const { mockPi, tools } = makeMockPi();
+		askUser(mockPi as any);
+
+		const tool = tools["ask_user_read"];
+		assert.ok(tool, "ask_user_read tool must be registered");
+		const guidance = [tool.description, tool.promptSnippet, ...tool.promptGuidelines].join("\n");
+
+		assert.ok(
+			guidance.includes("entries[].id"),
+			"guidance must require consumers to use each returned entries[].id",
+		);
+		assert.ok(
+			guidance.includes("total"),
+			"guidance must explain the total field (full history size)",
+		);
+		assert.ok(
+			/array position|counting rows|1\.\.N/.test(guidance),
+			"guidance must warn against deriving ids from array positions",
+		);
+		assert.ok(
+			!guidance.includes("1-based line number"),
+			"guidance must not describe ids as generic 1-based line numbers",
+		);
+	});
+});

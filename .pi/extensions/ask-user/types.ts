@@ -64,7 +64,8 @@ export const QnaReadParams = Type.Object({
 	),
 	id: Type.Optional(
 		Type.Number({
-			description: "1-based line number of the entry (used with get action)",
+			description:
+				"Absolute id of the entry to fetch — the id value that list and query return with each entry. Do not count rows or array positions: they do not match absolute ids when the list is truncated.",
 		}),
 	),
 	text: Type.Optional(

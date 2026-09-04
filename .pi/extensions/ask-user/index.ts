@@ -282,12 +282,13 @@ export default function askUser(pi: ExtensionAPI): void {
 		name: "ask_user_read",
 		label: "Read Q&A History",
 		description:
-			"Read past Q&A entries from the ask-user log. Supports list, get, and query actions. Returns structured JSON with entries array and count.",
-		promptSnippet: "Read Q&A history entries",
+			"Read past Q&A entries from the ask-user log. Supports list, get, and query actions. Every returned entry carries an absolute id (its position in the full history); list responses also include total (full history size). Always call get with the entries[].id value returned by list or query.",
+		promptSnippet: "Read Q&A history entries by absolute id",
 		promptGuidelines: [
-			"Use action:'list' to get recent entries (optionally with limit parameter).",
-			"Use action:'get' with id parameter to get a single entry by 1-based line number.",
-			"Use action:'query' with text parameter to search question and answer fields (case-insensitive).",
+			"Use action:'list' to get the most recent entries (optional limit, default 20). Each returned entry includes an absolute id — call get with exactly that entries[].id value.",
+			"Use action:'get' with the id of an entry as returned by list or query (an absolute id in the full history). Never derive ids by counting rows or array positions: when the log has more than 20 entries, list returns only the most recent slice, so positional numbers 1..N do not resolve to the entries shown.",
+			"Use action:'query' with text parameter to search question and answer fields (case-insensitive). Query results also carry absolute ids and are get-able the same way.",
+			"total in list responses is the full history size — entries may be a truncated subset (the most recent limit entries) when the log is longer than the limit.",
 		],
 		parameters: QnaReadParams,
 		async execute(
