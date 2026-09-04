@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeMockPi, withSandboxEnv, makeToolCallEvent, makeCtx as makeHelperCtx } from "./helpers.ts";
 
 // We export rewritePath from index.ts specifically for testing.
 // The default export (extension factory) is also available.
@@ -670,6 +671,12 @@ describe("findUnsafeWriteInBash", () => {
 		assert.ok(result.includes("outside"));
 	});
 
+	it("returns reason for ln -s link name outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(`ln -s ${SANDBOX}/a.txt /etc/evil-link`, SANDBOX);
+		assert.ok(result !== null);
+		assert.ok(result.includes("outside"));
+	});
+
 	it("returns null for ln -s inside sandbox", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash(`ln -s ${SANDBOX}/a.txt ${SANDBOX}/link`, SANDBOX),
@@ -679,5 +686,57 @@ describe("findUnsafeWriteInBash", () => {
 
 	it("returns null for ln without -s (hard link)", () => {
 		assert.equal(mod.findUnsafeWriteInBash(`ln ${SANDBOX}/a.txt ${SANDBOX}/b.txt`, SANDBOX), null);
+	});
+});
+
+// ─── Phase 3: findUnsafeWriteInBash via bash tool handler (integration) ──
+
+describe("findUnsafeWriteInBash via bash handler (integration)", () => {
+	let handler: Function;
+	let sandboxDir: string;
+
+	before(async () => {
+		// Real temp dir — getSandboxRoot() requires existsSync()
+		sandboxDir = mkdtempSync(join(tmpdir(), "sandbox-ln-int-test-"));
+
+		const mod2 = await import("../index.ts");
+		const pi = makeMockPi();
+		mod2.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+		handler = pi.handlers.get("tool_call")!;
+	});
+
+	after(() => {
+		try {
+			rmSync(sandboxDir, { recursive: true, force: true });
+		} catch {
+			// ignore cleanup errors
+		}
+	});
+
+	it("blocks ln -s with link name outside sandbox", async () => {
+		await withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
+			const event = makeToolCallEvent("bash", {
+				command: `ln -s ${sandboxDir}/a.txt /etc/evil-link`,
+			});
+			const ctx = makeHelperCtx({ hasUI: false, mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined, "handler should return a block result");
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("outside the worktree"));
+		});
+	});
+
+	it("allows ln -s inside sandbox (rewrites command with cd prefix)", async () => {
+		await withSandboxEnv("WORKTREE_SANDBOX_PATH", sandboxDir, async () => {
+			const event = makeToolCallEvent("bash", {
+				command: `ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`,
+			});
+			const ctx = makeHelperCtx({ hasUI: false, mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.equal(result, undefined);
+			assert.equal(event.input.command, `cd "${sandboxDir}" && ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`);
+		});
 	});
 });
