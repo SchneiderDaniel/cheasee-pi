@@ -149,6 +149,7 @@ async function handleFormat(
 function isConfigErrorMessage(message: string): boolean {
 	return (
 		message.includes("ConfigError") ||
+		message.includes("SyntaxError") ||
 		message.includes("Failed to load") ||
 		message.includes("Could not find") ||
 		message.includes("eslint.config") ||

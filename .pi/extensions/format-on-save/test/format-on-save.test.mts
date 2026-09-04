@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 
 import { registerHandler } from "../index.ts";
 import { formatEslintDiagnostics } from "../eslint.mts";
@@ -2221,5 +2221,323 @@ describe("EslintLinter — singleton promise", () => {
 		const result2 = await l.lint("/path/file.ts");
 		assert.ok(result2.error);
 		assert.strictEqual(factoryCallCount, 1, "factory must still be called exactly once");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// ESLint fallback — flat config (useEslintrc removed in v9)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Fixture dir with a syntax-broken eslint.config.mjs plus clean .js/.ts
+ * sources. Non-dot-prefixed (flat config ignores dot-directories).
+ */
+function createBrokenConfigFixture(): {
+	dir: string;
+	jsFile: string;
+	tsFile: string;
+	cleanup: () => void;
+} {
+	const dir = mkdtempSync(join(tmpdir(), "fos-eslint-fallback-"));
+	writeFileSync(join(dir, "eslint.config.mjs"), "export default [");
+	const jsFile = join(dir, "a.js");
+	writeFileSync(jsFile, "const x = 1;\n");
+	const tsFile = join(dir, "a.ts");
+	writeFileSync(tsFile, "const x: number = 1;\n");
+	return { dir, jsFile, tsFile, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** Run fn with cwd set to dir; restoration guaranteed even on throw. */
+async function withCwd(dir: string, fn: () => Promise<unknown>): Promise<unknown> {
+	const oldCwd = process.cwd();
+	process.chdir(dir);
+	try {
+		return await fn();
+	} finally {
+		process.chdir(oldCwd);
+	}
+}
+
+describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
+	// ── Phase 1: fallback constructor works on flat config ───────────
+
+	it("createFallbackESLint constructs without throwing on the installed eslint (dead-constructor regression)", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		// REAL eslint via the private method — must not mock createFallbackESLint
+		const instance = await (l as any).createFallbackESLint();
+		assert.ok(instance, "fallback instance should construct on flat config");
+		assert.ok(!String((l as any).buildFallbackOptions("10.8.0", [])).includes("useEslintrc"));
+	});
+
+	it("lint() falls back on a broken config for .js — real config SyntaxError, never Invalid Options", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, jsFile, cleanup } = createBrokenConfigFixture();
+		try {
+			const l = new EslintLinter(); // default factory — real eslint
+			const result = (await withCwd(dir, () => l.lint(jsFile))) as Awaited<ReturnType<typeof l.lint>>;
+			assert.ok(result.error, "should surface the original config error");
+			assert.ok(
+				result.error!.includes("Unexpected end of input"),
+				"error should carry the original SyntaxError text",
+			);
+			assert.ok(
+				!result.error!.includes("Invalid Options") && !result.error!.includes("useEslintrc"),
+				"must never surface the removed-option constructor error",
+			);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("lint() completes on a broken config for .ts — fallback ran, config error preserved", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, tsFile, cleanup } = createBrokenConfigFixture();
+		try {
+			const l = new EslintLinter();
+			const result = (await withCwd(dir, () => l.lint(tsFile))) as Awaited<ReturnType<typeof l.lint>>;
+			assert.ok(result.error, "config error preserved");
+			assert.ok(result.error!.includes("Unexpected end of input"));
+			assert.ok(
+				!result.error!.includes("Invalid Options") && !result.error!.includes("useEslintrc"),
+				"must never surface the removed-option constructor error",
+			);
+			// espree cannot parse TS — parse failure may surface as mapped
+			// diagnostics; the key assertion is the fallback ran (no throw)
+			assert.ok(Array.isArray(result.diagnostics));
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("fallback constructor options: flat config on 9+, legacy useEslintrc on v8", async () => {
+		// eslint 8 (EOL 2024-10-05) is not installable here; the exact
+		// option objects for both branches are asserted via the pure
+		// buildFallbackOptions gate below, and the flat branch is proven
+		// against the real installed eslint by the constructor regression
+		// test (passing useEslintrc on v9+ would throw "Invalid Options").
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		const cfg: unknown[] = [{ files: ["**/*.js"] }];
+
+		// Flat branch (major >= 9): skip config lookup + non-empty config
+		const flat = (l as any).buildFallbackOptions("10.8.0", cfg) as {
+			overrideConfigFile?: boolean;
+			overrideConfig?: unknown[];
+			useEslintrc?: unknown;
+		};
+		assert.ok(!("useEslintrc" in flat), "must not pass the removed useEslintrc option");
+		assert.strictEqual(flat.overrideConfigFile, true, "must skip config-file lookup");
+		assert.ok(
+			Array.isArray(flat.overrideConfig) && flat.overrideConfig.length > 0,
+			"must carry a non-empty minimal config",
+		);
+
+		// Legacy branch (major < 9): eslintrc-era option
+		assert.deepStrictEqual((l as any).buildFallbackOptions("8.57.0", cfg), {
+			useEslintrc: false,
+		});
+	});
+
+	it("fallback options gate on the ESLint major: v8 legacy, v9/v10 flat", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		const cfg: unknown[] = [{ files: ["**/*.js"] }];
+		assert.deepStrictEqual((l as any).buildFallbackOptions("8.57.0", cfg), {
+			useEslintrc: false,
+		});
+		assert.deepStrictEqual((l as any).buildFallbackOptions("9.0.0", cfg), {
+			overrideConfigFile: true,
+			overrideConfig: cfg,
+		});
+		assert.deepStrictEqual((l as any).buildFallbackOptions("10.8.0", cfg), {
+			overrideConfigFile: true,
+			overrideConfig: cfg,
+		});
+	});
+
+	// ── Phase 2: config-error detection — SyntaxError tier ───────────
+
+	it("isConfigError returns true for SyntaxError (syntax-broken config file)", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "SyntaxError", message: "Unexpected end of input" }),
+			true,
+		);
+	});
+
+	it("isConfigError still classifies ConfigError/legacy keywords and rejects non-config errors", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		assert.strictEqual((l as any).isConfigError({ name: "ConfigError", message: "bad" }), true);
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "Error", message: "Failed to load config" }),
+			true,
+		);
+		assert.strictEqual(
+			(l as any).isConfigError({ name: "TypeError", message: "Cannot read properties of undefined" }),
+			false,
+		);
+	});
+
+	// ── Phase 3: fallback config shape ───────────────────────────────
+
+	it("buildFallbackConfig returns a non-empty files-matching config covering all supported extensions", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const l = new EslintLinter();
+		const config = (await (l as any).buildFallbackConfig()) as Array<{
+			files?: string[];
+			languageOptions?: { ecmaVersion?: string; sourceType?: string };
+		}>;
+		assert.ok(Array.isArray(config) && config.length > 0, "config must not be []");
+		const files = config[0]!.files;
+		assert.ok(files && files.length > 0, "first object must carry a files glob");
+		for (const ext of [".ts", ".tsx", ".js", ".jsx"]) {
+			assert.ok(
+				files[0]!.includes(ext.slice(1)),
+				`files glob should cover ${ext}: ${files[0]}`,
+			);
+		}
+		assert.deepStrictEqual(config[0]!.languageOptions, {
+			ecmaVersion: "latest",
+			sourceType: "module",
+		});
+	});
+
+	it("buildFallbackConfig wires the TS parser when resolvable; stays non-empty without it", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+
+		// Unresolvable branch — typescript-eslint is not installed here
+		const l = new EslintLinter();
+		const noParser = (await (l as any).buildFallbackConfig()) as Array<{
+			files?: string[];
+			languageOptions?: { parser?: unknown };
+		}>;
+		assert.strictEqual(noParser.length, 1, "no parser entry without typescript-eslint");
+		assert.ok(noParser[0]!.files && noParser[0]!.files!.length > 0, "still a non-empty config");
+
+		// Resolvable branch — override the resolver to simulate installation
+		const l2 = new EslintLinter();
+		(l2 as any).resolveTsParser = async () => ({ meta: { name: "typescript-eslint/parser" } });
+		const withParser = (await (l2 as any).buildFallbackConfig()) as Array<{
+			files?: string[];
+			languageOptions?: { parser?: unknown };
+		}>;
+		assert.strictEqual(withParser.length, 2, "parser entry appended");
+		const tsEntry = withParser[1]!;
+		assert.ok(tsEntry.files![0]!.includes("ts"), "parser entry targets ts/tsx");
+		assert.ok(tsEntry.languageOptions?.parser, "parser wired into the config");
+	});
+
+	it("fallback lints a syntactically broken source file — parse diagnostic with ruleId null", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const dir = mkdtempSync(join(tmpdir(), "fos-eslint-fallback-"));
+		writeFileSync(join(dir, "eslint.config.mjs"), "export default [");
+		const brokenFile = join(dir, "broken.js");
+		writeFileSync(brokenFile, "const x = ;\n");
+		try {
+			const l = new EslintLinter();
+			const result = (await withCwd(dir, () => l.lint(brokenFile))) as Awaited<
+				ReturnType<typeof l.lint>
+			>;
+			assert.ok(result.error, "config error preserved alongside fallback diagnostics");
+			assert.ok(result.error!.includes("Unexpected end of input"));
+			assert.strictEqual(result.diagnostics.length, 1, "fallback should lint, not return empty");
+			assert.strictEqual(result.diagnostics[0]!.ruleId, null);
+			assert.ok(result.diagnostics[0]!.message.includes("Parsing error"));
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	// ── Phase 4: enrichment with empty fallback results ──────────────
+
+	it("lint with config error and empty fallback results returns empty diagnostics with enriched error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "ConfigError", message: "bad config" };
+			},
+		});
+		const mockFallback = async () => ({
+			lintText: async () => [],
+		});
+
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.diagnostics.length, 0);
+		assert.strictEqual(result.fixesApplied, false);
+		assert.ok(result.error && result.error.includes("bad config"), "original error enriched");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 5: Handler — [config error] prefix for SyntaxError config errors
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("handler — [config error] prefix for SyntaxError config errors", () => {
+	it("SyntaxError config message in lint result → console.error includes [config error]", async () => {
+		const linter: Linter = {
+			canHandle: () => true,
+			lint: async () => ({
+				diagnostics: [],
+				fixesApplied: false,
+				error: "SyntaxError: Unexpected end of input",
+			}),
+		};
+
+		const { consoleErrorCalls, cleanup } = await runHandlerWithMocks(
+			{ canHandle: () => true, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{},
+			{ mode: "tui" },
+		);
+		try {
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(match!.includes("[config error]"), "SyntaxError config message must be prefixed");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("real adapter result (broken config SyntaxError) through handler → [config error] prefix", async () => {
+		// Integration: real EslintLinter + real eslint on a broken
+		// eslint.config.mjs fixture; the resulting LintResult.error flows
+		// through the handler, which must classify it as a config error
+		// (relies on getErrorMessage preserving the "SyntaxError" name).
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, jsFile, cleanup } = createBrokenConfigFixture();
+		const linter = new EslintLinter(); // real eslint + real fs
+		const { consoleErrorCalls, cleanup: handlerCleanup } = await runHandlerWithMocks(
+			{ canHandle: () => false, format: async () => ({ formatted: false }) } as Formatter,
+			linter,
+			{ input: { path: jsFile } },
+			{ mode: "tui" },
+		);
+		try {
+			assert.ok(dir, "fixture dir exists");
+			const match = consoleErrorCalls.find((c) => c.includes("lint error"));
+			assert.ok(match, "should have lint error log");
+			assert.ok(
+				match!.includes("SyntaxError"),
+				"preserved error name must reach the handler message",
+			);
+			assert.ok(
+				match!.includes("[config error]"),
+				"real broken-config result must be prefixed as a config error",
+			);
+			assert.ok(
+				!match!.includes("Invalid Options") && !match!.includes("useEslintrc"),
+				"removed-option constructor error must never surface",
+			);
+		} finally {
+			handlerCleanup();
+			cleanup();
+		}
 	});
 });
