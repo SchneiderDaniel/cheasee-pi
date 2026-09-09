@@ -16,6 +16,7 @@ import { resolve as resolvePath } from "node:path";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { LspRuntime, LspDiagnostic } from "../types.ts";
 import type { LspDiagnosticData } from "../lib/lsp-types.ts";
+import { fileExtension } from "../lib/file-ext.ts";
 import { isLspPublishDiagnosticsParams, isLspDiagnosticData } from "../lib/lsp-types.ts";
 
 // ─── Pure Helpers ────────────────────────────────────────────────────
@@ -37,6 +38,8 @@ export function languageIdForExtension(ext: string): string {
 			return "rust";
 		case ".go":
 			return "go";
+		case "":
+			return "";
 		default:
 			return ext.slice(1);
 	}
@@ -83,7 +86,11 @@ export async function openFileForAudit(
 	}
 
 	const content = await rt.readFile(fullPath, "utf-8");
-	const langId = languageIdForExtension(file.slice(file.lastIndexOf(".")).toLowerCase());
+	const langId = languageIdForExtension(fileExtension(file));
+	if (langId === "") {
+		errors.push(`Cannot determine language for file: ${file}`);
+		return;
+	}
 	const uri = `file://${fullPath}`;
 
 	// Send didOpen — awaited to prevent unhandled promise rejection.

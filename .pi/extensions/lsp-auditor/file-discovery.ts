@@ -6,6 +6,7 @@
  */
 
 import type { ServerMapping } from "./types.ts";
+import { fileExtension } from "./lib/file-ext.ts";
 
 // ─── Git Diff Parsing ────────────────────────────────────────────────
 
@@ -51,10 +52,12 @@ export function groupFilesByServer(
 	const unsupported: string[] = [];
 
 	for (const file of files) {
-		const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
+		const ext = fileExtension(file);
 		let found = false;
+		// An empty extension (extension-less file) never matches — a mapping
+		// configured with extensions: [""] must not capture Makefile-like files.
 		for (const mapping of mappings) {
-			if (mapping.extensions.includes(ext)) {
+			if (ext !== "" && mapping.extensions.includes(ext)) {
 				const list = serverFiles.get(mapping) || [];
 				list.push(file);
 				serverFiles.set(mapping, list);

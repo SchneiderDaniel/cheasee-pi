@@ -22,6 +22,7 @@ import {
 	languageIdForExtension,
 	lspSeverityToLabel,
 	createDiagnosticsCollector,
+	openFileForAudit,
 } from "../lsp-client/audit-one.ts";
 import { FILE_TIMEOUT_MS, DIAG_WAIT_TIMEOUT_MS } from "../lsp-client/audit-group.ts";
 
@@ -227,6 +228,10 @@ describe("audit-one.ts — pure helpers", () => {
 		assert.strictEqual(languageIdForExtension(".txt"), "txt");
 	});
 
+	it("languageIdForExtension('') → '' (explicit fail-closed contract)", () => {
+		assert.strictEqual(languageIdForExtension(""), "");
+	});
+
 	it("lspSeverityToLabel maps severity numbers", () => {
 		assert.strictEqual(lspSeverityToLabel(1), "Error");
 		assert.strictEqual(lspSeverityToLabel(2), "Warning");
@@ -234,6 +239,41 @@ describe("audit-one.ts — pure helpers", () => {
 		assert.strictEqual(lspSeverityToLabel(4), "Hint");
 		assert.strictEqual(lspSeverityToLabel(0), "Information");
 		assert.strictEqual(lspSeverityToLabel(5), "Information");
+	});
+});
+
+describe("audit-one.ts — openFileForAudit fail-closed (extension-less file)", () => {
+	it("extension-less file → no didOpen, no openedUris entry, error recorded", async () => {
+		const rt = createMockRuntime();
+		const connection = createDefaultMockConnection() as any;
+		const openedUris = new Set<string>();
+		const errors: string[] = [];
+
+		await openFileForAudit(rt, connection, "Makefile", "/worktree", openedUris, errors);
+
+		const didOpenCalls = connection.sendNotification.mock.calls.filter(
+			(c: any) => c.arguments[0] === "textDocument/didOpen",
+		);
+		assert.strictEqual(didOpenCalls.length, 0, "no didOpen sent for extension-less file");
+		assert.strictEqual(openedUris.size, 0);
+		assert.ok(errors.some((e) => e.includes("Makefile")), "per-file error recorded");
+	});
+
+	it("control: src/a.ts still sends didOpen with languageId 'typescript'", async () => {
+		const rt = createMockRuntime();
+		const connection = createDefaultMockConnection() as any;
+		const openedUris = new Set<string>();
+		const errors: string[] = [];
+
+		await openFileForAudit(rt, connection, "src/a.ts", "/worktree", openedUris, errors);
+
+		const didOpenCall = connection.sendNotification.mock.calls.find(
+			(c: any) => c.arguments[0] === "textDocument/didOpen",
+		);
+		assert.ok(didOpenCall, "didOpen should have been sent");
+		assert.strictEqual(didOpenCall.arguments[1].textDocument.languageId, "typescript");
+		assert.strictEqual(openedUris.size, 1);
+		assert.strictEqual(errors.length, 0);
 	});
 });
 
