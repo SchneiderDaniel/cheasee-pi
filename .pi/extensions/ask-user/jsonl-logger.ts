@@ -9,7 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { QnaEntry } from "./types.ts";
+import type { QnaEntry, QnaListedEntry } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -341,22 +341,46 @@ export async function getQnaEntry(
 /**
  * List the last N Q&A entries.
  * Default limit is 20.
+ *
+ * Each returned entry carries its absolute 1-based id (position in the full
+ * merged history), so `getQnaEntry(projectDir, entry.id)` always fetches the
+ * same entry the list displays — even when the log has more entries than the
+ * limit and only the tail is returned. `total` is the full history size.
  */
-export async function listQnaEntries(projectDir: string, limit: number = 20): Promise<QnaEntry[]> {
+export async function listQnaEntries(
+	projectDir: string,
+	limit: number = 20,
+): Promise<{ entries: QnaListedEntry[]; total: number }> {
 	const entries = await readQnaEntries(projectDir);
-	return entries.slice(-limit);
+	const total = entries.length;
+	// Normalize limit to a non-negative integer BEFORE both slicing and id
+	// assignment: Array.prototype.slice truncates its index toward zero, so
+	// a fractional limit (e.g. 1.5) would slice at index 1 but compute ids
+	// 2.5/3.5 — ids nobody can `get`. Clamp negatives to 0 (empty list).
+	const normalized = Number.isFinite(limit) ? Math.max(0, Math.trunc(limit)) : 0;
+	// start and id math share one source, so the slice offset and the
+	// absolute ids can never disagree (start = total - limit + 1 for ids)
+	const start = Math.max(0, total - normalized);
+	const listed = entries.slice(start).map((e, i) => ({ ...e, id: start + i + 1 }));
+	return { entries: listed, total };
 }
 
 /**
  * Search Q&A entries by text (case-insensitive) in question AND answer fields.
+ * Matched entries carry their absolute 1-based id, so results are `get`-able.
  */
-export async function queryQnaEntries(projectDir: string, text: string): Promise<QnaEntry[]> {
+export async function queryQnaEntries(
+	projectDir: string,
+	text: string,
+): Promise<QnaListedEntry[]> {
 	const entries = await readQnaEntries(projectDir);
 	const lowerText = text.toLowerCase();
-	return entries.filter(
-		(e) =>
-			e.question.toLowerCase().includes(lowerText) || e.answer.toLowerCase().includes(lowerText),
-	);
+	return entries
+		.map((e, i) => ({ ...e, id: i + 1 }))
+		.filter(
+			(e) =>
+				e.question.toLowerCase().includes(lowerText) || e.answer.toLowerCase().includes(lowerText),
+		);
 }
 
 // ---------------------------------------------------------------------------
