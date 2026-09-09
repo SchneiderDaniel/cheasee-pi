@@ -240,11 +240,43 @@ export async function createPrOnApproval(
 						`Push retry ${attempt + 1}/${MAX_PUSH_RETRIES} after ${delayMs}ms`,
 					);
 					await new Promise((resolve) => setTimeout(resolve, delayMs));
+					// --force-with-lease verifies against the LOCAL remote-tracking
+					// ref; retrying without refreshing it fails identically every
+					// attempt when the lease is stale (remote head branch deleted
+					// with the PR, or a pre-push fetch advanced the ref). Refresh
+					// the lease before each retry so the loop can actually recover.
+					const pruneResult = await pi.exec(
+						"git",
+						["fetch", "--prune", config.remote!],
+						{ cwd: worktreePath, timeout: 30000 },
+					);
+					if (pruneResult.code !== 0 || pruneResult.killed) {
+						throw new Error(
+							`git fetch --prune ${config.remote} failed: ${
+								pruneResult.stderr || pruneResult.stdout || `exit ${pruneResult.code}`
+							}`.trim(),
+						);
+					}
 				}
-				await pi.exec("git", ["push", "--force-with-lease", config.remote!, headBranch], {
-					cwd: worktreePath,
-					timeout: 60000,
-				});
+				// pi.exec always RESOLVES {code, stdout, stderr, killed} — it never
+				// rejects on non-zero exit. Inspect the result explicitly: a failed
+				// push (rejected refs, transport/auth, timeout kill) must fail the
+				// attempt, or the pipeline reports success against a remote branch
+				// that was never updated.
+				const pushResult = await pi.exec(
+					"git",
+					["push", "--force-with-lease", config.remote!, headBranch],
+					{ cwd: worktreePath, timeout: 60000 },
+				);
+				if (pushResult.code !== 0 || pushResult.killed) {
+					throw new Error(
+						(pushResult.stderr ||
+							pushResult.stdout ||
+							(pushResult.killed
+								? "git push timed out and was killed"
+								: `git push failed (exit ${pushResult.code})`)).trim(),
+					);
+				}
 				log.info("pr-creation", "Push OK");
 				pushSucceeded = true;
 				break;

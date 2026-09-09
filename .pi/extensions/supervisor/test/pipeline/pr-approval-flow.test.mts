@@ -17,8 +17,13 @@ import { createStageState } from "../../pipeline/stages/index.ts";
 import type { RunContext } from "../../pipeline/handler/shared.ts";
 import { ErrorCollector } from "../../pipeline/error-collector.ts";
 
+/**
+ * Mock ExtensionAPI matching the REAL pi.exec contract: always RESOLVES
+ * {code, stdout, stderr, killed} — never rejects on non-zero exit
+ * (pi-core execCommand resolves {code} even for failed commands).
+ */
 function createMockPi(
-	results: Array<{ code: number; stdout: string; stderr: string }>,
+	results: Array<{ code: number; stdout: string; stderr: string; killed?: boolean }>,
 	calls?: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>,
 ): ExtensionAPI {
 	const callLog = calls || [];
@@ -31,6 +36,16 @@ function createMockPi(
 		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
 		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
 	} as ExtensionAPI;
+}
+
+/**
+ * Drain the microtask queue (setImmediate fires only once the microtask
+ * queue is empty) so a pending mock-timer retry delay can be ticked. Node 22
+ * MockTimers has no tickAsync — tick() is synchronous, so each delay needs
+ * flush → tick → flush.
+ */
+function flushQueue(): Promise<void> {
+	return new Promise((resolve) => setImmediate(resolve));
 }
 
 function createMockCtx(): ExtensionCommandContext {
@@ -292,6 +307,107 @@ describe("handlePrApprovalFlow — audit approval → PR creation + gate (issue 
 			.filter((c) => c.method === "setItemStatusField")
 			.map((c) => c.args[3] as string);
 		assert.ok(!transitions.includes("opt-implementation"), "no Implementation transition on ok");
+	});
+
+	it("gate blocked — push {code:1} → failed prCreationResult propagated, zero createPullRequest", async () => {
+		const portCalls: PortCall[] = [];
+		const runner = createGateRunner(true);
+		// The readiness gate retries createPrOnApproval once (creation-failed
+		// mode), so BOTH rounds must fail the push. Each round: rebase fetch,
+		// rebase, push ×3 with lease-refresh fetch between retries.
+		const failingRound = [
+			{ code: 0, stdout: "fetch ok", stderr: "" }, // rebase fetch
+			{ code: 0, stdout: "rebase ok", stderr: "" }, // rebase
+			{ code: 1, stdout: "", stderr: "rejected" }, // push attempt 1
+			{ code: 0, stdout: "prune ok", stderr: "" }, // fetch --prune
+			{ code: 1, stdout: "", stderr: "rejected" }, // push attempt 2
+			{ code: 0, stdout: "prune ok", stderr: "" }, // fetch --prune
+			{ code: 1, stdout: "", stderr: "rejected" }, // push attempt 3
+		];
+		const runCtx = buildRunContext({
+			execResults: [...failingRound, ...failingRound],
+			runner,
+			portCalls,
+		});
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let outcome: Awaited<ReturnType<typeof handlePrApprovalFlow>>;
+		try {
+			const promise = handlePrApprovalFlow(runCtx, "Audit");
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			outcome = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(
+			outcome.prCreationResult?.success,
+			false,
+			"failed push must propagate prCreationResult.success === false",
+		);
+		assert.ok(
+			outcome.prCreationResult?.error!.includes("rejected"),
+			"push stderr excerpt propagated in error",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "createPullRequest").length,
+			0,
+			"zero createPullRequest calls after failed push",
+		);
+	});
+
+	it("gate blocked — push {code:0, killed:true} → same failed propagation (flow-level killed gate)", async () => {
+		const portCalls: PortCall[] = [];
+		const runner = createGateRunner(true);
+		const failingRound = [
+			{ code: 0, stdout: "fetch ok", stderr: "" },
+			{ code: 0, stdout: "rebase ok", stderr: "" },
+			{ code: 0, stdout: "", stderr: "", killed: true },
+			{ code: 0, stdout: "prune ok", stderr: "" },
+			{ code: 0, stdout: "", stderr: "", killed: true },
+			{ code: 0, stdout: "prune ok", stderr: "" },
+			{ code: 0, stdout: "", stderr: "", killed: true },
+		];
+		const runCtx = buildRunContext({
+			execResults: [...failingRound, ...failingRound],
+			runner,
+			portCalls,
+		});
+
+		mock.timers.enable({ apis: ["setTimeout"] });
+		let outcome: Awaited<ReturnType<typeof handlePrApprovalFlow>>;
+		try {
+			const promise = handlePrApprovalFlow(runCtx, "Audit");
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			await flushQueue();
+			mock.timers.tick(3000);
+			await flushQueue();
+			mock.timers.tick(5000);
+			outcome = await promise;
+		} finally {
+			mock.timers.reset();
+		}
+
+		assert.equal(
+			outcome.prCreationResult?.success,
+			false,
+			"timeout-killed push must propagate failure at flow level too",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "createPullRequest").length,
+			0,
+			"zero createPullRequest calls after killed push",
+		);
 	});
 
 	it("unused import guard — PipelineAgentResult type referenced (harness sanity)", () => {

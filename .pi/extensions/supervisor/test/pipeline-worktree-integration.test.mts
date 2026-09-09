@@ -128,8 +128,44 @@ describe("pipeline-worktree integration — error handling", () => {
 
 	it("PR push uses worktreePath as cwd", () => {
 		const prSrc = readFileSync(join(__dirname, "../pipeline/pr-creation.ts"), "utf-8");
-		assert.ok(prSrc.includes('pi.exec("git", ["push"'), "git push in PR creation section");
-		assert.ok(prSrc.includes("worktreePath"), "worktreePath used in PR creation");
+		assert.ok(
+			prSrc.includes('["push", "--force-with-lease"'),
+			"git push with --force-with-lease in PR creation section",
+		);
+		assert.ok(prSrc.includes("cwd: worktreePath"), "push runs in the worktree (worktreePath cwd)");
+	});
+
+	it("PR push inspects the resolved exec result (pi.exec never rejects on non-zero exit)", () => {
+		const prSrc = readFileSync(join(__dirname, "../pipeline/pr-creation.ts"), "utf-8");
+		// Issue #1613: push result was dropped — pi.exec resolves {code} even on
+		// failure, so a failed push logged "Push OK" and continued to Phase 4/5.
+		assert.ok(
+			prSrc.includes("const pushResult = await pi.exec("),
+			"push site must assign the exec result instead of dropping it",
+		);
+		assert.ok(
+			prSrc.includes("pushResult.code !== 0 || pushResult.killed"),
+			"push gate must inspect code AND killed (timeout-killed resolves {code:0, killed:true})",
+		);
+		assert.ok(
+			prSrc.includes("pushResult.stderr ||"),
+			"thrown push error must embed pushResult.stderr",
+		);
+		// Lease refresh: --force-with-lease compares against the local
+		// remote-tracking ref — a stale lease fails identically every retry.
+		const pruneIdx = prSrc.indexOf("\"fetch\", \"--prune\"");
+		assert.ok(pruneIdx >= 0, "git fetch --prune present in pr-creation.ts");
+		const pushGateStart = prSrc.indexOf("const pushResult = await pi.exec(");
+		assert.ok(
+			pushGateStart > pruneIdx,
+			"lease refresh (--prune) sits inside the Phase 3 retry loop before the push gate",
+		);
+		// Existing contract kept: push uses worktreePath as cwd and --force-with-lease
+		assert.ok(prSrc.includes("cwd: worktreePath"), "push still runs in the worktree");
+		assert.ok(
+			prSrc.includes('[\"push\", \"--force-with-lease\"'),
+			"push still uses --force-with-lease",
+		);
 	});
 });
 
