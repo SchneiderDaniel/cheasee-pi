@@ -317,8 +317,28 @@ export interface AgentOutput {
 	 * or to target any valid workflow status directly.
 	 */
 	targetStatus?: string;
-	/** Refusal reason — if set, pipeline treats as rejection */
-	refusal?: string;
+}
+
+/**
+ * Structured output for a refused task — the agent declined to complete it.
+ * Detected in parseAgentOutput BEFORE schema validation (refusal prose is
+ * not schema-conforming by design) and treated by the pipeline as a
+ * deliberate stop, never a status transition.
+ */
+export interface RefusedOutput {
+	/** Discriminator — always true. Distinct from AgentOutput (no `action`). */
+	refused: true;
+	/** Agent that refused, when present */
+	agentName?: string;
+	/**
+	 * Refusal reason. Detection keys on field PRESENCE, so this may be an
+	 * empty string (empty-body refusals are legal — Anthropic precedent).
+	 */
+	refusal: string;
+	/** Brief summary line describing why the task could not be completed */
+	summary?: string;
+	/** Explanation to post as the issue comment */
+	commentBody?: string;
 }
 
 /** Result of a failed parse attempt */
@@ -327,7 +347,7 @@ export interface FailedParse {
 	rawOutput: string;
 }
 
-export type ParseResult = AgentOutput | FailedParse;
+export type ParseResult = AgentOutput | RefusedOutput | FailedParse;
 
 // ─── LSP Pre-Audit ──────────────────────────────────────────────────
 

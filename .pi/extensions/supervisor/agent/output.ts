@@ -10,7 +10,12 @@
 // flow one-way in here, never out. Callers keep importing from this
 // path; the leaf exports are internal surface, not re-exported.
 
-import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
+import type {
+	AgentOutput,
+	FailedParse,
+	ParseResult,
+	RefusedOutput,
+} from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { isToolLine } from "../lib/tool-line.ts";
 import {
@@ -52,7 +57,8 @@ export function normalizeEscapes(s: string): string {
  * 3. JSON.parse the extracted text
  * 4. Validate against schema
  *
- * Returns either a valid AgentOutput or a FailedParse with descriptive error.
+ * Returns either a valid AgentOutput, a RefusedOutput (agent declined the
+ * task) or a FailedParse with descriptive error.
  */
 export function parseAgentOutput(output: string, toolNames?: Set<string>): ParseResult {
 	// Guard against null/undefined/empty
@@ -140,6 +146,31 @@ export function parseAgentOutput(output: string, toolNames?: Set<string>): Parse
 
 	const data = parsed as Record<string, unknown>;
 
+	// Step 3.5: Refusal detection — evaluated BEFORE schema validation.
+	// The agent task template documents the `refusal` field as the escape
+	// hatch for "cannot complete the task". Refusal prose is not expected to
+	// conform to the success schema (OpenAI structured-outputs precedent:
+	// detect refusal before deserializing), so a refusal short-circuits into
+	// a distinct RefusedOutput variant and never reaches validation.
+	// Detection keys on field PRESENCE, not non-empty reason text — empty-body
+	// refusals are legal (Anthropic stop_reason: "refusal" precedent).
+	if (data.refusal !== undefined && data.refusal !== null) {
+		const result: RefusedOutput = {
+			refused: true,
+			refusal: normalizeEscapes(String(data.refusal)),
+		};
+		if (data.agentName !== undefined && data.agentName !== null) {
+			result.agentName = String(data.agentName);
+		}
+		if (data.summary !== undefined && data.summary !== null) {
+			result.summary = String(data.summary);
+		}
+		if (data.commentBody !== undefined && data.commentBody !== null) {
+			result.commentBody = normalizeEscapes(String(data.commentBody));
+		}
+		return result;
+	}
+
 	// Step 4: Validate
 	const validation = validateAgentOutput(data);
 	if (!validation.valid) {
@@ -192,9 +223,26 @@ export function parseAgentOutput(output: string, toolNames?: Set<string>): Parse
 
 /**
  * Check if a ParseResult is a successful AgentOutput.
+ * RefusedOutput lacks the `action` key, so it is correctly excluded.
  */
 export function isSuccess(result: ParseResult): result is AgentOutput {
 	return "action" in result && "agentName" in result;
+}
+
+/**
+ * Check if a ParseResult is a RefusedOutput (agent declined the task).
+ */
+export function isRefused(result: ParseResult): result is RefusedOutput {
+	return "refused" in result && result.refused === true;
+}
+
+/**
+ * Parse agent output and return the refusal info when the agent declined
+ * the task, or null for any other outcome (success or parse failure).
+ */
+export function getRefusalInfo(output: string, toolNames?: Set<string>): RefusedOutput | null {
+	const result = parseAgentOutput(output, toolNames);
+	return isRefused(result) ? result : null;
 }
 
 // ─── Agent Comment Body Extraction ────────────────────────────────
@@ -207,6 +255,11 @@ export function extractAgentCommentBody(output: string, toolNames?: Set<string>)
 	if (isSuccess(parseResult)) {
 		const agentOutput = parseResult as AgentOutput;
 		if (agentOutput.commentBody) return agentOutput.commentBody;
+	}
+	// Refusal: the agent declined the task — its commentBody (when present)
+	// still posts, so refused explanations are not silently dropped.
+	if (isRefused(parseResult) && parseResult.commentBody) {
+		return parseResult.commentBody;
 	}
 
 	// Fallback: COMMENT_BODY marker extraction
