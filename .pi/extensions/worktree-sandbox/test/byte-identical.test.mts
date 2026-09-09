@@ -158,6 +158,68 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it("ln branch (link name checked — escape vector closed)", () => {
+		// Escape vector: link name (the directory entry ln creates) outside sandbox
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -s ${SB}/a.txt /etc/evil-link`, SB),
+			"outside sandbox: /etc/evil-link",
+		);
+		// Target-first priority: unsafe target reported before unsafe link name
+		assert.equal(
+			mod.findUnsafeWriteInBash("ln -s /etc/passwd /etc/evil-link", SB),
+			"outside sandbox: /etc/passwd",
+		);
+		// Single-arg form stays legal (no link name to create)
+		assert.equal(mod.findUnsafeWriteInBash(`ln -s ${SB}/a.txt`, SB), null);
+		// Single-arg unsafe target still blocked
+		assert.equal(
+			mod.findUnsafeWriteInBash("ln -s /etc/passwd", SB),
+			"outside sandbox: /etc/passwd",
+		);
+		// Long --symbolic flag
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln --symbolic ${SB}/a.txt /etc/evil-link`, SB),
+			"outside sandbox: /etc/evil-link",
+		);
+		// Short-option bundle with s (-sT)
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -sT ${SB}/a.txt /etc/evil-link`, SB),
+			"outside sandbox: /etc/evil-link",
+		);
+		// Short-option bundle with s (-sv) — unsafe target reported first
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -sv /etc/passwd ${SB}/link`, SB),
+			"outside sandbox: /etc/passwd",
+		);
+		// Bundle without s is not symlink mode → hard-link dest (last arg) checked
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -T ${SB}/a /etc/out`, SB),
+			"outside sandbox: /etc/out",
+		);
+		// Unresolved env var in link name resolves to empty → fail closed
+		const unsetCmd = `ln -s ${SB}/a.txt $UNSET`;
+		assert.equal(mod.findUnsafeWriteInBash(unsetCmd, SB), unsetCmd);
+		// Relative link name is safe (cwd pinned by `cd "${sandboxRoot}" &&` prefix)
+		assert.equal(mod.findUnsafeWriteInBash(`ln -s ${SB}/a.txt evil-link`, SB), null);
+		// Multi-arg form: target + last non-flag validated (intermediate are sources)
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -s ${SB}/a.txt ${SB}/b.txt /etc/evil-dir`, SB),
+			"outside sandbox: /etc/evil-dir",
+		);
+		// Flags between options and args don't break the scan
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -s -v ${SB}/a.txt /etc/evil-link`, SB),
+			"outside sandbox: /etc/evil-link",
+		);
+		// Separators bound the scan (isCommandStart)
+		assert.equal(
+			mod.findUnsafeWriteInBash(`ln -s ${SB}/a.txt ${SB}/l ; ln -s /etc/passwd ${SB}/l2`, SB),
+			"outside sandbox: /etc/passwd",
+		);
+		// Bare ln -s with no args → no write dest
+		assert.equal(mod.findUnsafeWriteInBash("ln -s", SB), null);
+	});
+
 	it("dd branch (of=)", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash("dd if=/dev/zero of=/etc/outside.txt bs=1 count=1", SB),
