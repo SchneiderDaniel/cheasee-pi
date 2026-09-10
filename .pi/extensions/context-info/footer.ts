@@ -119,12 +119,13 @@ export function installFooter(
 				// ── CENTER: Model + reasoning + tool count ───
 				const modelId = ctx.model?.id ?? "?";
 				let centerStr = theme.fg("dim", "🧠 ") + theme.fg("accent", modelId);
-				if (thinkingLevel) {
-					const tIcon = thinkingIcon(thinkingLevel);
-					const tColor = thinkingColor(thinkingLevel);
-					const reasoningStr = theme.fg(tColor as any, `${tIcon} ${thinkingLevel}`);
-					centerStr += " " + theme.fg("dim", "·") + " " + reasoningStr;
-				}
+				// Always show the reasoning level; fall back to "off" when unset/blank
+				// (mirrors the stock pi footer's "thinking off" default).
+				const activeThinking = thinkingLevel.trim() || "off";
+				const tIcon = thinkingIcon(activeThinking);
+				const tColor = thinkingColor(activeThinking);
+				const reasoningStr = theme.fg(tColor as any, `${tIcon} ${activeThinking}`);
+				centerStr += " " + theme.fg("dim", "·") + " " + reasoningStr;
 
 				// ── Tool call counter ─────────────────────────
 				const toolStr =

@@ -827,11 +827,14 @@ describe("footer thinking-level rendering (lib/thinking-level.ts wired)", () => 
 		);
 	});
 
-	it("omits reasoning segment when thinkingLevel is unset/empty", () => {
+	it("renders '· ○ off' fallback when thinkingLevel is unset/empty", () => {
 		for (const level of ["", " "]) {
-			const { rows } = renderFooterWithThinkingLevel(level);
-			assert.ok(!rows[0]!.includes("◒"), `no icon expected, got: ${rows[0]}`);
-			assert.ok(!rows[0]!.includes("medium"), `no level name expected, got: ${rows[0]}`);
+			const { rows, fgCalls } = renderFooterWithThinkingLevel(level);
+			assert.ok(rows[0]!.includes("· ○ off"), `should contain '· ○ off', got: ${rows[0]}`);
+			assert.ok(
+				fgCalls.some(([color, text]) => color === "dim" && text === "○ off"),
+				"'○ off' should be rendered with the canonical 'dim' color",
+			);
 		}
 	});
 
