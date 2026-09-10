@@ -118,6 +118,92 @@ describe("parse.ts", () => {
 		assert.equal(result[0]!.text, "Build feature");
 	});
 
+	it("excludes items under H1/H3/H4 meta-headings", () => {
+		assert.deepEqual(
+			parseIssueBodyChecklists("# Setup\n- [ ] Configure env\n\n## Tasks\n- [ ] Build"),
+			[{ text: "Build", checked: false }],
+		);
+		assert.deepEqual(
+			parseIssueBodyChecklists("### Prerequisites\n- [ ] Clone repo\n\n## Tasks\n- [ ] Build"),
+			[{ text: "Build", checked: false }],
+		);
+		// H4 Tasks is tracked but is not an excluded heading → items included.
+		assert.deepEqual(parseIssueBodyChecklists("#### Tasks\n- [ ] Build"), [
+			{ text: "Build", checked: false },
+		]);
+	});
+
+	it("mid-body heading level transition does not stick", () => {
+		const body = "### Setup\n- [ ] Configure env\n#### Tasks\n- [ ] Build";
+		assert.deepEqual(parseIssueBodyChecklists(body), [{ text: "Build", checked: false }]);
+	});
+
+	it("7-hash paragraph and whitespace-less hashes are not headings", () => {
+		const body = "####### not a heading\n- [ ] Keep A\n##Tasks\n- [ ] Keep B\n#foo\n- [ ] Keep C";
+		assert.deepEqual(
+			parseIssueBodyChecklists(body).map((i) => i.text),
+			["Keep A", "Keep B", "Keep C"],
+		);
+	});
+
+	it("closing # run stripped only when whitespace-preceded", () => {
+		// ` ###` is a closing ATX sequence → heading text is "Reproduction Steps" → excluded.
+		assert.deepEqual(
+			parseIssueBodyChecklists(
+				"### Reproduction Steps ###\n- [ ] Install deps\n\n## Tasks\n- [ ] Build",
+			),
+			[{ text: "Build", checked: false }],
+		);
+		// `Prerequisites #` → excluded (whitespace-gated strip applies).
+		assert.deepEqual(parseIssueBodyChecklists("## Prerequisites #\n- [ ] Clone repo"), []);
+		// No preceding space → NOT a closing run → heading not excluded.
+		assert.deepEqual(
+			parseIssueBodyChecklists("## Prerequisites#\n- [ ] Clone repo").map((i) => i.text),
+			["Clone repo"],
+		);
+		// Literal trailing hash in text survives (not an excluded heading either way).
+		assert.deepEqual(
+			parseIssueBodyChecklists("## Notes about C#\n- [ ] Read notes").map((i) => i.text),
+			["Read notes"],
+		);
+	});
+
+	it("normalizes inline formatting, trailing colon, and case", () => {
+		const excludedBodies = [
+			"## **Setup**\n- [ ] Configure env",
+			"### *Setup*\n- [ ] Configure env",
+			"### Steps To Reproduce:\n- [ ] Install deps",
+			"### REPRODUCTION STEPS\n- [ ] Install deps",
+			"### `Setup`\n- [ ] Configure env",
+		];
+		for (const body of excludedBodies) {
+			assert.deepEqual(parseIssueBodyChecklists(body), [], body);
+		}
+	});
+
+	it("fenced code does not flip heading state or count items", () => {
+		const body = "## Tasks\n```md\n# Setup\n- [ ] not a real item\n```\n- [ ] Real item";
+		assert.deepEqual(parseIssueBodyChecklists(body), [{ text: "Real item", checked: false }]);
+
+		// Fenced excluded heading alone must not leak state to items after the fence.
+		assert.deepEqual(
+			parseIssueBodyChecklists("```\n# Setup\n```\n- [ ] Still included").map((i) => i.text),
+			["Still included"],
+		);
+	});
+
+	it("blockquoted heading lookalikes do not flip heading state", () => {
+		assert.deepEqual(parseIssueBodyChecklists("## Tasks\n> ### Setup\n- [ ] Real item"), [
+			{ text: "Real item", checked: false },
+		]);
+		assert.deepEqual(parseIssueBodyChecklists("> ### Setup\n> - [ ] Quoted"), []);
+	});
+
+	it("normalization applies to heading compare only, not item text", () => {
+		const result = parseIssueBodyChecklists("## Tasks\n- [ ] **Bold task**");
+		assert.equal(result[0]!.text, "**Bold task**");
+	});
+
 	it("handles -, *, + bullets", () => {
 		const body = "## Tasks\n- [ ] Dash\n* [ ] Star\n+ [ ] Plus";
 		const result = parseIssueBodyChecklists(body);
@@ -678,5 +764,54 @@ describe("runRequirementsTraceability orchestrator contract", () => {
 		} finally {
 			rmSync(tempDir, { recursive: true, force: true });
 		}
+	});
+
+	it("gate: H3 Reproduction Steps items produce no checklist gap (issue symptom)", async () => {
+		const exec = mockDiffExec(["A README.md"]);
+		const result = await runRequirementsTraceability(
+			exec,
+			"/fake/worktree",
+			"main",
+			{ body: "### Reproduction Steps\n- [ ] install deps", comments: [] },
+			"",
+		);
+		assert.deepEqual(result, []);
+	});
+
+	it("gate: mixed H3/H1 excluded + H2 included → only Tasks item gap", async () => {
+		const exec = mockDiffExec(["A README.md"]);
+		const body =
+			"### Prerequisites\n- [ ] Clone repo\n\n# Setup\n- [ ] Configure env\n\n## Tasks\n- [ ] Build feature";
+		const result = await runRequirementsTraceability(
+			exec,
+			"/fake/worktree",
+			"main",
+			{ body, comments: [] },
+			"",
+		);
+		const gaps = result.filter((g) => g.check === "checklist-keyword-coverage");
+		assert.equal(gaps.length, 1);
+		assert.ok(gaps[0]!.detail.includes('"Build feature"'));
+	});
+
+	it("gate: H2-only body gap output is byte-identical (regression)", async () => {
+		const exec = mockDiffExec(["A README.md"]);
+		const body =
+			"## Prerequisites\n- [ ] Clone repo\n## Setup\n- [ ] Configure env\n## Tasks\n- [ ] Build feature";
+		const result = await runRequirementsTraceability(
+			exec,
+			"/fake/worktree",
+			"main",
+			{ body, comments: [] },
+			"",
+		);
+		assert.deepEqual(result, [
+			{
+				check: "checklist-keyword-coverage",
+				severity: "warning",
+				detail:
+					'Checklist item "Build feature" — no keywords matched in changed files. Keywords checked: Build, feature',
+			},
+		]);
 	});
 });

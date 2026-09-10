@@ -271,6 +271,37 @@ describe("parseIssueBodyChecklists()", () => {
 		assert.equal(result.length, 1);
 		assert.equal(result[0]!.text, "Task with plus bullet");
 	});
+
+	it("excludes items under H1/H3 meta-headings", () => {
+		const h1 = `# Setup
+- [ ] Configure env
+
+## Tasks
+- [ ] Build feature`;
+		assert.deepEqual(parseIssueBodyChecklists(h1), [{ text: "Build feature", checked: false }]);
+
+		const h3 = `### Prerequisites
+- [ ] Clone repo
+
+## Implementation
+- [ ] Write code`;
+		assert.deepEqual(parseIssueBodyChecklists(h3), [{ text: "Write code", checked: false }]);
+	});
+
+	it("tracks H4 headings but does not exclude them", () => {
+		const body = `#### Tasks
+- [ ] Build feature`;
+		assert.deepEqual(parseIssueBodyChecklists(body), [{ text: "Build feature", checked: false }]);
+	});
+
+	it("normalizes closing hashes, formatting, colon, and case for exclusion", () => {
+		assert.deepEqual(
+			parseIssueBodyChecklists("### Reproduction Steps ###\n- [ ] Install deps"),
+			[],
+		);
+		assert.deepEqual(parseIssueBodyChecklists("## **Setup**\n- [ ] Configure env"), []);
+		assert.deepEqual(parseIssueBodyChecklists("### Steps To Reproduce:\n- [ ] Install deps"), []);
+	});
 });
 
 describe("extractTitleVerb()", () => {
