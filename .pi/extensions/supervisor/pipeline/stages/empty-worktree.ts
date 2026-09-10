@@ -18,7 +18,7 @@ import {
 	buildLeaveOpenForPrComment,
 } from "../empty-worktree-policy.ts";
 import type { EmptyWorktreeAction, EmptyWorktreeSignals } from "../empty-worktree-policy.ts";
-import { hasBranchCommits, gitCherryContains, fetchResolvedByInfo } from "./git-ops.ts";
+import { hasBranchCommits, fetchResolvedByInfo } from "./git-ops.ts";
 
 /** Control-flow signal for the dispatch skeleton (no break/continue here). */
 export type EmptyWorktreeOutcome = { stop: true; stopReason: string } | { stop: false };
@@ -53,20 +53,24 @@ export async function handleEmptyWorktree(
 		defaultBranch: baseBranch,
 	});
 
-	// 1. changeOnMain: gitCherryContains primary, git diff --quiet fallback
-	let changeOnMain = await gatherChangeOnMain(execFn, worktreePath, baseBranch);
-
-	// 2. openPrs: PRs referencing this issue
+	// 1. openPrs: PRs referencing this issue (open/closed/merged) — single API call.
 	let openPrs: ClosingPrRef[] = [];
 	try {
 		openPrs = await gatherOpenPrs(port, issueNum, config.repo);
 	} catch (prErr: unknown) {
 		const prMsg = prErr instanceof Error ? prErr.message : String(prErr);
 		getDebugLogger().warn("handler", `getClosingPrsForIssue failed: ${prMsg}`);
-		// Fail-open: on API error, force changeOnMain=false so we loop
-		// (case 1) instead of closing (case 2) — matching the test plan.
-		changeOnMain = false;
+		// Fail-open: on API error, treat as no PRs → changeOnMain=false so we
+		// loop (case 1) instead of closing (case 2).
+		openPrs = [];
 	}
+
+	// 2. changeOnMain: positive evidence only. A MERGED closing-keyword PR
+	// referencing this issue proves the work landed on the default branch.
+	// A clean worktree is NOT evidence (Bug #1655): the developer may simply
+	// have produced nothing (timeout/refusal/no-op), which leaves the same
+	// clean state as "work already on main".
+	const changeOnMain = openPrs.some((p) => p.state === "merged" && p.source === "closing-keyword");
 
 	// 3. Classify and dispatch
 	const signals: EmptyWorktreeSignals = { hasCommits: false, changeOnMain, openPrs };
@@ -88,33 +92,6 @@ export async function handleEmptyWorktree(
 		worktreePath,
 		baseBranch,
 	);
-}
-
-/**
- * changeOnMain: primary gitCherryContains ("HEAD" vs base), fallback
- * git diff --quiet for clean-worktree detection. Fail-open on git
- * failure: assume changes NOT on main (safe: loop back).
- */
-export async function gatherChangeOnMain(
-	execFn: ExecFn,
-	worktreePath: string,
-	baseBranch: string,
-): Promise<boolean> {
-	try {
-		const changeOnMain = await gitCherryContains(execFn, worktreePath, baseBranch, "HEAD");
-		if (changeOnMain) {
-			return true;
-		}
-		// gitCherryContains returned false (incl. empty) — clean-worktree check.
-		const diffResult = await execFn("git", ["diff", "--quiet"], {
-			cwd: worktreePath,
-			timeout: 10_000,
-		});
-		return diffResult.code === 0;
-	} catch {
-		// git commands failed — assume changes not on main (safe: loop back)
-		return false;
-	}
 }
 
 /**

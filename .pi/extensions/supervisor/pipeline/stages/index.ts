@@ -31,10 +31,9 @@ export {
 } from "./auditor-output.ts";
 export {
 	handleEmptyWorktree,
-	gatherChangeOnMain,
 	gatherOpenPrs,
 	dispatchEmptyWorktreeAction,
 } from "./empty-worktree.ts";
 export type { EmptyWorktreeOutcome } from "./empty-worktree.ts";
-export { hasBranchCommits, gitCherryContains } from "./git-ops.ts";
+export { hasBranchCommits } from "./git-ops.ts";
 export { handlePostAgentSuccess } from "./post-agent-success.ts";

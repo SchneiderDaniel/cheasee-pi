@@ -1,8 +1,7 @@
 // ─── Tests: stages/empty-worktree.ts (issue #1533 extraction) ────
 // Unit tests for the signal gatherers + 3-way dispatch extracted from
 // runAgentLoop (Bug #1343). Fail-open/fail-closed semantics preserved:
-// git failure → changeOnMain=false (loop back), port failure → warn +
-// loop back, port comment/close throw → collector warn, still stop.
+// port failure → warn + loop back (no PR evidence → changeOnMain=false),
 
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +11,6 @@ import type { ClosingPrRef, GitHubPort } from "../../github/ports.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import type { PortCall } from "../helper/mock-github-port.ts";
 import {
-	gatherChangeOnMain,
 	gatherOpenPrs,
 	dispatchEmptyWorktreeAction,
 	handleEmptyWorktree,
@@ -49,28 +47,13 @@ function notifySpy(): { ctx: ExtensionCommandContext } {
 
 const ok = (stdout = "") => ({ code: 0, stdout, stderr: "", killed: false });
 
-describe("gatherChangeOnMain — changeOnMain signal (issue #1533)", () => {
-	it("gitCherryContains true → true (no diff fallback)", async () => {
-		// `git cherry main HEAD` output all "- " prefixed → already upstream.
-		const fn = execFn([ok("- abc123\n- def456")]);
-		assert.equal(await gatherChangeOnMain(fn, WT, "main"), true);
-	});
-
-	it("cherry empty + diff code 0 → true (clean worktree)", async () => {
-		const fn = execFn([ok(""), ok("")]); // cherry empty → diff --quiet code 0
-		assert.equal(await gatherChangeOnMain(fn, WT, "main"), true);
-	});
-
-	it("cherry empty + diff code 1 → false", async () => {
-		const fn = execFn([ok(""), { code: 1, stdout: "", stderr: "dirty", killed: false }]);
-		assert.equal(await gatherChangeOnMain(fn, WT, "main"), false);
-	});
-
-	it("diff throws → false (fail-open loop-back)", async () => {
-		const fn = execFn([ok(""), () => Promise.reject(new Error("git boom"))]);
-		assert.equal(await gatherChangeOnMain(fn, WT, "main"), false);
-	});
-});
+const mergedClosingPr: ClosingPrRef = {
+	number: 42,
+	sha: "merged-sha",
+	source: "closing-keyword",
+	branch: "fix",
+	state: "merged",
+};
 
 describe("gatherOpenPrs — open-PR signal (issue #1533)", () => {
 	it("returns [] when no PRs reference the issue", async () => {
@@ -276,11 +259,11 @@ describe("handleEmptyWorktree — signal gathering + dispatch (issue #1533)", ()
 		);
 	}
 
-	it("no commits + no changeOnMain + no PRs → loop back { stop: true }", async () => {
+	it("no commits + no PRs referencing issue → loop back { stop: true }", async () => {
 		const portCalls: PortCall[] = [];
 		const p = port([], portCalls);
-		// rev-list count "0" → hasCommits false; cherry empty; diff code 1 → not on main
-		const fn = execFn([ok("0"), ok(""), { code: 1, stdout: "", stderr: "dirty", killed: false }]);
+		// rev-list count "0" → hasCommits false; no PRs → changeOnMain false → loop.
+		const fn = execFn([ok("0")]);
 		const outcome = await handleEmptyWorktree(
 			{ exec: fn } as never,
 			notifySpy().ctx,
@@ -298,11 +281,12 @@ describe("handleEmptyWorktree — signal gathering + dispatch (issue #1533)", ()
 		assert.ok(!methods.includes("closeIssue"), "no close on loop-back");
 	});
 
-	it("no commits + changeOnMain (diff clean) → close flow", async () => {
+	it("no commits + merged closing-keyword PR → close flow", async () => {
 		const portCalls: PortCall[] = [];
-		const p = port([], portCalls);
-		// rev-list "0"; cherry empty; diff code 0 → changeOnMain true; close.
-		const fn = execFn([ok("0"), ok(""), ok(""), ok("abc123")]); // last: fetchResolvedByInfo git log
+		const p = port([mergedClosingPr], portCalls);
+		// rev-list "0" → hasCommits false; merged closing PR → changeOnMain true; close.
+		// fetchResolvedByInfo: git log -1 main.
+		const fn = execFn([ok("0"), ok("abc123")]);
 		const outcome = await handleEmptyWorktree(
 			{ exec: fn } as never,
 			notifySpy().ctx,
@@ -320,13 +304,13 @@ describe("handleEmptyWorktree — signal gathering + dispatch (issue #1533)", ()
 		assert.ok(methods.includes("closeIssue"), "issue closed");
 	});
 
-	it("open PR exists → leave open (comment, closeIssue NOT called)", async () => {
+	it("no commits + open PR exists → leave open (comment, closeIssue NOT called)", async () => {
 		const portCalls: PortCall[] = [];
 		const p = port(
 			[{ number: 99, sha: "def", source: "branch-head", branch: "pr-branch", state: "open" }],
 			portCalls,
 		);
-		const fn = execFn([ok("0"), ok(""), ok("")]); // cherry empty + diff clean
+		const fn = execFn([ok("0")]); // rev-list only — no git cherry/diff in signal path
 		const outcome = await handleEmptyWorktree(
 			{ exec: fn } as never,
 			notifySpy().ctx,
@@ -355,9 +339,8 @@ describe("handleEmptyWorktree — signal gathering + dispatch (issue #1533)", ()
 			},
 			portCalls,
 		);
-		// rev-list "0"; cherry empty; diff code 0 would be changeOnMain=true, but the
-		// port failure forces changeOnMain=false → loop (case 1), never close.
-		const fn = execFn([ok("0"), ok(""), ok("")]);
+		// rev-list "0" → hasCommits false; port failure → openPrs=[] → changeOnMain=false → loop.
+		const fn = execFn([ok("0")]);
 		const outcome = await handleEmptyWorktree(
 			{ exec: fn } as never,
 			notifySpy().ctx,
