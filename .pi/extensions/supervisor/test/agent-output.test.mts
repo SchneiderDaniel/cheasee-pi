@@ -3,7 +3,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseAgentOutput, stripAnsi, isRefused } from "../agent/output.ts";
+import {
+	parseAgentOutput,
+	stripAnsi,
+	isRefused,
+	extractAgentCommentBody,
+} from "../agent/output.ts";
 import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
 
 // ─── Helper ────────────────────────────────────────────────────────
@@ -645,6 +650,19 @@ describe("characterization — extractAgentCommentBody compatibility", () => {
 		const result = parseAgentOutput(output);
 		assert.ok(isAgentOutput(result));
 		assert.equal((result as AgentOutput).commentBody, undefined);
+	});
+
+	it("returns the refusal commentBody for RefusedOutput", () => {
+		const output = JSON.stringify({
+			refusal: "out of scope",
+			commentBody: "## Why\n\nOut of scope for this issue.",
+		});
+		assert.equal(extractAgentCommentBody(output), "## Why\n\nOut of scope for this issue.");
+	});
+
+	it("returns null for a refusal with a blank commentBody", () => {
+		const output = JSON.stringify({ refusal: "out of scope", commentBody: "   " });
+		assert.equal(extractAgentCommentBody(output), null);
 	});
 });
 

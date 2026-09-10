@@ -425,6 +425,106 @@ describe("runAgentLoop skeleton — researcher budget degradation (issue #1533)"
 	});
 });
 
+describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
+	function runRefusal(opts: { refusalJson: string }): {
+		runCtx: RunContext;
+		portCalls: PortCall[];
+		notify: ReturnType<typeof mock.fn>;
+	} {
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: true,
+					textOutput: opts.refusalJson,
+					textOnly: opts.refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		return { runCtx, portCalls, notify };
+	}
+
+	const commentsOf = (portCalls: PortCall[]): string[] =>
+		portCalls.filter((c) => c.method === "postIssueComment").map((c) => c.args[2] as string);
+
+	it("posts exactly one refusal comment and stops without a status transition", async () => {
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "architect",
+				refusal: "cannot design this reliably",
+				commentBody: "## Refusal\n\nOut of scope for this issue.",
+			}),
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Out of scope"), "agent-supplied commentBody posted");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(runCtx.stopReason?.includes("cannot design this reliably"));
+		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
+	});
+
+	it("falls back to a generated note when commentBody is missing", async () => {
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({ refusal: "missing dependency", agentName: "architect" }),
+		});
+		await runAgentLoop(runCtx);
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1);
+		assert.ok(comments[0].includes("Agent Refused"), "generated note header");
+		assert.ok(comments[0].includes("missing dependency"), "reason surfaced");
+		assert.equal(portCalls.filter((c) => c.method === "setItemStatusField").length, 0);
+	});
+
+	it("falls back to a generated note when commentBody is blank/whitespace-only", async () => {
+		for (const blank of ["", "   \n\t "]) {
+			const { runCtx, portCalls } = runRefusal({
+				refusalJson: JSON.stringify({ refusal: "blank body case", commentBody: blank }),
+			});
+			await runAgentLoop(runCtx);
+			const comments = commentsOf(portCalls);
+			assert.equal(comments.length, 1, `blank=${JSON.stringify(blank)} → exactly one comment`);
+			assert.ok(
+				comments[0].trim().length > 0,
+				`blank=${JSON.stringify(blank)} → comment is not empty`,
+			);
+			assert.ok(
+				comments[0].includes("blank body case"),
+				`blank=${JSON.stringify(blank)} → reason surfaced instead of blank body`,
+			);
+		}
+	});
+});
+
 describe("runAgentLoop skeleton — full transition sequence + explicit-marker stop (issue #1533)", () => {
 	it("Backlog→Research→Architecture→TestDesign→Implementation, then dev crash → 2 FAILED rows, explicit-marker stop", async () => {
 		const portCalls: PortCall[] = [];

@@ -490,8 +490,11 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			// field. Post the reason (agent commentBody when supplied, otherwise a
 			// generated note) before stopping — a refusal is never a transition.
 			if (refusal) {
+				// Blank/whitespace-only commentBody is treated as absent — an empty
+				// comment would lose the refusal reason entirely.
+				const supplied = refusal.commentBody?.trim();
 				const body =
-					refusal.commentBody ??
+					supplied ||
 					`## Agent Refused\n\nThe \`${refusal.agentName ?? agent.config.name}\` agent declined this task:\n\n> ${refusal.refusal || "_no reason provided_"}\n\nPipeline stops here.`;
 				try {
 					await port.postIssueComment(issueNum, config.repo, body);

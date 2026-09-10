@@ -248,6 +248,14 @@ export function extractAgentCommentBody(output: string, toolNames?: Set<string>)
 		if (agentOutput.commentBody) return agentOutput.commentBody;
 	}
 
+	// RefusedOutput: preserve the agent's own explanation when one was supplied.
+	// Blank/whitespace-only commentBody is treated as absent so callers fall
+	// through to marker extraction rather than posting an empty comment.
+	if (isRefused(parseResult)) {
+		const body = parseResult.commentBody?.trim();
+		if (body) return body;
+	}
+
 	// Fallback: COMMENT_BODY marker extraction
 	const startMarker = /COMMENT_BODY\s*:\s*/g;
 	const endMarker = /COMMENT_BODY_END/g;
