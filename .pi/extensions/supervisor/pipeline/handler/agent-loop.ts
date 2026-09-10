@@ -356,10 +356,12 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// audit decision — posting a false verdict comment before the refusal branch
 		// below posts the refusal note (duplicate comments, bogus approval/rejection).
 		// Developer commits / agent comments are equally pointless on a refusal.
-		// Parse matches calculateNextStatus' refusal detection (textOutput).
-		const refusedOutput: RefusedOutput | null = result.success
-			? getRefusedOutput(result)
-			: null;
+		// Parse matches calculateNextStatus' refusal detection (textOutput) and is
+		// NOT gated on result.success: a budget-exceeded run reports success=false
+		// yet may still carry a structured refusal, which must override the
+		// budget-degradation path below (audit fix). Unparseable failed output
+		// degrades to FailedParse → isRefused false → null.
+		const refusedOutput: RefusedOutput | null = getRefusedOutput(result);
 
 		// Post-processing — pass pre-computed gateRejected so auditor
 		// comment posting can show gate rejection instead of approval
@@ -457,28 +459,35 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		// Budget-exceeded degradation: researcher stops researching and the
 		// pipeline continues (graceful), any other agent stops the pipeline.
-		const budgetOutcome = await handleBudgetExceeded(
-			result,
-			agentName,
-			step,
-			port,
-			loopItem,
-			projectId,
-			fields,
-			statusField,
-			issueNum,
-			config,
-			ctx,
-			collector,
-			loopStatus,
-		);
-		if (budgetOutcome.continue) {
-			loopStatus = budgetOutcome.loopStatus;
-			continue;
-		}
-		if (budgetOutcome.stopReason) {
-			stopReason = budgetOutcome.stopReason;
-			break;
+		// Skipped entirely when the agent refused — a refusal is a deliberate
+		// stop handled by the !nextStatus branch below (posts the refusal note
+		// and breaks). Without this guard a budget-exceeded researcher refusal
+		// would post the degradation notice, transition Research → Architecture
+		// and continue the loop, never reaching the refusal branch (audit fix).
+		if (!refusedOutput) {
+			const budgetOutcome = await handleBudgetExceeded(
+				result,
+				agentName,
+				step,
+				port,
+				loopItem,
+				projectId,
+				fields,
+				statusField,
+				issueNum,
+				config,
+				ctx,
+				collector,
+				loopStatus,
+			);
+			if (budgetOutcome.continue) {
+				loopStatus = budgetOutcome.loopStatus;
+				continue;
+			}
+			if (budgetOutcome.stopReason) {
+				stopReason = budgetOutcome.stopReason;
+				break;
+			}
 		}
 
 		// Bug #711: Replace status-based failure guard with explicit-marker check.

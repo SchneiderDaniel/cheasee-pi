@@ -582,6 +582,74 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		);
 		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
 	});
+
+	it("researcher refusal with budgetExceeded → refusal note posted, no degradation, no Research→Architecture transition", async () => {
+		// Regression (audit finding): a refusal on a budget-exceeded run used to
+		// be invisible (refusal detection was gated on result.success, which is
+		// false when budgetExceeded), so handleBudgetExceeded ran first — posting
+		// the degradation notice, transitioning Research → Architecture and
+		// continuing the loop, never reaching the refusal branch. Refusal must
+		// override budget degradation: one refusal comment, no transition, stop.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			refusal: "cannot research this issue",
+			agentName: "researcher",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "researcher") {
+				return makeDevResult({
+					agentName: "researcher",
+					success: false,
+					budgetExceeded: true,
+					tokenCount: 50_000,
+					toolCount: 200,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Research",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Agent Refused"), "generated refusal note posted");
+		assert.ok(comments[0].includes("cannot research this issue"), "refusal reason surfaced");
+		assert.ok(
+			!comments[0].includes("Research stopped early"),
+			"no budget-degradation notice on a refusal",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no Research→Architecture transition on refusal",
+		);
+		assert.equal(runCtx.loopStatus, "Research", "loopStatus unchanged");
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
+	});
 });
 
 describe("runAgentLoop skeleton — full transition sequence + explicit-marker stop (issue #1533)", () => {
