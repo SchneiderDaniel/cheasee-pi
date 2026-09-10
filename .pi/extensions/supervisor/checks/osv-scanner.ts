@@ -286,22 +286,25 @@ function mapSeverityEntry(entry: { type: string; score: string }): OsvFinding["s
 	const type = (entry.type || "").toUpperCase().trim();
 	const score = entry.score ?? "";
 
-	// CVSS_V3 vector → official base score
+	// CVSS_V3 vector → official base score. The only allowed numeric fallback
+	// is a legacy bare score on a CVSS_V3 entry ({ type: "CVSS_V3", score:
+	// "9.8" }), and only within the CVSS 0–10 range — anything else on a
+	// CVSS_V3 entry (malformed vector, out-of-range number, vocabulary string)
+	// stays UNKNOWN so it can never fabricate a critical finding.
 	if (type === "CVSS_V3") {
 		const base = cvss3BaseScore(score);
 		if (base !== null) return severityFromBaseScore(base);
+		if (/^\d+\.?\d*$/.test(score)) {
+			const num = parseFloat(score);
+			if (num >= 0 && num <= 10) return severityFromBaseScore(num);
+		}
+		return null;
 	}
 
-	// Legacy numeric score (osv-scanner sometimes emits { type: "CVSS_V3", score: "9.8" })
-	if (/^\d+\.?\d*$/.test(score)) {
-		return severityFromBaseScore(parseFloat(score));
-	}
-
-	// A CVSS-typed entry that parsed as neither vector nor number stays UNKNOWN:
-	// vocabulary mapping is only valid for non-CVSS types, and treating e.g.
-	// { type: "CVSS_V3", score: "CRITICAL" } as vocabulary would fabricate a
-	// critical finding and trip the blocking gate (fail closed).
-	if (/^CVSS_V[234]$/.test(type)) return null;
+	// CVSS_V2/V4 vectors use grammars the v3 calculator cannot score; they stay
+	// UNKNOWN rather than falling through to vocabulary mapping, which would let
+	// e.g. { type: "CVSS_V4", score: "9.8" } fabricate a CRITICAL (fail closed).
+	if (/^CVSS_V[24]$/.test(type)) return null;
 
 	// Ecosystem vocabulary (Ubuntu type emits lowercase severity strings)
 	const mapped = mapSeverityString(score);
