@@ -179,3 +179,49 @@ describe("OctokitClient.getClosingPrsForIssue", () => {
 		);
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// postIssueComment — escape normalization safety net (regression #1663)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("OctokitClient.postIssueComment", () => {
+	function mockedClient(createCommentMock: ReturnType<typeof mock.fn>): OctokitClient {
+		const client = new OctokitClient("fake-token", createMockLogger() as any);
+		(client as any).octokit = {
+			issues: { createComment: createCommentMock },
+		};
+		return client;
+	}
+
+	it("normalizes literal \\n escapes so markdown headers render (regression #1663)", async () => {
+		const createCommentMock = mock.fn(async (_params: Record<string, unknown>) => ({ data: {} }));
+		const client = mockedClient(createCommentMock);
+
+		await client.postIssueComment(
+			42,
+			"owner/repo",
+			"## Audit Rejected\\n\\n### Findings\\n\\n1. **Correctness & Safety**\\n   - **Symptom:** x",
+		);
+
+		assert.equal(createCommentMock.mock.callCount(), 1);
+		const args = createCommentMock.mock.calls[0]!.arguments[0] as {
+			body: string;
+		};
+		assert.ok(
+			args.body.includes("\n\n### Findings\n\n1."),
+			"escaped \\n sequences must become real newlines",
+		);
+		assert.ok(!args.body.includes("\\n"), "no literal \\n escapes may remain in posted body");
+		assert.ok(args.body.startsWith("## Audit Rejected\n"), "markdown header must render");
+	});
+
+	it("leaves real newlines untouched", async () => {
+		const createCommentMock = mock.fn(async (_params: Record<string, unknown>) => ({ data: {} }));
+		const client = mockedClient(createCommentMock);
+
+		await client.postIssueComment(42, "owner/repo", "## Audit Approved\n\n### Summary\nok");
+
+		const args = createCommentMock.mock.calls[0]!.arguments[0] as { body: string };
+		assert.equal(args.body, "## Audit Approved\n\n### Summary\nok");
+	});
+});
