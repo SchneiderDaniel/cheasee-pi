@@ -31,7 +31,6 @@ import {
 	handlePostAgentSuccess,
 	validateResearcherFindings,
 	hasBranchCommits,
-	gitCherryContains,
 	applyGateFailureContext,
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
@@ -945,7 +944,12 @@ describe("handleBacklogTransition()", () => {
 		// Verify port.setItemStatusField was called with correct args
 		assert.equal(trackCalls.length, 1);
 		assert.equal(trackCalls[0].method, "setItemStatusField");
-		assert.deepStrictEqual(trackCalls[0].args, ["item_123", "project_456", statusFieldId, "opt_re"]);
+		assert.deepStrictEqual(trackCalls[0].args, [
+			"item_123",
+			"project_456",
+			statusFieldId,
+			"opt_re",
+		]);
 	});
 
 	it("throws when 'Research' option not found", async () => {
@@ -962,7 +966,14 @@ describe("handleBacklogTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => handleBacklogTransition(createMockGitHubPort(), fields, statusFieldId, "item_123", "project_456"),
+			() =>
+				handleBacklogTransition(
+					createMockGitHubPort(),
+					fields,
+					statusFieldId,
+					"item_123",
+					"project_456",
+				),
 			/Cannot find 'Research' status option/,
 		);
 	});
@@ -970,7 +981,9 @@ describe("handleBacklogTransition()", () => {
 	it("throws when port.setItemStatusField fails", async () => {
 		const fields = makeProjectFields(statusFieldId);
 		const mockPort = createMockGitHubPort({
-			setItemStatusField: async () => { throw new Error("network error"); },
+			setItemStatusField: async () => {
+				throw new Error("network error");
+			},
 		});
 
 		await assert.rejects(
@@ -1001,7 +1014,12 @@ describe("applyStatusTransition()", () => {
 
 		assert.equal(trackCalls.length, 1);
 		assert.equal(trackCalls[0].method, "setItemStatusField");
-		assert.deepStrictEqual(trackCalls[0].args, ["item_123", "project_456", statusFieldId, "opt_au"]);
+		assert.deepStrictEqual(trackCalls[0].args, [
+			"item_123",
+			"project_456",
+			statusFieldId,
+			"opt_au",
+		]);
 	});
 
 	it("throws when option not found", async () => {
@@ -1015,7 +1033,15 @@ describe("applyStatusTransition()", () => {
 		];
 
 		await assert.rejects(
-			() => applyStatusTransition(createMockGitHubPort(), "item_123", "project_456", fields, statusFieldId, "Audit"),
+			() =>
+				applyStatusTransition(
+					createMockGitHubPort(),
+					"item_123",
+					"project_456",
+					fields,
+					statusFieldId,
+					"Audit",
+				),
 			/Cannot find 'Audit' option on board/,
 		);
 	});
@@ -1074,7 +1100,9 @@ describe("handlePostAgentSuccess()", () => {
 
 	it("architect comment post fails (port error) — returns true (advisory), pipeline continues", async () => {
 		const port = createMockGitHubPort({
-			postIssueComment: async () => { throw new Error("network error"); },
+			postIssueComment: async () => {
+				throw new Error("network error");
+			},
 		});
 		const pi = createMockPi([]);
 		const ctx = createMockCtx();
@@ -1181,7 +1209,9 @@ describe("handlePostAgentSuccess()", () => {
 
 	it("researcher comment post fails (port error) — returns true (advisory), pipeline continues", async () => {
 		const port = createMockGitHubPort({
-			postIssueComment: async () => { throw new Error("timeout"); },
+			postIssueComment: async () => {
+				throw new Error("timeout");
+			},
 		});
 		const pi = createMockPi([]);
 		const ctx = createMockCtx();
@@ -1603,9 +1633,7 @@ describe("handlePostAgentSuccess()", () => {
 		);
 
 		assert.equal(success, true, "auditor — pipeline should continue");
-		const commentCall = trackCalls.find(
-			(c) => c.method === "postIssueComment",
-		);
+		const commentCall = trackCalls.find((c) => c.method === "postIssueComment");
 		assert.equal(
 			commentCall,
 			undefined,
@@ -2058,7 +2086,11 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 		assert.equal(success, true);
 
 		const commentCalls = trackCalls.filter((c) => c.method === "postIssueComment");
-		assert.equal(commentCalls.length, 1, "only one postIssueComment call — no separate budget-exceeded comment");
+		assert.equal(
+			commentCalls.length,
+			1,
+			"only one postIssueComment call — no separate budget-exceeded comment",
+		);
 	});
 
 	it("researcher + budgetExceeded + no commentBody: graceful degradation comment posted (preserved behavior)", async () => {
@@ -2104,7 +2136,9 @@ describe("handlePostAgentSuccess — researcher budget exceeded", () => {
 
 	it("researcher + budgetExceeded + comment post fails: returns true (advisory)", async () => {
 		const port = createMockGitHubPort({
-			postIssueComment: async () => { throw new Error("timeout"); },
+			postIssueComment: async () => {
+				throw new Error("timeout");
+			},
 		});
 		const ctx = createMockCtx();
 		const result: AgentRunResult = {
@@ -2386,88 +2420,6 @@ describe("hasBranchCommits()", () => {
 		const rangeArg = revListArgs.find((a: string) => a.includes(".."));
 		assert.ok(rangeArg, "should contain a range with ..");
 		assert.equal(rangeArg, "main..my-feature", "range should be baseBranch..headBranch");
-	});
-});
-
-// ---------------------------------------------------------------------------
-
-// ─── Tests: gitCherryContains() ─────────────────────────────────
-
-describe("gitCherryContains()", () => {
-	it("all '-' prefixed entries → returns true (changes already upstream)", async () => {
-		const mockExec = async (
-			_cmd: string,
-			_args: string[],
-			_opts?: Record<string, unknown>,
-		): Promise<{ code: number; stdout: string; stderr: string }> => {
-			// git cherry output: all entries are "- " (already applied)
-			return { code: 0, stdout: "- abc123\n- def456\n- ghi789", stderr: "" };
-		};
-		const result = await gitCherryContains(mockExec, "/repo", "main", "feature");
-		assert.equal(result, true, "all '-' entries means changes already upstream");
-	});
-
-	it("any '+' prefixed entry → returns false (changes not upstream)", async () => {
-		const mockExec = async (
-			_cmd: string,
-			_args: string[],
-			_opts?: Record<string, unknown>,
-		): Promise<{ code: number; stdout: string; stderr: string }> => {
-			// git cherry output: one entry is "+ " (not yet applied)
-			return { code: 0, stdout: "- abc123\n+ def456\n- ghi789", stderr: "" };
-		};
-		const result = await gitCherryContains(mockExec, "/repo", "main", "feature");
-		assert.equal(result, false, "'+' entry means changes not yet upstream");
-	});
-
-	it("empty output → returns false (no commits to compare)", async () => {
-		const mockExec = async (
-			_cmd: string,
-			_args: string[],
-			_opts?: Record<string, unknown>,
-		): Promise<{ code: number; stdout: string; stderr: string }> => {
-			return { code: 0, stdout: "", stderr: "" };
-		};
-		const result = await gitCherryContains(mockExec, "/repo", "main", "feature");
-		assert.equal(result, false, "empty output means nothing to compare");
-	});
-
-	it("command fails (non-zero exit) → returns true (fail-safe)", async () => {
-		const mockExec = async (
-			_cmd: string,
-			_args: string[],
-			_opts?: Record<string, unknown>,
-		): Promise<{ code: number; stdout: string; stderr: string }> => {
-			return { code: 1, stdout: "", stderr: "fatal: not a git repository" };
-		};
-		const result = await gitCherryContains(mockExec, "/repo", "main", "feature");
-		assert.equal(result, true, "should return true on failure (fail-safe)");
-	});
-
-	it("exception thrown → returns true (fail-safe)", async () => {
-		const mockExec = async (): Promise<never> => {
-			throw new Error("git cherry threw");
-		};
-		const result = await gitCherryContains(mockExec, "/repo", "main", "feature");
-		assert.equal(result, true, "should return true on exception (fail-safe)");
-	});
-
-	it("builds correct git cherry command: git cherry main feature", async () => {
-		const calls: Array<{ cmd: string; args: string[] }> = [];
-		const mockExec = async (
-			cmd: string,
-			args: string[],
-			_opts?: Record<string, unknown>,
-		): Promise<{ code: number; stdout: string; stderr: string }> => {
-			calls.push({ cmd, args });
-			return { code: 0, stdout: "- abc123", stderr: "" };
-		};
-		await gitCherryContains(mockExec, "/repo", "main", "HEAD");
-		assert.equal(calls.length, 1);
-		assert.equal(calls[0].cmd, "git");
-		assert.ok(calls[0].args.includes("cherry"), "should use git cherry");
-		assert.ok(calls[0].args.includes("main"), "should include base branch");
-		assert.ok(calls[0].args.includes("HEAD"), "should include range");
 	});
 });
 

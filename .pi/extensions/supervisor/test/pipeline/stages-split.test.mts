@@ -30,7 +30,6 @@ import {
 	shouldSkipResearcher,
 	inferForwardStatus,
 	hasBranchCommits,
-	gitCherryContains,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
 	buildDeadCodeContext,
@@ -63,7 +62,6 @@ const RUNTIME_EXPORTS: Array<{ name: string; value: unknown }> = [
 	{ name: "shouldSkipResearcher", value: shouldSkipResearcher },
 	{ name: "inferForwardStatus", value: inferForwardStatus },
 	{ name: "hasBranchCommits", value: hasBranchCommits },
-	{ name: "gitCherryContains", value: gitCherryContains },
 	{ name: "buildDuplicateCodeContext", value: buildDuplicateCodeContext },
 	{ name: "applyGateFailureContext", value: applyGateFailureContext },
 	{ name: "buildDeadCodeContext", value: buildDeadCodeContext },
@@ -157,10 +155,7 @@ describe("stages/ split — size guards", () => {
 		assert.ok(files.length >= 4, `stages/ contains split modules (found: ${files.length})`);
 		for (const f of files) {
 			const count = nbnc(readFileSync(join(STAGES_DIR, f), "utf-8"));
-			assert.ok(
-				count <= 500,
-				`${f} has ${count} nbnc lines — over the S104 ceiling of 500`,
-			);
+			assert.ok(count <= 500, `${f} has ${count} nbnc lines — over the S104 ceiling of 500`);
 		}
 	});
 

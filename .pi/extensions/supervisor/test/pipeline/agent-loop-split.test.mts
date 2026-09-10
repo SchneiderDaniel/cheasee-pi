@@ -95,7 +95,6 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 	const stagesHelpers: Array<[string, string]> = [
 		["auditor-output.ts", "computeAuditGateRejection"],
 		["empty-worktree.ts", "handleEmptyWorktree"],
-		["empty-worktree.ts", "gatherChangeOnMain"],
 		["empty-worktree.ts", "gatherOpenPrs"],
 		["empty-worktree.ts", "dispatchEmptyWorktreeAction"],
 		["git-ops.ts", "fetchResolvedByInfo"],

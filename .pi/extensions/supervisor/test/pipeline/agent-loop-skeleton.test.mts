@@ -175,20 +175,10 @@ function buildRunContext(opts: {
 }
 
 /** pi.exec dispatcher: scripts the empty-worktree git signals, passes everything else. */
-function emptyWorktreePi(opts: {
-	revList?: string;
-	cherry?: string;
-	diffCode?: number;
-	logSha?: string;
-}): ExtensionAPI {
+function emptyWorktreePi(opts: { revList?: string; logSha?: string }): ExtensionAPI {
 	return createMockPi(async (cmd, args) => {
 		if (cmd === "git" && args[0] === "rev-list")
 			return { code: 0, stdout: opts.revList ?? "0", stderr: "" };
-		if (cmd === "git" && args[0] === "cherry")
-			return { code: 0, stdout: opts.cherry ?? "", stderr: "" };
-		if (cmd === "git" && args[0] === "diff" && args[1] === "--quiet") {
-			return { code: opts.diffCode ?? 1, stdout: "", stderr: "" };
-		}
 		if (cmd === "git" && args[0] === "log")
 			return { code: 0, stdout: opts.logSha ?? "abc123", stderr: "" };
 		return { code: 0, stdout: "", stderr: "" };
@@ -201,7 +191,6 @@ const WT = mkdtempSync(join(tmpdir(), "skeleton-wt-"));
 
 describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () => {
 	function runEmptyWorktree(opts: {
-		diffCode: number;
 		prs?: Array<{ number: number; sha?: string; source: string; branch: string; state: string }>;
 		getClosingPrsThrows?: boolean;
 	}): { runCtx: RunContext; portCalls: PortCall[]; notify: ReturnType<typeof mock.fn> } {
@@ -219,7 +208,7 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 			portCalls,
 		);
 		const notify = mock.fn();
-		const pi = emptyWorktreePi({ diffCode: opts.diffCode });
+		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
 			const agent = args[0] as { config?: { name?: string } };
 			if (agent?.config?.name !== "developer") {
@@ -242,7 +231,7 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 	}
 
 	it("no commits + no changeOnMain → loop-back: classify reason, NO transition/comment/close, loopStatus stays Implementation", async () => {
-		const { runCtx, portCalls } = runEmptyWorktree({ diffCode: 1 });
+		const { runCtx, portCalls } = runEmptyWorktree({});
 		await runAgentLoop(runCtx);
 		assert.ok(
 			runCtx.stopReason?.includes("No commits"),
@@ -255,8 +244,18 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 		assert.equal(runCtx.loopStatus, "Implementation", "loopStatus write-back unchanged");
 	});
 
-	it("no commits + changeOnMain (diff clean) → close flow: comment + closeIssue", async () => {
-		const { runCtx, portCalls } = runEmptyWorktree({ diffCode: 0 });
+	it("no commits + merged closing-keyword PR → close flow: comment + closeIssue", async () => {
+		const { runCtx, portCalls } = runEmptyWorktree({
+			prs: [
+				{
+					number: 42,
+					sha: "merged-sha",
+					source: "closing-keyword",
+					branch: "fix",
+					state: "merged",
+				},
+			],
+		});
 		await runAgentLoop(runCtx);
 		assert.ok(
 			runCtx.stopReason?.includes("Changes already on main"),
@@ -278,7 +277,6 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 
 	it("open PR exists → leave open: PR-link comment, closeIssue NOT called", async () => {
 		const { runCtx, portCalls } = runEmptyWorktree({
-			diffCode: 0,
 			prs: [{ number: 99, sha: "def", source: "branch-head", branch: "pr-branch", state: "open" }],
 		});
 		await runAgentLoop(runCtx);
@@ -297,7 +295,7 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 	});
 
 	it("getClosingPrsForIssue throws → loop-back (fail-open), no close", async () => {
-		const { runCtx, portCalls } = runEmptyWorktree({ diffCode: 0, getClosingPrsThrows: true });
+		const { runCtx, portCalls } = runEmptyWorktree({ getClosingPrsThrows: true });
 		await runAgentLoop(runCtx);
 		assert.ok(
 			runCtx.stopReason?.includes("No commits"),
