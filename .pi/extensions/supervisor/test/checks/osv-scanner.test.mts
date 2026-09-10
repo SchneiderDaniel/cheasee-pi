@@ -447,6 +447,47 @@ const AFFECTED_FOREIGN_ECOSYSTEM_JSON = JSON.stringify({
 	],
 });
 
+/** Fail-closed: a vector with unknown metric keys or invalid optional
+ * values must stay UNKNOWN — it must not compute a valid score from
+ * malformed segments and fabricate a CRITICAL finding. */
+const MALFORMED_VECTOR_JSON = JSON.stringify({
+	results: [
+		{
+			source: { path: "/worktrees/test/package-lock.json", type: "lockfile" },
+			packages: [
+				{
+					package: { name: "malformed-pkg", version: "1.0.0", ecosystem: "npm" },
+					vulnerabilities: [
+						{
+							id: "GHSA-malformed-0001",
+							aliases: [],
+							summary: "Unknown metric key in vector",
+							severity: [
+								{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/ZZZ:X" },
+							],
+						},
+					],
+					groups: [{ ids: ["GHSA-malformed-0001"] }],
+				},
+				{
+					package: { name: "malformed-pkg2", version: "1.0.0", ecosystem: "npm" },
+					vulnerabilities: [
+						{
+							id: "GHSA-malformed-0002",
+							aliases: [],
+							summary: "Invalid temporal metric value",
+							severity: [
+								{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/E:Z" },
+							],
+						},
+					],
+					groups: [{ ids: ["GHSA-malformed-0002"] }],
+				},
+			],
+		},
+	],
+});
+
 /** Fail-closed: unparseable severity must stay UNKNOWN, never fabricated. */
 const UNPARSEABLE_JSON = JSON.stringify({
 	results: [
@@ -621,6 +662,25 @@ describe("cvss3BaseScore() — CVSS v3.0/3.1 base score (Issue #1620)", () => {
 		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/C:H"), null); // dup C
 		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:X/C:H/I:H/A:H"), null); // bad S
 	});
+
+	it("returns null for unknown metric keys and invalid optional values (whitelist)", () => {
+		// Unknown metric name on otherwise-valid vector
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/ZZZ:X"), null);
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/FOO:BAR"), null);
+		// Invalid value for a valid optional (temporal) metric
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/E:Z"), null);
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/RL:Q"), null);
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/RC:Y"), null);
+		// Invalid value for a valid environmental metric
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/MAV:W"), null);
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/CV:Z"), null);
+		// But valid optional values (incl. "X" = Not Defined) still parse
+		assert.equal(cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/E:H/RL:O/RC:C"), 9.8);
+		assert.equal(
+			cvss3BaseScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/MAV:X/MAC:X/MS:U/CR:H"),
+			9.8,
+		);
+	});
 });
 
 describe("severityFromBaseScore() — shared bands (Issue #1620)", () => {
@@ -694,6 +754,17 @@ describe("parseOsvJson() — severity resolution (Issue #1620)", () => {
 		assert.equal(finding.severity, "UNKNOWN");
 		assert.equal(result.counts.unknown, 1);
 		assert.equal(result.counts.critical, 0);
+	});
+
+	it("malformed vectors (unknown keys / invalid optional values) stay UNKNOWN", () => {
+		const result = parseOsvJson(MALFORMED_VECTOR_JSON);
+		assert.equal(result.findings.length, 2);
+		const unknownKey = result.findings.find((f) => f.id === "GHSA-malformed-0001")!;
+		assert.equal(unknownKey.severity, "UNKNOWN");
+		const invalidTemporal = result.findings.find((f) => f.id === "GHSA-malformed-0002")!;
+		assert.equal(invalidTemporal.severity, "UNKNOWN");
+		assert.equal(result.counts.unknown, 2);
+		assert.equal(result.counts.critical, 0); // gate must NOT trip on malformed metadata
 	});
 
 	it("CVSS-typed entry with vocabulary string stays UNKNOWN (no fabricated CRITICAL)", () => {
