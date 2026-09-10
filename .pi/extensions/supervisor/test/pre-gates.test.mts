@@ -297,6 +297,94 @@ describe("runOsvGate (Issue #1407 split)", () => {
 		const result = await runOsvGate(deps, makeConfig(), "/wt");
 		assert.equal(result.failureText, null);
 	});
+
+	it("vector-only critical vuln trips the blocking gate end-to-end (Issue #1620)", async () => {
+		// Real runVulnScan parses the osv-scanner JSON: severity[] holds only a
+		// CVSS_V3 vector (no database_specific.severity — osv.dev shape). The
+		// old dead vector branch bucketed this as UNKNOWN and never blocked.
+		const vectorOnlyJson = JSON.stringify({
+			results: [
+				{
+					source: { path: "/wt/package-lock.json", type: "lockfile" },
+					packages: [
+						{
+							package: { name: "axios", version: "0.21.0", ecosystem: "npm" },
+							vulnerabilities: [
+								{
+									id: "GHSA-vector-only-0001",
+									aliases: ["CVE-2024-9991"],
+									summary: "Critical vuln with vector-only severity",
+									severity: [
+										{
+											type: "CVSS_V3",
+											score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+										},
+									],
+								},
+							],
+							groups: [{ ids: ["GHSA-vector-only-0001"] }],
+						},
+					],
+				},
+			],
+		});
+		const deps = makeDeps({
+			// No runVulnScanFn override → real runVulnScan runs against the mock exec
+			execFn: (async () => ({
+				code: 1,
+				stdout: vectorOnlyJson,
+				stderr: "",
+			})) as unknown as ExecFn,
+		});
+		const result = await runOsvGate(deps, makeConfig({ vulnGateBlocking: true }), "/wt");
+		assert.equal(result.vulnResult?.counts.critical, 1);
+		assert.ok(result.failureText?.startsWith("--- OSV Vulnerability Gate ---\n"));
+		assert.ok(result.failureText?.includes("1 critical"));
+
+		// Same record must NOT block when vulnGateBlocking is disabled
+		const nonBlocking = await runOsvGate(deps, makeConfig({ vulnGateBlocking: false }), "/wt");
+		assert.equal(nonBlocking.failureText, null);
+	});
+
+	it("vector-only HIGH vuln does not block (gate blocks only on critical)", async () => {
+		const vectorOnlyHighJson = JSON.stringify({
+			results: [
+				{
+					source: { path: "/wt/Cargo.lock", type: "lockfile" },
+					packages: [
+						{
+							package: { name: "regex", version: "1.5.4", ecosystem: "crates.io" },
+							vulnerabilities: [
+								{
+									id: "RUSTSEC-2022-0013",
+									aliases: ["CVE-2022-24713"],
+									summary: "Regex DoS",
+									severity: [
+										{
+											type: "CVSS_V3",
+											score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+										},
+									],
+								},
+							],
+							groups: [{ ids: ["RUSTSEC-2022-0013"] }],
+						},
+					],
+				},
+			],
+		});
+		const deps = makeDeps({
+			execFn: (async () => ({
+				code: 1,
+				stdout: vectorOnlyHighJson,
+				stderr: "",
+			})) as unknown as ExecFn,
+		});
+		const result = await runOsvGate(deps, makeConfig({ vulnGateBlocking: true }), "/wt");
+		assert.equal(result.vulnResult?.counts.critical, 0);
+		assert.equal(result.vulnResult?.counts.high, 1);
+		assert.equal(result.failureText, null);
+	});
 });
 
 // ── runPackageSafetyGate ───────────────────────────────────────────
