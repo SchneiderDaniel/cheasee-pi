@@ -359,6 +359,94 @@ const NUMERIC_SCORE_JSON = JSON.stringify({
 	],
 });
 
+/** Fail-closed: a CVSS-typed entry whose score is neither a vector nor a
+ * number must stay UNKNOWN — it must NOT fall through to vocabulary mapping.
+ * { type: "CVSS_V3", score: "CRITICAL" } previously fabricated CRITICAL. */
+const CVSS_TYPE_VOCAB_FABRICATION_JSON = JSON.stringify({
+	results: [
+		{
+			source: { path: "/worktrees/test/package-lock.json", type: "lockfile" },
+			packages: [
+				{
+					package: { name: "fabricate-pkg", version: "1.0.0", ecosystem: "npm" },
+					vulnerabilities: [
+						{
+							id: "GHSA-fabricate-0001",
+							aliases: [],
+							summary: "Malformed CVSS_V3 entry with a vocabulary string",
+							severity: [{ type: "CVSS_V3", score: "CRITICAL" }],
+						},
+					],
+					groups: [{ ids: ["GHSA-fabricate-0001"] }],
+				},
+			],
+		},
+	],
+});
+
+/** affected[] holds same-named packages across ecosystems; severity must come
+ * from the entry whose ecosystem matches the scanned package, not the first
+ * name match. */
+const AFFECTED_ECOSYSTEM_MISMATCH_JSON = JSON.stringify({
+	results: [
+		{
+			source: { path: "/worktrees/test/requirements.txt", type: "lockfile" },
+			packages: [
+				{
+					package: { name: "requests", version: "2.0.0", ecosystem: "PyPI" },
+					vulnerabilities: [
+						{
+							id: "PYSEC-2025-0001",
+							aliases: [],
+							summary: "Per-ecosystem package-level severity",
+							affected: [
+								{
+									package: { name: "requests", ecosystem: "npm" },
+									database_specific: { severity: "LOW" },
+								},
+								{
+									package: { name: "requests", ecosystem: "PyPI" },
+									database_specific: { severity: "CRITICAL" },
+								},
+							],
+						},
+					],
+					groups: [{ ids: ["PYSEC-2025-0001"] }],
+				},
+			],
+		},
+	],
+});
+
+/** Only a foreign-ecosystem affected entry exists — it must NOT be applied,
+ * or cross-ecosystem metadata could downgrade/fabricate a finding. */
+const AFFECTED_FOREIGN_ECOSYSTEM_JSON = JSON.stringify({
+	results: [
+		{
+			source: { path: "/worktrees/test/requirements.txt", type: "lockfile" },
+			packages: [
+				{
+					package: { name: "requests", version: "2.0.0", ecosystem: "PyPI" },
+					vulnerabilities: [
+						{
+							id: "PYSEC-2025-0002",
+							aliases: [],
+							summary: "Foreign-ecosystem affected entry only",
+							affected: [
+								{
+									package: { name: "requests", ecosystem: "npm" },
+									database_specific: { severity: "CRITICAL" },
+								},
+							],
+						},
+					],
+					groups: [{ ids: ["PYSEC-2025-0002"] }],
+				},
+			],
+		},
+	],
+});
+
 /** Fail-closed: unparseable severity must stay UNKNOWN, never fabricated. */
 const UNPARSEABLE_JSON = JSON.stringify({
 	results: [
@@ -606,6 +694,29 @@ describe("parseOsvJson() — severity resolution (Issue #1620)", () => {
 		assert.equal(finding.severity, "UNKNOWN");
 		assert.equal(result.counts.unknown, 1);
 		assert.equal(result.counts.critical, 0);
+	});
+
+	it("CVSS-typed entry with vocabulary string stays UNKNOWN (no fabricated CRITICAL)", () => {
+		const result = parseOsvJson(CVSS_TYPE_VOCAB_FABRICATION_JSON);
+		const finding = result.findings[0]!;
+		assert.equal(finding.id, "GHSA-fabricate-0001");
+		assert.equal(finding.severity, "UNKNOWN");
+		assert.equal(result.counts.critical, 0);
+		assert.equal(result.counts.unknown, 1);
+	});
+
+	it("affected[] severity resolved by matching ecosystem, not first name match", () => {
+		const result = parseOsvJson(AFFECTED_ECOSYSTEM_MISMATCH_JSON);
+		const finding = result.findings[0]!;
+		assert.equal(finding.severity, "CRITICAL");
+		assert.equal(result.counts.critical, 1);
+	});
+
+	it("foreign-ecosystem affected[] entry is not applied (stays UNKNOWN)", () => {
+		const result = parseOsvJson(AFFECTED_FOREIGN_ECOSYSTEM_JSON);
+		const finding = result.findings[0]!;
+		assert.equal(finding.severity, "UNKNOWN");
+		assert.equal(result.counts.unknown, 1);
 	});
 });
 

@@ -248,18 +248,28 @@ export function severityFromBaseScore(score: number): OsvFinding["severity"] | n
  * Returns null for unparseable input so the caller falls through to UNKNOWN.
  */
 function mapSeverityEntry(entry: { type: string; score: string }): OsvFinding["severity"] | null {
-	if ((entry.type || "").toUpperCase() === "CVSS_V3") {
-		const score = cvss3BaseScore(entry.score);
-		if (score !== null) return severityFromBaseScore(score);
+	const type = (entry.type || "").toUpperCase().trim();
+	const score = entry.score ?? "";
+
+	// CVSS_V3 vector → official base score
+	if (type === "CVSS_V3") {
+		const base = cvss3BaseScore(score);
+		if (base !== null) return severityFromBaseScore(base);
 	}
 
 	// Legacy numeric score (osv-scanner sometimes emits { type: "CVSS_V3", score: "9.8" })
-	if (/^\d+\.?\d*$/.test(entry.score)) {
-		return severityFromBaseScore(parseFloat(entry.score));
+	if (/^\d+\.?\d*$/.test(score)) {
+		return severityFromBaseScore(parseFloat(score));
 	}
 
+	// A CVSS-typed entry that parsed as neither vector nor number stays UNKNOWN:
+	// vocabulary mapping is only valid for non-CVSS types, and treating e.g.
+	// { type: "CVSS_V3", score: "CRITICAL" } as vocabulary would fabricate a
+	// critical finding and trip the blocking gate (fail closed).
+	if (/^CVSS_V[234]$/.test(type)) return null;
+
 	// Ecosystem vocabulary (Ubuntu type emits lowercase severity strings)
-	const mapped = mapSeverityString(entry.score);
+	const mapped = mapSeverityString(score);
 	return mapped === "UNKNOWN" ? null : mapped;
 }
 
@@ -285,9 +295,16 @@ function determineSeverity(vuln: OsvVulnerability, pkg: OsvPackage): OsvFinding[
 
 	// Third: package-level severity — OSV schema keeps these only on
 	// affected[] when they are set (top-level severity must then be absent).
-	const affected = (vuln.affected || []).find(
-		(entry) => entry.package && entry.package.name === pkg.name,
-	);
+	// Match ecosystem when the affected entry declares one, so same-named
+	// packages in different ecosystems never share severity metadata.
+	const affected = (vuln.affected || []).find((entry) => {
+		const p = entry.package;
+		if (!p || p.name !== pkg.name) return false;
+		if (p.ecosystem && pkg.ecosystem) {
+			return p.ecosystem.toLowerCase() === pkg.ecosystem.toLowerCase();
+		}
+		return true;
+	});
 	if (affected) {
 		const affectedDb = mapSeverityString(affected.database_specific?.severity);
 		if (affectedDb !== "UNKNOWN") return affectedDb;
