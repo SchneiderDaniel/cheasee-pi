@@ -392,6 +392,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			status: nextStatus,
 			stopReason: nsStop,
 			hadExplicitMarker = false,
+			refusal,
 		} = calculateNextStatus(
 			agentName,
 			result.textOutput,
@@ -485,6 +486,24 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		}
 
 		if (!nextStatus) {
+			// Refusal: the agent declined the task via the documented `refusal`
+			// field. Post the reason (agent commentBody when supplied, otherwise a
+			// generated note) before stopping — a refusal is never a transition.
+			if (refusal) {
+				const body =
+					refusal.commentBody ??
+					`## Agent Refused\n\nThe \`${refusal.agentName ?? agent.config.name}\` agent declined this task:\n\n> ${refusal.refusal || "_no reason provided_"}\n\nPipeline stops here.`;
+				try {
+					await port.postIssueComment(issueNum, config.repo, body);
+					ctx.ui.notify(`Agent ${agent.config.name} refused — posted refusal comment.`, "warning");
+				} catch (err: unknown) {
+					collector?.push(
+						"handler",
+						"warn",
+						`Failed to post refusal comment: ${err instanceof Error ? err.message : String(err)}`,
+					);
+				}
+			}
 			stopReason = nsStop || `Agent ${agent.config.name} output unclear`;
 			ctx.ui.notify(stopReason, "warning");
 			getDebugLogger().warn("handler", "No next status from agent output", {

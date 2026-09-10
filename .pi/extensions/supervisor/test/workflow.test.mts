@@ -279,4 +279,14 @@ describe("resolveNextStatusFromAgentOutput", () => {
 		const result = resolveNextStatusFromAgentOutput(architectStep, json);
 		assert.strictEqual(result, null);
 	});
+
+	it("refusal output never maps to a forward status", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "architect",
+			refusal: "cannot design this",
+		});
+		const result = resolveNextStatusFromAgentOutput(architectStep, json);
+		assert.strictEqual(result, null);
+	});
 });

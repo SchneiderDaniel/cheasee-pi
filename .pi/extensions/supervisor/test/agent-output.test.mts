@@ -3,16 +3,16 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseAgentOutput, stripAnsi } from "../agent/output.ts";
-import type { AgentOutput, FailedParse } from "../config/types.ts";
+import { parseAgentOutput, stripAnsi, isRefused } from "../agent/output.ts";
+import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
 
 // ─── Helper ────────────────────────────────────────────────────────
 
-function isFailedParse(r: AgentOutput | FailedParse): r is FailedParse {
+function isFailedParse(r: ParseResult): r is FailedParse {
 	return "error" in r && "rawOutput" in r;
 }
 
-function isAgentOutput(r: AgentOutput | FailedParse): r is AgentOutput {
+function isAgentOutput(r: ParseResult): r is AgentOutput {
 	return "action" in r && "agentName" in r;
 }
 
@@ -376,16 +376,48 @@ describe("parseAgentOutput — extra surrounding text", () => {
 // ─── Tests: parseAgentOutput — refusal handling ───────────────────
 
 describe("parseAgentOutput — refusal handling", () => {
-	it("returns FailedParse when refusal field is present", () => {
+	it("returns RefusedOutput (not FailedParse) when refusal field is present", () => {
 		const input = JSON.stringify({
 			action: "COMPLETE",
 			agentName: "developer",
+			summary: "tried",
 			refusal: "I cannot complete this task due to safety concerns",
 		});
 		const result = parseAgentOutput(input);
-		assert.ok(isFailedParse(result));
-		const f = result as FailedParse;
-		assert.ok(f.error.includes("refused"), `error should mention refused: ${f.error}`);
+		assert.ok(isRefused(result), "refusal must not be a FailedParse");
+		assert.equal(result.refused, true);
+		assert.equal(result.agentName, "developer");
+		assert.equal(result.summary, "tried");
+		assert.equal(result.refusal, "I cannot complete this task due to safety concerns");
+	});
+
+	it("treats an empty-string refusal as a refusal (presence-based detection)", () => {
+		const input = JSON.stringify({ action: "COMPLETE", agentName: "developer", refusal: "" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "");
+	});
+
+	it("coerces a non-string refusal via String()", () => {
+		const input = JSON.stringify({ action: "COMPLETE", agentName: "developer", refusal: 42 });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "42");
+	});
+
+	it("accepts a refusal with minimal fields (no action/agentName)", () => {
+		const input = JSON.stringify({ refusal: "out of scope" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "out of scope");
+		assert.equal(result.agentName, undefined);
+	});
+
+	it("preserves commentBody on a refusal", () => {
+		const input = JSON.stringify({ refusal: "nope", commentBody: "## Why\n\nOut of scope." });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.commentBody, "## Why\n\nOut of scope.");
 	});
 });
 

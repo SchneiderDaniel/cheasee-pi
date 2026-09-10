@@ -395,7 +395,7 @@ A summary message is sent with agent stats (duration, tokens, tools, model), PR 
 | Agent subprocess times out | SIGTERM → killed, pipeline stops |
 | Budget exceeded | Kill subprocess. Researcher: graceful degradation (partial findings posted). Others: pipeline stops |
 | Agent produces no output | `"Output is empty"` → stops |
-| Agent refuses | `"Agent refused: ..."` → stops |
+| Agent refuses (`refusal` field set) | Parsed as a refusal (not a schema error), posts the refusal reason as an issue comment, then stops with `Agent refused: ...` |
 | Agent fails with no explicit marker | Pipeline stops (Bug #643 fix: prevents crash-loop) |
 
 ### Developer-specific

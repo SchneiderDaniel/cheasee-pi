@@ -63,14 +63,14 @@ describe("validateAgentOutput — required fields", () => {
 });
 
 describe("validateAgentOutput — refusal and auditScore", () => {
-	it("rejects non-empty refusal", () => {
+	it("ignores a refusal field (validation covers the success schema only)", () => {
 		const { valid, errors } = validateAgentOutput({
 			action: "COMPLETE",
 			agentName: "a",
 			refusal: "I cannot do that",
 		});
-		assert.equal(valid, false);
-		assert.ok(errors.some((e) => e.includes("Agent refused")));
+		assert.equal(valid, true);
+		assert.deepEqual(errors, []);
 	});
 
 	it("rejects auditScore.passing > total", () => {

@@ -236,15 +236,6 @@ export function isRefused(result: ParseResult): result is RefusedOutput {
 	return "refused" in result && result.refused === true;
 }
 
-/**
- * Parse agent output and return the refusal info when the agent declined
- * the task, or null for any other outcome (success or parse failure).
- */
-export function getRefusalInfo(output: string, toolNames?: Set<string>): RefusedOutput | null {
-	const result = parseAgentOutput(output, toolNames);
-	return isRefused(result) ? result : null;
-}
-
 // ─── Agent Comment Body Extraction ────────────────────────────────
 // Tries parseAgentOutput first for structured commentBody,
 // falls back to COMMENT_BODY marker extraction.
@@ -255,11 +246,6 @@ export function extractAgentCommentBody(output: string, toolNames?: Set<string>)
 	if (isSuccess(parseResult)) {
 		const agentOutput = parseResult as AgentOutput;
 		if (agentOutput.commentBody) return agentOutput.commentBody;
-	}
-	// Refusal: the agent declined the task — its commentBody (when present)
-	// still posts, so refused explanations are not silently dropped.
-	if (isRefused(parseResult) && parseResult.commentBody) {
-		return parseResult.commentBody;
 	}
 
 	// Fallback: COMMENT_BODY marker extraction

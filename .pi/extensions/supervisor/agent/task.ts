@@ -69,6 +69,8 @@ If you absolutely cannot output JSON, fall back to the text completion marker me
 }
 \`\`\`
 
+> If you cannot complete the task, set \`refusal\` to the reason instead of \`action\`. The pipeline stops and posts the reason as the issue comment — you do not need \`action\` or \`agentName\` in that case.
+
 **IMPORTANT — AUDITOR MUST NOT USE "COMPLETE":**
 For auditors, the action MUST be "APPROVED" or "REJECTED" (not "COMPLETE").
 "COMPLETE" has no valid pipeline transition for the audit step.
