@@ -19,6 +19,11 @@
  *   [5] Trailing (cwd)
  *   [6] Extension injections (caveman, ponytail, session-advice)
  *
+ * The cwd line ("Current working directory: <path>") is emitted by pi at
+ * column 0 as a standalone LF-terminated line with the path at end-of-line.
+ * splitSections() relies on that contract to capture spaced/tabbed paths whole;
+ * the anchored match fails closed (line left intact in rest) if it ever changes.
+ *
  * Usage: /dump-context  → writes ignore/dump-context.txt (sectioned + attributed)
  *                          + ignore/dump-context-options.json (raw snapshot)
  *                          + prints section sizes + duplicate report
@@ -66,7 +71,12 @@ const APPEND_ANCHORS = ["# Global Cheasee-Pi Operating Instructions", "<system_r
  *  Order follows pi's buildSystemPrompt: base → append (APPEND_SYSTEM.md) →
  *  <project_context> → skills → cwd, with extension injections appended at
  *  the END via before_agent_start (caveman/ponytail modify systemPrompt after
- *  the initial build). */
+ *  the initial build).
+ *
+ *  cwd extraction contract: pi emits the label at column 0 as a standalone
+ *  line. The matcher captures to end-of-line so spaced/tabbed paths are taken
+ *  whole; an indented or mid-line label is intentionally ignored (its line
+ *  stays intact in the surrounding section) rather than mis-split. */
 export function splitSections(prompt: string): Section[] {
 	// Grab structural XML blocks first
 	const grab = (open: string, close: string) => {
@@ -86,8 +96,8 @@ export function splitSections(prompt: string): Section[] {
 	let rest = prompt;
 	for (const r of ranges) rest = rest.slice(0, r.start) + "\n" + rest.slice(r.end);
 
-	// Pull out cwd line
-	const cwdMatch = rest.match(/Current working directory: \S+/);
+	// Pull out cwd line (whole line; path may contain spaces/tabs)
+	const cwdMatch = rest.match(/^Current working directory: .+$/m);
 	if (cwdMatch && cwdMatch.index !== undefined) {
 		rest = rest.slice(0, cwdMatch.index) + "\n" + rest.slice(cwdMatch.index + cwdMatch[0].length);
 	}
