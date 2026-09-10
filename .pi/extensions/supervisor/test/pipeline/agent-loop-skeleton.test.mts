@@ -523,6 +523,65 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			);
 		}
 	});
+
+	it("auditor refusal posts one refusal note — no false audit verdict, no transition", async () => {
+		// Regression (audit finding): `action: "REJECTED"` + `refusal` used to
+		// reach handleAuditorOutput before the refusal branch, whose bare-text
+		// fallback matched \bRejected\b and posted a bogus audit verdict comment
+		// in addition to the refusal note.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			action: "REJECTED",
+			agentName: "auditor",
+			refusal: "cannot review this task",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "auditor") {
+				return makeDevResult({
+					agentName: "auditor",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Audit",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(
+			!comments[0].includes("## Audit Rejected") && !comments[0].includes("## Audit Approved"),
+			"refusal must not be posted as an audit verdict",
+		);
+		assert.ok(comments[0].includes("cannot review this task"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on auditor refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+	});
 });
 
 describe("runAgentLoop skeleton — full transition sequence + explicit-marker stop (issue #1533)", () => {

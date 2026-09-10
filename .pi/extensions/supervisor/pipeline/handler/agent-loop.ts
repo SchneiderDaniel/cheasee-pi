@@ -21,6 +21,7 @@ import type {
 	PipelineAgentResult,
 	ProjectField,
 	ProjectItem,
+	RefusedOutput,
 	SupervisorConfig,
 } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -32,6 +33,7 @@ import { tryRebaseOntoBase } from "../rebase.ts";
 import { WORKFLOW, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
+import { parseAgentOutput, isRefused } from "../../agent/output.ts";
 import { writeCheckpointFile } from "../state-checkpoint.ts";
 import {
 	MAX_PIPELINE_LOOPS,
@@ -347,9 +349,21 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		// Agent result is already sent by executeAgent with eventType: "subagent-result".
 
+		// Refusal short-circuit (issue #1618): when the agent declined the task
+		// via the documented `refusal` field it owns no post-success side effects.
+		// Without this the auditor path falls through to the text-marker fallback,
+		// whose bare-text matcher reads the JSON `"action": "REJECTED"` prose as an
+		// audit decision — posting a false verdict comment before the refusal branch
+		// below posts the refusal note (duplicate comments, bogus approval/rejection).
+		// Developer commits / agent comments are equally pointless on a refusal.
+		// Parse matches calculateNextStatus' refusal detection (textOutput).
+		const refusedOutput: RefusedOutput | null = result.success
+			? getRefusedOutput(result)
+			: null;
+
 		// Post-processing — pass pre-computed gateRejected so auditor
 		// comment posting can show gate rejection instead of approval
-		if (result.success) {
+		if (result.success && !refusedOutput) {
 			const continuePipeline = await handlePostAgentSuccess(
 				pi,
 				ctx,
@@ -725,6 +739,15 @@ async function dispatchAgentWithRetry(
 	agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
 
 	return { result, usedRetry };
+}
+
+/**
+ * Parse the agent's structured output and return its refusal, if any.
+ * Mirrors calculateNextStatus' refusal detection (parses `textOutput`).
+ */
+function getRefusedOutput(result: AgentRunResult): RefusedOutput | null {
+	const parsed = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
+	return isRefused(parsed) ? parsed : null;
 }
 
 /**
