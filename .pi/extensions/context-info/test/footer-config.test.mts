@@ -496,8 +496,51 @@ describe("installFooter with FooterConfig", () => {
 		assert.ok(Array.isArray(result));
 		assert.ok(result[0]!.includes("7"), "render output should include tool call count of 7");
 
-		// Fields destructured at call time (worktreeName, thinkingLevel) are not expected
-		// to reflect after-install mutations — they're updated by re-installing footer
+		// thinkingLevel is read live from footerConfig at render time (reasoning
+		// segment), so after-install mutations would reflect; worktreeName is
+		// still captured at install time and updated by re-installing the footer.
+	});
+
+	it("render shows '· ○ off' reasoning fallback when thinkingLevel is unset", () => {
+		const config: ContextStatusBarConfig = {
+			enabled: true,
+			thresholds: [{ maxTokens: null }],
+			showTimer: false,
+			showTps: false,
+			showCache: false,
+			welcomeTimeoutMs: 0,
+		};
+
+		const footerConfig = createDefaultFooterConfig();
+		assert.strictEqual(footerConfig.thinkingLevel, "", "precondition: level starts unset");
+
+		let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
+		const ctx = {
+			mode: "tui",
+			ui: {
+				setFooter: (fn: unknown) => {
+					if (typeof fn === "function") {
+						footerComponent = fn(
+							{ requestRender: () => {}, setClearOnShrink: () => {} },
+							{ fg: (_color: string, text: string) => text },
+							{
+								onBranchChange: () => () => {},
+								getGitBranch: () => "main",
+								getExtensionStatuses: () => new Map(),
+							},
+						);
+					}
+				},
+				setStatus: () => {},
+			},
+			getContextUsage: () => undefined,
+			model: { id: "test-model" },
+		};
+
+		installFooter(ctx as any, config, footerConfig as any);
+
+		const row0 = footerComponent!.render(80)[0]!;
+		assert.ok(row0.includes("· ○ off"), `should contain '· ○ off', got: ${row0}`);
 	});
 });
 
