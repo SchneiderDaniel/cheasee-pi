@@ -199,3 +199,13 @@ func pruneBuildCache() {
 		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
 	}
 }
+
+// pruneAllBuildCache removes the Docker buildx build cache host-wide
+// (-a: every cache record, including foreign projects' on the shared default
+// builder). prune-images uses it after the tagged images that pinned the
+// cache are gone; clean keeps the narrower pruneBuildCache.
+func pruneAllBuildCache() {
+	if _, err := runCommandContext(context.Background(), "docker", "buildx", "prune", "-a", "-f").CombinedOutput(); err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache (all projects)\n")
+	}
+}
