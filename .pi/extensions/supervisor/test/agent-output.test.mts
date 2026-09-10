@@ -381,6 +381,29 @@ describe("parseAgentOutput — extra surrounding text", () => {
 // ─── Tests: parseAgentOutput — refusal handling ───────────────────
 
 describe("parseAgentOutput — refusal handling", () => {
+	it("template-shaped success output parses as AgentOutput, not refusal (regression)", () => {
+		// Regression (audit): the success example in agent/task.ts
+		// JSON_OUTPUT_INSTRUCTION once carried a `refusal` placeholder. An agent
+		// copying the example literally — or emitting `refusal: ""` alongside a
+		// successful action — was classified as RefusedOutput and stopped the
+		// pipeline. The example now omits `refusal`; this pins the parser
+		// behavior for the documented success shape.
+		const input = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			summary: "Implemented the feature",
+			commentBody: "## Implementation\n\n[optional implementation notes]",
+		});
+		const result = parseAgentOutput(input);
+		assert.ok(isAgentOutput(result), "template-shaped success output must be AgentOutput");
+		assert.equal(isRefused(result), false);
+		const o = result as AgentOutput;
+		assert.equal(o.action, "COMPLETE");
+		assert.equal(o.agentName, "developer");
+		assert.equal(o.summary, "Implemented the feature");
+		assert.equal(o.commentBody, "## Implementation\n\n[optional implementation notes]");
+	});
+
 	it("returns RefusedOutput (not FailedParse) when refusal field is present", () => {
 		const input = JSON.stringify({
 			action: "COMPLETE",
