@@ -1530,3 +1530,111 @@ describe("context-info extension — session_shutdown disposes state", () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Thinking-level mirroring — footer shows pi's LIVE thinking level
+// (pi.getThinkingLevel()), not a stale settings-only mirror. Integration
+// through contextInfo(): session_start and model_select must sync the mirror
+// from the live level while the mirror starts empty or stale.
+// ---------------------------------------------------------------------------
+
+describe("context-info extension — footer mirrors pi's live thinking level", () => {
+	/** Fake ExtensionAPI (live getThinkingLevel) + TUI ctx capturing rendered rows. */
+	function makeHarness(liveLevel: () => string) {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const renders: string[][] = [];
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			getThinkingLevel: liveLevel,
+			events: { on: () => {} },
+		};
+		const ctx = {
+			mode: "tui",
+			ui: {
+				setFooter: (fn: unknown) => {
+					if (typeof fn === "function") {
+						const component = (fn as (
+							tui: unknown,
+							theme: { fg: (c: string, t: string) => string },
+							footerData: unknown,
+						) => { render: (w: number) => string[] })(
+							{ requestRender: () => {}, setClearOnShrink: () => {} },
+							{ fg: (_color: string, text: string) => text },
+							{
+								onBranchChange: () => () => {},
+								getGitBranch: () => "main",
+								getExtensionStatuses: () => new Map(),
+							},
+						);
+						renders.push(component.render(80));
+					}
+				},
+				setStatus: () => {},
+				setWidget: () => {},
+				setWorkingIndicator: () => {},
+				notify: () => {},
+				theme: { fg: (_c: string, t: string) => t },
+			},
+			isProjectTrusted: () => true,
+			getContextUsage: () => undefined,
+			sessionManager: { getSessionFile: () => "/tmp/test_uuid.jsonl" },
+			model: { id: "test-model", contextWindow: 128000 },
+			cwd: "/tmp",
+		};
+		return { pi, handlers, ctx, renders };
+	}
+
+	it("session start uses pi's live level ('medium') instead of 'off' when the mirror starts empty", async () => {
+		const { pi, handlers, ctx, renders } = makeHarness(() => "medium");
+		contextInfo(pi as any);
+
+		await handlers.get("session_start")!({}, ctx);
+
+		const row0 = renders.at(-1)![0]!;
+		assert.ok(row0.includes("◒ medium"), `live 'medium' must render, got: ${row0}`);
+		assert.ok(!row0.includes("○ off"), `must not show the 'off' fallback, got: ${row0}`);
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("model switch resyncs the mirror from pi's live level (stale mirror → 'high')", async () => {
+		let liveLevel = "medium";
+		const { pi, handlers, ctx, renders } = makeHarness(() => liveLevel);
+		contextInfo(pi as any);
+
+		await handlers.get("session_start")!({}, ctx);
+		assert.ok(
+			renders.at(-1)![0]!.includes("◒ medium"),
+			"initial session should show live 'medium'",
+		);
+
+		// Model switch re-clamps the thinking level in pi
+		liveLevel = "high";
+		await handlers.get("model_select")!({ model: { contextWindow: 128000 } }, ctx);
+
+		const row0 = renders.at(-1)![0]!;
+		assert.ok(row0.includes("◓ high"), `resynced 'high' must render, got: ${row0}`);
+		assert.ok(!row0.includes("◒ medium"), `stale 'medium' must be gone, got: ${row0}`);
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("shows '○ off' only when pi's live level reports 'off'", async () => {
+		const { pi, handlers, ctx, renders } = makeHarness(() => "off");
+		contextInfo(pi as any);
+
+		await handlers.get("session_start")!({}, ctx);
+
+		const row0 = renders.at(-1)![0]!;
+		assert.ok(row0.includes("○ off"), `live 'off' must render '○ off', got: ${row0}`);
+
+		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+});

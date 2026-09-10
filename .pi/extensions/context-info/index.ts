@@ -142,6 +142,21 @@ export function clearSupervisorIssueData(): void {
 	s.callInstallFooter();
 }
 
+/**
+ * Current thinking level pi is actually using, mirroring the stock footer's
+ * source of truth (pi.getThinkingLevel()). getThinkingLevel() resolves the
+ * full chain — CLI/scoped level → session-restored level → defaultThinkingLevel
+ * setting → DEFAULT_THINKING_LEVEL="medium" — clamped per model, so the footer
+ * never displays a stale settings-only read while pi uses another level.
+ * Defensive: falls back to the setting on pi builds without getThinkingLevel().
+ */
+function mirrorThinkingLevel(pi: ExtensionAPI): string {
+	const live = (pi as any).getThinkingLevel?.();
+	return typeof live === "string" && live !== ""
+		? live
+		: readPiSetting("defaultThinkingLevel") || "";
+}
+
 export default function contextInfo(pi: ExtensionAPI): void {
 	// FooterState — single source of truth for all mutable state
 	// Initialized per session in session_start handler
@@ -223,10 +238,9 @@ export default function contextInfo(pi: ExtensionAPI): void {
 
 		// Detect worktree each session — git worktree can change across sessions
 		state.footerConfig.worktreeName = getWorktreeName(ctx.cwd);
-		// Deferred I/O — read pi settings on first session
-		if (!state.footerConfig.thinkingLevel) {
-			state.footerConfig.thinkingLevel = readPiSetting("defaultThinkingLevel") || "";
-		}
+		// Mirror pi's live thinking level from session start (resolve CLI/scoped,
+		// session-restored, setting, and DEFAULT_THINKING_LEVEL via getThinkingLevel)
+		state.footerConfig.thinkingLevel = mirrorThinkingLevel(pi);
 
 		if (state.config === null) {
 			// Mode guard: only clear UI elements in TUI mode
@@ -347,6 +361,8 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		state.footerConfig.cacheHitRate = undefined;
 		// Re-read session name (in case setSessionName was called mid-session)
 		state.footerConfig.sessionName = pi.getSessionName();
+		// Model switch re-clamps the thinking level — resync the mirror
+		state.footerConfig.thinkingLevel = mirrorThinkingLevel(pi);
 		if (state.config) {
 			state.callInstallFooter();
 		}
