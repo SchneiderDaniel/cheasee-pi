@@ -102,7 +102,7 @@ describe("commitAndPush", () => {
 	it("calls git add, diff, commit, then push in sequence", async () => {
 		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "" }, // add -A
-			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
+			{ code: 1, stdout: "" }, // diff --cached --name-only --exit-code (has staged changes)
 			{ code: 0, stdout: "1 file changed" }, // commit
 			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);
@@ -119,7 +119,7 @@ describe("commitAndPush", () => {
 		assert.strictEqual(calls[0].cmd, "git");
 		assert.deepStrictEqual(calls[0].args, ["add", "-A"]);
 		assert.strictEqual(calls[1].cmd, "git");
-		assert.deepStrictEqual(calls[1].args, ["diff", "--cached", "--quiet"]);
+		assert.deepStrictEqual(calls[1].args, ["diff", "--cached", "--name-only", "--exit-code"]);
 		assert.strictEqual(calls[2].cmd, "git");
 		assert.deepStrictEqual(calls[2].args, ["commit", "-m", "feat(#42): msg"]);
 		assert.strictEqual(calls[3].cmd, "git");
@@ -136,7 +136,7 @@ describe("commitAndPush", () => {
 	it("handles 'nothing to commit' gracefully — calls pushBranch anyway", async () => {
 		const { exec, calls } = makeMockExec([
 			{ code: 0, stdout: "" }, // add -A
-			{ code: 1, stdout: "" }, // diff --cached --quiet (has staged changes)
+			{ code: 1, stdout: "" }, // diff --cached --name-only --exit-code (has staged changes)
 			{ code: 1, stderr: "nothing to commit" }, // commit fails
 			{ code: 0, stdout: "Everything up-to-date" }, // push
 		]);

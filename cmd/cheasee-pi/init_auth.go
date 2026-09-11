@@ -10,6 +10,12 @@ import (
 	"github.com/cli/oauth/device"
 )
 
+// initGitHubScopes is the exact scope set requested from GitHub's OAuth
+// device flow — the single source for init and reauth. It must include
+// "workflow": without it GitHub's receive-pack rejects any push touching
+// .github/workflows/ ("refusing to allow ... without `workflow` scope").
+var initGitHubScopes = []string{"repo", "read:org", "project", "workflow"}
+
 // runInitAuth performs GitHub OAuth device flow authentication and resolves
 // the GitHub login via GET /user with the in-memory token. The lookup is
 // fail-open: OAuth already succeeded, so an error (or empty login) only
@@ -21,7 +27,7 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 	fmt.Fprintf(os.Stderr, "   ⚠ SECURITY: Only enter the code at https://github.com/login/device\n")
 	fmt.Fprintf(os.Stderr, "   Do NOT search for this URL — type it directly.\n\n")
 
-	code, err := authenticator.RequestCode(ctx, []string{"repo", "read:org", "project", "workflow"})
+	code, err := authenticator.RequestCode(ctx, initGitHubScopes)
 	if err != nil {
 		return "", "", fmt.Errorf("device code request failed: %w", err)
 	}
