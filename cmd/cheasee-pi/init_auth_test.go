@@ -45,7 +45,7 @@ func TestRunInitAuth_RequestsScopes(t *testing.T) {
 	if _, _, err := runInitAuth(context.Background(), auth); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"repo", "read:org", "project", "workflow"}
+	want := initGitHubScopes
 	if len(got) != len(want) {
 		t.Fatalf("requested %d scopes %v, want exactly %d: %v", len(got), got, len(want), want)
 	}

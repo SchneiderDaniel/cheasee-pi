@@ -3,6 +3,9 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	ErrorCollector,
 	getErrorCollector,
@@ -10,6 +13,11 @@ import {
 	resetErrorCollector,
 } from "../pipeline/error-collector.ts";
 import type { ErrorRecord } from "../pipeline/error-collector.ts";
+import {
+	createDebugLogger,
+	setDebugLogger,
+	resetDebugLogger,
+} from "../lib/debug.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -125,6 +133,99 @@ describe("ErrorCollector — toNotificationBlock", () => {
 		const expectedTruncated = "x".repeat(200) + "...";
 		assert.ok(block.includes(expectedTruncated), "message should be truncated to 200 chars");
 		assert.ok(!block.includes("x".repeat(201)), "should not have more than 200 chars");
+	});
+
+	it("keeps from the remediation: marker (action-first) for workflow-scope push rejections", () => {
+		const collector = new ErrorCollector();
+		const msg =
+			"git push failed: (refusing to allow an OAuth App to create or update workflow `.github/workflows/tests.yml` without `workflow` scope) — remediation: run `cheasee-pi init --reauth` to mint a token with the workflow scope";
+		collector.push("git", "error", msg);
+
+		const block = collector.toNotificationBlock();
+		assert.ok(
+			block.includes("remediation: run `cheasee-pi init --reauth`"),
+			`panel should show action-first hint: ${block}`,
+		);
+		assert.ok(!block.includes("refusing to allow"), "head of the message should be dropped");
+		assert.ok(!block.includes("..."), "remediation hint must not be head-truncated");
+	});
+
+	it("long remote-rejected message — trailing parenthesized clause survives instead of the head", () => {
+		const collector = new ErrorCollector();
+		// The GitHub reason lands past MAX_MESSAGE_LENGTH=200 (branch names alone
+		// consume ~71 chars before the parenthesized reason prints).
+		const msg =
+			"git push failed: To https://github.com/SchneiderDaniel/cheasee-pi.git\n ! [remote rejected] abc123 -> worktree-git-issue-1519-feature-ci-workflow-running-the-full-test-suite (protected branch hook declined)";
+		collector.push("git", "error", msg);
+
+		const block = collector.toNotificationBlock();
+		assert.ok(
+			block.includes("(protected branch hook declined)"),
+			`panel should keep the trailing reason clause: ${block}`,
+		);
+		assert.ok(!block.includes("To https://github.com"), "head should be dropped");
+	});
+
+	it("message longer than 200 chars is persisted in full to the debug log", () => {
+		const logDir = mkdtempSync(join(tmpdir(), "error-collector-trunc-"));
+		const logger = createDebugLogger(logDir);
+		setDebugLogger(logger);
+		try {
+			const collector = new ErrorCollector();
+			const longMsg = "y".repeat(300);
+			collector.push("src", "error", longMsg);
+			collector.toNotificationBlock();
+
+			const logLines = readFileSync(logger.getLogPath(), "utf8")
+				.trim()
+				.split("\n")
+				.filter(Boolean);
+			const hit = logLines.find((l) => {
+				try {
+					return (JSON.parse(l) as { message: string }).message === "notification message truncated";
+				} catch {
+					return false;
+				}
+			});
+			assert.ok(hit, "truncation must be logged to the debug log");
+			const entry = JSON.parse(hit) as { data: { source: string; message: string } };
+			assert.equal(entry.data.source, "src");
+			assert.equal(entry.data.message, longMsg);
+		} finally {
+			resetDebugLogger();
+			rmSync(logDir, { recursive: true, force: true });
+		}
+	});
+
+	it("short message with remediation: marker is still extracted (marker wins over length)", () => {
+		const collector = new ErrorCollector();
+		collector.push("git", "error", "something failed — remediation: run `cheasee-pi init --reauth`");
+		const block = collector.toNotificationBlock();
+		assert.ok(block.includes("remediation: run `cheasee-pi init --reauth`"));
+		assert.ok(!block.includes("something failed"));
+	});
+
+	it("no debug log write for short messages (nothing truncated)", () => {
+		const logDir = mkdtempSync(join(tmpdir(), "error-collector-short-"));
+		const logger = createDebugLogger(logDir);
+		setDebugLogger(logger);
+		try {
+			const collector = new ErrorCollector();
+			collector.push("src", "warn", "short message");
+			collector.toNotificationBlock();
+			let contents = "";
+			try {
+				contents = readFileSync(logger.getLogPath(), "utf8");
+			} catch {
+				// no log file yet — nothing was written, which is the point
+			}
+			const logLines = contents.trim().split("\n").filter(Boolean);
+			const hit = logLines.find((l) => l.includes("notification message truncated"));
+			assert.equal(hit, undefined, "no truncation log for short messages");
+		} finally {
+			resetDebugLogger();
+			rmSync(logDir, { recursive: true, force: true });
+		}
 	});
 
 	it("renders ERROR severity messages before warn within same source group", () => {

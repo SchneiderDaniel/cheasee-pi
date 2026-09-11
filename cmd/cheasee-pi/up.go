@@ -177,12 +177,19 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// CodeFlow URL with the resolved per-repo host port (derived + probed, or
-	// the explicit CODEFLOW_PORT / docker.codeflowPort override). Printed
-	// post-up so the URL reflects the port the container actually bound.
-	if port, err := codeflowHostPort(root); err != nil {
+	// CodeFlow URL: the port the sidecar actually published (`docker port`),
+	// authoritative when the container already runs — codeflowHostPort's probe
+	// sees that live bind as occupancy and shifts to the next free port,
+	// printing a URL that points at nothing. Falls back to derive+probe on any
+	// docker error (first up, stopped sidecar). envMap carries the same
+	// resolved port so the in-container context-info echo stays in sync.
+	if port, err := codeflowBoundPort(ctx, root); err == nil {
+		envMap["CODEFLOW_PORT"] = port
+		fmt.Fprintf(os.Stderr, "  ℹ CodeFlow: http://localhost:%s/?repo=local/workspace&run=1\n", port)
+	} else if port, err := codeflowHostPort(root); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
 	} else {
+		envMap["CODEFLOW_PORT"] = port
 		fmt.Fprintf(os.Stderr, "  ℹ CodeFlow: http://localhost:%s/?repo=local/workspace&run=1\n", port)
 	}
 
