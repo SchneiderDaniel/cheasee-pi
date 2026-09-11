@@ -17,6 +17,7 @@ import {
 	extractAgentCommentBody,
 	parseAgentOutput,
 	isSuccess as isAgentOutputSuccess,
+	isRefused,
 } from "../../agent/output.ts";
 import { validateResearcherFindings } from "./core.ts";
 
@@ -341,6 +342,16 @@ export async function handleAgentComment(
 	collector?: ErrorCollector,
 	port?: GitHubPort,
 ): Promise<void> {
+	// Refusal: the agent declined the task. The pipeline handler (agent-loop)
+	// owns refusal handling — it stops the pipeline and posts the refusal note
+	// (refusal.commentBody when present, otherwise a generated message). Skip
+	// normal comment extraction so nothing is posted twice and no spurious
+	// "no commentBody found" warning fires.
+	const output = result.textOutput || result.output || "";
+	if (isRefused(parseAgentOutput(output, new Set(result.toolCalls ?? [])))) {
+		return;
+	}
+
 	const { commentBody, extractionSource } = extractCommentBody(result, agentName, collector);
 	const finalBody = validateAndInjectHeading(
 		commentBody,

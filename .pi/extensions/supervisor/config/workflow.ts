@@ -1,7 +1,11 @@
 // ─── Workflow Config ──────────────────────────────────────────────
 // Config-driven pipeline: define transitions as data, not code.
 
-import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/output.ts";
+import {
+	parseAgentOutput,
+	isSuccess as isAgentOutputSuccess,
+	isRefused as isAgentOutputRefused,
+} from "../agent/output.ts";
 import type { AgentOutput, Finding, FilteredIssueData, ParseResult } from "./types.ts";
 
 export interface WorkflowStep {
@@ -118,6 +122,11 @@ export function resolveNextStatusFromAgentOutput(
 
 	// Try structured JSON parsing first
 	const parseResult = parseAgentOutput(agentOutputText, toolNames);
+	// Refusal: the agent declined the task — never a status signal. The
+	// pipeline treats this as a deliberate stop, not a transition.
+	if (isAgentOutputRefused(parseResult)) {
+		return null;
+	}
 	if (isAgentOutputSuccess(parseResult)) {
 		const output = parseResult as AgentOutput;
 		const action = output.action;

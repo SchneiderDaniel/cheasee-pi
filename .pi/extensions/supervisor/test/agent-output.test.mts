@@ -3,16 +3,23 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseAgentOutput, stripAnsi } from "../agent/output.ts";
-import type { AgentOutput, FailedParse } from "../config/types.ts";
+import {
+	parseAgentOutput,
+	stripAnsi,
+	isRefused,
+	isSuccess,
+	getRefusalInfo,
+	extractAgentCommentBody,
+} from "../agent/output.ts";
+import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
 
 // ─── Helper ────────────────────────────────────────────────────────
 
-function isFailedParse(r: AgentOutput | FailedParse): r is FailedParse {
+function isFailedParse(r: ParseResult): r is FailedParse {
 	return "error" in r && "rawOutput" in r;
 }
 
-function isAgentOutput(r: AgentOutput | FailedParse): r is AgentOutput {
+function isAgentOutput(r: ParseResult): r is AgentOutput {
 	return "action" in r && "agentName" in r;
 }
 
@@ -376,16 +383,117 @@ describe("parseAgentOutput — extra surrounding text", () => {
 // ─── Tests: parseAgentOutput — refusal handling ───────────────────
 
 describe("parseAgentOutput — refusal handling", () => {
-	it("returns FailedParse when refusal field is present", () => {
+	it("template-shaped success output parses as AgentOutput, not refusal (regression)", () => {
+		// Regression (audit): the success example in agent/task.ts
+		// JSON_OUTPUT_INSTRUCTION once carried a `refusal` placeholder. An agent
+		// copying the example literally — or emitting `refusal: ""` alongside a
+		// successful action — was classified as RefusedOutput and stopped the
+		// pipeline. The example now omits `refusal`; this pins the parser
+		// behavior for the documented success shape.
 		const input = JSON.stringify({
 			action: "COMPLETE",
 			agentName: "developer",
+			summary: "Implemented the feature",
+			commentBody: "## Implementation\n\n[optional implementation notes]",
+		});
+		const result = parseAgentOutput(input);
+		assert.ok(isAgentOutput(result), "template-shaped success output must be AgentOutput");
+		assert.equal(isRefused(result), false);
+		const o = result as AgentOutput;
+		assert.equal(o.action, "COMPLETE");
+		assert.equal(o.agentName, "developer");
+		assert.equal(o.summary, "Implemented the feature");
+		assert.equal(o.commentBody, "## Implementation\n\n[optional implementation notes]");
+	});
+
+	it("returns RefusedOutput (not FailedParse) when refusal field is present", () => {
+		const input = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			summary: "tried",
 			refusal: "I cannot complete this task due to safety concerns",
 		});
 		const result = parseAgentOutput(input);
-		assert.ok(isFailedParse(result));
-		const f = result as FailedParse;
-		assert.ok(f.error.includes("refused"), `error should mention refused: ${f.error}`);
+		assert.ok(isRefused(result), "refusal must not be a FailedParse");
+		assert.equal(result.refused, true);
+		assert.equal(result.agentName, "developer");
+		assert.equal(result.summary, "tried");
+		assert.equal(result.refusal, "I cannot complete this task due to safety concerns");
+	});
+
+	it("treats an empty-string refusal as a refusal (presence-based detection)", () => {
+		const input = JSON.stringify({ action: "COMPLETE", agentName: "developer", refusal: "" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "");
+	});
+
+	it("coerces a non-string refusal via String()", () => {
+		const input = JSON.stringify({ action: "COMPLETE", agentName: "developer", refusal: 42 });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "42");
+	});
+
+	it("accepts a refusal with minimal fields (no action/agentName)", () => {
+		const input = JSON.stringify({ refusal: "out of scope" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "out of scope");
+		assert.equal(result.agentName, undefined);
+	});
+
+	it("preserves commentBody on a refusal", () => {
+		const input = JSON.stringify({ refusal: "nope", commentBody: "## Why\n\nOut of scope." });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.commentBody, "## Why\n\nOut of scope.");
+	});
+
+	it("refusal beats schema validation — invalid action + refusal → RefusedOutput", () => {
+		// Refusal is evaluated BEFORE field validation (OpenAI structured-outputs
+		// precedent): refusal prose must not be schema-validated, so an invalid
+		// action alongside a refusal is still a refusal, never a schema FailedParse.
+		const input = JSON.stringify({ action: "BOGUS", refusal: "x" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result), "invalid action + refusal must be RefusedOutput, not FailedParse");
+		assert.equal(result.refusal, "x");
+	});
+
+	it("normalizeEscapes applied to refusal and commentBody", () => {
+		const input = JSON.stringify({
+			refusal: "cannot complete\\nfor safety",
+			commentBody: "## Why\\n\\nOut of scope.",
+		});
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "cannot complete\nfor safety");
+		assert.equal(result.commentBody, "## Why\n\nOut of scope.");
+	});
+
+	it("isSuccess excludes RefusedOutput; isRefused(FailedParse) === false", () => {
+		const refused = parseAgentOutput(JSON.stringify({ refusal: "no" }));
+		assert.ok(isRefused(refused));
+		assert.equal(isSuccess(refused), false, "RefusedOutput lacks `action` → not a success");
+
+		const failed = parseAgentOutput("not json at all");
+		assert.ok(isFailedParse(failed));
+		assert.equal(isRefused(failed), false, "FailedParse must not classify as refused");
+		assert.equal(isSuccess(failed), false, "FailedParse must not classify as success");
+	});
+
+	it("getRefusalInfo returns RefusedOutput for refusal output, null otherwise", () => {
+		const refused = getRefusalInfo(JSON.stringify({ refusal: "cannot", agentName: "dev" }));
+		assert.ok(refused !== null, "refusal output → RefusedOutput, not null");
+		assert.equal(refused.refused, true);
+		assert.equal(refused.refusal, "cannot");
+		assert.equal(refused.agentName, "dev");
+
+		const success = getRefusalInfo(JSON.stringify({ action: "COMPLETE", agentName: "dev" }));
+		assert.equal(success, null, "success-shaped output → null");
+
+		const failed = getRefusalInfo("not json at all");
+		assert.equal(failed, null, "unparseable output → null (degrades to FailedParse inside)");
 	});
 });
 
@@ -613,6 +721,27 @@ describe("characterization — extractAgentCommentBody compatibility", () => {
 		const result = parseAgentOutput(output);
 		assert.ok(isAgentOutput(result));
 		assert.equal((result as AgentOutput).commentBody, undefined);
+	});
+
+	it("returns the refusal commentBody for RefusedOutput", () => {
+		const output = JSON.stringify({
+			refusal: "out of scope",
+			commentBody: "## Why\n\nOut of scope for this issue.",
+		});
+		assert.equal(extractAgentCommentBody(output), "## Why\n\nOut of scope for this issue.");
+	});
+
+	it("returns non-blank refusal commentBody verbatim (surrounding whitespace preserved)", () => {
+		// Regression (audit fix): trim must be for blank detection only — the
+		// agent's markdown (leading/trailing whitespace, indentation) survives.
+		const body = "  ## Why\n\nDetails  ";
+		const output = JSON.stringify({ refusal: "out of scope", commentBody: body });
+		assert.equal(extractAgentCommentBody(output), body);
+	});
+
+	it("returns null for a refusal with a blank commentBody", () => {
+		const output = JSON.stringify({ refusal: "out of scope", commentBody: "   " });
+		assert.equal(extractAgentCommentBody(output), null);
 	});
 });
 

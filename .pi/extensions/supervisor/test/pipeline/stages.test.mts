@@ -339,6 +339,69 @@ describe("calculateNextStatus()", () => {
 		assert.equal(result.status, "Implementation", "explicit rejection marker should still work");
 	});
 
+	// ─── Refusal handling tests (Issue #1618) ──────────────────────
+
+	it("refusal → refusal stop: status null, stopReason 'Agent refused', hadExplicitMarker=true, refusal attached", () => {
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			refusal: "cannot implement this",
+		});
+		const result = calculateNextStatus("developer", agentOutput, agentOutput);
+		assert.equal(result.status, null, "refusal never maps to a status");
+		assert.ok(
+			result.stopReason?.includes("Agent refused: cannot implement this"),
+			`stopReason, got: ${result.stopReason}`,
+		);
+		assert.equal(result.hadExplicitMarker, true, "refusal is an explicit agent signal (Bug #711 guard must not double-fire)");
+		assert.equal(result.refusal?.refused, true);
+		assert.equal(result.refusal?.refusal, "cannot implement this");
+	});
+
+	it("refusal beats text markers — forward marker in output still stops, no transition", () => {
+		// Researcher output contains the RESEARCH_COMPLETE forward marker AND a
+		// structured refusal: the refusal must win (deliberate stop), never the
+		// marker fallback (Research → Architecture transition).
+		const agentOutput = JSON.stringify({
+			agentName: "researcher",
+			refusal: "cannot research this",
+		});
+		const textOnly = "Research complete.\nRESEARCH_COMPLETE";
+		const result = calculateNextStatus("researcher", agentOutput, textOnly);
+		assert.equal(result.status, null, "refusal must beat the forward text marker");
+		assert.ok(result.stopReason?.includes("Agent refused"), `stopReason, got: ${result.stopReason}`);
+		assert.equal(result.refusal?.refusal, "cannot research this");
+	});
+
+	it("success=false + refusal → refusal stop, not Bug #711 failed-agent stop (hadExplicitMarker=true)", () => {
+		const agentOutput = JSON.stringify({
+			agentName: "researcher",
+			refusal: "cannot research this",
+		});
+		const result = calculateNextStatus("researcher", agentOutput, agentOutput, false);
+		assert.equal(result.status, null, "refusal → null status, never a transition");
+		assert.equal(result.hadExplicitMarker, true, "hadExplicitMarker=true prevents the failed-agent guard from double-firing");
+		assert.ok(result.stopReason?.includes("Agent refused"), `stopReason, got: ${result.stopReason}`);
+	});
+
+	it("non-refusal null-status path unchanged — marker fallback → inferForwardStatus still reachable", () => {
+		// Regression pin: refusal detection must not shadow the existing
+		// fallback chain for output WITHOUT a refusal key.
+		const markerResult = calculateNextStatus(
+			"architect",
+			"Some output\nARCHITECTURE_COMPLETE",
+			"text only no markers here",
+		);
+		assert.equal(markerResult.status, "TestDesign", "marker fallback still works");
+
+		const inferredResult = calculateNextStatus("developer", "just some output", "just some text", true);
+		assert.equal(inferredResult.status, "Audit", "inferForwardStatus still works");
+		assert.equal(inferredResult.hadExplicitMarker, false);
+
+		const auditorResult = calculateNextStatus("auditor", "no markers at all", "no markers at all", true);
+		assert.equal(auditorResult.status, "Done", "auditor ponytail fallback still works");
+	});
+
 	// ─── Audit Score Gate tests (Bug #648) ───────────────────────
 
 	it("auditor APPROVED + score meets threshold (5/7 with 0.75) → Done, no gateRejected", () => {

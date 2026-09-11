@@ -64,10 +64,11 @@ If you absolutely cannot output JSON, fall back to the text completion marker me
   "action": "COMPLETE",
   "agentName": "<agent-name>",
   "summary": "<one-line summary of what was accomplished>",
-  "commentBody": "<full comment body to post on GitHub issue>",
-  "refusal": "<if you cannot complete the task, explain why here>"
+  "commentBody": "<full comment body to post on GitHub issue>"
 }
 \`\`\`
+
+> Omit \`refusal\` unless you cannot complete the task — never emit it alongside a successful \`action\`. If you refuse, set \`refusal\` to the reason instead of \`action\`; the pipeline stops and posts the reason as the issue comment, and you do not need \`action\` or \`agentName\` in that case.
 
 **IMPORTANT — AUDITOR MUST NOT USE "COMPLETE":**
 For auditors, the action MUST be "APPROVED" or "REJECTED" (not "COMPLETE").

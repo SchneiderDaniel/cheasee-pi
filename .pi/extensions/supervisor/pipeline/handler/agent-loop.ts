@@ -21,6 +21,7 @@ import type {
 	PipelineAgentResult,
 	ProjectField,
 	ProjectItem,
+	RefusedOutput,
 	SupervisorConfig,
 } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -32,6 +33,7 @@ import { tryRebaseOntoBase } from "../rebase.ts";
 import { WORKFLOW, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
+import { getRefusalInfo } from "../../agent/output.ts";
 import { writeCheckpointFile } from "../state-checkpoint.ts";
 import {
 	MAX_PIPELINE_LOOPS,
@@ -347,9 +349,26 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		// Agent result is already sent by executeAgent with eventType: "subagent-result".
 
+		// Refusal short-circuit (issue #1618): when the agent declined the task
+		// via the documented `refusal` field it owns no post-success side effects.
+		// Without this the auditor path falls through to the text-marker fallback,
+		// whose bare-text matcher reads the JSON `"action": "REJECTED"` prose as an
+		// audit decision — posting a false verdict comment before the refusal branch
+		// below posts the refusal note (duplicate comments, bogus approval/rejection).
+		// Developer commits / agent comments are equally pointless on a refusal.
+		// Parse matches calculateNextStatus' refusal detection (textOutput) and is
+		// NOT gated on result.success: a budget-exceeded run reports success=false
+		// yet may still carry a structured refusal, which must override the
+		// budget-degradation path below (audit fix). Unparseable failed output
+		// degrades to FailedParse → isRefused false → null.
+		const refusedOutput: RefusedOutput | null = getRefusalInfo(
+			result.textOutput,
+			new Set(result.toolCalls ?? []),
+		);
+
 		// Post-processing — pass pre-computed gateRejected so auditor
 		// comment posting can show gate rejection instead of approval
-		if (result.success) {
+		if (result.success && !refusedOutput) {
 			const continuePipeline = await handlePostAgentSuccess(
 				pi,
 				ctx,
@@ -392,6 +411,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			status: nextStatus,
 			stopReason: nsStop,
 			hadExplicitMarker = false,
+			refusal,
 		} = calculateNextStatus(
 			agentName,
 			result.textOutput,
@@ -442,28 +462,35 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		// Budget-exceeded degradation: researcher stops researching and the
 		// pipeline continues (graceful), any other agent stops the pipeline.
-		const budgetOutcome = await handleBudgetExceeded(
-			result,
-			agentName,
-			step,
-			port,
-			loopItem,
-			projectId,
-			fields,
-			statusField,
-			issueNum,
-			config,
-			ctx,
-			collector,
-			loopStatus,
-		);
-		if (budgetOutcome.continue) {
-			loopStatus = budgetOutcome.loopStatus;
-			continue;
-		}
-		if (budgetOutcome.stopReason) {
-			stopReason = budgetOutcome.stopReason;
-			break;
+		// Skipped entirely when the agent refused — a refusal is a deliberate
+		// stop handled by the !nextStatus branch below (posts the refusal note
+		// and breaks). Without this guard a budget-exceeded researcher refusal
+		// would post the degradation notice, transition Research → Architecture
+		// and continue the loop, never reaching the refusal branch (audit fix).
+		if (!refusedOutput) {
+			const budgetOutcome = await handleBudgetExceeded(
+				result,
+				agentName,
+				step,
+				port,
+				loopItem,
+				projectId,
+				fields,
+				statusField,
+				issueNum,
+				config,
+				ctx,
+				collector,
+				loopStatus,
+			);
+			if (budgetOutcome.continue) {
+				loopStatus = budgetOutcome.loopStatus;
+				continue;
+			}
+			if (budgetOutcome.stopReason) {
+				stopReason = budgetOutcome.stopReason;
+				break;
+			}
 		}
 
 		// Bug #711: Replace status-based failure guard with explicit-marker check.
@@ -485,6 +512,30 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		}
 
 		if (!nextStatus) {
+			// Refusal: the agent declined the task via the documented `refusal`
+			// field. Post the reason (agent commentBody when supplied, otherwise a
+			// generated note) before stopping — a refusal is never a transition.
+			if (refusal) {
+				// Blank/whitespace-only commentBody is treated as absent — an empty
+				// comment would lose the refusal reason entirely. Trim is for blank
+				// detection only: non-blank bodies are posted verbatim (leading /
+				// trailing whitespace and markdown preserved — audit fix).
+				const supplied = refusal.commentBody;
+				const body =
+					supplied !== undefined && supplied.trim().length > 0
+						? supplied
+						: `## Agent Refused\n\nThe \`${refusal.agentName ?? agent.config.name}\` agent declined this task:\n\n> ${refusal.refusal || "_no reason provided_"}\n\nPipeline stops here.`;
+				try {
+					await port.postIssueComment(issueNum, config.repo, body);
+					ctx.ui.notify(`Agent ${agent.config.name} refused — posted refusal comment.`, "warning");
+				} catch (err: unknown) {
+					collector?.push(
+						"handler",
+						"warn",
+						`Failed to post refusal comment: ${err instanceof Error ? err.message : String(err)}`,
+					);
+				}
+			}
 			stopReason = nsStop || `Agent ${agent.config.name} output unclear`;
 			ctx.ui.notify(stopReason, "warning");
 			getDebugLogger().warn("handler", "No next status from agent output", {
@@ -628,8 +679,10 @@ async function refreshWorktreeBeforeImplementation(
  * Execute the agent once, retry once on non-budget failure. Issue #1495
  * row order preserved: the validated failed run is pushed as its own
  * FAILED row BEFORE the retry row. budgetExceeded is NOT retryable (Neel
- * Mishra taxonomy). Pushes the final row; the skeleton does audit-score
- * tracking and the post-push tracing log.
+ * Mishra taxonomy); a refusal is NOT retried either (the refusal is the
+ * definitive outcome regardless of process exit code — the handler's
+ * refusal branch owns the stop). Pushes the final row; the skeleton does
+ * audit-score tracking and the post-push tracing log.
  *
  * @returns final result (post-retry) + whether a retry was used.
  */
@@ -662,8 +715,23 @@ async function dispatchAgentWithRetry(
 	let usedRetry = false;
 	validateAgentResult(result);
 
-	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
-	if (result.budgetExceeded) {
+	// Refusal short-circuit (audit fix): an agent that declined the task via
+	// the documented `refusal` field has produced its definitive outcome even
+	// when the process exited unsuccessfully (success=false, no budgetExceeded).
+	// Retrying would replace the refusal with a fresh attempt, advance the
+	// pipeline, or produce a different stop outcome — return the refusal
+	// unchanged so the handler's refusal branch posts the note and stops.
+	// Parse mirrors getRefusalInfo() in the dispatch skeleton and never
+	// throws (unparseable output degrades to FailedParse → null).
+	const refused = getRefusalInfo(result.textOutput, new Set(result.toolCalls ?? []));
+
+	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy);
+	// a refusal is not a failure to retry either.
+	if (refused) {
+		getDebugLogger().info("handler", `Agent ${agentName} refused — retry skipped`, {
+			refused: true,
+		});
+	} else if (result.budgetExceeded) {
 		getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
 			budgetExceeded: true,
 		});

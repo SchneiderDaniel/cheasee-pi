@@ -31,8 +31,12 @@ import { commitAndPush } from "../../github/git.ts";
 import { extractAgentCommentBody, extractStructuredAuditOutput } from "../../agent/output.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
-import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../../agent/output.ts";
-import type { AgentOutput } from "../../config/types.ts";
+import {
+	parseAgentOutput,
+	isSuccess as isAgentOutputSuccess,
+	isRefused as isAgentOutputRefused,
+} from "../../agent/output.ts";
+import type { AgentOutput, RefusedOutput } from "../../config/types.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
 import { buildDeadCodeContext as buildDeadCodeContextInner } from "../../checks/dead-code.ts";
 import type { DeadCodeResult } from "../../checks/dead-code.ts";
@@ -339,6 +343,12 @@ export interface NextStatusResult {
 	 * the computed score, required minimum, and total dimensions.
 	 */
 	gateRejected?: GateRejected;
+	/**
+	 * When the agent declined the task via the documented `refusal` field,
+	 * this carries the structured refusal so the handler can post the note
+	 * before stopping. A refusal is never a status transition.
+	 */
+	refusal?: RefusedOutput;
 }
 
 /**
@@ -404,6 +414,22 @@ export function calculateNextStatus(
 		}
 
 		return { status: structuredStatus, hadExplicitMarker: true };
+	}
+
+	// Refusal: the agent declined the task (documented `refusal` field).
+	// A refusal is a deliberate stop — never a status transition, never a
+	// loop-back. hadExplicitMarker: true keeps the Bug #711 failed-agent
+	// guard from double-firing on the unnatural success=false + refusal case.
+	// The extra parse runs only on the null-status path (resolveNextStatusFromAgentOutput
+	// already parsed for success); refusal prose is not schema-validatable.
+	const refusalParse = parseAgentOutput(agentOutput, toolNames);
+	if (isAgentOutputRefused(refusalParse)) {
+		return {
+			status: null,
+			stopReason: `Agent refused: ${refusalParse.refusal}`,
+			hadExplicitMarker: true,
+			refusal: refusalParse,
+		};
 	}
 
 	// Fallback: old marker-based detection (for backward compatibility)

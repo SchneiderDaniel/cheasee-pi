@@ -118,13 +118,6 @@ function validateAgentOutput(data: Record<string, unknown>): ValidationResult {
 		errors.push("'agentName' must be a string");
 	}
 
-	// refusal — if present, treat as rejection
-	if (data.refusal !== undefined && data.refusal !== null) {
-		if (typeof data.refusal === "string" && data.refusal.trim().length > 0) {
-			errors.push(`Agent refused: ${data.refusal}`);
-		}
-	}
-
 	// commentBody (optional, must be string if present)
 	if (
 		data.commentBody !== undefined &&

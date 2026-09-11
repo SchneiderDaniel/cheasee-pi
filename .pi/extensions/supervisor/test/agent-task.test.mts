@@ -897,6 +897,37 @@ describe("buildAgentTask — gateFailureContext (Phase 3, Issue #787)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 9.5: JSON_OUTPUT_INSTRUCTION success example omits refusal (Issue #1618)
+// ---------------------------------------------------------------------------
+
+describe("buildAgentTask — success example omits refusal (Issue #1618)", () => {
+	it("JSON_OUTPUT_INSTRUCTION success example has no refusal key and requires omitting it", () => {
+		const task = buildAgentTask(
+			"architect",
+			42,
+			"owner/repo",
+			"Design",
+			makeFilteredData(),
+			"main",
+			"origin",
+			"../",
+			"worktree-git-issue-",
+			"/test/main/repo",
+		);
+		// Regression (audit): the success JSON example once contained a
+		// `refusal` placeholder. With presence-based refusal detection, an
+		// agent copying the example literally (or emitting `refusal: ""`
+		// alongside a success action) was classified as RefusedOutput and
+		// stopped the pipeline. Only the example may not reference the key.
+		assert.ok(!/"refusal"\s*:/.test(task), "success example must not include a refusal key");
+		assert.ok(
+			task.includes("Omit `refusal` unless you cannot complete the task"),
+			"template must tell agents to omit refusal unless refusing",
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Phase 9: Dead-code hint injection (Issue #934 Fix 3)
 // ---------------------------------------------------------------------------

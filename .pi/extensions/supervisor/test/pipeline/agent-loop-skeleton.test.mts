@@ -425,6 +425,421 @@ describe("runAgentLoop skeleton — researcher budget degradation (issue #1533)"
 	});
 });
 
+describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
+	function runRefusal(opts: { refusalJson: string }): {
+		runCtx: RunContext;
+		portCalls: PortCall[];
+		notify: ReturnType<typeof mock.fn>;
+	} {
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: true,
+					textOutput: opts.refusalJson,
+					textOnly: opts.refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		return { runCtx, portCalls, notify };
+	}
+
+	const commentsOf = (portCalls: PortCall[]): string[] =>
+		portCalls.filter((c) => c.method === "postIssueComment").map((c) => c.args[2] as string);
+
+	it("posts exactly one refusal comment and stops without a status transition", async () => {
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({
+				action: "COMPLETE",
+				agentName: "architect",
+				refusal: "cannot design this reliably",
+				commentBody: "## Refusal\n\nOut of scope for this issue.",
+			}),
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Out of scope"), "agent-supplied commentBody posted");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(runCtx.stopReason?.includes("cannot design this reliably"));
+		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
+	});
+
+	it("posts non-blank refusal commentBody verbatim (surrounding whitespace preserved)", async () => {
+		// Regression (audit fix): trim must be for blank detection only — the
+		// agent's markdown (leading/trailing whitespace) is posted untouched.
+		const body = "  ## Why\n\nDetails  ";
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({ refusal: "whitespace case", commentBody: body }),
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, "exactly one comment");
+		assert.equal(comments[0], body, "non-blank commentBody posted verbatim, not trimmed");
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+	});
+
+	it("falls back to a generated note when commentBody is missing", async () => {
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({ refusal: "missing dependency", agentName: "architect" }),
+		});
+		await runAgentLoop(runCtx);
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1);
+		assert.ok(comments[0].includes("Agent Refused"), "generated note header");
+		assert.ok(comments[0].includes("missing dependency"), "reason surfaced");
+		assert.equal(portCalls.filter((c) => c.method === "setItemStatusField").length, 0);
+	});
+
+	it("falls back to a generated note when commentBody is blank/whitespace-only", async () => {
+		for (const blank of ["", "   \n\t "]) {
+			const { runCtx, portCalls } = runRefusal({
+				refusalJson: JSON.stringify({ refusal: "blank body case", commentBody: blank }),
+			});
+			await runAgentLoop(runCtx);
+			const comments = commentsOf(portCalls);
+			assert.equal(comments.length, 1, `blank=${JSON.stringify(blank)} → exactly one comment`);
+			assert.ok(
+				comments[0].trim().length > 0,
+				`blank=${JSON.stringify(blank)} → comment is not empty`,
+			);
+			assert.ok(
+				comments[0].includes("blank body case"),
+				`blank=${JSON.stringify(blank)} → reason surfaced instead of blank body`,
+			);
+		}
+	});
+
+	it("success:false + refusal JSON (no budgetExceeded) → no retry, refusal note, stop", async () => {
+		// Regression (audit finding #7): dispatchAgentWithRetry used to retry
+		// any success=false result before the handler parsed the refusal, so a
+		// valid refusal on a failed run could be replaced by the retry attempt
+		// — advancing the pipeline or producing a different stop outcome. A
+		// refusal is the definitive outcome: the runner must be invoked once,
+		// the refusal note posted, and the pipeline stopped.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({ refusal: "cannot continue", agentName: "architect" });
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: false,
+					budgetExceeded: false,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.callCount(), 1, "no retry when the initial result is a refusal");
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one refusal comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Agent Refused"), "generated refusal note posted");
+		assert.ok(comments[0].includes("cannot continue"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
+	});
+
+	it("auditor refusal posts one refusal note — no false audit verdict, no transition", async () => {
+		// Regression (audit finding): `action: "REJECTED"` + `refusal` used to
+		// reach handleAuditorOutput before the refusal branch, whose bare-text
+		// fallback matched \bRejected\b and posted a bogus audit verdict comment
+		// in addition to the refusal note.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			action: "REJECTED",
+			agentName: "auditor",
+			refusal: "cannot review this task",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "auditor") {
+				return makeDevResult({
+					agentName: "auditor",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Audit",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(
+			!comments[0].includes("## Audit Rejected") && !comments[0].includes("## Audit Approved"),
+			"refusal must not be posted as an audit verdict",
+		);
+		assert.ok(comments[0].includes("cannot review this task"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on auditor refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+	});
+
+	it("researcher refusal with budgetExceeded → refusal note posted, no degradation, no Research→Architecture transition", async () => {
+		// Regression (audit finding): a refusal on a budget-exceeded run used to
+		// be invisible (refusal detection was gated on result.success, which is
+		// false when budgetExceeded), so handleBudgetExceeded ran first — posting
+		// the degradation notice, transitioning Research → Architecture and
+		// continuing the loop, never reaching the refusal branch. Refusal must
+		// override budget degradation: one refusal comment, no transition, stop.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			refusal: "cannot research this issue",
+			agentName: "researcher",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "researcher") {
+				return makeDevResult({
+					agentName: "researcher",
+					success: false,
+					budgetExceeded: true,
+					tokenCount: 50_000,
+					toolCount: 200,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Research",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Agent Refused"), "generated refusal note posted");
+		assert.ok(comments[0].includes("cannot research this issue"), "refusal reason surfaced");
+		assert.ok(
+			!comments[0].includes("Research stopped early"),
+			"no budget-degradation notice on a refusal",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no Research→Architecture transition on refusal",
+		);
+		assert.equal(runCtx.loopStatus, "Research", "loopStatus unchanged");
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
+	});
+
+	it("developer refusal → no commit/post-success side effects, one refusal comment, stop", async () => {
+		// Developer's post-success path (agent comment + commitAndPush) must be
+		// skipped entirely on a refusal; the worktree is real, so if
+		// handlePostAgentSuccess ran and commitAndPush failed, stopReason would
+		// be "commitAndPush failed" — the refusal stop assertion catches that.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			refusal: "cannot implement this safely",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "developer") {
+				return makeDevResult({
+					agentName: "developer",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Implementation",
+			worktreePath: WT,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("cannot implement this safely"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on developer refusal",
+		);
+		assert.ok(!portCalls.some((c) => c.method === "closeIssue"), "issue not closed");
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason must be the refusal stop (not a post-success failure), got: ${runCtx.stopReason}`,
+		);
+		assert.equal(runCtx.loopStatus, "Implementation", "loopStatus unchanged");
+	});
+
+	it("postIssueComment throws on refusal → collector warn, pipeline still stops with refusal stopReason", async () => {
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {
+					throw new Error("API down");
+				},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({ refusal: "cannot continue" });
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		// Comment posting failed — but the pipeline must still stop as a refusal
+		// (no unhandled rejection, no bogus status transition).
+		const warns = runCtx.collector.flush("handler");
+		assert.ok(
+			warns.some((w) => w.severity === "warn" && w.message.includes("Failed to post refusal comment")),
+			`collector must carry the posting failure, got: ${JSON.stringify(warns)}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition when refusal comment posting fails",
+		);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`pipeline still stops with refusal stopReason, got: ${runCtx.stopReason}`,
+		);
+	});
+});
+
 describe("runAgentLoop skeleton — full transition sequence + explicit-marker stop (issue #1533)", () => {
 	it("Backlog→Research→Architecture→TestDesign→Implementation, then dev crash → 2 FAILED rows, explicit-marker stop", async () => {
 		const portCalls: PortCall[] = [];
