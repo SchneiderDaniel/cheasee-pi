@@ -276,6 +276,30 @@ func codeflowHostPort(workspaceRoot string) (string, error) {
 	return "", fmt.Errorf("no free host port in [%d, %d] for the CodeFlow service — stop another workspace or set CODEFLOW_PORT explicitly", codeflowPortBase, codeflowPortBase+codeflowPortRange-1)
 }
 
+// codeflowBoundPort resolves the host port the running codeflow sidecar
+// actually published, via `docker port`. Authoritative over the probe in
+// codeflowHostPort: on a re-up the sidecar already holds its bind, and the
+// probe treats that live bind as occupancy and shifts to the next free
+// port — printing a CodeFlow URL that points at nothing. Falls back to
+// derive+probe in the caller on any docker error (first up, stopped
+// sidecar).
+func codeflowBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
+	out, err := runCommandContext(ctx, "docker", "port", codeflowContainerName(workspaceRoot), "8470/tcp").Output()
+	if err != nil {
+		return "", err
+	}
+	// "0.0.0.0:8938" | "127.0.0.1:8938" | "[::]:8938" — the host port is
+	// the last colon segment.
+	host := strings.TrimSpace(string(out))
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[i+1:]
+	}
+	if host == "" {
+		return "", fmt.Errorf("docker port: no published host port for %s", codeflowContainerName(workspaceRoot))
+	}
+	return host, nil
+}
+
 // fnv32 is the FNV-1a 32-bit hash used for the deterministic port offset.
 func fnv32(s string) uint32 {
 	h := fnv.New32a()
