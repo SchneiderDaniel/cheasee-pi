@@ -7,6 +7,7 @@ import {
 	parseAgentOutput,
 	stripAnsi,
 	isRefused,
+	isSuccess,
 	extractAgentCommentBody,
 } from "../agent/output.ts";
 import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
@@ -446,6 +447,38 @@ describe("parseAgentOutput — refusal handling", () => {
 		const result = parseAgentOutput(input);
 		assert.ok(isRefused(result));
 		assert.equal(result.commentBody, "## Why\n\nOut of scope.");
+	});
+
+	it("refusal beats schema validation — invalid action + refusal → RefusedOutput", () => {
+		// Refusal is evaluated BEFORE field validation (OpenAI structured-outputs
+		// precedent): refusal prose must not be schema-validated, so an invalid
+		// action alongside a refusal is still a refusal, never a schema FailedParse.
+		const input = JSON.stringify({ action: "BOGUS", refusal: "x" });
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result), "invalid action + refusal must be RefusedOutput, not FailedParse");
+		assert.equal(result.refusal, "x");
+	});
+
+	it("normalizeEscapes applied to refusal and commentBody", () => {
+		const input = JSON.stringify({
+			refusal: "cannot complete\\nfor safety",
+			commentBody: "## Why\\n\\nOut of scope.",
+		});
+		const result = parseAgentOutput(input);
+		assert.ok(isRefused(result));
+		assert.equal(result.refusal, "cannot complete\nfor safety");
+		assert.equal(result.commentBody, "## Why\n\nOut of scope.");
+	});
+
+	it("isSuccess excludes RefusedOutput; isRefused(FailedParse) === false", () => {
+		const refused = parseAgentOutput(JSON.stringify({ refusal: "no" }));
+		assert.ok(isRefused(refused));
+		assert.equal(isSuccess(refused), false, "RefusedOutput lacks `action` → not a success");
+
+		const failed = parseAgentOutput("not json at all");
+		assert.ok(isFailedParse(failed));
+		assert.equal(isRefused(failed), false, "FailedParse must not classify as refused");
+		assert.equal(isSuccess(failed), false, "FailedParse must not classify as success");
 	});
 });
 

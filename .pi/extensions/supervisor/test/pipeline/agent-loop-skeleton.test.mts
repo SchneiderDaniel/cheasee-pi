@@ -650,6 +650,122 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			`stopReason, got: ${runCtx.stopReason}`,
 		);
 	});
+
+	it("developer refusal → no commit/post-success side effects, one refusal comment, stop", async () => {
+		// Developer's post-success path (agent comment + commitAndPush) must be
+		// skipped entirely on a refusal; the worktree is real, so if
+		// handlePostAgentSuccess ran and commitAndPush failed, stopReason would
+		// be "commitAndPush failed" — the refusal stop assertion catches that.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "developer",
+			refusal: "cannot implement this safely",
+		});
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "developer") {
+				return makeDevResult({
+					agentName: "developer",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Implementation",
+			worktreePath: WT,
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("cannot implement this safely"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on developer refusal",
+		);
+		assert.ok(!portCalls.some((c) => c.method === "closeIssue"), "issue not closed");
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason must be the refusal stop (not a post-success failure), got: ${runCtx.stopReason}`,
+		);
+		assert.equal(runCtx.loopStatus, "Implementation", "loopStatus unchanged");
+	});
+
+	it("postIssueComment throws on refusal → collector warn, pipeline still stops with refusal stopReason", async () => {
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {
+					throw new Error("API down");
+				},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({ refusal: "cannot continue" });
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: true,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		// Comment posting failed — but the pipeline must still stop as a refusal
+		// (no unhandled rejection, no bogus status transition).
+		const warns = runCtx.collector.flush("handler");
+		assert.ok(
+			warns.some((w) => w.severity === "warn" && w.message.includes("Failed to post refusal comment")),
+			`collector must carry the posting failure, got: ${JSON.stringify(warns)}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition when refusal comment posting fails",
+		);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`pipeline still stops with refusal stopReason, got: ${runCtx.stopReason}`,
+		);
+	});
 });
 
 describe("runAgentLoop skeleton — full transition sequence + explicit-marker stop (issue #1533)", () => {
