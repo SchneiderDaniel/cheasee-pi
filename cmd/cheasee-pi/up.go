@@ -502,8 +502,9 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 
 	// 4. GitHub token. The container's GH_TOKEN must be the credential
 	// cheasee-pi init/--reauth minted into auth.json — its scope list
-	// (repo, read:org, project) is what the supervisor needs for the
-	// project-board status moves. A GH_TOKEN exported in the host shell or
+	// (repo, read:org, project, workflow) is what the supervisor needs for
+	// the project-board status moves and workflow-file pushes. A GH_TOKEN
+	// exported in the host shell or
 	// gh's own credential (gh auth token) may predate the project scope and
 	// silently strip that permission, so auth.json wins when present; fall
 	// back to the process env, then gh's credential store.
