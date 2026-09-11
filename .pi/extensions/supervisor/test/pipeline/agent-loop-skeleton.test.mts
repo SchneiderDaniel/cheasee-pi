@@ -524,6 +524,63 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		}
 	});
 
+	it("success:false + refusal JSON (no budgetExceeded) → no retry, refusal note, stop", async () => {
+		// Regression (audit finding #7): dispatchAgentWithRetry used to retry
+		// any success=false result before the handler parsed the refusal, so a
+		// valid refusal on a failed run could be replaced by the retry attempt
+		// — advancing the pipeline or producing a different stop outcome. A
+		// refusal is the definitive outcome: the runner must be invoked once,
+		// the refusal note posted, and the pipeline stopped.
+		const portCalls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				postIssueComment: async () => {},
+				closeIssue: async () => {},
+				setItemStatusField: async () => {},
+				getClosingPrsForIssue: async () => [],
+			},
+			portCalls,
+		);
+		const notify = mock.fn();
+		const pi = emptyWorktreePi({});
+		const refusalJson = JSON.stringify({ refusal: "cannot continue", agentName: "architect" });
+		const runner = mock.fn(async (...args: any[]) => {
+			const agent = args[0] as { config?: { name?: string } };
+			if (agent?.config?.name === "architect") {
+				return makeDevResult({
+					agentName: "architect",
+					success: false,
+					budgetExceeded: false,
+					textOutput: refusalJson,
+					textOnly: refusalJson,
+				});
+			}
+			return makeDevResult({ success: false, errorOutput: "unexpected agent" });
+		});
+		const runCtx = buildRunContext({
+			runner,
+			port,
+			pi,
+			notify,
+			loopStatus: "Architecture",
+			worktreePath: undefined,
+		});
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.callCount(), 1, "no retry when the initial result is a refusal");
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, `exactly one refusal comment, got: ${JSON.stringify(comments)}`);
+		assert.ok(comments[0].includes("Agent Refused"), "generated refusal note posted");
+		assert.ok(comments[0].includes("cannot continue"), "refusal reason surfaced");
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"no status transition on refusal",
+		);
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
+	});
+
 	it("auditor refusal posts one refusal note — no false audit verdict, no transition", async () => {
 		// Regression (audit finding): `action: "REJECTED"` + `refusal` used to
 		// reach handleAuditorOutput before the refusal branch, whose bare-text

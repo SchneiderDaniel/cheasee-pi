@@ -673,8 +673,10 @@ async function refreshWorktreeBeforeImplementation(
  * Execute the agent once, retry once on non-budget failure. Issue #1495
  * row order preserved: the validated failed run is pushed as its own
  * FAILED row BEFORE the retry row. budgetExceeded is NOT retryable (Neel
- * Mishra taxonomy). Pushes the final row; the skeleton does audit-score
- * tracking and the post-push tracing log.
+ * Mishra taxonomy); a refusal is NOT retried either (the refusal is the
+ * definitive outcome regardless of process exit code — the handler's
+ * refusal branch owns the stop). Pushes the final row; the skeleton does
+ * audit-score tracking and the post-push tracing log.
  *
  * @returns final result (post-retry) + whether a retry was used.
  */
@@ -707,8 +709,23 @@ async function dispatchAgentWithRetry(
 	let usedRetry = false;
 	validateAgentResult(result);
 
-	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy)
-	if (result.budgetExceeded) {
+	// Refusal short-circuit (audit fix): an agent that declined the task via
+	// the documented `refusal` field has produced its definitive outcome even
+	// when the process exited unsuccessfully (success=false, no budgetExceeded).
+	// Retrying would replace the refusal with a fresh attempt, advance the
+	// pipeline, or produce a different stop outcome — return the refusal
+	// unchanged so the handler's refusal branch posts the note and stops.
+	// Parse mirrors getRefusedOutput() in the dispatch skeleton and never
+	// throws (unparseable output degrades to FailedParse → null).
+	const refused = getRefusedOutput(result);
+
+	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy);
+	// a refusal is not a failure to retry either.
+	if (refused) {
+		getDebugLogger().info("handler", `Agent ${agentName} refused — retry skipped`, {
+			refused: true,
+		});
+	} else if (result.budgetExceeded) {
 		getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
 			budgetExceeded: true,
 		});
