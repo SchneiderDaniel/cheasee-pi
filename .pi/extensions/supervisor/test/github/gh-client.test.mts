@@ -3,9 +3,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExecFn } from "../../pipeline/helpers.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { gh, ghJson } from "../../github/gh-client.ts";
+import { gh, ghJson, ghRaw, detectTokenClass, getGitHubToken } from "../../github/gh-client.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -69,7 +72,97 @@ describe("gh() — low-level CLI wrapper", () => {
 	});
 });
 
-// ─── Tests: ghJson<T>() ───────────────────────────────────────────
+// ─── Tests: ghRaw() — raw CLI wrapper (headers survive) ──────────
+
+describe("ghRaw() — raw CLI wrapper", () => {
+	it("returns raw stdout including HTTP headers (no trim, no throw)", async () => {
+		const calls: ExecCall[] = [];
+		const header = "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{\"login\":\"octocat\"}\n";
+		const exec = createMockExec({ code: 0, stdout: header, stderr: "" }, calls);
+		const result = await ghRaw(exec, ["api", "-i", "/user"]);
+		assert.equal(result.code, 0);
+		assert.ok(result.stdout!.includes("x-oauth-scopes:"), "headers must survive");
+		assert.ok(result.stdout!.includes('"login":"octocat"'), "body must survive");
+		assert.equal(calls.length, 1);
+	});
+
+	it("does not throw on non-zero exit — caller decides (raw semantics)", async () => {
+		const exec = createMockExec({ code: 1, stdout: "", stderr: "boom" });
+		const result = await ghRaw(exec, ["api", "-i", "/user"]);
+		assert.equal(result.code, 1);
+	});
+});
+
+// ─── Tests: detectTokenClass() ───────────────────────────────────
+
+describe("detectTokenClass() — remediation hint keying", () => {
+	it("returns 'cheasee-pi' when auth.json holds a github_token", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-pi-"));
+		try {
+			mkdirSync(join(home, ".config", "cheasee-pi"), { recursive: true });
+			writeFileSync(
+				join(home, ".config", "cheasee-pi", "auth.json"),
+				JSON.stringify({ github_token: "gho_init_minted", github_user: "me" }),
+			);
+			assert.equal(detectTokenClass(home), "cheasee-pi");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns 'gh' when gh hosts.yml holds an oauth_token", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-gh-"));
+		try {
+			mkdirSync(join(home, ".config", "gh"), { recursive: true });
+			const yml = [
+				"github.com:",
+				"    users:",
+				"        octocat:",
+				"            oauth_token: gho_gh_minted",
+				"    oauth_token: gho_gh_minted",
+			].join("\n");
+			writeFileSync(join(home, ".config", "gh", "hosts.yml"), yml);
+			assert.equal(detectTokenClass(home), "gh");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns 'unknown' when neither credential store exists", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-unk-"));
+		try {
+			assert.equal(detectTokenClass(home), "unknown");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("auth.json wins over gh hosts.yml when both exist (init token re-imported into gh)", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-both-"));
+		try {
+			mkdirSync(join(home, ".config", "cheasee-pi"), { recursive: true });
+			writeFileSync(
+				join(home, ".config", "cheasee-pi", "auth.json"),
+				JSON.stringify({ github_token: "gho_init_minted" }),
+			);
+			mkdirSync(join(home, ".config", "gh"), { recursive: true });
+			writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com:\n    oauth_token: gho_gh_minted\n");
+			assert.equal(detectTokenClass(home), "cheasee-pi", "entrypoint re-import makes gh hold the init token");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── Tests: getGitHubToken() — exported accessor ─────────────────
+
+describe("getGitHubToken() — exported token accessor", () => {
+	it("is exported and returns a string or null (cached)", () => {
+		assert.equal(typeof getGitHubToken, "function");
+		const token = getGitHubToken();
+		assert.ok(token === null || typeof token === "string");
+	});
+});
 
 describe("ghJson<T>() — typed JSON output parser", () => {
 	it("calls gh() and parses JSON output into typed result", async () => {

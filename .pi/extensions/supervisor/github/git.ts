@@ -6,6 +6,86 @@ import type { ExecFn } from "../pipeline/helpers.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "../pipeline/result.ts";
 import type { NotifyFn } from "../pipeline/helpers.ts";
+import { ghRaw, detectTokenClass, type TokenClass } from "./gh-client.ts";
+
+// GitHub rejects workflow-file pushes from OAuth-app and PAT tokens lacking
+// the `workflow` scope. Receive-pack prints the reason in the remote-rejected
+// line; both documented variants share the same shape. The rejection never
+// appears in a dry-run (receive-pack validation is skipped), so this is the
+// ground-truth backstop after the fact — and the marker the error-collector
+// panel extracts from (keeps from "remediation:" onward, action-first).
+const WORKFLOW_SCOPE_RE =
+	/\(\s*refusing to allow (?:an OAuth App|a Personal Access Token).*?without `workflow` scope\)/s;
+
+function workflowRejectionClause(output: string): string | null {
+	const match = output.match(WORKFLOW_SCOPE_RE);
+	return match ? match[0] : null;
+}
+
+/**
+ * Token-class-keyed remediation hint for the workflow-scope rejection.
+ * cheasee-pi init-minted tokens cannot be upgraded by `gh auth refresh`
+ * (gh exits 4; the container overrides gh's store with auth.json on start),
+ * so only re-running the device flow adds the scope.
+ */
+export function workflowScopeHint(tokenClass: TokenClass): string {
+	if (tokenClass === "cheasee-pi") {
+		return "run `cheasee-pi init --reauth` to mint a token with the workflow scope";
+	}
+	if (tokenClass === "gh") {
+		return "run `gh auth refresh -h github.com -s workflow` to add the workflow scope";
+	}
+	return "run `cheasee-pi init --reauth` (cheasee-pi token) or `gh auth refresh -h github.com -s workflow` (gh token)";
+}
+
+/**
+ * Introspect the token's granted scopes via the X-OAuth-Scopes header on
+ * GET /user (one API call, no pack transfer). null = unknown (header absent,
+ * e.g. fine-grained App token, or introspection failed) → callers fail-soft.
+ */
+async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
+	try {
+		const result = await ghRaw(exec, ["api", "-i", "/user"]);
+		if (result.code !== 0) return null;
+		const output = (result.stdout || "") + (result.stderr || "");
+		const header = output.match(/^x-oauth-scopes:\s*(.*)$/im);
+		if (!header) return null;
+		const scopes = header[1]!.split(",").map((s) => s.trim()).filter(Boolean);
+		return scopes.includes("workflow");
+	} catch (err) {
+		getDebugLogger().warn("git", "workflow-scope introspection failed — proceeding with push (server is ground truth)", {
+			error: String(err),
+		});
+		return null;
+	}
+}
+
+/**
+ * Pre-push gate: if the staged diff touches .github/workflows/ and the token
+ * provably lacks the workflow scope, fail before the pack round-trip. Fail-soft
+ * on any introspection uncertainty — the real push is ground truth. The GitHub
+ * identical-path+content exemption edge (same workflow file already on another
+ * branch needs no scope) is accepted: such re-deliveries normally produce an
+ * empty staged diff and never reach the introspection; content-equal-but-touched
+ * stragglers fall through to the real push and the pushBranch hint backstop.
+ */
+async function assertWorkflowScopeForPush(
+	exec: ExecFn,
+	cwd: string,
+	stagedFiles: string[],
+): Promise<string | null> {
+	const log = getDebugLogger();
+	if (!stagedFiles.some((f) => f.startsWith(".github/workflows/"))) {
+		return null;
+	}
+	const hasScope = await tokenHasWorkflowScope(exec);
+	if (hasScope !== false) return null; // has it, or unknown → proceed
+	log.error("git", "pre-push gate: token lacks workflow scope for a workflow-touching diff", {
+		cwd,
+		files: stagedFiles.filter((f) => f.startsWith(".github/workflows/")),
+	});
+	return `git push aborted: the staged diff touches .github/workflows/ but the token lacks the workflow scope — remediation: ${workflowScopeHint(detectTokenClass())}`;
+}
 
 /** Commit staged changes in a working directory. */
 export async function commitChanges(exec: ExecFn, cwd: string, message: string): Promise<void> {
@@ -68,6 +148,12 @@ export async function pushBranch(
 					return;
 				}
 				const forceStderr = (forceResult.stderr || "") + (forceResult.stdout || "");
+				const forceClause = workflowRejectionClause(forceStderr);
+				if (forceClause) {
+					throw new Error(
+						`git push failed: ${forceClause} — remediation: ${workflowScopeHint(detectTokenClass())}`,
+					);
+				}
 				log.error("git", "git push --force-with-lease also failed", {
 					cwd,
 					stderr: forceStderr.slice(0, 500),
@@ -75,6 +161,12 @@ export async function pushBranch(
 				throw new Error(`git push --force-with-lease failed: ${forceStderr}`);
 			}
 
+			const clause = workflowRejectionClause(stderr);
+			if (clause) {
+				throw new Error(
+					`git push failed: ${clause} — remediation: ${workflowScopeHint(detectTokenClass())}`,
+				);
+			}
 			log.warn("git", "git push failed", {
 				cwd,
 				remote,
@@ -119,14 +211,30 @@ export async function commitAndPush(
 		log.debug("git", "git add -A OK");
 
 		// Pre-commit emptiness check: verify whether any changes are actually staged.
+		// `git diff --cached --name-only --exit-code` doubles as the pre-push
+		// workflow gate scan (exit 0 = nothing staged, 1 = differences, >1 =
+		// error — same semantics as the old --quiet, but stdout also names the
+		// files for the gate; --exit-code is required, plain --name-only exits 0
+		// regardless of differences).
 		let didCommit = false;
-		const diffResult = await exec("git", ["diff", "--cached", "--quiet"], { cwd });
+		const diffResult = await exec("git", ["diff", "--cached", "--name-only", "--exit-code"], { cwd });
+		const stagedFiles = (diffResult.stdout || "")
+			.split("\n")
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
 		if (diffResult.code === 0) {
 			log.info("git", "Nothing staged — skipping commit, proceeding to push");
 		} else if (diffResult.code > 1) {
 			throw new Error(`git diff --cached failed: ${diffResult.stderr || diffResult.stdout}`);
 		} else {
-			// code === 1 — differences staged, proceed with commit
+			// code === 1 — differences staged. Fail fast on workflow-file pushes
+			// with a token provably lacking the workflow scope (saves the pack
+			// round-trip); introspection failure falls through to the real push.
+			const gateError = await assertWorkflowScopeForPush(exec, cwd, stagedFiles);
+			if (gateError) {
+				throw new Error(gateError);
+			}
+			// proceed with commit
 			didCommit = true;
 			const commitResult = await exec("git", ["commit", "-m", message], { cwd });
 			if (commitResult.code !== 0) {

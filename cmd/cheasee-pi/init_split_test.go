@@ -55,6 +55,7 @@ var wantInitDecls = map[string]string{
 	"func:runInitLegacyAuth": "init_auth.go",
 	"func:runReauth":         "init_auth.go",
 	"func:promptAPIKey":      "init_auth.go",
+	"var:initGitHubScopes":   "init_auth.go",
 
 	"func:runInitDockerCheck":       "init_scaffold.go",
 	"func:runInitScaffold":          "init_scaffold.go",

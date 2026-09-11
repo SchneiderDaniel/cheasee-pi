@@ -10,6 +10,8 @@
 //   - NoopErrorCollector default singleton (collects nothing)
 //   - resetErrorCollector() for test isolation
 
+import { getDebugLogger } from "../lib/debug.ts";
+
 /** A single structured error/warning record */
 export interface ErrorRecord {
 	source: string;
@@ -20,6 +22,34 @@ export interface ErrorRecord {
 
 /** Maximum message length before truncation in toNotificationBlock */
 const MAX_MESSAGE_LENGTH = 200;
+
+/**
+ * Summarize a record message for the compact panel — never head-truncate
+ * the actionable tail:
+ * 1. Keep from the `remediation:` marker onward (pushBranch stamps it;
+ *    action-first so the panel shows what to do, not the truncated head).
+ * 2. Else keep the trailing parenthesized clause (e.g. the remote-rejected
+ *    reason, which lands past the 200-char cut for long branch names).
+ * 3. Else head-truncate at MAX_MESSAGE_LENGTH.
+ * Full messages beyond MAX_MESSAGE_LENGTH are persisted to the debug log.
+ */
+function summarizeForPanel(message: string): string {
+	const remediationIdx = message.indexOf("remediation:");
+	if (remediationIdx >= 0) {
+		return message.slice(remediationIdx);
+	}
+	if (message.length <= MAX_MESSAGE_LENGTH) {
+		return message;
+	}
+	const tail = message.match(/\([^()]*\)\s*$/);
+	if (tail) {
+		const clause = tail[0].trim();
+		return clause.length <= MAX_MESSAGE_LENGTH
+			? clause
+			: clause.slice(0, MAX_MESSAGE_LENGTH) + "...";
+	}
+	return message.slice(0, MAX_MESSAGE_LENGTH) + "...";
+}
 
 /**
  * ErrorCollector — centralized error collector for the supervisor pipeline.
@@ -108,11 +138,16 @@ export class ErrorCollector {
 
 			for (const record of sorted) {
 				const severityLabel = record.severity === "error" ? "ERROR" : "WARN";
-				const truncated =
-					record.message.length > MAX_MESSAGE_LENGTH
-						? record.message.slice(0, MAX_MESSAGE_LENGTH) + "..."
-						: record.message;
-				lines.push(`- **\`[${severityLabel}]\`** ${truncated}`);
+				const summarized = summarizeForPanel(record.message);
+				if (record.message.length > MAX_MESSAGE_LENGTH) {
+					// The panel shows a compact view — persist the full message so
+					// the real failure reason survives for diagnosis.
+					getDebugLogger().warn("error-collector", "notification message truncated", {
+						source: record.source,
+						message: record.message,
+					});
+				}
+				lines.push(`- **\`[${severityLabel}]\`** ${summarized}`);
 			}
 
 			lines.push("");
