@@ -240,8 +240,8 @@ gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-cred
 # cheasee-pi auth persists the GitHub token in auth.json (bind-mounted) and
 # that file is the single source of truth for the container's GitHub
 # credential: init/--reauth mint it with the scopes the supervisor needs
-# (repo, read:org, project). The bind-mounted ~/.config/gh may hold an older
-# token minted before the project scope existed, so import auth.json's token
+# (repo, read:org, project, workflow). The bind-mounted ~/.config/gh may hold
+# an older token minted before the project scope existed, so import auth.json's token
 # into gh whenever gh's current token differs — not just when gh has none.
 # gating on gh auth status would keep the stale token forever.
 if [ -f /home/agentuser/.config/cheasee-pi/auth.json ]; then
