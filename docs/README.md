@@ -69,6 +69,7 @@ cheasee-pi init --reauth  # initialized workspace: redo GitHub OAuth + pi API-ke
 cheasee-pi start          # empty folder → init (stops); workspace → start pi (default)
 cheasee-pi down           # stop and remove current workspace's container
 cheasee-pi clean          # remove all cheasee-pi containers (all repos) + prune garbage
+cheasee-pi prune-images   # remove all tagged cheasee-pi-* images (all repos) + pinned build cache
 cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 cheasee-pi auth add       # add API key for a provider
 cheasee-pi auth list      # list configured providers/keys

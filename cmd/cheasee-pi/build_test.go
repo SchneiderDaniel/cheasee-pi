@@ -648,3 +648,24 @@ func TestZedTasks_RebuildCommand(t *testing.T) {
 		t.Error(".zed/tasks.json must not use the legacy 'cheasee-pi build --no-cache' command")
 	}
 }
+
+func TestZedTasks_PruneImages(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".zed", "tasks.json"))
+	if err != nil {
+		t.Fatalf("reading .zed/tasks.json: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, `"label": "Cheasee-Pi: prune images (preview)"`) {
+		t.Error(".zed/tasks.json must keep the prune-images preview task label")
+	}
+	if !strings.Contains(content, `"command": "cheasee-pi prune-images --dry-run"`) {
+		t.Error(".zed/tasks.json preview task must run 'cheasee-pi prune-images --dry-run'")
+	}
+	if !strings.Contains(content, `"label": "Cheasee-Pi: prune images"`) {
+		t.Error(".zed/tasks.json must keep the prune-images task label")
+	}
+	if !strings.Contains(content, `"command": "cheasee-pi prune-images"`) {
+		t.Error(".zed/tasks.json prune-images task must run 'cheasee-pi prune-images'")
+	}
+}
