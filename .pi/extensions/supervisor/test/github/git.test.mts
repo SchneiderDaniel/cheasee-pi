@@ -4,6 +4,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExecFn } from "../../pipeline/helpers.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import {
@@ -11,8 +16,64 @@ import {
 	pushBranch,
 	commitAndPush,
 	workflowScopeHint,
+	workflowChangesExempt,
 } from "../../github/git.ts";
 import type { NotifyFn } from "../../pipeline/helpers.ts";
+
+const execFileP = promisify(execFile);
+
+// ─── Real-git harness (regression: workflow-scope identical-file exemption) ──
+
+/** ExecFn that shells out to real git (mirrors pipeline-worktree-integration). */
+function realGitExec(cwd: string): ExecFn {
+	return async (cmd: string, args: string[], opts?: ExecOptions): Promise<ExecResult> => {
+		try {
+			const { stdout, stderr } = await execFileP(cmd, args, {
+				cwd: opts?.cwd ?? cwd,
+				encoding: "utf-8",
+			});
+			return { code: 0, stdout, stderr, killed: false };
+		} catch (err: unknown) {
+			const e = err as { code?: number; stdout?: string; stderr?: string };
+			return {
+				code: typeof e.code === "number" ? e.code : 1,
+				stdout: e.stdout ?? "",
+				stderr: e.stderr ?? String(err),
+				killed: false,
+			};
+		}
+	};
+}
+
+async function realGit(dir: string, args: string[]): Promise<void> {
+	const result = await realGitExec(dir)("git", args, { cwd: dir });
+	if (result.code !== 0) {
+		throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+	}
+}
+
+/**
+ * Repo fixture: main has no workflow file; branch `other` holds
+ * `.github/workflows/ci.yml`; branch `feature` (checked out) is at the main
+ * baseline so the workflow file can be staged fresh onto it.
+ */
+async function initWorkflowFixture(): Promise<{ dir: string; cleanup: () => void }> {
+	const dir = mkdtempSync(join(tmpdir(), "wf-exempt-"));
+	writeFileSync(join(dir, "README.md"), "base\n");
+	await realGit(dir, ["init", "-b", "main"]);
+	await realGit(dir, ["config", "user.email", "test@example.com"]);
+	await realGit(dir, ["config", "user.name", "Test"]);
+	await realGit(dir, ["add", "."]);
+	await realGit(dir, ["commit", "-m", "base"]);
+	await realGit(dir, ["checkout", "-b", "other"]);
+	mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+	writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n");
+	await realGit(dir, ["add", "."]);
+	await realGit(dir, ["commit", "-m", "workflow on other"]);
+	await realGit(dir, ["checkout", "main"]);
+	await realGit(dir, ["checkout", "-b", "feature"]);
+	return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -236,6 +297,14 @@ describe("commitAndPush() — Result<T>", () => {
 				stdout: "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{}",
 				stderr: "",
 			}, // gh api -i /user — scope header lacks workflow
+			{
+				code: 0,
+				stdout: "refs/heads/main\nrefs/remotes/origin/main\n",
+				stderr: "",
+			}, // for-each-ref — head + remote-tracking refs
+			{ code: 0, stdout: "sha-new\n", stderr: "" }, // rev-parse :ci.yml (staged blob)
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/heads/main:ci.yml — missing
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/remotes/origin/main:ci.yml — missing
 		]);
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
@@ -246,6 +315,38 @@ describe("commitAndPush() — Result<T>", () => {
 		}
 		const commitPushCalls = calls.filter((c) => c.args[0] === "commit" || c.args[0] === "push");
 		assert.equal(commitPushCalls.length, 0, "must abort before commit and push round-trip");
+	});
+
+	it("pre-push gate: identical workflow file already on another branch — exemption lets the push proceed", async () => {
+		const { exec } = createMockExec([
+			{ code: 0, stdout: "", stderr: "" }, // git add -A
+			{
+				code: 1,
+				stdout: ".github/workflows/ci.yml\n",
+				stderr: "",
+			}, // git diff --cached --name-only
+			{
+				code: 0,
+				stdout: "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{}",
+				stderr: "",
+			}, // gh api -i /user — token lacks workflow
+			{
+				code: 0,
+				stdout: "refs/heads/main\nrefs/remotes/origin/main\n",
+				stderr: "",
+			}, // for-each-ref
+			{ code: 0, stdout: "sha-same\n", stderr: "" }, // rev-parse :ci.yml (staged blob)
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/heads/main:ci.yml — missing
+			{ code: 0, stdout: "sha-same\n", stderr: "" }, // rev-parse refs/remotes/origin/main:ci.yml — identical → exempt
+			{ code: 0, stdout: "committed", stderr: "" }, // git commit
+			{ code: 0, stdout: "", stderr: "" }, // git push
+		]);
+		const { notify } = createMockNotify();
+		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
+		assert.equal(result.ok, true);
+		if (result.ok) {
+			assert.equal(result.value, true);
+		}
 	});
 
 	it("pre-push gate: staged workflow file + token WITH workflow scope — push proceeds", async () => {
@@ -377,6 +478,43 @@ describe("commitAndPush() — Result<T>", () => {
 				result.error.includes("git push failed"),
 				`error should mention push: ${result.error}`,
 			);
+		}
+	});
+});
+
+// ─── Regression: workflow-scope identical-file exemption (real git) ─────────
+// Audit finding rework: the pre-push gate must not abort when the pushed
+// workflow content already exists byte-identically on another branch — GitHub
+// accepts that without the `workflow` scope (docs exemption).
+
+describe("workflowChangesExempt() — identical-file exemption (real git)", () => {
+	it("staged workflow file byte-identical to another branch — exempt (push must not be blocked)", async () => {
+		const { dir, cleanup } = await initWorkflowFixture();
+		try {
+			mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n"); // byte-equal to branch `other`
+			await realGit(dir, ["add", "."]);
+			const exempt = await workflowChangesExempt(realGitExec(dir), dir, [
+				".github/workflows/ci.yml",
+			]);
+			assert.equal(exempt, true);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("staged workflow content changed everywhere — NOT exempt (gate must abort)", async () => {
+		const { dir, cleanup } = await initWorkflowFixture();
+		try {
+			mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v2-changed\n");
+			await realGit(dir, ["add", "."]);
+			const exempt = await workflowChangesExempt(realGitExec(dir), dir, [
+				".github/workflows/ci.yml",
+			]);
+			assert.equal(exempt, false);
+		} finally {
+			cleanup();
 		}
 	});
 });

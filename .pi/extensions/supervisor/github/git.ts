@@ -61,13 +61,57 @@ async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
 }
 
 /**
+ * GitHub's `workflow`-scope exemption: pushing workflow files that already
+ * exist byte-identically (same path AND content) on another branch of the repo
+ * needs no scope. Compares each staged workflow blob against the same path on
+ * every ref known locally (heads + remote-tracking refs — the worktree repo is
+ * a full clone, so this is the remote picture minus branches created since the
+ * last fetch; such stragglers fall through to the real push and the pushBranch
+ * hint backstop). Staged deletions are not workflow create/update → exempt.
+ * @returns true = every file is exempt (GitHub accepts), false = some file is
+ *   new/changed on every known branch (GitHub would reject), null = couldn't
+ *   determine (callers must fail-soft — the real push is ground truth).
+ */
+export async function workflowChangesExempt(
+	exec: ExecFn,
+	cwd: string,
+	stagedWorkflowFiles: string[],
+): Promise<boolean | null> {
+	const refsResult = await exec(
+		"git",
+		["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"],
+		{ cwd },
+	);
+	if (refsResult.code !== 0) return null;
+	const refs = (refsResult.stdout || "")
+		.split("\n")
+		.map((r) => r.trim())
+		.filter((r) => r.length > 0);
+	for (const file of stagedWorkflowFiles) {
+		const staged = await exec("git", ["rev-parse", "--verify", `:${file}`], { cwd });
+		if (staged.code !== 0) continue; // staged deletion — no blob, not a create/update
+		const stagedSha = staged.stdout.trim();
+		let found = false;
+		// ponytail: per-ref rev-parse loop; batched via `cat-file --batch-check`
+		// over stdin if ref counts ever make this path measurable.
+		for (const ref of refs) {
+			const other = await exec("git", ["rev-parse", "--verify", `${ref}:${file}`], { cwd });
+			if (other.code === 0 && other.stdout.trim() === stagedSha) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) return false; // new/changed on every known branch → needs the scope
+	}
+	return true;
+}
+
+/**
  * Pre-push gate: if the staged diff touches .github/workflows/ and the token
- * provably lacks the workflow scope, fail before the pack round-trip. Fail-soft
- * on any introspection uncertainty — the real push is ground truth. The GitHub
- * identical-path+content exemption edge (same workflow file already on another
- * branch needs no scope) is accepted: such re-deliveries normally produce an
- * empty staged diff and never reach the introspection; content-equal-but-touched
- * stragglers fall through to the real push and the pushBranch hint backstop.
+ * provably lacks the workflow scope, fail before the pack round-trip — unless
+ * the identical-file exemption applies (workflowChangesExempt). Fail-soft on
+ * any introspection or ref-resolution uncertainty — the real push is ground
+ * truth.
  */
 async function assertWorkflowScopeForPush(
 	exec: ExecFn,
@@ -75,14 +119,17 @@ async function assertWorkflowScopeForPush(
 	stagedFiles: string[],
 ): Promise<string | null> {
 	const log = getDebugLogger();
-	if (!stagedFiles.some((f) => f.startsWith(".github/workflows/"))) {
+	const workflowFiles = stagedFiles.filter((f) => f.startsWith(".github/workflows/"));
+	if (workflowFiles.length === 0) {
 		return null;
 	}
 	const hasScope = await tokenHasWorkflowScope(exec);
 	if (hasScope !== false) return null; // has it, or unknown → proceed
+	const exempt = await workflowChangesExempt(exec, cwd, workflowFiles);
+	if (exempt !== false) return null; // identical content on another branch → GitHub accepts
 	log.error("git", "pre-push gate: token lacks workflow scope for a workflow-touching diff", {
 		cwd,
-		files: stagedFiles.filter((f) => f.startsWith(".github/workflows/")),
+		files: workflowFiles,
 	});
 	return `git push aborted: the staged diff touches .github/workflows/ but the token lacks the workflow scope — remediation: ${workflowScopeHint(detectTokenClass())}`;
 }
