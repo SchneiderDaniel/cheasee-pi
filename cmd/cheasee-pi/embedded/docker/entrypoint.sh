@@ -23,14 +23,34 @@ HOST_UID="${HOST_UID:-}"
 # --- Apply CPU limit from CHEASEEPI_CPUS to cgroup v2 ---------------
 # Docker Compose `cpus:` at service level is silently ignored on some
 # platforms. Writing directly to cpu.max guarantees the limit applies.
-if [ -n "${CHEASEEPI_CPUS:-}" ]; then
-    PERIOD=100000
-    QUOTA=$(awk "BEGIN {printf %d, $CHEASEEPI_CPUS * $PERIOD}" 2>/dev/null)
+#
+# CHEASEEPI_CPUS arrives from the container environment (untrusted at the
+# boundary), so it is validated with an anchored numeric regex BEFORE any
+# awk invocation and passed to awk via -v — never interpolated into the
+# awk program text, where shell/awk metacharacters could execute as root.
+# Invalid values warn and skip; they never abort container start.
+apply_cpu_limit() {
+    local cpus="${CHEASEEPI_CPUS:-}"
+    [ -n "$cpus" ] || return 0
+    if ! [[ "$cpus" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "Warning: CHEASEEPI_CPUS='$cpus' is not a valid number — CPU limit not applied (non-fatal)"
+        return 0
+    fi
+    local PERIOD=100000
+    local QUOTA
+    # awk failing is an internal error only (e.g. float overflow on a
+    # huge valid number) — input is regex-validated above, so never hostile.
+    # Silent success would hide losing CPU enforcement: warn, don't abort.
+    if ! QUOTA=$(awk -v cpus="$cpus" -v period="$PERIOD" 'BEGIN {printf "%d", cpus * period}' 2>/dev/null); then
+        echo "Warning: could not compute CPU quota from CHEASEEPI_CPUS='$cpus' (non-fatal — CPU limit not applied)"
+        return 0
+    fi
     if [ -n "$QUOTA" ] && [ "$QUOTA" -gt 0 ] 2>/dev/null; then
-        echo "$QUOTA $PERIOD" > /sys/fs/cgroup/cpu.max 2>/dev/null || \
+        echo "$QUOTA $PERIOD" > "${CGROUP_CPU_MAX:-/sys/fs/cgroup/cpu.max}" 2>/dev/null || \
             echo "Warning: could not write CPU limit to cgroup (non-fatal)"
     fi
-fi
+}
+apply_cpu_limit
 HOST_GID="${HOST_GID:-}"
 
 # --- Auto-detect UID/GID from workspace mount if env not set ------
@@ -47,18 +67,36 @@ if [ -z "$HOST_GID" ] && [ -n "$WORKSPACE_GID" ] && [ "$WORKSPACE_GID" != "0" ];
     echo "Auto-detected HOST_GID=$HOST_GID from mount"
 fi
 
-# --- Remap UID ----------------------------------------------------
-if [ -n "$HOST_UID" ] && [ "$HOST_UID" != "$(id -u agentuser)" ]; then
-    usermod -u "$HOST_UID" agentuser
-fi
+# --- Remap UID/GID --------------------------------------------------
+# HOST_UID/HOST_GID are forwarded from the host environment (untrusted at
+# the boundary). usermod/groupmod self-validate numeric input, but under
+# `set -e` their failure would abort container start — the explicit
+# anchored numeric guard turns hostile values into a non-fatal warning
+# instead (and keeps them away from the commands entirely).
+remap_uid_gid() {
+    if [ -n "$HOST_UID" ] && ! [[ "$HOST_UID" =~ ^[0-9]+$ ]]; then
+        echo "Warning: HOST_UID='$HOST_UID' is not a valid UID — user remap skipped (non-fatal)"
+        return 0
+    fi
+    if [ -n "$HOST_GID" ] && ! [[ "$HOST_GID" =~ ^[0-9]+$ ]]; then
+        echo "Warning: HOST_GID='$HOST_GID' is not a valid GID — group remap skipped (non-fatal)"
+        return 0
+    fi
 
-# --- Remap GID ----------------------------------------------------
-if [ -n "$HOST_GID" ] && [ "$HOST_GID" != "$(id -g agentuser)" ]; then
-    # If a group with the target GID already exists (e.g. the old
-    # agentuser group), groupmod it silently.
-    groupmod -g "$HOST_GID" agentuser 2>/dev/null || true
-    usermod -g "$HOST_GID" agentuser
-fi
+    # --- Remap UID ----------------------------------------------------
+    if [ -n "$HOST_UID" ] && [ "$HOST_UID" != "$(id -u agentuser)" ]; then
+        usermod -u "$HOST_UID" agentuser
+    fi
+
+    # --- Remap GID ----------------------------------------------------
+    if [ -n "$HOST_GID" ] && [ "$HOST_GID" != "$(id -g agentuser)" ]; then
+        # If a group with the target GID already exists (e.g. the old
+        # agentuser group), groupmod it silently.
+        groupmod -g "$HOST_GID" agentuser 2>/dev/null || true
+        usermod -g "$HOST_GID" agentuser
+    fi
+}
+remap_uid_gid
 
 # --- Fix git worktree paths for container portability -----------------
 # Worktree .git files contain absolute host paths (e.g.
