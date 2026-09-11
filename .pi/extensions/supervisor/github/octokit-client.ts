@@ -5,6 +5,7 @@
 import { Octokit } from "@octokit/rest";
 import { graphql } from "@octokit/graphql";
 import type { DebugLogger } from "../lib/debug.ts";
+import { normalizeEscapes } from "../agent/output.ts";
 import type {
 	ProjectField,
 	ProjectItem,
@@ -309,16 +310,24 @@ export class OctokitClient implements GitHubPort {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
+		// Normalize escaped newlines as final safety net (regression fix #1663).
+		// The pre-#1207 gh-CLI postIssueComment (comment.ts) normalized literal
+		// \\n sequences here; the Octokit migration kept only truncation, so
+		// extraction paths that leak raw escapes (heading fallback,
+		// COMMENT_BODY marker, audit output fallback) posted unreadable
+		// one-line comments with non-rendering markdown headers.
+		const normalized = normalizeEscapes(body);
+
 		// Hard safety limit — migrated from comment.ts
 		const truncated =
-			body.length > MAX_COMMENT_CHARS
-				? body.slice(0, MAX_COMMENT_CHARS) +
+			normalized.length > MAX_COMMENT_CHARS
+				? normalized.slice(0, MAX_COMMENT_CHARS) +
 					"\n\n---\n⚠️ **Comment truncated at 50,000 character safety limit** — a bug likely caused the full agent execution log to be included. Please report this."
-				: body;
+				: normalized;
 
 		this.log.debug("octokit", `postIssueComment #${issueNum}`, {
-			bodyLen: body.length,
-			truncated: body.length > MAX_COMMENT_CHARS,
+			bodyLen: normalized.length,
+			truncated: normalized.length > MAX_COMMENT_CHARS,
 		});
 		await this.octokit.issues.createComment({
 			owner,
@@ -527,9 +536,11 @@ export class OctokitClient implements GitHubPort {
 					const pr = prResp.data;
 					const sha = pr.merge_commit_sha || (pr.head as { sha?: string })?.sha || "";
 					const branch = (pr.head as { ref?: string })?.ref || "";
-					const state = pr.merged_at ? "merged" as const
-						: pr.state === "closed" ? "closed" as const
-						: "open" as const;
+					const state = pr.merged_at
+						? ("merged" as const)
+						: pr.state === "closed"
+							? ("closed" as const)
+							: ("open" as const);
 
 					// Determine source: check if PR body contains closing keywords
 					const body = pr.body || "";
