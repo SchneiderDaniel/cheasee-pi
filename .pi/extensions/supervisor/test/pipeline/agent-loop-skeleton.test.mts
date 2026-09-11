@@ -493,6 +493,21 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
 	});
 
+	it("posts non-blank refusal commentBody verbatim (surrounding whitespace preserved)", async () => {
+		// Regression (audit fix): trim must be for blank detection only — the
+		// agent's markdown (leading/trailing whitespace) is posted untouched.
+		const body = "  ## Why\n\nDetails  ";
+		const { runCtx, portCalls } = runRefusal({
+			refusalJson: JSON.stringify({ refusal: "whitespace case", commentBody: body }),
+		});
+		await runAgentLoop(runCtx);
+
+		const comments = commentsOf(portCalls);
+		assert.equal(comments.length, 1, "exactly one comment");
+		assert.equal(comments[0], body, "non-blank commentBody posted verbatim, not trimmed");
+		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+	});
+
 	it("falls back to a generated note when commentBody is missing", async () => {
 		const { runCtx, portCalls } = runRefusal({
 			refusalJson: JSON.stringify({ refusal: "missing dependency", agentName: "architect" }),

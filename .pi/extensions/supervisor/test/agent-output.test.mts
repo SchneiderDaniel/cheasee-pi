@@ -8,6 +8,7 @@ import {
 	stripAnsi,
 	isRefused,
 	isSuccess,
+	getRefusalInfo,
 	extractAgentCommentBody,
 } from "../agent/output.ts";
 import type { AgentOutput, FailedParse, ParseResult } from "../config/types.ts";
@@ -480,6 +481,20 @@ describe("parseAgentOutput — refusal handling", () => {
 		assert.equal(isRefused(failed), false, "FailedParse must not classify as refused");
 		assert.equal(isSuccess(failed), false, "FailedParse must not classify as success");
 	});
+
+	it("getRefusalInfo returns RefusedOutput for refusal output, null otherwise", () => {
+		const refused = getRefusalInfo(JSON.stringify({ refusal: "cannot", agentName: "dev" }));
+		assert.ok(refused !== null, "refusal output → RefusedOutput, not null");
+		assert.equal(refused.refused, true);
+		assert.equal(refused.refusal, "cannot");
+		assert.equal(refused.agentName, "dev");
+
+		const success = getRefusalInfo(JSON.stringify({ action: "COMPLETE", agentName: "dev" }));
+		assert.equal(success, null, "success-shaped output → null");
+
+		const failed = getRefusalInfo("not json at all");
+		assert.equal(failed, null, "unparseable output → null (degrades to FailedParse inside)");
+	});
 });
 
 // ─── Tests: parseAgentOutput — ANSI stripping ─────────────────────
@@ -714,6 +729,14 @@ describe("characterization — extractAgentCommentBody compatibility", () => {
 			commentBody: "## Why\n\nOut of scope for this issue.",
 		});
 		assert.equal(extractAgentCommentBody(output), "## Why\n\nOut of scope for this issue.");
+	});
+
+	it("returns non-blank refusal commentBody verbatim (surrounding whitespace preserved)", () => {
+		// Regression (audit fix): trim must be for blank detection only — the
+		// agent's markdown (leading/trailing whitespace, indentation) survives.
+		const body = "  ## Why\n\nDetails  ";
+		const output = JSON.stringify({ refusal: "out of scope", commentBody: body });
+		assert.equal(extractAgentCommentBody(output), body);
 	});
 
 	it("returns null for a refusal with a blank commentBody", () => {

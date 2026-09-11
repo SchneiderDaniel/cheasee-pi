@@ -236,6 +236,19 @@ export function isRefused(result: ParseResult): result is RefusedOutput {
 	return "refused" in result && result.refused === true;
 }
 
+/**
+ * Extract the refusal from agent output text, if the agent declined the task.
+ * Shared facade over parseAgentOutput: refusal detection runs before schema
+ * validation, so refusal prose (which is not schema-conforming by design) is
+ * never validated. Returns the RefusedOutput variant or null when the output
+ * is not a refusal. Callers pass the same toolNames they use for
+ * parseAgentOutput.
+ */
+export function getRefusalInfo(output: string, toolNames?: Set<string>): RefusedOutput | null {
+	const parsed = parseAgentOutput(output, toolNames);
+	return isRefused(parsed) ? parsed : null;
+}
+
 // ─── Agent Comment Body Extraction ────────────────────────────────
 // Tries parseAgentOutput first for structured commentBody,
 // falls back to COMMENT_BODY marker extraction.
@@ -250,10 +263,12 @@ export function extractAgentCommentBody(output: string, toolNames?: Set<string>)
 
 	// RefusedOutput: preserve the agent's own explanation when one was supplied.
 	// Blank/whitespace-only commentBody is treated as absent so callers fall
-	// through to marker extraction rather than posting an empty comment.
+	// through to marker extraction rather than posting an empty comment. Trim
+	// is for blank detection only — non-blank bodies are returned verbatim,
+	// never re-shaped (leading/trailing whitespace and markdown preserved).
 	if (isRefused(parseResult)) {
-		const body = parseResult.commentBody?.trim();
-		if (body) return body;
+		const body = parseResult.commentBody;
+		if (body !== undefined && body.trim().length > 0) return body;
 	}
 
 	// Fallback: COMMENT_BODY marker extraction

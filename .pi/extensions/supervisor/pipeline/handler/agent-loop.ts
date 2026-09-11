@@ -33,7 +33,7 @@ import { tryRebaseOntoBase } from "../rebase.ts";
 import { WORKFLOW, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
-import { parseAgentOutput, isRefused } from "../../agent/output.ts";
+import { getRefusalInfo } from "../../agent/output.ts";
 import { writeCheckpointFile } from "../state-checkpoint.ts";
 import {
 	MAX_PIPELINE_LOOPS,
@@ -361,7 +361,10 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// yet may still carry a structured refusal, which must override the
 		// budget-degradation path below (audit fix). Unparseable failed output
 		// degrades to FailedParse → isRefused false → null.
-		const refusedOutput: RefusedOutput | null = getRefusedOutput(result);
+		const refusedOutput: RefusedOutput | null = getRefusalInfo(
+			result.textOutput,
+			new Set(result.toolCalls ?? []),
+		);
 
 		// Post-processing — pass pre-computed gateRejected so auditor
 		// comment posting can show gate rejection instead of approval
@@ -514,11 +517,14 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			// generated note) before stopping — a refusal is never a transition.
 			if (refusal) {
 				// Blank/whitespace-only commentBody is treated as absent — an empty
-				// comment would lose the refusal reason entirely.
-				const supplied = refusal.commentBody?.trim();
+				// comment would lose the refusal reason entirely. Trim is for blank
+				// detection only: non-blank bodies are posted verbatim (leading /
+				// trailing whitespace and markdown preserved — audit fix).
+				const supplied = refusal.commentBody;
 				const body =
-					supplied ||
-					`## Agent Refused\n\nThe \`${refusal.agentName ?? agent.config.name}\` agent declined this task:\n\n> ${refusal.refusal || "_no reason provided_"}\n\nPipeline stops here.`;
+					supplied !== undefined && supplied.trim().length > 0
+						? supplied
+						: `## Agent Refused\n\nThe \`${refusal.agentName ?? agent.config.name}\` agent declined this task:\n\n> ${refusal.refusal || "_no reason provided_"}\n\nPipeline stops here.`;
 				try {
 					await port.postIssueComment(issueNum, config.repo, body);
 					ctx.ui.notify(`Agent ${agent.config.name} refused — posted refusal comment.`, "warning");
@@ -715,9 +721,9 @@ async function dispatchAgentWithRetry(
 	// Retrying would replace the refusal with a fresh attempt, advance the
 	// pipeline, or produce a different stop outcome — return the refusal
 	// unchanged so the handler's refusal branch posts the note and stops.
-	// Parse mirrors getRefusedOutput() in the dispatch skeleton and never
+	// Parse mirrors getRefusalInfo() in the dispatch skeleton and never
 	// throws (unparseable output degrades to FailedParse → null).
-	const refused = getRefusedOutput(result);
+	const refused = getRefusalInfo(result.textOutput, new Set(result.toolCalls ?? []));
 
 	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy);
 	// a refusal is not a failure to retry either.
@@ -765,15 +771,6 @@ async function dispatchAgentWithRetry(
 	agentResults.push(buildAgentResultEntry(result, usedRetry, agent.config.model));
 
 	return { result, usedRetry };
-}
-
-/**
- * Parse the agent's structured output and return its refusal, if any.
- * Mirrors calculateNextStatus' refusal detection (parses `textOutput`).
- */
-function getRefusedOutput(result: AgentRunResult): RefusedOutput | null {
-	const parsed = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
-	return isRefused(parsed) ? parsed : null;
 }
 
 /**
