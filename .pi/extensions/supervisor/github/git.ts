@@ -63,47 +63,88 @@ async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
 /**
  * GitHub's `workflow`-scope exemption: pushing workflow files that already
  * exist byte-identically (same path AND content) on another branch of the repo
- * needs no scope. Compares each staged workflow blob against the same path on
- * every ref known locally (heads + remote-tracking refs — the worktree repo is
- * a full clone, so this is the remote picture minus branches created since the
- * last fetch; such stragglers fall through to the real push and the pushBranch
- * hint backstop). Staged deletions are not workflow create/update → exempt.
- * @returns true = every file is exempt (GitHub accepts), false = some file is
- *   new/changed on every known branch (GitHub would reject), null = couldn't
- *   determine (callers must fail-soft — the real push is ground truth).
+ * needs no scope. The exemption is judged against the SERVER's branch picture,
+ * so local enumeration alone is never authoritative — a branch created or
+ * advanced since the last fetch is invisible locally and must not cause a
+ * false abort. Instead:
+ *   1. `git ls-remote --heads <remote>` lists the server's branch tips (a ref
+ *      advertisement — no pack transfer, unlike a fetch).
+ *   2. Coverage is authoritative only if every server head has a matching
+ *      local remote-tracking ref with the same sha (that fetch also brought
+ *      the trees/blobs, so `<tracking-ref>:<file>` resolution is reliable).
+ *      Any absent/stale head → fail-soft null: the real push is ground truth
+ *      and the pushBranch hint is the backstop.
+ * Staged deletions have no blob → not a create/update → exempt. Any exec
+ * failure (timeout, rejected ExecFn) → null — never abort a push on
+ * ref-resolution uncertainty.
+ * @returns true = every staged workflow file is exempt (GitHub accepts),
+ *   false = some file is new/changed on every known server branch (GitHub
+ *   would reject), null = couldn't determine authoritatively (fail-soft).
  */
 export async function workflowChangesExempt(
 	exec: ExecFn,
 	cwd: string,
+	remote: string,
 	stagedWorkflowFiles: string[],
 ): Promise<boolean | null> {
-	const refsResult = await exec(
-		"git",
-		["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"],
-		{ cwd },
-	);
-	if (refsResult.code !== 0) return null;
-	const refs = (refsResult.stdout || "")
-		.split("\n")
-		.map((r) => r.trim())
-		.filter((r) => r.length > 0);
-	for (const file of stagedWorkflowFiles) {
-		const staged = await exec("git", ["rev-parse", "--verify", `:${file}`], { cwd });
-		if (staged.code !== 0) continue; // staged deletion — no blob, not a create/update
-		const stagedSha = staged.stdout.trim();
-		let found = false;
-		// ponytail: per-ref rev-parse loop; batched via `cat-file --batch-check`
-		// over stdin if ref counts ever make this path measurable.
-		for (const ref of refs) {
-			const other = await exec("git", ["rev-parse", "--verify", `${ref}:${file}`], { cwd });
-			if (other.code === 0 && other.stdout.trim() === stagedSha) {
-				found = true;
-				break;
+	try {
+		// Remote-tracking refs exist per remote NAME; a URL remote can't be
+		// covered authoritatively → fail-soft.
+		if (!/^[A-Za-z0-9._-]+$/.test(remote)) return null;
+		const lsRemote = await exec("git", ["ls-remote", "--heads", remote], { cwd });
+		if (lsRemote.code !== 0) return null;
+		const serverHeads = new Map<string, string>(); // branch name -> tip sha
+		for (const line of (lsRemote.stdout || "").split("\n")) {
+			const [sha, ref] = line.trim().split(/\s+/);
+			if (sha && ref && ref.startsWith("refs/heads/")) {
+				serverHeads.set(ref.slice("refs/heads/".length), sha);
 			}
 		}
-		if (!found) return false; // new/changed on every known branch → needs the scope
+		if (serverHeads.size === 0) return null; // no server branches to compare against
+
+		// Coverage check: every server head must have a matching local
+		// remote-tracking ref (same sha). Any absent/stale head means the local
+		// refs don't represent the server → fail-soft.
+		const prefix = `refs/remotes/${remote}/`;
+		const tracking = await exec(
+			"git",
+			["for-each-ref", "--format=%(objectname) %(refname)", `refs/remotes/${remote}`],
+			{ cwd },
+		);
+		if (tracking.code !== 0) return null;
+		const localTracking = new Map<string, string>(); // tracking refname -> sha
+		for (const line of (tracking.stdout || "").split("\n")) {
+			const [sha, ref] = line.trim().split(/\s+/);
+			if (sha && ref) localTracking.set(ref, sha);
+		}
+		for (const [name, sha] of serverHeads) {
+			if (localTracking.get(`${prefix}${name}`) !== sha) return null;
+		}
+
+		for (const file of stagedWorkflowFiles) {
+			const staged = await exec("git", ["rev-parse", "--verify", `:${file}`], { cwd });
+			if (staged.code !== 0) continue; // staged deletion — no blob, not a create/update
+			const stagedSha = staged.stdout.trim();
+			let found = false;
+			// ponytail: per-head rev-parse loop; batch via `cat-file --batch-check`
+			// over stdin if remote-head counts ever make this path measurable.
+			for (const name of serverHeads.keys()) {
+				const other = await exec(
+					"git",
+					["rev-parse", "--verify", `${prefix}${name}:${file}`],
+					{ cwd },
+				);
+				if (other.code === 0 && other.stdout.trim() === stagedSha) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) return false; // new/changed on every server branch → needs the scope
+		}
+		return true;
+	} catch {
+		return null; // fail-soft: never abort a push on ref-resolution uncertainty
 	}
-	return true;
 }
 
 /**
@@ -116,6 +157,7 @@ export async function workflowChangesExempt(
 async function assertWorkflowScopeForPush(
 	exec: ExecFn,
 	cwd: string,
+	remote: string,
 	stagedFiles: string[],
 ): Promise<string | null> {
 	const log = getDebugLogger();
@@ -125,8 +167,8 @@ async function assertWorkflowScopeForPush(
 	}
 	const hasScope = await tokenHasWorkflowScope(exec);
 	if (hasScope !== false) return null; // has it, or unknown → proceed
-	const exempt = await workflowChangesExempt(exec, cwd, workflowFiles);
-	if (exempt !== false) return null; // identical content on another branch → GitHub accepts
+	const exempt = await workflowChangesExempt(exec, cwd, remote, workflowFiles);
+	if (exempt !== false) return null; // identical on a server branch, or unknown → proceed (real push is ground truth)
 	log.error("git", "pre-push gate: token lacks workflow scope for a workflow-touching diff", {
 		cwd,
 		files: workflowFiles,
@@ -277,7 +319,7 @@ export async function commitAndPush(
 			// code === 1 — differences staged. Fail fast on workflow-file pushes
 			// with a token provably lacking the workflow scope (saves the pack
 			// round-trip); introspection failure falls through to the real push.
-			const gateError = await assertWorkflowScopeForPush(exec, cwd, stagedFiles);
+			const gateError = await assertWorkflowScopeForPush(exec, cwd, remote, stagedFiles);
 			if (gateError) {
 				throw new Error(gateError);
 			}

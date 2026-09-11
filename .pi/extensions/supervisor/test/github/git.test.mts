@@ -53,26 +53,35 @@ async function realGit(dir: string, args: string[]): Promise<void> {
 }
 
 /**
- * Repo fixture: main has no workflow file; branch `other` holds
- * `.github/workflows/ci.yml`; branch `feature` (checked out) is at the main
- * baseline so the workflow file can be staged fresh onto it.
+ * Repo fixture: local clone `work` with a bare `origin` remote. main has no
+ * workflow file; branch `other` holds `.github/workflows/ci.yml` (pushed to
+ * origin); branch `feature` (checked out) is at the main baseline so the
+ * workflow file can be staged fresh onto it. Server branch coverage is
+ * authoritative: origin/heads == refs/remotes/origin (both branches pushed).
  */
 async function initWorkflowFixture(): Promise<{ dir: string; cleanup: () => void }> {
-	const dir = mkdtempSync(join(tmpdir(), "wf-exempt-"));
+	const root = mkdtempSync(join(tmpdir(), "wf-exempt-"));
+	const origin = join(root, "origin.git");
+	const dir = join(root, "work");
+	await realGit(root, ["init", "--bare", "-b", "main", "origin.git"]);
+	mkdirSync(dir);
 	writeFileSync(join(dir, "README.md"), "base\n");
 	await realGit(dir, ["init", "-b", "main"]);
 	await realGit(dir, ["config", "user.email", "test@example.com"]);
 	await realGit(dir, ["config", "user.name", "Test"]);
 	await realGit(dir, ["add", "."]);
 	await realGit(dir, ["commit", "-m", "base"]);
+	await realGit(dir, ["remote", "add", "origin", origin]);
+	await realGit(dir, ["push", "-u", "origin", "main"]);
 	await realGit(dir, ["checkout", "-b", "other"]);
 	mkdirSync(join(dir, ".github/workflows"), { recursive: true });
 	writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n");
 	await realGit(dir, ["add", "."]);
 	await realGit(dir, ["commit", "-m", "workflow on other"]);
+	await realGit(dir, ["push", "-u", "origin", "other"]);
 	await realGit(dir, ["checkout", "main"]);
 	await realGit(dir, ["checkout", "-b", "feature"]);
-	return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+	return { dir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -299,12 +308,17 @@ describe("commitAndPush() — Result<T>", () => {
 			}, // gh api -i /user — scope header lacks workflow
 			{
 				code: 0,
-				stdout: "refs/heads/main\nrefs/remotes/origin/main\n",
+				stdout: "sha-main\trefs/heads/main\nsha-other\trefs/heads/other\n",
 				stderr: "",
-			}, // for-each-ref — head + remote-tracking refs
+			}, // ls-remote --heads origin — server heads
+			{
+				code: 0,
+				stdout: "sha-main refs/remotes/origin/main\nsha-other refs/remotes/origin/other\n",
+				stderr: "",
+			}, // for-each-ref refs/remotes/origin — coverage authoritative
 			{ code: 0, stdout: "sha-new\n", stderr: "" }, // rev-parse :ci.yml (staged blob)
-			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/heads/main:ci.yml — missing
-			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/remotes/origin/main:ci.yml — missing
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse origin/main:ci.yml — missing
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse origin/other:ci.yml — missing
 		]);
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
@@ -332,15 +346,94 @@ describe("commitAndPush() — Result<T>", () => {
 			}, // gh api -i /user — token lacks workflow
 			{
 				code: 0,
-				stdout: "refs/heads/main\nrefs/remotes/origin/main\n",
+				stdout: "sha-main\trefs/heads/main\nsha-other\trefs/heads/other\n",
 				stderr: "",
-			}, // for-each-ref
+			}, // ls-remote --heads origin
+			{
+				code: 0,
+				stdout: "sha-main refs/remotes/origin/main\nsha-other refs/remotes/origin/other\n",
+				stderr: "",
+			}, // for-each-ref refs/remotes/origin — coverage authoritative
 			{ code: 0, stdout: "sha-same\n", stderr: "" }, // rev-parse :ci.yml (staged blob)
-			{ code: 1, stdout: "", stderr: "" }, // rev-parse refs/heads/main:ci.yml — missing
-			{ code: 0, stdout: "sha-same\n", stderr: "" }, // rev-parse refs/remotes/origin/main:ci.yml — identical → exempt
+			{ code: 1, stdout: "", stderr: "" }, // rev-parse origin/main:ci.yml — missing
+			{ code: 0, stdout: "sha-same\n", stderr: "" }, // rev-parse origin/other:ci.yml — identical → exempt
 			{ code: 0, stdout: "committed", stderr: "" }, // git commit
 			{ code: 0, stdout: "", stderr: "" }, // git push
 		]);
+		const { notify } = createMockNotify();
+		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
+		assert.equal(result.ok, true);
+		if (result.ok) {
+			assert.equal(result.value, true);
+		}
+	});
+
+	it("pre-push gate: identical workflow exists on a server branch absent locally — fail-soft, push proceeds (no false abort)", async () => {
+		// Branch `remoteonly` was created on the server since the last fetch:
+		// ls-remote lists it but refs/remotes/origin has no match → local
+		// coverage is not authoritative → the gate must NOT abort (the server
+		// might accept under the identical-file exemption).
+		const { exec } = createMockExec([
+			{ code: 0, stdout: "", stderr: "" }, // git add -A
+			{
+				code: 1,
+				stdout: ".github/workflows/ci.yml\n",
+				stderr: "",
+			}, // git diff --cached --name-only
+			{
+				code: 0,
+				stdout: "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{}",
+				stderr: "",
+			}, // gh api -i /user — token lacks workflow
+			{
+				code: 0,
+				stdout: "sha-main\trefs/heads/main\nsha-other\trefs/heads/other\nsha-r\trefs/heads/remoteonly\n",
+				stderr: "",
+			}, // ls-remote --heads origin — remoteonly unseen locally
+			{
+				code: 0,
+				stdout: "sha-main refs/remotes/origin/main\nsha-other refs/remotes/origin/other\n",
+				stderr: "",
+			}, // for-each-ref — stale coverage (remoteonly missing)
+			{ code: 0, stdout: "committed", stderr: "" }, // git commit — proceed
+			{ code: 0, stdout: "", stderr: "" }, // git push — server decides
+		]);
+		const { notify } = createMockNotify();
+		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
+		assert.equal(result.ok, true);
+		if (result.ok) {
+			assert.equal(result.value, true);
+		}
+	});
+
+	it("pre-push gate: ref-resolution ExecFn rejection — fail-soft, push proceeds (gate never throws)", async () => {
+		// Audit regression: a subprocess timeout / rejected ExecFn during the
+		// exemption check must be converted to null and the real push attempted.
+		let callIdx = 0;
+		const exec: ExecFn = async (cmd: string, args: string[]): Promise<ExecResult> => {
+			callIdx++;
+			if (callIdx === 4) throw new Error("mock exec timeout"); // ls-remote
+			switch (callIdx) {
+				case 1:
+					return { code: 0, stdout: "", stderr: "", killed: false }; // git add -A
+				case 2:
+					return {
+						code: 1,
+						stdout: ".github/workflows/ci.yml\n",
+						stderr: "",
+						killed: false,
+					}; // git diff --cached --name-only
+				case 3:
+					return {
+						code: 0,
+						stdout: "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{}",
+						stderr: "",
+						killed: false,
+					}; // gh api -i /user — token lacks workflow
+				default:
+					return { code: 0, stdout: "committed", stderr: "", killed: false }; // commit + push
+			}
+		};
 		const { notify } = createMockNotify();
 		const result = await commitAndPush(exec, "/tmp/worktree", "origin", "feature", "msg", notify);
 		assert.equal(result.ok, true);
@@ -492,9 +585,9 @@ describe("workflowChangesExempt() — identical-file exemption (real git)", () =
 		const { dir, cleanup } = await initWorkflowFixture();
 		try {
 			mkdirSync(join(dir, ".github/workflows"), { recursive: true });
-			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n"); // byte-equal to branch `other`
+			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n"); // byte-equal to branch `other` on origin
 			await realGit(dir, ["add", "."]);
-			const exempt = await workflowChangesExempt(realGitExec(dir), dir, [
+			const exempt = await workflowChangesExempt(realGitExec(dir), dir, "origin", [
 				".github/workflows/ci.yml",
 			]);
 			assert.equal(exempt, true);
@@ -509,12 +602,49 @@ describe("workflowChangesExempt() — identical-file exemption (real git)", () =
 			mkdirSync(join(dir, ".github/workflows"), { recursive: true });
 			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v2-changed\n");
 			await realGit(dir, ["add", "."]);
-			const exempt = await workflowChangesExempt(realGitExec(dir), dir, [
+			const exempt = await workflowChangesExempt(realGitExec(dir), dir, "origin", [
 				".github/workflows/ci.yml",
 			]);
 			assert.equal(exempt, false);
 		} finally {
 			cleanup();
 		}
+	});
+
+	it("identical workflow on a server branch missing locally — fail-soft null, no false abort", async () => {
+		// Audit regression: branch `remoteonly` exists on origin (created since
+		// the last fetch) but has no local refs/remotes/origin counterpart —
+		// local coverage is not authoritative, so the gate must return null
+		// (real push decides) instead of false (which would abort the push).
+		const { dir, cleanup } = await initWorkflowFixture();
+		try {
+			const origin = join(dir, "..", "origin.git");
+			const otherSha = (
+				await realGitExec(dir)("git", ["rev-parse", "other"], { cwd: dir })
+			).stdout.trim();
+			await realGit(origin, ["update-ref", "refs/heads/remoteonly", otherSha]);
+
+			mkdirSync(join(dir, ".github/workflows"), { recursive: true });
+			writeFileSync(join(dir, ".github/workflows/ci.yml"), "v1\n"); // identical to `other` and `remoteonly`
+			await realGit(dir, ["add", "."]);
+			const exempt = await workflowChangesExempt(realGitExec(dir), dir, "origin", [
+				".github/workflows/ci.yml",
+			]);
+			assert.equal(exempt, null);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("ExecFn rejection — returns null (never throws; gate fail-soft)", async () => {
+		// Audit regression: a subprocess timeout / rejected ExecFn during ref
+		// resolution must be converted to null, not propagate.
+		const throwingExec: ExecFn = async () => {
+			throw new Error("mock exec timeout");
+		};
+		const exempt = await workflowChangesExempt(throwingExec, "/tmp/worktree", "origin", [
+			".github/workflows/ci.yml",
+			]);
+		assert.equal(exempt, null);
 	});
 });
