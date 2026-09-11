@@ -232,6 +232,31 @@ func TestCLIDoc_CleanSemantics(t *testing.T) {
 	}
 }
 
+// TestCLIDoc_PruneImagesSemantics verifies prune-images' blast radius and
+// safety contract are documented: all tagged cheasee-pi-* images on the host
+// are removed, images are regenerable via build/rebuild, the command refuses
+// while managed containers exist (clean first), --dry-run/--yes, approximate
+// (upper-bound) sizes, and the host-wide build-cache blast on the shared
+// builder.
+func TestCLIDoc_PruneImagesSemantics(t *testing.T) {
+	content := readCliDoc(t)
+	for _, s := range []string{
+		"cheasee-pi-*",            // name-scoped blast radius
+		"regenerable via",         // images are rebuild artifacts, not state
+		"`cheasee-pi build`",      // regenerable path 1
+		"`cheasee-pi rebuild`",    // regenerable path 2
+		"cheasee-pi clean` first", // managed-container gate
+		"--dry-run",               // preview
+		"--yes",                   // skip confirmation
+		"approximate",             // upper-bound sizes
+		"other projects",          // host-wide cache blast disclosed
+	} {
+		if !strings.Contains(content, s) {
+			t.Errorf("docs/cli.md should state prune-images' %q semantics", s)
+		}
+	}
+}
+
 // TestCLIDoc_DownSemantics verifies down targets only the current
 // workspace's compose project, no-ops when nothing matches, and excludes
 // legacy pre-derivation containers (clean removes those).

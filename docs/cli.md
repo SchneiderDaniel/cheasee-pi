@@ -24,6 +24,7 @@ setup and daily walkthroughs, see [Installation](installation.md) and
 | `cheasee-pi build` (full: `rebuild`) | Rebuild the Docker image | workspace settings |
 | `cheasee-pi down` (alias `stop`) | Stop and remove the container for this workspace | — |
 | `cheasee-pi clean` | Kill orphaned pi sessions, remove all containers, prune Docker garbage | confirmation |
+| `cheasee-pi prune-images` | Remove all tagged `cheasee-pi-*` images + orphaned build cache (all repos) | confirmation, `--dry-run` / `--yes` |
 | `cheasee-pi uninstall` | Remove config + extracted files | confirmation |
 
 `cheasee-pi --version` prints the CLI version. `cheasee-pi --help` lists every
@@ -39,6 +40,7 @@ subcommand.
 | 4 | (work) | interactive pi session inside the container |
 | 5 | `cheasee-pi down` | stop and remove this workspace's container |
 | 6 | `cheasee-pi clean` | sweep every container + orphan sessions, prune |
+| 7 | `cheasee-pi prune-images` | remove every tagged `cheasee-pi-*` image on the host + orphaned build cache |
 
 An empty folder can skip step 1: `cheasee-pi start` auto-runs init and
 stops (init never launches pi); run `cheasee-pi start` again to launch.
@@ -129,6 +131,17 @@ Kill orphaned/stale pi sessions and remove all cheasee-pi containers.
 | **Does** | Enumerates ALL managed containers on the host (every repo, running or stopped), force-removes each, kills orphaned pi processes inside them, and prunes dangling images + build cache. |
 | **Checks** | Lists the matches and asks for confirmation before killing anything (`--yes` skips, `--dry-run` previews). Default scope is every cheasee-pi container on the host — `--name` scopes to a single container. |
 | **Inputs** | Flags: `--name <container>` (scope), `--older-than <minutes>` (orphan age reap; `0` disables), `--dry-run`, `--yes`. |
+
+## `cheasee-pi prune-images`
+
+Remove every tagged cheasee-pi image on the host and reclaim the build cache they pin — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-repo images (`cheasee-pi-<slug>-cheasee-pi`, `cheasee-pi-<slug>-codeflow`) that `clean` never touches.
+
+| | |
+|---|---|
+| **Does** | Enumerates all tagged `cheasee-pi-*` images on the host (every repository, no keep-latest), force-removes each by full `Repository:Tag`, then prunes dangling images + build cache. |
+| **Checks** | Refuses while any cheasee-pi container exists (running or stopped) — run `cheasee-pi clean` first; a running container is a hard Docker conflict `-f` cannot force, and force-removing a stopped container's image silently orphans it. `--dry-run` lists the matched images with approximate (upper-bound) sizes. |
+| **Inputs** | Flags: `--dry-run`, `--yes` (skip confirmation). |
+| **Note** | Images are regenerable via `cheasee-pi build` / `cheasee-pi rebuild`. `docker buildx prune -a -f` discards cache host-wide — other projects sharing the default builder lose their cache too. Foreign tagged images are never matched. |
 
 ## `cheasee-pi uninstall`
 
