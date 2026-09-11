@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -385,6 +386,68 @@ func TestCodeflowHostPort_rangeExhaustedFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "CODEFLOW_PORT") {
 		t.Errorf("error must name the remedy (CODEFLOW_PORT), got %v", err)
+	}
+}
+
+// codeflowBoundPort (`docker port` queries the sidecar's live bind)
+// ──────────────────────────────────────────────
+
+func TestCodeflowBoundPort_queriesDockerPort(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ws")
+	var gotName, gotArg, gotProto string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name == "docker" && len(arg) > 0 && arg[0] == "port" {
+			gotName, gotArg, gotProto = name, arg[1], arg[2]
+		}
+		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("0.0.0.0:8938\n"), nil }}
+	})
+	got, err := codeflowBoundPort(context.Background(), root)
+	if err != nil {
+		t.Fatalf("codeflowBoundPort: %v", err)
+	}
+	if got != "8938" {
+		t.Errorf("must return the published host port, got %q", got)
+	}
+	if gotName != "docker" || gotArg != codeflowContainerName(root) || gotProto != "8470/tcp" {
+		t.Errorf("must query the sidecar container port, got docker %q arg %q proto %q", gotName, gotArg, gotProto)
+	}
+}
+
+func TestCodeflowBoundPort_ipv6BindParsed(t *testing.T) {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("[::]:8938\n"), nil }}
+	})
+	got, err := codeflowBoundPort(context.Background(), filepath.Join(t.TempDir(), "ws"))
+	if err != nil {
+		t.Fatalf("codeflowBoundPort: %v", err)
+	}
+	if got != "8938" {
+		t.Errorf("ipv6 bind must parse the host port, got %q", got)
+	}
+}
+
+func TestCodeflowBoundPort_errorsFallThrough(t *testing.T) {
+	for _, out := range []struct {
+		name    string
+		output  []byte
+		cmdErr  error
+		wantErr bool
+	}{
+		{"docker fails", nil, fmt.Errorf("container stopped"), true},
+		{"empty output", nil, nil, true},
+	} {
+		t.Run(out.name, func(t *testing.T) {
+			stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+				return &mockCmd{outputFn: func() ([]byte, error) { return out.output, out.cmdErr }}
+			})
+			_, err := codeflowBoundPort(context.Background(), filepath.Join(t.TempDir(), "ws"))
+			if out.wantErr && err == nil {
+				t.Fatal("expected an error (caller falls back to derive+probe)")
+			}
+			if !out.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
