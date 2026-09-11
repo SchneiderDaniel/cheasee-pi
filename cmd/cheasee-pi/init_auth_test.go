@@ -30,7 +30,11 @@ func TestRunInitAuth_Success(t *testing.T) {
 	}
 }
 
-func TestRunInitAuth_RequestsProjectScope(t *testing.T) {
+func TestRunInitAuth_RequestsScopes(t *testing.T) {
+	// Fail-closed: the exact requested set {repo, read:org, project, workflow}
+	// must be passed to RequestCode — a missing scope (e.g. workflow, once
+	// omitted here and rejected by GitHub on workflow-file pushes) or an
+	// extra one must fail the test.
 	var got []string
 	auth := &mockAuthenticator{
 		requestCodeFunc: func(_ context.Context, scopes []string) (*device.CodeResponse, error) {
@@ -41,16 +45,14 @@ func TestRunInitAuth_RequestsProjectScope(t *testing.T) {
 	if _, _, err := runInitAuth(context.Background(), auth); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, want := range []string{"repo", "read:org", "project"} {
-		found := false
-		for _, s := range got {
-			if s == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("requested scopes %v missing %q — supervisor project-board updates need it", got, want)
+	want := []string{"repo", "read:org", "project", "workflow"}
+	if len(got) != len(want) {
+		t.Fatalf("requested %d scopes %v, want exactly %d: %v", len(got), got, len(want), want)
+	}
+	for i, s := range want {
+		if got[i] != s {
+			t.Errorf("requested scopes %v, want exactly %v", got, want)
+			break
 		}
 	}
 }

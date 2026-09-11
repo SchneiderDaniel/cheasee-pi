@@ -396,5 +396,22 @@ with `docker ps` and pick a free port.
 
 **Symptom:** `gh auth status` inside the container shows `not logged in`.
 
-**Fix:** Ensure `gh auth login -s repo,project,workflow` has been run on the host.
+**Fix:** Ensure `gh auth login -s repo,read:org,project,workflow` has been run on the host.
 The container mounts `~/.config/gh/` read-write automatically.
+
+### Workflow-file pushes rejected
+
+**Symptom:** a push touching `.github/workflows/*` is rejected with
+`refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope`.
+
+**Cause:** tokens minted before the `workflow` scope was added to the OAuth request list
+carry only `repo, read:org, project` — and `repo` does not cover workflow files.
+
+**Fix:** tokens minted by a fresh `cheasee-pi init` / `cheasee-pi init --reauth` request
+`repo, read:org, project, workflow`. To upgrade an existing token, re-run
+`cheasee-pi init --reauth` in the workspace: it redoes the device flow with the widened
+scope list and rewrites `~/.config/cheasee-pi/auth.json`, which is the source the
+container actually consumes (`entrypoint.sh` re-imports it into `gh`, and `up` exports
+it as `GH_TOKEN`). A bare host-side `gh auth refresh -h github.com -s workflow` upgrades
+only gh's credential store — the container overrides that on its next start, so it does
+not durably fix the pipeline.
