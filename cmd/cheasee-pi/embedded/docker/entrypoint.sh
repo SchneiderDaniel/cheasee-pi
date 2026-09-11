@@ -38,7 +38,13 @@ apply_cpu_limit() {
     fi
     local PERIOD=100000
     local QUOTA
-    QUOTA=$(awk -v cpus="$cpus" -v period="$PERIOD" 'BEGIN {printf "%d", cpus * period}' 2>/dev/null) || return 0
+    # awk failing is an internal error only (e.g. float overflow on a
+    # huge valid number) — input is regex-validated above, so never hostile.
+    # Silent success would hide losing CPU enforcement: warn, don't abort.
+    if ! QUOTA=$(awk -v cpus="$cpus" -v period="$PERIOD" 'BEGIN {printf "%d", cpus * period}' 2>/dev/null); then
+        echo "Warning: could not compute CPU quota from CHEASEEPI_CPUS='$cpus' (non-fatal — CPU limit not applied)"
+        return 0
+    fi
     if [ -n "$QUOTA" ] && [ "$QUOTA" -gt 0 ] 2>/dev/null; then
         echo "$QUOTA $PERIOD" > "${CGROUP_CPU_MAX:-/sys/fs/cgroup/cpu.max}" 2>/dev/null || \
             echo "Warning: could not write CPU limit to cgroup (non-fatal)"

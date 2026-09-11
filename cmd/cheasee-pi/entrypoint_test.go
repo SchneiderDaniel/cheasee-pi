@@ -849,6 +849,29 @@ echo OK
 	}
 }
 
+func TestEntrypoint_ApplyCpuLimit_AwkFailureWarns(t *testing.T) {
+	// awk failing (never hostile input — regex-validated above, but e.g. float
+	// overflow on a huge valid number) must warn, write nothing, and return 0 —
+	// NOT silently return success with cpu.max unchanged (audit: visible error
+	// handling). Stub awk via PATH to force the failure deterministically.
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	stubBin(t, binDir, "awk", filepath.Join(t.TempDir(), "marker"), "exit 1")
+	target := filepath.Join(dir, "cpu.max")
+	body := fmt.Sprintf(`
+cd %s
+out=$(PATH=%s CHEASEEPI_CPUS='4.0' CGROUP_CPU_MAX=%s apply_cpu_limit)
+case "$out" in
+  *"Warning: could not compute CPU quota"*) ;;
+  *) echo "no CPU-quota warning: $out"; exit 1 ;;
+esac
+[ ! -e %s ] || { echo "cpu.max written"; exit 1; }
+echo OK
+`, shq(dir), shq(binDir+":"+os.Getenv("PATH")), shq(target), shq(target))
+	out, err := runBashScript(t, funcScript(t, "apply_cpu_limit", body))
+	assertOK(t, out, err, "apply_cpu_limit awk-failure path")
+}
+
 func TestEntrypoint_ApplyCpuLimit_WriteFailureWarns(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "no-such-dir", "cpu.max")
@@ -911,51 +934,37 @@ esac`
 	return binDir, marker
 }
 
-func TestEntrypoint_RemapUidGid_NonNumericUidSkipped(t *testing.T) {
+func TestEntrypoint_RemapUidGid_NonNumericSkipped(t *testing.T) {
+	// Both HOST_UID and HOST_GID share the same contract: non-numeric value →
+	// warning naming the variable, no usermod/groupmod invocation, no
+	// injection, return 0 (would abort under set -e today).
 	binDir, marker := remapStubs(t)
-	for _, value := range []string{"abc", "-1", "4.5", "1000; touch $tmp; "} {
-		t.Run(value, func(t *testing.T) {
-			dir := t.TempDir()
-			body := fmt.Sprintf(`
+	cases := []struct{ varName, warning string }{
+		{"HOST_UID", "Warning: HOST_UID="},
+		{"HOST_GID", "Warning: HOST_GID="},
+	}
+	hostile := []string{"abc", "-1", "4.5", "1000; touch $tmp; "}
+	for _, c := range cases {
+		for _, value := range hostile {
+			t.Run(c.varName+"/"+value, func(t *testing.T) {
+				dir := t.TempDir()
+				body := fmt.Sprintf(`
 cd %s
 unset HOST_UID HOST_GID
 tmp="$PWD/injected"
-out=$(PATH=%s HOST_UID=%s remap_uid_gid)
+out=$(PATH=%s %s=%s remap_uid_gid)
 case "$out" in
-  *"Warning: HOST_UID="*) ;;
-  *) echo "no HOST_UID warning: $out"; exit 1 ;;
+  *"%s"*) ;;
+  *) echo "no %s warning: $out"; exit 1 ;;
 esac
 [ ! -e %s ] || { echo "usermod/groupmod invoked"; exit 1; }
 [ ! -e "$tmp" ] || { echo "injection executed"; exit 1; }
 echo OK
-`, shq(dir), shq(binDir+":"+os.Getenv("PATH")), shq(value), shq(marker))
-			out, err := runBashScript(t, funcScript(t, "remap_uid_gid", body))
-			assertOK(t, out, err, fmt.Sprintf("remap_uid_gid(HOST_UID=%q)", value))
-		})
-	}
-}
-
-func TestEntrypoint_RemapUidGid_NonNumericGidSkipped(t *testing.T) {
-	binDir, marker := remapStubs(t)
-	for _, value := range []string{"abc", "-1", "4.5", "1000; touch $tmp; "} {
-		t.Run(value, func(t *testing.T) {
-			dir := t.TempDir()
-			body := fmt.Sprintf(`
-cd %s
-unset HOST_UID HOST_GID
-tmp="$PWD/injected"
-out=$(PATH=%s HOST_GID=%s remap_uid_gid)
-case "$out" in
-  *"Warning: HOST_GID="*) ;;
-  *) echo "no HOST_GID warning: $out"; exit 1 ;;
-esac
-[ ! -e %s ] || { echo "groupmod/usermod invoked"; exit 1; }
-[ ! -e "$tmp" ] || { echo "injection executed"; exit 1; }
-echo OK
-`, shq(dir), shq(binDir+":"+os.Getenv("PATH")), shq(value), shq(marker))
-			out, err := runBashScript(t, funcScript(t, "remap_uid_gid", body))
-			assertOK(t, out, err, fmt.Sprintf("remap_uid_gid(HOST_GID=%q)", value))
-		})
+`, shq(dir), shq(binDir+":"+os.Getenv("PATH")), c.varName, shq(value), c.warning, c.varName, shq(marker))
+				out, err := runBashScript(t, funcScript(t, "remap_uid_gid", body))
+				assertOK(t, out, err, fmt.Sprintf("remap_uid_gid(%s=%q)", c.varName, value))
+			})
+		}
 	}
 }
 
