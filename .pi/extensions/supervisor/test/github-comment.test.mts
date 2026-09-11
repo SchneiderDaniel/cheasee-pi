@@ -962,6 +962,126 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"collector receives warn about bare text fallback",
 		);
 	});
+	// ── Phase 6b: Bare-text fallback must NOT leak raw subprocess output ──
+	it("Architect bare-text fallback ignores result.output (protocol leak guard, issue #1671)", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		// Simulates the 400-API-error empty run from issue #1671: no text, zero
+		// tokens/tools, but raw subprocess stdout (pi NDJSON protocol echoing
+		// the task prompt) containing the role keyword "Architecture".
+		const result = makeResult({
+			agentName: "architect",
+			textOnly: "",
+			textOutput: "",
+			thinkingOutput: undefined,
+			output:
+				'{"type":"session","version":3,"cwd":"/worktree"}\n{"type":"message_start","message":{"content":[{"type":"text","text":"Architecture design for ticket..."}]}}',
+			tokenCount: 0,
+			toolCount: 0,
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"architect",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(
+			ghCalls.length,
+			0,
+			"no comment posted — raw protocol output must never reach GitHub",
+		);
+		assert.equal(capturedBodies.length, 0, "no comment body captured");
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some((w) => w.message.includes("produced no output")),
+			"collector receives warn about the empty run",
+		);
+	});
+
+	it("Researcher empty run with raw output → graceful degradation comment, not protocol dump (issue #1671)", async () => {
+		registerGhResponse();
+		const pi = createBodyCapturePi(captured, capturedBodies);
+		const ctx = createMockCtx(captured, { hasUI: true });
+		const collector = new ErrorCollector();
+		const result = makeResult({
+			agentName: "researcher",
+			textOnly: "",
+			textOutput: "",
+			thinkingOutput: undefined,
+			output:
+				'{"type":"session","version":3,"cwd":"/worktree"}\n{"type":"message_start","message":{"content":[{"type":"text","text":"Research indicates the system is fine"}]}}',
+			tokenCount: 0,
+			toolCount: 0,
+		});
+
+		const port = createMockPortForTest(pi);
+		const success = await handlePostAgentSuccess(
+			pi,
+			ctx,
+			result,
+			"researcher",
+			42,
+			mockConfig,
+			filteredData,
+			undefined,
+			undefined,
+			"Test issue",
+			collector,
+			undefined,
+			undefined,
+			port,
+		);
+
+		assert.equal(success, true, "pipeline should continue");
+
+		const ghCalls = captured.execCalls.filter(
+			(c) => (c.cmd === "gh" || c.cmd === "bash") && c.args.some((a) => a === "comment"),
+		);
+		assert.equal(ghCalls.length, 1, "one gh issue comment call — graceful degradation only");
+
+		assert.equal(capturedBodies.length, 1, "one comment body captured");
+		const body = capturedBodies[0] || "";
+		assert.ok(
+			body.includes("No relevant results found"),
+			"body contains graceful degradation message",
+		);
+		assert.ok(!body.includes('{"type":"session"'), "raw protocol NDJSON NOT posted to GitHub");
+		assert.ok(
+			!body.includes("Research indicates"),
+			"protocol-echoed task text NOT posted to GitHub",
+		);
+
+		const warns = collector.flush("stages");
+		assert.ok(
+			warns.some(
+				(w) =>
+					w.message.includes("produced no output") ||
+					w.message.includes("no commentBody in JSON output"),
+			),
+			"collector receives warn about the empty run",
+		);
+	});
 	// ── Phase 7: Heading validation — table-driven dispatch ─────
 	it("Researcher missing ## Research Findings heading → heading check nullifies commentBody, graceful degradation fallback posted", async () => {
 		registerGhResponse();
