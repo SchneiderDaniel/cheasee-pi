@@ -120,7 +120,13 @@ function extractCommentBody(
 	// When agent omits JSON and section headings, detect role-relevant content
 	// and wrap in default heading so review is not silently lost.
 	if (!commentBody) {
-		const rawOutput = result.textOutput || result.output || "";
+		// textOutput only — result.output is raw subprocess stdout (pi NDJSON
+		// protocol: session/agent_start/message events echoing the task prompt).
+		// Posting it leaks system prompts and tool results to GitHub (see NOTE
+		// above). An empty model run must degrade, not post protocol junk
+		// (issue #1671: a 400 API error produced a 0-token run whose NDJSON
+		// dump was wrapped as "Research Findings").
+		const rawOutput = result.textOutput || "";
 		let wrapped: string | null = null;
 
 		const rule = BARE_TEXT_RULES.find((r) => r.agent === agentName);
@@ -137,6 +143,24 @@ function extractCommentBody(
 				`${agentName} commentBody extracted from bare text fallback (no JSON or heading found)`,
 			);
 		}
+	}
+
+	// Empty-run detection: success=true with 0 tokens, 0 tools and no text
+	// means the model never produced output (e.g. a 400 API error swallowed
+	// with exit code 0). Surface it so the run doesn't masquerade as a clean
+	// success in the pipeline warnings (issue #1671).
+	if (
+		!commentBody &&
+		result.tokenCount === 0 &&
+		result.toolCount === 0 &&
+		!result.textOnly &&
+		!result.textOutput
+	) {
+		collector?.push(
+			"stages",
+			"warn",
+			`${agentName} produced no output (tokenCount=0, toolCount=0, empty text). Model/API error — no output comment posted.`,
+		);
 	}
 
 	return { commentBody, extractionSource };
