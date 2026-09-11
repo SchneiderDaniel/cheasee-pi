@@ -76,8 +76,12 @@ func removeImages(ctx context.Context, images []cheaseePiImage) error {
 
 // pruneOrphanedImages runs `docker image prune -f` so images left dangling by
 // the removals are reclaimed. Safe to run unconditionally — fast when empty.
-func pruneOrphanedImages() {
-	if _, err := runCommandContext(context.Background(), "docker", "image", "prune", "-f").CombinedOutput(); err == nil {
-		fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
+// A docker failure surfaces as an error: silence would report success while
+// the unsafe/untagged artifacts stay on disk.
+func pruneOrphanedImages(ctx context.Context) error {
+	if _, err := runCommandContext(ctx, "docker", "image", "prune", "-f").CombinedOutput(); err != nil {
+		return fmt.Errorf("docker image prune: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
+	return nil
 }

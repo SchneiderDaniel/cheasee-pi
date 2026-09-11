@@ -283,9 +283,111 @@ func TestPruneAllBuildCache_InvokesWithA(t *testing.T) {
 		recorded = append(recorded, append([]string(nil), arg...))
 		return &mockCmd{}
 	})
-	testutil.CaptureStderr(t, func() { pruneAllBuildCache() })
+	testutil.CaptureStderr(t, func() { pruneAllBuildCache(context.Background()) })
 	if len(recorded) != 1 || !slices.Equal(recorded[0], []string{"buildx", "prune", "-a", "-f"}) {
 		t.Errorf("pruneAllBuildCache must invoke docker buildx prune -a -f, got %v", recorded)
+	}
+}
+
+func TestPruneAllBuildCache_FailureSurfaces(t *testing.T) {
+	// A docker failure must surface as an error — never silent success while
+	// the cache the removed images pinned stays on disk.
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
+	})
+	err := pruneAllBuildCache(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "docker buildx prune") || !strings.Contains(err.Error(), "daemon down") {
+		t.Fatalf("buildx prune failure must surface wrapped, got %v", err)
+	}
+}
+
+func TestRunPruneImagesE_imagePruneFailureSurfaces(t *testing.T) {
+	// image rm succeeds, then `docker image prune` fails: the error must be
+	// propagated (tagged images may be gone, but the disk pressure they caused
+	// is not) and the buildx prune step must not run.
+	resetPruneState(t)
+	pruneImagesYes = true
+	var recorded [][]string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		recorded = append(recorded, append([]string(nil), arg...))
+		if len(arg) > 1 && arg[0] == "image" && arg[1] == "ls" {
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				return []byte("cheasee-pi-repoA-cheasee-pi:latest|3.4GB\n"), nil
+			}}
+		}
+		if len(arg) > 1 && arg[0] == "image" && arg[1] == "prune" {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("cannot prune") }}
+		}
+		return &mockCmd{}
+	})
+	err := runPruneImagesE(pruneImagesCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "prune-images:") || !strings.Contains(err.Error(), "docker image prune") {
+		t.Fatalf("image prune failure must surface wrapped, got %v", err)
+	}
+	for _, arg := range recorded {
+		if len(arg) > 0 && arg[0] == "buildx" {
+			t.Errorf("failed image prune must stop before buildx prune, got %v", arg)
+		}
+	}
+}
+
+func TestRunPruneImagesE_buildxPruneFailureSurfaces(t *testing.T) {
+	// image rm and image prune succeed, then `docker buildx prune -a -f`
+	// fails: the error must be propagated, not swallowed into success.
+	resetPruneState(t)
+	pruneImagesYes = true
+	var recorded [][]string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		recorded = append(recorded, append([]string(nil), arg...))
+		if len(arg) > 1 && arg[0] == "image" && arg[1] == "ls" {
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				return []byte("cheasee-pi-repoA-cheasee-pi:latest|3.4GB\n"), nil
+			}}
+		}
+		if len(arg) > 0 && arg[0] == "buildx" {
+			return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("builder busy") }}
+		}
+		return &mockCmd{}
+	})
+	err := runPruneImagesE(pruneImagesCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "prune-images:") || !strings.Contains(err.Error(), "docker buildx prune") {
+		t.Fatalf("buildx prune failure must surface wrapped, got %v", err)
+	}
+}
+
+func TestRunPruneImagesE_pruneOrderingOnSuccess(t *testing.T) {
+	// Full success path: image rm ×2, then image prune, then buildx prune -a.
+	resetPruneState(t)
+	pruneImagesYes = true
+	calls := pruneTestStub(t, nil, "cheasee-pi-repoA-cheasee-pi:latest|3.4GB\ncheasee-pi-repoA-codeflow:latest|1.2GB\n", "")
+	testutil.CaptureStderr(t, func() {
+		if err := runPruneImagesE(pruneImagesCmd, nil); err != nil {
+			t.Fatalf("runPruneImagesE: %v", err)
+		}
+	})
+	var seq []string
+	for _, arg := range *calls {
+		switch {
+		case len(arg) > 1 && arg[0] == "image" && arg[1] == "rm":
+			seq = append(seq, "rm")
+		case len(arg) > 1 && arg[0] == "image" && arg[1] == "prune":
+			seq = append(seq, "image-prune")
+		case len(arg) > 0 && arg[0] == "buildx":
+			seq = append(seq, "buildx-prune")
+		}
+	}
+	want := []string{"rm", "rm", "image-prune", "buildx-prune"}
+	if !slices.Equal(seq, want) {
+		t.Errorf("prune sequence = %v, want %v", seq, want)
 	}
 }
 
