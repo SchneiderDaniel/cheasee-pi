@@ -290,3 +290,69 @@ describe("resolveNextStatusFromAgentOutput", () => {
 		assert.strictEqual(result, null);
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// Heading fallbacks — anchored verdict detection (issue #1668)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("resolveNextStatusFromAgentOutput — audit heading fallbacks (issue #1668)", () => {
+	const auditorStep: WorkflowStep = {
+		status: "Audit",
+		agentName: "auditor",
+		markerMap: {
+			AUDIT_APPROVED: "Done",
+			AUDIT_REJECTED: "Implementation",
+		},
+	};
+
+	it("structured commentBody '## Audit Rejected' + bare COMPLETE → REJECTED (existing behavior)", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "auditor",
+			commentBody: "## Audit Rejected\nBad code",
+		});
+		const result = resolveNextStatusFromAgentOutput(auditorStep, json);
+		assert.strictEqual(result, "Implementation");
+	});
+
+	it("structured commentBody '## Audit Approved' + bare COMPLETE → APPROVED", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "auditor",
+			commentBody: "## Audit Approved\nAll good",
+		});
+		const result = resolveNextStatusFromAgentOutput(auditorStep, json);
+		assert.strictEqual(result, "Done");
+	});
+
+	it("structured commentBody quoting the heading only → NOT REJECTED, bare-COMPLETE APPROVED default", () => {
+		const json = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "auditor",
+			commentBody: 'no "## Audit Rejected"/"## Audit Approved" verdict comment',
+		});
+		const result = resolveNextStatusFromAgentOutput(auditorStep, json);
+		assert.strictEqual(result, "Done");
+	});
+
+	it("raw text with a later '## Audit Approved' line than '## Audit Rejected' → approval wins", () => {
+		const raw =
+			'## Audit Rejected\nFirst pass had issues\n\n## Audit Approved\nAll fixed in resubmission';
+		const result = resolveNextStatusFromAgentOutput(auditorStep, raw);
+		assert.strictEqual(result, "Done");
+	});
+
+	it("raw text with a later '## Audit Rejected' line than '## Audit Approved' → rejection wins", () => {
+		const raw =
+			'## Audit Approved\nFirst pass fine\n\n## Audit Rejected\nTest gaps found';
+		const result = resolveNextStatusFromAgentOutput(auditorStep, raw);
+		assert.strictEqual(result, "Implementation");
+	});
+
+	it("raw mid-line occurrence 'reason: ## Audit Rejected' → not classified by the heading fallback", () => {
+		const raw = "reason: ## Audit Rejected because the heading is quoted inline";
+		const result = resolveNextStatusFromAgentOutput(auditorStep, raw);
+		// Heading fallback must not fire — no marker either → null
+		assert.strictEqual(result, null);
+	});
+});

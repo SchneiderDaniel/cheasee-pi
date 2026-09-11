@@ -28,6 +28,7 @@ import {
 	WORKFLOW,
 } from "../../config/workflow.ts";
 import { commitAndPush } from "../../github/git.ts";
+import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
 import { extractAgentCommentBody, extractStructuredAuditOutput } from "../../agent/output.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
@@ -296,16 +297,26 @@ function extractFirstGateName(note: string): string {
 
 // ─── Check Rejection Limit ────────────────────────────────────────
 
+/** Result of the rejection-limit gate: whether the limit is reached and the real count. */
+export interface RejectionLimitResult {
+	reached: boolean;
+	count: number;
+}
+
+/**
+ * Count comments that BEGIN with the `## Audit Rejected` heading (position 0,
+ * via the shared lib/audit-headings matcher) and compare against the step's
+ * maxRejections threshold. Quoted occurrences inside test plans, contracts or
+ * summaries never count (issue #1668). Returns the real count so callers can
+ * report it instead of the threshold.
+ */
 export function isRejectionLimitReached(
-	comments: Array<{ body: string }>,
+	comments: Array<{ body?: string | null }>,
 	stepMaxRejections?: number,
-): boolean {
-	if (!stepMaxRejections || stepMaxRejections <= 0) return false;
-	const rejectionCount = comments.filter((c) => {
-		const body = c.body || "";
-		return /##\s*Audit\s*Rejected/i.test(body);
-	}).length;
-	return rejectionCount >= stepMaxRejections;
+): RejectionLimitResult {
+	if (!stepMaxRejections || stepMaxRejections <= 0) return { reached: false, count: 0 };
+	const rejectionCount = comments.filter((c) => isAuditRejectedComment(c.body)).length;
+	return { reached: rejectionCount >= stepMaxRejections, count: rejectionCount };
 }
 
 // ─── Audit Gate Types ─────────────────────────────────────────────

@@ -6,6 +6,8 @@
 //
 // Per-agent overrides are injected after the shared discipline block.
 
+import { AUDIT_APPROVED_HEADING, AUDIT_REJECTED_HEADING } from "./audit-headings.ts";
+
 /** Per-agent tool discipline overrides (injected after shared discipline block). */
 interface AgentDisciplineOverrides {
 	/** Additional discipline rules specific to this agent. */
@@ -90,8 +92,11 @@ Scan the provided issue data for an existing comment containing \`## Research Fi
 /**
  * Centralized comment format templates.
  * Previously defined in individual agent .md files, now code-generated.
+ * Auditor verdict templates interpolate the AUDIT_*_HEADING constants
+ * from lib/audit-headings.ts so template and rejection/approval matcher
+ * cannot drift (issue #1668).
  */
-const COMMENT_FORMAT_TEMPLATES = {
+export const COMMENT_FORMAT_TEMPLATES = {
 	researcher: `## Research Findings
 
 ### Best Practices
@@ -135,7 +140,7 @@ const COMMENT_FORMAT_TEMPLATES = {
 ` + "```bash\n<exact test command>\n```",
 
 	auditor: {
-		approved: `## Audit Approved
+		approved: `${AUDIT_APPROVED_HEADING}
 
 **Score:** <passing>/6 — <summary>
 
@@ -148,7 +153,7 @@ const COMMENT_FORMAT_TEMPLATES = {
 - Code quality: ✓
 - Completeness: ✓`,
 
-		rejected: `## Audit Rejected
+		rejected: `${AUDIT_REJECTED_HEADING}
 
 **Score:** <passing>/6 — <summary>
 
