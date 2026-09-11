@@ -58,6 +58,7 @@ import {
 } from "../stages/index.ts";
 import { fetchFreshIssueData, loadAgentFile as loadAgentFileHelper } from "../helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
+import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { RunContext } from "./shared.ts";
 import { handlePrApprovalFlow } from "./pr-gates.ts";
@@ -151,15 +152,21 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			collector,
 		);
 
-		// Rejection limit check
-		if (isRejectionLimitReached(loopFilteredData.comments, step.maxRejections)) {
-			stopReason = `Rejection limit reached (${step.maxRejections})`;
+		// Rejection limit check (issue #1668: reports the real count, not the
+		// threshold; only position-0 `## Audit Rejected` comments count).
+		const rejectionLimit = isRejectionLimitReached(
+			loopFilteredData.comments,
+			step.maxRejections,
+		);
+		if (rejectionLimit.reached) {
+			stopReason = `Rejection limit reached (${rejectionLimit.count})`;
 			ctx.ui.notify(
-				`Issue #${issueNum} rejected ${step.maxRejections} times. Human intervention required.`,
+				`Issue #${issueNum} rejected ${rejectionLimit.count} times. Human intervention required.`,
 				"error",
 			);
 			getDebugLogger().warn("handler", "Rejection limit reached", {
 				maxRejections: step.maxRejections,
+				rejectionCount: rejectionLimit.count,
 			});
 			break;
 		}
@@ -243,10 +250,12 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		const auditFeedback: string | undefined =
 			agentName === "developer"
 				? (() => {
-						// Find the latest comment containing "## Audit Rejected"
+						// Find the latest comment BEGINNING with the "## Audit Rejected"
+						// heading (position-0 only — quoted occurrences must not be fed
+						// to the developer as rejection feedback, issue #1668).
 						for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
 							const body = loopFilteredData.comments[i]?.body || "";
-							if (/##\s*Audit\s*Rejected/i.test(body)) {
+							if (isAuditRejectedComment(body)) {
 								return body;
 							}
 						}

@@ -256,9 +256,16 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 		);
 	});
 
-	it("auditor rejection path (auditFeedback via comment-scanning) unchanged", () => {
+	it("auditor rejection path (auditFeedback via anchored comment scan) intact — issue #1668", () => {
 		const src = readHandlerSource();
-		assert.ok(src.includes("/##\\s*Audit\\s*Rejected/i"), "auditFeedback regex unchanged");
+		assert.ok(
+			src.includes("isAuditRejectedComment(body)"),
+			"auditFeedback scan uses the shared anchored matcher",
+		);
+		assert.ok(
+			!src.includes("/##\\s*Audit\\s*Rejected/i"),
+			"unanchored substring regex removed (quoted headings must not count)",
+		);
 	});
 
 	it("pre-transition hooks step.hooks check still includes all hook types", () => {

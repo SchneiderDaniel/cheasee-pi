@@ -8,7 +8,9 @@ import {
 	ERROR_HANDLING_PRINCIPLES,
 	INVESTIGATION_EFFICIENCY,
 	buildAgentSystemPrompt,
+	COMMENT_FORMAT_TEMPLATES,
 } from "../lib/shared-prompts.ts";
+import { AUDIT_APPROVED_HEADING, AUDIT_REJECTED_HEADING } from "../lib/audit-headings.ts";
 
 // ─── Tests: TOOL_DISCIPLINE_SNIPPET ───────────────────────────────
 
@@ -98,6 +100,32 @@ describe("ERROR_HANDLING_PRINCIPLES", () => {
 
 	it("is under 500 bytes (token budget compliance)", () => {
 		assert.ok(Buffer.byteLength(ERROR_HANDLING_PRINCIPLES, "utf8") < 500);
+	});
+});
+
+// ─── Tests: COMMENT_FORMAT_TEMPLATES ─────────────────────────────
+// Issue #1668 drift guard: the auditor verdict templates must start with
+// the same anchored heading constants the rejection/approval matchers use,
+// so template and matcher cannot drift apart.
+
+describe("COMMENT_FORMAT_TEMPLATES auditor verdict templates", () => {
+	it("approved template starts with AUDIT_APPROVED_HEADING", () => {
+		assert.ok(
+			COMMENT_FORMAT_TEMPLATES.auditor.approved.startsWith(AUDIT_APPROVED_HEADING),
+			"approved template must begin with the shared heading constant",
+		);
+	});
+
+	it("rejected template starts with AUDIT_REJECTED_HEADING", () => {
+		assert.ok(
+			COMMENT_FORMAT_TEMPLATES.auditor.rejected.startsWith(AUDIT_REJECTED_HEADING),
+			"rejected template must begin with the shared heading constant",
+		);
+	});
+
+	it("templates begin at position 0 (matches the anchored position-0 matcher)", () => {
+		assert.equal(COMMENT_FORMAT_TEMPLATES.auditor.approved.indexOf(AUDIT_APPROVED_HEADING), 0);
+		assert.equal(COMMENT_FORMAT_TEMPLATES.auditor.rejected.indexOf(AUDIT_REJECTED_HEADING), 0);
 	});
 });
 

@@ -43,11 +43,14 @@ function createMockPi(calls?: ExecCall[]): ExtensionAPI {
 	} as ExtensionAPI;
 }
 
-function createMockCtx(): ExtensionCommandContext {
+function createMockCtx(notifyLog?: Array<{ msg: string; type: string }>): ExtensionCommandContext {
+	const log = notifyLog || [];
 	return {
 		cwd: "/repo",
 		ui: {
-			notify: () => {},
+			notify: (msg: string, type?: string) => {
+				log.push({ msg, type: type || "info" });
+			},
 			setStatus: () => {},
 			setWidget: mock.fn(),
 			confirm: async () => true,
@@ -108,7 +111,7 @@ function makeDevResult(overrides: Partial<AgentRunResult>): AgentRunResult {
 
 // Serves a fixed queue of results, one per dispatch. Any unexpected extra
 // dispatch (past the queue) fails hard so the test notices.
-function createQueueRunner(results: AgentRunResult[]) {
+function createQueueRunner(results: AgentRunResult[], agentName = "developer") {
 	return mock.fn(async (...args: any[]) => {
 		const next = results.shift();
 		if (!next) {
@@ -118,7 +121,7 @@ function createQueueRunner(results: AgentRunResult[]) {
 			});
 		}
 		const agent = args[0] as { config?: { name?: string } };
-		if (agent?.config?.name !== "developer") {
+		if (agent?.config?.name !== agentName) {
 			return makeDevResult({
 				success: false,
 				errorOutput: `unexpected agent dispatch: ${agent?.config?.name}`,
@@ -126,6 +129,22 @@ function createQueueRunner(results: AgentRunResult[]) {
 		}
 		return next;
 	});
+}
+
+function makeAuditResult(overrides: Partial<AgentRunResult>): AgentRunResult {
+	return {
+		output: "raw output",
+		success: true,
+		agentName: "auditor",
+		toolCount: 3,
+		tokenCount: 500,
+		durationMs: 5000,
+		textOutput: "Audited\nAUDIT_DECISION: REJECTED",
+		textOnly: "AUDIT_DECISION: REJECTED",
+		summaryLine: "Audited",
+		errorOutput: "",
+		...overrides,
+	};
 }
 
 // ─── RunContext builder ───────────────────────────────────────────
@@ -152,10 +171,13 @@ function buildRetryRunContext(opts: {
 	portCalls: PortCall[];
 	tmpCwd: string;
 	wt: string;
+	comments?: Array<{ author?: { login?: string }; body?: string | null }>;
+	loopStatus?: string;
+	notifyLog?: Array<{ msg: string; type: string }>;
 }): RunContext {
 	const execCalls: ExecCall[] = [];
 	const pi = createMockPi(execCalls);
-	const ctx = createMockCtx();
+	const ctx = createMockCtx(opts.notifyLog);
 	const ctxWithCwd = { ...ctx, cwd: opts.tmpCwd } as unknown as ExtensionCommandContext;
 
 	const port = createMockGitHubPort(
@@ -184,7 +206,7 @@ function buildRetryRunContext(opts: {
 						title: "Test issue",
 						body: "body",
 						author: { login: "user1" },
-						comments: [],
+						comments: opts.comments ?? [],
 					}),
 					stderr: "",
 				};
@@ -204,8 +226,8 @@ function buildRetryRunContext(opts: {
 			author: { login: "user1" },
 			comments: [],
 		},
-		stageState: createStageState("Implementation"),
-		loopStatus: "Implementation",
+		stageState: createStageState(opts.loopStatus || "Implementation"),
+		loopStatus: opts.loopStatus || "Implementation",
 		loopItem: { id: "item-1" },
 		fields: FIELDS as any,
 		statusField: FIELDS[0] as any,
@@ -442,5 +464,199 @@ describe("runAgentLoop — retry path documents every dispatch (issue #1495)", (
 		);
 		assert.equal(failed.tokenCount, 0, "derated run keeps its 0 tokens");
 		assert.equal(retried.status, "SUCCESS (after retry)");
+	});
+});
+
+// ─── Tests: rejection-limit gate + auditFeedback (issue #1668) ────
+// Full-loop harness: real runAgentLoop, gh exec returns the injected
+// comments, mock.fn queue runner (pattern above). The Audit workflow step
+// carries maxRejections: 5; other steps have no threshold.
+
+const TEST_PLAN_QUOTE = '## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
+
+function trustedComment(body: string): { author: { login: string }; body: string } {
+	return { author: { login: "user1" }, body };
+}
+
+function makeRejectWorktree(): string {
+	return mkdtempSync(join(tmpdir(), "agent-loop-reject-wt-"));
+}
+
+async function runLoopWithComments(opts: {
+	comments: Array<{ author?: { login?: string }; body?: string | null }>;
+	loopStatus: string;
+	queue: AgentRunResult[];
+	queueAgent: string;
+}): Promise<{
+	runCtx: RunContext;
+	runner: ReturnType<typeof mock.fn>;
+	notifyLog: Array<{ msg: string; type: string }>;
+}> {
+	const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-reject-cwd-"));
+	const wt = makeRejectWorktree();
+	const portCalls: PortCall[] = [];
+	const notifyLog: Array<{ msg: string; type: string }> = [];
+	const runner = createQueueRunner(opts.queue, opts.queueAgent);
+	const runCtx = buildRetryRunContext({
+		runner,
+		portCalls,
+		tmpCwd,
+		wt,
+		comments: opts.comments,
+		loopStatus: opts.loopStatus,
+		notifyLog,
+	});
+	await runAgentLoop(runCtx);
+	return { runCtx, runner, notifyLog };
+}
+
+describe("runAgentLoop — rejection-limit gate (issue #1668)", () => {
+	it("4 genuine rejections + 1 quoted Test Plan, max 5 → gate does NOT trip, auditor dispatched", async () => {
+		const comments = [
+			trustedComment("## Audit Rejected\nFirst"),
+			trustedComment("## Audit Rejected\nSecond"),
+			trustedComment("## Audit Rejected\nThird"),
+			trustedComment(TEST_PLAN_QUOTE),
+			trustedComment("## Audit Rejected\nFourth"),
+		];
+		const { runCtx, runner, notifyLog } = await runLoopWithComments({
+			comments,
+			loopStatus: "Audit",
+			queue: [makeAuditResult({})],
+			queueAgent: "auditor",
+		});
+
+		assert.ok(runner.mock.calls.length >= 1, "auditor was dispatched — gate did not trip");
+		const firstAgent = (
+			runner.mock.calls[0]!.arguments[0] as { config?: { name?: string } }
+		)?.config?.name;
+		assert.equal(firstAgent, "auditor", "first dispatch is the auditor, not a hard stop");
+		assert.equal(
+			runCtx.agentResults[0]?.agentName,
+			"auditor",
+			"auditor run recorded — loop advanced past the Audit step",
+		);
+		assert.ok(
+			!runCtx.stopReason?.includes("Rejection limit"),
+			`quoted Test Plan must not trip the limit, got: ${runCtx.stopReason}`,
+		);
+		assert.ok(
+			notifyLog.every((n) => !n.msg.includes("rejected 5 times")),
+			"no rejection-limit notify fired",
+		);
+	});
+
+	it("5 genuine rejections, max 5 → hard stop BEFORE any dispatch, stopReason + notify use count", async () => {
+		const comments = Array.from({ length: 5 }, (_, i) =>
+			trustedComment(`## Audit Rejected\nIssue ${i + 1}`),
+		);
+		const { runCtx, runner, notifyLog } = await runLoopWithComments({
+			comments,
+			loopStatus: "Audit",
+			queue: [makeAuditResult({})],
+			queueAgent: "auditor",
+		});
+
+		assert.equal(runner.mock.calls.length, 0, "no dispatch before the hard stop");
+		assert.equal(runCtx.stopReason, "Rejection limit reached (5)");
+		assert.ok(
+			notifyLog.some(
+				(n) =>
+					n.msg.includes("rejected 5 times") && n.msg.includes("Human intervention required"),
+			),
+			"operator notify reports the actual rejection count",
+		);
+	});
+
+	it("7 genuine rejections, max 5 → reports the actual count (7), not the threshold", async () => {
+		const comments = Array.from({ length: 7 }, (_, i) =>
+			trustedComment(`## Audit Rejected\nIssue ${i + 1}`),
+		);
+		const { runCtx, notifyLog } = await runLoopWithComments({
+			comments,
+			loopStatus: "Audit",
+			queue: [makeAuditResult({})],
+			queueAgent: "auditor",
+		});
+
+		assert.equal(runCtx.stopReason, "Rejection limit reached (7)");
+		assert.ok(
+			notifyLog.some((n) => n.msg.includes("rejected 7 times")),
+			"notify reports 7 (count), not 5 (threshold)",
+		);
+	});
+
+	it("mid-body quote only, max 5 → not counted, auditor dispatched", async () => {
+		const comments = [trustedComment("intro\n\n## Audit Rejected\n...")];
+		const { runCtx, runner } = await runLoopWithComments({
+			comments,
+			loopStatus: "Audit",
+			queue: [makeAuditResult({})],
+			queueAgent: "auditor",
+		});
+
+		assert.ok(runner.mock.calls.length >= 1, "mid-body quote is not a rejection");
+		assert.ok(!runCtx.stopReason?.includes("Rejection limit"));
+	});
+});
+
+describe("runAgentLoop — auditFeedback scan (issue #1668)", () => {
+	it("newest Test Plan quoting the heading is skipped; genuine rejection fed to developer", async () => {
+		const comments = [
+			trustedComment("## Audit Rejected\nOldest genuine rejection details"),
+			trustedComment(TEST_PLAN_QUOTE),
+		];
+		const { runner } = await runLoopWithComments({
+			comments,
+			loopStatus: "Implementation",
+			queue: [makeDevResult({})],
+			queueAgent: "developer",
+		});
+
+		assert.ok(runner.mock.calls.length >= 1, "developer dispatched");
+		const task = runner.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
+			"audit feedback block present",
+		);
+		assert.ok(
+			task.includes("## Audit Rejected\nOldest genuine rejection details"),
+			"genuine rejection (not the quote) is the feedback body",
+		);
+	});
+
+	it("quote-only comment set → no audit feedback block", async () => {
+		const comments = [trustedComment(TEST_PLAN_QUOTE)];
+		const { runner } = await runLoopWithComments({
+			comments,
+			loopStatus: "Implementation",
+			queue: [makeDevResult({})],
+			queueAgent: "developer",
+		});
+
+		const task = runner.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			!task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
+			"quoted heading alone must not be handed to the developer as rejection feedback",
+		);
+	});
+
+	it("newest matching position-0 rejection wins (reverse-scan order preserved)", async () => {
+		const comments = [
+			trustedComment("## Audit Rejected\nFirst rejection"),
+			trustedComment("## Audit Rejected\nNEWEST rejection"),
+		];
+		const { runner } = await runLoopWithComments({
+			comments,
+			loopStatus: "Implementation",
+			queue: [makeDevResult({})],
+			queueAgent: "developer",
+		});
+
+		const task = runner.mock.calls[0]!.arguments[1] as string;
+		assert.ok(
+			task.includes("## Audit Rejected\nNEWEST rejection"),
+			"newest genuine rejection wins the reverse scan",
+		);
 	});
 });

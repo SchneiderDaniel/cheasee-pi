@@ -7,6 +7,13 @@ import {
 	isRefused as isAgentOutputRefused,
 } from "../agent/output.ts";
 import type { AgentOutput, Finding, FilteredIssueData, ParseResult } from "./types.ts";
+import {
+	AUDIT_APPROVED_HEADING,
+	AUDIT_REJECTED_HEADING,
+	isAuditApprovedComment,
+	isAuditRejectedComment,
+	lastLineHeadingIndex,
+} from "../lib/audit-headings.ts";
 
 export interface WorkflowStep {
 	/** Board status column name (must match config.statusMapping keys) */
@@ -186,14 +193,16 @@ export function resolveNextStatusFromAgentOutput(
 				}
 			}
 
-			// Fallback: check commentBody for approval/rejection heading
+			// Fallback: check commentBody for the approval/rejection heading at
+			// body position 0 (shared anchored matcher — quoted occurrences in
+			// contracts/summaries are not verdicts, issue #1668).
 			if (output.commentBody) {
-				if (output.commentBody.includes("## Audit Approved")) {
+				if (isAuditApprovedComment(output.commentBody)) {
 					if (step.markerMap["AUDIT_DECISION: APPROVED"])
 						return step.markerMap["AUDIT_DECISION: APPROVED"];
 					if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
 				}
-				if (output.commentBody.includes("## Audit Rejected")) {
+				if (isAuditRejectedComment(output.commentBody)) {
 					if (step.markerMap["AUDIT_DECISION: REJECTED"])
 						return step.markerMap["AUDIT_DECISION: REJECTED"];
 					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
@@ -212,8 +221,11 @@ export function resolveNextStatusFromAgentOutput(
 	// Fallback 2: section heading detection for ## Audit Approved / ## Audit Rejected
 	// Matches the pattern used by extractStructuredAuditOutput in github/comment.ts
 	// when agent outputs structured markdown without JSON or text markers.
-	const approvedHeadingIdx = agentOutputText.lastIndexOf("## Audit Approved");
-	const rejectedHeadingIdx = agentOutputText.lastIndexOf("## Audit Rejected");
+	// Line-anchored last-match (shared lib helper): a heading quoted mid-line
+	// (e.g. "reason: ## Audit Rejected") is not classified; the most recent
+	// line-start heading wins (issue #1668).
+	const approvedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_APPROVED_HEADING);
+	const rejectedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_REJECTED_HEADING);
 
 	if (approvedHeadingIdx !== -1 || rejectedHeadingIdx !== -1) {
 		if (approvedHeadingIdx > rejectedHeadingIdx) {
