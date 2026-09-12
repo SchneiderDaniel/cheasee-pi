@@ -206,11 +206,14 @@ func TestInitSplitFileSize(t *testing.T) {
 var testSplitFiles = []string{
 	"init_helpers_test.go",
 	"init_clone_test.go",
+	"init_dockercheck_test.go",
 	"init_usecase_test.go",
+	"init_usecase_probe_test.go",
 	"init_auth_test.go",
 	"init_scaffold_test.go",
 	"init_prompt_test.go",
 	"init_skillrepos_test.go",
+	"init_skillrepos_usecase_test.go",
 	"pi_skeleton_test.go",
 }
 
@@ -240,6 +243,15 @@ var runInitFlowDecls = map[string]string{
 	"func:TestRunInit_NoGitHubLegacySkipsGitInit":      "init_prompt_test.go",
 }
 
+// skillRepoUseCaseDecls pins the TestInitUseCase_* skill-repo e2e decls that
+// share no common prefix (the TestInitUseCase_SkillRepo rule covers the rest).
+var skillRepoUseCaseDecls = map[string]string{
+	"func:TestInitUseCase_NoSkillReposScaffoldByteIdentical": "init_skillrepos_usecase_test.go",
+	"func:TestInitUseCase_NoInputSkillRepoFlagsNoPrompts":    "init_skillrepos_usecase_test.go",
+	"func:TestInitUseCase_NoGitHubRecordsSkillRepos":         "init_skillrepos_usecase_test.go",
+	"func:TestInitUseCase_ReauthLeavesSkillReposUntouched":   "init_skillrepos_usecase_test.go",
+}
+
 // testSplitRules map decl name prefixes to their subject file. Rules are
 // checked in order; more specific prefixes must come first (e.g.
 // TestRunInitScaffold before TestRunInitProbe).
@@ -259,7 +271,10 @@ var testSplitRules = []prefixRule{
 	{"TestInit_SuccessMessage", "init_scaffold_test.go"},
 	{"TestEnsurePiSkeleton", "pi_skeleton_test.go"},
 	{"TestInitCmd", "init_prompt_test.go"},
-	{"TestInitProbe", "init_usecase_test.go"},
+	{"TestInitUseCase_Docker", "init_dockercheck_test.go"},
+	{"TestInitUseCase_NoDockerCheckFlag", "init_dockercheck_test.go"},
+	{"TestInitUseCase_SkillRepo", "init_skillrepos_usecase_test.go"},
+	{"TestInitProbe", "init_usecase_probe_test.go"},
 	{"TestInitUseCase", "init_usecase_test.go"},
 	{"TestCanonicalSkillRepo", "init_skillrepos_test.go"},
 	{"TestRecordSkillRepos", "init_skillrepos_test.go"},
@@ -386,6 +401,9 @@ func TestTestFileLayout(t *testing.T) {
 		want[k] = f
 	}
 	for k, f := range runInitFlowDecls {
+		want[k] = f
+	}
+	for k, f := range skillRepoUseCaseDecls {
 		want[k] = f
 	}
 	for _, v := range checkTestLayout(testSplitFiles, want, testSplitRules, mergedTestDecls) {
