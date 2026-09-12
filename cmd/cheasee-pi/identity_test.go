@@ -123,9 +123,9 @@ func TestParseGitHubRemote(t *testing.T) {
 		"alice",                            // ownerless
 		"not-a-url",
 		"",
-		"foo/bar:baz", // local-path-with-colon
-		"./repo",       // relative local path (never github.com/./repo)
-		"../repo",      // relative local path
+		"foo/bar:baz",                      // local-path-with-colon
+		"./repo",                           // relative local path (never github.com/./repo)
+		"../repo",                          // relative local path
 		"file://localhost/tmp/project.git", // file URL → local path, not a host
 	}
 	for _, raw := range refused {

@@ -354,14 +354,14 @@ func TestCheaseeSettingsScaffold_rendersValidJSONAtRoot(t *testing.T) {
 func TestCheaseeSettingsScaffold_outputLoadsAsTypedCheaseeSettings(t *testing.T) {
 	workdir := t.TempDir()
 	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), workdir, TemplateSettingsValues{
-		Provider:       "opencode-go",
-		GitName:        "Test User",
-		GitEmail:       "test@example.com",
-		Memory:         "4G",
-		CPUs:           "4.0",
-		ClientID:       "test-client",
-		RepositoryURL:  "https://github.com/owner/repo.git",
-		GitHubUser:     "octocat",
+		Provider:      "opencode-go",
+		GitName:       "Test User",
+		GitEmail:      "test@example.com",
+		Memory:        "4G",
+		CPUs:          "4.0",
+		ClientID:      "test-client",
+		RepositoryURL: "https://github.com/owner/repo.git",
+		GitHubUser:    "octocat",
 	}); err != nil {
 		t.Fatalf("Scaffold failed: %v", err)
 	}
