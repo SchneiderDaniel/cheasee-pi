@@ -20,8 +20,8 @@ var KnownModels = map[string][]string{
 	"openrouter":  {"anthropic/claude-sonnet-4-20250514", "openai/gpt-4o"},
 	"xai":         {"grok-2", "grok-3"},
 	"fireworks":   {"accounts/fireworks/models/llama-v3p3-70b-instruct"},
-	"together":     {},
-	"cerebras":     {},
+	"together":    {},
+	"cerebras":    {},
 }
 
 // ProviderNames returns sorted list of known provider names.

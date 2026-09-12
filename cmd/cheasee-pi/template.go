@@ -49,15 +49,15 @@ func (id *osGitIdentity) Lookup() (name, email string, err error) {
 // the repository fields — the {{if .RepositoryURL}} guard lives in the
 // cheasee template only).
 type TemplateSettingsValues struct {
-	Provider       string
-	DefaultModel   string
-	GitName        string
-	GitEmail       string
-	Memory         string
-	CPUs           string
-	ClientID       string
-	RepositoryURL  string
-	GitHubUser     string
+	Provider      string
+	DefaultModel  string
+	GitName       string
+	GitEmail      string
+	Memory        string
+	CPUs          string
+	ClientID      string
+	RepositoryURL string
+	GitHubUser    string
 	// SkillRepos are the canonical custom skill repository specs rendered into
 	// the cheasee template's skillRepos array ({{if .SkillRepos}} guard — nil
 	// keeps the scaffold output byte-identical to the pre-feature template).
