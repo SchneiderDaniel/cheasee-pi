@@ -394,6 +394,69 @@ func checkTestLayout(subject []string, want map[string]string, rules []prefixRul
 	return violations
 }
 
+// ──────────────────────────────────────────────
+// up_test.go / up_flow_test.go split
+// ──────────────────────────────────────────────
+
+// upSplitFiles are the files produced by the up_test.go / up_flow_test.go
+// split: the four new thematic files plus the flow remainder. Any future
+// uncatalogued up_*.go test decl fails TestUpFileLayout.
+var upSplitFiles = []string{
+	"up_helpers_test.go",
+	"up_env_test.go",
+	"up_orphans_test.go",
+	"up_workspace_test.go",
+	"up_flow_test.go",
+}
+
+// wantUpDecls pins the non-Test decls of the up split to their target file.
+// Prefix rules cannot cover non-Test decls, so the shared fixtures (single
+// home: up_helpers_test.go — enforced by the package-wide namespace and the
+// checker's duplicate detection) and the local helpers that moved with their
+// test groups are inventoried explicitly.
+var wantUpDecls = map[string]string{
+	"func:stubUpFlow":          "up_helpers_test.go",
+	"func:setUpRun":            "up_helpers_test.go",
+	"func:setUpRunMode":        "up_helpers_test.go",
+	"func:stubExecPIContainer": "up_helpers_test.go",
+	"func:mkWorkspace":         "up_helpers_test.go",
+	"func:stubAutoInitDeps":    "up_helpers_test.go",
+	"type:upCapture":           "up_helpers_test.go",
+	"type:upExecCapture":       "up_helpers_test.go",
+
+	"func:indexOf":              "up_env_test.go",
+	"func:buildEnvFlagsOrFatal": "up_env_test.go",
+
+	"func:workspaceParentFixture": "up_workspace_test.go",
+}
+
+// upSplitRules map the up test decl name prefixes to their thematic file.
+// Prefixes are disjoint, so order is not load-bearing.
+var upSplitRules = []prefixRule{
+	{"TestRunUpE", "up_flow_test.go"},
+	{"TestExecArgs", "up_env_test.go"},
+	{"TestBuildEnvFlags", "up_env_test.go"},
+	{"TestAllEnvVarNames", "up_env_test.go"},
+	{"TestProviderPassthroughNames", "up_env_test.go"},
+	{"TestRedactEnvValue", "up_env_test.go"},
+	{"TestOrphanScanBash", "up_orphans_test.go"},
+	{"TestScanOrphans", "up_orphans_test.go"},
+	{"TestKillSessionByMarker", "up_orphans_test.go"},
+	{"TestClassifyWorkspace", "up_workspace_test.go"},
+	{"TestResolveStartWorkspace", "up_workspace_test.go"},
+	{"TestResolveWorkspaceParent", "up_workspace_test.go"},
+}
+
+// TestUpFileLayout asserts the four new up test files plus the flow remainder
+// match the up split plan: per-theme prefix placement, shared fixtures
+// exactly once, no stray uncatalogued decls. Mirrors TestTestFileLayout with
+// zero checker changes (merged=nil — all up decls live in the subject files).
+func TestUpFileLayout(t *testing.T) {
+	for _, v := range checkTestLayout(upSplitFiles, wantUpDecls, upSplitRules, nil) {
+		t.Error(v)
+	}
+}
+
 // TestTestFileLayout asserts the per-subject test files match the split plan.
 func TestTestFileLayout(t *testing.T) {
 	want := map[string]string{}
