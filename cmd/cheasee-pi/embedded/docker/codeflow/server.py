@@ -41,12 +41,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CONFIG_FILE = os.environ.get("CONFIG_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"))
 
 
-def _as_bool(value):
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in ("1", "true", "yes")
-
-
 def _load_config():
     try:
         with open(CONFIG_FILE, encoding="utf-8") as fh:
