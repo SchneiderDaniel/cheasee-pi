@@ -20,6 +20,23 @@ func TestInitUseCase_DockerNotInstalled(t *testing.T) {
 	if !strings.Contains(err.Error(), "Docker is not installed") {
 		t.Errorf("error should mention Docker is not installed: %v", err)
 	}
+	// The docker-missing failure is a new user's first impression: it must
+	// explain what cheasee-pi is, why Docker is required, where to install it,
+	// and the next step — all on one line so cobra's "Error: " prefix frames it
+	// cleanly (no mid-error blank line or line breaks).
+	for _, want := range []string{
+		"runs the pi coding agent inside a Docker container",
+		"Docker Engine 24.0+",
+		"https://docs.docker.com/engine/install/",
+		"cheasee-pi init",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("docker-missing error should explain %q, got: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "\n") {
+		t.Errorf("docker-missing error must be a single line, got: %q", err)
+	}
 	if authJSONExists(t) {
 		t.Error("Save should not be called when Docker check fails")
 	}

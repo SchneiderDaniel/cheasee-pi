@@ -21,6 +21,11 @@ type CheckResult struct {
 // dockerCheckTimeout is the per-command timeout applied to docker info/version.
 const dockerCheckTimeout = 5 * time.Second
 
+// minDockerVersion is the minimum supported Docker Engine version (semver
+// with the "v" prefix golang.org/x/mod/semver requires). Single source so the
+// gate below and any message copy stay in sync.
+const minDockerVersion = "v24.0.0"
+
 // lookPath is exec.LookPath wrapped for test substitution (the "docker binary
 // present?" branch sits outside the runCommand seam).
 var lookPath = func(file string) (string, error) {
@@ -85,7 +90,7 @@ func dockerCheck(ctx context.Context, timeout time.Duration) (*CheckResult, erro
 		return res, nil
 	}
 
-	if semver.Compare(v, "v24.0.0") < 0 {
+	if semver.Compare(v, minDockerVersion) < 0 {
 		res.Err = fmt.Errorf("Docker Engine %s is too old, need >= 24.0.0", version)
 		return res, nil
 	}

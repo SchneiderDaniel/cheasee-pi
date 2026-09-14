@@ -18,5 +18,10 @@ cheasee-settings.json present → launches pi inside the Docker container
 (same as 'up'); non-empty without it → error (run init in an empty folder).`,
 	Version:           cliVersionKey,
 	DisableAutoGenTag: true,
-	RunE:              runUpE,
+	// SilenceUsage: a runtime (RunE) error must not dump the full usage block
+	// after the message — the error text itself carries the next step. Cobra
+	// also suppresses the usage dump on flag/arg parse errors; the plain error
+	// line remains the only guidance on both paths.
+	SilenceUsage: true,
+	RunE:         runUpE,
 }
