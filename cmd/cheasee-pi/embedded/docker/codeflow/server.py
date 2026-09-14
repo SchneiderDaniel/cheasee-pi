@@ -17,7 +17,7 @@ the GitHub API it only emulates. Both patches are silent no-ops if upstream
 renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
-  exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore", ".pi"])
+  exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore"])
   port                 listen port (default: 8470)
   host                 bind address (default: 0.0.0.0)
 
@@ -57,7 +57,7 @@ REPO_ROOT = os.environ.get("REPO_ROOT", "/repo")
 UI_DIR = os.environ.get("UI_DIR", "/opt/codeflow-ui")
 EXCLUDE_DIRS = set(
     _CONFIG.get("exclude_dirs")
-    or [d for d in os.environ.get("EXCLUDE_DIRS", ".git,node_modules,ignore,.pi").split(",") if d]
+    or [d for d in os.environ.get("EXCLUDE_DIRS", ".git,node_modules,ignore").split(",") if d]
 )
 try:
     PORT = int(_CONFIG.get("port") or os.environ.get("PORT") or 8470)
