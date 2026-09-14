@@ -15,7 +15,9 @@ container and launches pi.
 Without a subcommand, 'cheasee-pi' checks the folder: empty → runs
 'cheasee-pi init' (which stops — run start again to launch pi);
 cheasee-settings.json present → launches pi inside the Docker container
-(same as 'up'); non-empty without it → error (run init in an empty folder).`,
+(same as 'up'); non-empty without it → error (run init in an empty folder).
+
+Daily stop = 'down'; nuclear cleanup = 'clean' (every repo's containers).`,
 	Version:           cliVersionKey,
 	DisableAutoGenTag: true,
 	// SilenceUsage: a runtime (RunE) error must not dump the full usage block

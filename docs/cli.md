@@ -22,10 +22,10 @@ setup and daily walkthroughs, see [Installation](installation.md) and
 | `cheasee-pi init` | Set up workspace: bare clone + main worktree + `cheasee-settings.json` | empty folder, repo URL |
 | `cheasee-pi auth add \| remove \| list \| envvars` | Manage provider API keys | provider, key |
 | `cheasee-pi build` (full: `rebuild`) | Rebuild the Docker image | workspace settings |
-| `cheasee-pi down` (alias `stop`) | Stop and remove the container for this workspace | — |
-| `cheasee-pi clean` | Kill orphaned pi sessions, remove all containers, prune Docker garbage | confirmation |
-| `cheasee-pi prune-images` | Remove all tagged `cheasee-pi-*` images + orphaned build cache (all repos) | confirmation, `--dry-run` / `--yes` |
-| `cheasee-pi uninstall` | Remove config + extracted files | confirmation |
+| `cheasee-pi down` (alias `stop`) | Stop/remove THIS workspace's container only | — |
+| `cheasee-pi clean` | Remove ALL cheasee-pi containers (every repo) — kills active sessions | confirmation |
+| `cheasee-pi prune-images` | Delete ALL tagged cheasee-pi images (every repo) — recreated on next build | confirmation, `--dry-run` / `--yes` |
+| `cheasee-pi uninstall` | Delete cheasee-pi itself: cache, auth config, binaries | confirmation |
 
 `cheasee-pi --version` prints the CLI version. `cheasee-pi --help` lists every
 subcommand.
@@ -113,7 +113,7 @@ Docker layer cache; `rebuild` is a full no-cache rebuild plus prune.
 
 ## `cheasee-pi down`
 
-Stop and remove the Docker container for the current workspace via
+Stop/remove the current workspace's container only — via
 `docker compose down` (alias `stop`).
 
 | | |
@@ -124,7 +124,8 @@ Stop and remove the Docker container for the current workspace via
 
 ## `cheasee-pi clean`
 
-Kill orphaned/stale pi sessions and remove all cheasee-pi containers.
+Remove ALL cheasee-pi containers (every repo) — kills active sessions and
+orphaned pi processes inside them.
 
 | | |
 |---|---|
@@ -134,7 +135,7 @@ Kill orphaned/stale pi sessions and remove all cheasee-pi containers.
 
 ## `cheasee-pi prune-images`
 
-Remove every tagged cheasee-pi image on the host and reclaim the build cache they pin — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-repo images (`cheasee-pi-<slug>-cheasee-pi`, `cheasee-pi-<slug>-codeflow`) that `clean` never touches.
+Delete ALL tagged cheasee-pi images (every repo) — recreated on next build — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-repo images (`cheasee-pi-<slug>-cheasee-pi`, `cheasee-pi-<slug>-codeflow`) that `clean` never touches.
 
 | | |
 |---|---|
@@ -145,7 +146,7 @@ Remove every tagged cheasee-pi image on the host and reclaim the build cache the
 
 ## `cheasee-pi uninstall`
 
-Remove cheasee-pi configuration and CLI-managed assets.
+Delete cheasee-pi itself: cache, auth config, binaries.
 
 | | |
 |---|---|

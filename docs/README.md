@@ -67,9 +67,9 @@ cheasee-pi init           # empty-folder setup: repo URL, auth, bare clone + wor
                           # scaffold gitignored cheasee-settings.json
 cheasee-pi init --reauth  # initialized workspace: redo GitHub OAuth + pi API-key auth
 cheasee-pi start          # empty folder → init (stops); workspace → start pi (default)
-cheasee-pi down           # stop and remove current workspace's container
-cheasee-pi clean          # remove all cheasee-pi containers (all repos) + prune garbage
-cheasee-pi prune-images   # remove all tagged cheasee-pi-* images (all repos) + pinned build cache
+cheasee-pi down           # stop/remove THIS workspace's container only
+cheasee-pi clean          # remove ALL cheasee-pi containers (every repo) + prune garbage — kills active sessions
+cheasee-pi prune-images   # delete ALL tagged cheasee-pi images (every repo) — recreated on next build
 cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 cheasee-pi auth add       # add API key for a provider
 cheasee-pi auth list      # list configured providers/keys

@@ -13,7 +13,7 @@ var uninstallForce bool
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove cheasee-pi configuration and extracted files",
+	Short: "Delete cheasee-pi itself: cache, auth config, binaries",
 	Long: `Remove cheasee-pi configuration files and CLI-managed assets.
 
 The uninstall command removes:

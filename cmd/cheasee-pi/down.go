@@ -12,7 +12,7 @@ import (
 var downCmd = &cobra.Command{
 	Use:     "down",
 	Aliases: []string{"stop"},
-	Short:   "Stop and remove the Docker container for the current workspace",
+	Short:   "Stop/remove THIS workspace's container only",
 	Long: `Stop and remove the Cheasee-Pi Docker container via docker compose down.
 
 The compose project name derives from the current workspace's repository, so

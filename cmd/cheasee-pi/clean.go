@@ -20,7 +20,7 @@ var cleanConfirmFn = promptConfirm
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Kill orphaned/stale pi sessions, remove all cheasee-pi containers and prune Docker garbage",
+	Short: "Remove ALL cheasee-pi containers (every repo) — kills active sessions",
 	Long: `Remove every cheasee-pi container (all repositories), kill orphaned pi
 processes inside them, and prune dangling Docker images + build cache.
 
