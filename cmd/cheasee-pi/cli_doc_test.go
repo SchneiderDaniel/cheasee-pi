@@ -348,6 +348,18 @@ func TestCLIDoc_Visualization(t *testing.T) {
 	}
 }
 
+// TestCLIDoc_AtAGlanceBlastRadius verifies the "At a glance" table mirrors
+// each destructive command's blast-radius Short verbatim — catches a Short
+// edit that did not reach docs/cli.md.
+func TestCLIDoc_AtAGlanceBlastRadius(t *testing.T) {
+	content := readCliDoc(t)
+	for _, tc := range destructiveShorts {
+		if !strings.Contains(content, tc.short) {
+			t.Errorf("docs/cli.md should mirror %s's blast-radius Short %q", tc.name, tc.short)
+		}
+	}
+}
+
 // TestCLIDoc_LinksToDepth verifies the one-directional links: cli.md links
 // to installation.md and daily-usage.md, and both link back to cli.md.
 func TestCLIDoc_LinksToDepth(t *testing.T) {
