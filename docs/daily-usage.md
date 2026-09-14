@@ -110,6 +110,7 @@ URL after starting:
 
 ```
 ℹ CodeFlow: http://localhost:8891/?repo=local/workspace&run=1
+ℹ Optional browser sidecar — see docs/daily-usage.md §CodeFlow
 ```
 
 Each session start *also* posts the same URL as a clickable hyperlink inside

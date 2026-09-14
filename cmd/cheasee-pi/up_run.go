@@ -133,12 +133,12 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// resolved port so the in-container context-info echo stays in sync.
 	if port, err := codeflowBoundPort(ctx, root); err == nil {
 		envMap["CODEFLOW_PORT"] = port
-		fmt.Fprintf(os.Stderr, "  ℹ CodeFlow: http://localhost:%s/?repo=local/workspace&run=1\n", port)
+		printCodeFlowHint(port)
 	} else if port, err := codeflowHostPort(root); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
 	} else {
 		envMap["CODEFLOW_PORT"] = port
-		fmt.Fprintf(os.Stderr, "  ℹ CodeFlow: http://localhost:%s/?repo=local/workspace&run=1\n", port)
+		printCodeFlowHint(port)
 	}
 
 	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —

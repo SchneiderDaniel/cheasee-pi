@@ -75,4 +75,11 @@ func TestRunUpE_codeflowPortResolutionFailureLeavesEnvAbsent(t *testing.T) {
 	if !strings.Contains(stderr, "CodeFlow port") {
 		t.Errorf("resolution failure must still warn on stderr, got: %q", stderr)
 	}
+	// The hint is gated on resolution success: no URL line, no trailer.
+	if strings.Contains(stderr, "CodeFlow: http") {
+		t.Errorf("resolution failure must not print the CodeFlow URL, got: %q", stderr)
+	}
+	if strings.Contains(stderr, "Optional browser sidecar") {
+		t.Errorf("resolution failure must not print the hint trailer, got: %q", stderr)
+	}
 }
