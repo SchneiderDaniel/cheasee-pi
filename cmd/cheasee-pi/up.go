@@ -47,7 +47,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(upCmd)
-	upCmd.Flags().StringVar(&upName, "name", "cheasee-pi", "Container name (default: derived from the repo, cheasee-pi-<slug>)")
+	upCmd.Flags().StringVar(&upName, "name", "", "Container name override (default: derived from the repo, cheasee-pi-<slug>)")
 	upCmd.Flags().StringVar(&upWorkdir, "workdir", "", "Working directory (default: current directory)")
 	upCmd.Flags().BoolVar(&upBuild, "build", false, "Rebuild container image before starting")
 	upCmd.Flags().BoolVar(&upNoDockerCheck, "no-docker-check", false, "Skip Docker Engine check")
