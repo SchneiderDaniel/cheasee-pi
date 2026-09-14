@@ -105,6 +105,10 @@ func TestRunUpE_dryRunOnInitialized(t *testing.T) {
 	if !strings.Contains(stderr, "Docker command") || !strings.Contains(stderr, "-w /workspaces/main") {
 		t.Errorf("dry-run must print the docker command at -w /workspaces/main, got: %q", stderr)
 	}
+	// Dry-run returns before the CodeFlow phase: no URL, no trailer.
+	if strings.Contains(stderr, "CodeFlow") {
+		t.Errorf("dry-run must not print any CodeFlow text, got: %q", stderr)
+	}
 }
 
 func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
@@ -463,6 +467,10 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "repo=local/workspace&run=1") {
 		t.Errorf("CodeFlow URL must carry the workspace params, got: %q", stderr)
+	}
+	// The URL line is followed by the always-on description trailer.
+	if !strings.Contains(stderr, "Optional browser sidecar") {
+		t.Errorf("start must print the CodeFlow hint trailer, got: %q", stderr)
 	}
 
 	// The resolved CodeFlow port must reach the exec env (derived case: no
