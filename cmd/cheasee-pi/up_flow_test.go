@@ -276,9 +276,9 @@ func TestRunUpE_autoInitWithoutMarkerThenNextRunRefuses(t *testing.T) {
 }
 
 func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
-	// init fails in the API-key phase → error wrapped 'auto-init failed' and
-	// the freshly cloned residue (worktree + .bare) is cleaned to an empty
-	// folder; no compose, no exec.
+	// init fails in the API-key phase → error wrapped with plain empty-folder
+	// wording (no "auto-init" jargon) and the freshly cloned residue (worktree
+	// + .bare) is cleaned to an empty folder; no compose, no exec.
 	parent := t.TempDir()
 	workdir := filepath.Join(parent, "ws")
 	if err := os.MkdirAll(workdir, 0755); err != nil {
@@ -301,8 +301,11 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 
 	stderr := testutil.CaptureStderr(t, func() {
 		err := runUpE(&cobra.Command{}, nil)
-		if err == nil || !strings.Contains(err.Error(), "auto-init failed") {
-			t.Fatalf("expected 'auto-init failed' wrap, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "cheasee-pi detected an empty folder and tried to initialize it, but") {
+			t.Fatalf("expected the empty-folder init wrap, got %v", err)
+		}
+		if strings.Contains(err.Error(), "auto-init failed") {
+			t.Errorf("wrap must not use the 'auto-init failed' jargon, got %v", err)
 		}
 		// The first post-clone prompt is now the skill-repo phase (Phase 6b,
 		// before the API-key phase) — the failure surfaces there.
@@ -322,6 +325,65 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 	}
 	if len(c.composeArgs) != 0 {
 		t.Errorf("failed init must not reach compose, got %d invocations: %v", len(c.composeArgs), c.composeArgs)
+	}
+}
+
+func TestRunUpE_autoInitDockerMissingExplainsWhy(t *testing.T) {
+	// Bare `cheasee-pi` in an empty folder with Docker missing is the
+	// first-run failure a new user hits: the error must explain what
+	// cheasee-pi is, why Docker is required, where to install it, and the next
+	// step — wrapped in the plain empty-folder wording, never 'auto-init
+	// failed'. The announce line stays; init aborts before touching auth,
+	// compose, or exec.
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	setUpRunMode(t, workdir, false)
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubLookPath(t, func(_ string) (string, error) { return "", fmt.Errorf("executable not found in $PATH") })
+	exec := stubExecPIContainer(t)
+	var dockerCalls int
+	saved := runCommandContext
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "docker" {
+			dockerCalls++
+		}
+		return saved(ctx, name, arg...)
+	})
+
+	stderr := testutil.CaptureStderr(t, func() {
+		err := runUpE(&cobra.Command{}, nil)
+		if err == nil {
+			t.Fatal("expected docker-missing error, got nil")
+		}
+		for _, want := range []string{
+			"cheasee-pi detected an empty folder and tried to initialize it, but",
+			"Docker is not installed",
+			"runs the pi coding agent inside a Docker container",
+			"https://docs.docker.com/engine/install/",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error should explain %q, got %v", want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "auto-init failed") {
+			t.Errorf("wrap must not use the 'auto-init failed' jargon, got %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "is empty — running `cheasee-pi init`") {
+		t.Errorf("empty folder must still announce auto-init, got: %q", stderr)
+	}
+	if authJSONExists(t) {
+		t.Error("docker-missing auto-init must not write auth.json")
+	}
+	if exec.name != "" || exec.target != "" {
+		t.Errorf("docker-missing auto-init must not exec pi, got name=%q target=%q", exec.name, exec.target)
+	}
+	if dockerCalls != 0 {
+		t.Errorf("docker-missing auto-init must fail before any docker invocation, got %d", dockerCalls)
 	}
 }
 

@@ -41,7 +41,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		initErr := runInit(initCtx, newInitDeps(workdir))
 		cancel()
 		if initErr != nil {
-			return fmt.Errorf("auto-init failed: %w", initErr)
+			return fmt.Errorf("cheasee-pi detected an empty folder and tried to initialize it, but %w", initErr)
 		}
 		// Init never launches pi: stop here and let the next invocation start.
 		// If init left the folder non-empty without a settings marker, the next
