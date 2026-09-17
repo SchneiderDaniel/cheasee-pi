@@ -2,7 +2,7 @@
 name: test-designer
 description: Writes a test plan comment on a GitHub issue. Test plan depth scales with change complexity. Informed by public-contract testing and layer-appropriate testing principles.
 tools: read, bash, structural_search, ripgrep_search
-model: opencode-go/deepseek-v4-flash
+model: deepseek/deepseek-v4-flash
 thinking: high
 extensions: "agent-harness,caveman,ripgrep-search,scrapling,structural-analyzer,rtk"
 ---
