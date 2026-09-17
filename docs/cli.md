@@ -26,6 +26,7 @@ setup and daily walkthroughs, see [Installation](installation.md) and
 | `cheasee-pi clean` | Remove ALL cheasee-pi containers (every repo) — kills active sessions | confirmation |
 | `cheasee-pi prune-images` | Delete ALL tagged cheasee-pi images (every repo) — recreated on next build | confirmation, `--dry-run` / `--yes` |
 | `cheasee-pi uninstall` | Delete cheasee-pi itself: cache, auth config, binaries | confirmation |
+| `cheasee-pi about` (alias `intro`) | Print a ~10-line glossary of core concepts + workflow links | — |
 
 `cheasee-pi --version` prints the CLI version. `cheasee-pi --help` lists every
 subcommand.
@@ -153,6 +154,20 @@ Delete cheasee-pi itself: cache, auth config, binaries.
 | **Does** | Removes the version-keyed cache dir (compose/Dockerfile), `~/.config/cheasee-pi/auth.json`, and every cheasee-pi binary (the running executable plus the canonical install locations `~/.local/bin` and `/usr/local/bin`, deduped). Workspace files (`.pi/`, `.git/`, source checkouts) are never touched. |
 | **Checks** | Shows a summary and asks for confirmation (`--force` skips). Skips build-cache/tmp binaries; warns when a binary's directory is not writable. |
 | **Inputs** | Flags: `--force`. |
+
+## `cheasee-pi about`
+
+Print a non-interactive glossary of cheasee-pi's core concepts — workspace,
+bare repo, worktree, container/image, provider, skill repo, CodeFlow, and
+CHEASEE_REF — plus the one-sentence workflow, linking the long-form docs
+(docs/daily-usage.md) and the published rendering
+(<https://schneiderdaniel.github.io/cheasee-pi/daily-usage>).
+
+| | |
+|---|---|
+| **Does** | Prints the ~10-line glossary + workflow summary to stdout and links docs/daily-usage.md and pi.dev. |
+| **Checks** | None — pure print. |
+| **Inputs** | None (no flags). Alias: `intro`. |
 
 ## Environment variables
 
