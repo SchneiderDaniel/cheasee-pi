@@ -26,7 +26,7 @@ import type {
 } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { GitHubPort } from "../../github/ports.ts";
-import { resolveTimeoutMs } from "../../config/config.ts";
+import { resolveTimeoutPolicy } from "../../config/config.ts";
 import { buildAgentTask, summarizeComments } from "../../agent/task.ts";
 import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
@@ -229,7 +229,9 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		ctx.ui.setStatus("supervisor", `Running ${agent.config.name}...`);
 		ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
-		const timeoutMs = resolveTimeoutMs(agentName, config.agentTimeoutsMin!);
+		// Per-agent wall-clock timeout: agentTimeoutSec (seconds, 0 = no
+		// timeout) → agentTimeoutsMin (legacy minutes) → 30-min default.
+		const timeoutMs = resolveTimeoutPolicy(agentName, config).timeoutMs;
 
 		// Build task
 		const dupContext: string | undefined =
@@ -435,6 +437,26 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			stopReason: nsStop,
 		});
 
+		// Timeout is an UNCONDITIONAL terminal failure (audit finding #3): a
+		// timed-out agent may have emitted a partial completion/approval
+		// marker before the deadline fired. Letting it through the Bug #711
+		// explicit-marker guard would advance the pipeline on partial output
+		// — a timed-out developer could transition Research→…→Audit or a
+		// timed-out auditor to Done despite success=false. Stop before ANY
+		// marker-based transition (empty-worktree, PR-approval, budget
+		// degradation), naming the agent + configured duration.
+		if (result.timedOut) {
+			stopReason = `Agent ${agent.config.name} timed out (configured ${Math.round((result.configuredTimeoutMs ?? 0) / 1000)}s, actual ${result.durationMs}ms)`;
+			ctx.ui.notify(`Agent ${agent.config.name} timed out. Pipeline stops.`, "warning");
+			getDebugLogger().error("handler", "Agent timed out, pipeline stopping", {
+				agentName: agent.config.name,
+				nextStatus,
+				configuredTimeoutMs: result.configuredTimeoutMs,
+				durationMs: result.durationMs,
+			});
+			break;
+		}
+
 		// Bug #1343: 3-way empty worktree classification (extracted to
 		// stages/empty-worktree.ts): when developer produced no commits,
 		// loop back to Implementation / close with named resolution /
@@ -510,12 +532,15 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// NOT inferForwardStatus (which is pipeline inference, not agent output).
 		// This prevents the crash-loop: developer crashes (0 tokens, 0 tools),
 		// inferForwardStatus returns "Audit", hadExplicitMarker=false → stop.
+		// result.timedOut already stopped unconditionally above (terminal
+		// failure) — this guard covers remaining non-timeout failures.
 		if (!result.success && !hadExplicitMarker) {
 			stopReason = `Agent ${agent.config.name} failed — no explicit completion marker in output`;
 			ctx.ui.notify(`Agent ${agent.config.name} failed. Pipeline stops.`, "warning");
 			getDebugLogger().error("handler", "Agent failed, pipeline stopping (no explicit marker)", {
 				agentName: agent.config.name,
 				nextStatus,
+				timedOut: result.timedOut,
 			});
 			break;
 		}
@@ -700,7 +725,7 @@ async function dispatchAgentWithRetry(
 	task: string,
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
-	timeoutMs: number,
+	timeoutMs: number | null,
 	worktreePath: string | undefined,
 	config: SupervisorConfig,
 	issueTitle: string,
@@ -719,6 +744,7 @@ async function dispatchAgentWithRetry(
 		config.agentTokenBudget,
 		issueTitle,
 		runner,
+		config.agentKillGraceSec,
 	);
 	let result = initialResult;
 	let usedRetry = false;
@@ -734,8 +760,10 @@ async function dispatchAgentWithRetry(
 	// throws (unparseable output degrades to FailedParse → null).
 	const refused = getRefusalInfo(result.textOutput, new Set(result.toolCalls ?? []));
 
-	// Retry block: budget exceeded is NOT retryable (Neel Mishra taxonomy);
-	// a refusal is not a failure to retry either.
+	// Retry block: budget exceeded and wall-clock timeout are NOT retryable
+	// (Neel Mishra taxonomy — a timed-out run already consumed its full
+	// configured bound; retrying would silently double it), and a refusal is
+	// not a failure to retry either.
 	if (refused) {
 		getDebugLogger().info("handler", `Agent ${agentName} refused — retry skipped`, {
 			refused: true,
@@ -743,6 +771,11 @@ async function dispatchAgentWithRetry(
 	} else if (result.budgetExceeded) {
 		getDebugLogger().info("handler", `Agent ${agentName} exceeded budget — retry skipped`, {
 			budgetExceeded: true,
+		});
+	} else if (result.timedOut) {
+		getDebugLogger().info("handler", `Agent ${agentName} timed out — retry skipped`, {
+			timedOut: true,
+			configuredTimeoutMs: result.configuredTimeoutMs,
 		});
 	} else if (!result.success) {
 		getDebugLogger().info("handler", `Agent ${agentName} failed — retrying once`, {
@@ -759,6 +792,7 @@ async function dispatchAgentWithRetry(
 			config.agentTokenBudget,
 			issueTitle,
 			runner,
+			config.agentKillGraceSec,
 		);
 		validateAgentResult(retryResult);
 		usedRetry = true;

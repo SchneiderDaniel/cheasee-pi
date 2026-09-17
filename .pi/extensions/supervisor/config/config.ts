@@ -9,6 +9,20 @@ import { resolve as resolvePath } from "node:path";
 /** Default agent timeout in milliseconds (30 minutes). */
 export const DEFAULT_AGENT_TIMEOUT_MS = 1_800_000;
 
+/**
+ * Node's maximum `setTimeout` delay (`2^31 - 1` ms). Larger delays overflow to
+ * a negative 32-bit signed value, which Node clamps to 1 ms — a configured
+ * long timeout would fire immediately instead of at the requested duration
+ * (audit finding #3). Values are rejected at the config boundary.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Max `agentTimeoutSec`/`agentKillGraceSec` (seconds) without timer overflow. */
+export const MAX_AGENT_TIMEOUT_SEC = Math.floor(MAX_TIMER_MS / 1000);
+
+/** Max legacy `agentTimeoutsMin` (minutes) without timer overflow. */
+export const MAX_AGENT_TIMEOUT_MIN = Math.floor(MAX_TIMER_MS / 60_000);
+
 // ─── Schema ─────────────────────────────────────────────────────────
 
 /** Schema for supervisor settings from .pi/settings.json */
@@ -33,6 +47,19 @@ export const SupervisorConfigSchema = z.object({
 	worktreeBase: z.string().default("../"),
 	branchPrefix: z.string().default("worktree-git-issue-"),
 	agentTimeoutsMin: z.record(z.string(), z.number()).optional(),
+	// Canonical per-agent timeout in SECONDS; 0 = no timeout (legacy
+	// agentTimeoutsMin is minutes and cannot express 0). Bare schema
+	// (no .default()): the kill-grace default lives in the runner
+	// (agent/runner/deadline.ts) so typed config fixtures stay untouched.
+	agentTimeoutSec: z
+		.record(
+			z.string(),
+			z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC, {
+				message: `supervisor.agentTimeoutSec values must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit)`,
+			}),
+		)
+		.optional(),
+	agentKillGraceSec: z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC).optional(),
 	ciGatingTimeoutSec: z.number().int().nonnegative().default(300),
 	bellOnComplete: z.boolean().default(false),
 	agentTokenBudget: z.number().int().nonnegative().optional(),
@@ -62,13 +89,15 @@ export function loadConfig(): SupervisorConfig {
 	// Schema-driven validation — replaces ~50 lines of manual if/throw checks
 	const parsed = SupervisorConfigSchema.parse(cfg);
 
-	// Post-parse: cross-field policy for agentTimeoutsMin
+	// Post-parse: cross-field policy for per-agent timeouts (minutes + seconds)
 	const knownAgents = Object.values(parsed.statusMapping) as string[];
 	const agentTimeoutsMin = validateAgentTimeouts(parsed.agentTimeoutsMin, knownAgents);
+	const agentTimeoutSec = validateAgentTimeoutSec(parsed.agentTimeoutSec, knownAgents);
 
 	return {
 		...parsed,
 		agentTimeoutsMin,
+		agentTimeoutSec,
 	};
 }
 
@@ -141,30 +170,89 @@ export function validateAgentTimeouts(raw: unknown, knownAgents: string[]): Reco
 				`agentTimeoutsMin.${key} must be a positive integer, got ${JSON.stringify(value)}`,
 			);
 		}
+		if (value > MAX_AGENT_TIMEOUT_MIN) {
+			throw new Error(
+				`agentTimeoutsMin.${key} must be ≤ ${MAX_AGENT_TIMEOUT_MIN} minutes (Node timer limit), got ${value}`,
+			);
+		}
 		result[key] = value;
 	}
 	return result;
 }
 
 /**
- * Resolve the timeout in milliseconds for a given agent.
+ * Validate the raw agentTimeoutSec config value (seconds, 0 = no timeout).
+ * Mirrors validateAgentTimeouts but accepts 0 — the whole point of the
+ * seconds field is that a configured 0 means "no timeout", never the
+ * 30-minute default. Unknown agent keys warn + skip (fail-open, same
+ * conscious policy as the legacy minutes field).
  */
-export function resolveTimeoutMs(
+export function validateAgentTimeoutSec(
+	raw: unknown,
+	knownAgents: string[],
+): Record<string, number> {
+	if (raw === undefined || raw === null) {
+		return {};
+	}
+	if (typeof raw !== "object" || Array.isArray(raw) || raw === null) {
+		throw new Error(`agentTimeoutSec must be an object, got ${typeof raw}`);
+	}
+	const record = raw as Record<string, unknown>;
+	const result: Record<string, number> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (!knownAgents.includes(key)) {
+			console.warn(`agentTimeoutSec: unknown agent "${key}" — entry ignored`);
+			continue;
+		}
+		if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+			throw new Error(
+				`agentTimeoutSec.${key} must be a non-negative integer, got ${JSON.stringify(value)}`,
+			);
+		}
+		if (value > MAX_AGENT_TIMEOUT_SEC) {
+			throw new Error(
+				`agentTimeoutSec.${key} must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit), got ${value}`,
+			);
+		}
+		result[key] = value;
+	}
+	return result;
+}
+
+/** Source of a resolved per-agent timeout policy. */
+type TimeoutSource = "agentTimeoutSec" | "agentTimeoutsMin" | "default";
+
+/** Resolved per-agent timeout policy. timeoutMs null = no timeout (0 configured). */
+export interface TimeoutPolicy {
+	timeoutMs: number | null;
+	configuredSec: number | null;
+	source: TimeoutSource;
+}
+
+/**
+ * Resolve the per-agent timeout policy. Precedence:
+ *   agentTimeoutSec[name] (explicit 0 → null = no timeout)
+ *   → agentTimeoutsMin[name] (legacy alias, minutes, lower precedence)
+ *   → DEFAULT_AGENT_TIMEOUT_MS (30 min)
+ *
+ * Unlike the old resolveTimeoutMs, a configured 0 cannot silently collapse
+ * into the default: the Record lookups distinguish "absent" from "0".
+ */
+export function resolveTimeoutPolicy(
 	agentName: string,
-	agentTimeoutsMin: Record<string, number> | undefined,
-	defaultMs: number = DEFAULT_AGENT_TIMEOUT_MS,
-): number {
-	if (!agentTimeoutsMin || typeof agentTimeoutsMin !== "object") {
-		return defaultMs;
+	config: Pick<SupervisorConfig, "agentTimeoutSec" | "agentTimeoutsMin">,
+): TimeoutPolicy {
+	const sec = config.agentTimeoutSec?.[agentName];
+	if (sec !== undefined) {
+		return {
+			timeoutMs: sec === 0 ? null : sec * 1000,
+			configuredSec: sec,
+			source: "agentTimeoutSec",
+		};
 	}
-	const minutes = agentTimeoutsMin[agentName];
-	if (
-		minutes !== undefined &&
-		typeof minutes === "number" &&
-		Number.isInteger(minutes) &&
-		minutes > 0
-	) {
-		return minutes * 60_000;
+	const min = config.agentTimeoutsMin?.[agentName];
+	if (min !== undefined && Number.isInteger(min) && min > 0) {
+		return { timeoutMs: min * 60_000, configuredSec: min * 60, source: "agentTimeoutsMin" };
 	}
-	return defaultMs;
+	return { timeoutMs: DEFAULT_AGENT_TIMEOUT_MS, configuredSec: null, source: "default" };
 }

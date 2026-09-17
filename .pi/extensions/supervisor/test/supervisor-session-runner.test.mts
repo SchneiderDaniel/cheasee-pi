@@ -105,13 +105,13 @@ describe("agent-session-runner.ts — fix verification", () => {
 		);
 	});
 
-	it("4.2: heartbeat declared with let before outer try block", () => {
-		const afterStartedAt = source.split("const startedAt = Date.now();")[1] || "";
-		const beforeOuterTry = afterStartedAt.split("try {")[0] || "";
+	it("4.2: deadline timer handle declared before the outer try block", () => {
+		// The timeout handle must be in scope for the single `finally` teardown.
+		const beforeOuterTry = source.slice(0, source.lastIndexOf("\n\ttry {"));
 		assert.ok(
-			beforeOuterTry.includes("let heartbeat"),
-			"heartbeat must be declared with let BEFORE the outer try block. " +
-				`Section found: [${beforeOuterTry.slice(0, 200)}]`,
+			beforeOuterTry.includes("deadlineTimer"),
+			"deadlineTimer must be declared before the outer try block so finally can clear it. " +
+				`Section found: [${beforeOuterTry.slice(-200)}]`,
 		);
 	});
 
@@ -129,14 +129,14 @@ describe("agent-session-runner.ts — fix verification", () => {
 		);
 	});
 
-	it("4.4: timeout calls session!.abort()", () => {
+	it("4.4: timeout calls session.abort()", () => {
 		const lines = source.split("\n");
 		const abortLines = lines.filter((l) => l.includes(".abort()") && !l.trim().startsWith("//"));
-		const hasSessionAbort = abortLines.some((l) => l.includes("session!.abort()"));
+		const hasSessionAbort = abortLines.some((l) => /session!?\.abort\(\)/.test(l));
 		const hasAbortControllerAbort = abortLines.some((l) => l.includes("abortController"));
 		assert.ok(
 			hasSessionAbort,
-			`Timeout must call session!.abort(). Abort lines: [${abortLines.join(" | ")}]`,
+			`Timeout must call session.abort(). Abort lines: [${abortLines.join(" | ")}]`,
 		);
 		assert.ok(
 			!hasAbortControllerAbort,

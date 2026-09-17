@@ -467,6 +467,210 @@ describe("runAgentLoop — retry path documents every dispatch (issue #1495)", (
 	});
 });
 
+// ─── Timeout (issue #1710): non-retryable, structured failure state ─
+
+describe("runAgentLoop — per-agent wall-clock timeout (issue #1710)", () => {
+	function makeWorktree(): string {
+		return mkdtempSync(join(tmpdir(), "agent-loop-timeout-wt-"));
+	}
+
+	it("timed-out first run → retry skipped, single FAILED entry with timedOut state", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		const runner = createQueueRunner([
+			makeDevResult({
+				success: false,
+				textOutput: "Timed out",
+				textOnly: "Timed out",
+				timedOut: true,
+				configuredTimeoutMs: 60_000,
+				killReason: "timeout",
+				durationMs: 60_000,
+				errorOutput: "[Timeout: developer exceeded 60s (actual 60000ms)]",
+			}),
+		]);
+
+		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.calls.length, 1, "timeout is NOT retried — hard 1× bound");
+		assert.equal(runCtx.agentResults.length, 1, "single dispatch → single row");
+		const entry = runCtx.agentResults[0]!;
+		assert.equal(entry.status, "FAILED");
+		assert.equal(entry.timedOut, true, "timedOut recorded on pipeline state");
+		assert.equal(entry.configuredTimeoutMs, 60_000, "configured duration recorded");
+		assert.ok(
+			(entry.errorOutput ?? "").includes("[Timeout: developer exceeded 60s"),
+			"timeout failure note retained in errorOutput",
+		);
+	});
+
+	it("timeout failure stops the pipeline with stopReason naming agent + duration", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		const runner = createQueueRunner([
+			makeDevResult({
+				success: false,
+				textOutput: "Timed out",
+				textOnly: "Timed out",
+				timedOut: true,
+				configuredTimeoutMs: 60_000,
+				durationMs: 60_000,
+			}),
+		]);
+
+		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
+		await runAgentLoop(runCtx);
+
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`stopReason names the timeout: ${runCtx.stopReason}`,
+		);
+		assert.ok(
+			runCtx.stopReason?.includes("developer"),
+			`stopReason names the agent: ${runCtx.stopReason}`,
+		);
+		assert.ok(
+			runCtx.stopReason?.includes("configured 60s"),
+			`stopReason carries the configured duration: ${runCtx.stopReason}`,
+		);
+	});
+
+	it("researcher timeout does NOT take the budget-degradation continue path", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		const runner = createQueueRunner(
+			[
+				{
+					output: "raw",
+					success: false,
+					agentName: "researcher",
+					toolCount: 0,
+					tokenCount: 0,
+					durationMs: 30_000,
+					textOutput: "Research timed out",
+					textOnly: "Research timed out",
+					summaryLine: "Research timed out",
+					errorOutput: "[Timeout: researcher exceeded 30s (actual 30000ms)]",
+					timedOut: true,
+					configuredTimeoutMs: 30_000,
+					killReason: "timeout",
+				},
+			],
+			"researcher",
+		);
+
+		const runCtx = buildRetryRunContext({
+			runner,
+			portCalls,
+			tmpCwd,
+			wt,
+			loopStatus: "Research",
+		});
+		await runAgentLoop(runCtx);
+
+		assert.equal(runCtx.agentResults.length, 1, "no retry for researcher timeout");
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`researcher timeout stops the pipeline: ${runCtx.stopReason}`,
+		);
+		assert.ok(
+			!portCalls.some((c) => c.method === "setItemStatusField"),
+			"no Research → Architecture transition (budget path would have continued)",
+		);
+	});
+
+	it("timed-out developer with a partial IMPLEMENTATION_COMPLETE marker still STOPS (audit #3)", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		// success=false + timedOut + a forward marker in the partial output.
+		// Before the fix, hadExplicitMarker=true let this bypass the Bug #711
+		// failure guard and transition Implementation → Audit on partial work.
+		const runner = createQueueRunner([
+			makeDevResult({
+				success: false,
+				timedOut: true,
+				configuredTimeoutMs: 60_000,
+				killReason: "timeout",
+				durationMs: 60_000,
+				textOutput:
+					"Implemented partially\nIMPLEMENTATION_COMPLETE\n(work incomplete — ran out of time)",
+				textOnly: "IMPLEMENTATION_COMPLETE",
+				errorOutput: "[Timeout: developer exceeded 60s (actual 60000ms)]",
+			}),
+		]);
+
+		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
+		assert.equal(runCtx.agentResults.length, 1);
+		assert.equal(runCtx.agentResults[0]?.status, "FAILED");
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`stopReason names the timeout, not a transition: ${runCtx.stopReason}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"NO Implementation → Audit transition despite the forward marker (unconditional stop)",
+		);
+	});
+
+	it("timed-out auditor with an approval marker still STOPS — no Done transition (audit #3)", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		// success=false + timedOut + a partial approval marker. Before the
+		// fix the explicit-marker guard let this advance towards Done / PR
+		// creation on partial audit output.
+		const runner = createQueueRunner(
+			[
+				makeAuditResult({
+					success: false,
+					timedOut: true,
+					configuredTimeoutMs: 60_000,
+					killReason: "timeout",
+					durationMs: 60_000,
+					textOutput: "AUDIT_DECISION: APPROVED\n(partial audit — timed out before completion)",
+					textOnly: "AUDIT_DECISION: APPROVED",
+					errorOutput: "[Timeout: auditor exceeded 60s (actual 60000ms)]",
+				}),
+			],
+			"auditor",
+		);
+
+		const runCtx = buildRetryRunContext({
+			runner,
+			portCalls,
+			tmpCwd,
+			wt,
+			loopStatus: "Audit",
+		});
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`stopReason names the timeout: ${runCtx.stopReason}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"NO Audit → Done transition despite the approval marker (unconditional stop)",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "postIssueComment").length,
+			0,
+			"no approval/verdict comment posted on a timed-out audit",
+		);
+	});
+});
+
 // ─── Tests: rejection-limit gate + auditFeedback (issue #1668) ────
 // Full-loop harness: real runAgentLoop, gh exec returns the injected
 // comments, mock.fn queue runner (pattern above). The Audit workflow step

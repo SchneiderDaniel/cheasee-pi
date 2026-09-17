@@ -605,6 +605,11 @@ export function buildAgentResultEntry(
 		failedToolCount: result.failedToolCount ?? undefined,
 		model,
 		errorOutput: result.errorOutput || undefined,
+		// Wall-clock timeout state flows into the pipeline summary table:
+		// errorOutput already carries the structured "[Timeout: …]" note
+		// (authored by assembleResult / the in-process runner).
+		timedOut: result.timedOut,
+		configuredTimeoutMs: result.configuredTimeoutMs,
 	};
 }
 

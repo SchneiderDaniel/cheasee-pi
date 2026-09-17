@@ -1085,6 +1085,41 @@ describe("buildAgentResultEntry()", () => {
 		assert.equal(entry.durationMs, 30000);
 		assert.equal(entry.model, undefined);
 	});
+
+	// ── Per-agent wall-clock timeout (issue #1710) ──────────────────
+
+	it("timeout result → FAILED entry carrying timedOut/configuredTimeoutMs + [Timeout] note", () => {
+		const entry = buildAgentResultEntry(
+			{
+				...baseResult,
+				success: false,
+				timedOut: true,
+				configuredTimeoutMs: 60_000,
+				killReason: "timeout",
+				errorOutput: "[Timeout: developer exceeded 60s (actual 61000ms)]",
+			},
+			false,
+		);
+		assert.equal(entry.status, "FAILED");
+		assert.equal(entry.timedOut, true, "timedOut flows onto PipelineAgentResult");
+		assert.equal(entry.configuredTimeoutMs, 60_000, "configured duration recorded");
+		assert.equal(
+			entry.errorOutput,
+			"[Timeout: developer exceeded 60s (actual 61000ms)]",
+			"timeout failure note retained in pipeline state",
+		);
+	});
+
+	it("non-timeout result → timedOut/configuredTimeoutMs absent (regression)", () => {
+		const entry = buildAgentResultEntry(
+			{ ...baseResult, success: false, errorOutput: "stderr only" },
+			false,
+		);
+		assert.equal(entry.status, "FAILED");
+		assert.equal(entry.timedOut, undefined);
+		assert.equal(entry.configuredTimeoutMs, undefined);
+		assert.equal(entry.errorOutput, "stderr only", "non-timeout entry unchanged");
+	});
 });
 
 // ─── Tests: handleBacklogTransition() ─────────────────────────────

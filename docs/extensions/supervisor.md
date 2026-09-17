@@ -259,6 +259,8 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
     "agentTokenBudget": 300000,
     "maxToolCalls": 0,
     "agentTimeoutsMin": {},
+    "agentTimeoutSec": {},
+    "agentKillGraceSec": 10,
     "bellOnComplete": false,
     "enableExperimentalFeatures": false
   }
@@ -285,7 +287,9 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 | `ciGatingTimeoutSec` | `300` | Seconds to poll CI before giving up. `0` = skip CI gate entirely |
 | `agentTokenBudget` | `0` | Soft token cap per agent dispatch. `0` = unlimited |
 | `maxToolCalls` | `0` | Hard cap on tool invocations per agent. `0` = unlimited |
-| `agentTimeoutsMin` | `{}` | Per-agent timeouts in minutes: `{ "developer": 30 }` |
+| `agentTimeoutsMin` | `{}` | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`) |
+| `agentTimeoutSec` | `{}` | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed) |
+| `agentKillGraceSec` | `10` | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL |
 | `bellOnComplete` | `false` | Ring terminal bell when pipeline finishes |
 | `enableExperimentalFeatures` | `false` | When false, only core pipeline stages run |
 

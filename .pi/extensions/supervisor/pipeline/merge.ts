@@ -22,7 +22,8 @@ import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
 import { tryAutoMerge } from "../config/merge.ts";
 import type { GitHubPort } from "../github/ports.ts";
-import { runAgentSubprocess, DEFAULT_AGENT_TIMEOUT_MS } from "../agent/runner.ts";
+import { runAgentSubprocess } from "../agent/runner.ts";
+import { resolveTimeoutPolicy } from "../config/config.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
@@ -157,47 +158,79 @@ async function resolveBranchConflicts(
 		`When done, output CONFLICTS_RESOLVED on its own line.`,
 	].join("\n");
 
-	// Dispatch developer via subprocess for consistent widget rendering
-	log.info("pipeline-merge", "Dispatching developer for conflict resolution");
-	try {
-		const agentPath = resolvePath(wt, ".pi/extensions/supervisor/agents/developer.md");
-		const { existsSync } = await import("node:fs");
-		if (!existsSync(agentPath)) {
-			throw new Error(`Agent file not found: ${agentPath}`);
-		}
-		const developerAgent = parseAgentFile(agentPath);
+		// Dispatch developer via subprocess for consistent widget rendering.
+		// Per-agent timeout via the shared resolver (agentTimeoutSec.developer
+		// wins over legacy agentTimeoutsMin.developer; configured 0 → null =
+		// no timeout — the old truthiness check silently turned 0 into the
+		// 30-min default).
+		log.info("pipeline-merge", "Dispatching developer for conflict resolution");
+		try {
+			const agentPath = resolvePath(wt, ".pi/extensions/supervisor/agents/developer.md");
+			const { existsSync } = await import("node:fs");
+			if (!existsSync(agentPath)) {
+				throw new Error(`Agent file not found: ${agentPath}`);
+			}
+			const developerAgent = parseAgentFile(agentPath);
 
-		const devTimeoutMs = config.agentTimeoutsMin?.developer
-			? config.agentTimeoutsMin.developer * 60 * 1000
-			: DEFAULT_AGENT_TIMEOUT_MS;
+			const devTimeoutPolicy = resolveTimeoutPolicy("developer", config);
 
-		const devResult = await (runner ?? runAgentSubprocess)(
-			developerAgent,
-			devTask,
-			ctx,
-			devTimeoutMs,
-			wt,
-			config.maxToolCalls,
-			config.agentTokenBudget,
-		);
+			const devResult = await (runner ?? runAgentSubprocess)(
+				developerAgent,
+				devTask,
+				ctx,
+				devTimeoutPolicy.timeoutMs,
+				wt,
+				config.maxToolCalls,
+				config.agentTokenBudget,
+				undefined,
+				undefined,
+				config.agentKillGraceSec,
+			);
 
 		const devSuccess = devResult.success;
+		// Timeout metadata is user-visible on this path too (audit #4): name the
+		// agent, the configured duration and the actual duration, and carry the
+		// runner's errorOutput (which already holds the structured [Timeout: …]
+		// note) so a timed-out dispatch is never reported as a bare FAILED.
+		const devStatusLabel = devSuccess
+			? "SUCCESS"
+			: devResult.timedOut
+				? "TIMEOUT"
+				: "FAILED";
+		const devDetailText = [devResult.summaryLine || "", devResult.errorOutput || ""]
+			.filter((line) => line.trim().length > 0)
+			.join("\n\n");
 
-		log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`);
+		log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`, {
+			timedOut: devResult.timedOut,
+			configuredTimeoutMs: devResult.configuredTimeoutMs,
+			durationMs: devResult.durationMs,
+		});
 
 		pi.sendMessage({
 			customType: "supervisor",
-			content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${devResult.summaryLine || ""}`,
+			content: `## Conflict Resolution: developer — ${devStatusLabel}\n\n${devDetailText}`,
 			display: true,
 			details: {
 				eventType: "subagent-result",
 				agentName: "developer",
-				content: [{ type: "text", text: devResult.textOutput || "" }],
+				timedOut: devResult.timedOut,
+				configuredTimeoutMs: devResult.configuredTimeoutMs,
+				content: [
+					{
+						type: "text",
+						text: devResult.errorOutput || devResult.textOutput || "",
+					},
+				],
 				details: {
 					agentName: "developer",
 					success: devSuccess,
-					statusLabel: devSuccess ? "SUCCESS" : "FAILED",
+					statusLabel: devStatusLabel,
 					summaryLine: devResult.summaryLine || "",
+					errorOutput: devResult.errorOutput || undefined,
+					timedOut: devResult.timedOut,
+					configuredTimeoutMs: devResult.configuredTimeoutMs,
+					durationMs: devResult.durationMs,
 				},
 			},
 		});
