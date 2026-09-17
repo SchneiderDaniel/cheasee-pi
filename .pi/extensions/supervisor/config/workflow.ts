@@ -6,6 +6,7 @@ import {
 	isSuccess as isAgentOutputSuccess,
 	isRefused as isAgentOutputRefused,
 } from "../agent/output.ts";
+import { extractStructuredAuditMarkers } from "../agent/structured-audit.ts";
 import type { AgentOutput, Finding, FilteredIssueData, ParseResult } from "./types.ts";
 import {
 	AUDIT_APPROVED_HEADING,
@@ -221,11 +222,32 @@ export function resolveNextStatusFromAgentOutput(
 	// Fallback 2: section heading detection for ## Audit Approved / ## Audit Rejected
 	// Matches the pattern used by extractStructuredAuditOutput in github/comment.ts
 	// when agent outputs structured markdown without JSON or text markers.
-	// Line-anchored last-match (shared lib helper): a heading quoted mid-line
-	// (e.g. "reason: ## Audit Rejected") is not classified; the most recent
-	// line-start heading wins (issue #1668).
-	const approvedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_APPROVED_HEADING);
-	const rejectedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_REJECTED_HEADING);
+	// Two-pass scan so the status parser and the comment poster ALWAYS agree
+	// (bug #1698): the comment side uses pan-text lastIndexOf; the status side
+	// must too, or an unparseable REJECTED audit is defaulted to Done and the
+	// pipeline creates a PR + closes the issue on a rejection.
+	//
+	// Pass 1 — line-anchored last-match (shared lib helper): a heading quoted
+	// mid-line (e.g. "reason: ## Audit Rejected") is not classified; the most
+	// recent line-start heading wins (issue #1668).
+	// Pass 2 — pan-text verdict scan via the SHARED grammar
+	// (extractStructuredAuditMarkers — the exact function the comment poster
+	// uses): catches the real-world shape where the verdict heading sits INSIDE
+	// a JSON string value (escaped \n commentBody) on one line — the structured
+	// parse then fails schema validation, and line-anchored matching alone
+	// misses the rejection entirely. The comment poster already committed to
+	// that grammar, so the status transition MUST match it (no rejection can
+	// fall through to the Done default; bug #1698: REJECTED audit → PR + close).
+	let approvedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_APPROVED_HEADING);
+	let rejectedHeadingIdx = lastLineHeadingIndex(agentOutputText, AUDIT_REJECTED_HEADING);
+
+	if (approvedHeadingIdx === -1 && rejectedHeadingIdx === -1) {
+		const panDecision = extractStructuredAuditMarkers(agentOutputText);
+		if (panDecision?.decision === "REJECTED")
+			rejectedHeadingIdx = agentOutputText.lastIndexOf(AUDIT_REJECTED_HEADING);
+		else if (panDecision?.decision === "APPROVED")
+			approvedHeadingIdx = agentOutputText.lastIndexOf(AUDIT_APPROVED_HEADING);
+	}
 
 	if (approvedHeadingIdx !== -1 || rejectedHeadingIdx !== -1) {
 		if (approvedHeadingIdx > rejectedHeadingIdx) {

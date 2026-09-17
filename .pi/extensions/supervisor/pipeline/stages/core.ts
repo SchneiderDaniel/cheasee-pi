@@ -29,6 +29,7 @@ import {
 } from "../../config/workflow.ts";
 import { commitAndPush } from "../../github/git.ts";
 import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
+import { extractStructuredAuditMarkers } from "../../agent/structured-audit.ts";
 import { extractAgentCommentBody, extractStructuredAuditOutput } from "../../agent/output.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
@@ -56,9 +57,24 @@ type BareTextRule = {
 	word: RegExp;
 };
 const BARE_TEXT_RULES: readonly BareTextRule[] = [
-	{ agent: "architect",     heading: "## Architecture",     prefix: /^Architecture[^a-zA-Z]/, word: /\bArchitecture\b/i },
-	{ agent: "test-designer", heading: "## Test Plan",        prefix: /^Test\s*Plan[^a-zA-Z]/, word: /\bTest\s*Plan\b/i },
-	{ agent: "researcher",    heading: "## Research Findings", prefix: /^Research[^a-zA-Z]/,    word: /\bResearch\b/i },
+	{
+		agent: "architect",
+		heading: "## Architecture",
+		prefix: /^Architecture[^a-zA-Z]/,
+		word: /\bArchitecture\b/i,
+	},
+	{
+		agent: "test-designer",
+		heading: "## Test Plan",
+		prefix: /^Test\s*Plan[^a-zA-Z]/,
+		word: /\bTest\s*Plan\b/i,
+	},
+	{
+		agent: "researcher",
+		heading: "## Research Findings",
+		prefix: /^Research[^a-zA-Z]/,
+		word: /\bResearch\b/i,
+	},
 ];
 
 // ─── Stage State ──────────────────────────────────────────────────
@@ -466,7 +482,20 @@ export function calculateNextStatus(
 		// ponytail: auditor fallback — if auditor succeeded but output format
 		// didn't match expected markers, default to APPROVED instead of
 		// deadlocking the pipeline. The model likely approved but used wrong format.
+		// Guard (bug #1698): NEVER default to Done when the output carries a
+		// rejection. The comment side (extractStructuredAuditMarkers) uses pan-text
+		// lastIndexOf and posts "## Audit Rejected" even for unparseable output;
+		// the status side must use the SAME grammar, or a REJECTED audit loops over
+		// to PR creation + issue close. A rejection is a rejection whether or not
+		// the JSON parsed — rejection evidence beats the approval-by-default.
 		if (agentName === "auditor") {
+			const markerDecision = extractStructuredAuditMarkers(agentOutput);
+			if (markerDecision?.decision === "REJECTED") {
+				return { status: "Implementation", hadExplicitMarker: true };
+			}
+			if (markerDecision?.decision === "APPROVED") {
+				return { status: "Done", hadExplicitMarker: true };
+			}
 			return { status: "Done", hadExplicitMarker: false };
 		}
 		return {
@@ -509,7 +538,11 @@ export interface AuditScoreInfo {
  * Track audit scores across pipeline iterations.
  * Returns the audit score info if a score marker is found, null otherwise.
  */
-export function trackAuditScore(agentOutput: string, state: StageState, toolNames?: Set<string>): AuditScoreInfo | null {
+export function trackAuditScore(
+	agentOutput: string,
+	state: StageState,
+	toolNames?: Set<string>,
+): AuditScoreInfo | null {
 	const currentAuditScore = extractAuditScore(agentOutput, toolNames);
 	if (!currentAuditScore) return null;
 

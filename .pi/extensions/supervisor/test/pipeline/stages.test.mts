@@ -402,7 +402,11 @@ describe("calculateNextStatus()", () => {
 			result.stopReason?.includes("Agent refused: cannot implement this"),
 			`stopReason, got: ${result.stopReason}`,
 		);
-		assert.equal(result.hadExplicitMarker, true, "refusal is an explicit agent signal (Bug #711 guard must not double-fire)");
+		assert.equal(
+			result.hadExplicitMarker,
+			true,
+			"refusal is an explicit agent signal (Bug #711 guard must not double-fire)",
+		);
 		assert.equal(result.refusal?.refused, true);
 		assert.equal(result.refusal?.refusal, "cannot implement this");
 	});
@@ -418,7 +422,10 @@ describe("calculateNextStatus()", () => {
 		const textOnly = "Research complete.\nRESEARCH_COMPLETE";
 		const result = calculateNextStatus("researcher", agentOutput, textOnly);
 		assert.equal(result.status, null, "refusal must beat the forward text marker");
-		assert.ok(result.stopReason?.includes("Agent refused"), `stopReason, got: ${result.stopReason}`);
+		assert.ok(
+			result.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${result.stopReason}`,
+		);
 		assert.equal(result.refusal?.refusal, "cannot research this");
 	});
 
@@ -429,8 +436,15 @@ describe("calculateNextStatus()", () => {
 		});
 		const result = calculateNextStatus("researcher", agentOutput, agentOutput, false);
 		assert.equal(result.status, null, "refusal → null status, never a transition");
-		assert.equal(result.hadExplicitMarker, true, "hadExplicitMarker=true prevents the failed-agent guard from double-firing");
-		assert.ok(result.stopReason?.includes("Agent refused"), `stopReason, got: ${result.stopReason}`);
+		assert.equal(
+			result.hadExplicitMarker,
+			true,
+			"hadExplicitMarker=true prevents the failed-agent guard from double-firing",
+		);
+		assert.ok(
+			result.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${result.stopReason}`,
+		);
 	});
 
 	it("non-refusal null-status path unchanged — marker fallback → inferForwardStatus still reachable", () => {
@@ -443,12 +457,50 @@ describe("calculateNextStatus()", () => {
 		);
 		assert.equal(markerResult.status, "TestDesign", "marker fallback still works");
 
-		const inferredResult = calculateNextStatus("developer", "just some output", "just some text", true);
+		const inferredResult = calculateNextStatus(
+			"developer",
+			"just some output",
+			"just some text",
+			true,
+		);
 		assert.equal(inferredResult.status, "Audit", "inferForwardStatus still works");
 		assert.equal(inferredResult.hadExplicitMarker, false);
 
-		const auditorResult = calculateNextStatus("auditor", "no markers at all", "no markers at all", true);
+		const auditorResult = calculateNextStatus(
+			"auditor",
+			"no markers at all",
+			"no markers at all",
+			true,
+		);
 		assert.equal(auditorResult.status, "Done", "auditor ponytail fallback still works");
+	});
+
+	it("unparseable REJECTED auditor output → Implementation, NEVER Done (regression #1698: rejection created a PR + closed the issue)", () => {
+		// Live incident shape: REJECTED JSON with escaped-\\n commentBody (heading
+		// mid-line inside the one-line string value) + findings failing schema
+		// validation (severity not in the enum) → structured parse fails. The
+		// comment poster (extractStructuredAuditMarkers, pan-text) DID post
+		// "## Audit Rejected"; the status parser must reach the same verdict —
+		// a rejection must loop back to Implementation, never default to Done
+		// via the ponytail fallback (which would create a PR and close the issue
+		// on top of the posted rejection comment).
+		const raw = [
+			`{`,
+			`  "agentName": "auditor",`,
+			`  "action": "REJECTED",`,
+			`  "commentBody": "## Audit Rejected\\n\\n### Findings\\n\\n1. **Correctness & Safety — about.go:54-55**\\n   - Symptom: write errors ignored\\n   - Consequence: partial output reports success\\n   - Remedy: return wrapped error\\n\\n### Audit Score\\nAUDIT_SCORE: 7/10",`,
+			`  "summary": "Rejected - issues found",`,
+			`  "findings": [{ "severity": "error", "dimension": "code-quality", "symptom": "x", "consequence": "y", "remedy": "z", "location": "about.go" }]`,
+			`}`,
+		].join("\n");
+
+		const result = calculateNextStatus("auditor", raw, raw, true);
+		assert.equal(
+			result.status,
+			"Implementation",
+			"REJECTED must loop back to developer — got: " + result.status,
+		);
+		assert.equal(result.hadExplicitMarker, true, "rejection is an explicit agent signal");
 	});
 
 	// ─── Audit Score Gate tests (Bug #648) ───────────────────────
