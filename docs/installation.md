@@ -78,7 +78,12 @@ Run init in an **empty folder** — cheasee-pi sets the workspace up itself:
 7. Asks for custom skill repositories to install into the container — entered
    specs are recorded in `cheasee-settings.json` (`skillRepos`) and installed
    on first `cheasee-pi start` via pi's git package mechanism (`pi install -l`,
-   cloned to `.pi/git/`, reconcilable with `pi update`)
+   cloned to `.pi/git/`, reconcilable with `pi update`). One skill repo,
+   [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail), is
+   installed by default and declared at the prompt. To remove it, delete it
+   from `skillRepos` in `cheasee-settings.json` **and** run
+   `pi uninstall ponytail` inside the container — the clone stays in
+   `.pi/git/` otherwise.
 
 No docker files in your repo — the compose file and Dockerfile are CLI-managed
 cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
@@ -90,7 +95,11 @@ first run.
 > repository without a prompt (repeatable; also accepts `https://…` or
 > `git:host/user/repo[@ref]`). Recorded repos are installed into the container
 > on `cheasee-pi start` via pi's git package mechanism (project-local clones in
-> `.pi/git/`, kept reconcilable with `pi update`).
+> `.pi/git/`, kept reconcilable with `pi update`). The
+> [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail) skill
+> repo is preinstalled by default — drop it from `skillRepos` in
+> `cheasee-settings.json` and run `pi uninstall ponytail` in the container to
+> remove it.
 
 {:.note-title}
 > No GitHub?
