@@ -29,10 +29,11 @@ Empty folder → runs cheasee-pi init and stops (init never launches pi);
 run 'cheasee-pi start' again to launch. Non-empty folder without
 cheasee-settings.json is refused — run 'cheasee-pi init' in an empty folder.
 
-The image clones the cheasee-pi repo at build time (Dockerfile ARG
-CHEASEE_REF) for its .pi resources. Reads provider API keys from
-~/.config/cheasee-pi/auth.json and passes them as environment variables to
- the container, so pi finds models without manual /login.
+At build time the image clones cheasee-pi's own repository
+(github.com/SchneiderDaniel/cheasee-pi, Dockerfile ARG CHEASEE_REF) into
+/opt/cheasee-pi to supply its .pi resources — not your repo. Reads provider
+API keys from ~/.config/cheasee-pi/auth.json and passes them as environment
+variables to the container, so pi finds models without manual /login.
 
 If the container is not running, starts it with docker compose up first.
 Use --build to force rebuild.

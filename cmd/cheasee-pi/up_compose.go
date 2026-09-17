@@ -13,7 +13,7 @@ import (
 // (workspaceHostPath) is injected as WORKSPACE_HOST_PATH and its sibling bare
 // repo as WORKSPACE_BARE_PATH — CLI-resolved absolute paths, never ${PWD}
 // (macOS logical-vs-resolved path pitfall).
-func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, containerName string) error {
+func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, containerName string, firstBuild bool) error {
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
 	// Fail closed when the sibling bare repo is missing: the worktree's gitdir
@@ -41,6 +41,13 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
 	applyComposeEnv(build, workspaceHostPath, containerName)
+	if firstBuild {
+		// First-build expectations: the notice precedes the build label with
+		// blank-line separation so buildx tty inline rendering (compose build
+		// paints over preceding lines in a terminal) cannot clobber it on
+		// exactly the first run it explains. Static text — no measured size.
+		fmt.Fprintf(os.Stderr, "\n  ℹ First start downloads ~1GB of build-time dependencies (Chromium, Node.js, Python toolchain); this can take several minutes on slower connections.\n\n")
+	}
 	fmt.Fprintf(os.Stderr, "  ℹ Building container image...\n")
 	if err := build.Run(); err != nil {
 		return err

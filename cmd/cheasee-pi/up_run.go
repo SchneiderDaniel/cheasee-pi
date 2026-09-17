@@ -141,6 +141,10 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		printCodeFlowHint(port)
 	}
 
+	// One-line cheatsheet so a fresh session has the in-pi help and the
+	// stop/cleanup commands in front of it the moment pi launches.
+	fmt.Fprintf(os.Stderr, "  ℹ inside pi: /help · exit session: Ctrl+D · stop container: cheasee-pi down · full cleanup: cheasee-pi clean\n")
+
 	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
 	// age reaping is clean's job, a pre-start age sweep could kill a long-
 	// running session the user still has attached elsewhere)
@@ -179,7 +183,17 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 		return "", fmt.Errorf("check container: %w", err)
 	}
 	if build || !running {
-		if err := dockerComposeUp(ctx, cacheDir, root, name); err != nil {
+		// True first-build gate: compose builds whenever the container is
+		// missing, but the ~1GB download notice belongs only to an actual
+		// first build — keyed on image absence (docker image inspect exit
+		// code), never on !running alone, or every cached cold start nags.
+		// Fail-closed: inspect before compose — a daemon error here is real
+		// (the Phase-2 docker check already passed), never "missing".
+		exists, err := imageExists(ctx, cheaseeImageRef(root))
+		if err != nil {
+			return "", fmt.Errorf("check image: %w", err)
+		}
+		if err := dockerComposeUp(ctx, cacheDir, root, name, !exists); err != nil {
 			return "", fmt.Errorf("docker compose up: %w", err)
 		}
 	}

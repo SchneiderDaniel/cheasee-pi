@@ -287,6 +287,45 @@ func TestRepoSlug_fileURLFallsBackToBasename(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
+// cheaseeImageRef (first-build gate identity)
+// ──────────────────────────────────────────────
+
+func TestCheaseeImageRef_equivalenceWithProjectName(t *testing.T) {
+	// Equivalence property: the built image is <project>-<service>, so the
+	// ref must always equal composeProjectName + the compose service suffix —
+	// pins both derivations to one slug path.
+	root := filepath.Join(t.TempDir(), "whatever")
+	if got := cheaseeImageRef(root); got != composeProjectName(root)+"-cheasee-pi" {
+		t.Errorf("cheaseeImageRef(%q) = %q, want %q", root, got, composeProjectName(root)+"-cheasee-pi")
+	}
+}
+
+func TestCheaseeImageRef_basenameFallbackSlug(t *testing.T) {
+	// No bare remote → repoSlug falls back to the workspace basename (ws):
+	// exactly the image the docker-compose.yml service `cheasee-pi` builds
+	// under project cheasee-pi-ws.
+	_, root := mkWorkspace(t, `{}`)
+	if got := cheaseeImageRef(root); got != "cheasee-pi-ws-cheasee-pi" {
+		t.Errorf("cheaseeImageRef = %q, want cheasee-pi-ws-cheasee-pi", got)
+	}
+}
+
+func TestCheaseeImageRef_overLongSlugFollowsProjectNotContainerCap(t *testing.T) {
+	// Over-long slug: composeProjectName caps at 43 chars with a hash
+	// suffix, containerName at 52 — the two truncations differ, and the
+	// image name follows the PROJECT identity, so a containerName-based
+	// derivation would name the wrong image.
+	root := filepath.Join(t.TempDir(), strings.Repeat("x", 100))
+	got := cheaseeImageRef(root)
+	if got != composeProjectName(root)+"-cheasee-pi" {
+		t.Errorf("over-long slug must derive from composeProjectName (43-char cap), got %q want %q", got, composeProjectName(root)+"-cheasee-pi")
+	}
+	if got == containerName(root)+"-cheasee-pi" {
+		t.Errorf("cheaseeImageRef must NOT follow containerName's 52-char cap, got %q", got)
+	}
+}
+
+// ──────────────────────────────────────────────
 // codeflowHostPort (entity + use-case, probe stubbed)
 // ──────────────────────────────────────────────
 
