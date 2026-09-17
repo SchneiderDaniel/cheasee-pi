@@ -281,7 +281,7 @@ func TestInitUseCase_SkillRepoAnnouncementBetweenScaffoldAndAuthSave(t *testing.
 		}
 	})
 	scaffoldIdx := strings.Index(output, "cheasee-settings.json created")
-	announceIdx := strings.Index(output, "Custom Skill Repositories")
+	announceIdx := strings.Index(output, "Custom Skills")
 	authIdx := strings.Index(output, "Auth config saved to")
 	if scaffoldIdx < 0 || announceIdx < 0 || authIdx < 0 {
 		t.Fatalf("expected scaffold + announcement + auth-save lines, got: %q", output)
@@ -317,11 +317,13 @@ func TestInitUseCase_SkillRepoPromptDeclaresDefault(t *testing.T) {
 			t.Fatalf("flow: %v", err)
 		}
 	})
-	// Header contract preserved verbatim (existing substring assertion).
-	if !strings.Contains(output, "Custom Skill Repositories") {
-		t.Error("header 'Custom Skill Repositories' must be preserved")
+	// Header contract preserved (one consistent term: Custom Skills) and the
+	// definition follows #1701's wording; the remaining assertions guard the
+	// #1700 additions (default declaration, removal path, trust caveat).
+	if !strings.Contains(output, "Custom Skills") {
+		t.Error("header 'Custom Skills' must be printed")
 	}
-	if !strings.Contains(output, "Skills are reusable capability packages") {
+	if !strings.Contains(output, "Skills (reusable instruction sets for pi)") {
 		t.Error("prompt must explain what a skill is before the choice")
 	}
 	if want := "Installed by default: " + defaultSkillRepos[0]; !strings.Contains(output, want) {

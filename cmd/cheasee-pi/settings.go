@@ -70,10 +70,10 @@ type CheaseeSettings struct {
 	GitIdentity     GitIdentitySettings `json:"gitIdentity,omitempty"`
 	OAuth           OAuthSettings       `json:"oauth,omitempty"`
 	Repository      *RepositorySettings `json:"repository,omitempty"`
-	// SkillRepos are canonical custom skill/extension git repository specs
+	// SkillRepos are canonical custom skill repository specs
 	// (owner/repo, https://…, or git:host/user/repo[@ref]) recorded at init
 	// and installed by the container entrypoint via `pi install -l -a` — the
-	// exact string pi's package mechanism accepts, stored verbatim.
+	// exact spec string `pi install` accepts, stored verbatim.
 	SkillRepos []string `json:"skillRepos,omitempty"`
 
 	extra map[string]json.RawMessage

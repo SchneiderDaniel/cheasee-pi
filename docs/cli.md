@@ -84,7 +84,7 @@ path (no clone, no repo URL).
 | `--no-docker-check` | Skip the Docker Engine check |
 | `--repo-url <url>` | GitHub repo pi should work on (`owner/repo` or GitHub URL; required with `--no-input`) |
 | `--reauth` | Redo GitHub + pi API-key authentications on an initialized workspace |
-| `--skill-repo <spec>` | Custom skill repository installed into the container (repeatable); the `DietrichGebert/ponytail` default is preinstalled regardless |
+| `--skill-repo <spec>` | Custom skills installed into the container (repeatable) |
 
 ## `cheasee-pi auth`
 

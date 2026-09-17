@@ -8,11 +8,12 @@ import (
 	"strings"
 )
 
-// defaultSkillRepos are canonical external pi git repos cheasee-pi installs
-// into every container by default, seeded into cheasee-settings.json skillRepos
-// at init and installed by the entrypoint through the same `pi install -l -a`
-// mechanism as user-added custom repos — one uniform install path for all
-// external pi packages (ponytail among them). Canonical form, stored verbatim.
+// defaultSkillRepos are canonical git-hosted skill repository specs
+// cheasee-pi installs into every container by default, seeded into
+// cheasee-settings.json skillRepos at init and installed by the entrypoint
+// through the same `pi install -l -a` mechanism as user-added custom repos —
+// one uniform install path for all skill repositories (ponytail among them).
+// Canonical form, stored verbatim.
 var defaultSkillRepos = []string{"https://github.com/DietrichGebert/ponytail"}
 
 // canonicalSkillRepo validates and normalizes a custom skill repository spec
@@ -123,16 +124,13 @@ func runInitSkillRepos(deps InitDeps) error {
 		custom = append(custom, c)
 	}
 	if !deps.NoInput {
-		fmt.Fprintf(os.Stderr, "\n🧩 Custom Skill Repositories\n")
-		fmt.Fprintf(os.Stderr, "   ───────────────────────────\n")
-		fmt.Fprintf(os.Stderr, "   Skills are reusable capability packages pi makes available in every\n")
-		fmt.Fprintf(os.Stderr, "   session — specialized workflows, setup instructions, helper scripts, and\n")
-		fmt.Fprintf(os.Stderr, "   reference docs, invoked with /skill:name (only names+descriptions stay\n")
-		fmt.Fprintf(os.Stderr, "   in context until invoked). Repos are git repos of such skills, recorded\n")
-		fmt.Fprintf(os.Stderr, "   in cheasee-settings.json skillRepos and installed on the next\n")
-		fmt.Fprintf(os.Stderr, "   cheasee-pi start via pi's git package mechanism (pi install -l →\n")
-		fmt.Fprintf(os.Stderr, "   .pi/git/). Review a repo's content before adding it — skills can include\n")
-		fmt.Fprintf(os.Stderr, "   code the agent may run.\n\n")
+		fmt.Fprintf(os.Stderr, "\n🧩 Custom Skills\n")
+		fmt.Fprintf(os.Stderr, "   ──────────────\n")
+		fmt.Fprintf(os.Stderr, "   Skills (reusable instruction sets for pi) are installed into the\n")
+		fmt.Fprintf(os.Stderr, "   container with pi install (pi install -l → .pi/git/). Specs are\n")
+		fmt.Fprintf(os.Stderr, "   recorded in cheasee-settings.json skillRepos and installed on the\n")
+		fmt.Fprintf(os.Stderr, "   next cheasee-pi start. Review a repo's content before adding it —\n")
+		fmt.Fprintf(os.Stderr, "   skills can include code the agent may run.\n\n")
 		fmt.Fprintf(os.Stderr, "   Installed by default: %s\n", defaultSkillRepos[0])
 		fmt.Fprintf(os.Stderr, "   (\"lazy senior dev mode\" — YAGNI, stdlib-first, minimal code; active\n")
 		fmt.Fprintf(os.Stderr, "   automatically via its extension's before_agent_start hook). Remove it by\n")

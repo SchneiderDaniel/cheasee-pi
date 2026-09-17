@@ -139,7 +139,9 @@ func TestInstallationDoc_TwoStepFirstRun(t *testing.T) {
 }
 
 // TestInstallationDoc_SkillRepoStep verifies the init step list documents the
-// custom skill-repo phase and its non-interactive --skill-repo flag.
+// custom skill-repo phase and its non-interactive --skill-repo flag, with the
+// one-consistent-term wording (skills defined once, skill repos as the git
+// delivery source, no extension/package terms).
 func TestInstallationDoc_SkillRepoStep(t *testing.T) {
 	data, err := os.ReadFile(docPath())
 	if err != nil {
@@ -155,6 +157,26 @@ func TestInstallationDoc_SkillRepoStep(t *testing.T) {
 	}
 	if !strings.Contains(content, "pi update") {
 		t.Error("installation.md should mention the pi update reconciliation benefit")
+	}
+
+	// Terminology contract: step 7 carries the definition, the note heading
+	// and body use the canonical terms, and extension/package wording is gone.
+	if !strings.Contains(content, "Asks for custom skills (reusable instruction sets for pi)") {
+		t.Error("installation.md step 7 must define skills (reusable instruction sets for pi)")
+	}
+	if !strings.Contains(content, "> Custom skills?") {
+		t.Error("installation.md note heading must read '> Custom skills?'")
+	}
+	// The note body wraps across blockquote lines — flatten whitespace so the
+	// guard is wrap-tolerant (the doc↔CLI sync is manual, no parity harness).
+	flat := strings.Join(strings.Fields(strings.ReplaceAll(content, "\n> ", " ")), " ")
+	if !strings.Contains(flat, "records custom skills (git-hosted skill repository specs) without a prompt") {
+		t.Error("installation.md note body must say 'records custom skills (git-hosted skill repository specs) without a prompt'")
+	}
+	for _, gone := range []string{"custom skill/extension", "Skill/extension"} {
+		if strings.Contains(content, gone) {
+			t.Errorf("installation.md must not contain %q (one consistent term)", gone)
+		}
 	}
 }
 
