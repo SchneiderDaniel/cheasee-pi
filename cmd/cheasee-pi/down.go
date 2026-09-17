@@ -82,7 +82,7 @@ func runDownE(_ *cobra.Command, _ []string) error {
 
 	// compose validates every volume spec even for `down`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be non-empty.
-	applyComposeEnv(cmd, workspace, containerName(workspace))
+	applyComposeEnv(cmd, workspace, containerName(workspace), cacheDir)
 
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)

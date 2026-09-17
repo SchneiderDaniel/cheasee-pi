@@ -105,7 +105,15 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 			return c.stubImageGate()
 		}
 		if name == "docker" && slices.Contains(arg, "inspect") {
-			// Ready-marker healthcheck: entrypoint setup assumed complete.
+			// Ready-marker healthcheck: entrypoint setup assumed complete. On
+			// the running&&!build path the drift check calls the same inspect
+			// seam with `--format {{json .}}` — answer a matching sidecar
+			// (label-less old-container form: mount matches the current cache
+			// dir, no explicit port) so existing tests stay warning-free.
+			if slices.Contains(arg, "{{json .}}") {
+				cacheDir, _ := CacheDir()
+				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
 		return &mockCmd{} // docker info

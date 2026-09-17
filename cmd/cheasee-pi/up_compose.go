@@ -40,7 +40,7 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
-	applyComposeEnv(build, workspaceHostPath, containerName)
+	applyComposeEnv(build, workspaceHostPath, containerName, composeDir)
 	if firstBuild {
 		// First-build expectations: the notice precedes the build label with
 		// blank-line separation so buildx tty inline rendering (compose build
@@ -59,7 +59,7 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 	)
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)
-	applyComposeEnv(cmd, workspaceHostPath, containerName)
+	applyComposeEnv(cmd, workspaceHostPath, containerName, composeDir)
 	fmt.Fprintf(os.Stderr, "  ℹ Starting container...\n")
 	if err := cmd.Run(); err != nil {
 		return err
@@ -75,10 +75,11 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 // from cheasee-settings.json (replacing the old docker/.env file and the
 // pi-coupled .pi/settings.json read), the per-repo compose project name (the
 // isolation key — see composeProjectName) and the resolved CodeFlow host
-// port. SELinux-enforcing hosts opt in to bind-mount relabeling via
-// CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every bind mount — documented,
-// not default: relabel cost).
-func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
+// port. composeDir is the version-keyed cache dir the compose file lives in
+// (the caller already holds it). SELinux-enforcing hosts opt in to
+// bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
+// bind mount — documented, not default: relabel cost).
+func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string) {
 	// Derived identity env is authoritative — strip inherited keys so
 	// duplicate KEY= entries (nondeterministic resolution across libc/exec)
 	// can never leak in. A user-set CODEFLOW_PORT is not clobbered: the
@@ -86,6 +87,7 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
 	env := stripEnvKeys(os.Environ(),
 		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
 		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
+		codeflowSpecEnv,
 	)
 	env = append(env,
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
@@ -101,6 +103,18 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName string) {
 		// name: is the only sane fallback for direct usage.
 		"COMPOSE_PROJECT_NAME="+composeProjectName(workspaceHostPath),
 	)
+	// CodeFlow spec stamp: the codeflow container carries the CLI-owned config
+	// hash as a compose label at creation, so a later plain `start` can detect
+	// sidecar drift without re-deriving Compose's internal hash (unstable
+	// across Compose versions). Missing extracted files → no stamp (the
+	// compose `:-` default leaves the label unset); read errors are loud,
+	// never silent — a silently changing stamp would read as drift on every
+	// start.
+	if spec, err := codeflowSpecHash(workspaceHostPath, composeDir); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow spec stamp: %v\n", err)
+	} else if spec != "" {
+		env = append(env, codeflowSpecEnv+"="+spec)
+	}
 	// CodeFlow host port: settings docker.codeflowPort > process env
 	// CODEFLOW_PORT (pass-through) > derived+probed. Resolution failure is
 	// loud (stderr) and leaves the compose fallback (8470) to fail loudly on
