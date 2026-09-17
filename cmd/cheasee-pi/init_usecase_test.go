@@ -253,3 +253,110 @@ func TestInitUseCase_NoInputRequiresRepoURL(t *testing.T) {
 		t.Errorf("no git call may run without a repo URL, got %d", gitCalls)
 	}
 }
+
+func TestInitUseCase_InvalidWorkspaceFolderNameRejected(t *testing.T) {
+	// A non-plain workspace folder name is a hard error before any git call:
+	// the value names the worktree folder only (never a git branch), so
+	// slashes and relative-name tricks must not reach the clone phase.
+	for _, name := range []string{"a/b", ".", "..", `a\b`} {
+		t.Run(name, func(t *testing.T) {
+			testutil.RedirectConfigHome(t)
+			stubDockerCheck(t, nil, "24.0.9", nil)
+			testutil.SetGitConfig(t, testGitIdentityConfig)
+
+			var gitCalls int
+			saved := runCommandContext
+			stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+				if name == "git" {
+					gitCalls++
+				}
+				return saved(ctx, name, arg...)
+			})
+
+			parent := t.TempDir()
+			workdir := filepath.Join(parent, "ws")
+			if err := os.MkdirAll(workdir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			_, input := mockQueuePrompt(t, nil, []string{"owner/repo", name})
+			err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+				d.Workdir = workdir
+				d.NoInput = false
+				d.InputFn = input
+			}))
+			if err == nil || !strings.Contains(err.Error(), "invalid workspace folder name") {
+				t.Fatalf("expected invalid workspace folder name error, got %v", err)
+			}
+			if gitCalls != 0 {
+				t.Errorf("no git call may run for an invalid folder name, got %d", gitCalls)
+			}
+			if _, statErr := os.Stat(filepath.Join(parent, ".bare")); !os.IsNotExist(statErr) {
+				t.Errorf("no .bare may be created for an invalid folder name: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestInitUseCase_BlankWorkspaceFolderDefaultsToMain(t *testing.T) {
+	// A blank (whitespace-only) folder-name input still defaults to the main
+	// leaf — the boundary is preserved under the rename.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
+		_, input := mockQueuePrompt(t, nil, []string{"owner/repo", "   "})
+		d.InputFn = input
+	})
+	if err := runInit(context.Background(), deps); err != nil {
+		t.Fatalf("flow with blank folder name failed: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(workdir, "main", "cheasee-settings.json")); statErr != nil {
+		t.Errorf("blank folder name must default to the main leaf: %v", statErr)
+	}
+}
+
+func TestInitUseCase_PromptFailurePropagation(t *testing.T) {
+	// InputFn errors stay wrapped with their prompt label ("repo URL prompt
+	// failed" / "branch prompt failed") — the Contains-style contract
+	// survives the title renames.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	cases := []struct {
+		name      string
+		first     string // value for the first (repo URL) call
+		errOn     int    // 1-based call number that returns an error
+		wantError string
+	}{
+		{"repo URL prompt", "", 1, "repo URL prompt failed"},
+		{"branch prompt", "owner/repo", 2, "branch prompt failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workdir := t.TempDir()
+			calls := 0
+			err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
+				d.Workdir = workdir
+				d.NoInput = false
+				d.InputFn = func(title, placeholder string) (string, error) {
+					calls++
+					if calls == tc.errOn {
+						return "", fmt.Errorf("input interrupted")
+					}
+					return tc.first, nil
+				}
+			}))
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected %q wrap, got %v", tc.wantError, err)
+			}
+		})
+	}
+}

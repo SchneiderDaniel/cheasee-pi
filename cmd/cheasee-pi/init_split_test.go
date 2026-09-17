@@ -28,6 +28,7 @@ var initSplitFiles = []string{
 var wantInitDecls = map[string]string{
 	"const:nextStepHint": "init.go",
 	"const:initTimeout":  "init.go",
+	"const:initOverview": "init.go",
 	"var:initAPIKey,initNoDockerCheck,initWorkdir,initNoGitHub,initClientID,initProvider,initNoInput,initRepoURL,initReauth,initSkillRepos": "init.go",
 	"var:newInitDeps":                   "init.go",
 	"type:InitPorts":                    "init.go",
@@ -38,6 +39,7 @@ var wantInitDecls = map[string]string{
 	"func:runInitE":                     "init.go",
 	"func:runInit":                      "init.go",
 	"func:resolveInitDeps":              "init.go",
+	"func:printInitOverview":            "init.go",
 	"func:runInitProbe":                 "init.go",
 	"func:resolveRepoURL":               "init.go",
 	"type:initMode":                     "init.go",
@@ -241,6 +243,11 @@ var runInitFlowDecls = map[string]string{
 	"func:TestRunInit_ContextCancelledMidFlow":         "init_auth_test.go",
 	"func:TestRunInit_GitHubFlowClonesWorktree":        "init_prompt_test.go",
 	"func:TestRunInit_NoGitHubLegacySkipsGitInit":      "init_prompt_test.go",
+	"func:TestRunInit_OverviewAndPlainPrompts":         "init_prompt_test.go",
+	"func:TestRunInit_NoInputSkipsOverview":            "init_prompt_test.go",
+	"func:TestRunInit_NoGitHubSkipsOverview":           "init_prompt_test.go",
+	"func:TestRunInit_ReauthSkipsOverview":             "init_prompt_test.go",
+	"func:TestRunInit_NonEmptyFolderSkipsOverview":     "init_prompt_test.go",
 }
 
 // skillRepoUseCaseDecls pins the TestInitUseCase_* skill-repo e2e decls that

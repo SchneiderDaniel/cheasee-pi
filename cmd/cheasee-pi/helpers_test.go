@@ -87,6 +87,32 @@ func mockInputFn(result string, err error) func(title, placeholder string) (stri
 	}
 }
 
+// promptCall records one InputFn invocation (title + placeholder) for the
+// capturing-input mock below.
+type promptCall struct {
+	title       string
+	placeholder string
+}
+
+// captureInputFn returns an input function that records every call's
+// title+placeholder pair and yields the given results in order (queue
+// exhaustion → "", nil). Used to lock the init prompt strings, which the
+// other mocks ignore.
+func captureInputFn(t *testing.T, results ...string) (func(string, string) (string, error), *[]promptCall) {
+	t.Helper()
+	calls := &[]promptCall{}
+	i := 0
+	return func(title, placeholder string) (string, error) {
+		*calls = append(*calls, promptCall{title: title, placeholder: placeholder})
+		if i >= len(results) {
+			return "", nil
+		}
+		next := results[i]
+		i++
+		return next, nil
+	}, calls
+}
+
 // ──────────────────────────────────────────────
 // Custom skill repositories (init Phase 6b) flow helper
 // ──────────────────────────────────────────────
