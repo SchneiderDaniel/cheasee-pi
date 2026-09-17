@@ -39,6 +39,25 @@ var newInitDeps = func(workdir string) InitDeps {
 // It is a constant so both the CLI and documentation stay in sync.
 const nextStepHint = "cd <branch> -> cheasee-pi start"
 
+// initOverview is the pre-prompt narration printed once per interactive
+// GitHub-flow init run, before the first prompt. It is a constant so the CLI
+// and documentation stay in sync (mirrors nextStepHint). The Docker check has
+// already run by the time it prints, so it is folded in retrospectively —
+// never promised as a still-pending step.
+const initOverview = "🤖 Welcome — one GitHub repo becomes your workspace:\n" +
+	"   · nothing touches your existing folders — init runs only in an empty directory\n" +
+	"   · the repo is cloned to <parent>/.bare + a worktree; the container mounts that folder\n" +
+	"   · then this machine authenticates: GitHub OAuth + LLM API keys\n" +
+	"   · finally, init hands off to `cheasee-pi start`\n" +
+	"   no repo yet? `--no-github` skips the clone (API-key only)\n\n"
+
+// printInitOverview narrates the init workflow to stderr right before the
+// first prompt. Mirrors the intro block runInitSkillRepos prints before its
+// prompt loop; only interactive GitHub-flow runs reach it.
+func printInitOverview() {
+	fmt.Fprint(os.Stderr, initOverview)
+}
+
 // initTimeout bounds a single init invocation — device-flow OAuth polling
 // dominates the window. Shared by `cheasee-pi init` (runInitE) and the
 // empty-folder branch of runUpE so both cap the auth window identically
@@ -148,7 +167,7 @@ func init() {
 	initCmd.Flags().StringVar(&initClientID, "client-id", "178c6fc778ccc68e1d6a", "GitHub OAuth client ID")
 	initCmd.Flags().StringVar(&initProvider, "provider", "opencode-go", "Provider name for API key (e.g. opencode-go, openai, anthropic)")
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
-	initCmd.Flags().StringVar(&initRepoURL, "repo-url", "", "Project repository URL for the empty-folder clone (required with --no-input)")
+	initCmd.Flags().StringVar(&initRepoURL, "repo-url", "", "GitHub repo pi should work on (`owner/repo` or GitHub URL; required with --no-input)")
 	initCmd.Flags().BoolVar(&initReauth, "reauth", false, "Redo GitHub and pi API-key authentications on an initialized workspace")
 	initCmd.Flags().StringArrayVar(&initSkillRepos, "skill-repo", nil, "Custom skill repository to install into the container (repeatable; owner/repo, https://…, or git:host/user/repo[@ref])")
 }
@@ -220,6 +239,15 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		return runReauth(ctx, deps)
 	}
 
+	// Phase 2b: workflow overview — the fix for "what is the repo that is
+	// mentioned": a ≤5-line stderr preface before the first prompt. Gated on
+	// the interactive GitHub path: --no-input never prompts (no interactive
+	// narration), --no-github has no clone to explain, and reauth
+	// short-circuited above (it must never see clone/workspace copy).
+	if !deps.NoInput && !deps.NoGitHub {
+		printInitOverview()
+	}
+
 	// Phase 3: project repo URL (GitHub path only; legacy --no-github skips
 	// the clone entirely). Canonicalized (shorthand/scp → https) before any
 	// git call; the canonical form is what the scaffold persists.
@@ -278,29 +306,31 @@ func runInit(ctx context.Context, deps InitDeps) error {
 		}
 	}
 
-	// Phase 5: clone phase — mkdir + cd for the stated branch (typically
-	// main): the worktree leaf <workdir>/<branch> becomes the workspace, its
-	// sibling .bare the bare clone; everything after (scaffold, skill repos,
-	// API keys, failure cleanup) runs inside the leaf as before.
+	// Phase 5: clone phase — mkdir + cd for the stated workspace folder name
+	// (typically main): the worktree leaf <workdir>/<folderName> becomes the
+	// workspace, its sibling .bare the bare clone; everything after (scaffold,
+	// skill repos, API keys, failure cleanup) runs inside the leaf as before.
 	if !deps.NoGitHub {
-		branch := "main"
+		folderName := "main"
 		if !deps.NoInput {
-			branch, err = deps.InputFn("Branch to check out", "main")
+			// The input never touches git directly (the worktree checks out
+			// the bare HEAD detached) — it only names the folder, so the
+			// prompt spells that out instead of fabricating a git branch.
+			fmt.Fprintf(os.Stderr, "   ℹ this name labels your workspace subfolder only — the worktree checks out the bare HEAD detached; not a git branch\n")
+			folderName, err = deps.InputFn("Workspace folder name", "main")
 			if err != nil {
 				return fmt.Errorf("branch prompt failed: %w", err)
 			}
-			if branch = strings.TrimSpace(branch); branch == "" {
-				branch = "main"
+			if folderName = strings.TrimSpace(folderName); folderName == "" {
+				folderName = "main"
 			}
 		}
-		// The branch never touches git directly (the worktree checks out the
-		// bare HEAD detached) — it only names the folder, so keep it a plain
-		// name: a slash would nest folders and break the sibling .bare
-		// cleanup.
-		if branch == "." || branch == ".." || strings.ContainsAny(branch, `/\\`) {
-			return fmt.Errorf("invalid branch %q — the branch names the worktree folder; use a plain name like main (no slashes)", branch)
+		// The value only names the worktree folder, so keep it a plain name:
+		// a slash would nest folders and break the sibling .bare cleanup.
+		if folderName == "." || folderName == ".." || strings.ContainsAny(folderName, `/\\`) {
+			return fmt.Errorf("invalid workspace folder name %q — use a plain name like main (no slashes); it names the folder only, not a git branch", folderName)
 		}
-		deps.Workdir = filepath.Join(deps.Workdir, branch)
+		deps.Workdir = filepath.Join(deps.Workdir, folderName)
 		if err := gitCloneWorktree(ctx, repoURL, deps.Workdir); err != nil {
 			return err
 		}
@@ -411,7 +441,12 @@ func resolveRepoURL(deps InitDeps) (string, error) {
 	if deps.NoInput {
 		return "", errors.New("init: --repo-url is required with --no-input (empty-folder init clones a bare repo + worktree)")
 	}
-	url, err := deps.InputFn("Project repository URL", "https://github.com/owner/repo")
+	// Hint is narration on stderr before the prompt (the InputFn seam carries
+	// only title+placeholder; the hint and the placeholder carry different
+	// information — no full-URL duplication).
+	fmt.Fprintf(os.Stderr, "   ℹ the repo must already exist on GitHub — cheasee-pi clones it to\n")
+	fmt.Fprintf(os.Stderr, "     <parent>/.bare + a worktree, and the container mounts this folder\n")
+	url, err := deps.InputFn("GitHub repo pi should work on", "owner/repo")
 	if err != nil {
 		return "", fmt.Errorf("repo URL prompt failed: %w", err)
 	}

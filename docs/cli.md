@@ -59,7 +59,7 @@ without a subcommand executes the same handler as `start`.
 ## `cheasee-pi init`
 
 Set up a cheasee-pi workspace from scratch: bare clone to `<workdir>/.bare`,
-main worktree in the branch-named subfolder (`<workdir>/main` by default),
+main worktree in the workspace subfolder (`<workdir>/main` by default),
 and the dedicated `cheasee-settings.json` scaffolded inside that worktree
 leaf (gitignored, machine-local). GitHub OAuth (device flow) is the
 primary authentication; `--no-github` falls back to the legacy API-key-only
@@ -67,9 +67,9 @@ path (no clone, no repo URL).
 
 | | |
 |---|---|
-| **Does** | Bare-clones the project repo, adds the main worktree in a branch-named subfolder of the workspace (`<workdir>/main` unless a different branch is stated), scaffolds `cheasee-settings.json` in the worktree leaf (never overwrites an existing one), authenticates GitHub, records custom skill repos, saves auth config, and sets up the provider API key. Prints `cheasee-pi start` as the next step — init never launches pi (the second `start` invocation does). |
+| **Does** | Bare-clones the project repo, adds the main worktree in the workspace subfolder (`<workdir>/main` unless a different workspace folder name is stated), scaffolds `cheasee-settings.json` in the worktree leaf (never overwrites an existing one), authenticates GitHub, records custom skill repos, saves auth config, and sets up the provider API key. Prints `cheasee-pi start` as the next step — init never launches pi (the second `start` invocation does). |
 | **Checks** | Docker gate unless `--no-docker-check`. Empty-folder probe: non-empty folders are refused (`.DS_Store` tolerated). `cheasee-settings.json` presence marks the workspace initialized — init refuses it unless `--reauth` (which re-runs only the GitHub + API-key authentications). Single invocation capped at a 5-minute timeout (device-flow OAuth polling dominates). `--no-input` requires `--repo-url`. |
-| **Inputs** | Repo URL (`--repo-url` or interactive prompt), branch naming the worktree folder (interactive prompt, default `main`), GitHub OAuth device flow, API key (`--api-key` or prompt), provider name. Files written: `cheasee-settings.json` in the worktree leaf, `~/.config/cheasee-pi/auth.json`, `.pi/` agent settings, sibling `.bare` clone + worktree leaf. |
+| **Inputs** | The GitHub repo pi should work on (`--repo-url` or interactive prompt; must already exist on GitHub), workspace folder name (interactive prompt, default `main`; names the subfolder only, not a git branch), GitHub OAuth device flow, API key (`--api-key` or prompt), provider name. Files written: `cheasee-settings.json` in the worktree leaf, `~/.config/cheasee-pi/auth.json`, `.pi/` agent settings, sibling `.bare` clone + worktree leaf. |
 
 ### init flags
 
@@ -82,7 +82,7 @@ path (no clone, no repo URL).
 | `--no-input` | Skip all interactive prompts (`--repo-url` then required) |
 | `--api-key <key>` | API key, skips the interactive prompt |
 | `--no-docker-check` | Skip the Docker Engine check |
-| `--repo-url <url>` | Project repository URL for the clone (`owner/repo` or GitHub URL) |
+| `--repo-url <url>` | GitHub repo pi should work on (`owner/repo` or GitHub URL; required with `--no-input`) |
 | `--reauth` | Redo GitHub + pi API-key authentications on an initialized workspace |
 | `--skill-repo <spec>` | Custom skill repository installed into the container (repeatable); the `DietrichGebert/ponytail` default is preinstalled regardless |
 
