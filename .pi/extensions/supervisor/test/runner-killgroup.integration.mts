@@ -63,8 +63,12 @@ describe("runner killGroup integration (real OS, Linux container)", () => {
 							killGroup: (sig) => {
 								try {
 									process.kill(-child.pid!, sig);
-								} catch {
+									return null;
+								} catch (err: unknown) {
 									/* group already gone — mirrors spawn.ts's ESRCH guard */
+									return (err as NodeJS.ErrnoException).code === "ESRCH"
+										? null
+										: (err as NodeJS.ErrnoException);
 								}
 							},
 						},

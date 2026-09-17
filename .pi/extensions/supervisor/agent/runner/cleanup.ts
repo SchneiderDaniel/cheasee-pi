@@ -44,6 +44,12 @@ export function assembleResult(opts: {
 	timedOut?: boolean;
 	/** Configured per-agent timeout in ms (present when timedOut). */
 	configuredTimeoutMs?: number;
+	/**
+	 * Non-ESRCH group-kill failure from the watchdog (audit finding #2): a
+	 * failed SIGTERM/SIGKILL means the process tree may still be alive, so the
+	 * result must say so instead of reporting a clean timeout.
+	 */
+	killError?: string | null;
 }): AgentRunResult {
 	const durationMs = Date.now() - opts.startedAt;
 	const textOutput = opts.state.fullLog.join("\n").trim();
@@ -69,6 +75,12 @@ export function assembleResult(opts: {
 			durationMs,
 		});
 		errorOutput = errorOutput ? `${errorOutput}\n${note}` : note;
+	}
+	// A failed process-group kill is a terminal error, not a clean timeout: the
+	// pi process or a descendant may still be running (audit finding #2).
+	if (timedOut && opts.killError) {
+		const killNote = `[Timeout: ${opts.agentName} process-group kill failed — ${opts.killError}]`;
+		errorOutput = errorOutput ? `${errorOutput}\n${killNote}` : killNote;
 	}
 
 	const thinkingOutput =

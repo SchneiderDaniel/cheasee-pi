@@ -13,12 +13,14 @@ import { armDeadlineWatchdog, DEFAULT_KILL_GRACE_MS } from "../agent/runner/dead
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Fake killGroup target — typed to satisfy ChildHandle's Pick. */
-function fakeTarget(): { killGroup: ReturnType<typeof mock.fn<(sig: NodeJS.Signals) => void>> } {
-	return { killGroup: mock.fn<(sig: NodeJS.Signals) => void>() };
+function fakeTarget(): {
+	killGroup: ReturnType<typeof mock.fn<(sig: NodeJS.Signals) => NodeJS.ErrnoException | null>>;
+} {
+	return { killGroup: mock.fn<(sig: NodeJS.Signals) => NodeJS.ErrnoException | null>() };
 }
 
 function signalsFired(target: {
-	killGroup: ReturnType<typeof mock.fn<(sig: NodeJS.Signals) => void>>;
+	killGroup: ReturnType<typeof mock.fn<(sig: NodeJS.Signals) => NodeJS.ErrnoException | null>>;
 }): string[] {
 	return target.killGroup.mock.calls.map((c) => c.arguments[0] as string);
 }
@@ -150,6 +152,42 @@ describe("armDeadlineWatchdog — escalation ladder", () => {
 		});
 		await watchdog.escalationSettled; // must not hang
 		assert.equal(target.killGroup.mock.calls.length, 0);
+	});
+
+	it("non-ESRCH kill failure is surfaced as killError, not a silent timeout (audit finding #2)", async () => {
+		const target = fakeTarget();
+		target.killGroup.mock.mockImplementation(() => {
+			const err = new Error("operation not permitted") as NodeJS.ErrnoException;
+			err.code = "EPERM";
+			return err;
+		});
+		const watchdog = armDeadlineWatchdog({
+			timeoutMs: 20,
+			graceMs: 20,
+			target,
+			onForceResolve: () => {},
+		});
+
+		await sleep(80);
+		assert.equal(watchdog.timedOut, true);
+		assert.match(
+			watchdog.killError ?? "",
+			/SIGTERM failed: EPERM/,
+			"a failed group kill must be visible to the caller, not silently dropped",
+		);
+	});
+
+	it("killError is null when every group kill is delivered (no false alarms)", async () => {
+		const target = fakeTarget();
+		const watchdog = armDeadlineWatchdog({
+			timeoutMs: 20,
+			graceMs: 20,
+			target,
+			onForceResolve: () => {},
+		});
+
+		await sleep(80);
+		assert.equal(watchdog.killError, null);
 	});
 
 	it("DEFAULT_KILL_GRACE_MS is 10_000 (agentKillGraceSec default 10s)", () => {

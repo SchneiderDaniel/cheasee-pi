@@ -9,6 +9,20 @@ import { resolve as resolvePath } from "node:path";
 /** Default agent timeout in milliseconds (30 minutes). */
 export const DEFAULT_AGENT_TIMEOUT_MS = 1_800_000;
 
+/**
+ * Node's maximum `setTimeout` delay (`2^31 - 1` ms). Larger delays overflow to
+ * a negative 32-bit signed value, which Node clamps to 1 ms — a configured
+ * long timeout would fire immediately instead of at the requested duration
+ * (audit finding #3). Values are rejected at the config boundary.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Max `agentTimeoutSec`/`agentKillGraceSec` (seconds) without timer overflow. */
+export const MAX_AGENT_TIMEOUT_SEC = Math.floor(MAX_TIMER_MS / 1000);
+
+/** Max legacy `agentTimeoutsMin` (minutes) without timer overflow. */
+export const MAX_AGENT_TIMEOUT_MIN = Math.floor(MAX_TIMER_MS / 60_000);
+
 // ─── Schema ─────────────────────────────────────────────────────────
 
 /** Schema for supervisor settings from .pi/settings.json */
@@ -37,8 +51,15 @@ export const SupervisorConfigSchema = z.object({
 	// agentTimeoutsMin is minutes and cannot express 0). Bare schema
 	// (no .default()): the kill-grace default lives in the runner
 	// (agent/runner/deadline.ts) so typed config fixtures stay untouched.
-	agentTimeoutSec: z.record(z.string(), z.number().int().nonnegative()).optional(),
-	agentKillGraceSec: z.number().int().nonnegative().optional(),
+	agentTimeoutSec: z
+		.record(
+			z.string(),
+			z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC, {
+				message: `supervisor.agentTimeoutSec values must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit)`,
+			}),
+		)
+		.optional(),
+	agentKillGraceSec: z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC).optional(),
 	ciGatingTimeoutSec: z.number().int().nonnegative().default(300),
 	bellOnComplete: z.boolean().default(false),
 	agentTokenBudget: z.number().int().nonnegative().optional(),
@@ -149,6 +170,11 @@ export function validateAgentTimeouts(raw: unknown, knownAgents: string[]): Reco
 				`agentTimeoutsMin.${key} must be a positive integer, got ${JSON.stringify(value)}`,
 			);
 		}
+		if (value > MAX_AGENT_TIMEOUT_MIN) {
+			throw new Error(
+				`agentTimeoutsMin.${key} must be ≤ ${MAX_AGENT_TIMEOUT_MIN} minutes (Node timer limit), got ${value}`,
+			);
+		}
 		result[key] = value;
 	}
 	return result;
@@ -181,6 +207,11 @@ export function validateAgentTimeoutSec(
 		if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
 			throw new Error(
 				`agentTimeoutSec.${key} must be a non-negative integer, got ${JSON.stringify(value)}`,
+			);
+		}
+		if (value > MAX_AGENT_TIMEOUT_SEC) {
+			throw new Error(
+				`agentTimeoutSec.${key} must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit), got ${value}`,
 			);
 		}
 		result[key] = value;

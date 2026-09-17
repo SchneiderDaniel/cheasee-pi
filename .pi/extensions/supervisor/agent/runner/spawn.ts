@@ -22,8 +22,13 @@ export interface ChildHandle {
 	 * must still get the SIGKILL escalation — audit finding #1). Idempotent
 	 * per signal: a repeated signal is a no-op, so the watchdog's SIGTERM →
 	 * grace → SIGKILL escalation ladder can step through signals.
+	 *
+	 * Returns the signal error for a non-ESRCH failure (EPERM, EINVAL, …).
+	 * ESRCH means the whole group is gone and returns null. The watchdog
+	 * surfaces a non-null error in the timeout result instead of reporting a
+	 * clean timeout over a still-live process (audit finding #2).
 	 */
-	killGroup(sig: NodeJS.Signals): void;
+	killGroup(sig: NodeJS.Signals): NodeJS.ErrnoException | null;
 	/** Register a 'close' callback (fires only after stdio drains). */
 	onClose(cb: (code: number | null, signal: string | null) => void): void;
 	/** Register an 'error' callback (spawn failure: ENOENT, E2BIG, …). */
@@ -55,6 +60,7 @@ export function spawnAgentChild(opts: SpawnAgentChildOptions): ChildHandle {
 	let childExited = false;
 	let killSent = false;
 	let lastGroupSignal: NodeJS.Signals | null = null;
+	let lastGroupError: NodeJS.ErrnoException | null = null;
 
 	// ── Bug 3 fix: Proper child reaping ──
 	// 'exit' reaps the process table entry (zombie prevention) but does
@@ -85,15 +91,31 @@ export function spawnAgentChild(opts: SpawnAgentChildOptions): ChildHandle {
 			// kill(-pid) still reaches them. Decoupling escalation from leader
 			// reaping is what bounds the "leader exits, descendant ignores
 			// SIGTERM" orphan case: the watchdog's SIGKILL step must still fire.
-			if (sig === lastGroupSignal) return; // idempotent per signal
+			if (sig === lastGroupSignal) return lastGroupError; // idempotent per signal
 			lastGroupSignal = sig;
-			if (child.pid === undefined) return;
+			if (child.pid === undefined) return null;
 			try {
 				process.kill(-child.pid, sig);
+				return null;
 			} catch (err: unknown) {
+				const killErr = err as NodeJS.ErrnoException;
 				// ESRCH: the WHOLE group exited (leader AND descendants) —
 				// nothing left to signal.
-				if ((err as NodeJS.ErrnoException).code === "ESRCH") childExited = true;
+				if (killErr.code === "ESRCH") {
+					childExited = true;
+					return null;
+				}
+				// Verified fallback: also signal the direct child. The group kill
+				// failed (EPERM, EINVAL, …), so a descendant may survive; returning
+				// the error lets the watchdog surface it rather than silently
+				// reporting a clean timeout over a live process (audit finding #2).
+				try {
+					child.kill(sig);
+				} catch {
+					/* child already gone — the group kill error is the signal to report */
+				}
+				lastGroupError = killErr;
+				return killErr;
 			}
 		},
 		onClose: (cb) => {

@@ -447,6 +447,60 @@ describe("runAgentInProcess — orchestration", () => {
 		);
 	});
 
+	it("already-expired deadline is caught synchronously before prompt (audit finding #1)", async () => {
+		resetMocks();
+		// Cached SDK + an immediately-resolving prompt: every promise settles
+		// through microtasks BEFORE the 0ms deadline timer runs. The synchronous
+		// `Date.now()` guard must still classify the run as a timeout and never
+		// start the prompt (old code returned success=true here).
+		const cfg: MockSessionConfig = {
+			messages: [{ role: "assistant", content: [{ type: "text", text: "slipped through" }] }],
+		};
+		currentSessionConfig = cfg;
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 0);
+
+		assert.equal(result.timedOut, true, "zero remaining budget is a timeout, not a success");
+		assert.equal(result.success, false);
+		assert.equal(result.killReason, "timeout");
+		assert.equal(
+			cfg.promptCalls ?? 0,
+			0,
+			"no prompt may start once the deadline is already expired",
+		);
+	});
+
+	it("absolute deadline already past → sync guard reports the CONFIGURED duration (audit #1/#3)", async () => {
+		resetMocks();
+		const cfg: MockSessionConfig = {
+			messages: [{ role: "assistant", content: [{ type: "text", text: "slipped through" }] }],
+		};
+		currentSessionConfig = cfg;
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const result = await runAgentInProcess(
+			mockAgent as any,
+			"test task",
+			mockCtx,
+			300_000,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			Date.now() - 1,
+		);
+
+		assert.equal(result.timedOut, true, "an expired absolute deadline still times out");
+		assert.equal(
+			result.configuredTimeoutMs,
+			300_000,
+			"configured duration reported, not the remaining enforcement budget",
+		);
+		assert.equal(cfg.promptCalls ?? 0, 0, "no prompt after the absolute deadline passed");
+	});
+
 	it("timeoutMs=null → no abort timer, prompt completes → success", async () => {
 		resetMocks();
 		currentSessionConfig = {

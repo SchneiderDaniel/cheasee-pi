@@ -128,15 +128,12 @@ describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
 	const lines = source.split("\n");
 
 	it("2.1: outer flushTimer declaration exists in hoisted scope (before try block)", () => {
-		// Find the "Hoist cleanup variables" comment or the area before try
-		const hoistSection = source.split("// Hoist cleanup variables");
-		assert.ok(hoistSection.length >= 2, "Hoist cleanup comment must exist");
-		// After the comment, look for let flushTimer
-		const afterHoist = hoistSection[1];
-		// Before "try {" — find the outer flushTimer
-		const beforeTry = afterHoist.split("try {")[0] || "";
+		// The outer try block is the last top-level `try {` in the file (the one
+		// with the matching `} finally {` teardown); every cleanup handle the
+		// finally clears must be declared before it.
+		const beforeOuterTry = source.slice(0, source.lastIndexOf("\n\ttry {"));
 		assert.ok(
-			beforeTry.includes("let flushTimer: NodeJS.Timeout | null = null;"),
+			beforeOuterTry.includes("let flushTimer: NodeJS.Timeout | null = null;"),
 			"Outer flushTimer must be declared before the try block",
 		);
 	});
@@ -192,21 +189,25 @@ describe("Phase 2: Bug 1 — Shadow flushTimer in try block", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 3: Bug 3 — Timeout handling via Promise.race (agent-session-runner.ts)
+// Phase 3: Bug 3 — Timeout handling (deadline watchdog, agent-session-runner.ts)
 // ═══════════════════════════════════════════════════════════════════════
-// streamingBehavior: "steer" is present in origin/main from #271 merge.
 // This phase validates the timeout infrastructure around session.prompt().
+// The rejecting `timeoutPromise` race was replaced by a single cancellation
+// lifecycle: a ref'd deadline timer races the cancellable body and aborts a
+// live session through abortNow().
 
-describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", () => {
+describe("Phase 3: Bug 3 — Timeout handling (deadline watchdog + abort)", () => {
 	const source = readFileSync(".pi/extensions/supervisor/agent/agent-session-runner.ts", "utf-8");
 
-	it("3.1: promptPromise wrapped in Promise.race with timeoutPromise", () => {
-		const promptSection = source.split("Promise.race([")[1]?.split("])")[0] || "";
+	it("3.1: the prompt body is raced against the deadline signal", () => {
 		assert.ok(
-			promptSection.includes("promptPromise"),
-			"promptPromise wrapped in Promise.race for timeout",
+			source.includes("Promise.race([body, deadlineFired])"),
+			"the cancellable body must be raced against deadlineFired",
 		);
-		assert.ok(promptSection.includes("timeoutPromise"), "timeoutPromise raced with session.prompt");
+		assert.ok(
+			!source.includes("timeoutPromise"),
+			"the rejecting timeoutPromise race must be gone",
+		);
 	});
 
 	it("3.2: timeout uses clearTimeout in finally block", () => {
@@ -219,33 +220,23 @@ describe("Phase 3: Bug 3 — Timeout handling (Promise.race + clearTimeout)", ()
 		);
 	});
 
-	it("3.3: timeout promise rejects on expiry", () => {
-		const timeoutPromiseSection =
-			source
-				.split("const timeoutPromise = new Promise<")[1]
-				?.split("\n\t\t});")[0]
-				?.split("\n\t});")[0] || "";
-		assert.ok(
-			timeoutPromiseSection.includes("reject(") || timeoutPromiseSection.includes("Error("),
-			"timeout promise rejects with error",
+	it("3.3: deadline timer marks the run cancelled via abortNow", () => {
+		const timerSection = source.split("setTimeout(() => {")[1]?.split("}, remainingMs)")[0] || "";
+		assert.ok(timerSection.includes("abortNow()"), "deadline timer must call abortNow()");
+		assert.match(
+			source,
+			/function abortNow\(\): void \{\s*timedOut = true;/,
+			"abortNow must flip the terminal timedOut flag",
 		);
 	});
 
-	it("3.4: timeout sets timedOut flag before abort", () => {
-		const timeoutPromiseSection =
-			source
-				.split("const timeoutPromise = new Promise<")[1]
-				?.split("\n\t\t});")[0]
-				?.split("\n\t});")[0] || "";
-		assert.ok(
-			timeoutPromiseSection.includes("timedOut = true"),
-			"timedOut flag set before session.abort()",
-		);
-		assert.ok(
-			timeoutPromiseSection.includes("session!.abort()") ||
-				timeoutPromiseSection.includes("session.abort()"),
-			"session.abort() called on timeout",
-		);
+	it("3.4: timeout sets timedOut flag before session.abort()", () => {
+		const abortFn = source.split("function abortNow()")[1]?.split("\n\t}")[0] || "";
+		const flagIdx = abortFn.indexOf("timedOut = true");
+		const abortIdx = abortFn.indexOf("session.abort()");
+		assert.ok(flagIdx >= 0, "abortNow sets the timedOut flag");
+		assert.ok(abortIdx >= 0, "abortNow calls session.abort()");
+		assert.ok(flagIdx < abortIdx, "timedOut must be set BEFORE session.abort()");
 	});
 });
 

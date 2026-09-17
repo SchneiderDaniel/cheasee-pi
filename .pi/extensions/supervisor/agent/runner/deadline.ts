@@ -14,6 +14,14 @@ export interface DeadlineWatchdog {
 	/** Whether the deadline fired (terminal — result classifies "timeout"). */
 	readonly timedOut: boolean;
 	/**
+	 * Non-ESRCH group-kill failure from the escalation ladder (e.g. EPERM),
+	 * formatted as `<SIG> failed: <code>`. Null when every kill was delivered
+	 * or the process group was already gone. Surfaced in the timeout result so
+	 * a failed cleanup is a visible terminal error, not a silent clean timeout
+	 * (audit finding #2).
+	 */
+	readonly killError: string | null;
+	/**
 	 * Resolves once the escalation ladder has issued SIGKILL (or immediately
 	 * when no deadline was armed / the deadline never fired). A resolver that
 	 * observes `timedOut` MUST await this before calling `dispose()`, so the
@@ -46,12 +54,14 @@ export function armDeadlineWatchdog(opts: {
 	if (timeoutMs === null) {
 		return {
 			timedOut: false,
+			killError: null,
 			escalationSettled: Promise.resolve(),
 			dispose: () => {},
 		};
 	}
 	let timedOut = false;
 	let disposed = false;
+	let killError: string | null = null;
 	let escalationSettledFlag = false;
 	let resolveEscalation!: () => void;
 	const escalationSettled = new Promise<void>((r) => {
@@ -76,19 +86,25 @@ export function armDeadlineWatchdog(opts: {
 		settleEscalation();
 	};
 
+	/** Record a non-ESRCH group-kill failure (first one wins). */
+	const noteKillError = (sig: NodeJS.Signals, err: NodeJS.ErrnoException | null): void => {
+		if (!err || killError) return;
+		killError = `${sig} failed: ${err.code ?? err.message}`;
+	};
+
 	termTimer = setTimeout(() => {
 		if (disposed) {
 			settleEscalation();
 			return;
 		}
 		timedOut = true;
-		target.killGroup("SIGTERM");
+		noteKillError("SIGTERM", target.killGroup("SIGTERM"));
 		killTimer = setTimeout(() => {
 			if (disposed) {
 				settleEscalation();
 				return;
 			}
-			target.killGroup("SIGKILL");
+			noteKillError("SIGKILL", target.killGroup("SIGKILL"));
 			// SIGKILL is the terminal step — a resolver may now safely dispose.
 			settleEscalation();
 			forceTimer = setTimeout(() => {
@@ -101,6 +117,9 @@ export function armDeadlineWatchdog(opts: {
 	return {
 		get timedOut() {
 			return timedOut;
+		},
+		get killError() {
+			return killError;
 		},
 		escalationSettled,
 		dispose,

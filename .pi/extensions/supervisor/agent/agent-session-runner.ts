@@ -171,9 +171,28 @@ export async function runAgentInProcess(
 		remainingMs === null
 			? null
 			: setTimeout(() => {
-					abortNow();
+					if (!timedOut) abortNow();
 					resolveDeadline();
 				}, remainingMs);
+
+	/**
+	 * Synchronous deadline guard (audit finding #1). The ref'd timer above only
+	 * fires in the timers phase, so cached SDK + already-resolved session/prompt
+	 * promises can drain entirely through microtasks BEFORE the timer callback
+	 * runs — a run whose remaining budget is zero then reaches `prompt()` and can
+	 * return success=true after its absolute deadline. Re-checking `Date.now()`
+	 * at every synchronous decision point (before/after setup, before subscribe,
+	 * immediately before prompt) makes the bound absolute regardless of event
+	 * loop phase ordering. Expiry is marked terminal here so the result is a
+	 * structured timeout.
+	 */
+	function expired(): boolean {
+		if (timedOut) return true;
+		if (absoluteDeadlineMs === null || Date.now() < absoluteDeadlineMs) return false;
+		abortNow();
+		resolveDeadline();
+		return true;
+	}
 
 	/**
 	 * Await one setup step, but stop waiting the moment the deadline fires: a
@@ -247,10 +266,15 @@ export async function runAgentInProcess(
 	// there is no await between the final check and `session.prompt()`, so the
 	// ref'd timer cannot interleave a window there.
 	const runBody = async (): Promise<void> => {
+		// The deadline may already be spent at entry (e.g. an absolute dispatch
+		// deadline in the past): never start setup, never prompt (audit #1).
+		if (expired()) return;
 		// Load SDK dynamically — raced against the deadline so a never-settling
 		// import cannot hold the body open (audit #2).
 		if (!(await awaitSetup(ensureSDK())).ok) return;
-		if (timedOut) return;
+		// Sync setup (model/tool resolution) ran before this body; re-check so a
+		// budget exhausted during it cannot roll into session creation.
+		if (expired()) return;
 
 		// Build session manager (file-backed for session persistence)
 		// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
@@ -296,13 +320,19 @@ export async function runAgentInProcess(
 
 		// Session materialized after the deadline → dispose it here and never
 		// prompt; provider work must not start post-timeout.
-		if (timedOut) {
+		if (expired()) {
 			disposeSession();
 			return;
 		}
 
 		// Set up subscription BEFORE calling session.prompt()
 		const pending = createForwardChatState();
+		// SUBSCRIBING MATERIALISES PROVIDER WORK: re-check the absolute deadline
+		// immediately before the side-effecting subscribe (audit #1).
+		if (expired()) {
+			disposeSession();
+			return;
+		}
 		unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
 			try {
 				const normalized = agentSessionEventToNormalizedEvent(event);
@@ -339,7 +369,7 @@ export async function runAgentInProcess(
 
 		// No await between this guard and prompt(): a timed-out run never starts
 		// a prompt even if the subscription setup above had already begun.
-		if (timedOut) {
+		if (expired()) {
 			if (unsubRef.current) {
 				unsubRef.current();
 				unsubRef.current = null;

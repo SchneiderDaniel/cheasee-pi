@@ -1640,6 +1640,40 @@ if (hasMockModule) {
 			assert.equal(result.success, false);
 		});
 
+		it("non-ESRCH group-kill failure is surfaced in the timeout result (audit finding #2)", async (t) => {
+			// process.kill(-pid) fails (EPERM): the pi process tree may still be
+			// alive, so the result must carry the kill failure instead of reporting
+			// a clean timeout while a process survives.
+			resetMock();
+			t.mock.method(process, "kill", () => {
+				const err = new Error("operation not permitted") as NodeJS.ErrnoException;
+				err.code = "EPERM";
+				throw err;
+			});
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			// close never fires → force-resolve bounds the run.
+			const result = await runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				30,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				0.02,
+			);
+
+			assert.equal(result.timedOut, true);
+			assert.equal(result.success, false);
+			assert.match(
+				result.errorOutput as string,
+				/process-group kill failed — SIGTERM failed: EPERM/,
+				"failed cleanup must be a visible terminal error, not a silent timeout",
+			);
+		});
+
 		it("deadline exhausted before spawn (timeoutMs=0) → timeout result, no spawn, no kill (audit finding #3)", async (t) => {
 			// The merge-conflict path calls runAgentSubprocess directly with a
 			// resolved per-agent timeout; preparation (arg assembly / task spill)

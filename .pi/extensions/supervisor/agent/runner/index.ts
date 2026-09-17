@@ -270,6 +270,7 @@ function runSpawnedProcess(opts: {
 			widgetId,
 			resolve,
 			timedOutProvider: () => watchdog?.timedOut ?? false,
+			killErrorProvider: () => watchdog?.killError ?? null,
 			configuredTimeoutMs: timeoutMs ?? undefined,
 			awaitEscalation: () => watchdog?.escalationSettled ?? Promise.resolve(),
 			onCleanup: () => watchdog?.dispose(),
@@ -528,6 +529,13 @@ interface ResolverDeps {
 	resolve: (result: AgentRunResult) => void;
 	/** Live watchdog state — true when the wall-clock deadline fired. */
 	timedOutProvider: () => boolean;
+	/**
+	 * Non-ESRCH group-kill failure recorded by the watchdog (audit finding #2).
+	 * Read after the escalation ladder settles so a failed SIGTERM/SIGKILL is
+	 * surfaced in the timeout result rather than silently reported as a clean
+	 * timeout over a still-live process.
+	 */
+	killErrorProvider: () => string | null;
 	/** Configured per-agent timeout in ms (null when "no timeout"). */
 	configuredTimeoutMs: number | undefined;
 	/**
@@ -569,6 +577,7 @@ function createResolver(deps: ResolverDeps): (code: number | null, signal: strin
 					signal,
 					timedOut,
 					configuredTimeoutMs: deps.configuredTimeoutMs,
+					killError: deps.killErrorProvider(),
 				}),
 			);
 		};

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
-import { validateAgentTimeouts, validateAgentTimeoutSec, resolveTimeoutPolicy, loadSkillsRoots, SupervisorConfigSchema, DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
+import { validateAgentTimeouts, validateAgentTimeoutSec, resolveTimeoutPolicy, loadSkillsRoots, SupervisorConfigSchema, DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_TIMEOUT_SEC, MAX_AGENT_TIMEOUT_MIN } from "../config/config.ts";
 
 // ─── validateAgentTimeouts ────────────────────────────────────────
 
@@ -55,6 +55,17 @@ describe("validateAgentTimeouts", () => {
 	it("parses positive integer values correctly", () => {
 		const result = validateAgentTimeouts({ developer: 10 }, ["developer"]);
 		assert.equal(result.developer, 10);
+	});
+
+	it("rejects minutes above the Node timer range (audit finding #3)", () => {
+		assert.throws(
+			() => validateAgentTimeouts({ developer: MAX_AGENT_TIMEOUT_MIN + 1 }, ["developer"]),
+			/timer limit/,
+		);
+		assert.deepEqual(
+			validateAgentTimeouts({ developer: MAX_AGENT_TIMEOUT_MIN }, ["developer"]),
+			{ developer: MAX_AGENT_TIMEOUT_MIN },
+		);
 	});
 });
 
@@ -220,6 +231,19 @@ describe("validateAgentTimeoutSec", () => {
 		);
 	});
 
+	it("rejects values above the Node timer range (audit finding #3)", () => {
+		// 2147484s × 1000 overflows Node's signed 32-bit setTimeout delay and
+		// would be clamped to 1ms — the config boundary must reject it.
+		assert.throws(
+			() => validateAgentTimeoutSec({ developer: MAX_AGENT_TIMEOUT_SEC + 1 }, ["developer"]),
+			/timer limit/,
+		);
+		assert.deepEqual(
+			validateAgentTimeoutSec({ developer: MAX_AGENT_TIMEOUT_SEC }, ["developer"]),
+			{ developer: MAX_AGENT_TIMEOUT_SEC },
+		);
+	});
+
 	it("warns for unknown agents but does not throw (fail-open retained)", () => {
 		const result = validateAgentTimeoutSec({ typoAgent: 30 }, ["developer"]);
 		assert.deepEqual(result, {}, "typo'd key silently weakens the bound — recorded policy");
@@ -323,6 +347,24 @@ describe("SupervisorConfigSchema — per-agent timeout fields", () => {
 		}
 	});
 
+	it("rejects agentTimeoutSec values above the Node timer range (audit finding #3)", () => {
+		assert.throws(
+			() =>
+				SupervisorConfigSchema.parse({
+					...base,
+					agentTimeoutSec: { developer: MAX_AGENT_TIMEOUT_SEC + 1 },
+				}),
+			/timer limit/,
+		);
+		assert.deepEqual(
+			SupervisorConfigSchema.parse({
+				...base,
+				agentTimeoutSec: { developer: MAX_AGENT_TIMEOUT_SEC },
+			}).agentTimeoutSec,
+			{ developer: MAX_AGENT_TIMEOUT_SEC },
+		);
+	});
+
 	it("agentKillGraceSec is optional (bare schema — effective default in runner)", () => {
 		const result = SupervisorConfigSchema.parse(base);
 		assert.equal(result.agentKillGraceSec, undefined);
@@ -341,6 +383,17 @@ describe("SupervisorConfigSchema — per-agent timeout fields", () => {
 				`should reject ${JSON.stringify(bad)}`,
 			);
 		}
+	});
+
+	it("agentKillGraceSec rejects values above the Node timer range (audit finding #3)", () => {
+		assert.throws(
+			() =>
+				SupervisorConfigSchema.parse({
+					...base,
+					agentKillGraceSec: MAX_AGENT_TIMEOUT_SEC + 1,
+				}),
+			/timer limit|Too big|too_big/i,
+		);
 	});
 
 	it("legacy validateAgentTimeouts still rejects 0/negative (deprecated alias contract)", () => {
