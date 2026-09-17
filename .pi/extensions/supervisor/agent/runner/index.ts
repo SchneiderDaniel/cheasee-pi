@@ -147,6 +147,10 @@ export async function runAgentSubprocess(
 	const agentName = agent.config.name;
 	const widgetId = `agent-${agentName}`;
 	const startedAt = Date.now();
+	// Absolute dispatch deadline: preparation (arg assembly / task-spill /
+	// mkdtemp) also counts against the configured window, so the watchdog
+	// arms with the REMAINDER, not the full timeout (audit finding #3).
+	const deadlineMs = timeoutMs === null ? null : startedAt + timeoutMs;
 
 	const prepared = prepareSubprocessRun({
 		agent,
@@ -161,6 +165,72 @@ export async function runAgentSubprocess(
 	});
 	if (!prepared.ok) return prepared.result;
 	const { args, tools, skillPaths, model, state } = prepared;
+
+	// Preparation may itself have consumed the whole configured window (the
+	// merge-conflict path calls this directly with a resolved per-agent
+	// timeout). Return a structured timeout failure instead of arming a fresh
+	// full window — otherwise the effective bound is preparation + T.
+	if (timeoutMs !== null && deadlineMs !== null && deadlineMs - Date.now() <= 0) {
+		return exhaustedBeforeSpawn({ ctx, widgetId, state, agentName, startedAt, timeoutMs });
+	}
+	const remainingMs = deadlineMs === null ? null : Math.max(0, deadlineMs - Date.now());
+
+	return runSpawnedProcess({
+		args,
+		effectiveCwd,
+		sandboxEnv,
+		ctx,
+		widgetId,
+		agentName,
+		model,
+		state,
+		pi,
+		timeoutMs,
+		remainingMs,
+		killGraceSec,
+		startedAt,
+		log,
+	});
+}
+
+// ─── Spawned-run wiring ───────────────────────────────────────────
+// Spawns the child, wires stdio → line handler, arms the wall-clock
+// watchdog against the REMAINING dispatch budget, and resolves through
+// createResolver. Extracted so runAgentSubprocess stays a flat, short
+// orchestrator (size guard: span < 100).
+
+function runSpawnedProcess(opts: {
+	args: string[];
+	effectiveCwd: string;
+	sandboxEnv: Record<string, string>;
+	ctx: ExtensionCommandContext;
+	widgetId: string;
+	agentName: string;
+	model: string;
+	state: AgentRunState;
+	pi?: Pick<ExtensionAPI, "sendMessage">;
+	timeoutMs: number | null;
+	remainingMs: number | null;
+	killGraceSec: number | undefined;
+	startedAt: number;
+	log: ReturnType<typeof getDebugLogger>;
+}): Promise<AgentRunResult> {
+	const {
+		args,
+		effectiveCwd,
+		sandboxEnv,
+		ctx,
+		widgetId,
+		agentName,
+		model,
+		state,
+		pi,
+		timeoutMs,
+		remainingMs,
+		killGraceSec,
+		startedAt,
+		log,
+	} = opts;
 
 	return new Promise((resolve) => {
 		const handle = spawnAgentChild({ args, cwd: effectiveCwd, sandboxEnv });
@@ -186,8 +256,7 @@ export async function runAgentSubprocess(
 		// removed — it only SIGTERMs the direct child, orphaning grandchildren).
 		// killGraceSec default = agentKillGraceSec (10s), passed by the pipeline.
 		let watchdog: DeadlineWatchdog | null = null;
-		const graceMs =
-			killGraceSec === undefined ? DEFAULT_KILL_GRACE_MS : killGraceSec * 1000;
+		const graceMs = killGraceSec === undefined ? DEFAULT_KILL_GRACE_MS : killGraceSec * 1000;
 
 		const doResolve = createResolver({
 			stream,
@@ -200,6 +269,7 @@ export async function runAgentSubprocess(
 			resolve,
 			timedOutProvider: () => watchdog?.timedOut ?? false,
 			configuredTimeoutMs: timeoutMs ?? undefined,
+			awaitEscalation: () => watchdog?.escalationSettled ?? Promise.resolve(),
 			onCleanup: () => watchdog?.dispose(),
 		});
 
@@ -218,7 +288,7 @@ export async function runAgentSubprocess(
 		);
 
 		watchdog = armDeadlineWatchdog({
-			timeoutMs,
+			timeoutMs: remainingMs,
 			graceMs,
 			target: handle,
 			onForceResolve: () => doResolve(null, "SIGTERM"),
@@ -230,6 +300,36 @@ export async function runAgentSubprocess(
 // Builds args (may throw from resolvers/mkdtempSync), warns on large
 // args, creates state, and validates effectiveCwd. Returns a failure
 // AgentRunResult for either guard, or the prepared run bundle.
+
+/**
+ * The configured window was fully consumed by preparation (audit finding
+ * #3): return the structured timeout failure — same shape as a watchdog
+ * timeout, so publisher/retry logic sees one bound — instead of spawning a
+ * process that would get a fresh full window.
+ */
+function exhaustedBeforeSpawn(opts: {
+	ctx: ExtensionCommandContext;
+	widgetId: string;
+	state: AgentRunState;
+	agentName: string;
+	startedAt: number;
+	timeoutMs: number;
+}): AgentRunResult {
+	opts.ctx.ui.setWidget(opts.widgetId, undefined);
+	opts.ctx.ui.setWorkingMessage(undefined);
+	opts.ctx.ui.setStatus("supervisor", undefined);
+	return assembleResult({
+		state: opts.state,
+		agentName: opts.agentName,
+		startedAt: opts.startedAt,
+		rawStdout: "",
+		stderr: "",
+		code: null,
+		signal: null,
+		timedOut: true,
+		configuredTimeoutMs: opts.timeoutMs,
+	});
+}
 
 interface PreparedRun {
 	ok: true;
@@ -428,6 +528,12 @@ interface ResolverDeps {
 	timedOutProvider: () => boolean;
 	/** Configured per-agent timeout in ms (null when "no timeout"). */
 	configuredTimeoutMs: number | undefined;
+	/**
+	 * Resolves once the watchdog's SIGKILL escalation has been issued. Awaited
+	 * (when timedOut) before teardown so the leader's 'close' cannot cancel the
+	 * SIGKILL that must reach a descendant ignoring SIGTERM (audit finding #1).
+	 */
+	awaitEscalation: () => Promise<void>;
 	/** Runs once, before the first resolve — watchdog timer teardown. */
 	onCleanup: () => void;
 }
@@ -438,29 +544,43 @@ function createResolver(deps: ResolverDeps): (code: number | null, signal: strin
 	return (code: number | null, signal: string | null) => {
 		if (resolved) return;
 		resolved = true;
-		deps.onCleanup();
+		const timedOut = deps.timedOutProvider();
 
-		stream.flush();
-		widget.dispose();
-		finalizeState(state);
+		const finish = (): void => {
+			deps.onCleanup();
+			stream.flush();
+			widget.dispose();
+			finalizeState(state);
 
-		ctx.ui.setWidget(widgetId, undefined);
-		ctx.ui.setWorkingMessage(undefined);
-		ctx.ui.setStatus("supervisor", undefined);
+			ctx.ui.setWidget(widgetId, undefined);
+			ctx.ui.setWorkingMessage(undefined);
+			ctx.ui.setStatus("supervisor", undefined);
 
-		resolve(
-			assembleResult({
-				state,
-				agentName,
-				startedAt,
-				rawStdout: stream.rawStdout,
-				stderr: stream.stderr,
-				code,
-				signal,
-				timedOut: deps.timedOutProvider(),
-				configuredTimeoutMs: deps.configuredTimeoutMs,
-			}),
-		);
+			resolve(
+				assembleResult({
+					state,
+					agentName,
+					startedAt,
+					rawStdout: stream.rawStdout,
+					stderr: stream.stderr,
+					code,
+					signal,
+					timedOut,
+					configuredTimeoutMs: deps.configuredTimeoutMs,
+				}),
+			);
+		};
+
+		// A timed-out leader's 'close' must NOT cancel the escalation ladder
+		// before SIGKILL lands: the process group outlives its leader, so the
+		// SIGKILL step is the only thing that reaches a descendant which ignored
+		// SIGTERM and closed its inherited stdio. Wait for SIGKILL, then tear
+		// the timers down (audit finding #1).
+		if (timedOut) {
+			void deps.awaitEscalation().then(finish);
+			return;
+		}
+		finish();
 	};
 }
 

@@ -13,6 +13,14 @@ export const DEFAULT_KILL_GRACE_MS = 10_000;
 export interface DeadlineWatchdog {
 	/** Whether the deadline fired (terminal — result classifies "timeout"). */
 	readonly timedOut: boolean;
+	/**
+	 * Resolves once the escalation ladder has issued SIGKILL (or immediately
+	 * when no deadline was armed / the deadline never fired). A resolver that
+	 * observes `timedOut` MUST await this before calling `dispose()`, so the
+	 * leader's 'close' cannot cancel the SIGKILL that reaches a descendant
+	 * which ignored SIGTERM (audit finding #1: group outlives its leader).
+	 */
+	readonly escalationSettled: Promise<void>;
 	/** Cancel all pending timers — call when the child closes. Idempotent. */
 	dispose(): void;
 }
@@ -36,10 +44,24 @@ export function armDeadlineWatchdog(opts: {
 }): DeadlineWatchdog {
 	const { timeoutMs, graceMs, target, onForceResolve } = opts;
 	if (timeoutMs === null) {
-		return { timedOut: false, dispose: () => {} };
+		return {
+			timedOut: false,
+			escalationSettled: Promise.resolve(),
+			dispose: () => {},
+		};
 	}
 	let timedOut = false;
 	let disposed = false;
+	let escalationSettledFlag = false;
+	let resolveEscalation!: () => void;
+	const escalationSettled = new Promise<void>((r) => {
+		resolveEscalation = r;
+	});
+	const settleEscalation = (): void => {
+		if (escalationSettledFlag) return;
+		escalationSettledFlag = true;
+		resolveEscalation();
+	};
 	let termTimer: NodeJS.Timeout | null = null;
 	let killTimer: NodeJS.Timeout | null = null;
 	let forceTimer: NodeJS.Timeout | null = null;
@@ -50,15 +72,25 @@ export function armDeadlineWatchdog(opts: {
 		if (killTimer) clearTimeout(killTimer);
 		if (forceTimer) clearTimeout(forceTimer);
 		termTimer = killTimer = forceTimer = null;
+		// Safety valve: never leave an awaiter hanging if dispose wins the race.
+		settleEscalation();
 	};
 
 	termTimer = setTimeout(() => {
-		if (disposed) return;
+		if (disposed) {
+			settleEscalation();
+			return;
+		}
 		timedOut = true;
 		target.killGroup("SIGTERM");
 		killTimer = setTimeout(() => {
-			if (disposed) return;
+			if (disposed) {
+				settleEscalation();
+				return;
+			}
 			target.killGroup("SIGKILL");
+			// SIGKILL is the terminal step — a resolver may now safely dispose.
+			settleEscalation();
 			forceTimer = setTimeout(() => {
 				if (disposed) return;
 				onForceResolve();
@@ -70,6 +102,7 @@ export function armDeadlineWatchdog(opts: {
 		get timedOut() {
 			return timedOut;
 		},
+		escalationSettled,
 		dispose,
 	};
 }

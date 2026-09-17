@@ -116,6 +116,40 @@ describe("armDeadlineWatchdog — escalation ladder", () => {
 		assert.equal(watchdog.timedOut, true, "deadline did fire before dispose");
 	});
 
+	it("escalationSettled resolves only after SIGKILL — a leader 'close' cannot cancel it (audit #1)", async () => {
+		const target = fakeTarget();
+		const watchdog = armDeadlineWatchdog({
+			timeoutMs: 20,
+			graceMs: 60,
+			target,
+			onForceResolve: () => {},
+		});
+
+		// SIGTERM fires at ≈20ms; SIGKILL is 60ms out. The escalation promise
+		// must NOT settle before SIGKILL, so an awaiter cannot dispose early.
+		const settled = watchdog.escalationSettled.then(() => signalsFired(target).slice());
+		await sleep(35);
+		assert.deepEqual(signalsFired(target), ["SIGTERM"], "SIGKILL not yet issued");
+		await settled;
+		assert.deepEqual(
+			signalsFired(target),
+			["SIGTERM", "SIGKILL"],
+			"escalation settles only once SIGKILL has been issued",
+		);
+	});
+
+	it("timeoutMs=null → escalationSettled already resolved (no timers)", async () => {
+		const target = fakeTarget();
+		const watchdog = armDeadlineWatchdog({
+			timeoutMs: null,
+			graceMs: 10,
+			target,
+			onForceResolve: () => {},
+		});
+		await watchdog.escalationSettled; // must not hang
+		assert.equal(target.killGroup.mock.calls.length, 0);
+	});
+
 	it("DEFAULT_KILL_GRACE_MS is 10_000 (agentKillGraceSec default 10s)", () => {
 		assert.equal(DEFAULT_KILL_GRACE_MS, 10_000);
 	});

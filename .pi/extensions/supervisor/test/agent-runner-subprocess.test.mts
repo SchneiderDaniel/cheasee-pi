@@ -1595,5 +1595,72 @@ if (hasMockModule) {
 			assert.equal(result.timedOut, true, "force-resolve still classifies the timeout");
 			assert.equal(result.success, false);
 		});
+
+		it("leader 'close' fires while timed out but before SIGKILL → SIGKILL still issued (audit finding #1)", async (t) => {
+			// The leader exits (via SIGTERM) AND its stdio drains → 'close' fires
+			// before the scheduled SIGKILL. The resolver must NOT dispose the
+			// escalation ladder at that point: a descendant that closed its
+			// inherited stdio but ignored SIGTERM still needs the SIGKILL.
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			// SIGTERM≈30ms, SIGKILL≈130ms (grace 0.1s)
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				30,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				0.1,
+			);
+
+			// Leader exits + pipe drains right after SIGTERM, still pre-SIGKILL.
+			await sleep(60);
+			currentMockOpts = { exitCode: null, exitSignal: "SIGTERM" };
+			emitMockEvents();
+
+			// Give the (formerly cancelled) SIGKILL step time to fire.
+			await sleep(120);
+			const killCalls = killMock.mock.calls.map((c) => c.arguments);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGTERM"),
+				`SIGTERM group kill issued: ${JSON.stringify(killCalls)}`,
+			);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGKILL"),
+				`SIGKILL escalation STILL issued after leader 'close' (no orphaned descendant): ${JSON.stringify(killCalls)}`,
+			);
+
+			const result = await resultPromise;
+			assert.equal(result.timedOut, true, "close after the deadline still classifies the timeout");
+			assert.equal(result.success, false);
+		});
+
+		it("deadline exhausted before spawn (timeoutMs=0) → timeout result, no spawn, no kill (audit finding #3)", async (t) => {
+			// The merge-conflict path calls runAgentSubprocess directly with a
+			// resolved per-agent timeout; preparation (arg assembly / task spill)
+			// counts against the absolute deadline. A window fully consumed by
+			// preparation must yield a bounded timeout failure — not a fresh T.
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const result = await runAgentSubprocess(mockAgent as any, "test task", mockCtx, 0);
+
+			assert.equal(lastSpawnOpts, null, "no spawn once preparation exhausted the window");
+			assert.equal(killMock.mock.calls.length, 0, "no kill issued — nothing was spawned");
+			assert.equal(result.timedOut, true);
+			assert.equal(result.success, false);
+			assert.equal(result.killReason, "timeout");
+			assert.equal(result.configuredTimeoutMs, 0);
+			assert.match(
+				result.errorOutput as string,
+				/\[Timeout: test-agent exceeded 0s/,
+				"structured timeout note authored for the pre-spawn exhaustion",
+			);
+		});
 	});
 }

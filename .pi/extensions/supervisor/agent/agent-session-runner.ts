@@ -136,26 +136,45 @@ export async function runAgentInProcess(
 	let exitError: Error | null = null;
 	let deadlineTimer: NodeJS.Timeout | null = null;
 
-	// ── Wall-clock deadline, armed at ENTRY (audit finding #2) ──
-	// Model resolution, SDK loading and session creation all count against
-	// the configured bound — not just the prompt. The whole setup+prompt body
-	// races the deadline, so a hang inside ensureSDK/createAgentSession is
-	// bounded exactly like a hung provider call, and the losing side's late
-	// rejection is absorbed by Promise.race (no unhandled rejection).
-	// null → no deadline (configured 0 = no timeout); 0 → the dispatch
-	// deadline already expired → rejects on the next tick (hard 1× bound).
-	// The timer is a plainly REF'D setTimeout: while the run hangs, it is the
-	// handle that keeps the event loop alive until the deadline fires (an
-	// unref'd AbortSignal.timeout would let a bare hang exit the process early).
-	const deadlinePromise =
+	// ── Single cancellation lifecycle, armed at ENTRY (audit finding #2) ──
+	// ONE ref'd deadline timer drives the timeout flag AND the session abort,
+	// and the WHOLE setup+prompt body (SDK load, session creation, subscribe,
+	// prompt) checks `timedOut` after every await. A setup step that resolves
+	// after the deadline therefore neither subscribes nor starts a prompt, and
+	// a session created after the deadline is disposed by the body itself —
+	// the outer `finally` may already have run with `session === null`.
+	// The timer is a plainly REF'D setTimeout: while the run hangs it is the
+	// handle keeping the event loop alive until the deadline fires (an unref'd
+	// AbortSignal.timeout would let a bare hang exit the process early).
+	const disposeSession = (): void => {
+		if (session && typeof session.dispose === "function") {
+			try {
+				session.dispose();
+			} catch (disposeErr: unknown) {
+				const msg = disposeErr instanceof Error ? disposeErr.message : String(disposeErr);
+				log.warn("agent-runner", `Session dispose error for ${agentName}: ${msg}`);
+			}
+		}
+	};
+
+	const abortNow = (): void => {
+		timedOut = true;
+		if (session) {
+			try {
+				session.abort();
+			} catch (abortErr: unknown) {
+				const msg = abortErr instanceof Error ? abortErr.message : String(abortErr);
+				log.warn("agent-runner", `Session abort error for ${agentName}: ${msg}`);
+			}
+		}
+	};
+
+	const deadlinePromise: Promise<never> =
 		timeoutMs === null
 			? new Promise<never>(() => {})
 			: new Promise<never>((_resolve, reject) => {
 					deadlineTimer = setTimeout(() => {
-						timedOut = true;
-						if (session) {
-							session.abort();
-						}
+						abortNow();
 						reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
 					}, Math.max(0, timeoutMs));
 				});
@@ -180,82 +199,104 @@ export async function runAgentInProcess(
 		}
 	};
 
-	try {
-		// Setup + prompt race the deadline as ONE body: the SDK load, session
-		// creation AND the prompt share the single absolute bound armed above.
-		await Promise.race([
-			(async () => {
-				// Load SDK dynamically
-				await ensureSDK();
+	// Setup + prompt run as ONE cancellable body: the SDK load, session
+	// creation AND the prompt share the single absolute bound armed above.
+	// `timedOut` is re-checked after every await so a slow setup that resolves
+	// after the deadline can never start provider work (audit finding #2);
+	// there is no await between the final check and `session.prompt()`, so the
+	// ref'd timer cannot interleave a window there.
+	const runBody = async (): Promise<void> => {
+		// Load SDK dynamically
+		await ensureSDK();
+		if (timedOut) return;
 
-				// Build session manager (file-backed for session persistence)
-				// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
-				// not a file path. The SDK writes the session file to a default location.
-				// execute-agent.ts uses result.output for replay instead of replaySessionFile.
-				const sessionManager = _SessionManager
-					? _SessionManager.create(effectiveCwd)
-					: undefined;
+		// Build session manager (file-backed for session persistence)
+		// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
+		// not a file path. The SDK writes the session file to a default location.
+		// execute-agent.ts uses result.output for replay instead of replaySessionFile.
+		const sessionManager = _SessionManager ? _SessionManager.create(effectiveCwd) : undefined;
 
-				// Create in-process agent session
-				const createAgentSession = _createAgentSession!;
+		// Create in-process agent session
+		const createAgentSession = _createAgentSession!;
 
-				// Guard: verify model resolved before creating session
-				if (!resolvedModel) {
-					throw new Error(
-						`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
-					);
+		// Guard: verify model resolved before creating session
+		if (!resolvedModel) {
+			throw new Error(
+				`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
+			);
+		}
+
+		session = await createAgentSession({
+			model: resolvedModel,
+			tools,
+			sessionManager,
+			thinkingLevel: thinkingLevel || undefined,
+			cwd: effectiveCwd,
+		});
+
+		// Session materialized after the deadline → dispose it here (the outer
+		// finally already ran and saw session === null) and never prompt.
+		if (timedOut) {
+			disposeSession();
+			session = null;
+			return;
+		}
+
+		// Set up subscription BEFORE calling session.prompt()
+		const pending = createForwardChatState();
+		unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
+			try {
+				const normalized = agentSessionEventToNormalizedEvent(event);
+				if (!normalized) return;
+
+				const preThinkingText =
+					normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
+
+				const result = processNormalizedEvent(normalized, state, effectiveCwd);
+				if (result.workingChange) {
+					scheduleFlush();
+					const wm = getWorkingMessage(state, agentName);
+					ctx.ui.setWorkingMessage(wm ?? undefined);
 				}
 
-				session = await createAgentSession({
-					model: resolvedModel,
-					tools,
-					sessionManager,
-					thinkingLevel: thinkingLevel || undefined,
-					cwd: effectiveCwd,
-				});
+				// Forward key events as supervisor chat messages
+				if (pi) {
+					forwardNormalizedEventToChat(
+						normalized,
+						state,
+						pi,
+						agentName,
+						pending,
+						preThinkingText,
+						effectiveCwd,
+					);
+				}
+			} catch (parseErr: unknown) {
+				const errMsg = String(parseErr).slice(0, 200);
+				log.warn("agent-stream", `Event processing error: ${errMsg}`);
+				getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
+			}
+		});
 
-				// Set up subscription BEFORE calling session.prompt()
-				const pending = createForwardChatState();
-				unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
-					try {
-						const normalized = agentSessionEventToNormalizedEvent(event);
-						if (!normalized) return;
+		// No await between this guard and prompt(): a timed-out run never starts
+		// a prompt even if the subscription setup above had already begun.
+		if (timedOut) {
+			if (unsubRef.current) {
+				unsubRef.current();
+				unsubRef.current = null;
+			}
+			disposeSession();
+			session = null;
+			return;
+		}
 
-						const preThinkingText =
-							normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
+		// Await the prompt — its rejection (provider error OR the abort()
+		// from the deadline firing) settles the body race.
+		await session.prompt(task);
+	};
 
-						const result = processNormalizedEvent(normalized, state, effectiveCwd);
-						if (result.workingChange) {
-							scheduleFlush();
-							const wm = getWorkingMessage(state, agentName);
-							ctx.ui.setWorkingMessage(wm ?? undefined);
-						}
-
-						// Forward key events as supervisor chat messages
-						if (pi) {
-							forwardNormalizedEventToChat(
-								normalized,
-								state,
-								pi,
-								agentName,
-								pending,
-								preThinkingText,
-								effectiveCwd,
-							);
-						}
-					} catch (parseErr: unknown) {
-						const errMsg = String(parseErr).slice(0, 200);
-						log.warn("agent-stream", `Event processing error: ${errMsg}`);
-						getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
-					}
-				});
-
-				// Await the prompt — its rejection (provider error OR the abort()
-				// from the deadline firing) settles the body race.
-				await session.prompt(task);
-			})(),
-			deadlinePromise,
-		]);
+	try {
+		await Promise.race([runBody(), deadlinePromise]);
 	} catch (err: unknown) {
 		exitError = err instanceof Error ? err : new Error(String(err));
 	} finally {
@@ -268,14 +309,7 @@ export async function runAgentInProcess(
 			unsubRef.current();
 			unsubRef.current = null;
 		}
-		if (session && typeof session.dispose === "function") {
-			try {
-				session.dispose();
-			} catch (disposeErr: unknown) {
-				const msg = disposeErr instanceof Error ? disposeErr.message : String(disposeErr);
-				log.warn("agent-runner", `Session dispose error for ${agentName}: ${msg}`);
-			}
-		}
+		disposeSession();
 		if (flushTimer) {
 			clearTimeout(flushTimer);
 			flushTimer = null;

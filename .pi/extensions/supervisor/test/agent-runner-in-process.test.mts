@@ -30,6 +30,10 @@ interface MockSessionConfig {
 	abortError?: Error;
 	/** Set by the mock when session.abort() runs. */
 	abortCalled?: boolean;
+	/** Set by the mock when session.dispose() runs. */
+	disposeCalled?: boolean;
+	/** Count of session.prompt() invocations (must stay 0 after a deadline). */
+	promptCalls?: number;
 	/**
 	 * Delay (ms) before createAgentSession resolves — models SDK setup
 	 * (model resolution / SDK load / session creation) that must count
@@ -61,6 +65,7 @@ function createMockSession() {
 			};
 		},
 		prompt: async (_task: string) => {
+			config.promptCalls = (config.promptCalls ?? 0) + 1;
 			if (config.shouldReject) {
 				throw config.rejectError || new Error("session.prompt failed");
 			}
@@ -78,7 +83,9 @@ function createMockSession() {
 				pendingReject?.(config.abortError || new Error("This operation was aborted"));
 			}
 		},
-		dispose: () => {},
+		dispose: () => {
+			config.disposeCalled = true;
+		},
 		agent: {
 			state: {
 				messages: config.messages || [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
@@ -307,6 +314,28 @@ describe("runAgentInProcess — orchestration", () => {
 			elapsed >= 40,
 			`deadline fired at ≈50ms rather than after the 200ms setup, got ${elapsed}`,
 		);
+	});
+
+	it("deadline fires during setup → late session is disposed, NO prompt starts (audit finding #2)", async () => {
+		resetMocks();
+		// createAgentSession resolves 200ms after the 40ms deadline. The
+		// setup body must not resume into subscribe/prompt after the timeout,
+		// and the session that materializes late must be disposed — otherwise
+		// provider/session work leaks with no watchdog.
+		const cfg: MockSessionConfig = {
+			setupDelayMs: 200,
+			messages: [{ role: "assistant", content: [{ type: "text", text: "never reached" }] }],
+		};
+		currentSessionConfig = cfg;
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 40);
+		assert.equal(result.timedOut, true, "setup hang is bounded by the deadline");
+
+		// Let the delayed session creation resolve after the timeout.
+		await sleep(250);
+		assert.equal(cfg.promptCalls ?? 0, 0, "no prompt may start after the deadline fired");
+		assert.equal(cfg.disposeCalled, true, "session created after the deadline was disposed");
 	});
 
 	it("deadline covers SETUP via dispatcher: runAgent passes the remaining dispatch deadline", async () => {
