@@ -37,7 +37,7 @@ var newInitDeps = func(workdir string) InitDeps {
 
 // nextStepHint is the post-init instruction printed after a successful init run.
 // It is a constant so both the CLI and documentation stay in sync.
-const nextStepHint = "cd <branch> -> cheasee-pi start"
+const nextStepHint = "cd <workspace-folder> -> cheasee-pi start"
 
 // initOverview is the pre-prompt narration printed once per interactive
 // GitHub-flow init run, before the first prompt. It is a constant so the CLI
@@ -48,8 +48,7 @@ const initOverview = "🤖 Welcome — one GitHub repo becomes your workspace:\n
 	"   · nothing touches your existing folders — init runs only in an empty directory\n" +
 	"   · the repo is cloned to <parent>/.bare + a worktree; the container mounts that folder\n" +
 	"   · then this machine authenticates: GitHub OAuth + LLM API keys\n" +
-	"   · finally, init hands off to `cheasee-pi start`\n" +
-	"   no repo yet? `--no-github` skips the clone (API-key only)\n\n"
+	"   no repo yet? `--no-github` skips the clone (API-key only). After init: `cheasee-pi start`\n"
 
 // printInitOverview narrates the init workflow to stderr right before the
 // first prompt. Mirrors the intro block runInitSkillRepos prints before its
@@ -321,10 +320,10 @@ func runInit(ctx context.Context, deps InitDeps) error {
 	if !deps.NoGitHub {
 		folderName := "main"
 		if !deps.NoInput {
-			// The input never touches git directly (the worktree checks out
-			// the bare HEAD detached) — it only names the folder, so the
-			// prompt spells that out instead of fabricating a git branch.
-			fmt.Fprintf(os.Stderr, "   ℹ this name labels your workspace subfolder only — the worktree checks out the bare HEAD detached; not a git branch\n")
+			// The input never touches git directly — it only names the folder
+			// (the clone checks out the repo's default branch), so the prompt
+			// spells that out instead of fabricating a git branch selector.
+			fmt.Fprintf(os.Stderr, "   ℹ this name sets the workspace subfolder name only — the repo's default branch is checked out there; it is not a git branch selector\n")
 			folderName, err = deps.InputFn("Workspace folder name", "main")
 			if err != nil {
 				return fmt.Errorf("branch prompt failed: %w", err)
