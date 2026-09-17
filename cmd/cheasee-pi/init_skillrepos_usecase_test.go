@@ -151,8 +151,13 @@ func TestInitUseCase_NoInputSkillRepoFlagsNoPrompts(t *testing.T) {
 			return "", nil
 		}
 	})
-	if err := runInit(context.Background(), deps); err != nil {
-		t.Fatalf("no-input flow: %v", err)
+	output := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("no-input flow: %v", err)
+		}
+	})
+	if strings.Contains(output, "Installed by default") {
+		t.Errorf("--no-input must skip the interactive prompt block entirely, got: %q", output)
 	}
 	s, err := LoadCheaseeSettings(filepath.Join(workdir, "main"))
 	if err != nil {
@@ -286,5 +291,52 @@ func TestInitUseCase_SkillRepoAnnouncementBetweenScaffoldAndAuthSave(t *testing.
 	}
 	if !strings.Contains(output, "✅ Init complete") {
 		t.Error("completion message must be unchanged (✅ Init complete)")
+	}
+}
+
+func TestInitUseCase_SkillRepoPromptDeclaresDefault(t *testing.T) {
+	// The prompt block explains what a skill is, declares the preinstalled
+	// ponytail default (from defaultSkillRepos, not hardcoded), states the
+	// record-then-install effect and the removal path (edit skillRepos AND pi
+	// uninstall — the entrypoint only installs), and carries the trust caveat
+	// — all before the user chooses. The copy stays progressive-disclosure
+	// consistent (no "loads into every session").
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deps := skillRepoFlowDeps(t, workdir, []bool{false}, []string{"owner/repo"})
+	output := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("flow: %v", err)
+		}
+	})
+	// Header contract preserved verbatim (existing substring assertion).
+	if !strings.Contains(output, "Custom Skill Repositories") {
+		t.Error("header 'Custom Skill Repositories' must be preserved")
+	}
+	if !strings.Contains(output, "Skills are reusable capability packages") {
+		t.Error("prompt must explain what a skill is before the choice")
+	}
+	if want := "Installed by default: " + defaultSkillRepos[0]; !strings.Contains(output, want) {
+		t.Errorf("prompt must declare the default from defaultSkillRepos, want %q, got: %q", want, output)
+	}
+	if !strings.Contains(output, "editing skillRepos") || !strings.Contains(output, "pi uninstall ponytail") {
+		t.Error("removal path must mention editing skillRepos AND `pi uninstall ponytail` (entrypoint only installs)")
+	}
+	if !strings.Contains(output, "cheasee-settings.json skillRepos") || !strings.Contains(output, "cheasee-pi start") {
+		t.Error("prompt must state the effect: recorded in skillRepos, installed on next cheasee-pi start")
+	}
+	if !strings.Contains(output, "Review a repo's content") {
+		t.Error("prompt must carry the trust caveat (skills can include runnable code)")
+	}
+	if strings.Contains(output, "loads into every session") {
+		t.Error("copy must not claim skills load into every session (progressive disclosure)")
 	}
 }
