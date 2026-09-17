@@ -7,10 +7,15 @@ import (
 	"sort"
 )
 
-// KnownModels maps provider names to known model identifiers.
-// Used for interactive model selection. Updated as new models release.
+// KnownModels maps provider names to known model identifiers — the OFFLINE
+// seed for interactive model selection. The live pi.dev catalog (ModelCatalog)
+// is the primary source; this map only surfaces when the catalog is unreachable
+// (offline/network error). Entries must stay valid against the live catalog
+// when committed: opencode-go was pruned of gpt-4o / claude-sonnet-4-20250514
+// (cross-catalog copy errors — they belong to the separate openai/anthropic
+// catalogs and pi cannot resolve them under opencode-go).
 var KnownModels = map[string][]string{
-	"opencode-go": {"deepseek-v4-flash", "gpt-4o", "claude-sonnet-4-20250514"},
+	"opencode-go": {"deepseek-v4-flash", "kimi-k2.6"},
 	"openai":      {"gpt-4o", "gpt-4o-mini", "o3", "o4-mini"},
 	"anthropic":   {"claude-sonnet-4-20250514", "claude-haiku-3-20250313"},
 	"deepseek":    {"deepseek-chat", "deepseek-reasoner"},
@@ -34,8 +39,24 @@ func ProviderNames() []string {
 	return names
 }
 
-// DefaultModel returns the first known model for a provider, or empty string.
+// staticDefaultModel pins a validated live-catalog default per provider. It
+// wins over both the catalog-derived sorted-first id and the KnownModels seed,
+// so the default never flips between online and offline runs (and the sync
+// init scaffold path always writes a resolvable value). Entries must be
+// validated against the live pi catalog when committed — kimi-k2.6 verified
+// live for opencode-go (262144 ctx, openai-completions), replacing the stale
+// deepseek-v4-flash first-seed default.
+var staticDefaultModel = map[string]string{
+	"opencode-go": "kimi-k2.6",
+}
+
+// DefaultModel returns the default model for a provider: the validated static
+// override when present, else the first known seed model, or empty string for
+// unknown providers (or providers with empty seeds).
 func DefaultModel(provider string) string {
+	if m, ok := staticDefaultModel[provider]; ok {
+		return m
+	}
 	models, ok := KnownModels[provider]
 	if !ok || len(models) == 0 {
 		return ""

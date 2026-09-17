@@ -59,7 +59,9 @@ func runInitAuth(ctx context.Context, authenticator Authenticator) (token, user 
 // Called after the main init flow (GitHub auth + scaffold), only in interactive mode.
 // Each provider key is saved to auth.json. Last provider added becomes default in
 // workspace settings. Skips if Docker Engine check failed or workspace has no .pi dir.
-func runInitAPIKeys(ctx context.Context, cfg *fileRepository, workdir string, confirmFn func(string) (bool, error)) error {
+// catalog is the ModelCatalog port (live pi.dev list, seed fallback) feeding the
+// model picker; an error there degrades to the static known-model seed.
+func runInitAPIKeys(ctx context.Context, cfg *fileRepository, catalog ModelCatalog, workdir string, confirmFn func(string) (bool, error)) error {
 	ok, err := confirmFn("Configure API keys for pi providers?")
 	if err != nil {
 		return err
@@ -94,8 +96,8 @@ func runInitAPIKeys(ctx context.Context, cfg *fileRepository, workdir string, co
 		}
 		fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
 
-		model := DefaultModel(provider)
-		if models, ok := KnownModels[provider]; ok && len(models) > 0 {
+		model, models := modelChoice(ctx, catalog, provider, true)
+		if len(models) > 0 {
 			picked, err := promptModel(provider, models)
 			if err != nil {
 				return err
@@ -194,7 +196,7 @@ func runReauth(ctx context.Context, deps InitDeps) error {
 
 	// Provider API-key setup (interactive only, same convention as init).
 	if !deps.NoInput {
-		if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
+		if err := runInitAPIKeys(ctx, cfg, deps.Ports.Catalog, deps.Workdir, deps.ConfirmFn); err != nil {
 			return fmt.Errorf("API key setup: %w", err)
 		}
 	}

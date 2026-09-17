@@ -1,13 +1,136 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
+
+// ──────────────────────────────────────────────
+// DefaultModel / static seed semantics (provider.go + catalog.go)
+// ──────────────────────────────────────────────
+
+// TestKnownModels_opencodeGoPruned pins the cross-catalog copy-error guard:
+// gpt-4o and claude-sonnet-4-20250514 are NOT opencode-go models (they
+// belong to the openai/anthropic catalogs) and pi cannot resolve them under
+// opencode-go — selecting either once wrote an invalid defaultModel.
+func TestKnownModels_opencodeGoPruned(t *testing.T) {
+	for _, m := range KnownModels["opencode-go"] {
+		if m == "gpt-4o" || m == "claude-sonnet-4-20250514" {
+			t.Errorf("pruned cross-catalog entry %q must not be in the opencode-go seed", m)
+		}
+	}
+}
+
+// TestDefaultModel_pinsOverrideAndSeed asserts the static override wins over
+// the seed, the un-overridden seed keeps its first-entry semantics, and
+// unknown/empty providers yield "".
+func TestDefaultModel_pinsOverrideAndSeed(t *testing.T) {
+	if got := DefaultModel("opencode-go"); got != "kimi-k2.6" {
+		t.Errorf("DefaultModel(opencode-go) = %q, want kimi-k2.6 (static override)", got)
+	}
+	if got := DefaultModel("openai"); got != "gpt-4o" {
+		t.Errorf("DefaultModel(openai) = %q, want gpt-4o (first seed entry)", got)
+	}
+	if got := DefaultModel("unknown-provider"); got != "" {
+		t.Errorf("DefaultModel(unknown) = %q, want empty", got)
+	}
+}
+
+// TestModelChoice pins the single-lookup resolution: the static override wins
+// regardless of catalog state (and skips the fetch entirely when no picker
+// list is needed — offline --no-input); with no override the default and the
+// picker list share ONE catalog consultation (the audit-flagged double-fetch
+// ran the retry loop twice); catalog errors fall back to the seed.
+func TestModelChoice(t *testing.T) {
+	ctx := context.Background()
+	staticProvider := "opencode-go"
+
+	t.Run("override wins regardless of catalog state", func(t *testing.T) {
+		// Catalog down: the override must still hold (offline never flips).
+		if def, _ := modelChoice(ctx, &mockModelCatalog{err: errSentinel}, staticProvider, false); def != "kimi-k2.6" {
+			t.Errorf("catalog error: modelChoice def = %q, want kimi-k2.6", def)
+		}
+		// Catalog up with a different first id: the override still wins.
+		if def, models := modelChoice(ctx, &mockModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}, staticProvider, true); def != "kimi-k2.6" || !reflect.DeepEqual(models, []string{"glm-5.3", "kimi-k2.6"}) {
+			t.Errorf("live list: def = %q, models = %v, want kimi-k2.6 + live list", def, models)
+		}
+	})
+
+	t.Run("override + no list needed → zero catalog consultations", func(t *testing.T) {
+		// --no-input for an override provider must stay fully offline.
+		cc := &countingModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}
+		def, models := modelChoice(ctx, cc, staticProvider, false)
+		if def != "kimi-k2.6" || models != nil || cc.calls != 0 {
+			t.Errorf("no-list override: def=%q models=%v calls=%d, want kimi-k2.6 + nil + 0", def, models, cc.calls)
+		}
+	})
+
+	t.Run("no override + live list → sorted-first def + live list, one consultation", func(t *testing.T) {
+		cc := &countingModelCatalog{models: []string{"gpt-4o-mini", "gpt-4o"}}
+		def, models := modelChoice(ctx, cc, "openai", false)
+		if def != "gpt-4o-mini" || !reflect.DeepEqual(models, []string{"gpt-4o-mini", "gpt-4o"}) {
+			t.Errorf("def=%q models=%v, want gpt-4o-mini + live list", def, models)
+		}
+		if cc.calls != 1 {
+			t.Errorf("catalog consulted %d times, want exactly 1 (one lookup feeds both)", cc.calls)
+		}
+	})
+
+	t.Run("catalog error + no override → seed first entry + seed list", func(t *testing.T) {
+		def, models := modelChoice(ctx, &mockModelCatalog{err: errSentinel}, "openai", false)
+		if def != "gpt-4o" || !reflect.DeepEqual(models, KnownModels["openai"]) {
+			t.Errorf("def=%q models=%v, want gpt-4o + openai seed", def, models)
+		}
+	})
+}
+
+// TestModelsFor pins the picker-list resolution: the live sorted list when
+// the catalog answers, the pruned seed on error. Empty-seed providers gate
+// the picker on the live list for the first time.
+func TestModelsFor(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("live list when catalog OK", func(t *testing.T) {
+		got := modelsFor(ctx, &mockModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}, "opencode-go")
+		if len(got) != 2 || got[0] != "glm-5.3" || got[1] != "kimi-k2.6" {
+			t.Errorf("modelsFor = %v, want the live list", got)
+		}
+	})
+
+	t.Run("pruned seed on catalog error", func(t *testing.T) {
+		got := modelsFor(ctx, &mockModelCatalog{err: errSentinel}, "opencode-go")
+		if len(got) != 2 || got[0] != "deepseek-v4-flash" || got[1] != "kimi-k2.6" {
+			t.Fatalf("modelsFor = %v, want the pruned seed", got)
+		}
+		for _, m := range got {
+			if m == "gpt-4o" || m == "claude-sonnet-4-20250514" {
+				t.Errorf("offline seed must stay pruned, got %q", m)
+			}
+		}
+	})
+
+	t.Run("empty seed gates picker on the live list", func(t *testing.T) {
+		// together/cerebras have empty seeds — the live list is the only
+		// source for their pickers (offline they simply have no picker).
+		got := modelsFor(ctx, &mockModelCatalog{models: []string{"meta-llama/Llama-3.3-70B-Instruct-Turbo"}}, "together")
+		if len(got) != 1 || got[0] != "meta-llama/Llama-3.3-70B-Instruct-Turbo" {
+			t.Errorf("modelsFor(together) = %v, want the live list", got)
+		}
+		if got := modelsFor(ctx, &mockModelCatalog{err: errSentinel}, "together"); len(got) != 0 {
+			t.Errorf("offline together must yield no picker list, got %v", got)
+		}
+	})
+}
+
+// errSentinel is the shared stub catalog error for seed-fallback assertions.
+var errSentinel = errors.New("offline")
 
 // ──────────────────────────────────────────────
 // WriteDefaultProvider (provider.go) — one write helper, three targets

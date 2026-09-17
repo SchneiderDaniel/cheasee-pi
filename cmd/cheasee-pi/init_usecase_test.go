@@ -135,7 +135,7 @@ func TestInitUseCase_PreCloneFailureLeavesNoResidue(t *testing.T) {
 			waitFunc: func(ctx context.Context, code *device.CodeResponse) (*api.AccessToken, error) {
 				return nil, fmt.Errorf("device flow wait failed: user cancelled")
 			},
-		}}
+		}, Catalog: &mockModelCatalog{}}
 	})
 
 	err := runInit(context.Background(), deps)

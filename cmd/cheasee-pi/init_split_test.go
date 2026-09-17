@@ -217,6 +217,7 @@ var testSplitFiles = []string{
 	"init_skillrepos_test.go",
 	"init_skillrepos_usecase_test.go",
 	"pi_skeleton_test.go",
+	"catalog_test.go",
 }
 
 // initHelperDecls pins the cross-subject helpers to init_helpers_test.go.
@@ -287,6 +288,9 @@ var testSplitRules = []prefixRule{
 	{"TestRecordSkillRepos", "init_skillrepos_test.go"},
 	{"TestRunInitSkillRepos", "init_skillrepos_test.go"},
 	{"TestInitHelp", "init_skillrepos_test.go"},
+	{"TestRemoteModelCatalog", "catalog_test.go"},
+	{"TestRunAuthAddE", "catalog_test.go"},
+	{"TestRunInitAPIKeys", "catalog_test.go"},
 }
 
 // mergedTestDecls are the decls moved from init_test.go into existing test

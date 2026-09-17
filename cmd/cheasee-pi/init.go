@@ -20,7 +20,7 @@ import (
 // instead of a real device flow or TTY.
 var newInitDeps = func(workdir string) InitDeps {
 	return InitDeps{
-		Ports:         InitPorts{Auth: NewAuthenticator(initClientID)},
+		Ports:         InitPorts{Auth: NewAuthenticator(initClientID), Catalog: newModelCatalog()},
 		APIKey:        initAPIKey,
 		NoDockerCheck: initNoDockerCheck,
 		NoGitHub:      initNoGitHub,
@@ -82,7 +82,8 @@ var (
 // docker/git CLI, auth config, and in-process stdlib adapters are package-level
 // or called directly by the phase functions.
 type InitPorts struct {
-	Auth Authenticator
+	Auth    Authenticator
+	Catalog ModelCatalog
 }
 
 // InitDeps bundles all dependencies, flags, and callbacks for runInit.
@@ -117,6 +118,11 @@ func (d InitDeps) Validate() error {
 	var missing []string
 	if !d.NoGitHub && d.Ports.Auth == nil {
 		missing = append(missing, "Ports.Auth")
+	}
+	// The provider API-key phase (runInitAPIKeys) consumes the catalog for its
+	// model picker — interactive runs must never dereference a nil port.
+	if !d.NoInput && d.Ports.Catalog == nil {
+		missing = append(missing, "Ports.Catalog")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("init: missing required deps: %s", strings.Join(missing, ", "))
@@ -377,7 +383,7 @@ func runInit(ctx context.Context, deps InitDeps) error {
 
 		// Phase 8: API key setup for pi providers (interactive only)
 		if !deps.NoInput {
-			if err := runInitAPIKeys(ctx, cfg, deps.Workdir, deps.ConfirmFn); err != nil {
+			if err := runInitAPIKeys(ctx, cfg, deps.Ports.Catalog, deps.Workdir, deps.ConfirmFn); err != nil {
 				return fmt.Errorf("API key setup: %w", err)
 			}
 		}

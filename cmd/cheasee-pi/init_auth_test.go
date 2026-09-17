@@ -332,7 +332,7 @@ func TestRunInit_ErrUnsupportedFallsBackToLegacy(t *testing.T) {
 				requestCodeFunc: func(ctx context.Context, scopes []string) (*device.CodeResponse, error) {
 					return nil, device.ErrUnsupported
 				},
-			}}
+			}, Catalog: &mockModelCatalog{}}
 		}))
 	})
 	if err != nil {
