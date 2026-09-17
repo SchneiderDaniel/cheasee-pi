@@ -4,13 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/cli/oauth/api"
 	"github.com/cli/oauth/device"
 )
@@ -173,11 +180,159 @@ func (q *queuePrompt) input(string, string) (string, error) {
 }
 
 // ──────────────────────────────────────────────
+// Mock: ModelCatalog
+// ──────────────────────────────────────────────
+
+// mockModelCatalog is a fixed-list ModelCatalog stub. The zero value returns
+// (nil, nil), which modelsFor/defaultModelFor treat as "no live list" → the
+// KnownModels seed (the offline path).
+type mockModelCatalog struct {
+	models []string
+	err    error
+}
+
+func (m *mockModelCatalog) Models(ctx context.Context, provider string) ([]string, error) {
+	return m.models, m.err
+}
+
+// stubModelCatalog replaces the newModelCatalog seam (newInitDeps precedent)
+// for the duration of the test, so auth/init flows run without a real fetch.
+func stubModelCatalog(t *testing.T, models []string, err error) {
+	t.Helper()
+	saved := newModelCatalog
+	newModelCatalog = func() ModelCatalog { return &mockModelCatalog{models: models, err: err} }
+	t.Cleanup(func() { newModelCatalog = saved })
+}
+
+// stubPromptProvider replaces the provider-picker seam for the duration of
+// the test (huh TTY calls hang tests, same reason as runCommandContext).
+func stubPromptProvider(t *testing.T, fn func() (string, error)) {
+	t.Helper()
+	saved := promptProvider
+	promptProvider = fn
+	t.Cleanup(func() { promptProvider = saved })
+}
+
+// stubPromptAPIKey replaces the API-key prompt seam for the duration of the
+// test.
+func stubPromptAPIKey(t *testing.T, fn func(string) (string, error)) {
+	t.Helper()
+	saved := promptAPIKeyForProvider
+	promptAPIKeyForProvider = fn
+	t.Cleanup(func() { promptAPIKeyForProvider = saved })
+}
+
+// stubPromptModel replaces the model-picker seam for the duration of the test.
+func stubPromptModel(t *testing.T, fn func(string, []string) (string, error)) {
+	t.Helper()
+	saved := promptModel
+	promptModel = fn
+	t.Cleanup(func() { promptModel = saved })
+}
+
+// withAuthAddFlags pins the package-level auth add flags (workdir + --no-input)
+// for the duration of the test, mirroring withAuthListWorkdir.
+func withAuthAddFlags(t *testing.T, workdir string, noInput bool) {
+	t.Helper()
+	savedWorkdir, savedNoInput := authAddWorkdir, authAddNoInput
+	authAddWorkdir, authAddNoInput = workdir, noInput
+	t.Cleanup(func() { authAddWorkdir, authAddNoInput = savedWorkdir, savedNoInput })
+}
+
+// ──────────────────────────────────────────────
+// Catalog fixtures (remoteModelCatalog adapter tests)
+// ──────────────────────────────────────────────
+
+// catalogPlainMap is a canned plain-object-map catalog response (the live
+// endpoint's shape), keys deliberately unsorted to prove Models() returns
+// deterministic lexicographic order.
+const catalogPlainMap = `{
+  "zebra-model": {"id": "zebra-model", "name": "Zebra"},
+  "alpha-model": {"id": "alpha-model", "name": "Alpha"},
+  "mike-model":  {"id": "mike-model",  "name": "Mike"}
+}`
+
+// catalogSorted is the lexicographically sorted id set of catalogPlainMap.
+var catalogSorted = []string{"alpha-model", "mike-model", "zebra-model"}
+
+// catalogServer is the httptest fixture for the remoteModelCatalog adapter
+// tests: wraps every request with a counter + last-header/URL capture, then
+// delegates to the per-test handler (nil → serve catalogPlainMap with 200).
+type catalogServer struct {
+	ts      *httptest.Server
+	reqs    atomic.Int32
+	lastHdr http.Header
+	lastURL string
+}
+
+func newCatalogServer(t *testing.T, handler http.HandlerFunc) *catalogServer {
+	t.Helper()
+	s := &catalogServer{}
+	if handler == nil {
+		handler = func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, catalogPlainMap)
+		}
+	}
+	var mu sync.Mutex
+	s.ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.reqs.Add(1)
+		mu.Lock()
+		s.lastHdr = r.Header.Clone()
+		s.lastURL = r.URL.String()
+		mu.Unlock()
+		handler(w, r)
+	}))
+	t.Cleanup(s.ts.Close)
+	return s
+}
+
+// cacheModelsDir resolves the per-provider cache dir the adapter writes to
+// under the test's XDG_CACHE_HOME (version-keyed, mirroring CacheDir).
+func cacheModelsDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(os.Getenv("XDG_CACHE_HOME"), "cheasee-pi", cliVersionKey, "models")
+}
+
+// newTestCatalog builds the adapter against a fixture server with an explicit
+// attempt timeout (tests never rely on the 4s production default).
+func newTestCatalog(srv *catalogServer, attemptTimeout time.Duration) *remoteModelCatalog {
+	return &remoteModelCatalog{
+		httpClient:     srv.ts.Client(),
+		baseURL:        srv.ts.URL,
+		attemptTimeout: attemptTimeout,
+	}
+}
+
+// newAuthAddWorkdir scaffolds a cheasee-pi workspace (the marker file the
+// SettingsWriter keys its missing-file policy on) so auth add's workspace
+// half exercises all three settings files.
+func newAuthAddWorkdir(t *testing.T) string {
+	t.Helper()
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"defaultProvider":"seed","defaultModel":"seed-model"}`)
+	return workdir
+}
+
+// writeStaleCache seeds a per-provider cache file with an old checkedAt and
+// the given models body — the refetch/revalidation fixtures.
+func writeStaleCache(t *testing.T, provider, body string) {
+	t.Helper()
+	if err := os.MkdirAll(cacheModelsDir(t), 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cacheModelsDir(t), url.PathEscape(provider)+".json")
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ──────────────────────────────────────────────
 // Compile-time interface checks
 // ──────────────────────────────────────────────
 
 var (
 	_ Authenticator = (*mockAuthenticator)(nil)
+	_ ModelCatalog  = (*mockModelCatalog)(nil)
 )
 
 // ──────────────────────────────────────────────
@@ -317,7 +472,8 @@ func ScaffoldSettings(t *testing.T, vals TemplateSettingsValues) string {
 // (extract, env, scaffold, remover, git identity) are real.
 func defaultMocks() InitPorts {
 	return InitPorts{
-		Auth: &mockAuthenticator{},
+		Auth:    &mockAuthenticator{},
+		Catalog: &mockModelCatalog{}, // no live list → seed fallback
 	}
 }
 

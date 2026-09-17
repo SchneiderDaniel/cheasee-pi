@@ -25,8 +25,8 @@ func TestRunInitScaffold_IdentityFromConfig(t *testing.T) {
 	if raw["defaultProvider"] != "opencode-go" {
 		t.Errorf("expected defaultProvider 'opencode-go', got %v", raw["defaultProvider"])
 	}
-	if raw["defaultModel"] != "deepseek-v4-flash" {
-		t.Errorf("expected defaultModel 'deepseek-v4-flash' (first known opencode-go model), got %v", raw["defaultModel"])
+	if raw["defaultModel"] != "kimi-k2.6" {
+		t.Errorf("expected defaultModel 'kimi-k2.6' (validated static default for opencode-go), got %v", raw["defaultModel"])
 	}
 	gitID, ok := raw["gitIdentity"].(map[string]any)
 	if !ok {
@@ -216,9 +216,20 @@ func TestInitDeps_Validate(t *testing.T) {
 			wantErr: []string{"Ports.Auth"},
 		},
 		{
-			name:  "missing auth allowed on no-github path",
+			name: "missing auth allowed on no-github path",
 			ports: func() InitPorts { p := all; p.Auth = nil; return p },
 			deps:  InitDeps{NoGitHub: true},
+		},
+		{
+			name:    "missing catalog on interactive path",
+			ports:   func() InitPorts { p := all; p.Catalog = nil; return p },
+			deps:    InitDeps{NoInput: false},
+			wantErr: []string{"Ports.Catalog"},
+		},
+		{
+			name:  "missing catalog allowed with --no-input",
+			ports: func() InitPorts { p := all; p.Catalog = nil; return p },
+			deps:  InitDeps{NoInput: true},
 		},
 	}
 	for _, tt := range tests {
@@ -242,6 +253,18 @@ func TestInitDeps_Validate(t *testing.T) {
 			}
 		})
 	}
+	t.Run("newInitDeps wires a real catalog", func(t *testing.T) {
+		// The shared factory must default Catalog to the remote adapter (the
+		// seam newModelCatalog swaps in tests) so both init entry points and
+		// reauth run with the live catalog without extra wiring.
+		deps := newInitDeps(t.TempDir())
+		if deps.Ports.Catalog == nil {
+			t.Fatal("newInitDeps must wire Ports.Catalog")
+		}
+		if deps.Ports.Auth == nil {
+			t.Fatal("newInitDeps must wire Ports.Auth")
+		}
+	})
 }
 
 func TestInit_SuccessMessage(t *testing.T) {

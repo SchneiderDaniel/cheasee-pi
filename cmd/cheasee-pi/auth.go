@@ -148,16 +148,22 @@ func runAuthAddE(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
 
-	// Pick default model
-	model := DefaultModel(provider)
-	knownModels := KnownModels[provider]
-	if !authAddNoInput && len(knownModels) > 0 {
-		picked, err := promptModel(provider, knownModels)
-		if err != nil {
-			return err
-		}
-		if picked != "" {
-			model = picked
+	// Pick default model: the live pi.dev catalog when reachable, else the
+	// static seed (catalog errors degrade, never fail the command). The
+	// override short-circuits before any fetch — offline `--no-input` auth
+	// still writes a valid, resolvable default.
+	catalog := newModelCatalog()
+	model := defaultModelFor(ctx, catalog, provider)
+	if !authAddNoInput {
+		models := modelsFor(ctx, catalog, provider)
+		if len(models) > 0 {
+			picked, err := promptModel(provider, models)
+			if err != nil {
+				return err
+			}
+			if picked != "" {
+				model = picked
+			}
 		}
 	}
 
@@ -238,7 +244,9 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 // ──────────────────────────────────────────────
 
 // promptProvider shows a picker of known providers and returns the selection.
-func promptProvider() (string, error) {
+// Package-var seam (runCommandContext precedent): tests replace it to drive
+// the auth flows without a TTY.
+var promptProvider = func() (string, error) {
 	providers := ProviderNames()
 	opts := make([]huh.Option[string], len(providers))
 	for i, p := range providers {
@@ -262,7 +270,9 @@ func promptProvider() (string, error) {
 }
 
 // promptAPIKeyForProvider prompts for an API key with masked input.
-func promptAPIKeyForProvider(provider string) (string, error) {
+// Package-var seam (runCommandContext precedent): tests replace it to drive
+// the auth flows without a TTY.
+var promptAPIKeyForProvider = func(provider string) (string, error) {
 	var key string
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -279,9 +289,11 @@ func promptAPIKeyForProvider(provider string) (string, error) {
 	return key, nil
 }
 
-// promptModel shows a picker of known models for a provider and returns the selection.
-// If user selects "custom", they can type a custom model name.
-func promptModel(provider string, models []string) (string, error) {
+// promptModel shows a picker of known models for a provider and returns the
+// selection. If user selects "custom", they can type a custom model name.
+// Package-var seam (runCommandContext precedent): tests replace it to drive
+// the auth flows without a TTY.
+var promptModel = func(provider string, models []string) (string, error) {
 	opts := make([]huh.Option[string], 0, len(models)+1)
 	for _, m := range models {
 		opts = append(opts, huh.NewOption(m, m))
