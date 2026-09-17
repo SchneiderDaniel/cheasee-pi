@@ -79,7 +79,12 @@ Run init in an **empty folder** — cheasee-pi sets the workspace up itself:
    into the container — entered skill repository specs are recorded in
    `cheasee-settings.json` (`skillRepos`) and installed on first
    `cheasee-pi start` via pi (`pi install -l`, cloned to `.pi/git/`,
-   reconcilable with `pi update`)
+   reconcilable with `pi update`). One skill repo,
+   [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail), is
+   installed by default and declared at the prompt. To remove it, delete it
+   from `skillRepos` in `cheasee-settings.json` **and** run
+   `pi uninstall ponytail` inside the container — the clone stays in
+   `.pi/git/` otherwise.
 
 No docker files in your repo — the compose file and Dockerfile are CLI-managed
 cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
@@ -91,7 +96,11 @@ first run.
 > skill repository specs) without a prompt (repeatable; also accepts
 > `https://…` or `git:host/user/repo[@ref]`). Recorded skill repos are
 > installed into the container on `cheasee-pi start` via pi (`pi install -l`,
-> project-local clones in `.pi/git/`, kept reconcilable with `pi update`).
+> project-local clones in `.pi/git/`, kept reconcilable with `pi update`). The
+> [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail) skill
+> repo is preinstalled by default — drop it from `skillRepos` in
+> `cheasee-settings.json` and run `pi uninstall ponytail` in the container to
+> remove it.
 
 {:.note-title}
 > No GitHub?
@@ -136,9 +145,12 @@ On an initialized workspace it:
 
 1. Extracts the compose stack (Dockerfile, entrypoint, codeflow service) to
    the CLI cache dir (`~/.cache/cheasee-pi/<version>/`); the image build
-   clones the cheasee-pi repo (Dockerfile `ARG CHEASEE_REF`, default `main`)
-   into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
-2. Starts the container (builds image ~2 min first time) with the workspace
+   clones cheasee-pi's own repository (github.com/SchneiderDaniel/cheasee-pi,
+   Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and
+   symlinks its resources into `~/.pi/agent/` — not your repo
+2. Starts the container (first build downloads ~1GB of build-time
+   dependencies; can take several minutes on slower connections) with the
+   workspace
    mounted at `/workspaces/main` and its sibling bare repo at
    `/workspaces/.bare` (the entrypoint rewrites worktree paths and locks them)
 3. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI

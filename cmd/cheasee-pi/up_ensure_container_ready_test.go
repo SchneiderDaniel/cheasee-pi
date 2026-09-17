@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // ──────────────────────────────────────────────
@@ -60,6 +62,12 @@ func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context,
 			c.composeArgs = append(c.composeArgs, arg)
 			c.composeCmds = append(c.composeCmds, m)
 			return m
+		}
+		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
+			// First-build gate — intercepted before dockerFn so the per-test
+			// health-wait inspect catch-all can't swallow it (default missing,
+			// flip c.imageState for anti-nag / fail-closed tests).
+			return c.stubImageGate()
 		}
 		return dockerFn(ctx, arg)
 	})
@@ -442,5 +450,161 @@ func TestRunUpE_waitHealthyTimeoutSurfaces(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "docker logs") {
 		t.Errorf("error must carry the docker logs hint, got %q", err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// First-build gate + notice (ensureContainerReady use cases)
+// ──────────────────────────────────────────────
+
+// readyFlowDockerFn is the dockerFn used by the gate use-case tests: ps
+// reports the named container as (not) running, the health-wait inspect
+// answers healthy.
+func readyFlowDockerFn(name string) func(context.Context, []string) runner {
+	return func(_ context.Context, arg []string) runner {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
+		}
+		if slices.Contains(arg, "inspect") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+		}
+		return &mockCmd{}
+	}
+}
+
+func TestEnsureContainerReady_imageMissingPrintsFirstBuildNotice(t *testing.T) {
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	c := stubReadyFlow(t, root, readyFlowDockerFn("")) // not running, image missing (stub default)
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+
+	// Static substrings only — no computed size/duration.
+	for _, want := range []string{"First start downloads", "~1GB", "several minutes"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("first-build notice must contain %q, got: %q", want, stderr)
+		}
+	}
+	if n := strings.Count(stderr, "First start downloads"); n != 1 {
+		t.Errorf("notice must appear exactly once, got %d in: %q", n, stderr)
+	}
+	i, j := strings.Index(stderr, "First start downloads"), strings.Index(stderr, "Building container image...")
+	if i < 0 || j < 0 || i > j {
+		t.Errorf("notice (idx %d) must precede the build label (idx %d), stderr: %q", i, j, stderr)
+	}
+	// The gate changes only the notice — compose still builds + up.
+	if len(c.composeArgs) != 2 {
+		t.Errorf("missing image must still build + up, got %d calls: %v", len(c.composeArgs), c.composeArgs)
+	}
+}
+
+func TestEnsureContainerReady_imagePresentColdStartNoNotice(t *testing.T) {
+	// Cached image + container not running: compose still builds (the
+	// container must exist) but the ~1GB first-build notice must NOT nag —
+	// the anti-nag regression the issue calls out (keying on !running alone
+	// would nag on every cached cold start).
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	c := stubReadyFlow(t, root, readyFlowDockerFn(""))
+	c.imageState = upImagePresent
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if strings.Contains(stderr, "First start downloads") {
+		t.Errorf("cached image must not print the first-build notice, got: %q", stderr)
+	}
+	if len(c.composeArgs) != 2 {
+		t.Errorf("image present + container missing must still build + up, got %d calls", len(c.composeArgs))
+	}
+}
+
+func TestEnsureContainerReady_runningNoBuildNoGateNoCompose(t *testing.T) {
+	// Running container, no --build: no compose AND no image-inspect gate
+	// call — the gate is computed only when a build will actually run (the
+	// health-wait inspect still happens).
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	c := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if len(c.composeArgs) != 0 {
+		t.Errorf("running container must skip compose, got %d calls", len(c.composeArgs))
+	}
+	if c.imageGates != 0 {
+		t.Errorf("gate must not run when no build will run, got %d image-inspect calls", c.imageGates)
+	}
+	if strings.Contains(stderr, "First start downloads") {
+		t.Errorf("no build → no notice, got: %q", stderr)
+	}
+}
+
+func TestEnsureContainerReady_buildForcedRespectsImagePresence(t *testing.T) {
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	// --build + image present → build forced, NO notice (cached layers).
+	c := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	c.imageState = upImagePresent
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, true); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if len(c.composeArgs) != 2 {
+		t.Errorf("--build must force build + up, got %d calls", len(c.composeArgs))
+	}
+	if strings.Contains(stderr, "First start downloads") {
+		t.Errorf("--build with cached layers must not nag, got: %q", stderr)
+	}
+
+	// --build + image missing → notice printed (the build genuinely
+	// re-downloads what clean/prune removed).
+	c2 := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	stderr2 := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, true); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if !strings.Contains(stderr2, "First start downloads") {
+		t.Errorf("--build with no image must print the notice, got: %q", stderr2)
+	}
+	if c2.imageGates != 1 {
+		t.Errorf("--build must run the gate exactly once, got %d", c2.imageGates)
+	}
+}
+
+func TestEnsureContainerReady_imageDaemonErrorFailsClosed(t *testing.T) {
+	// Inspect non-1 exit → wrapped 'check image:' error, compose never
+	// invoked (inspect precedes build — fail-closed ordering).
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	c := stubReadyFlow(t, root, readyFlowDockerFn(""))
+	c.imageState = upImageDaemonError
+	_, err := ensureContainerReady(context.Background(), root, name, false)
+	if err == nil || !strings.Contains(err.Error(), "check image:") {
+		t.Fatalf("inspect failure must wrap as 'check image: ...', got %v", err)
+	}
+	if !strings.Contains(err.Error(), "docker image inspect") {
+		t.Errorf("error must carry the inspect command, got %v", err)
+	}
+	if len(c.composeArgs) != 0 {
+		t.Errorf("fail-closed: compose must never run when the gate errors, got %d calls", len(c.composeArgs))
 	}
 }

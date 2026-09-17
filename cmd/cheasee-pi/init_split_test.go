@@ -422,13 +422,17 @@ var wantUpDecls = map[string]string{
 	"func:stubExecPIContainer": "up_helpers_test.go",
 	"func:mkWorkspace":         "up_helpers_test.go",
 	"func:stubAutoInitDeps":    "up_helpers_test.go",
+	"func:stubImageGate":       "up_helpers_test.go",
 	"type:upCapture":           "up_helpers_test.go",
 	"type:upExecCapture":       "up_helpers_test.go",
+	"type:upFlowImageState":    "up_helpers_test.go",
+	"const:upImageMissing,upImagePresent,upImageDaemonError": "up_helpers_test.go",
 
 	"func:indexOf":              "up_env_test.go",
 	"func:buildEnvFlagsOrFatal": "up_env_test.go",
 
 	"func:workspaceParentFixture": "up_workspace_test.go",
+	"func:assertOrderedStderr":    "up_flow_test.go",
 }
 
 // upSplitRules map the up test decl name prefixes to their thematic file.

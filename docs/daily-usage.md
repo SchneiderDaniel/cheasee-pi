@@ -53,14 +53,16 @@ automatically inside the container.
 cheasee-pi start --build
 ```
 
-This builds the Docker image from the CLI cache dir (`~/.cache/cheasee-pi/<version>/`,
-~2 min first time) and starts the container in detached mode. The container runs
+This builds the Docker image from the CLI cache dir (`~/.cache/cheasee-pi/<version>/`;
+the first build downloads ~1GB of build-time dependencies and can take several
+minutes on slower connections) and starts the container in detached mode. The container runs
 `sleep infinity` and stays alive until you stop it.
 
 **What happens:**
 - Compose/Dockerfile are extracted to the CLI cache dir; the image clones
-  the cheasee-pi repo at build time (`ARG CHEASEE_REF`, default `main`)
-  into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
+  cheasee-pi's own repository (github.com/SchneiderDaniel/cheasee-pi,
+  `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and symlinks its
+  resources into `~/.pi/agent/` — not your repo
 - Your workspace (main worktree) is bind-mounted to `/workspaces/main`, its
   sibling bare repo to `/workspaces/.bare` (two sibling mounts — the
   entrypoint rewrites worktree paths relative and locks them)
@@ -303,8 +305,9 @@ cheasee-pi start --build
 image even if the Dockerfile changed. You must either run `docker compose build`
 or pass `--build` to pick up changes.
 
-**Build timing:** The first build takes ~2 min (Debian 12-slim + Node.js 22 + Python
-3 + pi + dependencies). Subsequent builds take ~10-30s thanks to Docker layer caching.
+**Build timing:** The first build downloads ~1GB of build-time dependencies
+(Debian 12-slim + Node.js 22 + Python 3 + pi + dependencies) and can take
+several minutes on slower connections. Subsequent builds take ~10-30s thanks to Docker layer caching.
 
 ### Full rebuild (ignore cache)
 

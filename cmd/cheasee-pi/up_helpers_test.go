@@ -16,9 +16,39 @@ import (
 // up_flow_test.go.
 // ──────────────────────────────────────────────
 
+// upFlowImageState drives the stubs' `docker image inspect` branch — the
+// first-build gate. Distinct from the health-wait inspect (which always
+// answers "healthy"): without a distinct branch, the old "healthy" catch-all
+// would swallow the gate and silently suppress the notice in every test.
+// Zero value = missing, so existing call sites exercise the notice path.
+type upFlowImageState int
+
+const (
+	upImageMissing     upFlowImageState = iota // docker image inspect exits 1 → first build → notice
+	upImagePresent                             // exits 0 → image cached → no notice
+	upImageDaemonError                         // any non-1 exit → fail-closed error
+)
+
 type upCapture struct {
 	composeArgs [][]string
 	composeCmds []*mockCmd
+	imageGates  int // docker image inspect gate calls (first-build check)
+	imageState  upFlowImageState
+}
+
+// stubImageGate returns the runner for the first-build `docker image inspect`
+// gate per the capture's imageState, counting the call so tests can assert
+// the gate only runs when a build will run.
+func (c *upCapture) stubImageGate() runner {
+	c.imageGates++
+	switch c.imageState {
+	case upImagePresent:
+		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("[]"), nil }}
+	case upImageDaemonError:
+		return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(2) }}
+	default: // upImageMissing
+		return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(1) }}
+	}
 }
 
 // stubUpFlow stubs the docker+git seams for runUpE use-case tests: git
@@ -69,6 +99,10 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 				names = containerName(root)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(names), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
+			// First-build gate — distinct from the health-wait inspect below.
+			return c.stubImageGate()
 		}
 		if name == "docker" && slices.Contains(arg, "inspect") {
 			// Ready-marker healthcheck: entrypoint setup assumed complete.

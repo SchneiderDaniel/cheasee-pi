@@ -78,8 +78,9 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 > dir (the docker compose build context). Docker-only extras at repo root
 > (`docker/test/`, `docker-compose.legacy.yml`) stay tracked for dev/CI use.
 >
-> **Pi resources:** the image clones the cheasee-pi repo at build time
-> (Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and
+> **Pi resources:** at build time the image clones cheasee-pi's own repository
+> (github.com/SchneiderDaniel/cheasee-pi, Dockerfile `ARG CHEASEE_REF`,
+> default `main`) into `/opt/cheasee-pi` and
 > symlinks its resource dirs (.pi/skills, .pi/prompts, .pi/extensions,
 > .pi/themes) into `~/.pi/agent/` (global pi resources), so the Cheasee-Pi
 > experience is available inside any mounted repo. No generated resource

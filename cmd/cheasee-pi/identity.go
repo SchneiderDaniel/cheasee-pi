@@ -49,6 +49,17 @@ func composeProjectName(workspaceRoot string) string {
 	return "cheasee-pi-" + truncateSlug(repoSlug(workspaceRoot), 43)
 }
 
+// cheaseeImageRef derives the compose-built image reference for a workspace:
+// compose auto-names built images <project>-<service> and the compose file's
+// pi service is named `cheasee-pi`, so under the forced
+// COMPOSE_PROJECT_NAME the built image is <project>-cheasee-pi. Derived from
+// composeProjectName (43-char slug cap) — never containerName (52-char cap):
+// over-long slugs truncate per cap and the containerName derivation would
+// name the wrong image.
+func cheaseeImageRef(workspaceRoot string) string {
+	return composeProjectName(workspaceRoot) + "-cheasee-pi"
+}
+
 // truncateSlug caps a repo slug to max chars, appending a deterministic
 // 6-hex-char sha256 suffix when truncation happens so distinct over-long
 // slugs stay distinct (plain truncation would silently collide two repos

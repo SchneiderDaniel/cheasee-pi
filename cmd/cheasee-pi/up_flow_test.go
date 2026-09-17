@@ -109,6 +109,18 @@ func TestRunUpE_dryRunOnInitialized(t *testing.T) {
 	if strings.Contains(stderr, "CodeFlow") {
 		t.Errorf("dry-run must not print any CodeFlow text, got: %q", stderr)
 	}
+	// Dry-run also returns before the launch block: no first-build gate, no
+	// notice, no cheatsheet (a dry-run on a fresh machine must not kick off
+	// a 10-minute image build nor its probe).
+	if c.imageGates != 0 {
+		t.Errorf("dry-run must not run the image-presence gate, got %d", c.imageGates)
+	}
+	if strings.Contains(stderr, "First start downloads") {
+		t.Errorf("dry-run must not print the first-build notice, got: %q", stderr)
+	}
+	if strings.Contains(stderr, "inside pi:") {
+		t.Errorf("dry-run must not print the launch cheatsheet, got: %q", stderr)
+	}
 }
 
 func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
@@ -168,6 +180,10 @@ func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
 	}
 	if exec.name != "" || exec.target != "" {
 		t.Errorf("auto-init must not exec pi, got name=%q target=%q", exec.name, exec.target)
+	}
+	// Auto-init stops before the launch block: no cheatsheet.
+	if strings.Contains(stderr, "inside pi:") {
+		t.Errorf("auto-init stop must not print the launch cheatsheet, got: %q", stderr)
 	}
 }
 
@@ -724,5 +740,120 @@ func TestRunUpE_selinuxRelabelToggle(t *testing.T) {
 	upEnv2 := c2.composeCmds[1].env
 	if !slices.Contains(upEnv2, "VOLUME_RELABEL=:Z") {
 		t.Errorf("toggle=1 must set VOLUME_RELABEL=:Z, got %v", upEnv2)
+	}
+}
+
+// ──────────────────────────────────────────────
+// First-build notice + launch cheatsheet (runUpE use cases)
+// ──────────────────────────────────────────────
+
+// assertOrderedStderr asserts stderr contains every want substring with
+// strictly increasing indexes (each later line renders after the previous).
+func assertOrderedStderr(t *testing.T, stderr string, wants ...string) {
+	t.Helper()
+	last := -1
+	for _, want := range wants {
+		i := strings.Index(stderr, want)
+		if i < 0 {
+			t.Errorf("stderr must contain %q, got: %q", want, stderr)
+			continue
+		}
+		if i < last {
+			t.Errorf("stderr order violated: %q renders before a previous required line, got: %q", want, stderr)
+		}
+		last = i
+	}
+}
+
+func TestRunUpE_firstStartUserJourney(t *testing.T) {
+	// Persona: new user, first `cheasee-pi start` on an initialized
+	// workspace. Image missing (stub default) → every user-visible feedback
+	// step in order: first-build notice → build label → starting → started →
+	// CodeFlow URL → cheatsheet; exactly one exec at /workspaces/main.
+	_, root := mkWorkspace(t, `{}`)
+	setUpRunMode(t, root, false)
+	exec := stubExecPIContainer(t)
+
+	c := stubUpFlow(t, root, false)
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+
+	assertOrderedStderr(t, stderr,
+		"First start downloads",
+		"Building container image...",
+		"Starting container...",
+		"✓ Container started",
+		"CodeFlow",
+		"inside pi:",
+	)
+	if exec.name != containerName(root) || exec.target != "/workspaces/main" {
+		t.Errorf("expected exactly one exec at -w /workspaces/main, got name=%q target=%q", exec.name, exec.target)
+	}
+	if n := strings.Count(stderr, "First start downloads"); n != 1 {
+		t.Errorf("notice must appear exactly once, got %d in: %q", n, stderr)
+	}
+	if n := strings.Count(stderr, "inside pi:"); n != 1 {
+		t.Errorf("cheatsheet must appear exactly once, got %d in: %q", n, stderr)
+	}
+	if len(c.composeArgs) != 2 {
+		t.Errorf("first start must build + up, got %d compose calls", len(c.composeArgs))
+	}
+}
+
+func TestRunUpE_cheatsheetCarriesAllHints(t *testing.T) {
+	// The one cheatsheet line carries all four session-management hints.
+	_, root := mkWorkspace(t, `{}`)
+	setUpRunMode(t, root, false)
+	stubExecPIContainer(t)
+	stubUpFlow(t, root, false)
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+	for _, hint := range []string{"/help", "Ctrl+D", "cheasee-pi down", "cheasee-pi clean"} {
+		if !strings.Contains(stderr, hint) {
+			t.Errorf("cheatsheet must carry hint %q, got: %q", hint, stderr)
+		}
+	}
+	if n := strings.Count(stderr, "inside pi:"); n != 1 {
+		t.Errorf("exactly one cheatsheet line expected, got %d in: %q", n, stderr)
+	}
+}
+
+func TestRunUpE_returningUserCheatsheetNoNoticeNoCompose(t *testing.T) {
+	// Persona: returning user, container already running — CodeFlow URL +
+	// cheatsheet on every launch, no first-build notice, no compose, no
+	// image gate.
+	_, root := mkWorkspace(t, `{}`)
+	setUpRunMode(t, root, false)
+	exec := stubExecPIContainer(t)
+
+	c := stubUpFlow(t, root, true)
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+
+	assertOrderedStderr(t, stderr, "CodeFlow", "inside pi:")
+	if strings.Contains(stderr, "First start downloads") {
+		t.Errorf("returning user must not see the first-build notice, got: %q", stderr)
+	}
+	if n := strings.Count(stderr, "inside pi:"); n != 1 {
+		t.Errorf("cheatsheet must print exactly once on a running-container start, got %d in: %q", n, stderr)
+	}
+	if len(c.composeArgs) != 0 {
+		t.Errorf("running container must skip compose, got %d calls", len(c.composeArgs))
+	}
+	if c.imageGates != 0 {
+		t.Errorf("no build will run → no image gate, got %d", c.imageGates)
+	}
+	if exec.name != containerName(root) {
+		t.Errorf("exec must still run against the running container, got name=%q", exec.name)
 	}
 }
