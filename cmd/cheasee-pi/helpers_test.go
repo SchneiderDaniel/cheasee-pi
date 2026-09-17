@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -218,6 +219,21 @@ func stubLookPath(t *testing.T, fn func(string) (string, error)) {
 	saved := lookPath
 	lookPath = fn
 	t.Cleanup(func() { lookPath = saved })
+}
+
+// exitStatusError fabricates a real *exec.ExitError with the given exit code
+// by running a throwaway `sh -c "exit N"` child: a hand-constructed
+// os.ProcessState always reports exit 0 (its status field is unexported), so
+// a real child process is the only way to get a true exit status for the
+// adapter's exit-code translation tests. sh exists on every platform this
+// CLI targets (Linux/macOS — the docker daemon requirement).
+func exitStatusError(code int) error {
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code))
+	if err := cmd.Run(); err == nil {
+		panic("sh -c exit N must fail")
+	} else {
+		return err
+	}
 }
 
 // stubDockerCheck stubs the docker seams. daemonErr, when non-nil, makes

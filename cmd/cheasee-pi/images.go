@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -33,6 +35,22 @@ type cheaseePiImage struct {
 // a complete prefix match, it cannot distinguish CLI images from look-alikes.
 func isCheaseePiImageRef(ref string) bool {
 	return strings.HasPrefix(ref, imageNamePrefix)
+}
+
+// imageExists reports whether a tagged image reference exists on the host,
+// via `docker image inspect <ref>`: exit 0 → true, exit 1 (no such image —
+// the docker CLI's missing-image convention) → false, any other non-zero
+// exit → wrapped error. Fail-closed: a daemon failure is never treated as
+// "missing" (the Phase-2 docker check already ran, so the error is real).
+func imageExists(ctx context.Context, ref string) (bool, error) {
+	if _, err := runCommandContext(ctx, "docker", "image", "inspect", ref).Output(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("docker image inspect %s: %w", ref, err)
+	}
+	return true, nil
 }
 
 // listCheaseePiImages enumerates every tagged cheasee-pi image on the host.

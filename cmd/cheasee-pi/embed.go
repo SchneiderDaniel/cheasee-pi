@@ -18,9 +18,10 @@ import (
 // by //go:embed; the build fails if the pattern matches no files). The repo-root
 // docker/ tree is gone — the CLI extracts this subtree at runtime to a
 // version-keyed cache dir (see cache.go / up.go). The Cheasee-Pi resource tree
-// (.pi/) is NOT embedded: the Dockerfile clones the cheasee-pi repo at build
-// time (ARG CHEASEE_REF), keeping the repo the single source of truth with no
-// generated mirror to sync.
+// (.pi/) is NOT embedded: at build time the Dockerfile clones cheasee-pi's
+// own repository (github.com/SchneiderDaniel/cheasee-pi, ARG CHEASEE_REF),
+// keeping the repo the single source of truth with no generated mirror to
+// sync.
 //
 //go:embed embedded
 var embeddedFS embed.FS
@@ -50,7 +51,7 @@ func NewExtractor() *FSExtractor {
 //
 // The embedded/pi/ settings template is NOT extracted (consumed by the
 // scaffold adapter). The Cheasee-Pi resource tree is not embedded either —
-// the Dockerfile clones the cheasee-pi repo into the image at build time
+// the Dockerfile clones cheasee-pi's own repo into the image at build time
 // (ARG CHEASEE_REF), so no resource copy has to be kept in sync. Re-extract
 // overwrites cleanly — cache state is regenerable, version-keyed.
 func (e *FSExtractor) Extract(ctx context.Context, destDir string) error {

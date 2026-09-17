@@ -135,9 +135,12 @@ On an initialized workspace it:
 
 1. Extracts the compose stack (Dockerfile, entrypoint, codeflow service) to
    the CLI cache dir (`~/.cache/cheasee-pi/<version>/`); the image build
-   clones the cheasee-pi repo (Dockerfile `ARG CHEASEE_REF`, default `main`)
-   into `/opt/cheasee-pi` and symlinks its resources into `~/.pi/agent/`
-2. Starts the container (builds image ~2 min first time) with the workspace
+   clones cheasee-pi's own repository (github.com/SchneiderDaniel/cheasee-pi,
+   Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and
+   symlinks its resources into `~/.pi/agent/` — not your repo
+2. Starts the container (first build downloads ~1GB of build-time
+   dependencies; can take several minutes on slower connections) with the
+   workspace
    mounted at `/workspaces/main` and its sibling bare repo at
    `/workspaces/.bare` (the entrypoint rewrites worktree paths and locks them)
 3. Injects keys from `~/.config/cheasee-pi/auth.json` and opens pi TUI
