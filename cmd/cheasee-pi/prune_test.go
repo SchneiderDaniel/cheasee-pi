@@ -71,13 +71,17 @@ func resetPruneState(t *testing.T) {
 // returns the CLI's os.Stderr progress plus cobra's stdout/error streams, and
 // the execution error. A fresh root per call keeps the global pruneImagesCmd
 // re-parented safely (RunCobra on rootCmd would resolve its output through
-// the stale parent after a journey run).
+// the stale parent after a journey run). The fresh root defines the
+// maintenance group because pruneImagesCmd carries GroupID groupIDMaintenance
+// and cobra's ExecuteC validates that the parent defines every child group
+// (undefined ID → panic).
 func captureRunCobra(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out, errOut strings.Builder
 	var runErr error
 	stderr := testutil.CaptureStderr(t, func() {
 		cmd := &cobra.Command{Use: "cheasee-pi"}
+		cmd.AddGroup(&cobra.Group{ID: groupIDMaintenance, Title: "Maintenance"})
 		cmd.AddCommand(pruneImagesCmd)
 		cmd.SetArgs(args)
 		cmd.SetOut(&out)

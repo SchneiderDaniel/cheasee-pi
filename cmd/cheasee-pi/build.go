@@ -16,8 +16,9 @@ var (
 )
 
 var buildCmd = &cobra.Command{
-	Use:   "build",
-	Short: "Rebuild the Docker container image (cached)",
+	Use:     "build",
+	GroupID: groupIDMaintenance,
+	Short:   "Rebuild the Docker container image (cached)",
 	Long: `Rebuild the Cheasee-Pi Docker image without starting the container.
 
 Reads docker.memory from cheasee-settings.json and passes it as

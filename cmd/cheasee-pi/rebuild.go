@@ -12,8 +12,9 @@ import (
 // this rebuild just orphaned is reclaimed immediately. Containers are never
 // touched — that stays `clean`'s job.
 var rebuildCmd = &cobra.Command{
-	Use:   "rebuild",
-	Short: "Full rebuild of the Docker container image without cache plus prune",
+	Use:     "rebuild",
+	GroupID: groupIDMaintenance,
+	Short:   "Full rebuild of the Docker container image without cache plus prune",
 	Long: `Fully rebuild the Cheasee-Pi Docker image from scratch, then prune.
 
 The compose/Dockerfile come from the CLI-managed cache dir (version-keyed,

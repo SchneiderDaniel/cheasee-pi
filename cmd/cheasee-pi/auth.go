@@ -19,8 +19,9 @@ var (
 )
 
 var authCmd = &cobra.Command{
-	Use:   "auth",
-	Short: "Manage provider API keys",
+	Use:     "auth",
+	GroupID: groupIDDailyUse,
+	Short:   "Manage provider API keys",
 	Long: `Manage API keys for pi providers.
 
 Add, remove, or list configured provider API keys. Keys are stored in
