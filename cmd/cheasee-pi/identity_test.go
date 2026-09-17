@@ -465,6 +465,22 @@ func TestCodeflowBoundPort_ipv6BindParsed(t *testing.T) {
 	}
 }
 
+func TestCodeflowBoundPort_loopbackBindParsed(t *testing.T) {
+	// The pinned compose mapping publishes "127.0.0.1:<port>" — the exact
+	// shape `docker port` reports after the loopback pin; the last-colon
+	// parse must return the port.
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("127.0.0.1:8938\n"), nil }}
+	})
+	got, err := codeflowBoundPort(context.Background(), filepath.Join(t.TempDir(), "ws"))
+	if err != nil {
+		t.Fatalf("codeflowBoundPort: %v", err)
+	}
+	if got != "8938" {
+		t.Errorf("loopback bind must parse the host port, got %q", got)
+	}
+}
+
 func TestCodeflowBoundPort_errorsFallThrough(t *testing.T) {
 	for _, out := range []struct {
 		name    string

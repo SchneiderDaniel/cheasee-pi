@@ -116,6 +116,34 @@ func TestApplyComposeEnv_settingsCodeflowPortWins(t *testing.T) {
 	}
 }
 
+func TestApplyComposeEnv_hostIPPassThrough(t *testing.T) {
+	// Env unset → compose env carries no CODEFLOW_HOST_IP key: the `:-`
+	// default (127.0.0.1) is owned by the manifest, not the CLI, so the
+	// manifest-alone path keeps working for direct compose usage.
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
+	for _, e := range cmd.env {
+		if strings.HasPrefix(e, "CODEFLOW_HOST_IP=") {
+			t.Errorf("CODEFLOW_HOST_IP must be absent when unset (manifest owns the default), got %q", e)
+		}
+	}
+
+	// Env set → exactly one passthrough entry (os.Environ pass-through, not
+	// stripped, not duplicated — mirrors the assertOneCodeflowPort style).
+	t.Setenv("CODEFLOW_HOST_IP", "0.0.0.0")
+	cmd = &mockCmd{}
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
+	var hits []string
+	for _, e := range cmd.env {
+		if strings.HasPrefix(e, "CODEFLOW_HOST_IP=") {
+			hits = append(hits, e)
+		}
+	}
+	if len(hits) != 1 || hits[0] != "CODEFLOW_HOST_IP=0.0.0.0" {
+		t.Errorf("exactly one CODEFLOW_HOST_IP=0.0.0.0 passthrough expected, got %v", hits)
+	}
+}
+
 func TestApplyComposeEnv_inheritedProjectNameReplaced(t *testing.T) {
 	t.Setenv("COMPOSE_PROJECT_NAME", "user-project")
 	workdir := t.TempDir()

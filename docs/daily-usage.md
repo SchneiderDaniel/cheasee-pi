@@ -133,6 +133,16 @@ To pin a port explicitly, set `docker.codeflowPort` in
 `cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
 derivation, the settings file wins over the env).
 
+The sidecar's host-side port is pinned to **loopback only** by default: the
+compose mapping binds `127.0.0.1:<port>` on the host, so the printed
+`http://localhost:<port>/...` URL matches the actual reachability and the
+workspace source the sidecar serves is not routable off-host. Remote access
+is an explicit opt-in: start with `CODEFLOW_HOST_IP=0.0.0.0` (e.g.
+`CODEFLOW_HOST_IP=0.0.0.0 cheasee-pi start`) — that exposes the
+unauthenticated sidecar to your whole network, so prefer an authenticated
+tunnel (Tailscale Serve, `cloudflared tunnel --url
+http://localhost:<port>`) when sharing with specific peers.
+
 ### Configuration
 
 Settings live in `codeflow/config.json` inside the CLI cache dir (bind-mounted
@@ -141,13 +151,14 @@ read-only, editable without rebuilding the image):
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `port` | `8470` | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
-| `host` | `0.0.0.0` | Bind address; `127.0.0.1` restricts access to localhost |
+| `host` | `0.0.0.0` | **Container-side** bind address — must stay `0.0.0.0` (docker-proxy/DNAT delivers published traffic to it); host-side reachability is the compose mapping's `CODEFLOW_HOST_IP` job, below |
 | `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
 
 Configuration changes take effect on the next container start (no rebuild
 required). The compose port mapping uses `CODEFLOW_PORT` for the host side
 (derived per repo by the CLI; `docker.codeflowPort` / `CODEFLOW_PORT`
-override it).
+override it) and pins the host-side bind to loopback (`CODEFLOW_HOST_IP`,
+default `127.0.0.1`).
 
 ### Limitations
 
