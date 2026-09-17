@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -55,11 +56,17 @@ func TestAbout_contentContract(t *testing.T) {
 	}
 	checks := []struct{ want, msg string }{
 		{"one workspace per repo", "what cheasee-pi is"},
+		{"workflow", "one-sentence workflow line"},
+		{"cheasee-pi init", "workflow starts at init"},
+		{"auth add <provider>", "workflow includes provider authentication"},
+		{"cheasee-pi start", "workflow ends at start"},
 		{"cheasee-settings.json", "workspace marker"},
 		{"bare clone", "bare repo definition"},
 		{"worktree", "worktree definition"},
 		{"Docker image", "container/image definition"},
 		{"Docker is required", "why Docker is required"},
+		{"isolate", "Docker rationale: isolates the pi runtime"},
+		{"mount the repo", "Docker rationale: mounts the repo into the container"},
 		{"LLM vendor", "provider = LLM vendor"},
 		{"~/.config/cheasee-pi/auth.json", "provider key location"},
 		{"injected as env vars", "provider key injection"},
@@ -185,9 +192,10 @@ func TestAbout_discoverableInRootHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("root --help: %v", err)
 	}
-	// about must appear under "Available Commands" (runnable ⇒ listed).
-	if !strings.Contains(output, "Available Commands:") || !strings.Contains(output, "about") {
-		t.Errorf("root help must list 'about' under Available Commands\n--- output:\n%s", output)
+	// about must be listed in root help (runnable ⇒ grouped listing under
+	// "Getting started"; the grouped template has no "Available Commands:").
+	if !strings.Contains(output, "Getting started") || !strings.Contains(output, "\n  about ") {
+		t.Errorf("root help must list 'about' under its lifecycle group\n--- output:\n%s", output)
 	}
 }
 
@@ -276,20 +284,21 @@ func TestDailyUsageDoc_aboutGlossaryTrailer(t *testing.T) {
 			t.Errorf("docs corpus must define glossary term %q", term)
 		}
 	}
-	if aboutDocsURL != "https://schneiderdaniel.github.io/cheasee-pi/daily-usage" {
-		t.Errorf("aboutDocsURL = %q, want the published daily-usage URL", aboutDocsURL)
+	if docsDailyUsageURL != "https://schneiderdaniel.github.io/cheasee-pi/daily-usage" {
+		t.Errorf("docsDailyUsageURL = %q, want the published daily-usage URL", docsDailyUsageURL)
 	}
 }
 
 // TestAbout_singleSourceStatic mirrors TestCodeFlowHint_singleSourceStatic:
 // the glossary body must live only in about.go/about_test.go — no other
-// top-level command source may re-print the glossary lines.
+// top-level command source may re-print the glossary lines. (The published
+// URL is excluded: root.go owns it as docsDailyUsageURL and about reuses it.)
 func TestAbout_singleSourceStatic(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("list package dir: %v", err)
 	}
-	markers := []string{"one workspace per repo", aboutDocsURL}
+	markers := []string{"one workspace per repo", "cheasee-settings.json marks it"}
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, "about") {
@@ -306,6 +315,28 @@ func TestAbout_singleSourceStatic(t *testing.T) {
 		}
 	}
 }
+
+// TestAbout_writeErrorPropagates: a broken stdout writer must fail the
+// command with the wrapped write error — never a silent partial success.
+func TestAbout_writeErrorPropagates(t *testing.T) {
+	cmd := &cobra.Command{Use: "about"}
+	cmd.SetOut(failingWriter{})
+	cmd.SetErr(io.Discard)
+	err := runAboutE(cmd, nil)
+	if err == nil {
+		t.Fatal("runAboutE must return the writer error, not swallow it")
+	}
+	if !errors.Is(err, errBrokenWriter) {
+		t.Errorf("runAboutE must wrap the underlying write error (errors.Is), got: %v", err)
+	}
+}
+
+// errBrokenWriter + failingWriter simulate a closed pipe / broken stdout.
+type failingWriter struct{}
+
+var errBrokenWriter = errors.New("broken writer")
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errBrokenWriter }
 
 func containsStr(list []string, want string) bool {
 	for _, s := range list {

@@ -100,6 +100,7 @@ func TestRootCmd_GroupAssignment(t *testing.T) {
 	want := map[string]string{
 		"init":         groupIDGettingStarted,
 		"start":        groupIDGettingStarted,
+		"about":        groupIDGettingStarted,
 		"auth":         groupIDDailyUse,
 		"clean":        groupIDDailyUse,
 		"down":         groupIDDailyUse,
@@ -141,7 +142,7 @@ func TestRootCmd_HelpShowsGroupedLifecycle(t *testing.T) {
 
 	titles := []string{"Getting started", "Daily use", "Maintenance", "Help"}
 	commandsByGroup := map[string][]string{
-		"Getting started": {"init", "start"},
+		"Getting started": {"about", "init", "start"},
 		"Daily use":       {"auth", "clean", "down"},
 		"Maintenance":     {"build", "prune-images", "rebuild", "uninstall"},
 		"Help":            {"completion", "help"},
