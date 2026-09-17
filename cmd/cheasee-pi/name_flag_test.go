@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"github.com/spf13/cobra"
 )
 
 // start --name must not advertise a literal `cheasee-pi` default: the real
@@ -30,18 +31,26 @@ func TestStartNameFlag_helpHidesMisleadingDefault(t *testing.T) {
 }
 
 func TestStartNameFlag_zeroDefaultAndChangedSemantics(t *testing.T) {
+	// DefValue on the real registration is read-only; assert the mechanism —
+	// pflag suppresses the (default ...) suffix only for zero-value defaults.
 	if got := upCmd.Flags().Lookup("name").DefValue; got != "" {
 		t.Errorf(`--name DefValue = %q, want "" (pflag suppresses the suffix only for zero defaults)`, got)
 	}
-	if upCmd.Flags().Changed("name") {
+	// Changed-boundary semantics on a FRESH command: pflag marks Changed on any
+	// Set, including the empty string, so `--name ""` still skips derivation
+	// exactly as it does today. A fresh command keeps this hermetic — mutating
+	// the shared global upCmd would make the suite order- and
+	// repetition-dependent (go test -count=2).
+	fresh := &cobra.Command{Use: "start"}
+	var freshName string
+	fresh.Flags().StringVar(&freshName, "name", "", "Container name override")
+	if fresh.Flags().Changed("name") {
 		t.Error("--name must start unset")
 	}
-	// pflag marks Changed on any Set, including the empty string: `--name ""`
-	// still skips derivation exactly as it does today.
-	if err := upCmd.Flags().Set("name", ""); err != nil {
+	if err := fresh.Flags().Set("name", ""); err != nil {
 		t.Fatalf("set --name: %v", err)
 	}
-	if !upCmd.Flags().Changed("name") {
+	if !fresh.Flags().Changed("name") {
 		t.Error("explicitly setting --name (even empty) must mark it Changed")
 	}
 }
