@@ -92,72 +92,63 @@ export async function runAgentInProcess(
 	agentTokenBudget?: number,
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
+	deadlineMs?: number | null,
 ): Promise<AgentRunResult> {
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
-
-	// Resolve model before loading SDK (fail fast)
-	const modelStr = agent.config.model || "";
-	const resolvedModel = resolveModel(modelStr);
-	if (!resolvedModel) {
-		throw new Error(`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`);
-	}
-
 	const agentName = agent.config.name;
-	const rawTools = agent.config.tools || "read,bash,write,edit";
-	const tools = buildToolList(agent, effectiveCwd);
-	const thinkingLevel = agent.config.thinking?.trim() || undefined;
-
-	log.info("agent-runner", `runAgentInProcess: ${agentName}`, {
-		effectiveCwd,
-		model: modelStr,
-		timeoutMs,
-		tools: tools.join(","),
-		taskLen: task.length,
-	});
-
-	ctx.ui.notify(`Running agent: ${agentName}...`, "info");
-	ctx.ui.setStatus("supervisor", `Running ${agentName}...`);
-
 	const startedAt = Date.now();
-	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
 
-	const widgetId = `agent-${agentName}`;
+	// ── Absolute wall-clock bound, armed BEFORE all setup (audit #1) ──
+	// The dispatch deadline is absolute (or derived from the configured
+	// timeout at entry). Model resolution, tool resolution, UI setup, SDK
+	// load and session creation all run inside it, so no setup work can push
+	// the configured window out. The CONFIGURED timeout is carried separately
+	// from the remaining watchdog budget, so failure state reports the
+	// configured duration, never a decreasing slice (audit #3).
+	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
+	const remainingMs =
+		absoluteDeadlineMs === null ? null : Math.max(0, absoluteDeadlineMs - Date.now());
 
-	// Hoist cleanup variables
-	let flushTimer: NodeJS.Timeout | null = null;
+	// ── Single cancellation lifecycle (audit #1/#2) ──
+	// ONE ref'd timer (not AbortSignal.timeout — a ref'd handle keeps the event
+	// loop alive while the run hangs) + ONE deferred represent the deadline.
+	// The timer marks the run cancelled and aborts a live session; the setup +
+	// prompt body re-checks `timedOut` after EVERY await so a step resolving
+	// after the deadline can neither subscribe nor prompt, and anything it
+	// materialises late is disposed (late-disposal handlers at the setup sites).
 	let timedOut = false;
-	// Hold the unsubscribe fn in a ref object: TS control-flow collapses
-	// `let x = null` assigned only inside a closure (the body IIFE below) to
-	// `never` at outer guards, making the finally cleanup uncallable — an
-	// object property keeps its declared type wherever it is read.
-	const unsubRef: { current: (() => void) | null } = { current: null };
 	let session: any = null;
-	let exitError: Error | null = null;
-	let deadlineTimer: NodeJS.Timeout | null = null;
+	// Ref object: `bodyError` is assigned only inside the body's async catch,
+	// so a bare `let` would narrow to `never` at the outer reads (same TS
+	// control-flow collapse documented for unsubRef below).
+	const bodyErrorRef: { current: Error | null } = { current: null };
+	let flushTimer: NodeJS.Timeout | null = null;
+	// Ref object keeps the unsubscribe fn's declared type across closures
+	// (a bare `let x = null` assigned in a closure collapses to `never`).
+	const unsubRef: { current: (() => void) | null } = { current: null };
+	const disposedSessions = new WeakSet<object>();
 
-	// ── Single cancellation lifecycle, armed at ENTRY (audit finding #2) ──
-	// ONE ref'd deadline timer drives the timeout flag AND the session abort,
-	// and the WHOLE setup+prompt body (SDK load, session creation, subscribe,
-	// prompt) checks `timedOut` after every await. A setup step that resolves
-	// after the deadline therefore neither subscribes nor starts a prompt, and
-	// a session created after the deadline is disposed by the body itself —
-	// the outer `finally` may already have run with `session === null`.
-	// The timer is a plainly REF'D setTimeout: while the run hangs it is the
-	// handle keeping the event loop alive until the deadline fires (an unref'd
-	// AbortSignal.timeout would let a bare hang exit the process early).
-	const disposeSession = (): void => {
-		if (session && typeof session.dispose === "function") {
+	function disposeSessionValue(s: any): void {
+		if (!s || disposedSessions.has(s)) return;
+		disposedSessions.add(s);
+		if (typeof s.dispose === "function") {
 			try {
-				session.dispose();
+				s.dispose();
 			} catch (disposeErr: unknown) {
 				const msg = disposeErr instanceof Error ? disposeErr.message : String(disposeErr);
 				log.warn("agent-runner", `Session dispose error for ${agentName}: ${msg}`);
 			}
 		}
-	};
+	}
 
-	const abortNow = (): void => {
+	function disposeSession(): void {
+		const s = session;
+		session = null;
+		disposeSessionValue(s);
+	}
+
+	function abortNow(): void {
 		timedOut = true;
 		if (session) {
 			try {
@@ -167,17 +158,67 @@ export async function runAgentInProcess(
 				log.warn("agent-runner", `Session abort error for ${agentName}: ${msg}`);
 			}
 		}
-	};
+	}
 
-	const deadlinePromise: Promise<never> =
-		timeoutMs === null
-			? new Promise<never>(() => {})
-			: new Promise<never>((_resolve, reject) => {
-					deadlineTimer = setTimeout(() => {
-						abortNow();
-						reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
-					}, Math.max(0, timeoutMs));
+	let resolveDeadline: () => void = () => {};
+	const deadlineFired: Promise<void> | null =
+		remainingMs === null
+			? null
+			: new Promise<void>((r) => {
+					resolveDeadline = r;
 				});
+	const deadlineTimer: NodeJS.Timeout | null =
+		remainingMs === null
+			? null
+			: setTimeout(() => {
+					abortNow();
+					resolveDeadline();
+				}, remainingMs);
+
+	/**
+	 * Await one setup step, but stop waiting the moment the deadline fires: a
+	 * never-settling ensureSDK()/createAgentSession() cannot hold the body open.
+	 * The abandoned step keeps running, but this body returns so no
+	 * subscribe/prompt follows, and any session it later materialises is
+	 * terminated by the late-disposal handler attached at its creation site.
+	 */
+	async function awaitSetup<T>(p: Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+		if (!deadlineFired) return { ok: true, value: await p };
+		return Promise.race<{ ok: true; value: T } | { ok: false }>([
+			p.then((value) => ({ ok: true as const, value })),
+			deadlineFired.then(() => ({ ok: false as const })),
+		]);
+	}
+
+	try {
+		// Resolve model before loading SDK (fail fast). Inside the armed bound:
+		// a slow resolution cannot extend the configured window (audit #1).
+		const modelStr = agent.config.model || "";
+		const resolvedModel = resolveModel(modelStr);
+		if (!resolvedModel) {
+			throw new Error(
+				`Model "${agent.config.model}" could not be resolved for agent "${agentName}"`,
+			);
+		}
+
+		const tools = buildToolList(agent, effectiveCwd);
+		const thinkingLevel = agent.config.thinking?.trim() || undefined;
+
+		log.info("agent-runner", `runAgentInProcess: ${agentName}`, {
+			effectiveCwd,
+			model: modelStr,
+			timeoutMs,
+			remainingMs,
+			tools: tools.join(","),
+			taskLen: task.length,
+		});
+
+		ctx.ui.notify(`Running agent: ${agentName}...`, "info");
+		ctx.ui.setStatus("supervisor", `Running ${agentName}...`);
+
+		const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
+
+		const widgetId = `agent-${agentName}`;
 
 	const flushWidget = () => {
 		if (flushTimer) {
@@ -206,8 +247,9 @@ export async function runAgentInProcess(
 	// there is no await between the final check and `session.prompt()`, so the
 	// ref'd timer cannot interleave a window there.
 	const runBody = async (): Promise<void> => {
-		// Load SDK dynamically
-		await ensureSDK();
+		// Load SDK dynamically — raced against the deadline so a never-settling
+		// import cannot hold the body open (audit #2).
+		if (!(await awaitSetup(ensureSDK())).ok) return;
 		if (timedOut) return;
 
 		// Build session manager (file-backed for session persistence)
@@ -226,19 +268,36 @@ export async function runAgentInProcess(
 			);
 		}
 
-		session = await createAgentSession({
+		const sessionPromise: Promise<any> = createAgentSession({
 			model: resolvedModel,
 			tools,
 			sessionManager,
 			thinkingLevel: thinkingLevel || undefined,
 			cwd: effectiveCwd,
 		});
+		// A session that materialises AFTER the deadline must still be
+		// terminated: the body may already have returned on the deadline race,
+		// so no later disposeSession() would ever see it (audit #2).
+		sessionPromise
+			.then((late: any) => {
+				if (timedOut && session !== late) disposeSessionValue(late);
+				return late;
+			})
+			.catch((lateErr: unknown) => {
+				// Rejection is surfaced by the awaited setup below, or intentionally
+				// dropped once the deadline won; log so it is never silent.
+				const msg = lateErr instanceof Error ? lateErr.message : String(lateErr);
+				log.warn("agent-runner", `Session setup failed for ${agentName}: ${msg}`);
+			});
 
-		// Session materialized after the deadline → dispose it here (the outer
-		// finally already ran and saw session === null) and never prompt.
+		const created = await awaitSetup(sessionPromise);
+		if (!created.ok) return; // deadline fired during session creation
+		session = created.value;
+
+		// Session materialized after the deadline → dispose it here and never
+		// prompt; provider work must not start post-timeout.
 		if (timedOut) {
 			disposeSession();
-			session = null;
 			return;
 		}
 
@@ -286,7 +345,6 @@ export async function runAgentInProcess(
 				unsubRef.current = null;
 			}
 			disposeSession();
-			session = null;
 			return;
 		}
 
@@ -295,25 +353,15 @@ export async function runAgentInProcess(
 		await session.prompt(task);
 	};
 
-	try {
-		await Promise.race([runBody(), deadlinePromise]);
-	} catch (err: unknown) {
-		exitError = err instanceof Error ? err : new Error(String(err));
-	} finally {
-		// Cleanup: unsubscribe, dispose session, clear timers
-		if (deadlineTimer) {
-			clearTimeout(deadlineTimer);
-			deadlineTimer = null;
-		}
-		if (unsubRef.current) {
-			unsubRef.current();
-			unsubRef.current = null;
-		}
-		disposeSession();
-		if (flushTimer) {
-			clearTimeout(flushTimer);
-			flushTimer = null;
-		}
+	// The body's rejection is captured (never raced raw), so an abandoned
+	// setup cannot surface an unhandled rejection while the deadline wins.
+	const body = runBody().catch((err: unknown) => {
+		bodyErrorRef.current = err instanceof Error ? err : new Error(String(err));
+	});
+	if (deadlineFired) {
+		await Promise.race([body, deadlineFired]);
+	} else {
+		await body;
 	}
 
 	// ── Build result ────────────────────────────────────────
@@ -332,10 +380,10 @@ export async function runAgentInProcess(
 	const textOutput = state.fullLog.join("\n").trim();
 	const textOnly = state.textOutputLines.join("\n").trim();
 	const rawOutput = textOutput; // No separate raw IO for in-process
-	const success = !exitError && !timedOut && !state.budgetExceeded;
-	const killed = timedOut;
+	const bodyError = bodyErrorRef.current;
+	const success = !bodyError && !timedOut && !state.budgetExceeded;
 
-	if (killed) {
+	if (timedOut) {
 		pushLog(
 			state,
 			`[Timeout: ${agentName} timed out after ${formatDuration(durationMs)}]`,
@@ -363,13 +411,15 @@ export async function runAgentInProcess(
 
 	// If in-process failed with a NON-timeout error, propagate to caller for
 	// subprocess fallback. Timeout failures return success=false instead.
-	if (exitError && !timedOut) {
-		throw exitError;
+	if (bodyError && !timedOut) {
+		throw bodyError;
 	}
 
 	// Timeout failures are authored into errorOutput (not just textOutput)
 	// so buildAgentResultEntry / the pipeline summary table retain them.
-	let errorOutput = exitError ? exitError.message : "";
+	// `timeoutMs` is the CONFIGURED timeout (never the remaining budget), so
+	// the note and structured state report the configured duration (audit #3).
+	let errorOutput = bodyError ? bodyError.message : "";
 	if (timedOut) {
 		const note = buildTimeoutNote({
 			agentName,
@@ -398,6 +448,21 @@ export async function runAgentInProcess(
 		timedOut: timedOut || undefined,
 		configuredTimeoutMs: timedOut ? (timeoutMs ?? undefined) : undefined,
 	};
+	} finally {
+		// Single teardown for every exit (success, timeout, or a synchronous
+		// setup throw): unsubscribe, dispose the session, and clear every timer
+		// so a configured-but-unfired deadline cannot keep the event loop alive.
+		if (deadlineTimer) clearTimeout(deadlineTimer);
+		if (unsubRef.current) {
+			unsubRef.current();
+			unsubRef.current = null;
+		}
+		disposeSession();
+		if (flushTimer) {
+			clearTimeout(flushTimer);
+			flushTimer = null;
+		}
+	}
 }
 
 

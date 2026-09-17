@@ -56,6 +56,8 @@ export type AgentRunner = (
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
 	killGraceSec?: number,
+	/** Absolute dispatch deadline (epoch ms); enforcement budget when set. */
+	deadlineMs?: number | null,
 ) => Promise<AgentRunResult>;
 
 /** Structured result returned by runAgent for rendering */

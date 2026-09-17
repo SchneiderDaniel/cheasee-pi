@@ -54,8 +54,10 @@ describe("armDeadlineWatchdog — escalation ladder", () => {
 			onForceResolve: () => {},
 		});
 
-		// SIGTERM ≈20ms, SIGKILL immediately after, force-resolve immediately after
-		await sleep(30);
+		// SIGTERM ≈20ms, SIGKILL immediately after, force-resolve immediately after.
+		// Margin is generous (80ms) so a loaded parallel runner cannot make the
+		// zero-grace escalation miss the assertion window.
+		await sleep(80);
 		const calls = signalsFired(target);
 		assert.deepEqual(calls, ["SIGTERM", "SIGKILL"], "grace 0 skips the wait between signals");
 	});

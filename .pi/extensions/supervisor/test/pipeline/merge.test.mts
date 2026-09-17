@@ -668,6 +668,57 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		assert.equal(devCalls[0]!.arguments[9], 3, "killGraceSec passed as 10th positional");
 	});
 
+	it("timed-out developer dispatch surfaces timeout metadata + errorOutput (audit finding #4)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const sendMessage = mock.fn();
+		(pi as any).sendMessage = sendMessage;
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner({
+			success: false,
+			timedOut: true,
+			killReason: "timeout",
+			configuredTimeoutMs: 60_000,
+			durationMs: 60_010,
+			summaryLine: "Merge conflict resolution timed out",
+			errorOutput: "[Timeout: developer exceeded 60s (actual 60010ms)]",
+		});
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		const outcome = await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devMsg: any = sendMessage.mock.calls
+			.map((c) => c.arguments[0])
+			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+		assert.ok(devMsg, "conflict-resolution message posted");
+		assert.match(devMsg.content, /TIMEOUT/, "status names the timeout, not a bare FAILED");
+		assert.match(
+			devMsg.content,
+			/\[Timeout: developer exceeded 60s/,
+			"structured timeout note included in the message",
+		);
+		assert.equal(devMsg.details.timedOut, true);
+		assert.equal(devMsg.details.configuredTimeoutMs, 60_000);
+		assert.equal(devMsg.details.details.statusLabel, "TIMEOUT");
+		assert.equal(devMsg.details.details.configuredTimeoutMs, 60_000);
+		assert.equal(devMsg.details.details.durationMs, 60_010);
+		assert.match(devMsg.details.details.errorOutput, /\[Timeout: developer exceeded 60s/);
+		assert.equal(outcome, true, "timed-out conflict resolution leaves conflicts unresolved");
+	});
+
 	it("task includes merge conflict resolution instructions", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);

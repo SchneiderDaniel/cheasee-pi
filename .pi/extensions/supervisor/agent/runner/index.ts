@@ -52,34 +52,31 @@ export async function runAgent(
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
 	killGraceSec?: number,
+	deadlineMs?: number | null,
 ): Promise<AgentRunResult> {
 	const startedAt = Date.now();
-	// Hard 1× bound: both the in-process attempt and the subprocess
-	// fallback share ONE absolute deadline. The in-process attempt gets the
-	// REMAINING window (its watchdog arms at entry, so setup is covered);
-	// the fallback arms its watchdog against the REMAINDER, so an
-	// expensive-but-throwing in-process run cannot restart the clock.
-	const deadlineMs = timeoutMs === null ? null : startedAt + timeoutMs;
-	const remaining = (): number | null =>
-		deadlineMs === null ? null : Math.max(0, deadlineMs - Date.now());
+	// Hard 1× bound: both the in-process attempt and the subprocess fallback
+	// share ONE absolute deadline. `timeoutMs` is the CONFIGURED timeout (kept
+	// for reporting); the deadline is the enforcement budget, so the fallback
+	// can never restart the clock (that was the 2× stall).
+	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
 
 	try {
-		// Pass the REMAINING budget from the absolute dispatch deadline, not
-		// the original full timeoutMs (audit finding #2): the in-process
-		// runner arms its watchdog at entry, so model resolution / SDK loading
-		// / session creation count against the same bound as the prompt, and a
-		// deadline that expired before entry (remaining=0) fails immediately
-		// instead of starting a fresh timer.
+		// The in-process runner derives its watchdog from this ABSOLUTE deadline
+		// and arms it before setup, so model resolution / tool resolution / SDK
+		// load / session creation all count against the configured window, and a
+		// deadline already expired before entry fails immediately.
 		const result = await runAgentInProcess(
 			agent,
 			task,
 			ctx,
-			remaining(),
+			timeoutMs,
 			cwd,
 			maxToolCalls,
 			agentTokenBudget,
 			sessionPath,
 			pi,
+			absoluteDeadlineMs,
 		);
 		// Timeout is terminal: the wall-clock bound already fired in-process.
 		// Returning the timeout result WITHOUT falling back keeps the bound at 1×.
@@ -91,37 +88,38 @@ export async function runAgent(
 			console.warn(
 				"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
 			);
-			if (remaining() === 0) return result; // deadline fired — suppress fallback
 			return runAgentSubprocess(
 				agent,
 				task,
 				ctx,
-				remaining(),
+				timeoutMs,
 				cwd,
 				maxToolCalls,
 				agentTokenBudget,
 				sessionPath,
 				pi,
 				killGraceSec,
+				absoluteDeadlineMs,
 			);
 		}
 		return result;
 	} catch (err: unknown) {
 		console.warn("[supervisor] In-process runner threw, falling back to subprocess");
-		// remaining() can legitimately be 0 here (throw at/after the deadline):
-		// the subprocess watchdog with 0 fires immediately → clean timeout
-		// failure shape, still a single dispatch.
+		// The deadline can legitimately be exhausted here (throw at/after the
+		// bound): runAgentSubprocess returns the structured timeout failure
+		// instead of arming a fresh window — still a single dispatch.
 		return runAgentSubprocess(
 			agent,
 			task,
 			ctx,
-			remaining(),
+			timeoutMs,
 			cwd,
 			maxToolCalls,
 			agentTokenBudget,
 			sessionPath,
 			pi,
 			killGraceSec,
+			absoluteDeadlineMs,
 		);
 	}
 }
@@ -139,6 +137,7 @@ export async function runAgentSubprocess(
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
 	killGraceSec?: number,
+	deadlineMs?: number | null,
 ): Promise<AgentRunResult> {
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
@@ -149,8 +148,10 @@ export async function runAgentSubprocess(
 	const startedAt = Date.now();
 	// Absolute dispatch deadline: preparation (arg assembly / task-spill /
 	// mkdtemp) also counts against the configured window, so the watchdog
-	// arms with the REMAINDER, not the full timeout (audit finding #3).
-	const deadlineMs = timeoutMs === null ? null : startedAt + timeoutMs;
+	// arms with the REMAINDER, not the full timeout. A caller-supplied deadline
+	// preserves the ORIGINAL window when this runs as the in-process fallback;
+	// `timeoutMs` stays the configured value for failure reporting (audit #3).
+	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
 
 	const prepared = prepareSubprocessRun({
 		agent,
@@ -170,10 +171,11 @@ export async function runAgentSubprocess(
 	// merge-conflict path calls this directly with a resolved per-agent
 	// timeout). Return a structured timeout failure instead of arming a fresh
 	// full window — otherwise the effective bound is preparation + T.
-	if (timeoutMs !== null && deadlineMs !== null && deadlineMs - Date.now() <= 0) {
+	if (timeoutMs !== null && absoluteDeadlineMs !== null && absoluteDeadlineMs - Date.now() <= 0) {
 		return exhaustedBeforeSpawn({ ctx, widgetId, state, agentName, startedAt, timeoutMs });
 	}
-	const remainingMs = deadlineMs === null ? null : Math.max(0, deadlineMs - Date.now());
+	const remainingMs =
+		absoluteDeadlineMs === null ? null : Math.max(0, absoluteDeadlineMs - Date.now());
 
 	return runSpawnedProcess({
 		args,

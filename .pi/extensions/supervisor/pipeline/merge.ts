@@ -188,22 +188,49 @@ async function resolveBranchConflicts(
 			);
 
 		const devSuccess = devResult.success;
+		// Timeout metadata is user-visible on this path too (audit #4): name the
+		// agent, the configured duration and the actual duration, and carry the
+		// runner's errorOutput (which already holds the structured [Timeout: …]
+		// note) so a timed-out dispatch is never reported as a bare FAILED.
+		const devStatusLabel = devSuccess
+			? "SUCCESS"
+			: devResult.timedOut
+				? "TIMEOUT"
+				: "FAILED";
+		const devDetailText = [devResult.summaryLine || "", devResult.errorOutput || ""]
+			.filter((line) => line.trim().length > 0)
+			.join("\n\n");
 
-		log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`);
+		log.info("pipeline-merge", `Developer conflict resolution: success=${devSuccess}`, {
+			timedOut: devResult.timedOut,
+			configuredTimeoutMs: devResult.configuredTimeoutMs,
+			durationMs: devResult.durationMs,
+		});
 
 		pi.sendMessage({
 			customType: "supervisor",
-			content: `## Conflict Resolution: developer — ${devSuccess ? "SUCCESS" : "FAILED"}\n\n${devResult.summaryLine || ""}`,
+			content: `## Conflict Resolution: developer — ${devStatusLabel}\n\n${devDetailText}`,
 			display: true,
 			details: {
 				eventType: "subagent-result",
 				agentName: "developer",
-				content: [{ type: "text", text: devResult.textOutput || "" }],
+				timedOut: devResult.timedOut,
+				configuredTimeoutMs: devResult.configuredTimeoutMs,
+				content: [
+					{
+						type: "text",
+						text: devResult.errorOutput || devResult.textOutput || "",
+					},
+				],
 				details: {
 					agentName: "developer",
 					success: devSuccess,
-					statusLabel: devSuccess ? "SUCCESS" : "FAILED",
+					statusLabel: devStatusLabel,
 					summaryLine: devResult.summaryLine || "",
+					errorOutput: devResult.errorOutput || undefined,
+					timedOut: devResult.timedOut,
+					configuredTimeoutMs: devResult.configuredTimeoutMs,
+					durationMs: devResult.durationMs,
 				},
 			},
 		});

@@ -40,9 +40,20 @@ interface MockSessionConfig {
 	 * against the wall-clock bound (audit finding #2).
 	 */
 	setupDelayMs?: number;
+	/**
+	 * createAgentSession never settles — models a provider/SDK setup hang that
+	 * must be bounded by the deadline, leaving no background session work.
+	 */
+	setupNeverSettles?: boolean;
 }
 
 let currentSessionConfig: MockSessionConfig = {};
+/**
+ * Synchronous busy-wait (ms) inside the mocked getModel — models slow model
+ * resolution, i.e. setup that runs BEFORE any await and must still count
+ * against the wall-clock deadline (audit finding #1).
+ */
+let slowSyncSetupMs = 0;
 
 function createMockSession() {
 	const subscribers: Array<(event: Record<string, unknown>) => void> = [];
@@ -125,9 +136,34 @@ const hasMockModule = typeof mock.module === "function";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 if (hasMockModule) {
+	// Mock the model resolver so a test can inject a SYNCHRONOUS setup delay.
+	// Only agent-session-runner.ts imports this module (getModel), so the mock
+	// cannot leak into another dependency.
+	mock.module("@earendil-works/pi-ai", {
+		namedExports: {
+			getModel: (provider: string, id: string) => {
+				if (slowSyncSetupMs > 0) {
+					const end = Date.now() + slowSyncSetupMs;
+					while (Date.now() < end) {
+						/* synchronous busy-wait: models slow setup before any await */
+					}
+				}
+				if (provider !== "anthropic") {
+					throw new Error(`unknown provider ${provider}`);
+				}
+				return { id, provider, api: "anthropic-messages" };
+			},
+		},
+	});
+
 	mock.module("@earendil-works/pi-coding-agent", {
 		namedExports: {
 			createAgentSession: async (opts: any) => {
+				// A setup that never settles models a provider/SDK hang: the
+				// dispatch must still return at the deadline with no prompt started.
+				if (currentSessionConfig.setupNeverSettles) {
+					await new Promise<never>(() => {});
+				}
 				// Setup delay models SDK session creation time — must count
 				// against the wall-clock deadline armed at runner entry.
 				if (currentSessionConfig.setupDelayMs) {
@@ -180,6 +216,7 @@ const mockPi: any = {
 
 function resetMocks(): void {
 	currentSessionConfig = {};
+	slowSyncSetupMs = 0;
 	(mockCtx.ui.setWidget as any).mock.resetCalls?.();
 	(mockCtx.ui.setWorkingMessage as any).mock.resetCalls?.();
 	(mockPi.sendMessage as any).mock.resetCalls?.();
@@ -336,6 +373,54 @@ describe("runAgentInProcess — orchestration", () => {
 		await sleep(250);
 		assert.equal(cfg.promptCalls ?? 0, 0, "no prompt may start after the deadline fired");
 		assert.equal(cfg.disposeCalled, true, "session created after the deadline was disposed");
+	});
+
+	it("deadline armed BEFORE sync setup: slow model resolution cannot extend the bound (audit #1)", async () => {
+		resetMocks();
+		currentSessionConfig = {
+			hangUntilAbort: true,
+			abortError: new Error("This operation was aborted"),
+		};
+		// 200ms of SYNCHRONOUS setup (a getModel busy-wait) with a 100ms bound.
+		// The deadline is computed at ENTRY, so the total stays ≈200ms — it must
+		// never become setup + timeout (≈300ms).
+		slowSyncSetupMs = 200;
+		try {
+			const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+			const startedAt = Date.now();
+			const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 100);
+			const elapsed = Date.now() - startedAt;
+
+			assert.equal(result.timedOut, true, "sync setup past the deadline still times out");
+			assert.equal(result.configuredTimeoutMs, 100, "configured duration reported");
+			assert.ok(elapsed >= 200, `sync setup actually ran, got ${elapsed}ms`);
+			assert.ok(
+				elapsed < 200 + 100 - 15,
+				`bound NOT extended by sync setup: expected ≈200ms, got ${elapsed}ms`,
+			);
+		} finally {
+			slowSyncSetupMs = 0;
+		}
+	});
+
+	it("never-settling session setup is bounded; no prompt starts, no background session (audit #2)", async () => {
+		resetMocks();
+		const cfg: MockSessionConfig = { setupNeverSettles: true };
+		currentSessionConfig = cfg;
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const startedAt = Date.now();
+		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 60);
+		const elapsed = Date.now() - startedAt;
+
+		assert.equal(result.timedOut, true, "never-settling setup bounded by the deadline");
+		assert.equal(result.success, false);
+		assert.equal(result.configuredTimeoutMs, 60);
+		assert.ok(elapsed < 60 + 300, `bounded ≈60ms, got ${elapsed}ms`);
+
+		// Give a late-resolving setup every chance to start provider work.
+		await sleep(40);
+		assert.equal(cfg.promptCalls ?? 0, 0, "no prompt started after the deadline");
 	});
 
 	it("deadline covers SETUP via dispatcher: runAgent passes the remaining dispatch deadline", async () => {
@@ -560,6 +645,43 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		assert.ok(
 			result.durationMs <= 25 + 500,
 			`hard 1× bound — total durationMs ≈ 25, got ${result.durationMs} (started ${Date.now() - startedAt})`,
+		);
+	});
+
+	it("reports the CONFIGURED timeout, not the remaining budget (audit finding #3)", async () => {
+		resetMocks();
+		currentSessionConfig = {
+			hangUntilAbort: true,
+			abortError: new Error("This operation was aborted"),
+		};
+
+		const { runAgent } = await import("../agent/runner.ts");
+		// Absolute deadline already past while the configured timeout is 300s:
+		// failure state must report 300_000ms, never the ~0 remaining budget.
+		const result = await runAgent(
+			mockAgent as any,
+			"test task",
+			mockCtx,
+			300_000,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			Date.now() - 1,
+		);
+
+		assert.equal(result.timedOut, true, "an expired absolute deadline still times out");
+		assert.equal(
+			result.configuredTimeoutMs,
+			300_000,
+			"configured duration reported, not the remaining enforcement budget",
+		);
+		assert.match(
+			result.errorOutput as string,
+			/exceeded 300s/,
+			"timeout note names the configured duration",
 		);
 	});
 

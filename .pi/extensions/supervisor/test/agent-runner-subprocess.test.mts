@@ -1662,5 +1662,37 @@ if (hasMockModule) {
 				"structured timeout note authored for the pre-spawn exhaustion",
 			);
 		});
+
+		it("enforcement uses the remaining budget but reports the CONFIGURED timeout (audit finding #3)", async (t) => {
+			// Direct-call path (merge conflict dispatch): configured 300s with an
+			// absolute deadline already spent → no fresh window is armed, and the
+			// failure state reports 300_000ms, never the ~0 remaining budget.
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const result = await runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				300_000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				Date.now() - 1,
+			);
+
+			assert.equal(lastSpawnOpts, null, "no spawn once the absolute deadline is spent");
+			assert.equal(killMock.mock.calls.length, 0, "no kill issued — nothing was spawned");
+			assert.equal(result.timedOut, true);
+			assert.equal(
+				result.configuredTimeoutMs,
+				300_000,
+				"configured duration reported, not the remaining enforcement budget",
+			);
+			assert.match(result.errorOutput as string, /exceeded 300s/);
+		});
 	});
 }
