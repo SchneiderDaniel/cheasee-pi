@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,6 +184,197 @@ func TestRunInit_GitHubFlowClonesWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workdir, "main", "docker")); !os.IsNotExist(err) {
 		t.Error("init must not extract docker/ into the worktree (CLI cache dir owns compose)")
+	}
+}
+
+func TestRunInit_OverviewAndPlainPrompts(t *testing.T) {
+	// User-journey: an interactive GitHub-flow run prints the workflow
+	// overview before the first prompt, then drives both prompts with
+	// plain-language titles/placeholders/hints.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls *[]promptCall
+	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
+		var input func(string, string) (string, error)
+		input, calls = captureInputFn(t, "owner/repo", "main")
+		d.InputFn = input
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("GitHub flow failed: %v", err)
+		}
+	})
+
+	// Overview content: empty-dir reassurance, workspace clone, aut"h/keys,
+	// start hand-off, escape hatch.
+	for _, want := range []string{"init runs only in an empty directory", "--no-github", "cheasee-pi start"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr should contain overview fragment %q, got:\n%s", want, stderr)
+		}
+	}
+	// Ordered narration: overview → repo hint → folder-name hint → completion.
+	idx := func(frag string) int { return strings.Index(stderr, frag) }
+	if idx("init runs only in an empty directory") < 0 || idx("init runs only in an empty directory") > idx("must already exist on GitHub") {
+		t.Error("overview must precede the repo-URL hint")
+	}
+	if idx("must already exist on GitHub") > idx("not a git branch") {
+		t.Error("repo-URL hint must precede the folder-name hint")
+	}
+	if idx("not a git branch") > idx("Init complete!") {
+		t.Error("folder-name hint must precede the completion message")
+	}
+
+	// New plain-language titles + placeholders reach the InputFn seam.
+	wantCalls := []promptCall{
+		{title: "GitHub repo pi should work on", placeholder: "owner/repo"},
+		{title: "Workspace folder name", placeholder: "main"},
+	}
+	if !slices.Equal(*calls, wantCalls) {
+		t.Errorf("InputFn calls = %+v, want %+v", *calls, wantCalls)
+	}
+
+	// Repo hint explains clone/mount without duplicating the old placeholder.
+	for _, want := range []string{".bare", "worktree", "must already exist on GitHub"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("repo hint should mention %q, got:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "https://github.com/owner/repo") {
+		t.Error("repo hint/placeholder must not carry the old full-URL placeholder")
+	}
+	// Folder-name hint corrects the git-branch fabrication.
+	for _, want := range []string{"workspace subfolder", "not a git branch"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("folder-name hint should mention %q, got:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestRunInit_NoInputSkipsOverview(t *testing.T) {
+	// --no-input GitHub flow (--repo-url set): no prompts → no overview
+	// narration (clig.dev no-prompts rule).
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubInitGit(t)
+
+	parent := t.TempDir()
+	workdir := filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = true
+		d.RepoURL = "owner/repo"
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("--no-input GitHub flow failed: %v", err)
+		}
+	})
+	if strings.Contains(stderr, "init runs only in an empty directory") {
+		t.Errorf("--no-input must not print the overview, got:\n%s", stderr)
+	}
+}
+
+func TestRunInit_NoGitHubSkipsOverview(t *testing.T) {
+	// Interactive --no-github legacy flow: API-key only, no clone to explain
+	// → no overview; the legacy mode notice still prints.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	workdir := t.TempDir()
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoGitHub = true
+		d.NoInput = false
+		d.APIKey = FakeAPIKey
+		d.ConfirmFn = mockConfirmFn(false, nil)
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("legacy interactive flow failed: %v", err)
+		}
+	})
+	if strings.Contains(stderr, "init runs only in an empty directory") {
+		t.Errorf("--no-github must not print the overview, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "API-key-only mode") {
+		t.Errorf("legacy flow must still announce API-key-only mode, got:\n%s", stderr)
+	}
+}
+
+func TestRunInit_ReauthSkipsOverview(t *testing.T) {
+	// Reauth short-circuits after the probe gate — it never reaches the
+	// overview (no clone/workspace copy to explain).
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"oauth":{"clientID":"app-123"}}`)
+
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.Reauth = true
+		d.NoInput = false
+		d.ConfirmFn = mockConfirmFn(true, nil, "Configure API keys")
+	})
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runInit(context.Background(), deps); err != nil {
+			t.Fatalf("reauth flow failed: %v", err)
+		}
+	})
+	if strings.Contains(stderr, "init runs only in an empty directory") {
+		t.Errorf("reauth must not print the overview, got:\n%s", stderr)
+	}
+}
+
+func TestRunInit_NonEmptyFolderSkipsOverview(t *testing.T) {
+	// The empty-folder probe refuses before the overview would print — a
+	// refusal never carries workflow narration.
+	testutil.RedirectConfigHome(t)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+
+	workdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workdir, "file.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	deps := initDeps(t, func(d *InitDeps) {
+		d.Workdir = workdir
+		d.NoInput = false
+	})
+	var err error
+	stderr := testutil.CaptureStderr(t, func() {
+		err = runInit(context.Background(), deps)
+	})
+	if err == nil || !strings.Contains(err.Error(), "empty folder") {
+		t.Fatalf("expected empty-folder refusal, got %v", err)
+	}
+	if strings.Contains(stderr, "init runs only in an empty directory") {
+		t.Errorf("refusal must not print the overview, got:\n%s", stderr)
+	}
+}
+
+func TestInitCmd_RepoURLFlagHelpPlainLanguage(t *testing.T) {
+	output, err := testutil.RunCobra(t, rootCmd, "init", "--help")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "GitHub repo pi should work on") {
+		t.Errorf("--repo-url help should use plain-language wording, got:\n%s", output)
 	}
 }
 

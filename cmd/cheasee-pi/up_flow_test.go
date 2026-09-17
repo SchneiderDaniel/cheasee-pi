@@ -153,6 +153,11 @@ func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
 	if !strings.Contains(stderr, "running `cheasee-pi init`") {
 		t.Errorf("empty folder must announce auto-init, got: %q", stderr)
 	}
+	// Auto-init shares runInit byte-identically — the workflow overview must
+	// appear here just as it does for `cheasee-pi init`.
+	if !strings.Contains(stderr, "init runs only in an empty directory") {
+		t.Errorf("auto-init must print the same workflow overview as init, got: %q", stderr)
+	}
 	if !strings.Contains(stderr, "Cloned (bare + worktree)") {
 		t.Errorf("user should see the clone notice during auto-init, got: %q", stderr)
 	}
