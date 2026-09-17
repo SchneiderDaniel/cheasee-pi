@@ -41,6 +41,9 @@ let currentMockOpts: {
 	exitSignal?: string | null;
 } = {};
 
+/** Last spawn options object — asserted for detached/no-timeout contracts. */
+let lastSpawnOpts: Record<string, unknown> | null = null;
+
 function createMockChild(): MockChild {
 	const stdout = new EventEmitter();
 	const stderr = new EventEmitter();
@@ -107,7 +110,10 @@ function emitMockEvents(): void {
 
 const hasMockModule = typeof mock.module === "function";
 
-const mockSpawn = () => createMockChild();
+const mockSpawn = (_cmd: string, _args: string[], opts: Record<string, unknown>) => {
+	lastSpawnOpts = opts;
+	return createMockChild();
+};
 
 // Build namedExports preserving all real exports + overridden spawn
 const namedExports: Record<string, unknown> = {};
@@ -151,6 +157,7 @@ const mockCtx: any = {
 /** Reset mock state before each test group */
 function resetMock(): void {
 	currentMockChild = null;
+	lastSpawnOpts = null;
 	currentMockOpts = {};
 	mockCtx.ui.setWidget = mock.fn();
 	mockCtx.ui.setWorkingMessage = mock.fn();
@@ -1383,6 +1390,160 @@ if (hasMockModule) {
 			assert.equal(typeof result.errorOutput, "string");
 			assert.equal(typeof result.output, "string");
 			assert.ok("budgetExceeded" in result);
+		});
+	});
+
+	// ── Per-agent wall-clock timeout (issue #1710) ──────────────────
+
+	describe("runAgentSubprocess — spawn options (detached group leader)", () => {
+		it("spawn opts include detached:true and NO timeout (watchdog owns kills)", async () => {
+			resetMock();
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			emitMockEvents();
+			await resultPromise;
+
+			assert.ok(lastSpawnOpts, "spawn options captured");
+			assert.equal(lastSpawnOpts!.detached, true, "process-group leader (kill(-pid) target)");
+			assert.equal("timeout" in lastSpawnOpts!, false, "spawn's own timeout removed");
+		});
+	});
+
+	describe("runAgentSubprocess — deadline watchdog + escalation", () => {
+		it("deadline fires → SIGTERM then SIGKILL group kill; timeout result shape", async (t) => {
+			resetMock();
+			// mock.method keeps the original process.kill by default (the real
+			// kill(-12345) would throw ESRCH); a no-op implementation isolates
+			// the capture AND keeps the mock child's group "alive" for SIGKILL.
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			// timeoutMs=40, killGraceSec=0.05 → SIGTERM≈40ms, SIGKILL≈90ms
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				40,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				0.05,
+			);
+
+			await new Promise((r) => setTimeout(r, 130));
+
+			const killCalls = killMock.mock.calls.map((c) => c.arguments);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGTERM"),
+				`killGroup(SIGTERM) issued to -pid: ${JSON.stringify(killCalls)}`,
+			);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGKILL"),
+				`killGroup(SIGKILL) escalated after grace: ${JSON.stringify(killCalls)}`,
+			);
+
+			// Child 'close' still arrives (mock) → resolver classifies the timeout
+			currentMockOpts = { exitCode: null, exitSignal: "SIGTERM" };
+			emitMockEvents();
+			const result = await resultPromise;
+
+			assert.equal(result.success, false, "timeout run is a failure");
+			assert.equal(result.timedOut, true);
+			assert.equal(result.killReason, "timeout");
+			assert.equal(result.configuredTimeoutMs, 40);
+			assert.ok(result.durationMs >= 40, `durationMs ≈ bound, got ${result.durationMs}`);
+			assert.match(
+				result.errorOutput as string,
+				/\[Timeout: test-agent exceeded 0s \(actual \d+ms\)\]/,
+				"structured timeout note retained in errorOutput (pipeline state)",
+			);
+		});
+
+		it("force-resolve bound: close never fires → resolves via doResolve(null, SIGTERM)", async (t) => {
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			// SIGTERM≈20ms, SIGKILL≈40ms, force-resolve≈60ms — close NEVER emitted.
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				20,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				0.02,
+			);
+
+			const result = await resultPromise;
+
+			assert.equal(result.success, false, "setsid'd escape still yields a bounded failure");
+			assert.equal(result.timedOut, true);
+			assert.equal(result.killReason, "timeout");
+			const killCalls = killMock.mock.calls.map((c) => c.arguments);
+			assert.equal(
+				killCalls.filter((a) => a[1] === "SIGKILL").length,
+				1,
+				"SIGKILL escalation happened before force-resolve",
+			);
+		});
+
+		it("timeoutMs=null → no watchdog, no kills; normal exit still succeeds", async (t) => {
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, null);
+
+			await new Promise((r) => setTimeout(r, 50));
+			assert.equal(killMock.mock.calls.length, 0, "no kill issued for null timeout");
+
+			currentMockOpts = { exitCode: 0, exitSignal: null };
+			emitMockEvents();
+			const result = await resultPromise;
+			assert.equal(result.success, true, "normal child exit still succeeds");
+			assert.equal(result.timedOut, undefined);
+		});
+
+		it("budget kill still classifies killReason=budget (regression)", async () => {
+			resetMock();
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				5000,
+				undefined,
+				1, // maxToolCalls=1 → budget exceeded
+			);
+
+			currentMockOpts = {
+				stdoutLines: [
+					JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
+					JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
+					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+				],
+				exitCode: 0,
+				exitSignal: "SIGTERM",
+			};
+			emitMockEvents();
+			const result = await resultPromise;
+			assert.equal(result.budgetExceeded, true);
+			assert.equal(result.killReason, "budget");
+			assert.equal(result.timedOut, undefined, "budget kill is not a timeout");
+		});
+
+		it("plain code-0 exit has no killReason", async () => {
+			resetMock();
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			currentMockOpts = { exitCode: 0, exitSignal: null };
+			emitMockEvents();
+			const result = await resultPromise;
+			assert.equal(result.success, true);
+			assert.equal(result.killReason, undefined);
 		});
 	});
 }

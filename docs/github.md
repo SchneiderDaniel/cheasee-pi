@@ -103,6 +103,8 @@ Configure the project in `.pi/settings.json`:
     "branchPrefix": "worktree-git-issue-",
     "maxRejections": 3,
     "agentTimeoutsMin": {},
+    "agentTimeoutSec": {},
+    "agentKillGraceSec": 10,
     "agentTokenBudget": 300000,
     "maxToolCalls": 0,
     "ciGatingTimeoutSec": 300,
@@ -127,7 +129,9 @@ Configure the project in `.pi/settings.json`:
 | `worktreeBase` | string | `"../"` | Parent dir for git worktrees |
 | `branchPrefix` | string | `"worktree-git-issue-"` | Prefix for worktree branch names |
 | `maxRejections` | number | `3` | Max audit rejection loops before human intervention |
-| `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes |
+| `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes (legacy alias, lower precedence than `agentTimeoutSec`) |
+| `agentTimeoutSec` | object | `{}` | Per-agent wall-clock timeout in seconds, `0` = no timeout: `{ "developer": 600 }` |
+| `agentKillGraceSec` | number | `10` | SIGTERM→SIGKILL grace for the subprocess kill ladder on timeout |
 | `agentTokenBudget` | number | `300000` | Soft token cap per agent session (0=unlimited) |
 | `maxToolCalls` | number | `0` | Hard tool call cap per agent (0=unlimited) |
 | `ciGatingTimeoutSec` | number | `300` | Max seconds to poll CI before auditor dispatch (0=disable) |

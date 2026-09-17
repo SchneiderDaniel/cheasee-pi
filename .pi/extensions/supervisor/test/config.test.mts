@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
-import { validateAgentTimeouts, loadSkillsRoots } from "../config/config.ts";
+import { validateAgentTimeouts, validateAgentTimeoutSec, resolveTimeoutPolicy, loadSkillsRoots, SupervisorConfigSchema, DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 
 // ─── validateAgentTimeouts ────────────────────────────────────────
 
@@ -184,6 +184,168 @@ describe("loadConfig — config shape", () => {
 			typeof 1.0 === "number" && !isNaN(1.0) && 1.0 >= 0 && 1.0 <= 1,
 			"1.0 should be valid",
 		);
+	});
+});
+
+// ─── validateAgentTimeoutSec (seconds, 0 = no timeout) ────────────
+
+describe("validateAgentTimeoutSec", () => {
+	it("returns empty object for undefined/null input", () => {
+		assert.deepEqual(validateAgentTimeoutSec(undefined, ["developer"]), {});
+		assert.deepEqual(validateAgentTimeoutSec(null, ["developer"]), {});
+	});
+
+	it("throws for non-object input", () => {
+		assert.throws(() => validateAgentTimeoutSec("string", []), /agentTimeoutSec must be an object/);
+		assert.throws(() => validateAgentTimeoutSec([], []), /agentTimeoutSec must be an object/);
+	});
+
+	it("accepts 0 (no timeout) — unlike the legacy minutes field", () => {
+		const result = validateAgentTimeoutSec({ developer: 0 }, ["developer"]);
+		assert.deepEqual(result, { developer: 0 });
+	});
+
+	it("rejects negative and non-integer values", () => {
+		assert.throws(
+			() => validateAgentTimeoutSec({ developer: -1 }, ["developer"]),
+			/non-negative integer/,
+		);
+		assert.throws(
+			() => validateAgentTimeoutSec({ developer: 1.5 }, ["developer"]),
+			/non-negative integer/,
+		);
+		assert.throws(
+			() => validateAgentTimeoutSec({ developer: "10" }, ["developer"]),
+			/non-negative integer/,
+		);
+	});
+
+	it("warns for unknown agents but does not throw (fail-open retained)", () => {
+		const result = validateAgentTimeoutSec({ typoAgent: 30 }, ["developer"]);
+		assert.deepEqual(result, {}, "typo'd key silently weakens the bound — recorded policy");
+	});
+
+	it("sanitizes known agents", () => {
+		assert.deepEqual(
+			validateAgentTimeoutSec({ developer: 60, auditor: 120 }, ["developer", "auditor"]),
+			{ developer: 60, auditor: 120 },
+		);
+	});
+});
+
+// ─── resolveTimeoutPolicy — precedence + 0-means-no-timeout ────────
+
+describe("resolveTimeoutPolicy", () => {
+	const agentTimeoutSec = (v: Record<string, number>) => ({ agentTimeoutSec: v });
+	const agentTimeoutsMin = (v: Record<string, number>) => ({ agentTimeoutsMin: v });
+
+	it("agentTimeoutSec[name]=60 → 60_000ms, source agentTimeoutSec", () => {
+		const policy = resolveTimeoutPolicy("developer", agentTimeoutSec({ developer: 60 }));
+		assert.deepEqual(policy, {
+			timeoutMs: 60_000,
+			configuredSec: 60,
+			source: "agentTimeoutSec",
+		});
+	});
+
+	it("agentTimeoutSec[name]=0 → null timeout (timers disarmed, NOT the default)", () => {
+		const policy = resolveTimeoutPolicy("developer", agentTimeoutSec({ developer: 0 }));
+		assert.deepEqual(policy, {
+			timeoutMs: null,
+			configuredSec: 0,
+			source: "agentTimeoutSec",
+		});
+	});
+
+	it("agentTimeoutSec absent, agentTimeoutsMin[name]=5 → 300_000ms (legacy alias)", () => {
+		const policy = resolveTimeoutPolicy("developer", agentTimeoutsMin({ developer: 5 }));
+		assert.equal(policy.timeoutMs, 300_000);
+		assert.equal(policy.source, "agentTimeoutsMin");
+	});
+
+	it("both fields present → agentTimeoutSec wins", () => {
+		const policy = resolveTimeoutPolicy("developer", {
+			agentTimeoutSec: { developer: 60 },
+			agentTimeoutsMin: { developer: 5 },
+		});
+		assert.equal(policy.timeoutMs, 60_000);
+		assert.equal(policy.source, "agentTimeoutSec");
+	});
+
+	it("neither field set / empty records → 30-min default", () => {
+		assert.equal(resolveTimeoutPolicy("developer", {}).timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+		assert.equal(
+			resolveTimeoutPolicy("developer", agentTimeoutSec({})).source,
+			"default",
+		);
+		assert.equal(
+			resolveTimeoutPolicy("developer", agentTimeoutsMin({})).source,
+			"default",
+		);
+	});
+
+	it("legacy 0 in agentTimeoutsMin is not expressible — still resolves to default", () => {
+		// agentTimeoutsMin[name]=0 would be rejected by validateAgentTimeouts;
+		// if it somehow reaches resolution, the truthiness guard keeps the default.
+		const policy = resolveTimeoutPolicy("developer", agentTimeoutsMin({ developer: 0 }));
+		assert.equal(policy.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+		assert.equal(policy.source, "default");
+	});
+});
+
+// ─── SupervisorConfigSchema — agentTimeoutSec / agentKillGraceSec ──
+
+describe("SupervisorConfigSchema — per-agent timeout fields", () => {
+	const base = {
+		repo: "owner/repo",
+		projectNumber: 1,
+		statusMapping: { todo: "developer" },
+		codeowners: ["user"],
+	};
+
+	it("accepts agentTimeoutSec as non-negative ints per agent", () => {
+		const result = SupervisorConfigSchema.parse({ ...base, agentTimeoutSec: { developer: 60 } });
+		assert.deepEqual(result.agentTimeoutSec, { developer: 60 });
+	});
+
+	it("accepts agentTimeoutSec 0 (no timeout)", () => {
+		const result = SupervisorConfigSchema.parse({ ...base, agentTimeoutSec: { developer: 0 } });
+		assert.deepEqual(result.agentTimeoutSec, { developer: 0 });
+	});
+
+	it("rejects negative, non-integer, and non-number agentTimeoutSec values", () => {
+		for (const bad of [{ developer: -1 }, { developer: 1.5 }, { developer: "60" }]) {
+			assert.throws(
+				() => SupervisorConfigSchema.parse({ ...base, agentTimeoutSec: bad }),
+				undefined as any,
+				`should reject ${JSON.stringify(bad)}`,
+			);
+		}
+	});
+
+	it("agentKillGraceSec is optional (bare schema — effective default in runner)", () => {
+		const result = SupervisorConfigSchema.parse(base);
+		assert.equal(result.agentKillGraceSec, undefined);
+	});
+
+	it("agentKillGraceSec accepts non-negative ints, incl. 0 (immediate SIGKILL)", () => {
+		assert.equal(SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 0 }).agentKillGraceSec, 0);
+		assert.equal(SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 10 }).agentKillGraceSec, 10);
+	});
+
+	it("agentKillGraceSec rejects negative and non-integer values", () => {
+		for (const bad of [-1, 1.5, "10"]) {
+			assert.throws(
+				() => SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: bad }),
+				undefined as any,
+				`should reject ${JSON.stringify(bad)}`,
+			);
+		}
+	});
+
+	it("legacy validateAgentTimeouts still rejects 0/negative (deprecated alias contract)", () => {
+		assert.throws(() => validateAgentTimeouts({ developer: 0 }, ["developer"]), /positive integer/);
+		assert.throws(() => validateAgentTimeouts({ developer: -1 }, ["developer"]), /positive integer/);
 	});
 });
 

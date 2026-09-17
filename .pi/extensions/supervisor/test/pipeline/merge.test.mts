@@ -544,6 +544,130 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		assert.equal(args[6], 50000, "agentTokenBudget should be passed through");
 	});
 
+	/** Dispatch developer conflict resolution with the given config; returns the runner args. */
+	async function dispatchWithConfig(config: unknown): Promise<{ arguments: any[] }> {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			config as any,
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
+		assert.equal(devCalls.length, 1, "developer dispatched for conflict resolution");
+		return { arguments: devCalls[0]!.arguments as any[] };
+	}
+
+	it("passes resolved per-agent timeout via shared resolver (agentTimeoutSec.developer)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig({ agentTimeoutSec: { developer: 60 } }),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
+		assert.equal(devCalls.length, 1, "developer dispatched for conflict resolution");
+		assert.equal(devCalls[0]!.arguments[3], 60_000, "agentTimeoutSec.developer=60 → 60_000ms");
+	});
+
+	it("agentTimeoutSec.developer=0 → runner called with null (no longer the 30-min default)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig({ agentTimeoutSec: { developer: 0 } }),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
+		assert.equal(devCalls.length, 1, "developer dispatched");
+		assert.equal(devCalls[0]!.arguments[3], null, "configured 0 → null (timers disarmed)");
+	});
+
+	it("legacy agentTimeoutsMin.developer=5 → 300_000ms; absent → 30-min default", async () => {
+		const minConfig = makeConfig({ agentTimeoutsMin: { developer: 5 } });
+		const evolved = makeConfig({});
+
+		const minDispatch = await dispatchWithConfig(minConfig);
+		const defaultDispatch = await dispatchWithConfig(evolved);
+
+		assert.equal(minDispatch.arguments[3], 300_000, "legacy minutes alias resolves to ms");
+		assert.equal(
+			defaultDispatch.arguments[3],
+			1_800_000,
+			"no per-agent config → DEFAULT_AGENT_TIMEOUT_MS",
+		);
+	});
+
+	it("agentKillGraceSec passed through to the runner (kill escalation grace)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner();
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig({ agentKillGraceSec: 3 }),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.config?.name === "developer");
+		assert.equal(devCalls.length, 1, "developer dispatched");
+		assert.equal(devCalls[0]!.arguments[9], 3, "killGraceSec passed as 10th positional");
+	});
+
 	it("task includes merge conflict resolution instructions", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);

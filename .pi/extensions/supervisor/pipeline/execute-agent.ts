@@ -21,13 +21,14 @@ export async function executeAgent(
 	task: string,
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
-	timeoutMs: number,
+	timeoutMs: number | null,
 	agentCwd: string | undefined,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 	issueTitle?: string,
 	// ponytail: test hook for injecting mock runner; external callers omit this
 	runner?: AgentRunner,
+	killGraceSec?: number,
 ): Promise<{ result: AgentRunResult }> {
 	const agentName = agent.config.name;
 
@@ -55,6 +56,7 @@ export async function executeAgent(
 		agentTokenBudget,
 		sessionPath,
 		pi,
+		killGraceSec,
 	);
 
 	// ── 4. Replay session file for persistent chat message ───────

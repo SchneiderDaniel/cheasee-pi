@@ -38,6 +38,7 @@ const MODULES = [
 	"spawn.ts",
 	"stream.ts",
 	"budget.ts",
+	"deadline.ts",
 	"cleanup.ts",
 	"ui.ts",
 	"index.ts",

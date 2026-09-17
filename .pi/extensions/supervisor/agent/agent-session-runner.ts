@@ -16,6 +16,7 @@ import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
 import { extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
 import { resolveTools } from "../lib/extensions.ts";
+import { buildTimeoutNote } from "./runner/cleanup.ts";
 
 // DEFAULT_AGENT_TIMEOUT_MS is imported above from config.ts
 
@@ -85,7 +86,7 @@ export async function runAgentInProcess(
 	agent: ParsedAgent,
 	task: string,
 	ctx: ExtensionCommandContext,
-	timeoutMs: number = DEFAULT_AGENT_TIMEOUT_MS,
+	timeoutMs: number | null = DEFAULT_AGENT_TIMEOUT_MS,
 	cwd?: string,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
@@ -125,11 +126,11 @@ export async function runAgentInProcess(
 
 	// Hoist cleanup variables
 	let flushTimer: NodeJS.Timeout | null = null;
-	let heartbeat: NodeJS.Timeout | null = null;
 	let timedOut = false;
 	let unsubscribe: (() => void) | null = null;
 	let session: any = null;
 	let exitError: Error | null = null;
+	let deadlineTimer: NodeJS.Timeout | null = null;
 
 	const flushWidget = () => {
 		if (flushTimer) {
@@ -208,24 +209,41 @@ export async function runAgentInProcess(
 			}
 		});
 
-		// Run agent prompt with timeout via Promise.race
+		// Wall-clock deadline. The prompt races a deadline promise that
+		// rejects when the deadline timer fires — this bounds the run
+		// UNCONDITIONALLY even if a provider ignores session.abort() (the
+		// old Promise.race had the bound but leaked an unhandled rejection:
+		// the losing prompt promise rejected after the race settled). The
+		// no-op catch below absorbs that late rejection. The timer is a plain
+		// REF'D setTimeout: while the prompt hangs, it is the handle that
+		// keeps the event loop alive until the deadline fires (an unref'd
+		// AbortSignal.timeout would let a bare hang exit the process early).
+		// null/0 timeout → the deadline promise never settles, no timer.
+		const deadlinePromise =
+			timeoutMs === null || timeoutMs <= 0
+				? new Promise<never>(() => {})
+				: new Promise<never>((_resolve, reject) => {
+						deadlineTimer = setTimeout(() => {
+							timedOut = true;
+							if (session) {
+								session.abort();
+							}
+							reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
+						}, timeoutMs);
+					});
+
 		const promptPromise = session.prompt(task);
+		promptPromise.catch(() => {}); // late rejection after an abort is handled
 
-		const timeoutPromise = new Promise<never>((_resolve, reject) => {
-			heartbeat = setTimeout(() => {
-				timedOut = true;
-				if (session) {
-					session!.abort();
-				}
-				reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
-			}, timeoutMs);
-		});
-
-		await Promise.race([promptPromise, timeoutPromise]);
+		await Promise.race([promptPromise, deadlinePromise]);
 	} catch (err: unknown) {
 		exitError = err instanceof Error ? err : new Error(String(err));
 	} finally {
 		// Cleanup: unsubscribe, dispose session, clear timers
+		if (deadlineTimer) {
+			clearTimeout(deadlineTimer);
+			deadlineTimer = null;
+		}
 		if (unsubscribe) {
 			unsubscribe();
 			unsubscribe = null;
@@ -242,20 +260,12 @@ export async function runAgentInProcess(
 			clearTimeout(flushTimer);
 			flushTimer = null;
 		}
-		if (heartbeat) {
-			clearTimeout(heartbeat);
-			heartbeat = null;
-		}
 	}
 
 	// ── Build result ────────────────────────────────────────
 	if (flushTimer) {
 		clearTimeout(flushTimer);
 		flushTimer = null;
-	}
-	if (heartbeat) {
-		clearTimeout(heartbeat);
-		heartbeat = null;
 	}
 	if (state.liveText.trim()) {
 		state.textOutputLines.push(state.liveText.trim());
@@ -297,9 +307,22 @@ export async function runAgentInProcess(
 		}
 	}
 
-	// If in-process failed with an error, propagate to caller for fallback
+	// If in-process failed with a NON-timeout error, propagate to caller for
+	// subprocess fallback. Timeout failures return success=false instead.
 	if (exitError && !timedOut) {
 		throw exitError;
+	}
+
+	// Timeout failures are authored into errorOutput (not just textOutput)
+	// so buildAgentResultEntry / the pipeline summary table retain them.
+	let errorOutput = exitError ? exitError.message : "";
+	if (timedOut) {
+		const note = buildTimeoutNote({
+			agentName,
+			configuredTimeoutMs: timeoutMs ?? undefined,
+			durationMs,
+		});
+		errorOutput = errorOutput ? `${errorOutput}\n${note}` : note;
 	}
 
 	return {
@@ -313,10 +336,13 @@ export async function runAgentInProcess(
 		textOutput,
 		textOnly,
 		summaryLine,
-		errorOutput: exitError ? exitError.message : "",
+		errorOutput,
 		thinkingOutput,
 		toolCalls: state.toolCalls,
 		budgetExceeded: state.budgetExceeded || undefined,
+		killReason: timedOut ? "timeout" : state.budgetExceeded ? "budget" : undefined,
+		timedOut: timedOut || undefined,
+		configuredTimeoutMs: timedOut ? (timeoutMs ?? undefined) : undefined,
 	};
 }
 

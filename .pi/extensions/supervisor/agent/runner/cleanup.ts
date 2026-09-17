@@ -19,6 +19,19 @@ export function finalizeState(state: AgentRunState): void {
 	}
 }
 
+/** Shared timeout note — carried in errorOutput so pipeline state retains it. */
+export function buildTimeoutNote(opts: {
+	agentName: string;
+	configuredTimeoutMs: number | undefined;
+	durationMs: number;
+}): string {
+	const sec =
+		opts.configuredTimeoutMs !== undefined
+			? Math.round(opts.configuredTimeoutMs / 1000)
+			: Math.round(opts.durationMs / 1000);
+	return `[Timeout: ${opts.agentName} exceeded ${sec}s (actual ${opts.durationMs}ms)]`;
+}
+
 export function assembleResult(opts: {
 	state: AgentRunState;
 	agentName: string;
@@ -27,18 +40,35 @@ export function assembleResult(opts: {
 	stderr: string;
 	code: number | null;
 	signal: string | null;
+	/** Whether the wall-clock watchdog fired (deadline exceeded). */
+	timedOut?: boolean;
+	/** Configured per-agent timeout in ms (present when timedOut). */
+	configuredTimeoutMs?: number;
 }): AgentRunResult {
 	const durationMs = Date.now() - opts.startedAt;
 	const textOutput = opts.state.fullLog.join("\n").trim();
 	const textOnly = opts.state.textOutputLines.join("\n").trim();
 	const rawOutput = opts.rawStdout + (opts.stderr ? "\n[STDERR]\n" + opts.stderr : "");
 	const killed = opts.signal !== null;
-	const success = opts.code === 0 && !killed;
+	const timedOut = opts.timedOut === true;
+	const success = opts.code === 0 && !killed && !timedOut;
 	if (killed) {
 		pushLog(
 			opts.state,
 			`[Timeout: ${opts.agentName} killed by ${opts.signal} after ${formatDuration(durationMs)}]`,
 		);
+	}
+
+	// Timeout failures are authored into errorOutput (not just textOutput)
+	// so buildAgentResultEntry / the pipeline summary table retain them.
+	let errorOutput = filterStderr(opts.stderr);
+	if (timedOut) {
+		const note = buildTimeoutNote({
+			agentName: opts.agentName,
+			configuredTimeoutMs: opts.configuredTimeoutMs,
+			durationMs,
+		});
+		errorOutput = errorOutput ? `${errorOutput}\n${note}` : note;
 	}
 
 	const thinkingOutput =
@@ -65,10 +95,13 @@ export function assembleResult(opts: {
 		textOutput,
 		textOnly,
 		summaryLine,
-		errorOutput: filterStderr(opts.stderr),
+		errorOutput,
 		thinkingOutput,
 		toolCalls: opts.state.toolCalls,
 		budgetExceeded: opts.state.budgetExceeded || undefined,
+		killReason: timedOut ? "timeout" : opts.state.budgetExceeded ? "budget" : undefined,
+		timedOut: timedOut || undefined,
+		configuredTimeoutMs: timedOut ? opts.configuredTimeoutMs : undefined,
 	};
 }
 

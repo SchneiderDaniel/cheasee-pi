@@ -49,12 +49,13 @@ export type AgentRunner = (
 	agent: ParsedAgent,
 	task: string,
 	ctx: ExtensionCommandContext,
-	timeoutMs: number,
+	timeoutMs: number | null,
 	cwd?: string,
 	maxToolCalls?: number,
 	agentTokenBudget?: number,
 	sessionPath?: string,
 	pi?: Pick<ExtensionAPI, "sendMessage">,
+	killGraceSec?: number,
 ) => Promise<AgentRunResult>;
 
 /** Structured result returned by runAgent for rendering */
@@ -81,6 +82,12 @@ export interface AgentRunResult {
 	toolCalls?: string[];
 	/** Whether budget (token/tool limit) was exceeded */
 	budgetExceeded?: boolean;
+	/** Kill cause classification: wall-clock deadline ("timeout") or budget ("budget") */
+	killReason?: "timeout" | "budget";
+	/** Whether the run was terminated by the per-agent wall-clock deadline */
+	timedOut?: boolean;
+	/** Configured per-agent timeout in ms (present when timedOut) */
+	configuredTimeoutMs?: number;
 
 	// ─── Per-agent usage breakdown ────────────────────────
 	/** Model identifier used for this agent run */
@@ -227,6 +234,10 @@ export interface PipelineAgentResult {
 	failedToolCount?: number;
 	/** Error output from agent execution (stderr, crash diagnostics) */
 	errorOutput?: string;
+	/** Whether the run was terminated by the per-agent wall-clock deadline */
+	timedOut?: boolean;
+	/** Configured per-agent timeout in ms (present when timedOut) */
+	configuredTimeoutMs?: number;
 }
 
 export interface MergeResult {
