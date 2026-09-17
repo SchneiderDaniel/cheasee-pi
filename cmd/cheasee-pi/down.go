@@ -12,6 +12,7 @@ import (
 var downCmd = &cobra.Command{
 	Use:     "down",
 	Aliases: []string{"stop"},
+	GroupID: groupIDDailyUse,
 	Short:   "Stop/remove THIS workspace's container only",
 	Long: `Stop and remove the Cheasee-Pi Docker container via docker compose down.
 

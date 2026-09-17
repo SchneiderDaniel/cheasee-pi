@@ -16,6 +16,7 @@ var (
 var upCmd = &cobra.Command{
 	Use:     "start",
 	Aliases: []string{"up"},
+	GroupID: groupIDGettingStarted,
 	Short:   "Launch pi inside container with provider keys injected",
 	Long: `Launch an interactive pi session inside the Cheasee-Pi Docker container.
 

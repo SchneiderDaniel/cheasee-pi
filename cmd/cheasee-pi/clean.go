@@ -19,8 +19,9 @@ var cleanYes bool
 var cleanConfirmFn = promptConfirm
 
 var cleanCmd = &cobra.Command{
-	Use:   "clean",
-	Short: "Remove ALL cheasee-pi containers (every repo) — kills active sessions",
+	Use:     "clean",
+	GroupID: groupIDDailyUse,
+	Short:   "Remove ALL cheasee-pi containers (every repo) — kills active sessions",
 	Long: `Remove every cheasee-pi container (all repositories), kill orphaned pi
 processes inside them, and prune dangling Docker images + build cache.
 

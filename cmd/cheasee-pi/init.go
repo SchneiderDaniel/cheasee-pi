@@ -125,8 +125,9 @@ func (d InitDeps) Validate() error {
 }
 
 var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize cheasee-pi configuration",
+	Use:     "init",
+	GroupID: groupIDGettingStarted,
+	Short:   "Initialize cheasee-pi configuration",
 	Long: `Initialize cheasee-pi in an EMPTY folder — init sets the workspace up
 itself: bare clone of your project repo to <parent>/.bare, main worktree in
 the folder, and the dedicated cheasee-settings.json scaffolded (gitignored,

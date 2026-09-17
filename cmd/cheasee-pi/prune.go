@@ -17,8 +17,9 @@ var pruneImagesYes bool
 var pruneImagesConfirmFn = promptConfirm
 
 var pruneImagesCmd = &cobra.Command{
-	Use:   "prune-images",
-	Short: "Delete ALL tagged cheasee-pi images (every repo) — recreated on next build",
+	Use:     "prune-images",
+	GroupID: groupIDMaintenance,
+	Short:   "Delete ALL tagged cheasee-pi images (every repo) — recreated on next build",
 	Long: `Remove every tagged cheasee-pi Docker image on the host and reclaim the
 build cache they pin — the explicit "free the disk" step when repeated
 builds fill the Docker data root.
