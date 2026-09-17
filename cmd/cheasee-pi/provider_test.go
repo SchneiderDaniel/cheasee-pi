@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,35 +43,50 @@ func TestDefaultModel_pinsOverrideAndSeed(t *testing.T) {
 	}
 }
 
-// TestDefaultModelFor pins the default-resolution order: static override
-// regardless of catalog state; no override + live list → sorted-first live
-// id; catalog error + no override → seed first entry.
-func TestDefaultModelFor(t *testing.T) {
+// TestModelChoice pins the single-lookup resolution: the static override wins
+// regardless of catalog state (and skips the fetch entirely when no picker
+// list is needed — offline --no-input); with no override the default and the
+// picker list share ONE catalog consultation (the audit-flagged double-fetch
+// ran the retry loop twice); catalog errors fall back to the seed.
+func TestModelChoice(t *testing.T) {
 	ctx := context.Background()
 	staticProvider := "opencode-go"
 
 	t.Run("override wins regardless of catalog state", func(t *testing.T) {
 		// Catalog down: the override must still hold (offline never flips).
-		if got := defaultModelFor(ctx, &mockModelCatalog{err: errSentinel}, staticProvider); got != "kimi-k2.6" {
-			t.Errorf("catalog error: defaultModelFor = %q, want kimi-k2.6", got)
+		if def, _ := modelChoice(ctx, &mockModelCatalog{err: errSentinel}, staticProvider, false); def != "kimi-k2.6" {
+			t.Errorf("catalog error: modelChoice def = %q, want kimi-k2.6", def)
 		}
 		// Catalog up with a different first id: the override still wins.
-		if got := defaultModelFor(ctx, &mockModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}, staticProvider); got != "kimi-k2.6" {
-			t.Errorf("live list: defaultModelFor = %q, want kimi-k2.6", got)
+		if def, models := modelChoice(ctx, &mockModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}, staticProvider, true); def != "kimi-k2.6" || !reflect.DeepEqual(models, []string{"glm-5.3", "kimi-k2.6"}) {
+			t.Errorf("live list: def = %q, models = %v, want kimi-k2.6 + live list", def, models)
 		}
 	})
 
-	t.Run("no override + live list → sorted-first live id", func(t *testing.T) {
-		got := defaultModelFor(ctx, &mockModelCatalog{models: []string{"gpt-4o-mini", "gpt-4o"}}, "openai")
-		if got != "gpt-4o-mini" {
-			t.Errorf("defaultModelFor = %q, want gpt-4o-mini (sorted-first)", got)
+	t.Run("override + no list needed → zero catalog consultations", func(t *testing.T) {
+		// --no-input for an override provider must stay fully offline.
+		cc := &countingModelCatalog{models: []string{"glm-5.3", "kimi-k2.6"}}
+		def, models := modelChoice(ctx, cc, staticProvider, false)
+		if def != "kimi-k2.6" || models != nil || cc.calls != 0 {
+			t.Errorf("no-list override: def=%q models=%v calls=%d, want kimi-k2.6 + nil + 0", def, models, cc.calls)
 		}
 	})
 
-	t.Run("catalog error + no override → seed first entry", func(t *testing.T) {
-		got := defaultModelFor(ctx, &mockModelCatalog{err: errSentinel}, "openai")
-		if got != "gpt-4o" {
-			t.Errorf("defaultModelFor = %q, want gpt-4o (seed first entry)", got)
+	t.Run("no override + live list → sorted-first def + live list, one consultation", func(t *testing.T) {
+		cc := &countingModelCatalog{models: []string{"gpt-4o-mini", "gpt-4o"}}
+		def, models := modelChoice(ctx, cc, "openai", false)
+		if def != "gpt-4o-mini" || !reflect.DeepEqual(models, []string{"gpt-4o-mini", "gpt-4o"}) {
+			t.Errorf("def=%q models=%v, want gpt-4o-mini + live list", def, models)
+		}
+		if cc.calls != 1 {
+			t.Errorf("catalog consulted %d times, want exactly 1 (one lookup feeds both)", cc.calls)
+		}
+	})
+
+	t.Run("catalog error + no override → seed first entry + seed list", func(t *testing.T) {
+		def, models := modelChoice(ctx, &mockModelCatalog{err: errSentinel}, "openai", false)
+		if def != "gpt-4o" || !reflect.DeepEqual(models, KnownModels["openai"]) {
+			t.Errorf("def=%q models=%v, want gpt-4o + openai seed", def, models)
 		}
 	})
 }

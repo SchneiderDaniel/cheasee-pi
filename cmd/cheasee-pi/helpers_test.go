@@ -184,7 +184,7 @@ func (q *queuePrompt) input(string, string) (string, error) {
 // ──────────────────────────────────────────────
 
 // mockModelCatalog is a fixed-list ModelCatalog stub. The zero value returns
-// (nil, nil), which modelsFor/defaultModelFor treat as "no live list" → the
+// (nil, nil), which modelsFor/modelChoice treat as "no live list" → the
 // KnownModels seed (the offline path).
 type mockModelCatalog struct {
 	models []string
@@ -193,6 +193,36 @@ type mockModelCatalog struct {
 
 func (m *mockModelCatalog) Models(ctx context.Context, provider string) ([]string, error) {
 	return m.models, m.err
+}
+
+// countingModelCatalog is a fixed-list ModelCatalog stub that counts
+// consultations — the single-lookup regression tests assert exactly one
+// consultation per provider invocation (the pre-audit code consulted twice,
+// doubling the fetch/retry loop on a failing pi.dev request).
+type countingModelCatalog struct {
+	models []string
+	err    error
+	calls  int
+}
+
+func (c *countingModelCatalog) Models(ctx context.Context, provider string) ([]string, error) {
+	c.calls++
+	return c.models, c.err
+}
+
+// slowModelCatalog is a stub whose consultation sleeps before failing — the
+// call-site timeout regression asserts a stalled catalog delays auth/init by
+// ONE consultation, not two.
+type slowModelCatalog struct {
+	delay time.Duration
+	err   error
+	calls int
+}
+
+func (c *slowModelCatalog) Models(ctx context.Context, provider string) ([]string, error) {
+	c.calls++
+	time.Sleep(c.delay)
+	return nil, c.err
 }
 
 // stubModelCatalog replaces the newModelCatalog seam (newInitDeps precedent)

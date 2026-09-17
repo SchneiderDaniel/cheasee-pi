@@ -96,8 +96,8 @@ func runInitAPIKeys(ctx context.Context, cfg *fileRepository, catalog ModelCatal
 		}
 		fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
 
-		model := defaultModelFor(ctx, catalog, provider)
-		if models := modelsFor(ctx, catalog, provider); len(models) > 0 {
+		model, models := modelChoice(ctx, catalog, provider, true)
+		if len(models) > 0 {
 			picked, err := promptModel(provider, models)
 			if err != nil {
 				return err

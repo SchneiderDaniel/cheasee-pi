@@ -50,7 +50,8 @@ type remoteModelCatalog struct {
 	baseURL        string // seam for tests (https://pi.dev by default)
 	cacheDir       string // empty → resolve via CacheDir() on first use
 	attemptTimeout time.Duration
-	flights        sync.Map // provider → *catalogFlight (singleflight)
+	warnf          func(format string, args ...any) // cache-write warnings; nil → silent
+	flights        sync.Map                        // provider → *catalogFlight (singleflight)
 }
 
 func newRemoteModelCatalog() *remoteModelCatalog {
@@ -58,6 +59,9 @@ func newRemoteModelCatalog() *remoteModelCatalog {
 		httpClient:     http.DefaultClient,
 		baseURL:        "https://pi.dev",
 		attemptTimeout: catalogAttemptTimeout,
+		warnf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "  ⚠ "+format+"\n", args...)
+		},
 	}
 }
 
@@ -189,15 +193,18 @@ func (c *remoteModelCatalog) fetchWithRetry(ctx context.Context, cacheDir, provi
 	for attempt := 1; attempt <= catalogAttempts; attempt++ {
 		models, lastModified, etag, err := c.fetch(ctx, provider, cached)
 		if err == nil {
-			// Cache write is best-effort: the live list is already the answer,
-			// so a cache-dir hiccup must not degrade an online fetch to the
-			// offline seed.
-			_ = c.writeCache(cacheDir, provider, modelCatalogCache{
+			// Best-effort cache: the live list is already the answer, so a
+			// cache-dir hiccup must not degrade an online fetch to the offline
+			// seed — but it must not be silent either (an unwritable cache
+			// would otherwise refetch every run without the user knowing why).
+			if werr := c.writeCache(cacheDir, provider, modelCatalogCache{
 				Models:       models,
 				CheckedAt:    time.Now(),
 				LastModified: lastModified,
 				ETag:         etag,
-			})
+			}); werr != nil && c.warnf != nil {
+				c.warnf("model catalog cache write failed for %s: %v", provider, werr)
+			}
 			return sortedIDs(models), nil
 		}
 		lastErr = err
@@ -322,18 +329,26 @@ func modelsFor(ctx context.Context, catalog ModelCatalog, provider string) []str
 	return KnownModels[provider]
 }
 
-// defaultModelFor returns the default model for a provider: the static
-// override when present (live-validated at commit time — online/offline never
-// flip), else the sorted-first live id, else the seed's first entry. The
-// override short-circuits before any fetch, so `--no-input` auth for an
-// override provider (e.g. opencode-go) stays fully offline.
-func defaultModelFor(ctx context.Context, catalog ModelCatalog, provider string) string {
+// modelChoice resolves a provider's default model and picker list from ONE
+// catalog lookup. The previous defaultModelFor + modelsFor pair consulted the
+// catalog independently, so a cold cache with a stalled/failing pi.dev request
+// ran the fetch/retry loop twice (up to 4 attempts ≈ 16s per provider) to
+// produce two results that one call could produce. The static override
+// short-circuits the default before any fetch; needList is false exactly when
+// the caller will not run the interactive picker (auth add --no-input), so an
+// override provider stays fully offline without the list.
+func modelChoice(ctx context.Context, catalog ModelCatalog, provider string, needList bool) (def string, models []string) {
 	if m, ok := staticDefaultModel[provider]; ok {
-		return m
+		if !needList {
+			return m, nil
+		}
+		return m, modelsFor(ctx, catalog, provider)
 	}
+	// No override: the default and the list share one result — sorted-first
+	// live id (or the seed's first entry when the catalog failed).
 	ids, err := catalog.Models(ctx, provider)
 	if err == nil && len(ids) > 0 {
-		return ids[0]
+		return ids[0], ids
 	}
-	return DefaultModel(provider)
+	return DefaultModel(provider), KnownModels[provider]
 }

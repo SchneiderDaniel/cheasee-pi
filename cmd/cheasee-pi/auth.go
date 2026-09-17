@@ -149,21 +149,20 @@ func runAuthAddE(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
 
 	// Pick default model: the live pi.dev catalog when reachable, else the
-	// static seed (catalog errors degrade, never fail the command). The
-	// override short-circuits before any fetch — offline `--no-input` auth
-	// still writes a valid, resolvable default.
+	// static seed (catalog errors degrade, never fail the command). One lookup
+	// feeds both the default and the picker list — the previous pair consulted
+	// the catalog twice, doubling the fetch/retry loop on a failing pi.dev
+	// request. The static override short-circuits before any fetch, and
+	// --no-input needs no list at all, so offline auth stays fully offline.
 	catalog := newModelCatalog()
-	model := defaultModelFor(ctx, catalog, provider)
-	if !authAddNoInput {
-		models := modelsFor(ctx, catalog, provider)
-		if len(models) > 0 {
-			picked, err := promptModel(provider, models)
-			if err != nil {
-				return err
-			}
-			if picked != "" {
-				model = picked
-			}
+	model, models := modelChoice(ctx, catalog, provider, !authAddNoInput)
+	if !authAddNoInput && len(models) > 0 {
+		picked, err := promptModel(provider, models)
+		if err != nil {
+			return err
+		}
+		if picked != "" {
+			model = picked
 		}
 	}
 

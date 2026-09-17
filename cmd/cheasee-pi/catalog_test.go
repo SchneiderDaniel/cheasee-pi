@@ -473,6 +473,38 @@ func TestRemoteModelCatalog_ConcurrentCallsSingleFetch(t *testing.T) {
 	}
 }
 
+func TestRemoteModelCatalog_CacheWriteFailureWarnsKeepsResult(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	srv := newCatalogServer(t, nil)
+
+	var warnings []string
+	cat := newTestCatalog(srv, 5*time.Second)
+	cat.warnf = func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+	// Block the cache write for ANY test runner (root included): a regular
+	// file where the cache dir must be created — MkdirAll fails with ENOTDIR
+	// instead of an EACCES a root runner would sail past.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cat.cacheDir = filepath.Join(blocked, "cache")
+
+	ids, err := cat.Models(context.Background(), "opencode-go")
+	if err != nil {
+		t.Fatalf("cache-write failure must not fail the online fetch: %v", err)
+	}
+	if !reflect.DeepEqual(ids, catalogSorted) {
+		t.Errorf("Models = %v, want %v", ids, catalogSorted)
+	}
+	// The warning is surfaced (the live result preserved) — an unwritable
+	// cache must not silently refetch every run.
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "opencode-go") {
+		t.Errorf("expected one cache-write warning naming the provider, got %v", warnings)
+	}
+}
+
 // ──────────────────────────────────────────────
 // auth add call site (runAuthAddE)
 // ──────────────────────────────────────────────
@@ -538,6 +570,60 @@ func TestRunAuthAddE_NoInputWritesValidDefault(t *testing.T) {
 			t.Errorf("defaultModel = %v, want gpt-4o (seed first entry)", raw["defaultModel"])
 		}
 	})
+}
+
+// TestRunAuthAddE_SingleCatalogConsultation is the audit regression: the
+// default and the picker list must come from ONE catalog lookup per provider
+// invocation. The pre-audit defaultModelFor + modelsFor pair consulted twice,
+// running the fetch/retry loop twice on a cold cache with a failing pi.dev
+// request (up to 4 attempts ≈ 16s per provider).
+func TestRunAuthAddE_SingleCatalogConsultation(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := newAuthAddWorkdir(t)
+	withAuthAddFlags(t, workdir, false) // interactive = the double-fetch path
+	cc := &countingModelCatalog{models: []string{"gpt-4o", "gpt-4o-mini"}}
+	saved := newModelCatalog
+	newModelCatalog = func() ModelCatalog { return cc }
+	t.Cleanup(func() { newModelCatalog = saved })
+	stubPromptAPIKey(t, func(string) (string, error) { return "key", nil })
+	stubPromptModel(t, func(string, []string) (string, error) { return "", nil }) // keep catalog default
+
+	if err := runAuthAddE(&cobra.Command{}, []string{"openai"}); err != nil {
+		t.Fatalf("auth add: %v", err)
+	}
+	if cc.calls != 1 {
+		t.Errorf("catalog consulted %d times, want exactly 1 (default + picker list from one lookup)", cc.calls)
+	}
+	if raw := testutil.ReadCheaseeSettingsRaw(t, workdir); raw["defaultModel"] != "gpt-4o" {
+		t.Errorf("defaultModel = %v, want sorted-first live id gpt-4o", raw["defaultModel"])
+	}
+}
+
+// TestRunAuthAddE_StalledCatalogBoundsOneConsultation is the timeout half of
+// the audit regression: a stalled catalog must delay interactive auth add by
+// one consultation, not two (the double-fetch doubled the stall per provider).
+func TestRunAuthAddE_StalledCatalogBoundsOneConsultation(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := newAuthAddWorkdir(t)
+	withAuthAddFlags(t, workdir, false)
+	cc := &slowModelCatalog{delay: 400 * time.Millisecond, err: errors.New("offline")}
+	saved := newModelCatalog
+	newModelCatalog = func() ModelCatalog { return cc }
+	t.Cleanup(func() { newModelCatalog = saved })
+	stubPromptAPIKey(t, func(string) (string, error) { return "key", nil })
+	stubPromptModel(t, func(string, []string) (string, error) { return "", nil })
+
+	start := time.Now()
+	if err := runAuthAddE(&cobra.Command{}, []string{"openai"}); err != nil {
+		t.Fatalf("auth add: %v", err)
+	}
+	elapsed := time.Since(start)
+	if cc.calls != 1 {
+		t.Errorf("catalog consulted %d times, want 1", cc.calls)
+	}
+	if elapsed >= 700*time.Millisecond {
+		t.Errorf("stalled catalog delayed auth add by %v — want one consultation (~400ms), not two (~800ms)", elapsed)
+	}
 }
 
 func TestRunAuthAddE_InteractivePickerGetsLiveList(t *testing.T) {
@@ -699,6 +785,37 @@ func TestRunInitAPIKeys_MultiProviderLastWins(t *testing.T) {
 	}
 	if len(seenModels[0]) != 3 || seenModels[0][0] != "gpt-4o" {
 		t.Errorf("picker list = %v, want the live catalog sorted list", seenModels[0])
+	}
+}
+
+// TestRunInitAPIKeys_SingleCatalogConsultationPerProvider is the init half of
+// the audit regression (init_auth.go consulted the catalog twice per provider
+// — once for the default, once for the picker list — doubling the retry loop
+// on a failing pi.dev request).
+func TestRunInitAPIKeys_SingleCatalogConsultationPerProvider(t *testing.T) {
+	testutil.RedirectConfigHome(t)
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"defaultProvider":"seed"}`)
+
+	confirms := []bool{true, false} // configure keys? → yes; add another? → no
+	confirmFn := func(string) (bool, error) {
+		next := confirms[0]
+		confirms = confirms[1:]
+		return next, nil
+	}
+	stubPromptProvider(t, func() (string, error) { return "openai", nil })
+	stubPromptAPIKey(t, func(string) (string, error) { return "key", nil })
+	stubPromptModel(t, func(string, []string) (string, error) { return "", nil }) // keep catalog default
+
+	cc := &countingModelCatalog{err: errors.New("offline")}
+	if err := runInitAPIKeys(context.Background(), &fileRepository{}, cc, workdir, confirmFn); err != nil {
+		t.Fatalf("runInitAPIKeys: %v", err)
+	}
+	if cc.calls != 1 {
+		t.Errorf("catalog consulted %d times, want exactly 1 per provider", cc.calls)
+	}
+	if raw := testutil.ReadCheaseeSettingsRaw(t, workdir); raw["defaultModel"] != "gpt-4o" {
+		t.Errorf("defaultModel = %v, want seed first entry gpt-4o", raw["defaultModel"])
 	}
 }
 
