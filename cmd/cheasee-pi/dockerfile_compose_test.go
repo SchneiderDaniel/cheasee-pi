@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -22,6 +23,22 @@ func readCompose(t *testing.T) string {
 		t.Fatalf("read embedded docker-compose.yml: %v", err)
 	}
 	return string(data)
+}
+
+// renderComposeInterpolation substitutes every ${VAR:-default} in the compose
+// content with the process env value (or the default when unset/empty),
+// mirroring docker compose's `:-` semantics. Behavior asserted in the tests,
+// not the substitution implementation.
+func renderComposeInterpolation(t *testing.T, content string) string {
+	t.Helper()
+	re := regexp.MustCompile(`\$\{([A-Z0-9_]+):-([^}]*)\}`)
+	return re.ReplaceAllStringFunc(content, func(m string) string {
+		parts := re.FindStringSubmatch(m)
+		if v := os.Getenv(parts[1]); v != "" {
+			return v
+		}
+		return parts[2]
+	})
 }
 
 func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
@@ -130,5 +147,67 @@ func TestCompose_BareSiblingMount(t *testing.T) {
 	// The mount must be a sibling, never a parent-of-folder single mount.
 	if strings.Contains(content, "${WORKSPACE_HOST_PATH}/../:/workspaces") {
 		t.Error("compose must not mount the whole parent at /workspaces")
+	}
+}
+
+func TestCompose_CodeflowLoopbackOnly(t *testing.T) {
+	content := readCompose(t)
+	// Rationale survives: the comment above the mapping names the bind IP var
+	// and the loopback default (soft guard against silent revert).
+	if !strings.Contains(content, "CODEFLOW_HOST_IP") {
+		t.Error("compose port-mapping comment must document CODEFLOW_HOST_IP")
+	}
+	if !strings.Contains(content, "127.0.0.1") {
+		t.Error("compose port-mapping comment must state the loopback default")
+	}
+
+	// codeflowPort returns the rendered services.codeflow.ports[0] entry and
+	// asserts cheasee-pi keeps publishing no ports (codeflow stays the only
+	// host ingress).
+	codeflowPort := func(rendered string) string {
+		t.Helper()
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(rendered), &doc); err != nil {
+			t.Fatalf("rendered docker-compose.yml must parse as valid YAML: %v", err)
+		}
+		services := doc["services"].(map[string]any)
+		if _, ok := services["cheasee-pi"].(map[string]any)["ports"]; ok {
+			t.Error("cheasee-pi service must declare no ports (codeflow is the only host ingress)")
+		}
+		ports, ok := services["codeflow"].(map[string]any)["ports"].([]any)
+		if !ok || len(ports) != 1 {
+			t.Fatalf("codeflow must declare exactly one port mapping, got %v", ports)
+		}
+		// 3-segment colon spec regression guard: the raw mapping stays inside
+		// the quoted string, so yaml base-60 float parsing cannot bite.
+		return ports[0].(string)
+	}
+
+	// All vars unset → host side pinned to IPv4 loopback, container side
+	// stays 8470. This is the acceptance-criterion assertion.
+	t.Setenv("CODEFLOW_HOST_IP", "")
+	t.Setenv("CODEFLOW_PORT", "")
+	if got := codeflowPort(renderComposeInterpolation(t, content)); got != "127.0.0.1:8470:8470" {
+		t.Errorf("codeflow ports must pin the host side to 127.0.0.1 by default, got %q", got)
+	}
+
+	// Explicit CODEFLOW_PORT override survives the loopback pin.
+	t.Setenv("CODEFLOW_PORT", "9000")
+	if got := codeflowPort(renderComposeInterpolation(t, content)); got != "127.0.0.1:9000:8470" {
+		t.Errorf("CODEFLOW_PORT override must survive the loopback pin, got %q", got)
+	}
+
+	// Documented opt-in: CODEFLOW_HOST_IP=0.0.0.0 restores all-interfaces.
+	t.Setenv("CODEFLOW_HOST_IP", "0.0.0.0")
+	if got := codeflowPort(renderComposeInterpolation(t, content)); got != "0.0.0.0:9000:8470" {
+		t.Errorf("CODEFLOW_HOST_IP=0.0.0.0 must be the explicit opt-in, got %q", got)
+	}
+
+	// Boundary: empty-string CODEFLOW_HOST_IP → `:-` default applies
+	// (compose `:-` semantics, not `-`).
+	t.Setenv("CODEFLOW_HOST_IP", "")
+	t.Setenv("CODEFLOW_PORT", "")
+	if got := codeflowPort(renderComposeInterpolation(t, content)); got != "127.0.0.1:8470:8470" {
+		t.Errorf("empty CODEFLOW_HOST_IP must fall back to the loopback default, got %q", got)
 	}
 }

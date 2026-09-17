@@ -52,7 +52,7 @@ without a subcommand executes the same handler as `start`.
 
 | | |
 |---|---|
-| **Does** | Mounts the workspace at `/workspaces/main` and its sibling bare clone at `/workspaces/.bare`, starts the container (`docker compose up` if not running), injects provider keys from `~/.config/cheasee-pi/auth.json` as environment variables, launches pi, and prints the CodeFlow URL (`http://localhost:<port>/?repo=local/workspace&run=1`) once the container is healthy. |
+| **Does** | Mounts the workspace at `/workspaces/main` and its sibling bare clone at `/workspaces/.bare`, starts the container (`docker compose up` if not running), injects provider keys from `~/.config/cheasee-pi/auth.json` as environment variables, launches pi, and prints the CodeFlow URL (`http://localhost:<port>/?repo=local/workspace&run=1`) once the container is healthy. The CodeFlow sidecar is published on loopback only by default (`CODEFLOW_HOST_IP`, default `127.0.0.1` — set `0.0.0.0` to opt in to remote access). |
 | **Checks** | Workspace gate: empty folder → runs `init` and stops (re-run `start` to launch pi); `cheasee-settings.json` present → run; non-empty folder without it → refused with an empty-folder hint. Docker gate (binary present + `docker info` responds + Engine ≥ 24.0.0, 5 s timeout) unless `--no-docker-check`. |
 | **Inputs** | Flags: `--workdir`, `--name`, `--build`, `--no-docker-check`, `--api-key` (session-only, not saved), `--dry-run` (print injected env vars, then exit). Reads `auth.json` + `cheasee-settings.json`; writes the version-keyed compose/Dockerfile cache. |
 
@@ -184,6 +184,7 @@ Other variables the CLI reads:
 | Variable | Meaning |
 |---|---|
 | `CODEFLOW_PORT` | Host port for the CodeFlow sidecar. Resolution order: `docker.codeflowPort` in `cheasee-settings.json` → env `CODEFLOW_PORT` → derived `8470 + fnv32(repo-slug) % 1024`, probed next-free |
+| `CODEFLOW_HOST_IP` | Host-side bind IP for the CodeFlow sidecar's published port. Default `127.0.0.1` — loopback only, matching the printed `localhost` URL (the sidecar serves the workspace source read-only). `0.0.0.0` is the explicit remote-access opt-in |
 | `CHEASEEPI_MEMORY` | Build arg passed by `build`/`rebuild` from `docker.memory` in `cheasee-settings.json` |
 | `XDG_CACHE_HOME` (Unix) / `LocalAppData` (Windows) | Base for the CLI cache dir via `os.UserCacheDir` |
 

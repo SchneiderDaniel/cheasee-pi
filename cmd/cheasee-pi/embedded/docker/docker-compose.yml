@@ -74,7 +74,11 @@ services:
     # Port mapping: host side via CODEFLOW_PORT — `cheasee-pi start` derives a
     # per-repo port (8470 + repo-slug hash, 8470–9493) so parallel containers
     # don't collide on the fixed default; an explicit CODEFLOW_PORT env var
-    # overrides. Container side from the "port" key in config.json (default
+    # overrides. Host-side bind is pinned to loopback (CODEFLOW_HOST_IP,
+    # default 127.0.0.1): the sidecar serves the workspace source read-only
+    # and the printed URL is http://localhost:<port>/..., so it must not be
+    # routable off-host. 0.0.0.0 is an explicit, documented opt-in for remote
+    # access only. Container side from the "port" key in config.json (default
     # 8470) — keep them in sync when changing either.
     build:
       context: codeflow
@@ -87,4 +91,4 @@ services:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main:ro${VOLUME_RELABEL:-}
       - ./codeflow/config.json:/opt/codeflow/config.json:ro
     ports:
-      - "${CODEFLOW_PORT:-8470}:8470"
+      - "${CODEFLOW_HOST_IP:-127.0.0.1}:${CODEFLOW_PORT:-8470}:8470"

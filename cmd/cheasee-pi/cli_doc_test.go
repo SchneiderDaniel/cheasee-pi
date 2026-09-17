@@ -347,6 +347,38 @@ func TestCLIDoc_ProviderEnvVarsMatchCode(t *testing.T) {
 	}
 }
 
+// TestCLIDoc_CodeflowLoopbackOnly verifies the docs match the ingress fix:
+// cli.md documents CODEFLOW_HOST_IP with its loopback default and 0.0.0.0
+// opt-in, and daily-usage.md §CodeFlow no longer claims a server-side
+// 127.0.0.1 host value (container-side must stay 0.0.0.0 for
+// docker-proxy/DNAT delivery) while stating the loopback-only default.
+func TestCLIDoc_CodeflowLoopbackOnly(t *testing.T) {
+	content := readCliDoc(t)
+	if !strings.Contains(content, "CODEFLOW_HOST_IP") {
+		t.Error("docs/cli.md should document CODEFLOW_HOST_IP")
+	}
+	if !strings.Contains(content, "127.0.0.1") {
+		t.Error("docs/cli.md should state the loopback default (127.0.0.1)")
+	}
+	if !strings.Contains(content, "0.0.0.0") {
+		t.Error("docs/cli.md should document the 0.0.0.0 remote-access opt-in")
+	}
+
+	daily, err := os.ReadFile(filepath.Join("..", "..", "docs", "daily-usage.md"))
+	if err != nil {
+		t.Fatalf("reading docs/daily-usage.md: %v", err)
+	}
+	if strings.Contains(string(daily), "`127.0.0.1` restricts access to localhost") {
+		t.Error("daily-usage.md must not claim host: 127.0.0.1 is a valid server-side bind (container-side stays 0.0.0.0)")
+	}
+	if !strings.Contains(string(daily), "CODEFLOW_HOST_IP") {
+		t.Error("daily-usage.md §CodeFlow should document CODEFLOW_HOST_IP")
+	}
+	if !strings.Contains(string(daily), "loopback") {
+		t.Error("daily-usage.md §CodeFlow should state the loopback-only default")
+	}
+}
+
 // TestCLIDoc_FilesReadWritten verifies the documented files: auth.json (0600),
 // cheasee-settings.json, version-keyed cache dir, and .pi/.
 func TestCLIDoc_FilesReadWritten(t *testing.T) {
