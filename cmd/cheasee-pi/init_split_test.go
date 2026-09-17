@@ -279,6 +279,7 @@ var testSplitRules = []prefixRule{
 	{"TestCanonicalSkillRepo", "init_skillrepos_test.go"},
 	{"TestRecordSkillRepos", "init_skillrepos_test.go"},
 	{"TestRunInitSkillRepos", "init_skillrepos_test.go"},
+	{"TestInitHelp", "init_skillrepos_test.go"},
 }
 
 // mergedTestDecls are the decls moved from init_test.go into existing test

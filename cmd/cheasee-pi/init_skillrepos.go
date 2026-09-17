@@ -8,11 +8,12 @@ import (
 	"strings"
 )
 
-// defaultSkillRepos are canonical external pi git repos cheasee-pi installs
-// into every container by default, seeded into cheasee-settings.json skillRepos
-// at init and installed by the entrypoint through the same `pi install -l -a`
-// mechanism as user-added custom repos — one uniform install path for all
-// external pi packages (ponytail among them). Canonical form, stored verbatim.
+// defaultSkillRepos are canonical git-hosted skill repository specs
+// cheasee-pi installs into every container by default, seeded into
+// cheasee-settings.json skillRepos at init and installed by the entrypoint
+// through the same `pi install -l -a` mechanism as user-added custom repos —
+// one uniform install path for all skill repositories (ponytail among them).
+// Canonical form, stored verbatim.
 var defaultSkillRepos = []string{"https://github.com/DietrichGebert/ponytail"}
 
 // canonicalSkillRepo validates and normalizes a custom skill repository spec
@@ -123,12 +124,12 @@ func runInitSkillRepos(deps InitDeps) error {
 		custom = append(custom, c)
 	}
 	if !deps.NoInput {
-		fmt.Fprintf(os.Stderr, "\n🧩 Custom Skill Repositories\n")
-		fmt.Fprintf(os.Stderr, "   ───────────────────────────\n")
-		fmt.Fprintf(os.Stderr, "   Skill/extension repos are installed into the container via pi's git\n")
-		fmt.Fprintf(os.Stderr, "   package mechanism (pi install -l → .pi/git/). Enter owner/repo,\n")
-		fmt.Fprintf(os.Stderr, "   https://…, or git:host/user/repo[@ref]. You can add several —\n")
-		fmt.Fprintf(os.Stderr, "   answer no (or leave the input empty) to stop.\n\n")
+		fmt.Fprintf(os.Stderr, "\n🧩 Custom Skills\n")
+		fmt.Fprintf(os.Stderr, "   ──────────────\n")
+		fmt.Fprintf(os.Stderr, "   Skills (reusable instruction sets for pi) are installed into the\n")
+		fmt.Fprintf(os.Stderr, "   container with pi install (pi install -l → .pi/git/). Enter\n")
+		fmt.Fprintf(os.Stderr, "   owner/repo, https://…, or git:host/user/repo[@ref]. You can add\n")
+		fmt.Fprintf(os.Stderr, "   several — answer no (or leave the input empty) to stop.\n\n")
 		for {
 			ok, err := deps.ConfirmFn("Add a custom skill repository?")
 			if err != nil {

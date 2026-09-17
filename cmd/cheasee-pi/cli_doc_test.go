@@ -159,6 +159,28 @@ func TestCLIDoc_AllInitFlags(t *testing.T) {
 	})
 }
 
+// TestCLIDoc_SkillRepoFlagRow verifies the --skill-repo flag row mirrors the
+// flag-help wording ("Custom skills …") — the doc half of the terminology
+// contract; no doc↔CLI parity harness exists, so this string guard is the
+// only check on the doc side. The "skill repos" rows elsewhere are untouched.
+func TestCLIDoc_SkillRepoFlagRow(t *testing.T) {
+	content := readCliDoc(t)
+	row := "| `--skill-repo <spec>` | Custom skills installed into the container (repeatable) |"
+	if !strings.Contains(content, row) {
+		t.Errorf("docs/cli.md --skill-repo row must be %q", row)
+	}
+	for _, gone := range []string{"custom skill/extension", "Skill/extension"} {
+		if strings.Contains(content, gone) {
+			t.Errorf("docs/cli.md must not contain %q (one consistent term)', got: %s", gone, content)
+		}
+	}
+	for _, keep := range []string{"records custom skill repos", "skill repos"} {
+		if !strings.Contains(content, keep) {
+			t.Errorf("docs/cli.md 'skill repos' rows must stay (kept delivery-source wording), missing %q", keep)
+		}
+	}
+}
+
 // TestCLIDoc_StartAndAuthFlags verifies the auth subcommands and start flags
 // are documented.
 func TestCLIDoc_StartAndAuthFlags(t *testing.T) {

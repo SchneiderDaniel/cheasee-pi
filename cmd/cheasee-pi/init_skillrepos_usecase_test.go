@@ -276,7 +276,7 @@ func TestInitUseCase_SkillRepoAnnouncementBetweenScaffoldAndAuthSave(t *testing.
 		}
 	})
 	scaffoldIdx := strings.Index(output, "cheasee-settings.json created")
-	announceIdx := strings.Index(output, "Custom Skill Repositories")
+	announceIdx := strings.Index(output, "Custom Skills")
 	authIdx := strings.Index(output, "Auth config saved to")
 	if scaffoldIdx < 0 || announceIdx < 0 || authIdx < 0 {
 		t.Fatalf("expected scaffold + announcement + auth-save lines, got: %q", output)

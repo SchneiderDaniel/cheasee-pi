@@ -82,9 +82,9 @@ type InitDeps struct {
 	Provider         string
 	ClientID         string
 	RepoURL          string
-	// SkillRepos are the custom skill/extension repository specs recorded at
-	// init into cheasee-settings.json skillRepos (canonical form — the exact
-	// string `pi install` accepts, so the entrypoint passes it through without
+	// SkillRepos are the custom skill repository specs recorded at init into
+	// cheasee-settings.json skillRepos (canonical form — the exact string
+	// `pi install` accepts, so the entrypoint passes it through without
 	// prefix munging) and installed inside the container by the entrypoint via
 	// `pi install -l -a` before pi execs.
 	SkillRepos []string
@@ -121,8 +121,9 @@ The init command will:
   4. Authenticate with GitHub via OAuth device flow (or use --api-key with --no-github)
   5. Bare-clone + add the main worktree
   6. Scaffold cheasee-settings.json with cheasee-pi defaults (never overwrites)
-  7. Ask for custom skill repositories to install into the container (git
-     packages via pi, recorded in cheasee-settings.json skillRepos)
+  7. Ask for custom skills (reusable instruction sets for pi) to install
+     into the container from git-hosted skill repositories, recorded in
+     cheasee-settings.json skillRepos
 
 Existing non-empty folders are intentionally NOT supported — run init in a
 fresh empty folder. On an already-initialized workspace (cheasee-settings.json
@@ -150,7 +151,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initNoInput, "no-input", false, "Skip all interactive prompts")
 	initCmd.Flags().StringVar(&initRepoURL, "repo-url", "", "Project repository URL for the empty-folder clone (required with --no-input)")
 	initCmd.Flags().BoolVar(&initReauth, "reauth", false, "Redo GitHub and pi API-key authentications on an initialized workspace")
-	initCmd.Flags().StringArrayVar(&initSkillRepos, "skill-repo", nil, "Custom skill repository to install into the container (repeatable; owner/repo, https://…, or git:host/user/repo[@ref])")
+	initCmd.Flags().StringArrayVar(&initSkillRepos, "skill-repo", nil, "Custom skills to install into the container (repeatable; owner/repo, https://…, or git:host/user/repo[@ref])")
 }
 
 // runInitE wires up the real dependencies and calls runInit.
