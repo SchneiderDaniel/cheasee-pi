@@ -85,6 +85,12 @@ services:
     container_name: ${CODEFLOW_CONTAINER:-codeflow}
     labels:
       - com.cheaseepi.managed=true
+      # CLI-owned spec stamp (sha256 over CLI version + cache-dir path +
+      # explicit port + extracted config.json/compose bytes) — the drift
+      # check on the running&&!build path compares this against a freshly
+      # computed value. Owned by the CLI, not Compose's internal
+      # config-hash (unstable across Compose versions).
+      - com.cheaseepi.codeflow-spec=${CHEASEEPI_CODEFLOW_SPEC:-}
     environment:
       - REPO_ROOT=/workspaces/main
     volumes:

@@ -196,6 +196,13 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 		if err := dockerComposeUp(ctx, cacheDir, root, name, !exists); err != nil {
 			return "", fmt.Errorf("docker compose up: %w", err)
 		}
+	} else {
+		// Running + no --build: compose stays skipped (deliberate — start must
+		// not surprise-rebuild). The sidecar can still be stale relative to
+		// this CLI's compose/config/port, so compare the live container
+		// against the freshly extracted expected state and warn with the
+		// exact recovery command (best-effort, never a start failure).
+		warnIfCodeflowDrift(ctx, root, cacheDir)
 	}
 	// Gate the exec behind first-run setup: compose up -d returns as soon as
 	// the container starts, long before the entrypoint finishes (worktree

@@ -54,10 +54,17 @@ func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
 	if doc["name"] != "cheasee-pi" {
 		t.Errorf("top-level name must be 'cheasee-pi' (fallback for direct usage), got %v", doc["name"])
 	}
-	// Both services carry the managed label — clean enumerates by it.
+	// Both services carry the managed label — clean enumerates by it. The
+	// codeflow service additionally carries the CLI-owned spec stamp label
+	// (warnIfCodeflowDrift compares it on the running&&!build path); the
+	// main service must carry no other labels.
 	services, ok := doc["services"].(map[string]any)
 	if !ok {
 		t.Fatalf("services section missing: %v", doc)
+	}
+	wantLabels := map[string][]any{
+		"cheasee-pi": {managedLabel},
+		"codeflow":   {managedLabel, "com.cheaseepi.codeflow-spec=${CHEASEEPI_CODEFLOW_SPEC:-}"},
 	}
 	for _, svcName := range []string{"cheasee-pi", "codeflow"} {
 		svc, ok := services[svcName].(map[string]any)
@@ -68,8 +75,13 @@ func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
 		if !ok || !slices.Contains(labels, managedLabel) {
 			t.Errorf("service %s must carry the managed label %q, got %v", svcName, managedLabel, labels)
 		}
-		if len(labels) != 1 {
-			t.Errorf("service %s must carry no other labels, got %v", svcName, labels)
+		for _, want := range wantLabels[svcName] {
+			if !slices.Contains(labels, want) {
+				t.Errorf("service %s must carry label %q, got %v", svcName, want, labels)
+			}
+		}
+		if len(labels) != len(wantLabels[svcName]) {
+			t.Errorf("service %s must carry exactly %d labels, got %v", svcName, len(wantLabels[svcName]), labels)
 		}
 	}
 }

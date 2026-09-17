@@ -106,7 +106,7 @@ func runBuild(ctx context.Context, noCache, pull bool) error {
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH must be set (same env application as start/down:
 	// memory/cpus/git identity from settings.json ride along).
-	applyComposeEnv(buildCmd, root, containerName(root))
+	applyComposeEnv(buildCmd, root, containerName(root), cacheDir)
 
 	buildCmd.SetStdout(os.Stderr)
 	buildCmd.SetStderr(os.Stderr)
@@ -123,8 +123,10 @@ func runBuild(ctx context.Context, noCache, pull bool) error {
 	// A running container keeps the old image: compose up -d is the only
 	// thing that recreates it, and `cheasee-pi start` skips compose when
 	// the container is already up. Spell out the apply step so a build
-	// followed by a plain start silently serves the stale image.
-	fmt.Fprintf(os.Stderr, "  ℹ Running containers keep the old image — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`\n")
+	// followed by a plain start silently serves the stale image. The
+	// CodeFlow sidecar image is stale after any build too (docker compose
+	// build rebuilds both services) — the same commands recreate it.
+	fmt.Fprintf(os.Stderr, "  ℹ Running containers keep the old image and the CodeFlow sidecar keeps its old configuration — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`\n")
 
 	if noCache {
 		// Rebuild reclaims the image it just orphaned: the previous image

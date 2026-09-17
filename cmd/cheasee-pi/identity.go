@@ -287,6 +287,22 @@ func codeflowHostPort(workspaceRoot string) (string, error) {
 	return "", fmt.Errorf("no free host port in [%d, %d] for the CodeFlow service — stop another workspace or set CODEFLOW_PORT explicitly", codeflowPortBase, codeflowPortBase+codeflowPortRange-1)
 }
 
+// explicitCodeflowPort resolves ONLY the explicit CodeFlow host port for a
+// workspace — cheasee-settings.json docker.codeflowPort > process env
+// CODEFLOW_PORT — returning "" when the port would be derived+probed. The
+// sidecar drift check compares only explicit ports: a derived port is
+// runtime allocation (probe occupancy shifts with no config change), so
+// comparing it against the live bind would false-positive.
+func explicitCodeflowPort(workspaceRoot string) string {
+	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil && s.Docker.CodeflowPort != "" {
+		return s.Docker.CodeflowPort
+	}
+	if env := os.Getenv("CODEFLOW_PORT"); env != "" {
+		return env
+	}
+	return ""
+}
+
 // codeflowBoundPort resolves the host port the running codeflow sidecar
 // actually published, via `docker port`. Authoritative over the probe in
 // codeflowHostPort: on a re-up the sidecar already holds its bind, and the

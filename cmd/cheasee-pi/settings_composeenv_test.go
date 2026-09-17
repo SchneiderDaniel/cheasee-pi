@@ -20,7 +20,7 @@ func TestApplyComposeEnv_ignoresPISettings(t *testing.T) {
 	testutil.WriteSettingsFile(t, workdir, `{"docker": {"memory": "4G", "cpus": "2.0"}, "gitIdentity": {"name": "Pi Name", "email": "pi@example.com"}}`)
 
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, containerName(workdir))
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
 
 	for _, e := range cmd.env {
 		if strings.HasPrefix(e, "CHEASEEPI_MEMORY=") || strings.HasPrefix(e, "CHEASEEPI_CPUS=") {
@@ -70,7 +70,7 @@ func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
 
 	stderr := testutil.CaptureStderr(t, func() {
 		cmd := &mockCmd{}
-		applyComposeEnv(cmd, workdir, containerName(workdir))
+		applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
 		for _, want := range []string{"CHEASEEPI_MEMORY=4G", "CHEASEEPI_CPUS=3.0", "HOST_GIT_NAME=Cheasee User", "HOST_GIT_EMAIL=c@example.com", "COMPOSE_PROJECT_NAME=" + composeProjectName(workdir)} {
 			if !slices.Contains(cmd.env, want) {
 				t.Errorf("compose env missing %q, got %v", want, cmd.env)
@@ -87,7 +87,7 @@ func TestApplyComposeEnv_readsCheaseeSettings(t *testing.T) {
 func TestApplyComposeEnv_userCodeflowPortPassesThrough(t *testing.T) {
 	t.Setenv("CODEFLOW_PORT", "9000")
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()), t.TempDir())
 
 	if !slices.Contains(cmd.env, "CODEFLOW_PORT=9000") {
 		t.Errorf("user-set CODEFLOW_PORT must pass through verbatim, got %v", cmd.env)
@@ -109,7 +109,7 @@ func TestApplyComposeEnv_settingsCodeflowPortWins(t *testing.T) {
 	t.Setenv("CODEFLOW_PORT", "9000")
 
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, containerName(workdir))
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
 
 	if !slices.Contains(cmd.env, "CODEFLOW_PORT=9100") {
 		t.Errorf("settings docker.codeflowPort must win over env, got %v", cmd.env)
@@ -121,7 +121,7 @@ func TestApplyComposeEnv_hostIPPassThrough(t *testing.T) {
 	// default (127.0.0.1) is owned by the manifest, not the CLI, so the
 	// manifest-alone path keeps working for direct compose usage.
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()), t.TempDir())
 	for _, e := range cmd.env {
 		if strings.HasPrefix(e, "CODEFLOW_HOST_IP=") {
 			t.Errorf("CODEFLOW_HOST_IP must be absent when unset (manifest owns the default), got %q", e)
@@ -132,7 +132,7 @@ func TestApplyComposeEnv_hostIPPassThrough(t *testing.T) {
 	// stripped, not duplicated — mirrors the assertOneCodeflowPort style).
 	t.Setenv("CODEFLOW_HOST_IP", "0.0.0.0")
 	cmd = &mockCmd{}
-	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()))
+	applyComposeEnv(cmd, t.TempDir(), containerName(t.TempDir()), t.TempDir())
 	var hits []string
 	for _, e := range cmd.env {
 		if strings.HasPrefix(e, "CODEFLOW_HOST_IP=") {
@@ -149,7 +149,7 @@ func TestApplyComposeEnv_inheritedProjectNameReplaced(t *testing.T) {
 	workdir := t.TempDir()
 
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, containerName(workdir))
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
 
 	var count int
 	for _, e := range cmd.env {
@@ -170,7 +170,7 @@ func TestApplyComposeEnv_nameOverrideKeepsDerivedProject(t *testing.T) {
 	// name stays repo-derived so compose labels stay workspace-scoped.
 	workdir := t.TempDir()
 	cmd := &mockCmd{}
-	applyComposeEnv(cmd, workdir, "my-custom-name")
+	applyComposeEnv(cmd, workdir, "my-custom-name", t.TempDir())
 
 	if !slices.Contains(cmd.env, "CHEASEEPI_CONTAINER=my-custom-name") {
 		t.Errorf("--name override must replace the container name verbatim, got %v", cmd.env)

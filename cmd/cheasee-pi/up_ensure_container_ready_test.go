@@ -148,7 +148,9 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 
 func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 	// Running container, no --build: compose is skipped BUT the ready-wait
-	// still polls once (the path compose-native --wait can't cover).
+	// still polls once (the path compose-native --wait can't cover). The
+	// drift check read-only-inspects the sidecar first (matching spec → no
+	// warning).
 	_, root := mkWorkspace(t, `{}`)
 	setUpReady(t)
 	name := containerName(root)
@@ -160,6 +162,14 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 		}
 		if slices.Contains(arg, "inspect") {
 			inspectCalls++
+			if slices.Contains(arg, "{{json .}}") {
+				// Drift check: answer with the CURRENT spec (computed at call
+				// time — extraction precedes the running check), so a matching
+				// start stays silent.
+				cacheDir, _ := CacheDir()
+				spec, _ := codeflowSpecHash(root, cacheDir)
+				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, spec, "")))
+			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
 		return &mockCmd{}
@@ -172,8 +182,8 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 	if len(c.composeArgs) != 0 {
 		t.Errorf("running container must skip compose, got %d calls: %v", len(c.composeArgs), c.composeArgs)
 	}
-	if inspectCalls != 1 {
-		t.Errorf("skipping compose must NOT skip the ready-wait, got %d health polls", inspectCalls)
+	if inspectCalls != 2 {
+		t.Errorf("running skip path must drift-check + ready-wait (2 inspects), got %d", inspectCalls)
 	}
 	wantCache, _ := CacheDir()
 	if cacheDir != wantCache {
@@ -459,13 +469,19 @@ func TestRunUpE_waitHealthyTimeoutSurfaces(t *testing.T) {
 
 // readyFlowDockerFn is the dockerFn used by the gate use-case tests: ps
 // reports the named container as (not) running, the health-wait inspect
-// answers healthy.
+// answers healthy, and the drift `{{json .}}` inspect (running && !build
+// only) answers a label-less sidecar whose config.json mount matches the
+// current cache dir — old-container form, silent when fields match.
 func readyFlowDockerFn(name string) func(context.Context, []string) runner {
 	return func(_ context.Context, arg []string) runner {
 		if slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
 		}
 		if slices.Contains(arg, "inspect") {
+			if slices.Contains(arg, "{{json .}}") {
+				cacheDir, _ := CacheDir()
+				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
 		return &mockCmd{}
@@ -606,5 +622,91 @@ func TestEnsureContainerReady_imageDaemonErrorFailsClosed(t *testing.T) {
 	}
 	if len(c.composeArgs) != 0 {
 		t.Errorf("fail-closed: compose must never run when the gate errors, got %d calls", len(c.composeArgs))
+	}
+}
+
+func TestEnsureContainerReady_runningStaleSidecarWarns(t *testing.T) {
+	// Running container + stale sidecar (older cache-dir config.json mount,
+	// old port binding, old stamp): compose stays skipped (zero
+	// invocations), the ready-wait still polls, and stderr names the drift
+	// with the exact recovery command.
+	_, root := mkWorkspace(t, `{"docker": {"codeflowPort": "9100"}}`)
+	setUpReady(t)
+	name := containerName(root)
+
+	var inspectCalls int
+	staleCache := filepath.Join(t.TempDir(), "cheasee-pi", "0.54.0")
+	staleJSON := mustJSON(codeflowInspectDoc(staleCache, strings.Repeat("0", 64), "9000"))
+	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
+		}
+		if slices.Contains(arg, "inspect") {
+			inspectCalls++
+			if slices.Contains(arg, "{{json .}}") {
+				return codeflowInspectRunner(staleJSON)
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+		}
+		return &mockCmd{}
+	})
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if len(c.composeArgs) != 0 {
+		t.Errorf("stale sidecar must still skip compose (warn-don't-act), got %d calls: %v", len(c.composeArgs), c.composeArgs)
+	}
+	if inspectCalls != 2 {
+		t.Errorf("running path must drift-check + ready-wait (2 inspects), got %d", inspectCalls)
+	}
+	for _, want := range []string{"stale", "config.json", "9000", "9100", "cheasee-pi start --build", "cheasee-pi down"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stale warning must carry %q, got: %q", want, stderr)
+		}
+	}
+}
+
+func TestRunUpE_runningStaleSidecarWarnsAndProceeds(t *testing.T) {
+	// runUpE on a running container with a stale sidecar: succeeds, exec
+	// still targets the MAIN container, the warning lands on stderr, and
+	// the compose count stays zero.
+	_, root := mkWorkspace(t, `{"docker": {"codeflowPort": "9100"}}`)
+	setUpRunMode(t, root, false)
+	exec := stubExecPIContainer(t)
+
+	staleCache := filepath.Join(t.TempDir(), "cheasee-pi", "0.54.0")
+	staleJSON := mustJSON(codeflowInspectDoc(staleCache, strings.Repeat("0", 64), "9000"))
+	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(containerName(root)), nil }}
+		}
+		if slices.Contains(arg, "inspect") {
+			if slices.Contains(arg, "{{json .}}") {
+				return codeflowInspectRunner(staleJSON)
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+		}
+		if slices.Contains(arg, "port") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("0.0.0.0:9000"), nil }}
+		}
+		return &mockCmd{}
+	})
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runUpE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runUpE: %v", err)
+		}
+	})
+	if len(c.composeArgs) != 0 {
+		t.Errorf("running container must skip compose even with a stale sidecar, got %d calls: %v", len(c.composeArgs), c.composeArgs)
+	}
+	if exec.name != containerName(root) {
+		t.Errorf("exec must still target the main container, got name=%q", exec.name)
+	}
+	if !strings.Contains(stderr, "stale") || !strings.Contains(stderr, "cheasee-pi start --build") {
+		t.Errorf("stale sidecar must warn with the recovery command, got: %q", stderr)
 	}
 }

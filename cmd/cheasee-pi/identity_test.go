@@ -414,6 +414,29 @@ func TestCodeflowHostPort_occupiedFallsBackToNextFree(t *testing.T) {
 	}
 }
 
+func TestExplicitCodeflowPort_settingsBeatsEnv(t *testing.T) {
+	// Settings docker.codeflowPort > env CODEFLOW_PORT; both absent → ""
+	// (the derived/probed port is excluded from the drift check).
+	root := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, root, `{"docker": {"codeflowPort": "9100"}}`)
+	t.Setenv("CODEFLOW_PORT", "9000")
+	if got := explicitCodeflowPort(root); got != "9100" {
+		t.Errorf("settings must win over env, got %q", got)
+	}
+
+	envOnly := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, envOnly, `{}`)
+	t.Setenv("CODEFLOW_PORT", "9000")
+	if got := explicitCodeflowPort(envOnly); got != "9000" {
+		t.Errorf("env must win over derivation, got %q", got)
+	}
+
+	t.Setenv("CODEFLOW_PORT", "")
+	if got := explicitCodeflowPort(envOnly); got != "" {
+		t.Errorf("both absent must yield \"\" (derived sentinel), got %q", got)
+	}
+}
+
 func TestCodeflowHostPort_rangeExhaustedFailsClosed(t *testing.T) {
 	saved := portProbe
 	portProbe = func(p int) error { return fmt.Errorf("in use") }
