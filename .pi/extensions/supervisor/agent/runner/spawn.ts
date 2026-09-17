@@ -16,8 +16,12 @@ export interface ChildHandle {
 	kill(sig: NodeJS.Signals): void;
 	/**
 	 * Kill the whole process group (detached session leader + descendants).
-	 * Idempotent per signal: a repeated signal is a no-op, so the watchdog's
-	 * SIGTERM → grace → SIGKILL escalation ladder can step through signals.
+	 * NOT gated on childExited: on Linux the process group outlives its
+	 * leader, so kill(-pid) must still reach descendants after the leader
+	 * exited (a SIGTERM'd pi whose opencode-go descendant ignores SIGTERM
+	 * must still get the SIGKILL escalation — audit finding #1). Idempotent
+	 * per signal: a repeated signal is a no-op, so the watchdog's SIGTERM →
+	 * grace → SIGKILL escalation ladder can step through signals.
 	 */
 	killGroup(sig: NodeJS.Signals): void;
 	/** Register a 'close' callback (fires only after stdio drains). */
@@ -76,14 +80,19 @@ export function spawnAgentChild(opts: SpawnAgentChildOptions): ChildHandle {
 			child.kill(sig);
 		},
 		killGroup: (sig) => {
-			if (childExited) return;
+			// Deliberately NOT gated on childExited: the leader's exit does not
+			// dissolve the process group — remaining members keep the pgid, so
+			// kill(-pid) still reaches them. Decoupling escalation from leader
+			// reaping is what bounds the "leader exits, descendant ignores
+			// SIGTERM" orphan case: the watchdog's SIGKILL step must still fire.
 			if (sig === lastGroupSignal) return; // idempotent per signal
 			lastGroupSignal = sig;
 			if (child.pid === undefined) return;
 			try {
 				process.kill(-child.pid, sig);
 			} catch (err: unknown) {
-				// ESRCH: the group already exited between the check and the kill
+				// ESRCH: the WHOLE group exited (leader AND descendants) —
+				// nothing left to signal.
 				if ((err as NodeJS.ErrnoException).code === "ESRCH") childExited = true;
 			}
 		},

@@ -127,10 +127,38 @@ export async function runAgentInProcess(
 	// Hoist cleanup variables
 	let flushTimer: NodeJS.Timeout | null = null;
 	let timedOut = false;
-	let unsubscribe: (() => void) | null = null;
+	// Hold the unsubscribe fn in a ref object: TS control-flow collapses
+	// `let x = null` assigned only inside a closure (the body IIFE below) to
+	// `never` at outer guards, making the finally cleanup uncallable — an
+	// object property keeps its declared type wherever it is read.
+	const unsubRef: { current: (() => void) | null } = { current: null };
 	let session: any = null;
 	let exitError: Error | null = null;
 	let deadlineTimer: NodeJS.Timeout | null = null;
+
+	// ── Wall-clock deadline, armed at ENTRY (audit finding #2) ──
+	// Model resolution, SDK loading and session creation all count against
+	// the configured bound — not just the prompt. The whole setup+prompt body
+	// races the deadline, so a hang inside ensureSDK/createAgentSession is
+	// bounded exactly like a hung provider call, and the losing side's late
+	// rejection is absorbed by Promise.race (no unhandled rejection).
+	// null → no deadline (configured 0 = no timeout); 0 → the dispatch
+	// deadline already expired → rejects on the next tick (hard 1× bound).
+	// The timer is a plainly REF'D setTimeout: while the run hangs, it is the
+	// handle that keeps the event loop alive until the deadline fires (an
+	// unref'd AbortSignal.timeout would let a bare hang exit the process early).
+	const deadlinePromise =
+		timeoutMs === null
+			? new Promise<never>(() => {})
+			: new Promise<never>((_resolve, reject) => {
+					deadlineTimer = setTimeout(() => {
+						timedOut = true;
+						if (session) {
+							session.abort();
+						}
+						reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
+					}, Math.max(0, timeoutMs));
+				});
 
 	const flushWidget = () => {
 		if (flushTimer) {
@@ -153,89 +181,81 @@ export async function runAgentInProcess(
 	};
 
 	try {
-		// Load SDK dynamically
-		await ensureSDK();
+		// Setup + prompt race the deadline as ONE body: the SDK load, session
+		// creation AND the prompt share the single absolute bound armed above.
+		await Promise.race([
+			(async () => {
+				// Load SDK dynamically
+				await ensureSDK();
 
-		// Build session manager (file-backed for session persistence)
-		// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
-		// not a file path. The SDK writes the session file to a default location.
-		// execute-agent.ts uses result.output for replay instead of replaySessionFile.
-		const sessionManager = _SessionManager
-			? _SessionManager.create(effectiveCwd)
-			: undefined;
+				// Build session manager (file-backed for session persistence)
+				// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
+				// not a file path. The SDK writes the session file to a default location.
+				// execute-agent.ts uses result.output for replay instead of replaySessionFile.
+				const sessionManager = _SessionManager
+					? _SessionManager.create(effectiveCwd)
+					: undefined;
 
-		// Create in-process agent session
-		const createAgentSession = _createAgentSession!;
+				// Create in-process agent session
+				const createAgentSession = _createAgentSession!;
 
-		// Guard: verify model resolved before creating session
-		if (!resolvedModel) {
-			throw new Error(
-				`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
-			);
-		}
-
-		session = await createAgentSession({
-			model: resolvedModel,
-			tools,
-			sessionManager,
-			thinkingLevel: thinkingLevel || undefined,
-			cwd: effectiveCwd,
-		});
-
-		// Set up subscription BEFORE calling session.prompt()
-		const pending = createForwardChatState();
-		unsubscribe = session.subscribe((event: Record<string, unknown>) => {
-			try {
-				const normalized = agentSessionEventToNormalizedEvent(event);
-				if (!normalized) return;
-
-				const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
-
-				const result = processNormalizedEvent(normalized, state, effectiveCwd);
-				if (result.workingChange) {
-					scheduleFlush();
-					const wm = getWorkingMessage(state, agentName);
-					ctx.ui.setWorkingMessage(wm ?? undefined);
+				// Guard: verify model resolved before creating session
+				if (!resolvedModel) {
+					throw new Error(
+						`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
+					);
 				}
 
-				// Forward key events as supervisor chat messages
-				if (pi) {
-					forwardNormalizedEventToChat(normalized, state, pi, agentName, pending, preThinkingText, effectiveCwd);
-				}
-			} catch (parseErr: unknown) {
-				const errMsg = String(parseErr).slice(0, 200);
-				log.warn("agent-stream", `Event processing error: ${errMsg}`);
-				getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
-			}
-		});
+				session = await createAgentSession({
+					model: resolvedModel,
+					tools,
+					sessionManager,
+					thinkingLevel: thinkingLevel || undefined,
+					cwd: effectiveCwd,
+				});
 
-		// Wall-clock deadline. The prompt races a deadline promise that
-		// rejects when the deadline timer fires — this bounds the run
-		// UNCONDITIONALLY even if a provider ignores session.abort() (the
-		// old Promise.race had the bound but leaked an unhandled rejection:
-		// the losing prompt promise rejected after the race settled). The
-		// no-op catch below absorbs that late rejection. The timer is a plain
-		// REF'D setTimeout: while the prompt hangs, it is the handle that
-		// keeps the event loop alive until the deadline fires (an unref'd
-		// AbortSignal.timeout would let a bare hang exit the process early).
-		// null/0 timeout → the deadline promise never settles, no timer.
-		const deadlinePromise =
-			timeoutMs === null || timeoutMs <= 0
-				? new Promise<never>(() => {})
-				: new Promise<never>((_resolve, reject) => {
-						deadlineTimer = setTimeout(() => {
-							timedOut = true;
-							if (session) {
-								session.abort();
-							}
-							reject(new Error(`Agent ${agentName} timed out after ${timeoutMs}ms`));
-						}, timeoutMs);
-					});
+				// Set up subscription BEFORE calling session.prompt()
+				const pending = createForwardChatState();
+				unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
+					try {
+						const normalized = agentSessionEventToNormalizedEvent(event);
+						if (!normalized) return;
 
-		const promptPromise = session.prompt(task);
-		promptPromise.catch(() => {}); // late rejection after an abort is handled
+						const preThinkingText =
+							normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
 
-		await Promise.race([promptPromise, deadlinePromise]);
+						const result = processNormalizedEvent(normalized, state, effectiveCwd);
+						if (result.workingChange) {
+							scheduleFlush();
+							const wm = getWorkingMessage(state, agentName);
+							ctx.ui.setWorkingMessage(wm ?? undefined);
+						}
+
+						// Forward key events as supervisor chat messages
+						if (pi) {
+							forwardNormalizedEventToChat(
+								normalized,
+								state,
+								pi,
+								agentName,
+								pending,
+								preThinkingText,
+								effectiveCwd,
+							);
+						}
+					} catch (parseErr: unknown) {
+						const errMsg = String(parseErr).slice(0, 200);
+						log.warn("agent-stream", `Event processing error: ${errMsg}`);
+						getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
+					}
+				});
+
+				// Await the prompt — its rejection (provider error OR the abort()
+				// from the deadline firing) settles the body race.
+				await session.prompt(task);
+			})(),
+			deadlinePromise,
+		]);
 	} catch (err: unknown) {
 		exitError = err instanceof Error ? err : new Error(String(err));
 	} finally {
@@ -244,9 +264,9 @@ export async function runAgentInProcess(
 			clearTimeout(deadlineTimer);
 			deadlineTimer = null;
 		}
-		if (unsubscribe) {
-			unsubscribe();
-			unsubscribe = null;
+		if (unsubRef.current) {
+			unsubRef.current();
+			unsubRef.current = null;
 		}
 		if (session && typeof session.dispose === "function") {
 			try {

@@ -582,6 +582,93 @@ describe("runAgentLoop — per-agent wall-clock timeout (issue #1710)", () => {
 			"no Research → Architecture transition (budget path would have continued)",
 		);
 	});
+
+	it("timed-out developer with a partial IMPLEMENTATION_COMPLETE marker still STOPS (audit #3)", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		// success=false + timedOut + a forward marker in the partial output.
+		// Before the fix, hadExplicitMarker=true let this bypass the Bug #711
+		// failure guard and transition Implementation → Audit on partial work.
+		const runner = createQueueRunner([
+			makeDevResult({
+				success: false,
+				timedOut: true,
+				configuredTimeoutMs: 60_000,
+				killReason: "timeout",
+				durationMs: 60_000,
+				textOutput:
+					"Implemented partially\nIMPLEMENTATION_COMPLETE\n(work incomplete — ran out of time)",
+				textOnly: "IMPLEMENTATION_COMPLETE",
+				errorOutput: "[Timeout: developer exceeded 60s (actual 60000ms)]",
+			}),
+		]);
+
+		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
+		assert.equal(runCtx.agentResults.length, 1);
+		assert.equal(runCtx.agentResults[0]?.status, "FAILED");
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`stopReason names the timeout, not a transition: ${runCtx.stopReason}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"NO Implementation → Audit transition despite the forward marker (unconditional stop)",
+		);
+	});
+
+	it("timed-out auditor with an approval marker still STOPS — no Done transition (audit #3)", async () => {
+		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
+		const wt = makeWorktree();
+		const portCalls: PortCall[] = [];
+		// success=false + timedOut + a partial approval marker. Before the
+		// fix the explicit-marker guard let this advance towards Done / PR
+		// creation on partial audit output.
+		const runner = createQueueRunner(
+			[
+				makeAuditResult({
+					success: false,
+					timedOut: true,
+					configuredTimeoutMs: 60_000,
+					killReason: "timeout",
+					durationMs: 60_000,
+					textOutput: "AUDIT_DECISION: APPROVED\n(partial audit — timed out before completion)",
+					textOnly: "AUDIT_DECISION: APPROVED",
+					errorOutput: "[Timeout: auditor exceeded 60s (actual 60000ms)]",
+				}),
+			],
+			"auditor",
+		);
+
+		const runCtx = buildRetryRunContext({
+			runner,
+			portCalls,
+			tmpCwd,
+			wt,
+			loopStatus: "Audit",
+		});
+		await runAgentLoop(runCtx);
+
+		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
+		assert.ok(
+			runCtx.stopReason?.includes("timed out"),
+			`stopReason names the timeout: ${runCtx.stopReason}`,
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "setItemStatusField").length,
+			0,
+			"NO Audit → Done transition despite the approval marker (unconditional stop)",
+		);
+		assert.equal(
+			portCalls.filter((c) => c.method === "postIssueComment").length,
+			0,
+			"no approval/verdict comment posted on a timed-out audit",
+		);
+	});
 });
 
 // ─── Tests: rejection-limit gate + auditFeedback (issue #1668) ────

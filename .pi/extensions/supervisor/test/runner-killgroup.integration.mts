@@ -100,4 +100,48 @@ describe("runner killGroup integration (real OS, Linux container)", () => {
 			}
 		},
 	);
+
+	it(
+		"group outlives its leader: SIGTERM'd leader exits, grandchild survives, kill(-pgid SIGKILL) still reaches it",
+		{ timeout: 10_000 },
+		async () => {
+			// POSIX premise the spawn.ts fix (finding #1) relies on: the
+			// leader's exit does NOT dissolve the process group. A watchdog
+			// gated on childExited would skip the SIGKILL escalation and orphan
+			// the descendant — this test proves kill(-pgid) works after reap.
+			const child = spawn("sh", ["-c", "sleep 300 & echo $!; wait"], {
+				stdio: ["ignore", "pipe", "pipe"],
+				detached: true,
+			});
+			assert.ok(child.pid !== undefined, "child spawned with a pid");
+
+			let sleepPid = 0;
+			child.stdout.on("data", (d: Buffer) => {
+				const parsed = parseInt(d.toString().trim(), 10);
+				if (Number.isInteger(parsed) && parsed > 0) sleepPid = parsed;
+			});
+
+			// Learn the grandchild pid before doing anything.
+			for (let i = 0; i < 50 && sleepPid === 0; i++) await sleep(20);
+			assert.ok(sleepPid > 0, `learned grandchild pid (got ${sleepPid})`);
+
+			// SIGTERM ONLY the leader — mirrors a pi child reaped before its
+			// opencode-go descendant (which ignores SIGTERM) is killed.
+			process.kill(child.pid!, "SIGTERM");
+
+			// Leader must exit while the grandchild keeps running.
+			for (let i = 0; i < 50 && isAlive(child.pid!); i++) await sleep(20);
+			assert.equal(isAlive(child.pid!), false, "leader exited after SIGTERM");
+			assert.equal(isAlive(sleepPid), true, "descendant survives the leader's exit (group still exists)");
+
+			// Group kill AFTER leader exit — must still reach the descendant.
+			process.kill(-child.pid!, "SIGKILL");
+			for (let i = 0; i < 50 && isAlive(sleepPid); i++) await sleep(20);
+			assert.equal(
+				isAlive(sleepPid),
+				false,
+				"SIGKILL to -pgid kills the descendant even though the leader already exited",
+			);
+		},
+	);
 });

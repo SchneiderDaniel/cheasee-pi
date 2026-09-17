@@ -30,6 +30,12 @@ interface MockSessionConfig {
 	abortError?: Error;
 	/** Set by the mock when session.abort() runs. */
 	abortCalled?: boolean;
+	/**
+	 * Delay (ms) before createAgentSession resolves — models SDK setup
+	 * (model resolution / SDK load / session creation) that must count
+	 * against the wall-clock bound (audit finding #2).
+	 */
+	setupDelayMs?: number;
 }
 
 let currentSessionConfig: MockSessionConfig = {};
@@ -109,10 +115,19 @@ function createMockSettingsManager() {
 
 const hasMockModule = typeof mock.module === "function";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 if (hasMockModule) {
 	mock.module("@earendil-works/pi-coding-agent", {
 		namedExports: {
-			createAgentSession: (opts: any) => createMockSession(),
+			createAgentSession: async (opts: any) => {
+				// Setup delay models SDK session creation time — must count
+				// against the wall-clock deadline armed at runner entry.
+				if (currentSessionConfig.setupDelayMs) {
+					await sleep(currentSessionConfig.setupDelayMs);
+				}
+				return createMockSession();
+			},
 			SessionManager: createMockSessionManager(),
 			SettingsManager: createMockSettingsManager(),
 			createBashToolDefinition: (_cwd: string) => ({}),
@@ -265,6 +280,57 @@ describe("runAgentInProcess — orchestration", () => {
 		// durationMs ≈ full wall-clock bound (hard 1×, not near-zero):
 		// allow sub-ms clock-quantization slack on the fired timer.
 		assert.ok(result.durationMs >= 55, `durationMs ≈ bound, got ${result.durationMs}`);
+	});
+
+	it("deadline covers SETUP: slow createAgentSession still bounded (audit finding #2)", async () => {
+		resetMocks();
+		// Session creation takes 200ms — far past the 50ms deadline. The
+		// timer is armed at runner ENTRY (before SDK load / session
+		// creation), so setup must NOT be excluded from the wall-clock bound.
+		currentSessionConfig = {
+			setupDelayMs: 200,
+			messages: [{ role: "assistant", content: [{ type: "text", text: "never reached" }] }],
+		};
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const startedAt = Date.now();
+		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 50);
+
+		assert.equal(result.timedOut, true, "setup starvation still times out");
+		assert.equal(result.success, false);
+		const elapsed = Date.now() - startedAt;
+		assert.ok(
+			elapsed <= 50 + 300,
+			`setup counted against the bound — total ≈50ms, got ${elapsed}`,
+		);
+		assert.ok(
+			elapsed >= 40,
+			`deadline fired at ≈50ms rather than after the 200ms setup, got ${elapsed}`,
+		);
+	});
+
+	it("deadline covers SETUP via dispatcher: runAgent passes the remaining dispatch deadline", async () => {
+		resetMocks();
+		// Same slow-setup scenario through runAgent: the dispatcher must pass
+		// the REMAINING time from the absolute dispatch deadline so the
+		// in-process watchdog covers setup, and the timeout result must be
+		// returned without a subprocess fallback (hard 1× bound).
+		currentSessionConfig = {
+			setupDelayMs: 200,
+			messages: [{ role: "assistant", content: [{ type: "text", text: "never reached" }] }],
+		};
+
+		const { runAgent } = await import("../agent/runner.ts");
+		const startedAt = Date.now();
+		const result = await runAgent(mockAgent as any, "test task", mockCtx, 50);
+
+		assert.equal(result.timedOut, true, "dispatcher returns the setup-time timeout result");
+		assert.equal(result.killReason, "timeout");
+		const elapsed = Date.now() - startedAt;
+		assert.ok(
+			elapsed <= 50 + 500,
+			`hard 1× bound incl. setup — total ≈50ms, got ${elapsed}`,
+		);
 	});
 
 	it("timeoutMs=null → no abort timer, prompt completes → success", async () => {

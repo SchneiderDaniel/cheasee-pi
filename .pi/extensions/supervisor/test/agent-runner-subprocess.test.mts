@@ -154,6 +154,9 @@ const mockCtx: any = {
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
+/** Sleep helper for watchdog timing assertions. */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Reset mock state before each test group */
 function resetMock(): void {
 	currentMockChild = null;
@@ -1544,6 +1547,53 @@ if (hasMockModule) {
 			const result = await resultPromise;
 			assert.equal(result.success, true);
 			assert.equal(result.killReason, undefined);
+		});
+
+		it("leader exits after SIGTERM but descendant holds pipe → SIGKILL still issued (no orphan)", async (t) => {
+			// Audit regression (finding #1): killGroup must NOT be gated on
+			// childExited — the process group outlives its leader on Linux, so
+			// the SIGKILL escalation has to reach descendants even after the
+			// direct child was reaped. Sequence: SIGTERM group kill ≈30ms, then
+			// the leader "exits" (childExited=true) while a descendant still
+			// holds the pipe ('close' never fires) → SIGKILL ≈110ms must STILL
+			// be issued → force-resolve ≈190ms bounds the run.
+			resetMock();
+			const killMock = t.mock.method(process, "kill", () => undefined);
+			const { runAgentSubprocess } = await import("../agent/runner.ts");
+			const resultPromise = runAgentSubprocess(
+				mockAgent as any,
+				"test task",
+				mockCtx,
+				30,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				0.08, // grace: SIGTERM≈30ms → SIGKILL≈110ms → force≈190ms
+			);
+
+			// Let the SIGTERM group kill land, then reap the leader only
+			// (childExited=true) — the descendant still holds the piped stdout.
+			await sleep(70);
+			currentMockChild?._ref.exitHandler?.(null, "SIGTERM");
+
+			// SIGKILL escalation window — must fire despite childExited.
+			await sleep(70);
+			const killCalls = killMock.mock.calls.map((c) => c.arguments);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGTERM"),
+				`SIGTERM group kill issued: ${JSON.stringify(killCalls)}`,
+			);
+			assert.ok(
+				killCalls.some((a) => a[0] === -12345 && a[1] === "SIGKILL"),
+				`SIGKILL escalation issued AFTER leader exit (group kills descendants): ${JSON.stringify(killCalls)}`,
+			);
+
+			// close never fires (pipe held) → force-resolve bounds the run.
+			const result = await resultPromise;
+			assert.equal(result.timedOut, true, "force-resolve still classifies the timeout");
+			assert.equal(result.success, false);
 		});
 	});
 }

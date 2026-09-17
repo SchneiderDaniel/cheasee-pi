@@ -56,18 +56,25 @@ export async function runAgent(
 	const startedAt = Date.now();
 	// Hard 1× bound: both the in-process attempt and the subprocess
 	// fallback share ONE absolute deadline. The in-process attempt gets the
-	// full window; the fallback arms its watchdog against the REMAINDER, so
-	// an expensive-but-throwing in-process run cannot restart the clock.
+	// REMAINING window (its watchdog arms at entry, so setup is covered);
+	// the fallback arms its watchdog against the REMAINDER, so an
+	// expensive-but-throwing in-process run cannot restart the clock.
 	const deadlineMs = timeoutMs === null ? null : startedAt + timeoutMs;
 	const remaining = (): number | null =>
 		deadlineMs === null ? null : Math.max(0, deadlineMs - Date.now());
 
 	try {
+		// Pass the REMAINING budget from the absolute dispatch deadline, not
+		// the original full timeoutMs (audit finding #2): the in-process
+		// runner arms its watchdog at entry, so model resolution / SDK loading
+		// / session creation count against the same bound as the prompt, and a
+		// deadline that expired before entry (remaining=0) fails immediately
+		// instead of starting a fresh timer.
 		const result = await runAgentInProcess(
 			agent,
 			task,
 			ctx,
-			timeoutMs,
+			remaining(),
 			cwd,
 			maxToolCalls,
 			agentTokenBudget,

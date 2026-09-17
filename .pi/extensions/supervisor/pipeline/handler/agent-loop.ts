@@ -437,6 +437,26 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			stopReason: nsStop,
 		});
 
+		// Timeout is an UNCONDITIONAL terminal failure (audit finding #3): a
+		// timed-out agent may have emitted a partial completion/approval
+		// marker before the deadline fired. Letting it through the Bug #711
+		// explicit-marker guard would advance the pipeline on partial output
+		// — a timed-out developer could transition Research→…→Audit or a
+		// timed-out auditor to Done despite success=false. Stop before ANY
+		// marker-based transition (empty-worktree, PR-approval, budget
+		// degradation), naming the agent + configured duration.
+		if (result.timedOut) {
+			stopReason = `Agent ${agent.config.name} timed out (configured ${Math.round((result.configuredTimeoutMs ?? 0) / 1000)}s, actual ${result.durationMs}ms)`;
+			ctx.ui.notify(`Agent ${agent.config.name} timed out. Pipeline stops.`, "warning");
+			getDebugLogger().error("handler", "Agent timed out, pipeline stopping", {
+				agentName: agent.config.name,
+				nextStatus,
+				configuredTimeoutMs: result.configuredTimeoutMs,
+				durationMs: result.durationMs,
+			});
+			break;
+		}
+
 		// Bug #1343: 3-way empty worktree classification (extracted to
 		// stages/empty-worktree.ts): when developer produced no commits,
 		// loop back to Implementation / close with named resolution /
@@ -512,17 +532,11 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// NOT inferForwardStatus (which is pipeline inference, not agent output).
 		// This prevents the crash-loop: developer crashes (0 tokens, 0 tools),
 		// inferForwardStatus returns "Audit", hadExplicitMarker=false → stop.
-		// Timeout failures stop with a stop reason naming agent + configured duration.
+		// result.timedOut already stopped unconditionally above (terminal
+		// failure) — this guard covers remaining non-timeout failures.
 		if (!result.success && !hadExplicitMarker) {
-			stopReason = result.timedOut
-				? `Agent ${agent.config.name} timed out (configured ${Math.round((result.configuredTimeoutMs ?? 0) / 1000)}s, actual ${result.durationMs}ms)`
-				: `Agent ${agent.config.name} failed — no explicit completion marker in output`;
-			ctx.ui.notify(
-				result.timedOut
-					? `Agent ${agent.config.name} timed out. Pipeline stops.`
-					: `Agent ${agent.config.name} failed. Pipeline stops.`,
-				"warning",
-			);
+			stopReason = `Agent ${agent.config.name} failed — no explicit completion marker in output`;
+			ctx.ui.notify(`Agent ${agent.config.name} failed. Pipeline stops.`, "warning");
 			getDebugLogger().error("handler", "Agent failed, pipeline stopping (no explicit marker)", {
 				agentName: agent.config.name,
 				nextStatus,
