@@ -491,6 +491,21 @@ export interface WorktreeEntry {
 }
 
 /**
+ * A worktree the guard proved removable, with the branch it is actually
+ * registered on — see `verifyRemovableWorktree`.
+ */
+export interface VerifiedWorktree {
+	/** Canonical absolute path safe to delete. */
+	path: string;
+	/**
+	 * `refs/heads/<name>` the matched worktree carries, or null when the entry
+	 * is bare/detached. The caller must not delete a branch for a null — the
+	 * branch name in the state file is untrusted and must match this identity.
+	 */
+	branch: string | null;
+}
+
+/**
  * Parse `git worktree list --porcelain -z` output.
  *
  * `-z` is required: each field is NUL-terminated and records are separated by
@@ -612,11 +627,14 @@ export async function fetchWorktreeAllowlist(
 
 /**
  * Decide whether `candidate` may be removed. Returns the canonical path to
- * remove, or an error describing why removal was refused.
+ * remove plus the branch the matched worktree actually carries, or an error
+ * describing why removal was refused.
  *
  * Every refusal is deliberate and fail-closed; the caller must skip all
  * destructive steps (worktree remove, branch delete, rm) and leave the state
- * file in place for manual cleanup.
+ * file in place for manual cleanup. The returned branch is the *verified*
+ * identity — the branch named by the untrusted state file is only safe to
+ * delete when it matches it.
  */
 export function verifyRemovableWorktree(
 	entries: WorktreeEntry[],
@@ -624,8 +642,12 @@ export function verifyRemovableWorktree(
 	baseDir: string,
 	candidate: string,
 	defaultBranch?: string | null,
-): Result<string> {
-	const reject = (why: string): Result<string> => ({ ok: false, error: why, source: "worktree" });
+): Result<VerifiedWorktree> {
+	const reject = (why: string): Result<VerifiedWorktree> => ({
+		ok: false,
+		error: why,
+		source: "worktree",
+	});
 
 	const canonicalBase = canonicalizePath(baseDir);
 	if (!canonicalBase) {
@@ -691,7 +713,7 @@ export function verifyRemovableWorktree(
 		return reject(`worktreePath ${candidate} carries the default branch ${defaultBranch}`);
 	}
 
-	return { ok: true, value: canonicalCandidate };
+	return { ok: true, value: { path: canonicalCandidate, branch: matched.branch } };
 }
 
 // ─── Delete Branch ───────────────────────────────────────────────

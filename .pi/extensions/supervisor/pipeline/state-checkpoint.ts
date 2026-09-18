@@ -457,6 +457,11 @@ export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): bo
  * - `fs.rmSync` fallback for the worktree directory, and only after
  *   `git worktree remove` reported success — an untrusted path never reaches
  *   argv, and a refused removal never falls back to a raw recursive delete.
+ * - `git branch -D` only runs for the branch the matched worktree is actually
+ *   registered on (and never for a detached entry) — the state file's branch
+ *   name cannot delete an unrelated branch. `git worktree prune` and
+ *   `git branch -D` non-zero exits are surfaced as warnings (prune is
+ *   non-blocking); a failed branch delete retains the state file.
  *
  * @param pi - ExtensionAPI for git commands
  * @param cwd - Repository root directory
@@ -588,7 +593,12 @@ export async function cleanupStalePipelineState(
 			);
 			continue;
 		}
-		const removePath = verdict.value;
+		const removePath = verdict.value.path;
+		// The branch the matched worktree is registered on — the only branch that
+		// may be deleted. `state.worktreeBranch` is untrusted and cannot be used
+		// on its own (a forged file could name a real worktree and an unrelated
+		// branch). null = detached/bare → no branch deletion.
+		const registeredBranch = verdict.value.branch;
 
 		notify.info(`Cleaning up stale worktree from issue #${state.issueNum} at ${removePath}`);
 		log.info("state-checkpoint", "Cleaning up stale worktree", {
@@ -598,13 +608,23 @@ export async function cleanupStalePipelineState(
 			checkpoint: state.checkpoint,
 		});
 
-		// Step 1: git worktree prune — sync admin state first
+		// Step 1: git worktree prune — sync admin state first. Non-blocking for the
+		// removal that follows, but a non-zero exit must reach the caller: pi.exec
+		// resolves {code} on failure (never rejects), so an ignored code silently
+		// hides a failed prune behind a success result.
 		try {
-			await pi.exec("git", ["worktree", "prune"], { cwd, timeout: 15000 });
+			const pruneRes = await pi.exec("git", ["worktree", "prune"], { cwd, timeout: 15000 });
+			if (pruneRes.code !== 0) {
+				const msg = pruneRes.stderr || pruneRes.stdout || "git worktree prune failed";
+				log.warn("state-checkpoint", `git worktree prune failed: ${msg}`);
+				warnings.push(`prune failed: ${msg}`);
+				anyError = true;
+			}
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log.warn("state-checkpoint", `git worktree prune failed: ${msg}`);
 			warnings.push(`prune failed: ${msg}`);
+			anyError = true;
 		}
 
 		// Step 2: git worktree remove --force --force (double force overrides
@@ -638,13 +658,40 @@ export async function cleanupStalePipelineState(
 			continue;
 		}
 
-		// Step 3: git branch -D (-- so a branch named like an option is not parsed)
-		try {
-			await pi.exec("git", ["branch", "-D", "--", state.worktreeBranch], { cwd, timeout: 10000 });
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log.warn("state-checkpoint", `git branch -D failed: ${msg}`);
-			warnings.push(`branch delete failed: ${msg}`);
+		// Step 3: git branch -D — only the branch the verifier saw registered on
+		// this worktree. `--` so a branch named like an option is not parsed.
+		// A detached entry has no branch, and a state branch that does not match
+		// the registration is forged or stale: skip, never delete.
+		let branchFailed = false;
+		if (registeredBranch === null) {
+			const msg = `branch delete skipped: worktree ${removePath} is detached`;
+			log.warn("state-checkpoint", msg);
+			warnings.push(msg);
+		} else if (registeredBranch !== `refs/heads/${state.worktreeBranch}`) {
+			const msg = `branch delete skipped: state names ${state.worktreeBranch}, worktree is registered on ${registeredBranch}`;
+			log.warn("state-checkpoint", msg);
+			warnings.push(msg);
+		} else {
+			try {
+				const branchRes = await pi.exec("git", ["branch", "-D", "--", state.worktreeBranch], {
+					cwd,
+					timeout: 10000,
+				});
+				if (branchRes.code !== 0) {
+					throw new Error(branchRes.stderr || branchRes.stdout || "git branch -D failed");
+				}
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				log.warn("state-checkpoint", `git branch -D failed: ${msg}`);
+				warnings.push(`branch delete failed: ${msg}`);
+				branchFailed = true;
+				notify.error(
+					`Failed to delete stale branch ${state.worktreeBranch} (issue #${state.issueNum}): ${msg}`,
+				);
+			}
+		}
+		if (branchFailed) {
+			anyError = true;
 		}
 
 		// Step 4: recursive delete fallback for leftover files. fs.rmSync, not
@@ -657,22 +704,32 @@ export async function cleanupStalePipelineState(
 			warnings.push(`rm fallback failed: ${msg}`);
 		}
 
-		// Step 5: Delete the state file itself
-		try {
-			if (existsSync(stateFile)) {
-				unlinkSync(stateFile);
+		// Step 5: Delete the state file itself — but never when a required step
+		// failed. A retained state file keeps the unfinished cleanup visible for
+		// manual handling instead of reporting success over a live stale branch.
+		if (branchFailed) {
+			notify.error(
+				`Retaining ${stateFile} — stale worktree cleanup for issue #${state.issueNum} did not complete`,
+			);
+		} else {
+			try {
+				if (existsSync(stateFile)) {
+					unlinkSync(stateFile);
+				}
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				log.warn("state-checkpoint", `Failed to delete stale state file: ${msg}`);
+				warnings.push(`state file delete failed: ${msg}`);
 			}
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log.warn("state-checkpoint", `Failed to delete stale state file: ${msg}`);
-			warnings.push(`state file delete failed: ${msg}`);
 		}
 
-		notify.info(`Cleaned up stale worktree from issue #${state.issueNum}`);
-		log.info("state-checkpoint", "Stale worktree cleanup complete", {
-			issueNum: state.issueNum,
-			worktreePath: removePath,
-		});
+		if (!branchFailed) {
+			notify.info(`Cleaned up stale worktree from issue #${state.issueNum}`);
+			log.info("state-checkpoint", "Stale worktree cleanup complete", {
+				issueNum: state.issueNum,
+				worktreePath: removePath,
+			});
+		}
 	}
 
 	// If all state files had errors, return failure

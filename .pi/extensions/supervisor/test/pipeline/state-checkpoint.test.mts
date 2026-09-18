@@ -17,7 +17,7 @@ import {
 	realpathSync,
 	renameSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
@@ -53,12 +53,10 @@ function createMockPi(
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
 			callLog.push({ cmd, args: args || [], opts: opts || {} });
 			const result = results[idx++] || { code: 0, stdout: "", stderr: "" };
-			if (result.code !== 0) {
-				return Promise.reject(
-					new Error(result.stderr || result.stdout || `Command failed: ${cmd}`),
-				);
-			}
-			return Promise.resolve(result);
+			// Production `pi.exec` RESOLVES with {code} on a non-zero exit — it never
+			// rejects. A rejecting mock would hide code-check bugs (the ignore-code
+			// audit findings), so mirror production here.
+			return Promise.resolve({ ...result, killed: false });
 		}) as ExtensionAPI["exec"],
 	} as ExtensionAPI;
 }
@@ -518,13 +516,30 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	/** `git worktree list --porcelain -z` stdout: main checkout first, then linked. */
-	function wtList(...paths: string[]): string {
-		return paths
-			.map(
-				(p) =>
-					`worktree ${p}\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/x\0\0`,
-			)
+	type WtSpec = string | { path: string; branch?: string | null; bare?: boolean };
+
+	/**
+	 * `git worktree list --porcelain -z` stdout: main checkout first, then linked.
+	 * A plain path string derives its registered branch from the directory
+	 * basename; pass a spec to pin the branch, make the entry bare, or make it
+	 * detached (`branch: null`).
+	 */
+	function wtList(...specs: WtSpec[]): string {
+		return specs
+			.map((raw) => {
+				const spec: { path: string; branch?: string | null; bare?: boolean } =
+					typeof raw === "string" ? { path: raw } : raw;
+				const fields = [`worktree ${spec.path}`];
+				if (spec.bare) {
+					fields.push("bare");
+				} else if (spec.branch === null) {
+					fields.push("HEAD 1111111111111111111111111111111111111111", "detached");
+				} else {
+					fields.push("HEAD 1111111111111111111111111111111111111111");
+					fields.push(`branch ${spec.branch ?? `refs/heads/${basename(spec.path)}`}`);
+				}
+				return fields.join("\0") + "\0\0";
+			})
 			.join("");
 	}
 
@@ -553,7 +568,11 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, // git worktree list --porcelain -z
+				{
+					code: 0,
+					stdout: wtList(mainWt, { path: wt, branch: "refs/heads/stale-branch" }),
+					stderr: "",
+				}, // git worktree list --porcelain -z
 				ok, // git worktree prune
 				ok, // git worktree remove --force --force
 				ok, // git branch -D --
@@ -706,6 +725,105 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		assert.ok(notifyCalls.some((c) => c.level === "error"));
 	});
 
+	it("state branch that does not match the registered worktree branch → branch -D skipped", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		// Forged/inconsistent checkpoint: a real worktree path paired with an
+		// unrelated branch name that must never be deleted.
+		const statePath = writeStale(wt, { worktreeBranch: "feature/unrelated" });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, { path: wt, branch: "refs/heads/stale-worktree" }),
+					stderr: "",
+				},
+				ok, // prune
+				ok, // remove
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		// The verified worktree is still removed...
+		assert.equal(existsSync(wt), false);
+		assert.equal(existsSync(statePath), false);
+		// ...but the unrelated branch name never reaches `git branch -D`.
+		assert.equal(
+			calls.some((c) => c.args[0] === "branch" && c.args[1] === "-D"),
+			false,
+			"mismatched state branch must not be deleted",
+		);
+		assert.equal(calls.length, 3);
+	});
+
+	it("detached worktree entry → branch -D skipped", async () => {
+		const wt = join(baseDir, "detached-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt, { worktreeBranch: "would-be-branch" });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[{ code: 0, stdout: wtList(mainWt, { path: wt, branch: null }), stderr: "" }, ok, ok],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(
+			calls.some((c) => c.args[0] === "branch"),
+			false,
+			"no branch may be deleted for a detached entry",
+		);
+		assert.equal(existsSync(wt), false);
+		assert.equal(existsSync(statePath), false);
+	});
+
+	it("git branch -D fails → failure surfaced and checkpoint retained", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt); // branch "stale-branch"
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, { path: wt, branch: "refs/heads/stale-branch" }),
+					stderr: "",
+				},
+				ok, // prune
+				ok, // remove
+				{ code: 1, stdout: "", stderr: "branch is not fully merged" }, // branch -D
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		// The failed branch delete is surfaced instead of reported as success...
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /branch delete failed/);
+		}
+		assert.ok(
+			notifyCalls.some(
+				(c) => c.level === "error" && c.msg.includes("Failed to delete stale branch"),
+			),
+		);
+		// ...the verified worktree removal still completed...
+		assert.equal(existsSync(wt), false);
+		// ...and the checkpoint is retained for manual cleanup.
+		assert.equal(existsSync(statePath), true, "checkpoint retained when required cleanup fails");
+	});
+
 	it("two stale state files → exactly one git worktree list exec", async () => {
 		const wt1 = join(baseDir, "wt-1");
 		const wt2 = join(baseDir, "wt-2");
@@ -716,7 +834,23 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[{ code: 0, stdout: wtList(mainWt, wt1, wt2), stderr: "" }, ok, ok, ok, ok, ok, ok],
+			[
+				{
+					code: 0,
+					stdout: wtList(
+						mainWt,
+						{ path: wt1, branch: "refs/heads/stale-branch" },
+						{ path: wt2, branch: "refs/heads/stale-branch" },
+					),
+					stderr: "",
+				},
+				ok,
+				ok,
+				ok,
+				ok,
+				ok,
+				ok,
+			],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -793,7 +927,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		assert.equal(existsSync(statePath), true);
 	});
 
-	it("git worktree prune failure is non-blocking — cleanup still completes", async () => {
+	it("git worktree prune failure is non-blocking — cleanup still completes, failure surfaced", async () => {
 		const wt = join(baseDir, "stale-worktree");
 		mkdirSync(wt);
 		const statePath = writeStale(wt);
@@ -801,7 +935,11 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: wtList(mainWt, wt), stderr: "" },
+				{
+					code: 0,
+					stdout: wtList(mainWt, { path: wt, branch: "refs/heads/stale-branch" }),
+					stderr: "",
+				},
 				{ code: 1, stdout: "", stderr: "prune failed" },
 				ok,
 				ok,
@@ -812,9 +950,14 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 
 		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
 
-		assert.equal(result.ok, true);
+		// Non-blocking: the removal still ran to completion...
 		assert.equal(existsSync(wt), false);
 		assert.equal(existsSync(statePath), false);
+		// ...but the failed prune is surfaced through the result, not swallowed.
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /prune failed/);
+		}
 	});
 
 	it("worktreeBase directory doesn't exist → no-op → returns ok", async () => {
@@ -934,7 +1077,19 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, {
+						path: wt,
+						branch: "refs/heads/worktree-git-issue-1503-crashed",
+					}),
+					stderr: "",
+				},
+				ok,
+				ok,
+				ok,
+			],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -964,7 +1119,19 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, {
+						path: wt,
+						branch: "refs/heads/worktree-git-issue-1503-own-crashed",
+					}),
+					stderr: "",
+				},
+				ok,
+				ok,
+				ok,
+			],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -987,7 +1154,19 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, {
+						path: wt,
+						branch: "refs/heads/worktree-git-issue-1503-orphan",
+					}),
+					stderr: "",
+				},
+				ok,
+				ok,
+				ok,
+			],
 			calls,
 		);
 		const { notify } = createMockNotify();

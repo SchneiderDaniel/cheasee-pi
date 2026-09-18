@@ -260,7 +260,43 @@ describe("verifyRemovableWorktree — Phase 2", () => {
 		const res = verifyRemovableWorktree([entry(mainWt), entry(wt)], repo, base, wt);
 		assert.equal(res.ok, true);
 		if (res.ok) {
-			assert.equal(res.value, wt);
+			assert.equal(res.value.path, wt);
+		}
+	});
+
+	it("returns the matched worktree's registered branch as the verified identity", () => {
+		const mainWt = join(root, "main-checkout");
+		const wt = join(base, "wt-1");
+		mkdirSync(mainWt);
+		mkdirSync(wt);
+
+		const res = verifyRemovableWorktree(
+			[entry(mainWt), entry(wt, { branch: "refs/heads/wt-1" })],
+			repo,
+			base,
+			wt,
+		);
+		assert.equal(res.ok, true);
+		if (res.ok) {
+			assert.equal(res.value.branch, "refs/heads/wt-1");
+		}
+	});
+
+	it("returns a null branch for a detached entry (no branch may be deleted)", () => {
+		const mainWt = join(root, "main-checkout");
+		const wt = join(base, "wt-1");
+		mkdirSync(mainWt);
+		mkdirSync(wt);
+
+		const res = verifyRemovableWorktree(
+			[entry(mainWt), entry(wt, { detached: true, branch: null })],
+			repo,
+			base,
+			wt,
+		);
+		assert.equal(res.ok, true);
+		if (res.ok) {
+			assert.equal(res.value.branch, null);
 		}
 	});
 
@@ -382,7 +418,7 @@ describe("verifyRemovableWorktree — Phase 2", () => {
 		);
 		assert.equal(res.ok, true);
 		if (res.ok) {
-			assert.equal(res.value, wt);
+			assert.equal(res.value.path, wt);
 		}
 	});
 
@@ -404,7 +440,7 @@ describe("verifyRemovableWorktree — Phase 2", () => {
 		);
 		assert.equal(res.ok, true);
 		if (res.ok) {
-			assert.equal(res.value, wt);
+			assert.equal(res.value.path, wt);
 		}
 	});
 
@@ -454,8 +490,8 @@ describe("verifyRemovableWorktree — Phase 2", () => {
 		);
 		assert.equal(res.ok, true);
 		if (res.ok) {
-			assert.equal(res.value, resolve(wt));
-			assert.equal(res.value, wt);
+			assert.equal(res.value.path, resolve(wt));
+			assert.equal(res.value.path, wt);
 		}
 	});
 });
