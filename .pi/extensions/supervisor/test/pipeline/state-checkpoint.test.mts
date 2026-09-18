@@ -14,6 +14,7 @@ import {
 	rmSync,
 	existsSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 } from "node:fs";
 import { resolve, join } from "node:path";
@@ -424,39 +425,138 @@ describe("readCheckpointFileFromPath — smoke tests", () => {
 
 // ─── Phase 3: cleanupStalePipelineState ───────────────────────────
 
-describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
+// ─── Phase 3: validator tightening (untrusted JSON trust boundary) ─
+
+describe("readCheckpointFileFromPath — untrusted-shape rejection (Phase 3)", () => {
 	let tmpDir: string;
-	let cwd: string;
+	let filePath: string;
 
 	beforeEach(() => {
-		tmpDir = mkdtempSync(join(tmpdir(), "state-checkpoint-cleanup-"));
-		cwd = tmpDir;
+		tmpDir = mkdtempSync(join(tmpdir(), "state-checkpoint-shape-"));
+		mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+		filePath = join(tmpDir, ".pi", "supervisor-state-746.json");
 	});
 
 	afterEach(() => {
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	it("cleanup found stale state file → cleans up worktree → returns ok", async () => {
-		// Create .pi/supervisor-state-746.json in main repo with stale state
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const staleState = createState({
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(), // 2h ago → stale
-			worktreePath: "/tmp/stale-worktree",
-			worktreeBranch: "stale-branch",
-		});
-		writeCheckpointFile(cwd, staleState);
+	function write(overrides: Record<string, unknown>): void {
+		writeFileSync(filePath, JSON.stringify({ ...createState(), ...overrides }), "utf-8");
+	}
 
-		// Create worktreeBase dir
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
+	it("rejects an empty worktreePath", () => {
+		write({ worktreePath: "" });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+
+	it("rejects a relative worktreePath", () => {
+		write({ worktreePath: "worktrees/x" });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+
+	it("rejects an empty worktreeBranch", () => {
+		write({ worktreeBranch: "" });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+
+	it("rejects non-integer issueNum (1.5, NaN)", () => {
+		write({ issueNum: 1.5 });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+		write({ issueNum: NaN }); // JSON.stringify → null
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+
+	it("rejects issueNum 0 and negative values", () => {
+		write({ issueNum: 0 });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+		write({ issueNum: -1 });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+
+	it("returns the state for a valid absolute worktreePath and integer issueNum > 0", () => {
+		write({});
+		const res = readCheckpointFileFromPath(filePath);
+		assert.notEqual(res, null);
+		assert.equal(res!.issueNum, 746);
+		assert.equal(res!.checkpoint, "pre-tsc");
+	});
+
+	it("regression: missing fields, malformed JSON and unknown checkpoint names still yield null", () => {
+		writeFileSync(filePath, '{"issueNum": 746}', "utf-8");
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+
+		writeFileSync(filePath, '{"issueNum": 746,', "utf-8");
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+
+		write({ checkpoint: "bogus" });
+		assert.equal(readCheckpointFileFromPath(filePath), null);
+	});
+});
+
+// ─── Phase 4: cleanupStalePipelineState ───────────────────────────
+
+describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
+	let tmpDir: string;
+	let cwd: string;
+	let baseDir: string;
+	let mainWt: string;
+
+	beforeEach(() => {
+		tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "state-checkpoint-cleanup-")));
+		// `worktreeBase: "../worktrees"` resolves against cwd, so the whole
+		// fixture tree lives under tmpDir: cwd=<tmp>/repo, base=<tmp>/worktrees.
+		cwd = join(tmpDir, "repo");
+		baseDir = join(tmpDir, "worktrees");
+		mainWt = join(tmpDir, "main-checkout");
+		mkdirSync(cwd, { recursive: true });
+		mkdirSync(baseDir, { recursive: true });
+		mkdirSync(mainWt, { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	/** `git worktree list --porcelain -z` stdout: main checkout first, then linked. */
+	function wtList(...paths: string[]): string {
+		return paths
+			.map(
+				(p) =>
+					`worktree ${p}\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/x\0\0`,
+			)
+			.join("");
+	}
+
+	const ok = { code: 0, stdout: "", stderr: "" };
+
+	/** Write a stale checkpoint for `wt` and return its state-file path. */
+	function writeStale(wt: string, overrides: Partial<SupervisorCheckpointState> = {}): string {
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeCheckpointFile(
+			cwd,
+			createState({
+				startedAt: new Date(Date.now() - 7_200_000).toISOString(), // 2h ago → stale
+				worktreePath: wt,
+				worktreeBranch: "stale-branch",
+				...overrides,
+			}),
+		);
+		return join(cwd, ".pi", `supervisor-state-${overrides.issueNum ?? 746}.json`);
+	}
+
+	it("stale in-base listed worktree → prune + remove + branch -D + rmSync fallback", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt);
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
-				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D
-				{ code: 0, stdout: "", stderr: "" }, // rm -rf
+				{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, // git worktree list --porcelain -z
+				ok, // git worktree prune
+				ok, // git worktree remove --force --force
+				ok, // git branch -D --
 			],
 			calls,
 		);
@@ -465,22 +565,172 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
 
 		assert.equal(result.ok, true);
-		// Should call git worktree prune, remove, branch -D, and rm -rf
-		assert.ok(calls.length >= 4, "should have at least 4 exec calls");
-		assert.deepEqual(calls[0].args, ["worktree", "prune"]);
-		assert.deepEqual(calls[1].args, [
-			"worktree",
-			"remove",
-			"--force",
-			"--force",
-			"/tmp/stale-worktree",
-		]);
-		assert.deepEqual(calls[2].args, ["branch", "-D", "stale-branch"]);
-		assert.deepEqual(calls[3].args, ["-rf", "/tmp/stale-worktree"]);
+		assert.equal(calls.length, 4);
+		assert.deepEqual(calls[0].args, ["worktree", "list", "--porcelain", "-z"]);
+		assert.deepEqual(calls[1].args, ["worktree", "prune"]);
+		assert.deepEqual(calls[2].args, ["worktree", "remove", "--force", "--force", wt]);
+		assert.deepEqual(calls[3].args, ["branch", "-D", "--", "stale-branch"]);
 
-		// State file should be deleted
-		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
+		// Fallback ran through fs.rmSync — the directory is gone and no
+		// untrusted path ever reached a command's argv.
+		assert.equal(existsSync(wt), false);
+		assert.ok(
+			calls.every((c) => c.cmd === "git"),
+			"only git commands are exec'd",
+		);
+
 		assert.equal(existsSync(statePath), false);
+	});
+
+	it("worktreePath outside the worktree base → no destructive step, state file left", async () => {
+		const outside = join(tmpDir, "main-checkout-copy");
+		mkdirSync(outside);
+		const statePath = writeStale(outside);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: wtList(mainWt, outside), stderr: "" }], calls);
+		const { notify, calls: notifyCalls } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1, "only the allowlist fetch — no destructive exec");
+		assert.equal(existsSync(outside), true);
+		assert.equal(existsSync(statePath), true, "state file left for manual cleanup");
+		assert.ok(
+			notifyCalls.some(
+				(c) => c.level === "error" && c.msg.includes("Skipping stale worktree cleanup"),
+			),
+			"warning emitted",
+		);
+	});
+
+	it("path inside base but absent from the worktree listing → destructive steps skipped", async () => {
+		const wt = join(baseDir, "unlisted-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: wtList(mainWt), stderr: "" }], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1);
+		assert.equal(existsSync(wt), true);
+		assert.equal(existsSync(statePath), true);
+	});
+
+	it("main-worktree entry inside the base is never removed even when listed", async () => {
+		const mainWtInBase = join(baseDir, "main-checkout");
+		mkdirSync(mainWtInBase);
+		const statePath = writeStale(mainWtInBase);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: wtList(mainWtInBase), stderr: "" }], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1);
+		assert.equal(existsSync(mainWtInBase), true);
+		assert.equal(existsSync(statePath), true);
+	});
+
+	it("worktree carrying the default branch is never removed (main checkout in the bare layout)", async () => {
+		// In the docker `--bare` + sibling-checkout layout the main checkout is an
+		// ordinary listed linked worktree whose only distinguishing mark is the
+		// branch it carries — the first listing entry is the bare dir itself.
+		const mainInBase = join(baseDir, "main");
+		mkdirSync(mainInBase);
+		const statePath = writeStale(mainInBase);
+
+		const listOut =
+			`worktree ${join(tmpDir, ".bare")}\0bare\0\0` +
+			`worktree ${mainInBase}\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/main\0\0`;
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: listOut, stderr: "" }], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1);
+		assert.equal(existsSync(mainInBase), true);
+		assert.equal(existsSync(statePath), true);
+	});
+
+	it("worktree list reports nothing → fail closed, no destructive step", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1);
+		assert.equal(existsSync(wt), true);
+		assert.equal(existsSync(statePath), true);
+	});
+
+	it("git worktree remove fails → no rm fallback, no branch delete, state file left", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: wtList(mainWt, wt), stderr: "" },
+				ok,
+				{ code: 1, stdout: "", stderr: "not a worktree" },
+				ok, // must never be reached
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 3, "no branch -D after a refused removal");
+		assert.equal(existsSync(wt), true, "no recursive fallback after a refused removal");
+		assert.equal(existsSync(statePath), true);
+		assert.ok(notifyCalls.some((c) => c.level === "error"));
+	});
+
+	it("two stale state files → exactly one git worktree list exec", async () => {
+		const wt1 = join(baseDir, "wt-1");
+		const wt2 = join(baseDir, "wt-2");
+		mkdirSync(wt1);
+		mkdirSync(wt2);
+		const p1 = writeStale(wt1, { issueNum: 1 });
+		const p2 = writeStale(wt2, { issueNum: 2 });
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[{ code: 0, stdout: wtList(mainWt, wt1, wt2), stderr: "" }, ok, ok, ok, ok, ok, ok],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(
+			calls.filter((c) => c.args[0] === "worktree" && c.args[1] === "list").length,
+			1,
+			"allowlist fetched once per run, not per state file",
+		);
+		assert.equal(existsSync(p1), false);
+		assert.equal(existsSync(p2), false);
 	});
 
 	it("no state files anywhere → no git calls → returns ok", async () => {
@@ -500,6 +750,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		// State from 30 seconds ago → not stale
 		const freshState = createState({
 			startedAt: new Date(Date.now() - 30_000).toISOString(),
+			worktreePath: join(baseDir, "fresh-worktree"),
 		});
 		writeCheckpointFile(cwd, freshState);
 
@@ -513,45 +764,10 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(calls.length, 0, "no exec calls when state is not stale");
 	});
 
-	it("state file found, stale, git worktree remove fails → catches error, continues → returns ok", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const staleState = createState({
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/stale-worktree",
-			worktreeBranch: "stale-branch",
-		});
-		writeCheckpointFile(cwd, staleState);
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
-
-		const calls: ExecCall[] = [];
-		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune — OK
-				{ code: 1, stdout: "", stderr: "worktree not found" }, // git worktree remove — FAILS
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D — OK
-				{ code: 0, stdout: "", stderr: "" }, // rm -rf — OK
-			],
-			calls,
-		);
-		const { notify } = createMockNotify();
-
-		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
-
-		// Should still succeed (best-effort)
-		assert.equal(result.ok, true);
-		assert.equal(calls.length, 4);
-		// State file should still be deleted
-		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
-		assert.equal(existsSync(statePath), false);
-	});
-
 	it("state file parse error (corrupted JSON) → skip file, no git calls → returns ok", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		const statePath = join(cwd, ".pi", "supervisor-state-746.json");
 		writeFileSync(statePath, "not-valid-json{", "utf-8");
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
@@ -563,9 +779,47 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(calls.length, 0, "no exec calls for corrupted state file");
 	});
 
+	it("a state file with a relative worktreePath is rejected before any destructive step", async () => {
+		const statePath = writeStale("worktrees/relative-wt");
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([], calls);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 0);
+		assert.equal(existsSync(statePath), true);
+	});
+
+	it("git worktree prune failure is non-blocking — cleanup still completes", async () => {
+		const wt = join(baseDir, "stale-worktree");
+		mkdirSync(wt);
+		const statePath = writeStale(wt);
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: wtList(mainWt, wt), stderr: "" },
+				{ code: 1, stdout: "", stderr: "prune failed" },
+				ok,
+				ok,
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(existsSync(wt), false);
+		assert.equal(existsSync(statePath), false);
+	});
+
 	it("worktreeBase directory doesn't exist → no-op → returns ok", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		// Don't create worktreeBase dir — it doesn't exist
+		rmSync(baseDir, { recursive: true, force: true }); // base not created yet
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
@@ -578,14 +832,8 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 	});
 
 	it("stale state's worktreePath matches currentWorktreePath → skip self-cleanup → returns ok", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const worktreePath = "/tmp/my-worktree";
-		const staleState = createState({
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath,
-			worktreeBranch: "my-branch",
-		});
-		writeCheckpointFile(cwd, staleState);
+		const worktreePath = join(baseDir, "my-worktree");
+		const statePath = writeStale(worktreePath, { worktreeBranch: "my-branch" });
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
@@ -601,6 +849,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 0, "no exec calls — self-cleanup skipped");
+		assert.equal(existsSync(statePath), true);
 	});
 
 	it("worktreeBase not configured → skip → returns ok", async () => {
@@ -615,42 +864,9 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(calls.length, 0);
 	});
 
-	it("all git commands fail → returns ok=false with aggregated error", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const staleState = createState({
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/stale-worktree",
-			worktreeBranch: "stale-branch",
-		});
-		writeCheckpointFile(cwd, staleState);
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
-
-		const calls: ExecCall[] = [];
-		// All commands fail
-		const pi = createMockPi(
-			[
-				{ code: 1, stdout: "", stderr: "prune failed" },
-				{ code: 1, stdout: "", stderr: "remove failed" },
-				{ code: 1, stdout: "", stderr: "branch delete failed" },
-				{ code: 1, stdout: "", stderr: "rm failed" },
-			],
-			calls,
-		);
-		const { notify } = createMockNotify();
-
-		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
-
-		// All commands failed, but state file still gets delete attempt
-		assert.equal(result.ok, true); // currently returns ok on partial failure
-		assert.equal(calls.length, 4);
-	});
-
-	it("finds state file in worktree subdirectory", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-
+	it("finds state file in worktree subdirectory and cleans it up", async () => {
 		// Create a worktree directory with its own .pi/supervisor-state-999.json
-		const wtDir = join(cwd, "../worktrees/some-worktree");
+		const wtDir = join(baseDir, "some-worktree");
 		mkdirSync(join(wtDir, ".pi"), { recursive: true });
 		const wtState = createState({
 			issueNum: 999,
@@ -663,12 +879,7 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
-				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D
-				{ code: 0, stdout: "", stderr: "" }, // rm -rf
-			],
+			[{ code: 0, stdout: wtList(mainWt, wtDir), stderr: "" }, ok, ok, ok],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -676,28 +887,24 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
 
 		assert.equal(result.ok, true);
-		// Should have cleaned up the worktree
 		assert.equal(calls.length, 4);
-		assert.deepEqual(calls[1].args, ["worktree", "remove", "--force", "--force", wtDir]);
+		assert.deepEqual(calls[2].args, ["worktree", "remove", "--force", "--force", wtDir]);
+		// The state file lived inside the worktree, so the fallback delete takes it out
 		assert.equal(existsSync(wtStatePath), false);
 	});
 
 	it("skips a stale checkpoint whose per-issue lock has a LIVE pid (parallel pipeline guard)", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		// Stale (2h) checkpoint for 1503 with a live lock (pid 1 = alive, not us)
-		const staleState = createState({
+		const wt = join(baseDir, "live-worktree-1503");
+		mkdirSync(wt);
+		const statePath = writeStale(wt, {
 			issueNum: 1503,
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/live-worktree-1503",
 			worktreeBranch: "worktree-git-issue-1503-live",
 		});
-		writeCheckpointFile(cwd, staleState);
 		writeFileSync(
 			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
@@ -708,34 +915,26 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 0, "no git calls — live pipeline owns the worktree");
 		// State file + worktree preserved
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), true);
+		assert.equal(existsSync(statePath), true);
+		assert.equal(existsSync(wt), true);
 	});
 
 	it("cleans a stale checkpoint whose per-issue lock has a DEAD pid (crash recovery intact)", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const staleState = createState({
+		const wt = join(baseDir, "crashed-worktree-1503");
+		mkdirSync(wt);
+		const statePath = writeStale(wt, {
 			issueNum: 1503,
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/crashed-worktree-1503",
 			worktreeBranch: "worktree-git-issue-1503-crashed",
 		});
-		writeCheckpointFile(cwd, staleState);
 		// Dead-PID lock — does not protect
 		writeFileSync(
 			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: 99999999, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
 
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
-
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
-				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D
-				{ code: 0, stdout: "", stderr: "" }, // rm -rf
-			],
+			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -744,37 +943,28 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 4);
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+		assert.equal(existsSync(statePath), false);
 	});
 
 	it("cleans a stale checkpoint whose per-issue lock has OUR OWN pid (production ordering: acquireRunLock runs before cleanup)", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		// Stale (2h) checkpoint for 1503 — a prior run crashed, leaving the
-		// checkpoint and a dead lock. The next run's acquireRunLock stole the
-		// dead lock and rewrote it with process.pid BEFORE cleanup runs, so the
-		// guard must not treat our own live PID as a protective live pipeline.
-		const staleState = createState({
+		// A prior run crashed, leaving the checkpoint and a dead lock. The next
+		// run's acquireRunLock stole the dead lock and rewrote it with
+		// process.pid BEFORE cleanup runs, so the guard must not treat our own
+		// live PID as a protective live pipeline.
+		const wt = join(baseDir, "own-crashed-worktree-1503");
+		mkdirSync(wt);
+		const statePath = writeStale(wt, {
 			issueNum: 1503,
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/own-crashed-worktree-1503",
 			worktreeBranch: "worktree-git-issue-1503-own-crashed",
 		});
-		writeCheckpointFile(cwd, staleState);
 		writeFileSync(
 			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: process.pid, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
 
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
-
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" }, // git worktree prune
-				{ code: 0, stdout: "", stderr: "" }, // git worktree remove --force
-				{ code: 0, stdout: "", stderr: "" }, // git branch -D
-				{ code: 0, stdout: "", stderr: "" }, // rm -rf
-			],
+			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -783,30 +973,21 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 4, "own-pid lock must NOT protect — cleanup proceeds");
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+		assert.equal(existsSync(statePath), false);
 	});
 
 	it("cleans a stale checkpoint with NO lock file present (crash removed lock, checkpoint survived)", async () => {
-		mkdirSync(join(cwd, ".pi"), { recursive: true });
-		const staleState = createState({
+		const wt = join(baseDir, "orphan-worktree-1503");
+		mkdirSync(wt);
+		const statePath = writeStale(wt, {
 			issueNum: 1503,
-			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/orphan-worktree-1503",
 			worktreeBranch: "worktree-git-issue-1503-orphan",
 		});
-		writeCheckpointFile(cwd, staleState);
 		// No lock file at all
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
-			[
-				{ code: 0, stdout: "", stderr: "" },
-				{ code: 0, stdout: "", stderr: "" },
-				{ code: 0, stdout: "", stderr: "" },
-				{ code: 0, stdout: "", stderr: "" },
-			],
+			[{ code: 0, stdout: wtList(mainWt, wt), stderr: "" }, ok, ok, ok],
 			calls,
 		);
 		const { notify } = createMockNotify();
@@ -815,29 +996,25 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 3)", () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 4);
-		assert.equal(existsSync(join(cwd, ".pi", "supervisor-state-1503.json")), false);
+		assert.equal(existsSync(statePath), false);
 	});
 
 	it("legacy bare-name supervisor-state.json with a live per-issue lock → skipped (guard via state.issueNum)", async () => {
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		// Legacy bare-name file (mid-upgrade orphan) referencing issue 1503
+		const wt = join(baseDir, "live-worktree-1503");
+		mkdirSync(wt);
 		const staleState = createState({
 			issueNum: 1503,
 			startedAt: new Date(Date.now() - 7_200_000).toISOString(),
-			worktreePath: "/tmp/live-worktree-1503",
+			worktreePath: wt,
 			worktreeBranch: "worktree-git-issue-1503-live",
 		});
-		writeFileSync(
-			join(cwd, ".pi", "supervisor-state.json"),
-			JSON.stringify(staleState),
-			"utf-8",
-		);
+		writeFileSync(join(cwd, ".pi", "supervisor-state.json"), JSON.stringify(staleState), "utf-8");
 		writeFileSync(
 			join(cwd, ".pi", "supervisor-run-1503.json"),
 			JSON.stringify({ pid: 1, issueNum: 1503, startedAt: new Date().toISOString() }),
 		);
-
-		mkdirSync(join(cwd, "../worktrees"), { recursive: true });
 
 		const calls: ExecCall[] = [];
 		const pi = createMockPi([], calls);
@@ -908,9 +1085,7 @@ describe("acquireRunLock / releaseRunLock", () => {
 		const acquired = acquireRunLock(cwd, 1503);
 		assert.equal(acquired.ok, true, "stale lock should be taken over");
 		// Our pid now owns it
-		const lock = JSON.parse(
-			readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"),
-		);
+		const lock = JSON.parse(readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"));
 		assert.equal(lock.pid, process.pid);
 		assert.equal(lock.issueNum, 1503);
 	});
@@ -973,9 +1148,7 @@ describe("acquireRunLock / releaseRunLock", () => {
 
 		const acquired = acquireRunLock(cwd, 1503);
 		assert.equal(acquired.ok, true);
-		const lock = JSON.parse(
-			readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"),
-		);
+		const lock = JSON.parse(readFileSync(join(cwd, ".pi", "supervisor-run-1503.json"), "utf-8"));
 		assert.equal(lock.pid, process.pid);
 	});
 

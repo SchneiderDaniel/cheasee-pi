@@ -31,14 +31,20 @@ import {
 	existsSync,
 	mkdirSync,
 	readdirSync,
+	rmSync,
 } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, isAbsolute, join } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../config/types.ts";
-import { resolveWorktreeBase } from "./worktree.ts";
+import {
+	fetchWorktreeAllowlist,
+	resolveWorktreeBase,
+	verifyRemovableWorktree,
+	type WorktreeEntry,
+} from "./worktree.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -163,16 +169,21 @@ function readCheckpointFileAtPath(filePath: string): SupervisorCheckpointState |
 	try {
 		const raw = readFileSync(filePath, "utf-8");
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		// The file lives in an agent-writable `.pi/`, so every field is untrusted
+		// input feeding a later `rm`. Reject anything that is not exactly the
+		// shape the pipeline writes: the old `typeof === "string"` check let
+		// `""`, relative and `/` paths through.
 		if (
-			typeof parsed.issueNum !== "number" ||
+			!Number.isInteger(parsed.issueNum) ||
+			(parsed.issueNum as number) <= 0 ||
 			typeof parsed.checkpoint !== "string" ||
+			!isCheckpointName(parsed.checkpoint) ||
 			typeof parsed.worktreePath !== "string" ||
+			!isAbsolute(parsed.worktreePath) ||
 			typeof parsed.worktreeBranch !== "string" ||
+			parsed.worktreeBranch === "" ||
 			typeof parsed.startedAt !== "string"
 		) {
-			return null;
-		}
-		if (!isCheckpointName(parsed.checkpoint as string)) {
 			return null;
 		}
 		return parsed as unknown as SupervisorCheckpointState;
@@ -429,6 +440,10 @@ export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): bo
  * For each stale checkpoint (age > maxAgeMs), removes the worktree and branch.
  * - Wraps each git command in try-catch so failure of one doesn't block others.
  * - Skips self-cleanup: never cleans a checkpoint whose `worktreePath` matches `currentWorktreePath`.
+ * - Removal guard: `state.worktreePath` comes from an agent-writable repo-local
+ *   JSON file, so it is only removed when `verifyRemovableWorktree` proves it
+ *   is inside the worktree base *and* a registered linked worktree. A refused
+ *   path logs a warning and leaves its state file for manual cleanup.
  * - Liveness guard: never cleans a checkpoint whose per-issue run lock is held
  *   by a DIFFERENT live process — with per-issue parallelism, run B's preflight
  *   must not prune run A's live worktree just because A's last checkpoint is
@@ -439,7 +454,9 @@ export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): bo
  *   stays covered). A dead-PID lock does not protect — the crash case still cleans.
  * - Non-blocking: if cleanup of one stale checkpoint fails, logs warning and continues to the next.
  * - Runs `git worktree prune` before `git worktree remove --force` so git admin data is synced.
- * - Includes `rm -rf` fallback for the worktree directory after git operations succeed.
+ * - `fs.rmSync` fallback for the worktree directory, and only after
+ *   `git worktree remove` reported success — an untrusted path never reaches
+ *   argv, and a refused removal never falls back to a raw recursive delete.
  *
  * @param pi - ExtensionAPI for git commands
  * @param cwd - Repository root directory
@@ -485,15 +502,29 @@ export async function cleanupStalePipelineState(
 	}
 
 	if (stateFiles.length === 0) {
-		log.info(
-			"state-checkpoint",
-			"No supervisor-state*.json files found — no stale state to clean",
-		);
+		log.info("state-checkpoint", "No supervisor-state*.json files found — no stale state to clean");
 		return { ok: true, value: undefined };
 	}
 
 	let anyError = false;
 	const warnings: string[] = [];
+
+	// The linked-worktree allowlist is fetched at most once per cleanup run,
+	// and only when a stale checkpoint actually reaches the removal guard.
+	let allowlist: WorktreeEntry[] | null = null;
+	const getAllowlist = async (): Promise<WorktreeEntry[]> => {
+		if (allowlist === null) {
+			const fetched = await fetchWorktreeAllowlist(pi, cwd);
+			if (!fetched.ok) {
+				log.warn(
+					"state-checkpoint",
+					`Could not read worktree allowlist (${fetched.error}) — skipping all removals`,
+				);
+			}
+			allowlist = fetched.ok ? fetched.value : [];
+		}
+		return allowlist;
+	};
 
 	for (const stateFile of stateFiles) {
 		const state = readCheckpointFileFromPath(stateFile);
@@ -535,13 +566,34 @@ export async function cleanupStalePipelineState(
 			continue;
 		}
 
-		// ── Stale checkpoint — clean up worktree ──
-		notify.info(
-			`Cleaning up stale worktree from issue #${state.issueNum} at ${state.worktreePath}`,
+		// ── Stale checkpoint — verify before any destructive step ──
+		// The state file is agent-writable, so removing a path it names is only
+		// safe once the path is proven to be a registered worktree inside the
+		// worktree base. Anything unverifiable is skipped and left in place.
+		const verdict = verifyRemovableWorktree(
+			await getAllowlist(),
+			cwd,
+			baseDir,
+			state.worktreePath,
+			config.defaultBranch,
 		);
+		if (!verdict.ok) {
+			log.warn("state-checkpoint", "Skipping cleanup — unverified worktree path", {
+				issueNum: state.issueNum,
+				worktreePath: state.worktreePath,
+				reason: verdict.error,
+			});
+			notify.error(
+				`Skipping stale worktree cleanup for issue #${state.issueNum}: ${verdict.error}. Remove ${stateFile} manually if it is stale.`,
+			);
+			continue;
+		}
+		const removePath = verdict.value;
+
+		notify.info(`Cleaning up stale worktree from issue #${state.issueNum} at ${removePath}`);
 		log.info("state-checkpoint", "Cleaning up stale worktree", {
 			issueNum: state.issueNum,
-			worktreePath: state.worktreePath,
+			worktreePath: removePath,
 			branch: state.worktreeBranch,
 			checkpoint: state.checkpoint,
 		});
@@ -557,33 +609,51 @@ export async function cleanupStalePipelineState(
 
 		// Step 2: git worktree remove --force --force (double force overrides
 		// the entrypoint.sh lock — single --force refuses locked worktrees)
+		let removed = false;
 		try {
-			await pi.exec("git", ["worktree", "remove", "--force", "--force", state.worktreePath], {
-				cwd,
-				timeout: 15000,
-			});
+			const removeRes = await pi.exec(
+				"git",
+				["worktree", "remove", "--force", "--force", removePath],
+				{
+					cwd,
+					timeout: 15000,
+				},
+			);
+			if (removeRes.code !== 0) {
+				throw new Error(removeRes.stderr || removeRes.stdout || "git worktree remove failed");
+			}
+			removed = true;
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log.warn("state-checkpoint", `git worktree remove --force --force failed: ${msg}`);
 			warnings.push(`remove failed: ${msg}`);
 		}
+		if (!removed) {
+			// Registration is stale but git refused the removal — the recursive
+			// delete or a branch deletion here could destroy live state, so leave
+			// everything (state file included) for manual cleanup.
+			notify.error(
+				`Could not remove stale worktree ${removePath} (issue #${state.issueNum}) — leaving it and its state file in place`,
+			);
+			continue;
+		}
 
-		// Step 3: git branch -D
+		// Step 3: git branch -D (-- so a branch named like an option is not parsed)
 		try {
-			await pi.exec("git", ["branch", "-D", state.worktreeBranch], { cwd, timeout: 10000 });
+			await pi.exec("git", ["branch", "-D", "--", state.worktreeBranch], { cwd, timeout: 10000 });
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log.warn("state-checkpoint", `git branch -D failed: ${msg}`);
 			warnings.push(`branch delete failed: ${msg}`);
 		}
 
-		// Step 4: rm -rf fallback for worktree directory
+		// Step 4: recursive delete fallback for leftover files. fs.rmSync, not
+		// `pi.exec("rm", ...)` — the path is untrusted and must never reach argv.
 		try {
-			// Use rm -rf via pi.exec
-			await pi.exec("rm", ["-rf", state.worktreePath], { timeout: 30000 });
+			rmSync(removePath, { recursive: true, force: true });
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
-			log.warn("state-checkpoint", `rm -rf worktree dir failed: ${msg}`);
+			log.warn("state-checkpoint", `rm fallback failed: ${msg}`);
 			warnings.push(`rm fallback failed: ${msg}`);
 		}
 
@@ -601,7 +671,7 @@ export async function cleanupStalePipelineState(
 		notify.info(`Cleaned up stale worktree from issue #${state.issueNum}`);
 		log.info("state-checkpoint", "Stale worktree cleanup complete", {
 			issueNum: state.issueNum,
-			worktreePath: state.worktreePath,
+			worktreePath: removePath,
 		});
 	}
 
