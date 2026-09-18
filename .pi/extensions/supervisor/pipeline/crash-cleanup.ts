@@ -45,6 +45,11 @@ export interface CrashCleanup {
  *
  * On failure, logs via debugLogger and still calls exit(0).
  * If worktreePath or worktreeBranch is missing, skips cleanup.
+ *
+ * Deliberately unguarded by `verifyRemovableWorktree`: `deps.worktreePath` is
+ * the path `createWorktree` returned for THIS run, not a value read back from
+ * an agent-writable state file. The guard exists for the untrusted state-file
+ * trust boundary in `cleanupStalePipelineState`.
  */
 export async function cleanupOnExit(signal: string, deps: CleanupOnExitDeps): Promise<void> {
 	if (deps.worktreePath && deps.worktreeBranch) {
