@@ -11,9 +11,9 @@ nav_order: 13
 
 [📄 README](../../.pi/extensions/agent-harness/README.md)
 
-**Why.** Stops token waste before it executes. Every incorrect tool call costs tokens. Every error loop burns context window. Agent Harness intercepts tool calls and blocks wasteful patterns: `bash | grep` redirects to `ripgrep_search`, error retries blocked after 2 consecutive failures, same-tool cascades blocked after 8+ consecutive calls, redundant reads return cached results within 6 turns.
+**Why.** Stops token waste before it executes. Every incorrect tool call costs tokens. Every error loop burns context window. Agent Harness intercepts tool calls and blocks wasteful patterns: `bash | grep` redirects to `ripgrep_search`, error retries blocked after 2 consecutive failures, same-tool cascades blocked after 8+ consecutive calls, redundant reads blocked with a hint within 6 turns (TUI).
 
-**How it works.** Hooks into pi's `tool_call` event and runs each call through a 7-step validation: pass-through check (ask_user etc.) → error tracking → cache invalidation on writes/edits → error retry guard (2+ errors) → read caching (6-turn TTL) → cascade detection (8+ consecutive) → tool mismatch blocks (bash|grep → ripgrep_search, bash cat → read). Configurable via `.pi/harness-config.json` with per-tool `cascadeThreshold` and `passThrough` flags. Caches reads across turns, re-read within TTL returns cached content without re-execution.
+**How it works.** Hooks into pi's `tool_call` event and runs each call through a 7-step validation: pass-through check (ask_user etc.) → error tracking → cache invalidation on writes/edits → error retry guard (2+ errors) → read caching (6-turn TTL) → cascade detection (8+ consecutive) → tool mismatch blocks (bash|grep → ripgrep_search, bash cat → read). Configurable via `.pi/harness-config.json` with per-tool `cascadeThreshold` and `passThrough` flags. Caches reads across turns as an existence marker; a re-read of the same path+offset+limit within the dual TTL (6 turns / 30 s) is blocked with a hint in TUI mode (non-TUI passes through) — it does not return cached bytes.
 
 **Location:** `.pi/extensions/agent-harness/`
 
@@ -45,11 +45,11 @@ flowchart TD
     B -- other tools --> D{Step 2: Error tracking}
     D --> E[Record error count for tool]
     E --> F{Step 3: Cache invalidation}
-    F -- write/edit --> G[Invalidate read cache for affected file]
+    F -- write/edit --> G[Clear entire read cache]
     F -- other --> H{Step 4: Error retry guard}
     H -- 2+ consecutive errors --> I[Block: same tool, same args]
     H -- < 2 errors --> J{Step 5: Read cache}
-    J -- same file read within 6 turns --> K[Return cached content]
+    J -- same path+offset+limit within 6 turns, TUI --> K[Block re-read: content already in agent context]
     J -- not cached --> L{Step 6: Cascade detection}
     L -- 8+ consecutive same tool --> M[Block: cascade detected]
     L -- below threshold --> N{Step 7: Tool mismatch}
@@ -72,7 +72,7 @@ The `bash-query.ts` module classifies bash commands via pure functions:
 ### Key Design Decisions
 
 - **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. User can adjust for high-cascade workflows.
-- **Read caching with 6-turn TTL** — `TimedMap` stores file contents for 6 turns after initial read. Subsequent reads within TTL return cached content without re-execution. Cache invalidated on write/edit to the same file.
+- **Read caching with dual TTL (6 turns / 30 s)** — `TimedMap` stores an existence marker (`{ turn, timestamp }`) keyed by `path|offset|limit` for 6 turns or 30 s wall-clock. A hit returns no bytes: in TUI mode it blocks the re-read with a hint (content already in the agent's context); non-TUI passes through. Any `write`/`edit` or file-modifying `bash` clears the entire cache.
 - **Error retry guard caps at 2** — First retry is reasonable (transient failure). Second retry is wasteful. Third+ consecutive same-tool same-args calls are blocked. Counter resets on turn_start.
 - **Cascade detection resets on turn_start** — Cascade counter (8+ consecutive same tool) resets each turn. Prevents long-running multi-tool sequences from false positives.
 - **Pass-through list** — `ask_user`, `ask_user_read`, registered tool registrations, and command handlers are exempt from all validation. Configurable via `passThrough` in harness config.
@@ -96,7 +96,7 @@ The `bash-query.ts` module classifies bash commands via pure functions:
 class HarnessState {
   errorTracker: Map<string, number>;       // toolName → consecutive error count
   cascadeCounter: Map<string, number>;     // toolName → consecutive call count
-  readCache: TimedMap<string, string>;     // filePath → contents (6 turn TTL)
+  readCache: TimedMap<string, ReadCacheEntry>; // (path|offset|limit) → { turn, timestamp } marker (6 turn / 30 s TTL)
   turnNumber: number;
 
   handleTurnStart(): void {

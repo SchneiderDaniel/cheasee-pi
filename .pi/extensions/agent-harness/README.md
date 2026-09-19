@@ -11,9 +11,9 @@ Every incorrect tool call costs tokens. Every error loop burns context window. E
 - `bash cat` → redirected to `read` (avoids spawning subshells)
 - Error retry loops → blocked after 2 consecutive errors on same tool
 - Same-tool cascades → 8+ consecutive `bash` calls are blocked with batching suggestion
-- Redundant reads → same file read within 6 turns returns cached result
+- Redundant reads → re-reading the same path+offset+limit within 6 turns (30 s) is blocked with a hint in TUI mode; non-TUI passes through
 
-Plus deterministic read caching across turns — re-reading the same file returns cached content without re-executing.
+Plus deterministic read caching across turns — the harness stores an existence marker per `path+offset+limit` and blocks a redundant re-read with a hint in TUI mode (non-TUI passes through). It stores no bytes: the content is assumed already in the agent's context.
 
 ## How it works
 
@@ -22,9 +22,9 @@ Agent Harness hooks into pi's `tool_call` event and runs every call through an 8
 0. **Force-bypass gate** — Per-call escape hatch: `input._harness.force: true` or `# bypass-harness` comment annotation skips all guards. Requires `hasUI: true` (interactive session).
 1. **Pass-through check** — Tools like `ask_user` pass through immediately (no validation overhead)
 2. **Error tracking** — Failed calls are recorded; after 2+ errors on same tool, further calls are blocked
-3. **Cache invalidation** — `write`/`edit` or file-modifying `bash` clears the read cache
+3. **Cache invalidation** — any `write`/`edit` or file-modifying `bash` clears the entire read cache
 4. **Error retry guard** — If the same tool errored ≥2 times, subsequent calls are blocked with redirect suggestion
-5. **Read cache** — Same path+offset+limit returns cached result (6-turn TTL, bypassed in non-TUI modes)
+5. **Read cache** — Same path+offset+limit within 6 turns / 30 s → block with hint in TUI; non-TUI passes through. Marker only, no content stored.
 6. **Cascade detection** — 8+ consecutive calls to the same tool triggers block with batching suggestion
 7. **Tool mismatch** — `bash | grep` → `ripgrep_search`, `bash cat` → `read`
 
@@ -71,11 +71,11 @@ flowchart TD
     D -- other tools --> E[Step 2: Error tracking]
     E --> F[Record error count for tool]
     F --> G{Step 3: Cache invalidation}
-    G -- write/edit --> H[Invalidate read cache for file]
+    G -- write/edit --> H[Clear entire read cache]
     G -- other --> I{Step 4: Error retry guard}
     I -- 2+ consecutive errors --> J[Block: same tool, same args]
     I -- < 2 errors --> K{Step 5: Read cache}
-    K -- same file read within 6 turns --> L[Return cached content]
+    K -- same path+offset+limit within 6 turns, TUI --> L[Block re-read: content already in agent context]
     K -- not cached --> M{Step 6: Cascade detection}
     M -- 8+ consecutive same tool --> N[Block: cascade detected]
     M -- below threshold --> O{Step 7: Tool mismatch}
@@ -97,7 +97,7 @@ flowchart TD
 
 - **Force-bypass (Escape Hatch)** — Two per-call mechanisms: `input._harness.force: true` on any tool, or `# bypass-harness` comment annotation on bash commands. Both require `hasUI: true` (interactive session) to prevent automated abuse. `_harness` is consumed and stripped by the harness before the tool sees it. Force-bypassed calls count toward the cascade counter (recorded as real calls). Parsing for the bash annotation is token-aware (quoted-string immunity) and best-effort (heredocs/continuations fall through to false; use `_harness.force` for those edge cases).
 - **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags.
-- **Read caching with 6-turn TTL** — `TimedMap` stores file contents for 6 turns. Cache invalidated on write/edit to same file.
+- **Read caching with dual TTL (6 turns / 30 s)** — `TimedMap` stores an existence marker (`{ turn, timestamp }`) keyed by `path|offset|limit` for 6 turns or 30 s wall-clock. A hit returns no bytes: in TUI mode it blocks the re-read with a hint (content already in the agent's context); non-TUI passes through. Any `write`/`edit` or file-modifying `bash` clears the entire cache.
 - **Error retry guard caps at 2** — First retry reasonable (transient). Second+ consecutive same-tool same-args blocked. Counter resets on turn_start.
 - **Cascade detection resets on turn_start** — Prevents long-running multi-tool sequences from false positives.
 - **Pass-through list** — `ask_user`, `ask_user_read`, registered tool registrations, command handlers exempt from validation.
