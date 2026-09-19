@@ -227,13 +227,28 @@ describe("hydrateSessionLoggerGate — fail-open error paths", () => {
 		assert.strictEqual(beginSession(gate), true);
 	});
 
-	it("wrong value type (logger is a string) → default-ON via ?? semantics", async () => {
+	for (const [label, value] of [
+		["string", "yes"],
+		["number", 1],
+		["object", { enabled: false }],
+		["array", []],
+	] as const) {
+		it(`non-boolean value (logger is ${label}) → default-ON, no throw`, async () => {
+			await writeStateRaw(dir, JSON.stringify({ logger: value }));
+			const gate = createSessionLoggerGate(true);
+			await hydrateSessionLoggerGate(gate, createExtensionStateStore(statePathFor(dir)));
+			// Malformed state must not violate the gate's boolean contract.
+			assert.strictEqual(gate.enabledForNextSession, true);
+			assert.strictEqual(beginSession(gate), true);
+		});
+	}
+
+	it("non-boolean persisted value overrides a default-OFF gate → default-ON", async () => {
 		await writeStateRaw(dir, JSON.stringify({ logger: "yes" }));
-		const gate = createSessionLoggerGate(true);
+		const gate = createSessionLoggerGate(false);
 		await hydrateSessionLoggerGate(gate, createExtensionStateStore(statePathFor(dir)));
-		// "yes" is not nullish, so it wins — but it is not `false`, and
-		// beginSession copies it verbatim. Guard: only a real `false` disables.
-		assert.notStrictEqual(gate.enabledForNextSession, null);
+		assert.strictEqual(gate.enabledForNextSession, true);
+		assert.strictEqual(beginSession(gate), true);
 	});
 });
 

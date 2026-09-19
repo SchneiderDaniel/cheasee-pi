@@ -34,8 +34,8 @@ export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string):
 }
 
 /**
- * Hydrate the gate from persisted state: a persisted value wins, an absent
- * key falls back to enabled (default-ON).
+ * Hydrate the gate from persisted state: a persisted boolean wins, any other
+ * value (absent, null, wrong type) falls back to enabled (default-ON).
  *
  * Must run before any `setKey`/`saveState` (the store caches after its first
  * read) and before `beginSession` promotes enabledForNextSession → sessionEnabled.
@@ -46,7 +46,8 @@ export async function hydrateSessionLoggerGate(
 	store: ExtensionStateStore,
 ): Promise<void> {
 	await store.ensureStateLoaded();
-	gate.enabledForNextSession = store.getKey("logger") ?? true;
+	const persisted = store.getKey("logger");
+	gate.enabledForNextSession = typeof persisted === "boolean" ? persisted : true;
 }
 
 /**
