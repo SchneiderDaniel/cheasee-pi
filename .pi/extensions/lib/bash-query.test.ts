@@ -298,6 +298,48 @@ describe("isBashFileModify", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// prose/comment sync — head is not redirected to read (#1728)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("prose/comment sync — head redirect claim (#1728)", () => {
+	const readmePath = resolve(import.meta.dirname, "../agent-harness/README.md");
+	const rtkPath = resolve(import.meta.dirname, "../../../docs/extensions/rtk.md");
+
+	it("agent-harness README redirect bullet drops 'head'", () => {
+		const line = readFileSync(readmePath, "utf-8")
+			.split("\n")
+			.find((l) => l.includes("redirected to `read`"));
+		assert.ok(line, "expected a README bullet mentioning redirect to read");
+		assert.ok(!line.includes("head"), `README redirect bullet still claims head: ${line}`);
+		assert.ok(line.includes("`bash cat`"), `README redirect bullet lost the cat claim: ${line}`);
+	});
+
+	it("rtk.md agent-harness row lists only cat/less/more", () => {
+		const line = readFileSync(rtkPath, "utf-8")
+			.split("\n")
+			.find((l) => l.includes("agent-harness") && l.includes("blocks"));
+		assert.ok(line, "expected the rtk.md agent-harness interaction row");
+		assert.ok(!line.includes("head"), `rtk.md still claims head: ${line}`);
+		assert.ok(!line.includes("tail"), `rtk.md still claims tail: ${line}`);
+		assert.ok(line.includes("less"), `rtk.md lost the less claim: ${line}`);
+	});
+
+	it("bash-query.ts isBashSearch JSDoc no longer cites cat/head", () => {
+		const content = readFileSync(resolve(import.meta.dirname, "./bash-query.ts"), "utf-8");
+		assert.ok(!content.includes("cat/head"), "stale cat/head token list remains in bash-query.ts");
+	});
+
+	it("bash-query.ts READ_REDIRECT_CMDS comment documents both head and tail exclusion", () => {
+		const content = readFileSync(resolve(import.meta.dirname, "./bash-query.ts"), "utf-8");
+		const commentStart = content.indexOf("Commands that should redirect to the `read` tool.");
+		assert.ok(commentStart >= 0, "expected READ_REDIRECT_CMDS doc comment");
+		const comment = content.slice(commentStart, content.indexOf("*/", commentStart));
+		assert.ok(comment.includes("head"), "READ_REDIRECT_CMDS comment should document head exclusion");
+		assert.ok(comment.includes("tail"), "READ_REDIRECT_CMDS comment should document tail exclusion");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // dead code removal — isBashSearchOrRead
 // ═══════════════════════════════════════════════════════════════════════
 
