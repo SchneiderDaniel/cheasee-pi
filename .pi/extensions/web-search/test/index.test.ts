@@ -12,6 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ExecFn, ExecResult } from "../types.ts";
 import webSearch, { formatResults } from "../index.ts";
+import { FRAME } from "../protocol.ts";
 import { Value } from "typebox/value";
 
 // ── Mock exec helpers ──
@@ -27,6 +28,9 @@ function mockExecSequence(results: ExecResult[]): ExecFn {
 	return async () =>
 		results[i++] ?? results[results.length - 1] ?? { code: 0, stdout: "", stderr: "" };
 }
+
+/** Frame a payload the way the Python producer does: <RS><json><RS> */
+const framed = (payload: unknown): string => `${FRAME}${JSON.stringify(payload)}${FRAME}`;
 
 // ── Test helper: register the real webSearch tool with a mock pi.exec ──
 
@@ -205,6 +209,55 @@ describe("web_search.execute — error paths with exec mocking", () => {
 });
 
 // ===========================================================================
+// execute — RS framing end-to-end
+// ===========================================================================
+
+describe("web_search.execute — RS framing", () => {
+	it("(use-case) framed snippet containing SEARCH_DONE resolves and is surfaced", async () => {
+		const snippet = "see the SEARCH_DONE marker";
+		let calls = 0;
+		const mockExec: ExecFn = async () => {
+			calls++;
+			if (calls === 1) return { code: 0, stdout: "ok", stderr: "" };
+			return {
+				code: 0,
+				stdout: framed({
+					ok: true,
+					results: [{ title: "Poisoned", url: "https://example.com", snippet }],
+				}),
+				stderr: "",
+			};
+		};
+		const tool = registerWebSearch(mockExec);
+		const result = await tool.execute("call1", { query: "framing-preserved" }, undefined, undefined, {
+			cwd: tmp("framing-preserved"),
+		});
+		assert.ok(result.content[0].text.includes(snippet), "snippet must survive framing");
+	});
+
+	it("(use-case) unframed stdout rejects with a framing error, not a SyntaxError", async () => {
+		const tool = registerWebSearch(
+			mockExecSequence([
+				{ code: 0, stdout: "ok", stderr: "" },
+				{ code: 0, stdout: 'SEARCH_OK\n{"ok":true,"results":[]}\nSEARCH_DONE', stderr: "" },
+			]),
+		);
+		await assert.rejects(
+			tool.execute("call1", { query: "unframed" }, undefined, undefined, { cwd: tmp("unframed") }),
+			(err: Error) => {
+				assert.ok(err.message.includes("Search failed:"), "should surface as Search failed");
+				assert.ok(
+					err.message.includes("No framed output found"),
+					"should name the framing mismatch",
+				);
+				assert.ok(!err.message.includes("SyntaxError"), "must not blame the JSON parser");
+				return true;
+			},
+		);
+	});
+});
+
+// ===========================================================================
 // formatResults — result formatting
 // ===========================================================================
 
@@ -326,7 +379,7 @@ describe("Cache functionality", () => {
 			];
 			return {
 				code: 0,
-				stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: searchResults })}\nSEARCH_DONE`,
+				stdout: framed({ ok: true, results: searchResults }),
 				stderr: "",
 			};
 		};
@@ -390,7 +443,7 @@ describe("Concurrency semaphore", () => {
 			if (cmd === "bash") {
 				return {
 					code: 0,
-					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [] })}\nSEARCH_DONE`,
+					stdout: framed({ ok: true, results: [] }),
 					stderr: "",
 				};
 			}
@@ -432,7 +485,7 @@ describe("Concurrency semaphore", () => {
 				}
 				return {
 					code: 0,
-					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [{ title: "Second", url: "https://example.com", snippet: "Second attempt" }] })}\nSEARCH_DONE`,
+					stdout: framed({ ok: true, results: [{ title: "Second", url: "https://example.com", snippet: "Second attempt" }] }),
 					stderr: "",
 				};
 			}
@@ -471,7 +524,7 @@ describe("Concurrency semaphore", () => {
 			if (cmd === "bash") {
 				return {
 					code: 0,
-					stdout: `SEARCH_OK\n${JSON.stringify({ ok: true, results: [{ title: "Seq", url: "https://example.com", snippet: "Sequential" }] })}\nSEARCH_DONE`,
+					stdout: framed({ ok: true, results: [{ title: "Seq", url: "https://example.com", snippet: "Sequential" }] }),
 					stderr: "",
 				};
 			}
@@ -512,9 +565,7 @@ describe("Concurrency semaphore", () => {
 				await bashGate;
 				return {
 					code: 0,
-					stdout: `SEARCH_OK
-${JSON.stringify({ ok: true, results: [] })}
-SEARCH_DONE`,
+					stdout: framed({ ok: true, results: [] }),
 					stderr: "",
 				};
 			}
@@ -572,9 +623,7 @@ SEARCH_DONE`,
 				await bashGate;
 				return {
 					code: 0,
-					stdout: `SEARCH_OK
-${JSON.stringify({ ok: true, results: [] })}
-SEARCH_DONE`,
+					stdout: framed({ ok: true, results: [] }),
 					stderr: "",
 				};
 			}

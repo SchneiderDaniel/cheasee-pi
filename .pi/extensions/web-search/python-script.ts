@@ -1,3 +1,8 @@
+import { FRAME } from "./protocol.ts";
+
+/** Python string literal for FRAME — JSON's escape is valid Python and emits one RS byte. */
+const FRAME_PY = JSON.stringify(FRAME);
+
 /**
  * Inline Python script that uses ddgs for web search.
  *
@@ -8,7 +13,7 @@
  * 1. Reads config from a JSON file (path passed as sys.argv[1])
  * 2. Creates DDGS instance with optional proxy/timeout
  * 3. Calls DDGS().text(query, max_results=N, backend="auto")
- * 4. Prints SEARCH_OK delimiter, JSON results, SEARCH_DONE delimiter
+ * 4. Wraps the JSON payload in ASCII RS (0x1E) frames from protocol.ts
  * 5. Catches exceptions and returns error JSON
  */
 
@@ -48,13 +53,9 @@ def main():
                 "snippet": r.get("body", ""),
             })
 
-        print("SEARCH_OK")
-        print(json.dumps({"ok": True, "results": out}))
-        print("SEARCH_DONE")
+        print(${FRAME_PY} + json.dumps({"ok": True, "results": out}) + ${FRAME_PY})
     except Exception as e:
-        print("SEARCH_OK")
-        print(json.dumps({"ok": False, "error": str(e)}))
-        print("SEARCH_DONE")
+        print(${FRAME_PY} + json.dumps({"ok": False, "error": str(e)}) + ${FRAME_PY})
 
 main()
 `;
