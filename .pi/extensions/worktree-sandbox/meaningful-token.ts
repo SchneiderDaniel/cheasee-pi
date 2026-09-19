@@ -37,9 +37,29 @@ export function isPathWithinSandbox(absolutePath: string, sandboxRoot: string): 
 	return rel !== ".." && !rel.startsWith(".." + sep);
 }
 
+/**
+ * Device files whose writes are discarded and reads return EOF — exempt from
+ * containment so the universal `2>/dev/null` idiom isn't a false positive.
+ *
+ * Deliberately an exact enumerated set, never a `/dev/` prefix grant: raw
+ * devices (`/dev/sda`, `/dev/mem`, `/dev/kmsg`) and fd aliases
+ * (`/dev/stdout`, `/dev/stderr`, `/dev/fd/N` — which write through to the
+ * process fd) are real write targets and stay sandboxed.
+ */
+const SIDE_EFFECT_FREE_DEVICES: ReadonlySet<string> = new Set(["/dev/null"]);
+
+/** True when `resolved` is an allow-listed side-effect-free device file. */
+function isSideEffectFreeDevice(resolved: string): boolean {
+	return SIDE_EFFECT_FREE_DEVICES.has(resolved);
+}
+
 export function isPathSafe(target: string, sandboxRoot: string): boolean {
 	if (target.startsWith("/")) {
-		return isPathWithinSandbox(target, sandboxRoot);
+		// Match on the resolved path (`/dev/null/`, `/dev/../dev/null` collapse
+		// to `/dev/null`; `/dev/nullable` and `/dev/null/../etc/passwd` do not).
+		const resolved = resolvePath(target);
+		if (isSideEffectFreeDevice(resolved)) return true;
+		return isPathWithinSandbox(resolved, sandboxRoot);
 	}
 	const resolved = resolvePath(sandboxRoot, target);
 	return isPathWithinSandbox(resolved, sandboxRoot);

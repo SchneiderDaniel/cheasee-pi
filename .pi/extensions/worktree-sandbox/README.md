@@ -58,6 +58,7 @@ tool_call(event)
 | `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
 | `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
 | `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
+| `> /dev/nullable` / `<sb>/dev/null` | Not a device: exact-match on resolved path, not prefix |
 
 ## Install
 
@@ -137,6 +138,7 @@ flowchart TD
 | `/absolute/outside` | absolute (outside) | Blocked |
 | `../../outside` | traversal | Blocked |
 | `<sandbox>/../../../../etc/passwd` | absolute traversal | Blocked (resolved before check) |
+| `/dev/null` | side-effect-free device | Allow-listed (resolved `isPathSafe` exemption) |
 | Directory for `read` | any | Blocked, suggest `bash ls` |
 
 ### Threat Model
@@ -156,6 +158,13 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   the trust gate (untrusted projects skip sandbox entirely) mitigates the
   practical exposure. If physical containment is ever required, apply
   `fs.realpathSync` to the deepest existing ancestor and re-check containment.
+- **Device exemption** — `isPathSafe` allow-lists exactly `/dev/null` on the
+  *resolved* target (`/dev/null/` and `/dev/../dev/null` collapse to it;
+  `/dev/nullable` and `/dev/null/../etc/passwd` do not). The set is enumerated,
+  not a `/dev/` prefix: raw devices (`/dev/sda`, `/dev/mem`, `/dev/kmsg`) and fd
+  aliases (`/dev/stdout`, `/dev/stderr`, `/dev/fd/N`, which write through to the
+  process fd) stay blocked. The exemption applies to bash detectors only —
+  `read`/`write`/`edit` to `/dev/null` fail closed.
 - **TOCTOU** — The interceptor's `statSync` check and the tool's later open are
   separate syscalls (CWE-367). A concurrent attacker could swap a path between
   check and use. The resolve-first fix closes the deterministic escape; the
