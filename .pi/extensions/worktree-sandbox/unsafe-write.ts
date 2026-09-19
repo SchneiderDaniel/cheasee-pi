@@ -14,8 +14,23 @@ import {
 	hasShellExpansion,
 	isCommandStart,
 	isPathSafe,
+	isSideEffectFreeDevice,
 	tokenizeCommandPreservingExpansions,
 } from "./meaningful-token.ts";
+
+/**
+ * Content-sink safety: a target is safe when it is inside the sandbox OR is an
+ * enumerated side-effect-free device (`/dev/null`) — the bytes are discarded
+ * and opening it for output neither creates, renames, nor re-links a directory
+ * entry. Used only by pure content sinks (redirects, `dd of=`, `tee`).
+ *
+ * Operations that can mutate the `/dev/null` directory entry or its metadata
+ * (`cp --remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`, `touch`)
+ * must use `isPathSafe` directly.
+ */
+function isContentSinkSafe(target: string, sandboxRoot: string): boolean {
+	return isSideEffectFreeDevice(target) || isPathSafe(target, sandboxRoot);
+}
 
 /**
  * Redirect branch: `> file` / `>> file` — the next meaningful token after
@@ -36,7 +51,7 @@ function checkRedirect(
 		case "glob":
 			return tokenResult.pattern || command;
 		case "token":
-			return checkWriteToken(tokenResult.value, command, sandboxRoot);
+			return checkWriteToken(tokenResult.value, command, sandboxRoot, true);
 	}
 }
 
@@ -50,9 +65,16 @@ function checkRedirect(
  *   (`-t DIR`, `-tDIR`, `--target-directory=DIR`)
  * - `valueOptions` → option whose following token is a value, not a path
  *   (prevents false blocks such as `touch -r /etc/hosts ok.txt`)
+ * - `contentSink` → every operand is a pure byte sink, so a side-effect-free
+ *   device (`/dev/null`) is a legal destination. True only for `tee`, whose
+ *   destination open neither unlinks nor renames a directory entry. `cp` is
+ *   excluded even though it usually only truncates: `--remove-destination`
+ *   unlinks the destination before opening it, and `-b`/`--backup`/`--suffix`
+ *   rename it — so it is not side-effect-free for `/dev/null`.
  */
 type WriteGrammar = {
 	operands: "all" | "last";
+	contentSink?: true;
 	targetDirectoryOptions?: readonly string[];
 	valueOptions?: readonly string[];
 };
@@ -73,7 +95,7 @@ const WRITE_COMMAND_GRAMMARS: Record<string, WriteGrammar> = {
 		targetDirectoryOptions: ["-t", "--target-directory"],
 		valueOptions: ["-m", "-o", "-g", "-S", "--mode", "--owner", "--group", "--suffix"],
 	},
-	tee: { operands: "all" }, // -a/-i/-p/--output-error take no separate value
+	tee: { operands: "all", contentSink: true }, // -a/-i/-p/--output-error take no separate value
 	touch: { operands: "all", valueOptions: ["-d", "-r", "-t", "--date", "--reference", "--time"] },
 };
 
@@ -150,10 +172,7 @@ function collectWriteTargets(
 				const value = t.slice(eq + 1);
 				if (grammar.targetDirectoryOptions?.includes(name)) {
 					explicit.push(value);
-				} else if (
-					grammar.valueOptions?.includes(name) &&
-					valueNeedsArityGuard(value)
-				) {
+				} else if (grammar.valueOptions?.includes(name) && valueNeedsArityGuard(value)) {
 					// Glob/expansion value may expand to several words. Only the
 					// first is the option's value; the rest land in operand
 					// position, so the value must fail closed.
@@ -236,7 +255,7 @@ function checkWriteCommand(
 	sandboxRoot: string,
 ): string | null {
 	for (const target of collectWriteTargets(tokens, index + 1, grammar)) {
-		const result = checkWriteToken(target, command, sandboxRoot);
+		const result = checkWriteToken(target, command, sandboxRoot, grammar.contentSink === true);
 		if (result !== null) return result;
 	}
 	return null;
@@ -288,13 +307,13 @@ function checkLn(
 	if (isSymlink) {
 		// First non-flag arg is the symlink target (escape-vector guard).
 		if (firstNonFlag !== null) {
-			const result = checkWriteToken(firstNonFlag, command, sandboxRoot);
+			const result = checkWriteToken(firstNonFlag, command, sandboxRoot, false);
 			if (result !== null) return result;
 		}
 		// Last non-flag arg is the link name (or destination directory) —
 		// the actual directory entry `ln` creates. Validate it too.
 		if (lastNonFlag !== null && lastNonFlag !== firstNonFlag) {
-			const result = checkWriteToken(lastNonFlag, command, sandboxRoot);
+			const result = checkWriteToken(lastNonFlag, command, sandboxRoot, false);
 			if (result !== null) return result;
 		}
 		return null;
@@ -326,7 +345,7 @@ function checkDd(
 			// Extract the path from of=<path>
 			const ofMatch = t.match(/^of=(.+)/);
 			if (ofMatch) {
-				const result = checkWriteToken(ofMatch[1]!, command, sandboxRoot);
+				const result = checkWriteToken(ofMatch[1]!, command, sandboxRoot, true);
 				if (result !== null) return result;
 			}
 		}
@@ -344,16 +363,26 @@ function checkDd(
 const UNRESOLVED_VAR_ONLY = /^\$[A-Za-z_0-9*@#?$!-]*$/;
 
 /**
- * Check a path token for write safety (redirect target, dd of=, etc.).
+ * Check a path token for write safety.
+ *
+ * `contentSink` is true for pure content sinks (redirect target, `dd of=`,
+ * `tee` operands), which may target a side-effect-free device; false for
+ * directory-entry destinations (`cp`/`mv`/`touch`/`install`/`ln`), which may not.
  */
-function checkWriteToken(token: string, command: string, sandboxRoot: string): string | null {
+function checkWriteToken(
+	token: string,
+	command: string,
+	sandboxRoot: string,
+	contentSink: boolean,
+): string | null {
 	if (token === "" || UNRESOLVED_VAR_ONLY.test(token)) {
 		return command; // Unresolved variable
 	}
 	if (hasShellExpansion(token)) {
 		return token;
 	}
-	if (!isPathSafe(token, sandboxRoot)) {
+	const safe = contentSink ? isContentSinkSafe(token, sandboxRoot) : isPathSafe(token, sandboxRoot);
+	if (!safe) {
 		return `outside sandbox: ${token}`;
 	}
 	return null;

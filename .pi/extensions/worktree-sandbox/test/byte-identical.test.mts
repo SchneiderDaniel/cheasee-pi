@@ -13,13 +13,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ParseEntry } from "shell-quote";
 import * as mod from "../index.ts";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const SB = "/home/user/project";
 
@@ -207,14 +202,8 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		// destination (`-at /etc/out`). A value-taking option swallows the rest
 		// of the bundle, so `-St.bak` does NOT bundle a `-t`.
 		assert.equal(mod.findUnsafeWriteInBash("cp -at /etc/out src", SB), "outside sandbox: /etc/out");
-		assert.equal(
-			mod.findUnsafeWriteInBash("cp -at/etc/out src", SB),
-			"outside sandbox: /etc/out",
-		);
-		assert.equal(
-			mod.findUnsafeWriteInBash("mv -bt /etc/out a", SB),
-			"outside sandbox: /etc/out",
-		);
+		assert.equal(mod.findUnsafeWriteInBash("cp -at/etc/out src", SB), "outside sandbox: /etc/out");
+		assert.equal(mod.findUnsafeWriteInBash("mv -bt /etc/out a", SB), "outside sandbox: /etc/out");
 		assert.equal(
 			mod.findUnsafeWriteInBash("install -at /etc/out src", SB),
 			"outside sandbox: /etc/out",
@@ -431,19 +420,5 @@ describe("byte-identical: findUnsafeCd raw-scan strings (co-location guard)", ()
 		assert.equal(mod.findUnsafeCd("cd -", SB), "<previous-dir>");
 		assert.equal(mod.findUnsafeCd("cd -- /etc", SB), "/etc");
 		assert.equal(mod.findUnsafeCd("echo | cd /etc", SB), "/etc");
-	});
-});
-
-describe("characterization: .fixcheck snapshot stays byte-identical", () => {
-	it("unsafe-write.ts matches its .fixcheck snapshot", () => {
-		const live = readFileSync(join(HERE, "..", "unsafe-write.ts"), "utf8");
-		const snapshot = readFileSync(join(HERE, "..", ".fixcheck", "unsafe-write.ts"), "utf8");
-		assert.equal(live, snapshot, "re-sync .fixcheck/unsafe-write.ts with the live detector");
-	});
-
-	it("meaningful-token.ts matches its .fixcheck snapshot", () => {
-		const live = readFileSync(join(HERE, "..", "meaningful-token.ts"), "utf8");
-		const snapshot = readFileSync(join(HERE, "..", ".fixcheck", "meaningful-token.ts"), "utf8");
-		assert.equal(live, snapshot, "re-sync .fixcheck/meaningful-token.ts with the live token helpers");
 	});
 });

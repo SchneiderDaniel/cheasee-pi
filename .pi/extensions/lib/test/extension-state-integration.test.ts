@@ -156,6 +156,16 @@ describe("ExtensionState store — shared state file", () => {
 		assert.equal(store2.getKey("logger"), true);
 	});
 
+	it("ExtensionState round-trip: logger false survives save + reload", async () => {
+		const store = createExtensionStateStore(statePath);
+		store.setKey("logger", false);
+		await store.saveState();
+
+		const store2 = createExtensionStateStore(statePath);
+		await store2.ensureStateLoaded();
+		assert.equal(store2.getKey("logger"), false);
+	});
+
 	it("ExtensionState fallback: getKey('logger') ?? true returns true when unset", () => {
 		const store = createExtensionStateStore(statePath);
 		const value = store.getKey("logger") ?? true;
