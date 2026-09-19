@@ -8,6 +8,7 @@
 
 import assert from "node:assert";
 import { describe, it, beforeEach } from "node:test";
+import { resolve } from "node:path";
 import structuralAnalyzer from "../index.ts";
 import { clearResultCache } from "../cache.ts";
 
@@ -79,7 +80,7 @@ function makePi(overrides?: {
 /** Execute a registered tool's execute function with given params. */
 async function executeTool(
 	pi: any,
-	params: { pattern: string; language?: string },
+	params: { pattern: string; language?: string; directory?: string },
 	options?: { signal?: AbortSignal; cwd?: string; onUpdate?: any },
 ): Promise<any> {
 	const tool = pi.__getRegisteredTool();
@@ -811,5 +812,65 @@ describe("structuralAnalyzer extension wiring", () => {
 
 		await executeTool(pi, { pattern: "console.log($A)" });
 		assert.strictEqual(usedLanguage, "rust");
+	});
+
+	it("equivalent directory spellings share one resolved cache key (one scan)", async () => {
+		let scanCallCount = 0;
+		const capturedArgs: string[][] = [];
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version"))
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				if (args[0] === "run") {
+					scanCallCount++;
+					capturedArgs.push(args);
+					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+				}
+				return { stdout: "", stderr: "", code: 1, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		for (const spelling of ["sub", "./sub", "sub/"]) {
+			await executeTool(
+				pi,
+				{ pattern: "console.log($A)", language: "ts", directory: spelling },
+				{ cwd: "/tmp" },
+			);
+		}
+
+		assert.strictEqual(scanCallCount, 1, "equivalent spellings must resolve to one cache key");
+		assert.ok(
+			capturedArgs[0].includes(resolve("/tmp", "sub")),
+			"resolved dir should be passed to ast-grep",
+		);
+	});
+
+	it("in-root nonexistent directory keeps ast-grep error semantics (no traversal wording)", async () => {
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version"))
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				if (args[0] === "run")
+					return { stdout: "", stderr: "error: unable to access path", code: 1, killed: false };
+				return { stdout: "", stderr: "", code: 1, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		await assert.rejects(
+			() =>
+				executeTool(
+					pi,
+					{ pattern: "console.log($A)", language: "ts", directory: "nonexistent_subdir" },
+					{ cwd: "/tmp" },
+				),
+			(err: Error) => {
+				assert.doesNotMatch(err.message, /Directory traversal detected/);
+				assert.doesNotMatch(err.message, /not found in project root/);
+				assert.match(err.message, /unable to access path/);
+				return true;
+			},
+		);
 	});
 });

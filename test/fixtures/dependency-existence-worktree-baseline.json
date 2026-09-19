@@ -162,6 +162,13 @@
       6
     ],
     [
+      "python",
+      "anyio",
+      null,
+      ".pi/extensions/web-search/requirements.txt",
+      11
+    ],
+    [
       "ruby",
       "jekyll",
       null,

@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { resolveWithinRoot } from "../lib/path-containment.ts";
 import { setCache, getCache, makeCacheKey, clearResultCache } from "./cache.ts";
 import { detectLanguage, DEFAULT_LANGUAGE } from "./language.ts";
 import { interpretSgExecResult } from "./parser.ts";
@@ -148,8 +149,13 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 				throw new Error(validationError);
 			}
 
+			// Security: fail closed on a `directory` that resolves outside ctx.cwd
+			// (CWE-22). Guard runs before the cache lookup and before any ast-grep
+			// exec, so a poisoned out-of-root cache entry can never be served.
+			const resolvedDir = directory ? resolveWithinRoot(ctx.cwd, directory) : undefined;
+
 			// Check cache before executing
-			const cacheKey = makeCacheKey(pattern, language, directory ?? ctx.cwd);
+			const cacheKey = makeCacheKey(pattern, language, resolvedDir ?? ctx.cwd);
 			const cached = getCache(cacheKey);
 			if (cached) {
 				return cached;
@@ -169,7 +175,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 				language,
 				"--no-ignore=hidden",
 			];
-			if (directory) args.push(directory);
+			if (resolvedDir) args.push(resolvedDir);
 
 			const result = await pi.exec(binary, args, {
 				cwd: ctx.cwd,
