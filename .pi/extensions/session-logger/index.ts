@@ -34,6 +34,22 @@ export function toggleSessionLoggerGate(gate: SessionLoggerGate, args?: string):
 }
 
 /**
+ * Hydrate the gate from persisted state: a persisted value wins, an absent
+ * key falls back to enabled (default-ON).
+ *
+ * Must run before any `setKey`/`saveState` (the store caches after its first
+ * read) and before `beginSession` promotes enabledForNextSession → sessionEnabled.
+ * Read/parse failures inside the store fail open to the default.
+ */
+export async function hydrateSessionLoggerGate(
+	gate: SessionLoggerGate,
+	store: ExtensionStateStore,
+): Promise<void> {
+	await store.ensureStateLoaded();
+	gate.enabledForNextSession = store.getKey("logger") ?? true;
+}
+
+/**
  * Extension entry point.
  * Registers the /session-logger command and wires event handlers
  * to a LoggerPipeline instance.
@@ -42,11 +58,11 @@ export default function (pi: ExtensionAPI): void {
 	const gate = createSessionLoggerGate();
 
 	// ── Shared extension state (replaces duplicated writeExtState) ──
+	// Persisted preference lives in this store. It is read back on
+	// session_start (never written on module eval — that would clobber it).
 	const extState: ExtensionStateStore = createExtensionStateStore(
 		".pi/state/session-extensions.json",
 	);
-	extState.setKey("logger", true);
-	extState.saveState().catch(() => {}); // Fire-and-forget on init
 
 	pi.registerCommand("session-logger", {
 		description: "Toggle session report on/off (takes effect next session)",
@@ -68,6 +84,9 @@ export default function (pi: ExtensionAPI): void {
 	// ── Session lifecycle ──
 
 	pi.on("session_start", async (event, ctx) => {
+		// Load the persisted on/off preference before beginSession promotes it.
+		await hydrateSessionLoggerGate(gate, extState);
+
 		// Capture session name and mode for report metadata
 		const sessionName = typeof pi.getSessionName === "function" ? pi.getSessionName() : undefined;
 		const mode = (ctx as any).mode;
