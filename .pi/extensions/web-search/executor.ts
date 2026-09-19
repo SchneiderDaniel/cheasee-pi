@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ExecResult, ExecFn } from "./types.ts";
+import { parseFramedOutput } from "./protocol.ts";
 
 /** Root directory for web-search temp files */
 const RUN_DIR = path.join(process.cwd(), "ignore", "web-search");
@@ -122,21 +123,16 @@ export async function runSearchScript(
 }
 
 /**
- * Parse SEARCH_OK / SEARCH_DONE delimited output from the Python script.
- * Returns the JSON text between delimiters, or null if not found.
+ * Parse the RS-framed JSON payload from the Python script's stdout.
+ * Returns the JSON text between frames, or null if the frame is absent or
+ * unterminated.
  */
 export function parseSearchOutput(stdout: string): string | null {
-	const okIdx = stdout.indexOf("SEARCH_OK");
-	const doneIdx = stdout.indexOf("SEARCH_DONE");
-	if (okIdx === -1 || doneIdx === -1 || doneIdx <= okIdx) {
-		return null;
-	}
-	const jsonPart = stdout.slice(okIdx + "SEARCH_OK".length, doneIdx).trim();
-	return jsonPart || null;
+	return parseFramedOutput(stdout);
 }
 
 /**
- * Parse search results from the delimited output.
+ * Parse search results from the framed output.
  * Returns parsed SearchResult array or error string.
  */
 export function parseSearchResults(
@@ -146,7 +142,7 @@ export function parseSearchResults(
 	| { ok: false; error: string } {
 	const jsonText = parseSearchOutput(stdout);
 	if (!jsonText) {
-		return { ok: false, error: "No delimited output found" };
+		return { ok: false, error: "No framed output found" };
 	}
 	try {
 		const parsed = JSON.parse(jsonText);

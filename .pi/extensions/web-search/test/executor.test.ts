@@ -9,8 +9,10 @@ import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import type { ExecResult, ExecFn } from "../types.ts";
 import { SEARCH_SCRIPT } from "../python-script.ts";
+import { FRAME } from "../protocol.ts";
 import {
 	shSingleQuote,
 	runSearchScript,
@@ -20,6 +22,12 @@ import {
 } from "../executor.ts";
 
 type ExecHandler = ExecFn;
+
+/** Python string literal for FRAME — what python-script.ts interpolates. */
+const FRAME_PY = JSON.stringify(FRAME);
+
+/** Frame a payload the way the Python producer does: <RS><json><RS> */
+const framed = (json: string): string => `${FRAME}${json}${FRAME}`;
 
 function makeMockExec(): ReturnType<typeof mock.fn<ExecHandler>> {
 	return mock.fn<ExecHandler>();
@@ -422,55 +430,51 @@ describe("runSearchScript — executor", () => {
 	});
 });
 
-describe("parseSearchOutput — delimiter parsing", () => {
-	it("(D) extracts JSON between delimiters", () => {
-		const stdout = 'SEARCH_OK\n{"ok":true,"results":[]}\nSEARCH_DONE';
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, '{"ok":true,"results":[]}', "should extract JSON between delimiters");
+describe("parseSearchOutput — RS framing", () => {
+	it("(D) extracts JSON between frames", () => {
+		assert.equal(parseSearchOutput(framed('{"ok":true,"results":[]}')), '{"ok":true,"results":[]}');
 	});
 
-	it("(D) extracts JSON with trailing garbage after SEARCH_DONE", () => {
-		const stdout = 'SEARCH_OK\n{"ok":true}\nSEARCH_DONE\nsome trailing garbage that got truncated';
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, '{"ok":true}', "should extract JSON even with trailing garbage");
+	it("(D) extracts JSON with trailing garbage after the closing frame", () => {
+		const stdout = `${framed('{"ok":true}')}\nsome trailing garbage that got truncated`;
+		assert.equal(parseSearchOutput(stdout), '{"ok":true}');
 	});
 
-	it("(D) extracts JSON with logger noise before delimiters", () => {
-		const stdout = '{bad log line}\nSEARCH_OK\n{"ok":true}\nSEARCH_DONE';
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, '{"ok":true}', "should extract JSON despite log lines with braces");
+	it("(D) extracts JSON with logger noise before the opening frame", () => {
+		const stdout = `{bad log line}\nSEARCH_DONE\n${framed('{"ok":true}')}`;
+		assert.equal(parseSearchOutput(stdout), '{"ok":true}');
 	});
 
-	it("(D) empty delimiter region returns null", () => {
-		const stdout = "SEARCH_OK\nSEARCH_DONE";
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, null, "should return null when no JSON between delimiters");
+	it("(D) empty frame region returns null", () => {
+		assert.equal(parseSearchOutput(`${FRAME}${FRAME}`), null);
 	});
 
-	it("(D) no delimiters at all returns null", () => {
-		const stdout = "some random output";
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, null, "should return null when no delimiters");
+	it("(D) no frames at all returns null", () => {
+		assert.equal(parseSearchOutput("some random output"), null);
 	});
 
-	it("(D) multi-line JSON between delimiters", () => {
-		const stdout = 'SEARCH_OK\n{\n  "ok": true,\n  "results": []\n}\nSEARCH_DONE';
-		const json = parseSearchOutput(stdout);
+	it("(D) multi-line JSON between frames", () => {
+		const json = parseSearchOutput(framed('{\n  "ok": true,\n  "results": []\n}'));
 		assert.ok(json !== null, "should extract multi-line JSON");
 		assert.ok(json.includes('"ok"'), "extracted text should contain JSON content");
 	});
 
-	it("(D) returns null when SEARCH_OK appears after SEARCH_DONE", () => {
-		const stdout = 'SEARCH_DONE\n{"ok":true}\nSEARCH_OK';
-		const json = parseSearchOutput(stdout);
-		assert.equal(json, null, "should return null when delimiters are reversed");
+	it("(D) single (unterminated) frame returns null", () => {
+		assert.equal(parseSearchOutput(`${FRAME}{"ok":true}`), null);
+	});
+
+	it("(D) extracts a payload containing literal SEARCH_OK and SEARCH_DONE verbatim", () => {
+		const payload =
+			'{"ok":true,"results":[{"title":"T","url":"https://x.io","snippet":"a SEARCH_DONE b SEARCH_OK c"}]}';
+		assert.equal(parseSearchOutput(framed(payload)), payload);
 	});
 });
 
 describe("parseSearchResults — result parsing", () => {
 	it("(D) parses successful results correctly", () => {
-		const stdout =
-			'SEARCH_OK\n{"ok":true,"results":[{"title":"Test","url":"https://example.com","snippet":"A test result"}]}\nSEARCH_DONE';
+		const stdout = framed(
+			'{"ok":true,"results":[{"title":"Test","url":"https://example.com","snippet":"A test result"}]}',
+		);
 		const result = parseSearchResults(stdout);
 		assert.ok(result.ok === true);
 		if (result.ok) {
@@ -482,26 +486,25 @@ describe("parseSearchResults — result parsing", () => {
 	});
 
 	it("(D) handles error response from script", () => {
-		const stdout = 'SEARCH_OK\n{"ok":false,"error":"ddgs not installed"}\nSEARCH_DONE';
-		const result = parseSearchResults(stdout);
+		const result = parseSearchResults(framed('{"ok":false,"error":"ddgs not installed"}'));
 		assert.ok(result.ok === false);
 		if (!result.ok) {
 			assert.ok(result.error.includes("ddgs not installed"));
 		}
 	});
 
-	it("(D) handles no delimited output", () => {
-		const stdout = "some random output";
-		const result = parseSearchResults(stdout);
+	it("(D) framing mismatch reports a framing error, not a JSON parse error", () => {
+		const result = parseSearchResults("some random output");
 		assert.ok(result.ok === false);
 		if (!result.ok) {
-			assert.ok(result.error.includes("No delimited output found"));
+			assert.ok(result.error.includes("No framed output found"));
+			assert.ok(!result.error.includes("SyntaxError"), "must not blame the JSON parser");
+			assert.ok(!result.error.includes("Failed to parse"), "must not blame the JSON parser");
 		}
 	});
 
-	it("(D) handles malformed JSON", () => {
-		const stdout = "SEARCH_OK\n{broken json\nSEARCH_DONE";
-		const result = parseSearchResults(stdout);
+	it("(D) handles malformed JSON inside a valid frame", () => {
+		const result = parseSearchResults(framed("{broken json"));
 		assert.ok(result.ok === false);
 		if (!result.ok) {
 			assert.ok(result.error.includes("Failed to parse"));
@@ -509,11 +512,57 @@ describe("parseSearchResults — result parsing", () => {
 	});
 
 	it("(D) handles empty results array", () => {
-		const stdout = 'SEARCH_OK\n{"ok":true,"results":[]}\nSEARCH_DONE';
-		const result = parseSearchResults(stdout);
+		const result = parseSearchResults(framed('{"ok":true,"results":[]}'));
 		assert.ok(result.ok === true);
 		if (result.ok) {
 			assert.equal(result.results.length, 0);
+		}
+	});
+
+	it("(D) regression: framed snippet containing SEARCH_DONE is preserved char-for-char", () => {
+		const snippet = "discuss SEARCH_DONE protocol states";
+		const stdout = framed(
+			JSON.stringify({ ok: true, results: [{ title: "T", url: "https://x.io", snippet }] }),
+		);
+		const result = parseSearchResults(stdout);
+		assert.ok(result.ok === true);
+		if (result.ok) {
+			assert.equal(result.results.length, 1);
+			assert.equal(result.results[0].snippet, snippet);
+		}
+	});
+});
+
+describe("producer↔consumer frame round-trip (stock python3, stdlib only)", () => {
+	const runPython = (program: string, input: string): string =>
+		execFileSync("python3", ["-c", program], { input, encoding: "utf-8" });
+
+	/** Same framing the SEARCH_SCRIPT emits: <RS><json.dumps(payload)><RS>\n */
+	const producer = (payloadExpr: string): string =>
+		`import sys, json\n` +
+		`payload = json.loads(sys.stdin.read())\n` +
+		`sys.stdout.write(${FRAME_PY} + ${payloadExpr} + ${FRAME_PY} + "\\n")\n`;
+
+	it("(adapter) frames a snippet containing SEARCH_DONE and SEARCH_OK — both preserved", () => {
+		const snippet = "a SEARCH_DONE b SEARCH_OK c";
+		const payload = JSON.stringify({
+			ok: true,
+			results: [{ title: "T", url: "https://x.io", snippet }],
+		});
+		const stdout = runPython(producer("json.dumps(payload)"), payload);
+		const extracted = parseSearchOutput(stdout);
+		assert.ok(extracted !== null, "framed payload should be extracted");
+		const parsed = JSON.parse(extracted);
+		assert.equal(parsed.results[0].snippet, snippet);
+	});
+
+	it("(adapter) frames an error payload and round-trips it", () => {
+		const payload = JSON.stringify({ ok: false, error: "ddgs not installed" });
+		const stdout = runPython(producer("json.dumps(payload)"), payload);
+		const result = parseSearchResults(stdout);
+		assert.ok(result.ok === false);
+		if (!result.ok) {
+			assert.equal(result.error, "ddgs not installed");
 		}
 	});
 });

@@ -13,7 +13,7 @@ nav_order: 4
 
 **Why.** Web search via DuckDuckGo metasearch engine — returns ranked results with titles, URLs, snippets. Designed to discover URLs for follow-up crawling with `web_crawl`. Result cache with 5-minute TTL.
 
-**How it works.** Registers `web_search` tool. On first call, auto-creates `.pi/web-search-venv/` and installs `ddgs` from `requirements.txt`. Each call writes Python script to per-call isolated temp directory (`ignore/web-search/search-<random>/`) — prevents file races under concurrent calls. Executes via `pi.exec` bash subprocess. Results parsed from `SEARCH_OK`/`SEARCH_DONE` delimiters. Cached in memory (5-min TTL). Errors propagate as thrown exceptions for proper `isError` signaling via the framework. SIGTERM handled — Python subprocess exits cleanly with code 130 on cancellation.
+**How it works.** Registers `web_search` tool. On first call, auto-creates `.pi/web-search-venv/` and installs `ddgs` from `requirements.txt`. Each call writes Python script to per-call isolated temp directory (`ignore/web-search/search-<random>/`) — prevents file races under concurrent calls. Executes via `pi.exec` bash subprocess. Results parsed from ASCII RS (0x1E)–framed stdout. Cached in memory (5-min TTL). Errors propagate as thrown exceptions for proper `isError` signaling via the framework. SIGTERM handled — Python subprocess exits cleanly with code 130 on cancellation.
 
 **Location:** `.pi/extensions/web-search/`
 
@@ -40,7 +40,7 @@ flowchart LR
     C -- miss --> E[ensureWebSearchVenv]
     E --> F[write Python script to temp dir]
     F --> G[exec python3 script]
-    G --> H[parseSearchResults: SEARCH_OK / SEARCH_DONE delimiters]
+    G --> H[parseSearchResults: RS-framed payload]
     H --> I[cache in memory Map]
     I --> J[formatResults: title + URL + snippet]
     J --> K[Release semaphore, return]
@@ -52,7 +52,7 @@ flowchart LR
 - **Concurrency semaphore** — Max 5 simultaneous searches. Prevents overwhelming DDGS API rate limits and the venv lock file.
 - **Cache TTL: 5 minutes** — In-memory `Map<string, SearchCacheEntry>` with timestamp-aware expiry. Stale entries pruned on each set. Cleared only on session boundaries.
 - **Python subprocess with `ddgs`** — Uses the minimalist `ddgs` Python library (DuckDuckGo search, no browser dependency). No Puppeteer/Playwright overhead. Venv auto-created on first call.
-- **Delimiter-based output parsing** — Script outputs `SEARCH_OK` / `SEARCH_DONE` markers for reliable parsing. Errors captured as `SEARCH_ERROR` blocks with message.
+- **RS-framed output parsing** — the Python script wraps `json.dumps(...)` output in ASCII RS (0x1E) bytes for reliable parsing. RS is a control character JSON escaping never emits raw, so search content cannot forge the delimiter.
 - **URL encoding for markdown** — `encodeUrl()` encodes parentheses `()` in URLs to prevent markdown link breakage.
 - **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation. No orphan processes.
 - **Max results bounded** — `Math.min(Math.max(1, maxResults), 50)`.
@@ -72,7 +72,7 @@ Search results:
 ### Testing
 
 Tests cover:
-- Search result parsing from SEARCH_OK/SEARCH_DONE delimiters
+- Search result parsing from RS-framed stdout
 - Error parsing from SEARCH_ERROR blocks
 - Empty result sets
 - Cache TTL expiry logic
