@@ -60,6 +60,7 @@ tool_call(event)
 | `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
 | `> /dev/nullable` / `<sb>/dev/null` | Not a device: exact-match on resolved path, not prefix |
 | `mv x /dev/null` / `ln -sf x /dev/null` | Directory-entry ops: `/dev/null` exemption is content-sink only |
+| `cp --remove-destination x /dev/null` | `cp` excluded from content sinks: unlink/backup modes mutate the dir entry |
 
 ## Install
 
@@ -163,12 +164,13 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   `/dev/null` on the *resolved* target (`/dev/null/` and `/dev/../dev/null`
   collapse to it; `/dev/nullable` and `/dev/null/../etc/passwd` do not), and it
   is composed only into pure **content sinks**: shell redirects (`>`, `>>`),
-  `dd of=`, `tee`, and `cp` destinations. Writing bytes there is discarded and
-  opening the device for output neither creates, renames, nor re-links a
-  directory entry. Operations that mutate the `/dev/null` directory entry or its
-  metadata (`mv`, `ln`, `install`, `touch`) and `cd` keep the strict containment
-  check — a privileged process must not be able to unlink or replace `/dev/null`
-  outside the worktree. The set is enumerated, not a `/dev/` prefix: raw devices
+  `dd of=`, and `tee`. Writing bytes there is discarded and opening the device
+  for output neither creates, renames, nor re-links a directory entry.
+  Operations that can mutate the `/dev/null` directory entry or its metadata
+  (`cp` with `--remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`,
+  `touch`) and `cd` keep the strict containment check — a privileged process
+  must not be able to unlink or replace `/dev/null` outside the worktree. The
+  set is enumerated, not a `/dev/` prefix: raw devices
   (`/dev/sda`, `/dev/mem`, `/dev/kmsg`) and fd aliases (`/dev/stdout`,
   `/dev/stderr`, `/dev/fd/N`, which write through to the process fd) stay
   blocked. `read`/`write`/`edit` to `/dev/null` fail closed.

@@ -4,10 +4,10 @@
  * Any redirect to /dev/null (the universal discard idiom) was blocked as a
  * write "outside the worktree". Fix: an enumerated allow-list
  * (`SIDE_EFFECT_FREE_DEVICES = { "/dev/null" }`) is composed ONLY into pure
- * content sinks — shell redirects (`>`, `>>`), `dd of=`, `tee`, and `cp`
- * destinations. Operations that mutate the `/dev/null` directory entry or its
- * metadata (`mv`, `ln`, `install`, `touch`) and `cd` keep the strict
- * containment check.
+ * content sinks — shell redirects (`>`, `>>`), `dd of=`, and `tee`.
+ * Operations that can mutate the `/dev/null` directory entry or its metadata
+ * (`cp` with `--remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`,
+ * `touch`) and `cd` keep the strict containment check.
  *
  * Phase 1: /dev/null is allow-listed for content sinks (false positive fixed).
  * Phase 2: Exemption is not an escape primitive (exact match on resolved path).
@@ -90,8 +90,22 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 
 		it("use-case — content-sink write branches inherit the exemption", () => {
 			assert.equal(mod.findUnsafeWriteInBash("dd if=/dev/zero of=/dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash("cp x /dev/null", SB), null);
 			assert.equal(mod.findUnsafeWriteInBash("echo x | tee /dev/null", SB), null);
+		});
+
+		it("use-case — cp is not a content sink: destination-unlink modes stay contained", () => {
+			// GNU cp --remove-destination unlinks the destination before opening it;
+			// -b/--backup rename it. cp is therefore not side-effect-free for /dev/null.
+			assert.equal(mod.findUnsafeWriteInBash("cp x /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(
+				mod.findUnsafeWriteInBash("cp --remove-destination payload /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
+			assert.equal(mod.findUnsafeWriteInBash("cp -b x /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(
+				mod.findUnsafeWriteInBash("cp --backup=numbered x /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
 		});
 
 		it("use-case — directory-entry / metadata ops stay contained (audit remedy)", () => {

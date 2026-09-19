@@ -22,10 +22,11 @@ import {
  * Content-sink safety: a target is safe when it is inside the sandbox OR is an
  * enumerated side-effect-free device (`/dev/null`) — the bytes are discarded
  * and opening it for output neither creates, renames, nor re-links a directory
- * entry. Used only by pure content sinks (redirects, `dd of=`, `tee`, `cp`).
+ * entry. Used only by pure content sinks (redirects, `dd of=`, `tee`).
  *
- * Operations that mutate the `/dev/null` directory entry or its metadata
- * (`mv`, `ln`, `install`, `touch`) must use `isPathSafe` directly.
+ * Operations that can mutate the `/dev/null` directory entry or its metadata
+ * (`cp --remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`, `touch`)
+ * must use `isPathSafe` directly.
  */
 function isContentSinkSafe(target: string, sandboxRoot: string): boolean {
 	return isSideEffectFreeDevice(target) || isPathSafe(target, sandboxRoot);
@@ -56,9 +57,11 @@ function checkRedirect(
 
 /**
  * cp/mv/touch/tee/install branch: the destination is the last non-flag
- * argument of the command. `contentSink` is true only for commands whose
- * destination is a pure content sink (`cp`, `tee`) — never for `mv`/`touch`/
- * `install`, which rename or mutate the destination directory entry.
+ * argument of the command. `contentSink` is true only for `tee`, whose
+ * destination open neither unlinks nor renames a directory entry. `cp` is
+ * excluded even though it usually only truncates: `--remove-destination`
+ * unlinks the destination before opening it, and `-b`/`--backup`/`--suffix`
+ * rename it — so it is not side-effect-free for `/dev/null`.
  */
 function checkCopyMove(
 	tokens: ParseEntry[],
@@ -269,9 +272,10 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 				token === "install")
 		) {
 			if (!isCommandStart(tokens, i)) continue;
-			// Only pure content sinks may target a side-effect-free device;
-			// mv/touch/install mutate or create the destination dir entry.
-			const contentSink = token === "cp" || token === "tee";
+			// Only pure content sinks may target a side-effect-free device.
+			// cp can unlink the destination (--remove-destination) or rename it
+			// (-b/--backup); mv/touch/install mutate or create the dir entry.
+			const contentSink = token === "tee";
 			const result = checkCopyMove(tokens, i, command, sandboxRoot, contentSink);
 			if (result !== null) return result;
 		}
