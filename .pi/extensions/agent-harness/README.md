@@ -8,6 +8,7 @@ Every incorrect tool call costs tokens. Every error loop burns context window. E
 
 **What it saves:**
 - `bash | grep` → redirected to `ripgrep_search` (faster, structured, cached)
+- `bash grep > file` → passes through (a write redirect is a write op; `ripgrep_search` cannot write output files)
 - `bash cat` → redirected to `read` (avoids spawning subshells)
 - Error retry loops → blocked after 2 consecutive errors on same tool
 - Same-tool cascades → 8+ consecutive `bash` calls are blocked with batching suggestion

@@ -133,6 +133,19 @@ describe("AgentHarness — bash tool mismatch", () => {
 		}
 	});
 
+	it("bash grep/rg with a write redirect (save results to file) does NOT block (#1724)", () => {
+		const h = new AgentHarness();
+		for (const cmd of [
+			"grep 'TODO' bigfile.ts > matches.txt",
+			"grep foo>>out.txt",
+			"rg pattern 2> err.txt",
+			"grep foo &> out.txt",
+			"cat file | grep foo > out.txt",
+		]) {
+			assert.equal(h.handleToolCall(makeEvent("bash", { command: cmd }), makeCtx()), null, cmd);
+		}
+	});
+
 	it("piped grep (ls | grep), chained (cd && rg), piped head pass through", () => {
 		const h = new AgentHarness();
 		for (const cmd of [
