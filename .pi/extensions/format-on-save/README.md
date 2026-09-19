@@ -15,7 +15,7 @@ The trust gate ensures formatting only runs on projects you've explicitly truste
 
 ## How it works
 
-1. **Trigger** — After every `write` or `edit` tool call (via `tool_result` event), the extension checks if the target file exists and is not too large (>5MB skipped)
+1. **Trigger** — After every `write` or `edit` tool call (via `tool_result` event), the extension checks if the target file exists and is not too large (>1MB skipped)
 2. **Trust check** — `ctx.isProjectTrusted()` gates all formatting and linting. Untrusted projects skip entirely
 3. **Format** — Prettier is called on the file. If formatting changes were made, a notification is sent
 4. **Lint** — ESLint runs on the file. If diagnostics are found, a `followUp` message is sent to the LLM with structured diagnostic output
@@ -28,7 +28,7 @@ write/edit tool call
     │
     ├─ File exists? ─── No → skip
     │
-    ├─ Size ≤ 5MB? ─── No → skip
+    ├─ Size ≤ 1MB? ─── No → skip
     │
     ├─ Trusted? ────── No → skip
     │
@@ -81,7 +81,7 @@ flowchart TD
     D -- no --> E[Skip]
     D -- yes --> F{file exists?}
     F -- no --> G[Skip]
-    F -- yes --> H{file < 5MB?}
+    F -- yes --> H{file < 1MB?}
     H -- no --> I[Skip]
     H -- yes --> J{project trusted?}
     J -- no --> K[Skip]
@@ -107,7 +107,7 @@ flowchart TD
 - **Dynamic imports for adapters** — Missing prettier/eslint handled gracefully inside adapters.
 - **Trust gate** — Untrusted projects skip entirely. Prevents arbitrary formatter commands from project-local config.
 - **Mode-adaptive notifications** — TUI: `ctx.ui.notify()`. RPC: `pi.sendUserMessage(followUp)`. JSON/print: console.error only.
-- **Size gate (5MB)** — Prevents trying to format/lint large generated files.
+- **Size gate (1MB)** — `MAX_FILE_SIZE_BYTES = 1_048_576`. Prevents trying to format/lint large generated files.
 - **File path heuristic** — `looksLikeFilePath()` checks for `.ts`, `.tsx`, `.js`, `.mjs`, etc. Rejects `pip install` or `npm i`.
 - **ESLint config error prefixing** — Config error patterns get `[config error]` prefix in logs.
 - **Diagnostic followUp deduplication** — Only sends followUp when `diagnostics.length > 0`.
