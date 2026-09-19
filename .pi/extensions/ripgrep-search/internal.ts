@@ -116,22 +116,39 @@ function normalizeDirectory(dir: string): string {
 	return dir.replace(/\/+$/, "").replace(/^\.\//, "") || ".";
 }
 
-/** Build a cache key from query and directory (normalizes the directory). */
-export function buildCacheKey(query: string, directory: string): string {
-	return JSON.stringify({ query, directory: normalizeDirectory(directory) });
+/**
+ * Build a cache key from every per-call input that affects the cached value.
+ *
+ * Completeness contract: the key MUST include query, normalized directory, and
+ * maxCount. maxCount is applied as a per-file CLI cap (`--max-count` / `-m`)
+ * before caching, so the cached artifact is width-bounded — a wider request can
+ * never be served by a narrower entry. If a new per-call output-affecting input
+ * appears (e.g. a per-call backend or maxLineLength), add it here too.
+ */
+export function buildCacheKey(query: string, directory: string, maxCount: number): string {
+	return JSON.stringify({ query, directory: normalizeDirectory(directory), maxCount });
 }
 
-/** Look up a cached search result. Returns undefined on miss. */
-export function getCachedResult(query: string, directory: string): RgCacheEntry | undefined {
-	return resultCache.get(buildCacheKey(query, directory));
+/** Look up a cached search result for (query, directory, maxCount). Returns undefined on miss. */
+export function getCachedResult(
+	query: string,
+	directory: string,
+	maxCount: number,
+): RgCacheEntry | undefined {
+	return resultCache.get(buildCacheKey(query, directory, maxCount));
 }
 
 /**
  * Store a search result in the cache.
  * Evicts oldest entry (by insertion order) when at max capacity and key is new.
  */
-export function setCachedResult(query: string, directory: string, entry: RgCacheEntry): void {
-	const key = buildCacheKey(query, directory);
+export function setCachedResult(
+	query: string,
+	directory: string,
+	maxCount: number,
+	entry: RgCacheEntry,
+): void {
+	const key = buildCacheKey(query, directory, maxCount);
 
 	// If at max capacity and this is a new key, evict oldest by insertion order
 	if (resultCache.size >= MAX_CACHE_ENTRIES && !resultCache.has(key)) {

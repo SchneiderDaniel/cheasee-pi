@@ -10,7 +10,7 @@
   - Respects `.gitignore` natively when ripgrep is available
   - Falls back to `grep` if ripgrep not installed
   - Auto-rejects structural patterns — redirects to `structural_search`
-- **Result cache** — Same query+directory returns cached result without re-running the CLI
+- **Result cache** — Same query+directory+max_count returns cached result without re-running the CLI
 - **Configurable backend** — Set `searchBackend` to `"auto"` (default), `"ripgrep"`, or `"grep"` in `.pi/settings.json`
 - **Backend indicator** — Injects current search backend into system prompt so LLM knows which tool is active
 - **Temp file handling** — Large outputs saved to temp files, cleaned up at session shutdown
@@ -21,7 +21,7 @@
 
 1. The LLM calls `ripgrep_search` with a query and optional directory/max_count
 2. The extension validates the query (rejects structural patterns), resolves the directory, and selects the backend (ripgrep or grep)
-3. **Cache check** — If the same query+directory was already searched, the cached result is returned without re-running the CLI
+3. **Cache check** — If the same query+directory+max_count was already searched, the cached result is returned without re-running the CLI
 4. The backend runs — ripgrep with `--vimgrep` for structured output, or grep with `-rnH` as fallback
 5. Results are parsed and cached in memory for the session duration
 6. A human-readable summary is returned showing top-N results (tunable via `max_count`), unique file count, and truncation status
@@ -145,7 +145,7 @@ flowchart TD
 ### Cache Behavior
 
 - In-memory FIFO Map, max 100 entries
-- Key: `JSON.stringify({query, directory})` with directory normalization
+- Key: `JSON.stringify({query, normalized directory, max_count})` — `max_count` is part of the key because it caps the CLI search per file, so a wider request can never be served by a narrower cached entry
 - Cleared on `session_shutdown`
 
 ## License
