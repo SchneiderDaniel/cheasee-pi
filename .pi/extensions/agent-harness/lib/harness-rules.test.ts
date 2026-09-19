@@ -17,6 +17,7 @@ import {
 	loadDefaultRules,
 	CASCADE_THRESHOLD,
 } from "./harness-rules.ts";
+import { isBashFileRead } from "../../lib/bash-query.ts";
 
 // ── BASH_SEARCH_SIGNALS (dead export) ──
 
@@ -84,6 +85,35 @@ describe("REDIRECT_GUIDANCE", () => {
 
 	it("unknown key returns undefined", () => {
 		assert.equal(REDIRECT_GUIDANCE["unknown"], undefined);
+	});
+});
+
+// ── redirect guidance drift guard (#1728) ──
+
+describe("REDIRECT_GUIDANCE.read drift guard (#1728)", () => {
+	it("forbidden enumerates only commands that actually redirect to read", () => {
+		const tokens = [...REDIRECT_GUIDANCE["read"].forbidden.matchAll(/'([^']+)'/g)].map(
+			(m) => m[1],
+		);
+		assert.ok(tokens.length > 0, "forbidden should enumerate at least one command token");
+		for (const token of tokens) {
+			assert.strictEqual(
+				isBashFileRead(`${token} file.ts`),
+				true,
+				`forbidden token '${token}' does not redirect to read — remove it from REDIRECT_GUIDANCE.read.forbidden`,
+			);
+		}
+	});
+
+	it("read entry does not claim 'head'", () => {
+		assert.ok(!REDIRECT_GUIDANCE["read"].forbidden.includes("head"));
+		assert.ok(REDIRECT_GUIDANCE["read"].forbidden.includes("cat"));
+	});
+
+	it("buildRedirectMessage('read') does not claim 'head'", () => {
+		const msg = buildRedirectMessage("read");
+		assert.ok(!msg.includes("head"));
+		assert.ok(msg.includes("Do not use 'cat' in bash."));
 	});
 });
 
