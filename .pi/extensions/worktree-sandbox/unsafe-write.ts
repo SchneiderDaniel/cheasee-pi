@@ -166,8 +166,12 @@ function checkDd(
 }
 
 /**
- * Shared check for a destination-like token — used by cp/mv/touch/tee/install
- * to find the last non-flag string argument and check it.
+ * Shared check for a destination-like token — used by cp/mv/touch/tee/install.
+ *
+ * `contentSink` marks commands whose every non-flag operand is an output
+ * destination (`tee`): each one is validated, so `tee /etc/evil /dev/null`
+ * cannot pass on the strength of the trailing `/dev/null`. Commands with a
+ * single destination (cp/mv/touch/install) check only the last operand.
  */
 function checkWriteDest(
 	tokens: ParseEntry[],
@@ -190,6 +194,12 @@ function checkWriteDest(
 
 		if (typeof t === "string") {
 			if (t.startsWith("-")) continue; // Skip flags
+			if (contentSink) {
+				// Every operand of a pure content sink is a destination.
+				const result = checkWriteToken(t, command, sandboxRoot, true);
+				if (result !== null) return result;
+				continue;
+			}
 			lastTarget = t;
 		}
 	}
@@ -201,10 +211,7 @@ function checkWriteDest(
 		if (hasShellExpansion(lastTarget)) {
 			return lastTarget;
 		}
-		const safe = contentSink
-			? isContentSinkSafe(lastTarget, sandboxRoot)
-			: isPathSafe(lastTarget, sandboxRoot);
-		if (!safe) {
+		if (!isPathSafe(lastTarget, sandboxRoot)) {
 			return `outside sandbox: ${lastTarget}`;
 		}
 	}

@@ -165,7 +165,10 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   collapse to it; `/dev/nullable` and `/dev/null/../etc/passwd` do not), and it
   is composed only into pure **content sinks**: shell redirects (`>`, `>>`),
   `dd of=`, and `tee`. Writing bytes there is discarded and opening the device
-  for output neither creates, renames, nor re-links a directory entry.
+  for output neither creates, renames, nor re-links a directory entry. `tee`
+  takes one destination per operand, so *every* non-flag operand is validated —
+  a trailing `/dev/null` cannot launder an earlier real write such as
+  `tee /etc/evil /dev/null`.
   Operations that can mutate the `/dev/null` directory entry or its metadata
   (`cp` with `--remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`,
   `touch`) and `cd` keep the strict containment check — a privileged process

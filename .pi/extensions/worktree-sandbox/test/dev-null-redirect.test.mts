@@ -93,6 +93,21 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 			assert.equal(mod.findUnsafeWriteInBash("echo x | tee /dev/null", SB), null);
 		});
 
+		it("use-case — tee validates EVERY output operand, not just the last (audit remedy)", () => {
+			// tee takes one destination per non-flag operand; a trailing /dev/null
+			// must not launder a real write earlier in the argument list.
+			assert.equal(
+				mod.findUnsafeWriteInBash("tee /etc/evil /dev/null", SB),
+				"outside sandbox: /etc/evil",
+			);
+			assert.equal(
+				mod.findUnsafeWriteInBash("echo x | tee -a /dev/null /etc/evil", SB),
+				"outside sandbox: /etc/evil",
+			);
+			assert.equal(mod.findUnsafeWriteInBash("echo x | tee /dev/null", SB), null);
+			assert.equal(mod.findUnsafeWriteInBash(`echo x | tee -a /dev/null ${SB}/ok`, SB), null);
+		});
+
 		it("use-case — cp is not a content sink: destination-unlink modes stay contained", () => {
 			// GNU cp --remove-destination unlinks the destination before opening it;
 			// -b/--backup rename it. cp is therefore not side-effect-free for /dev/null.
