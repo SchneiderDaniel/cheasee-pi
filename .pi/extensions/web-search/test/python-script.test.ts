@@ -1,5 +1,5 @@
 /**
- * Tests for python-script.ts — delimiter markers + SIGTERM handler + config + error handling
+ * Tests for python-script.ts — RS framing + SIGTERM handler + config + error handling
  *
  * Layer: (D) Domain — string constants, no infra dependencies.
  */
@@ -7,36 +7,45 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { SEARCH_SCRIPT } from "../python-script.ts";
+import { FRAME } from "../protocol.ts";
 
-describe("SEARCH_SCRIPT — delimiter markers", () => {
-	it("(D) contains SEARCH_OK delimiter before json.dumps output", () => {
+describe("SEARCH_SCRIPT — RS framing", () => {
+	const FRAME_PY = JSON.stringify(FRAME);
+	const DUMPS_OK = 'json.dumps({"ok": True, "results": out})';
+	const DUMPS_ERR = 'json.dumps({"ok": False, "error": str(e)})';
+
+	const countOccurrences = (hay: string, needle: string): number =>
+		hay.split(needle).length - 1;
+
+	it("(D) embeds FRAME from protocol.ts as a JSON-escaped Python literal", () => {
+		assert.ok(SEARCH_SCRIPT.includes(FRAME_PY), "script should embed JSON.stringify(FRAME)");
+	});
+
+	it("(D) contains no raw RS byte — frame arrives via interpolation only", () => {
+		assert.ok(!SEARCH_SCRIPT.includes(FRAME), "frame must not be hardcoded as a raw byte");
+	});
+
+	it("(D) contains neither SEARCH_OK nor SEARCH_DONE", () => {
+		assert.ok(!SEARCH_SCRIPT.includes("SEARCH_OK"), "legacy SEARCH_OK sentinel must be gone");
+		assert.ok(!SEARCH_SCRIPT.includes("SEARCH_DONE"), "legacy SEARCH_DONE sentinel must be gone");
+	});
+
+	it("(D) success branch prints FRAME + json.dumps(payload) + FRAME", () => {
 		assert.ok(
-			SEARCH_SCRIPT.includes('print("SEARCH_OK")'),
-			"script should print SEARCH_OK before JSON output",
+			SEARCH_SCRIPT.includes(`${FRAME_PY} + ${DUMPS_OK} + ${FRAME_PY}`),
+			"success branch must frame the payload symmetrically",
 		);
 	});
 
-	it("(D) contains SEARCH_DONE delimiter after json.dumps output", () => {
+	it("(D) except branch prints FRAME + json.dumps(error) + FRAME", () => {
 		assert.ok(
-			SEARCH_SCRIPT.includes('print("SEARCH_DONE")'),
-			"script should print SEARCH_DONE after JSON output",
+			SEARCH_SCRIPT.includes(`${FRAME_PY} + ${DUMPS_ERR} + ${FRAME_PY}`),
+			"except branch must frame the error payload symmetrically",
 		);
 	});
 
-	it("(D) SEARCH_OK appears before SEARCH_DONE in script", () => {
-		const okIdx = SEARCH_SCRIPT.indexOf('print("SEARCH_OK")');
-		const doneIdx = SEARCH_SCRIPT.indexOf('print("SEARCH_DONE")');
-		assert.ok(okIdx >= 0, "SEARCH_OK must exist");
-		assert.ok(doneIdx >= 0, "SEARCH_DONE must exist");
-		assert.ok(okIdx < doneIdx, "SEARCH_OK must appear before SEARCH_DONE");
-	});
-
-	it("(D) SEARCH_OK is printed before json.dumps call", () => {
-		const okIdx = SEARCH_SCRIPT.indexOf('print("SEARCH_OK")');
-		const dumpsIdx = SEARCH_SCRIPT.indexOf("json.dumps");
-		assert.ok(okIdx >= 0, "SEARCH_OK must exist");
-		assert.ok(dumpsIdx >= 0, "json.dumps must exist");
-		assert.ok(okIdx < dumpsIdx, "SEARCH_OK must be printed before json.dumps");
+	it("(D) frame emissions symmetric — four occurrences, two per branch", () => {
+		assert.equal(countOccurrences(SEARCH_SCRIPT, FRAME_PY), 4);
 	});
 });
 
@@ -142,13 +151,12 @@ describe("SEARCH_SCRIPT — config keys", () => {
 });
 
 describe("SEARCH_SCRIPT — error handling", () => {
-	it("(D) has try/except Exception block that prints SEARCH_OK + error JSON + SEARCH_DONE", () => {
+	it("(D) has try/except Exception block that frames the error JSON", () => {
 		assert.ok(
 			SEARCH_SCRIPT.includes("try:") &&
 				SEARCH_SCRIPT.includes("except Exception as e:") &&
-				SEARCH_SCRIPT.includes('print("SEARCH_OK")') &&
-				SEARCH_SCRIPT.includes('print("SEARCH_DONE")'),
-			"script should have try/except Exception block with SEARCH_OK, error JSON, and SEARCH_DONE",
+				SEARCH_SCRIPT.includes('"error": str(e)'),
+			"script should have try/except Exception block emitting a framed error JSON",
 		);
 	});
 

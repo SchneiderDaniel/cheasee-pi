@@ -10,7 +10,7 @@
   - Uses `ddgs` Python library with `backend="auto"` for multi-engine fallback
   - Optional proxy support for restricted environments
   - Includes `promptGuidelines` for LLM context, guiding discovery of URLs before crawling with `web_crawl`
-- **Delimiter-based output** — `SEARCH_OK` / `SEARCH_DONE` markers around JSON output for reliable parsing
+- **RS-framed output** — the JSON payload is wrapped in ASCII RS (0x1E) bytes. RS is a control character that JSON escaping never emits raw, so a result whose title/snippet contains the literal text `SEARCH_OK`/`SEARCH_DONE` can no longer break parsing (the delimiter is invisible in raw logs — intentional)
 - **Result cache** — Same query+maxResults returns cached result within 5-minute TTL
 - **Error signaling via throw** — Errors (empty query, venv setup failure, search execution failure, parse failure) propagate as thrown exceptions per the extension framework contract, ensuring the LLM receives proper `isError` signaling
 - **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation
@@ -24,7 +24,7 @@
 4. The extension writes the Python script and config to a per-call isolated temp directory (`ignore/web-search/search-<random>/`), preventing cross-contamination between concurrent searches
 5. The script is executed via `bash -c` using `pi.exec`
 6. The Python script uses `ddgs.DDGS().text(query, max_results=N, backend="auto")` to perform the search
-7. Results are parsed from the `SEARCH_OK`/`SEARCH_DONE` delimited output
+7. Results are parsed from the RS-framed stdout (`<RS><json><RS>`)
 8. Results are cached in memory for the session duration (5-minute TTL)
 9. A formatted result string is returned showing ranked results with titles as markdown links and snippets
 10. On failure at any step (venv setup, search execution, result parsing), a thrown error propagates to the framework, which records the failure with `isError: true` on the tool execution event
@@ -61,8 +61,9 @@ The tool is designed to work alongside `web_crawl` — use `web_search` to disco
 
 ```
 ├── index.ts         # Entry: tool registration, cache, concurrency semaphore
+├── protocol.ts      # RS frame token + parseFramedOutput (shared producer/consumer contract)
 ├── python-script.ts # Inline Python script (ddgs) as string constant
-├── executor.ts      # runSearchScript: write temp file, exec subprocess, parse delimited output
+├── executor.ts      # runSearchScript: write temp file, exec subprocess, parse framed output
 ├── venv-setup.ts    # Auto-create .pi/web-search-venv + pip install ddgs
 ├── types.ts         # SearchCacheEntry, SearchResult types
 └── test/            # Executor + parser tests
@@ -78,7 +79,7 @@ flowchart LR
     C -- miss --> E[ensureWebSearchVenv]
     E --> F[write Python script to temp dir]
     F --> G[exec python3 script]
-    G --> H[parseSearchResults: SEARCH_OK / SEARCH_DONE delimiters]
+    G --> H[parseSearchResults: RS-framed payload]
     H --> I[cache in memory Map]
     I --> J[formatResults: title + URL + snippet]
     J --> K[Release semaphore, return]
@@ -90,7 +91,7 @@ flowchart LR
 - **Concurrency semaphore** — Max 5 simultaneous searches. Prevents overwhelming DDGS API.
 - **Cache TTL: 5 minutes** — In-memory with timestamp-aware expiry. Stale entries pruned on each set.
 - **Python subprocess via `ddgs`** — Minimal library, no browser dependency. Venv auto-created on first call.
-- **Delimiter-based parsing** — `SEARCH_OK` / `SEARCH_DONE` markers for reliable output extraction.
+- **RS-framed parsing** — the Python script wraps `json.dumps(...)` output in ASCII RS (0x1E) bytes; `parseFramedOutput` extracts the slice between the first and next RS. The token lives in one place (`protocol.ts`) so producer and consumer cannot drift.
 - **URL encoding for markdown** — Parentheses `()` encoded to prevent markdown link breakage.
 - **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation.
 - **Max results bounded** — `Math.min(Math.max(1, maxResults), 50)`.
