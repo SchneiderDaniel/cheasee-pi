@@ -96,24 +96,29 @@ flowchart TD
 ### Key Design Decisions
 
 - **Force-bypass (Escape Hatch)** — Two per-call mechanisms: `input._harness.force: true` on any tool, or `# bypass-harness` comment annotation on bash commands. Both require `hasUI: true` (interactive session) to prevent automated abuse. `_harness` is consumed and stripped by the harness before the tool sees it. Force-bypassed calls count toward the cascade counter (recorded as real calls). Parsing for the bash annotation is token-aware (quoted-string immunity) and best-effort (heredocs/continuations fall through to false; use `_harness.force` for those edge cases).
-- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags.
+- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. Top-level `cascadeThreshold` sets the global default; `toolMeta.<tool>.cascadeThreshold` overrides it for that tool.
 - **Read caching with 6-turn TTL** — `TimedMap` stores file contents for 6 turns. Cache invalidated on write/edit to same file.
 - **Error retry guard caps at 2** — First retry reasonable (transient). Second+ consecutive same-tool same-args blocked. Counter resets on turn_start.
 - **Cascade detection resets on turn_start** — Prevents long-running multi-tool sequences from false positives.
 - **Pass-through list** — `ask_user`, `ask_user_read`, registered tool registrations, command handlers exempt from validation.
-- **Fail-safe defaults** — On config load failure, continues with hardcoded defaults. Never blocks due to config errors.
+- **Fail-safe defaults** — On config load failure, continues with hardcoded defaults and warns the user (TUI notify / RPC message / console.error). Never blocks due to config errors, never silently discards the config.
 
 ### Config Format (.pi/harness-config.json)
 
+Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThreshold` overrides it per tool.
+
 ```json
 {
-  "tools": {
+  "toolMeta": {
     "read": { "cascadeThreshold": 6, "passThrough": false },
     "bash": { "cascadeThreshold": 4, "passThrough": false },
     "ask_user": { "passThrough": true }
-  }
+  },
+  "cascadeThreshold": 8
 }
 ```
+
+Unknown top-level keys are rejected: the config is discarded, the harness warns, and default rules apply.
 
 ### Force-Bypass Details
 

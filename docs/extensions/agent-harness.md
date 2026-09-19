@@ -71,24 +71,29 @@ The `bash-query.ts` module classifies bash commands via pure functions:
 
 ### Key Design Decisions
 
-- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. User can adjust for high-cascade workflows.
+- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThreshold` is the per-tool override. User can adjust for high-cascade workflows.
 - **Read caching with 6-turn TTL** — `TimedMap` stores file contents for 6 turns after initial read. Subsequent reads within TTL return cached content without re-execution. Cache invalidated on write/edit to the same file.
 - **Error retry guard caps at 2** — First retry is reasonable (transient failure). Second retry is wasteful. Third+ consecutive same-tool same-args calls are blocked. Counter resets on turn_start.
 - **Cascade detection resets on turn_start** — Cascade counter (8+ consecutive same tool) resets each turn. Prevents long-running multi-tool sequences from false positives.
 - **Pass-through list** — `ask_user`, `ask_user_read`, registered tool registrations, and command handlers are exempt from all validation. Configurable via `passThrough` in harness config.
-- **Fail-safe defaults** — On config load failure (missing file, parse error), harness continues with hardcoded defaults. Never blocks tool calls due to config errors.
+- **Fail-safe defaults** — On config load failure (missing file, parse error, unknown top-level key), harness warns the user (TUI `notify` / RPC `sendUserMessage` / `console.error`) and continues with hardcoded defaults. Never blocks tool calls due to config errors, and never discards the config silently.
 
 ### Config Format (.pi/harness-config.json)
 
+Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThreshold` overrides it per tool.
+
 ```json
 {
-  "tools": {
+  "toolMeta": {
     "read": { "cascadeThreshold": 6, "passThrough": false },
     "bash": { "cascadeThreshold": 4, "passThrough": false },
     "ask_user": { "passThrough": true }
-  }
+  },
+  "cascadeThreshold": 8
 }
 ```
+
+Allowed top-level keys are `toolMeta` and `cascadeThreshold`. Any other key is rejected: the config is discarded, the harness warns (`Unknown key in .pi/harness-config.json: "...". Allowed keys: ...`), and default rules apply.
 
 ### HarnessState Internal
 
