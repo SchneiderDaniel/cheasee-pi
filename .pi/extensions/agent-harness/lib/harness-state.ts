@@ -11,27 +11,29 @@
  * Used by:
  *  - agent-harness extension handlers (pi.on("tool_call"))
  *
- * Exports HarnessState (the only outward contract) plus value-type interfaces
- * ReadCacheEntry, ErrorEntry, ConsecutiveInfo.  The readCache/errorTracker/
+ * Exports HarnessState (the only outward contract). The value-type interfaces
+ * ReadCacheEntry, ErrorEntry and ConsecutiveInfo are file-local — they only
+ * describe the shape of HarnessState fields.  The readCache/errorTracker/
  * callCounter fields are inline anonymous object types — no standalone
  * ReadCache/ErrorTracker/CallCounter interfaces.
  */
 
 // ── Types ──
 
-export interface ReadCacheEntry {
+interface ReadCacheEntry {
 	turn: number;
 	timestamp: number;
 }
 
-export interface ErrorEntry {
+interface ErrorEntry {
+	/** Session turn in which the error occurred (0-based, mirrors ReadCacheEntry.turn). */
 	turn: number;
 	toolName: string;
 	/** Optional error detail/message. */
 	message?: string;
 }
 
-export interface ConsecutiveInfo {
+interface ConsecutiveInfo {
 	toolName: string;
 	count: number;
 	sinceTurn: number;

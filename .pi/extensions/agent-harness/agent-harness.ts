@@ -228,7 +228,7 @@ export class AgentHarness {
 
 		// ── 2. Error tracking ──
 		if (event.isError) {
-			this.state.errorTracker.push(toolName, { turn: toolCallIndex, toolName });
+			this.state.errorTracker.push(toolName, { turn: sessionTurn, toolName });
 			// result stays null → pass through
 		}
 
