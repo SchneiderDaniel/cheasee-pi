@@ -12,29 +12,24 @@
  * runtime is CJS where a require() cycle would yield undefined exports.
  */
 
-import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "node:path";
+import { resolve as resolvePath } from "node:path";
 import { parse } from "shell-quote";
 import type { ParseEntry } from "shell-quote";
+import { isPathWithinBase } from "../lib/path-containment.ts";
 
 // ─── Path containment ──────────────────────────────────────────────
 
 /**
  * True when `absolutePath` lexically resolves inside `sandboxRoot`.
  *
- * Normalizes the input via `path.resolve` (collapsing `..`, `//`, trailing
- * slashes) BEFORE the containment test, so an absolute path with `..`
- * components (e.g. `<sandbox>/../../../../etc/passwd`) cannot pass a raw
- * string-prefix check and escape to the filesystem (CWE-22 / Vite
- * CVE-2023-34092 class: check-before-normalize). The containment test uses
- * `path.relative`, which rejects `..`-prefixed, `..`-equal, and cross-drive
- * results in a separator-agnostic way.
+ * Thin alias over the shared CWE-22 predicate in `lib/path-containment.ts`
+ * (check-after-normalize: both operands are resolved before the separator-agnostic
+ * `path.relative` containment test, so `..`, `//`, trailing slashes, sibling-prefix
+ * (`/srv/proj-evil` vs `/srv/proj`) and cross-drive paths cannot slip through).
+ * Kept as a named export so every detector in this extension shares one policy.
  */
 export function isPathWithinSandbox(absolutePath: string, sandboxRoot: string): boolean {
-	const resolved = resolvePath(absolutePath);
-	const rel = relativePath(sandboxRoot, resolved);
-	if (rel === "") return true;
-	if (isAbsolute(rel)) return false; // different drive / root (Windows)
-	return rel !== ".." && !rel.startsWith(".." + sep);
+	return isPathWithinBase(absolutePath, sandboxRoot);
 }
 
 export function isPathSafe(target: string, sandboxRoot: string): boolean {
