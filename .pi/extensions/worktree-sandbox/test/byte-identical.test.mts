@@ -229,6 +229,19 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it("glob operands/values fail closed (shell-quote glob tokens not dropped)", () => {
+		// shell-quote parses `*`/`?`/`[` words as { op: "glob" }; the pattern is a
+		// write target, not a skippable operator, and its metacharacter makes
+		// checkWriteToken reject it (same reason shape as the redirect branch).
+		assert.equal(mod.findUnsafeWriteInBash("echo hi | tee /etc/* safe.txt", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/* ok.txt", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp --target-directory=/etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("install -t /etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/* a", SB), "/etc/*");
+	});
+
 	it("ln branch (symlink target checked)", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash(`ln -s /etc/passwd ${SB}/link`, SB),

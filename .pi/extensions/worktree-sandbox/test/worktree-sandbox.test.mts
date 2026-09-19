@@ -711,6 +711,25 @@ describe("findUnsafeWriteInBash", () => {
 		assert.equal(result, "outside sandbox: /etc/out");
 	});
 
+	it("returns reason for glob operands outside sandbox (fail closed, not dropped)", () => {
+		// shell-quote parses `/etc/*` as a glob token; dropping it would let the
+		// command through, so the pattern itself is treated as a target.
+		assert.equal(mod.findUnsafeWriteInBash("echo data | tee /etc/* safe.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(
+			mod.findUnsafeWriteInBash(`echo data | tee ${SANDBOX}/a /etc/* ${SANDBOX}/b`, SANDBOX),
+			"/etc/*",
+		);
+	});
+
+	it("returns reason for glob target-directory values outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp --target-directory=/etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/* a", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("install -t /etc/* src", SANDBOX), "/etc/*");
+	});
+
 	it("returns reason for dd of outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash(
 			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",

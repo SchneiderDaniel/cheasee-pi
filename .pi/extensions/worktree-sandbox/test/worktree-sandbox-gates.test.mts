@@ -563,6 +563,40 @@ describe("worktree-sandbox gates", () => {
 			assert.ok((result.reason ?? "").includes("outside the worktree"));
 		});
 
+		it("blocks glob tee operand escape through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeToolCallEvent("bash", {
+				command: "echo data | tee /etc/* safe.txt",
+			});
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("outside the worktree"));
+		});
+
+		it("blocks glob target-directory escape through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			for (const command of [
+				"cp -t /etc/* src",
+				"cp --target-directory=/etc/* src",
+			]) {
+				const event = makeToolCallEvent("bash", { command });
+				const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+				const result = await handler(event, ctx);
+
+				assert.ok(result !== undefined, `expected block for: ${command}`);
+				assert.equal(result.block, true, `expected block for: ${command}`);
+			}
+		});
+
 		it("allows tee with all operands inside sandbox", async () => {
 			const pi = makeMockPi();
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);

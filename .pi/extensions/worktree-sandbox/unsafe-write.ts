@@ -81,12 +81,25 @@ const WRITE_COMMAND_GRAMMARS: Record<string, WriteGrammar> = {
 const LN_HARD_LINK_GRAMMAR: WriteGrammar = { operands: "last" };
 
 /**
+ * Text of a token for write-target purposes: strings verbatim, glob words by
+ * pattern. shell-quote turns `/etc/*` into `{ op: "glob", pattern: "/etc/*" }`;
+ * the pattern keeps its glob metacharacter, so checkWriteToken rejects it
+ * (hasShellExpansion) — glob operands fail closed instead of being dropped.
+ */
+function tokenText(entry: ParseEntry | undefined): string | null {
+	if (typeof entry === "string") return entry;
+	if (typeof entry === "object" && "op" in entry && entry.op === "glob") return entry.pattern;
+	return null;
+}
+
+/**
  * Collect every write target a command's argv implies.
  *
  * Scans the remainder of the current command, skipping non-separator
  * operators (so `tee a >log b` still sees `b` as an operand), stopping at
  * SEPARATORS/comments, honouring `--` end-of-options, consuming `valueOptions`
- * values, and extracting `targetDirectoryOptions` values.
+ * values, and extracting `targetDirectoryOptions` values. Glob words count as
+ * operands/values (fail closed), not as skippable operators.
  */
 function collectWriteTargets(
 	tokens: ParseEntry[],
@@ -98,16 +111,18 @@ function collectWriteTargets(
 	let endOfOptions = false;
 
 	for (let j = startIndex; j < tokens.length; j++) {
-		const t = tokens[j]!;
+		const entry = tokens[j]!;
 
-		if (typeof t === "object" && "op" in t) {
-			if (SEPARATORS.has(t.op)) break;
-			continue; // Skip non-separator operators
+		if (typeof entry === "object" && "op" in entry) {
+			if (SEPARATORS.has(entry.op)) break;
+			// Skip non-separator operators, but keep glob words in play.
+			if (entry.op !== "glob") continue;
+		} else if (typeof entry === "object" && "comment" in entry) {
+			break;
 		}
 
-		if (typeof t === "object" && "comment" in t) break;
-
-		if (typeof t !== "string") continue;
+		const t = tokenText(entry);
+		if (t === null) continue;
 
 		if (!endOfOptions && t === "--") {
 			endOfOptions = true;
@@ -124,15 +139,15 @@ function collectWriteTargets(
 				continue;
 			}
 			if (grammar.targetDirectoryOptions?.includes(t)) {
-				const value = tokens[j + 1];
-				if (typeof value === "string") {
+				const value = tokenText(tokens[j + 1]);
+				if (value !== null) {
 					explicit.push(value);
 					j++; // consume the option value
 				}
 				continue;
 			}
 			if (grammar.valueOptions?.includes(t)) {
-				if (typeof tokens[j + 1] === "string") j++; // consume the value
+				if (tokenText(tokens[j + 1]) !== null) j++; // consume the value
 				continue;
 			}
 			if (!t.startsWith("--")) {
@@ -146,17 +161,17 @@ function collectWriteTargets(
 					const letter = `-${letters[k]}`;
 					if (grammar.targetDirectoryOptions?.includes(letter)) {
 						const attached = letters.slice(k + 1);
-						const next = tokens[j + 1];
+						const next = tokenText(tokens[j + 1]);
 						if (attached !== "") {
 							explicit.push(attached);
-						} else if (typeof next === "string") {
+						} else if (next !== null) {
 							explicit.push(next);
 							j++; // consume the option value
 						}
 						break;
 					}
 					if (grammar.valueOptions?.includes(letter)) {
-						if (letters.slice(k + 1) === "" && typeof tokens[j + 1] === "string") {
+						if (letters.slice(k + 1) === "" && tokenText(tokens[j + 1]) !== null) {
 							j++; // consume the value
 						}
 						break; // value swallows the remainder of the bundle

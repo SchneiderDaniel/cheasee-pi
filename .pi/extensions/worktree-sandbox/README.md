@@ -122,6 +122,8 @@ flowchart TD
 | tee/touch operands | `echo x \| tee /outside/f ok.txt` | Write-grammar table (`operands: "all"`) |
 | target-directory option | `cp -t /outside src` | `targetDirectoryOptions` in grammar table |
 | bundled target-directory | `cp -at /outside src` | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`) |
+| glob write operand | `echo x \| tee /outside/* ok.txt` | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()` |
+| glob target-directory | `cp -t /outside/* src` | Glob value extracted and checked, not dropped |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 
