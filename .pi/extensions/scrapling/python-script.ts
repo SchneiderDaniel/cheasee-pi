@@ -40,12 +40,20 @@ def fetch_page(url):
 
     # Tier 2: Heavy Headless Browser (~800MB RAM) - Only used if blocked
     StealthyFetcher.adaptive = True
+    # Adaptive mode persists elements to a SQLite file that defaults to the
+    # scrapling package dir (site-packages) — not writable in a root-owned venv,
+    # which raised sqlite3.OperationalError: unable to open database file.
+    # Redirect it to a writable temp path.
+    import os
+    import tempfile
+    _adaptive_db = os.path.join(tempfile.gettempdir(), "scrapling-adaptive-elements.db")
     try:
         page = StealthyFetcher.fetch(
             url,
             headless=True,
             network_idle=True,
             solve_cloudflare=True,
+            selector_config={"storage_args": {"storage_file": _adaptive_db}},
         )
         return {"html": str(page.html_content), "method": "stealth"}
     except Exception as e:
