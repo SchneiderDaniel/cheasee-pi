@@ -21,10 +21,11 @@ const READ_CMDS = ["cat", "tail", "less", "more"] as const;
 
 /**
  * Commands that should redirect to the `read` tool.
- * Tail is excluded because `tail -N` is O(N) from EOF via seek,
- * while the `read` tool is O(file size) — it loads the entire file.
- * Including tail would make the harness force an expensive full-file read
- * for what would be a cheap seek-from-end operation.
+ * `tail` and `head` are excluded because both are cheap partial reads —
+ * `tail -N` is O(N) from EOF via seek, `head -n N` exits after N lines —
+ * while the `read` tool is O(file size): it loads the entire file.
+ * Including either would force an expensive full-file read for a cheap
+ * partial-read operation.
  *
  * ponytail: rare tail -n +1 / tail -c +1 bypass is accepted;
  * argument-parsing for full-file tail variants adds complexity not worth the cost.
@@ -125,7 +126,7 @@ export function hasBypassAnnotation(cmd: string): boolean {
  *
  * Returns true for:
  *  - Standalone grep/rg as first token (backtick variants included)
- *  - Piped file→grep: file-read command (cat/head/tail/less/more) piped to grep/rg
+ *  - Piped file→grep: file-read command (cat/tail/less/more) piped to grep/rg
  *
  * Returns false for:
  *  - grep/rg chained with && or ;
