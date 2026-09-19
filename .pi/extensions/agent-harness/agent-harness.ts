@@ -227,8 +227,10 @@ export class AgentHarness {
 		let result: ToolCallResult | null = null;
 
 		// ── 2. Error tracking ──
+		// Record the session turn (not toolCallIndex) so the block message's
+		// "last turn N" names the same unit the read-cache message uses.
 		if (event.isError) {
-			this.state.errorTracker.push(toolName, { turn: toolCallIndex, toolName });
+			this.state.errorTracker.push(toolName, { turn: sessionTurn, toolName });
 			// result stays null → pass through
 		}
 

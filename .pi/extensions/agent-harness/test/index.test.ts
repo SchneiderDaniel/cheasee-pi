@@ -203,6 +203,36 @@ describe("AgentHarness — error retry blocking", () => {
 		h.handleTurnStart(); // decays 1→0
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "e.ts" }), makeCtx()), null);
 	});
+
+	it("block message reports sessionTurn, not toolCallIndex", () => {
+		const h = new AgentHarness();
+		// Turn 0: two errors (toolCallIndex 0 and 1)
+		h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx());
+		h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx());
+
+		// Turn boundary: sessionTurn → 1, errors decay 2→1
+		h.handleTurnStart();
+
+		// Turn 1: one more error (toolCallIndex 2) → errors back to 2
+		h.handleToolCall(makeEvent("read", { path: "c.ts" }, true), makeCtx());
+
+		const r = h.handleToolCall(makeEvent("read", { path: "d.ts" }), makeCtx());
+		assert.ok(r?.block);
+		assert.ok(
+			r!.reason.includes("last turn 1"),
+			`expected \"last turn 1\" (session turn), got: ${r!.reason}`,
+		);
+	});
+
+	it("multiple errors within one turn report the same session turn", () => {
+		const h = new AgentHarness();
+		assert.equal(h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx()), null);
+		assert.equal(h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx()), null);
+
+		const r = h.handleToolCall(makeEvent("read", { path: "c.ts" }), makeCtx());
+		assert.ok(r?.block);
+		assert.ok(r!.reason.includes("last turn 0"), r!.reason);
+	});
 });
 
 // ── Read cache ──
