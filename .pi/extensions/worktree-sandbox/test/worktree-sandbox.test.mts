@@ -15,7 +15,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeMockPi, withSandboxEnv, makeToolCallEvent, makeCtx as makeHelperCtx } from "./helpers.ts";
+import {
+	makeMockPi,
+	withSandboxEnv,
+	makeToolCallEvent,
+	makeCtx as makeHelperCtx,
+} from "./helpers.ts";
 
 // We export rewritePath from index.ts specifically for testing.
 // The default export (extension factory) is also available.
@@ -454,12 +459,24 @@ describe("rewritePath", () => {
 
 	it("trailing slash on root is contained; read blocked as directory, write/edit normalize to root", () => {
 		const readEvent = makeEvent(`${SANDBOX_ROOT}/`);
-		const readResult = mod.rewritePath("read", readEvent, SANDBOX_ROOT, makeCtx(false), "file operations");
+		const readResult = mod.rewritePath(
+			"read",
+			readEvent,
+			SANDBOX_ROOT,
+			makeCtx(false),
+			"file operations",
+		);
 		assert.ok(readResult !== undefined);
 		assert.ok((readResult.reason ?? "").includes("directory"));
 
 		const writeEvent = makeEvent(`${SANDBOX_ROOT}/`);
-		const writeResult = mod.rewritePath("write", writeEvent, SANDBOX_ROOT, makeCtx(false), "writes");
+		const writeResult = mod.rewritePath(
+			"write",
+			writeEvent,
+			SANDBOX_ROOT,
+			makeCtx(false),
+			"writes",
+		);
 		assert.equal(writeResult, undefined);
 		assert.equal(writeEvent.input.path, SANDBOX_ROOT);
 	});
@@ -636,6 +653,152 @@ describe("findUnsafeWriteInBash", () => {
 		assert.ok(result.includes("outside"));
 	});
 
+	it("returns reason for tee first arg outside sandbox (multi-operand escape)", () => {
+		const result = mod.findUnsafeWriteInBash(
+			"echo data | tee /etc/outside.txt backup.txt",
+			SANDBOX,
+		);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns reason for tee middle arg outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(
+			`echo data | tee ${SANDBOX}/a.txt /etc/outside.txt ${SANDBOX}/b.txt`,
+			SANDBOX,
+		);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns reason for touch first arg outside sandbox (multi-operand escape)", () => {
+		const result = mod.findUnsafeWriteInBash("touch /etc/outside.txt ok.txt", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns null for touch reference file outside sandbox (value option, not a target)", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SANDBOX), null);
+	});
+
+	it("returns reason for cp target-directory option outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("cp -t /etc/out a b", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/out");
+	});
+
+	it("returns reason for bundled -t target-directory outside sandbox", () => {
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp -at /etc/out src", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("mv -bt /etc/out a", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -at /etc/out src", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("cp -at/etc/out src", SANDBOX), "outside sandbox: /etc/out");
+	});
+
+	it("returns null for bundled -t target-directory inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`cp -at ${SANDBOX}/out src`, SANDBOX), null);
+		// A value-taking option swallows the bundle remainder, so -St.bak is a
+		// suffix value, not a bundled -t.
+		assert.equal(mod.findUnsafeWriteInBash(`cp -St.bak a ${SANDBOX}/b`, SANDBOX), null);
+	});
+
+	it("returns reason for install -t target-directory outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("install -t /etc/out src", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/out");
+	});
+
+	it("returns reason for glob operands outside sandbox (fail closed, not dropped)", () => {
+		// shell-quote parses `/etc/*` as a glob token; dropping it would let the
+		// command through, so the pattern itself is treated as a target.
+		assert.equal(mod.findUnsafeWriteInBash("echo data | tee /etc/* safe.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(
+			mod.findUnsafeWriteInBash(`echo data | tee ${SANDBOX}/a /etc/* ${SANDBOX}/b`, SANDBOX),
+			"/etc/*",
+		);
+	});
+
+	it("returns reason for glob target-directory values outside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp --target-directory=/etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/* src", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/* a", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("install -t /etc/* src", SANDBOX), "/etc/*");
+	});
+
+	it("returns reason for glob value-option tokens outside sandbox (fail closed)", () => {
+		// A glob in an option-value slot expands to several words, and every
+		// word after the first lands in operand position (`touch -r /etc/* ok.txt`
+		// becomes `touch -r /etc/a /etc/b ok.txt`) — an outside write target the
+		// sandbox never sees if the value is trusted. Fail closed on the value.
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/[ab] ok.txt", SANDBOX), "/etc/[ab]");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r/etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -mr /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch --reference=/etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -d /etc/* ok.txt", SANDBOX), "/etc/*");
+	});
+
+	it("returns null for expansion-free value options", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash("touch --reference /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash("touch -mr /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash(`touch -d 2020-01-01 ${SANDBOX}/f`, SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SANDBOX}/b`, SANDBOX), null);
+	});
+
+	it("returns reason for shell expansion attached to an option token", () => {
+		// shell-quote resolves an unresolved variable to "" and, when it is
+		// attached to a word, drops the `$` entirely (`cp -t$OUT src` →
+		// ["cp","-t","src"]), so the option value vanished before the detector
+		// could check it. The write detector tokenizes with expansion provenance,
+		// keeps the `$` on the token, and fails closed on the command.
+		for (const command of [
+			"cp -t$OUT src",
+			"cp -at$OUT src",
+			"mv -t$OUT src",
+			"install -t$OUT src",
+			'cp -t"$OUT" src',
+			"cp -t${OUT} src",
+			"touch -r$REF ok.txt",
+			"touch -mr$REF ok.txt",
+		]) {
+			assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command, command);
+		}
+	});
+
+	it("returns reason for attached expansion in dd of=", () => {
+		const command = "dd of=$OUT if=/dev/zero";
+		assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command);
+	});
+
+	it("returns reason when the command word itself is built by expansion", () => {
+		// `c$X -t /out src` runs `cp -t /out src` — the shell picks the command
+		// word, so no write grammar can be matched against the token. Fail closed.
+		assert.equal(
+			mod.findUnsafeWriteInBash("c$X -t /etc/out src", SANDBOX),
+			"c$X -t /etc/out src",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("$(which tee) /etc/out", SANDBOX),
+			"$(which tee) /etc/out",
+		);
+	});
+
+	it("returns null for the `[` test command (not an expansion)", () => {
+		assert.equal(mod.findUnsafeWriteInBash("[ -f x ]", SANDBOX), null);
+	});
+
+	it("keeps bare unresolved variables fail-closed (command as reason)", () => {
+		for (const command of ["cp a $DEST", "echo hi | tee $DEST backup.txt", "echo x > $OUT"]) {
+			assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command, command);
+		}
+	});
+
 	it("returns reason for dd of outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash(
 			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",
@@ -736,7 +899,10 @@ describe("findUnsafeWriteInBash via bash handler (integration)", () => {
 			const result = await handler(event, ctx);
 
 			assert.equal(result, undefined);
-			assert.equal(event.input.command, `cd "${sandboxDir}" && ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`);
+			assert.equal(
+				event.input.command,
+				`cd "${sandboxDir}" && ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`,
+			);
 		});
 	});
 });

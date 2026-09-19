@@ -23,7 +23,7 @@ Worktree Sandbox enforces this at the tool call boundary — **deterministic enf
 4. **Shell-aware parsing** — Uses `shell-quote` library to correctly tokenize bash commands, detecting:
    - `cd` targets with shell expansion (`$VAR`, `~`, `$(cmd)`)
    - Redirect targets (`>`, `>>`, `2>`) outside worktree
-   - `cp`/`mv`/`touch` destinations outside worktree
+   - `cp`/`mv`/`install` destinations and `tee`/`touch` operands outside worktree
 5. **Block notifications** — Blocked operations show a toast notification in TUI: `[sandbox] Blocked cd to outside worktree: $HOME`
 
 ### Guard flow
@@ -43,7 +43,7 @@ tool_call(event)
     │
     └─ bash:
           ├─ Block cd escape (shell-aware parsing)
-          ├─ Block file writes outside worktree (redirect/cp/mv/touch)
+          ├─ Block file writes outside worktree (redirect/cp/mv/touch/tee/install)
           └─ Prepend `cd <worktree> && ` to every command
 ```
 
@@ -58,6 +58,9 @@ tool_call(event)
 | `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
 | `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
 | `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
+| `echo x \| tee /outside/f safe.txt` | **Every** `tee` operand checked (multi-destination), not just the last |
+| `touch /outside/f safe.txt` | **Every** `touch` operand checked (multi-destination) |
+| `cp -t /outside src` | `-t`/`--target-directory` value → `findUnsafeWriteInBash()` |
 | `> /dev/nullable` / `<sb>/dev/null` | Not a device: exact-match on resolved path, not prefix |
 | `mv x /dev/null` / `ln -sf x /dev/null` | Directory-entry ops: `/dev/null` exemption is content-sink only |
 | `cp --remove-destination x /dev/null` | `cp` excluded from content sinks: unlink/backup modes mutate the dir entry |
@@ -119,6 +122,14 @@ flowchart TD
 | Bare cd | `cd && ./escape` | `findMeaningfulToken()` exhausted |
 | Redirect escape | `cmd > /escape` | Redirect detection |
 | cp/mv destination | `cp x /outside/file` | Command detection |
+| tee/touch operands | `echo x \| tee /outside/f ok.txt` | Write-grammar table (`operands: "all"`) |
+| target-directory option | `cp -t /outside src` | `targetDirectoryOptions` in grammar table |
+| bundled target-directory | `cp -at /outside src` | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`) |
+| glob write operand | `echo x \| tee /outside/* ok.txt` | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()` |
+| glob target-directory | `cp -t /outside/* src` | Glob value extracted and checked, not dropped |
+| glob value option | `touch -r /outside/* ok.txt` | Glob/expansion option values checked — extra expanded words become operands (arity guard) |
+| Attached expansion on a flag | `cp -t$OUT src`, `touch -r$REF ok.txt` | Expansion-preserving tokenization keeps the `$` on the token instead of letting shell-quote drop it |
+| Command word built by expansion | `c$X -t /outside src` | Expansion in command position fails closed — no grammar can be matched |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 
@@ -181,6 +192,21 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   separate syscalls (CWE-367). A concurrent attacker could swap a path between
   check and use. The resolve-first fix closes the deterministic escape; the
   remaining window is best-effort only.
+- **Argv-shape denylist is empirically fragile** — The write detector is a
+  declarative per-command grammar table (`WRITE_COMMAND_GRAMMARS` in
+  `unsafe-write.ts`): `operands: "all"` for `tee`/`touch`, `operands: "last"`
+  plus `-t`/`--target-directory` for `cp`/`mv`/`install`. Commands not in the
+  table (`sed -i`, `tar -C`, `truncate -s`, `sponge`, `exec 3>file`, …) remain
+  unmodelled, and GuardFall/ShellSieve measured 69–99% of real-world command
+  denylists as bypassable via alternative argv shapes. Treat this as lexical
+  interception, not a process boundary.
+- **Expansion provenance is preserved before scanning** — shell-quote resolves
+  an unresolved variable to `""` and silently drops the `$` when it is attached
+  to a word (`cp -t$OUT src` → `["cp", "-t", "src"]`), which would hand the
+  detector an option value that never existed. The write detector tokenizes
+  with `tokenizeCommandPreservingExpansions` so the reference stays visible and
+  the command fails closed; a variable the shell — not the detector — resolves
+  is always treated as unsafe.
 
 ## License
 

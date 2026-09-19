@@ -38,6 +38,9 @@ describe("byte-identical: public API surface (index.ts barrel)", () => {
 	it("keeps internal helpers module-private (not re-exported)", () => {
 		assert.equal("checkWriteDest" in mod, false);
 		assert.equal("checkWriteToken" in mod, false);
+		assert.equal("collectWriteTargets" in mod, false);
+		assert.equal("WRITE_COMMAND_GRAMMARS" in mod, false);
+		assert.equal("tokenizeCommandPreservingExpansions" in mod, false);
 		assert.equal("findRawCdExpansion" in mod, false);
 	});
 });
@@ -151,6 +154,84 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it('multi-destination operands (tee/touch operands: "all")', () => {
+		// The reported escape: only the last operand used to be checked.
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee /etc/outside/file backup.txt", SB),
+			"outside sandbox: /etc/outside/file",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("touch /etc/outside/x ok.txt", SB),
+			"outside sandbox: /etc/outside/x",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee /etc/a /etc/b", SB),
+			"outside sandbox: /etc/a", // first unsafe target wins
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee -a - /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("echo hi | tee", SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`touch ${SB}/a ${SB}/b`, SB), null);
+	});
+
+	it("option-aware operands (valueOptions + targetDirectoryOptions)", () => {
+		// -r value is a reference file, not a write target.
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SB), null);
+		assert.equal(
+			mod.findUnsafeWriteInBash("touch -r /etc/hosts /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/out a b", SB), "outside sandbox: /etc/out");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/out a", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp --target-directory=/etc/out a", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp --target-directory /etc/out a", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/out a", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -t /etc/out src", SB),
+			"outside sandbox: /etc/out",
+		);
+		// Bundled short options: `-at` is `-a` + `-t`, so its value is still a
+		// destination (`-at /etc/out`). A value-taking option swallows the rest
+		// of the bundle, so `-St.bak` does NOT bundle a `-t`.
+		assert.equal(mod.findUnsafeWriteInBash("cp -at /etc/out src", SB), "outside sandbox: /etc/out");
+		assert.equal(mod.findUnsafeWriteInBash("cp -at/etc/out src", SB), "outside sandbox: /etc/out");
+		assert.equal(mod.findUnsafeWriteInBash("mv -bt /etc/out a", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -at /etc/out src", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -at ${SB}/out a`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`mv -bt ${SB}/out a`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`install -at ${SB}/out src`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -St.bak a ${SB}/b`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SB}/b`, SB), null);
+		assert.equal(
+			mod.findUnsafeWriteInBash(`install -m 755 -o root -g root src ${SB}/dst`, SB),
+			null,
+		);
+	});
+
+	it("glob operands/values fail closed (shell-quote glob tokens not dropped)", () => {
+		// shell-quote parses `*`/`?`/`[` words as { op: "glob" }; the pattern is a
+		// write target, not a skippable operator, and its metacharacter makes
+		// checkWriteToken reject it (same reason shape as the redirect branch).
+		assert.equal(mod.findUnsafeWriteInBash("echo hi | tee /etc/* safe.txt", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/* ok.txt", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp --target-directory=/etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("install -t /etc/* src", SB), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/* a", SB), "/etc/*");
+	});
+
 	it("ln branch (symlink target checked)", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash(`ln -s /etc/passwd ${SB}/link`, SB),
@@ -250,8 +331,14 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		); // cp before dd
 	});
 
-	it("`>` is not a SEPARATOR, so scan continues past it (checkWriteDest pins)", () => {
-		assert.equal(mod.findUnsafeWriteInBash("touch /etc/x > /etc/y", SB), "outside sandbox: /etc/y");
+	it("`>` is not a SEPARATOR, so scan continues past it (operand-scan pins)", () => {
+		// Intentional ordering delta: `touch` is multi-destination, so operands
+		// are collected in argv order and the first unsafe target is reported.
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/x > /etc/y", SB), "outside sandbox: /etc/x");
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee a >b /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
 	});
 
 	it("boundaries: null for safe/empty input", () => {
@@ -266,6 +353,28 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 			mod.findUnsafeWriteInBash("echo $UNSET_VAR > /tmp/x", SB),
 			"outside sandbox: /tmp/x",
 		);
+	});
+
+	it("shell expansion attached to an option token fails closed", () => {
+		// shell-quote collapses an unresolved variable to "" and, when it is
+		// attached to a word, drops the `$` (`cp -t$OUT src` → ["cp","-t","src"]).
+		// With provenance kept, the option value stays visible and the command
+		// fails closed with the same whole-command reason a bare variable gets.
+		assert.equal(mod.findUnsafeWriteInBash("cp -t$OUT src", SB), "cp -t$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("cp -at$OUT src", SB), "cp -at$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("install -t$OUT src", SB), "install -t$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r$REF ok.txt", SB), "touch -r$REF ok.txt");
+		assert.equal(mod.findUnsafeWriteInBash("cp a $DEST", SB), "cp a $DEST");
+	});
+
+	it("command word built by expansion fails closed", () => {
+		// The shell picks the command word at run time, so no write grammar can
+		// be matched against the token — block instead of reading it as an
+		// unknown (harmless) command.
+		assert.equal(mod.findUnsafeWriteInBash("c$X -t /etc/out src", SB), "c$X -t /etc/out src");
+		assert.equal(mod.findUnsafeWriteInBash("$(which tee) /etc/out", SB), "$(which tee) /etc/out");
+		// A literal `[` (the test command) is not an expansion.
+		assert.equal(mod.findUnsafeWriteInBash("[ -f x ]", SB), null);
 	});
 
 	it("absolute paths with .. that escape sandbox are blocked (traversal)", () => {
