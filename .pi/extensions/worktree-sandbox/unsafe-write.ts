@@ -14,8 +14,22 @@ import {
 	hasShellExpansion,
 	isCommandStart,
 	isPathSafe,
+	isSideEffectFreeDevice,
 	tokenizeCommand,
 } from "./meaningful-token.ts";
+
+/**
+ * Content-sink safety: a target is safe when it is inside the sandbox OR is an
+ * enumerated side-effect-free device (`/dev/null`) — the bytes are discarded
+ * and opening it for output neither creates, renames, nor re-links a directory
+ * entry. Used only by pure content sinks (redirects, `dd of=`, `tee`, `cp`).
+ *
+ * Operations that mutate the `/dev/null` directory entry or its metadata
+ * (`mv`, `ln`, `install`, `touch`) must use `isPathSafe` directly.
+ */
+function isContentSinkSafe(target: string, sandboxRoot: string): boolean {
+	return isSideEffectFreeDevice(target) || isPathSafe(target, sandboxRoot);
+}
 
 /**
  * Redirect branch: `> file` / `>> file` — the next meaningful token after
@@ -36,21 +50,24 @@ function checkRedirect(
 		case "glob":
 			return tokenResult.pattern || command;
 		case "token":
-			return checkWriteToken(tokenResult.value, command, sandboxRoot);
+			return checkWriteToken(tokenResult.value, command, sandboxRoot, true);
 	}
 }
 
 /**
  * cp/mv/touch/tee/install branch: the destination is the last non-flag
- * argument of the command.
+ * argument of the command. `contentSink` is true only for commands whose
+ * destination is a pure content sink (`cp`, `tee`) — never for `mv`/`touch`/
+ * `install`, which rename or mutate the destination directory entry.
  */
 function checkCopyMove(
 	tokens: ParseEntry[],
 	index: number,
 	command: string,
 	sandboxRoot: string,
+	contentSink: boolean,
 ): string | null {
-	return checkWriteDest(tokens, index + 1, command, sandboxRoot);
+	return checkWriteDest(tokens, index + 1, command, sandboxRoot, contentSink);
 }
 
 /**
@@ -99,20 +116,20 @@ function checkLn(
 	if (isSymlink) {
 		// First non-flag arg is the symlink target (escape-vector guard).
 		if (firstNonFlag !== null) {
-			const result = checkWriteToken(firstNonFlag, command, sandboxRoot);
+			const result = checkWriteToken(firstNonFlag, command, sandboxRoot, false);
 			if (result !== null) return result;
 		}
 		// Last non-flag arg is the link name (or destination directory) —
 		// the actual directory entry `ln` creates. Validate it too.
 		if (lastNonFlag !== null && lastNonFlag !== firstNonFlag) {
-			const result = checkWriteToken(lastNonFlag, command, sandboxRoot);
+			const result = checkWriteToken(lastNonFlag, command, sandboxRoot, false);
 			if (result !== null) return result;
 		}
 		return null;
 	}
 
 	// For hard link (ln without -s), check the destination (last non-flag)
-	return checkWriteDest(tokens, index + 1, command, sandboxRoot);
+	return checkWriteDest(tokens, index + 1, command, sandboxRoot, false);
 }
 
 /**
@@ -137,7 +154,7 @@ function checkDd(
 			// Extract the path from of=<path>
 			const ofMatch = t.match(/^of=(.+)/);
 			if (ofMatch) {
-				const result = checkWriteToken(ofMatch[1]!, command, sandboxRoot);
+				const result = checkWriteToken(ofMatch[1]!, command, sandboxRoot, true);
 				if (result !== null) return result;
 			}
 		}
@@ -154,6 +171,7 @@ function checkWriteDest(
 	startIndex: number,
 	command: string,
 	sandboxRoot: string,
+	contentSink: boolean,
 ): string | null {
 	let lastTarget: string | null = null;
 
@@ -180,7 +198,10 @@ function checkWriteDest(
 		if (hasShellExpansion(lastTarget)) {
 			return lastTarget;
 		}
-		if (!isPathSafe(lastTarget, sandboxRoot)) {
+		const safe = contentSink
+			? isContentSinkSafe(lastTarget, sandboxRoot)
+			: isPathSafe(lastTarget, sandboxRoot);
+		if (!safe) {
 			return `outside sandbox: ${lastTarget}`;
 		}
 	}
@@ -189,16 +210,26 @@ function checkWriteDest(
 }
 
 /**
- * Check a path token for write safety (redirect target, dd of=, etc.).
+ * Check a path token for write safety.
+ *
+ * `contentSink` is true for pure content sinks (redirect target, `dd of=`),
+ * which may target a side-effect-free device; false for directory-entry
+ * destinations (`ln`), which may not.
  */
-function checkWriteToken(token: string, command: string, sandboxRoot: string): string | null {
+function checkWriteToken(
+	token: string,
+	command: string,
+	sandboxRoot: string,
+	contentSink: boolean,
+): string | null {
 	if (token === "") {
 		return command; // Unresolved variable
 	}
 	if (hasShellExpansion(token)) {
 		return token;
 	}
-	if (!isPathSafe(token, sandboxRoot)) {
+	const safe = contentSink ? isContentSinkSafe(token, sandboxRoot) : isPathSafe(token, sandboxRoot);
+	if (!safe) {
 		return `outside sandbox: ${token}`;
 	}
 	return null;
@@ -238,7 +269,10 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 				token === "install")
 		) {
 			if (!isCommandStart(tokens, i)) continue;
-			const result = checkCopyMove(tokens, i, command, sandboxRoot);
+			// Only pure content sinks may target a side-effect-free device;
+			// mv/touch/install mutate or create the destination dir entry.
+			const contentSink = token === "cp" || token === "tee";
+			const result = checkCopyMove(tokens, i, command, sandboxRoot, contentSink);
 			if (result !== null) return result;
 		}
 

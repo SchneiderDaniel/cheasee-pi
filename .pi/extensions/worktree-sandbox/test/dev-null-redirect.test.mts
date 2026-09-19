@@ -2,12 +2,14 @@
  * Tests: /dev/null device-file exemption.
  *
  * Any redirect to /dev/null (the universal discard idiom) was blocked as a
- * write "outside the worktree". Fix: one enumerated allow-list
- * (SIDE_EFFECT_FREE_DEVICES = { "/dev/null" }) short-circuits inside
- * `isPathSafe` on the RESOLVED target, so the redirect, cp/mv/touch/tee/install,
- * ln, dd, and cd detectors all inherit the exemption from one choke point.
+ * write "outside the worktree". Fix: an enumerated allow-list
+ * (`SIDE_EFFECT_FREE_DEVICES = { "/dev/null" }`) is composed ONLY into pure
+ * content sinks — shell redirects (`>`, `>>`), `dd of=`, `tee`, and `cp`
+ * destinations. Operations that mutate the `/dev/null` directory entry or its
+ * metadata (`mv`, `ln`, `install`, `touch`) and `cd` keep the strict
+ * containment check.
  *
- * Phase 1: /dev/null is allow-listed (false positive fixed).
+ * Phase 1: /dev/null is allow-listed for content sinks (false positive fixed).
  * Phase 2: Exemption is not an escape primitive (exact match on resolved path).
  * Phase 3: Preserved behavior, scope, and API surface (regression).
  *
@@ -46,6 +48,7 @@ let mod: {
 let tokenHelpers: {
 	isPathSafe: (target: string, sandboxRoot: string) => boolean;
 	isPathWithinSandbox: (absolutePath: string, sandboxRoot: string) => boolean;
+	isSideEffectFreeDevice: (target: string) => boolean;
 };
 
 // Fixed sandbox root — pure string comparisons, no FS access.
@@ -59,19 +62,20 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 	});
 
 	// ═════════════════════════════════════════════════════════════════
-	// Phase 1: /dev/null is allow-listed (false positive fixed)
+	// Phase 1: /dev/null is allow-listed for content sinks (false positive fixed)
 	// ═════════════════════════════════════════════════════════════════
 
-	describe("Phase 1: /dev/null allow-listed", () => {
-		it("entity — isPathSafe('/dev/null') is true", () => {
-			assert.equal(tokenHelpers.isPathSafe("/dev/null", SB), true);
+	describe("Phase 1: /dev/null allow-listed for content sinks", () => {
+		it("entity — pure containment predicate does NOT exempt /dev/null", () => {
+			assert.equal(tokenHelpers.isPathSafe("/dev/null", SB), false);
 		});
 
-		it("entity — exemption keys on the normalized absolute target", () => {
-			assert.equal(tokenHelpers.isPathSafe("/dev/null/", SB), true);
-			assert.equal(tokenHelpers.isPathSafe("/dev/../dev/null", SB), true);
-			// Relative "dev/null" resolves to <SB>/dev/null → passes via containment.
-			assert.equal(tokenHelpers.isPathSafe("dev/null", SB), true);
+		it("entity — device predicate keys on the normalized absolute target", () => {
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/null"), true);
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/null/"), true);
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/../dev/null"), true);
+			// Relative "dev/null" is not an absolute device path.
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("dev/null"), false);
 		});
 
 		it("use-case — all three stderr-suppression redirect idioms pass", () => {
@@ -84,15 +88,23 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 			assert.equal(mod.findUnsafeWriteInBash("cmd 2>&1 >/dev/null", SB), null);
 		});
 
-		it("use-case — other write branches inherit the exemption", () => {
+		it("use-case — content-sink write branches inherit the exemption", () => {
 			assert.equal(mod.findUnsafeWriteInBash("dd if=/dev/zero of=/dev/null", SB), null);
 			assert.equal(mod.findUnsafeWriteInBash("cp x /dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash("mv x /dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash("touch /dev/null", SB), null);
 			assert.equal(mod.findUnsafeWriteInBash("echo x | tee /dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash("install f /dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash("ln -s a /dev/null", SB), null);
-			assert.equal(mod.findUnsafeWriteInBash(`ln -s /dev/null ${SB}/link`, SB), null);
+		});
+
+		it("use-case — directory-entry / metadata ops stay contained (audit remedy)", () => {
+			// mv renames the dir entry; ln links it; install copies + mutates mode/
+			// owner; touch mutates metadata — none are side-effect-free for /dev/null.
+			assert.equal(mod.findUnsafeWriteInBash("mv x /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(mod.findUnsafeWriteInBash("touch /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(mod.findUnsafeWriteInBash("install f /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(mod.findUnsafeWriteInBash("ln -s a /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(
+				mod.findUnsafeWriteInBash("ln -sf payload /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
 		});
 
 		it("use-case — exemption does not swallow later real writes", () => {
@@ -103,8 +115,8 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 			assert.equal(mod.findUnsafeWriteInBash(`echo x > /dev/null && echo y > ${SB}/ok`, SB), null);
 		});
 
-		it("use-case — cd transitive effect is intentional (harmless ENOTDIR)", () => {
-			assert.equal(mod.findUnsafeCd("cd /dev/null", SB), null);
+		it("use-case — cd is not a content sink: /dev/null target stays blocked", () => {
+			assert.equal(mod.findUnsafeCd("cd /dev/null", SB), "/dev/null");
 		});
 	});
 
@@ -148,6 +160,9 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 		it("entity — negative direct predicate", () => {
 			assert.equal(tokenHelpers.isPathSafe("/dev/nullable", SB), false);
 			assert.equal(tokenHelpers.isPathSafe("/dev/sda", SB), false);
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/nullable"), false);
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/sda"), false);
+			assert.equal(tokenHelpers.isSideEffectFreeDevice("/dev/stdout"), false);
 		});
 	});
 

@@ -38,31 +38,40 @@ export function isPathWithinSandbox(absolutePath: string, sandboxRoot: string): 
 }
 
 /**
- * Device files whose writes are discarded and reads return EOF — exempt from
- * containment so the universal `2>/dev/null` idiom isn't a false positive.
+ * Device files whose writes are discarded and reads return EOF — allow-listed
+ * for *content-sink* writes (shell redirects `>`/`>>`, `dd of=`, `tee`, `cp`
+ * destinations) so the universal `2>/dev/null` idiom isn't a false positive.
  *
  * Deliberately an exact enumerated set, never a `/dev/` prefix grant: raw
  * devices (`/dev/sda`, `/dev/mem`, `/dev/kmsg`) and fd aliases
  * (`/dev/stdout`, `/dev/stderr`, `/dev/fd/N` — which write through to the
- * process fd) are real write targets and stay sandboxed.
+ * process fd) are real write targets and stay sandboxed. Operations that
+ * mutate the `/dev/null` directory entry (`mv`, `ln`, `install`) or its
+ * metadata (`touch`) also stay sandboxed — see `unsafe-write.ts`.
+ *
+ * Matches on the *resolved* target: `/dev/null/` and `/dev/../dev/null`
+ * collapse to `/dev/null`, while `/dev/nullable` and
+ * `/dev/null/../etc/passwd` do not.
  */
 const SIDE_EFFECT_FREE_DEVICES: ReadonlySet<string> = new Set(["/dev/null"]);
 
-/** True when `resolved` is an allow-listed side-effect-free device file. */
-function isSideEffectFreeDevice(resolved: string): boolean {
-	return SIDE_EFFECT_FREE_DEVICES.has(resolved);
+/** True when `target` resolves to an allow-listed side-effect-free device. */
+export function isSideEffectFreeDevice(target: string): boolean {
+	return target.startsWith("/") && SIDE_EFFECT_FREE_DEVICES.has(resolvePath(target));
 }
 
+/**
+ * True when `target` lexically resolves inside `sandboxRoot`.
+ *
+ * Pure containment primitive — it knows nothing about device exemptions.
+ * Content-sink writers that may legally target a side-effect-free device
+ * compose `isSideEffectFreeDevice` on top (see `unsafe-write.ts`).
+ */
 export function isPathSafe(target: string, sandboxRoot: string): boolean {
 	if (target.startsWith("/")) {
-		// Match on the resolved path (`/dev/null/`, `/dev/../dev/null` collapse
-		// to `/dev/null`; `/dev/nullable` and `/dev/null/../etc/passwd` do not).
-		const resolved = resolvePath(target);
-		if (isSideEffectFreeDevice(resolved)) return true;
-		return isPathWithinSandbox(resolved, sandboxRoot);
+		return isPathWithinSandbox(resolvePath(target), sandboxRoot);
 	}
-	const resolved = resolvePath(sandboxRoot, target);
-	return isPathWithinSandbox(resolved, sandboxRoot);
+	return isPathWithinSandbox(resolvePath(sandboxRoot, target), sandboxRoot);
 }
 
 // ─── Shell-aware parsing ───────────────────────────────────────────
