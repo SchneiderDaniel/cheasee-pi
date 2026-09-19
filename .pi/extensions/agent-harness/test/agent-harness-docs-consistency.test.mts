@@ -10,9 +10,11 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { describe, it, after } from "node:test";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
+import { ALLOWED_CONFIG_KEYS, loadProjectConfig } from "../lib/load-config.ts";
 
 const DOC_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "extensions", "agent-harness.md");
 const README_PATH = resolve(import.meta.dirname, "..", "README.md");
@@ -121,6 +123,79 @@ describe("Phase 2: Table structure preserved after row deletion", () => {
 			assert.ok(trimmed.endsWith("|"), `Row should end with |: "${trimmed}"`);
 		}
 	});
+});
+
+// ── Phase 3b: Config examples match the committed config contract (issue #1725) ──
+
+/** Extract the first ```json fenced block that follows the "Config Format" heading. */
+function extractConfigFence(content: string): string {
+	const heading = content.indexOf("Config Format");
+	assert.ok(heading !== -1, "doc must have a Config Format section");
+	const fenceStart = content.indexOf("```json", heading);
+	assert.ok(fenceStart !== -1, "Config Format section must contain a ```json fence");
+	const bodyStart = content.indexOf("\n", fenceStart) + 1;
+	const fenceEnd = content.indexOf("```", bodyStart);
+	assert.ok(fenceEnd !== -1, "config fence must be closed");
+	return content.slice(bodyStart, fenceEnd);
+}
+
+const configTempDirs: string[] = [];
+
+after(() => {
+	for (const dir of configTempDirs) {
+		rmSync(dir, { recursive: true, force: true });
+	}
+	configTempDirs.length = 0;
+});
+
+/** Write a config fence to a temp dir and load it through the real loader. */
+function loadFence(fence: string) {
+	const dir = mkdtempSync(join(tmpdir(), "harness-docs-config-"));
+	configTempDirs.push(dir);
+	mkdirSync(join(dir, ".pi"));
+	writeFileSync(join(dir, ".pi", "harness-config.json"), fence, "utf-8");
+	return loadProjectConfig({ isProjectTrusted: () => true }, dir);
+}
+
+const DOCS = [
+	{ label: "README.md", read: readReadme },
+	{ label: "docs/extensions/agent-harness.md", read: readDoc },
+] as const;
+
+describe("Phase 3b: Config Format examples match the loader contract", () => {
+	for (const { label, read } of DOCS) {
+		it(`${label}: config fence parses as JSON and top-level keys ⊆ ALLOWED_CONFIG_KEYS`, () => {
+			const parsed = JSON.parse(extractConfigFence(read())) as Record<string, unknown>;
+			for (const key of Object.keys(parsed)) {
+				assert.ok(
+					ALLOWED_CONFIG_KEYS.has(key),
+					`${label} uses unsupported config key "${key}" — allowed: ${[...ALLOWED_CONFIG_KEYS].join(", ")}`,
+				);
+			}
+		});
+
+		it(`${label}: config fence has no top-level "tools" key`, () => {
+			const parsed = JSON.parse(extractConfigFence(read())) as Record<string, unknown>;
+			assert.ok(!("tools" in parsed), `${label} must use "toolMeta", not "tools"`);
+		});
+
+		it(`${label}: config fence round-trips through loadProjectConfig (bash threshold 4)`, () => {
+			const rules = loadFence(extractConfigFence(read()));
+			assert.equal(rules.toolMeta.bash?.cascadeThreshold, 4);
+			assert.equal(rules.toolMeta.read?.cascadeThreshold, 6);
+			assert.equal(rules.toolMeta.ask_user?.passThrough, true);
+		});
+
+		it(`${label}: docs mention toolMeta and state global-vs-per-tool cascadeThreshold precedence`, () => {
+			const content = read();
+			assert.ok(content.includes("toolMeta"), `${label} must document the toolMeta key`);
+			const precedence = content.slice(content.indexOf("### Key Design Decisions"));
+			assert.ok(
+				/global/i.test(precedence) && /per-tool/i.test(precedence),
+				`${label} must state top-level cascadeThreshold is the global default and toolMeta.<tool>.cascadeThreshold the per-tool override`,
+			);
+		});
+	}
 });
 
 // ── Phase 3: No stale references beyond .git/ ────────────────────
