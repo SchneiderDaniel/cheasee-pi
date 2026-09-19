@@ -517,6 +517,52 @@ describe("worktree-sandbox gates", () => {
 			assert.equal(result.block, true);
 		});
 
+		it("blocks tee multi-operand escape through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeToolCallEvent("bash", {
+				command: "echo data | tee /etc/secret backup.txt",
+			});
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+			assert.ok((result.reason ?? "").includes("outside the worktree"));
+			assert.ok((result.reason ?? "").includes("/etc/secret"));
+		});
+
+		it("blocks touch non-last operand escape through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const event = makeToolCallEvent("bash", {
+				command: `touch ${sandboxDir}/a /etc/b`,
+			});
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.ok(result !== undefined);
+			assert.equal(result.block, true);
+		});
+
+		it("allows tee with all operands inside sandbox", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			const command = `echo data | tee ${sandboxDir}/a ${sandboxDir}/b`;
+			const event = makeToolCallEvent("bash", { command });
+			const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+			const result = await handler(event, ctx);
+
+			assert.equal(result, undefined);
+			assert.equal(event.input.command, `cd "${sandboxDir}" && ${command}`);
+		});
+
 		it("blocks combined unsafe command at first cd", async () => {
 			const pi = makeMockPi();
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);

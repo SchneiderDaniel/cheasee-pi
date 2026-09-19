@@ -15,7 +15,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeMockPi, withSandboxEnv, makeToolCallEvent, makeCtx as makeHelperCtx } from "./helpers.ts";
+import {
+	makeMockPi,
+	withSandboxEnv,
+	makeToolCallEvent,
+	makeCtx as makeHelperCtx,
+} from "./helpers.ts";
 
 // We export rewritePath from index.ts specifically for testing.
 // The default export (extension factory) is also available.
@@ -454,12 +459,24 @@ describe("rewritePath", () => {
 
 	it("trailing slash on root is contained; read blocked as directory, write/edit normalize to root", () => {
 		const readEvent = makeEvent(`${SANDBOX_ROOT}/`);
-		const readResult = mod.rewritePath("read", readEvent, SANDBOX_ROOT, makeCtx(false), "file operations");
+		const readResult = mod.rewritePath(
+			"read",
+			readEvent,
+			SANDBOX_ROOT,
+			makeCtx(false),
+			"file operations",
+		);
 		assert.ok(readResult !== undefined);
 		assert.ok((readResult.reason ?? "").includes("directory"));
 
 		const writeEvent = makeEvent(`${SANDBOX_ROOT}/`);
-		const writeResult = mod.rewritePath("write", writeEvent, SANDBOX_ROOT, makeCtx(false), "writes");
+		const writeResult = mod.rewritePath(
+			"write",
+			writeEvent,
+			SANDBOX_ROOT,
+			makeCtx(false),
+			"writes",
+		);
 		assert.equal(writeResult, undefined);
 		assert.equal(writeEvent.input.path, SANDBOX_ROOT);
 	});
@@ -636,6 +653,41 @@ describe("findUnsafeWriteInBash", () => {
 		assert.ok(result.includes("outside"));
 	});
 
+	it("returns reason for tee first arg outside sandbox (multi-operand escape)", () => {
+		const result = mod.findUnsafeWriteInBash(
+			"echo data | tee /etc/outside.txt backup.txt",
+			SANDBOX,
+		);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns reason for tee middle arg outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash(
+			`echo data | tee ${SANDBOX}/a.txt /etc/outside.txt ${SANDBOX}/b.txt`,
+			SANDBOX,
+		);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns reason for touch first arg outside sandbox (multi-operand escape)", () => {
+		const result = mod.findUnsafeWriteInBash("touch /etc/outside.txt ok.txt", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/outside.txt");
+	});
+
+	it("returns null for touch reference file outside sandbox (value option, not a target)", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SANDBOX), null);
+	});
+
+	it("returns reason for cp target-directory option outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("cp -t /etc/out a b", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/out");
+	});
+
+	it("returns reason for install -t target-directory outside sandbox", () => {
+		const result = mod.findUnsafeWriteInBash("install -t /etc/out src", SANDBOX);
+		assert.equal(result, "outside sandbox: /etc/out");
+	});
+
 	it("returns reason for dd of outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash(
 			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",
@@ -736,7 +788,10 @@ describe("findUnsafeWriteInBash via bash handler (integration)", () => {
 			const result = await handler(event, ctx);
 
 			assert.equal(result, undefined);
-			assert.equal(event.input.command, `cd "${sandboxDir}" && ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`);
+			assert.equal(
+				event.input.command,
+				`cd "${sandboxDir}" && ln -s ${sandboxDir}/a.txt ${sandboxDir}/link`,
+			);
 		});
 	});
 });

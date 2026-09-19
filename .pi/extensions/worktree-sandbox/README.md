@@ -43,7 +43,7 @@ tool_call(event)
     │
     └─ bash:
           ├─ Block cd escape (shell-aware parsing)
-          ├─ Block file writes outside worktree (redirect/cp/mv/touch)
+          ├─ Block file writes outside worktree (redirect/cp/mv/touch/tee/install)
           └─ Prepend `cd <worktree> && ` to every command
 ```
 
@@ -58,6 +58,9 @@ tool_call(event)
 | `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
 | `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
 | `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
+| `echo x \| tee /outside/f safe.txt` | **Every** `tee` operand checked (multi-destination), not just the last |
+| `touch /outside/f safe.txt` | **Every** `touch` operand checked (multi-destination) |
+| `cp -t /outside src` | `-t`/`--target-directory` value → `findUnsafeWriteInBash()` |
 
 ## Install
 
@@ -116,6 +119,8 @@ flowchart TD
 | Bare cd | `cd && ./escape` | `findMeaningfulToken()` exhausted |
 | Redirect escape | `cmd > /escape` | Redirect detection |
 | cp/mv destination | `cp x /outside/file` | Command detection |
+| tee/touch operands | `echo x \| tee /outside/f ok.txt` | Write-grammar table (`operands: "all"`) |
+| target-directory option | `cp -t /outside src` | `targetDirectoryOptions` in grammar table |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 
@@ -160,6 +165,14 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   separate syscalls (CWE-367). A concurrent attacker could swap a path between
   check and use. The resolve-first fix closes the deterministic escape; the
   remaining window is best-effort only.
+- **Argv-shape denylist is empirically fragile** — The write detector is a
+  declarative per-command grammar table (`WRITE_COMMAND_GRAMMARS` in
+  `unsafe-write.ts`): `operands: "all"` for `tee`/`touch`, `operands: "last"`
+  plus `-t`/`--target-directory` for `cp`/`mv`/`install`. Commands not in the
+  table (`sed -i`, `tar -C`, `truncate -s`, `sponge`, `exec 3>file`, …) remain
+  unmodelled, and GuardFall/ShellSieve measured 69–99% of real-world command
+  denylists as bypassable via alternative argv shapes. Treat this as lexical
+  interception, not a process boundary.
 
 ## License
 

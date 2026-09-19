@@ -41,16 +41,133 @@ function checkRedirect(
 }
 
 /**
- * cp/mv/touch/tee/install branch: the destination is the last non-flag
- * argument of the command.
+ * Declarative write grammar for commands whose file operands are not all
+ * destinations in the same position.
+ *
+ * - `operands: "all"`  → every non-flag operand is a write target (tee, touch)
+ * - `operands: "last"` → only the final operand is a destination (cp, mv, install)
+ * - `targetDirectoryOptions` → option whose value is the destination directory
+ *   (`-t DIR`, `-tDIR`, `--target-directory=DIR`)
+ * - `valueOptions` → option whose following token is a value, not a path
+ *   (prevents false blocks such as `touch -r /etc/hosts ok.txt`)
  */
-function checkCopyMove(
+type WriteGrammar = {
+	operands: "all" | "last";
+	targetDirectoryOptions?: readonly string[];
+	valueOptions?: readonly string[];
+};
+
+const WRITE_COMMAND_GRAMMARS: Record<string, WriteGrammar> = {
+	cp: {
+		operands: "last",
+		targetDirectoryOptions: ["-t", "--target-directory"],
+		valueOptions: ["-S", "--suffix"],
+	},
+	mv: {
+		operands: "last",
+		targetDirectoryOptions: ["-t", "--target-directory"],
+		valueOptions: ["-S", "--suffix"],
+	},
+	install: {
+		operands: "last",
+		targetDirectoryOptions: ["-t", "--target-directory"],
+		valueOptions: ["-m", "-o", "-g", "-S", "--mode", "--owner", "--group", "--suffix"],
+	},
+	tee: { operands: "all" }, // -a/-i/-p/--output-error take no separate value
+	touch: { operands: "all", valueOptions: ["-d", "-r", "-t", "--date", "--reference", "--time"] },
+};
+
+// Hard-link `ln` (no `-s`) is single-destination like `cp`: the last operand.
+const LN_HARD_LINK_GRAMMAR: WriteGrammar = { operands: "last" };
+
+/**
+ * Collect every write target a command's argv implies.
+ *
+ * Scans the remainder of the current command, skipping non-separator
+ * operators (so `tee a >log b` still sees `b` as an operand), stopping at
+ * SEPARATORS/comments, honouring `--` end-of-options, consuming `valueOptions`
+ * values, and extracting `targetDirectoryOptions` values.
+ */
+function collectWriteTargets(
+	tokens: ParseEntry[],
+	startIndex: number,
+	grammar: WriteGrammar,
+): string[] {
+	const explicit: string[] = []; // destination-directory option values
+	const operands: string[] = [];
+	let endOfOptions = false;
+
+	for (let j = startIndex; j < tokens.length; j++) {
+		const t = tokens[j]!;
+
+		if (typeof t === "object" && "op" in t) {
+			if (SEPARATORS.has(t.op)) break;
+			continue; // Skip non-separator operators
+		}
+
+		if (typeof t === "object" && "comment" in t) break;
+
+		if (typeof t !== "string") continue;
+
+		if (!endOfOptions && t === "--") {
+			endOfOptions = true;
+			continue;
+		}
+
+		if (!endOfOptions && t.startsWith("-")) {
+			const eq = t.indexOf("=");
+			if (eq !== -1) {
+				// Attached long-option value: --target-directory=DIR, --suffix=.bak
+				if (grammar.targetDirectoryOptions?.includes(t.slice(0, eq))) {
+					explicit.push(t.slice(eq + 1));
+				}
+				continue;
+			}
+			if (grammar.targetDirectoryOptions?.includes(t)) {
+				const value = tokens[j + 1];
+				if (typeof value === "string") {
+					explicit.push(value);
+					j++; // consume the option value
+				}
+				continue;
+			}
+			if (grammar.valueOptions?.includes(t)) {
+				if (typeof tokens[j + 1] === "string") j++; // consume the value
+				continue;
+			}
+			if (!t.startsWith("--")) {
+				// Attached short-option value: -tDIR, -S.bak
+				const short = t.slice(0, 2);
+				if (grammar.targetDirectoryOptions?.includes(short)) {
+					explicit.push(t.slice(2));
+				}
+			}
+			continue; // Any other flag
+		}
+
+		operands.push(t);
+	}
+
+	const selected = grammar.operands === "all" ? operands : operands.slice(-1);
+	return [...explicit, ...selected];
+}
+
+/**
+ * cp/mv/touch/tee/install branch: check every write target implied by the
+ * command's grammar; the first unsafe target wins.
+ */
+function checkWriteCommand(
 	tokens: ParseEntry[],
 	index: number,
+	grammar: WriteGrammar,
 	command: string,
 	sandboxRoot: string,
 ): string | null {
-	return checkWriteDest(tokens, index + 1, command, sandboxRoot);
+	for (const target of collectWriteTargets(tokens, index + 1, grammar)) {
+		const result = checkWriteToken(target, command, sandboxRoot);
+		if (result !== null) return result;
+	}
+	return null;
 }
 
 /**
@@ -112,7 +229,7 @@ function checkLn(
 	}
 
 	// For hard link (ln without -s), check the destination (last non-flag)
-	return checkWriteDest(tokens, index + 1, command, sandboxRoot);
+	return checkWriteCommand(tokens, index, LN_HARD_LINK_GRAMMAR, command, sandboxRoot);
 }
 
 /**
@@ -146,49 +263,6 @@ function checkDd(
 }
 
 /**
- * Shared check for a destination-like token — used by cp/mv/touch/tee/install
- * to find the last non-flag string argument and check it.
- */
-function checkWriteDest(
-	tokens: ParseEntry[],
-	startIndex: number,
-	command: string,
-	sandboxRoot: string,
-): string | null {
-	let lastTarget: string | null = null;
-
-	for (let j = startIndex; j < tokens.length; j++) {
-		const t = tokens[j]!;
-
-		if (typeof t === "object" && "op" in t) {
-			if (SEPARATORS.has(t.op)) break;
-			continue; // Skip non-separator operators
-		}
-
-		if (typeof t === "object" && "comment" in t) break;
-
-		if (typeof t === "string") {
-			if (t.startsWith("-")) continue; // Skip flags
-			lastTarget = t;
-		}
-	}
-
-	if (lastTarget !== null) {
-		if (lastTarget === "") {
-			return command; // Unresolved variable
-		}
-		if (hasShellExpansion(lastTarget)) {
-			return lastTarget;
-		}
-		if (!isPathSafe(lastTarget, sandboxRoot)) {
-			return `outside sandbox: ${lastTarget}`;
-		}
-	}
-
-	return null;
-}
-
-/**
  * Check a path token for write safety (redirect target, dd of=, etc.).
  */
 function checkWriteToken(token: string, command: string, sandboxRoot: string): string | null {
@@ -209,8 +283,8 @@ function checkWriteToken(token: string, command: string, sandboxRoot: string): s
  *
  * Detects:
  * - Shell redirects: > file, >> file, 2> file, etc.
- * - cp/mv destination paths (last non-flag argument)
- * - touch target paths
+ * - cp/mv/install destinations (last operand or -t/--target-directory value)
+ * - tee/touch targets (every operand — both are multi-destination)
  *
  * Uses shell-quote parse() for correct operator detection,
  * then applies hasShellExpansion and isPathSafe on all identified
@@ -229,16 +303,15 @@ export function findUnsafeWriteInBash(command: string, sandboxRoot: string): str
 		}
 
 		// ── cp/mv/touch/tee/install branch ────────────────────────
-		if (
-			typeof token === "string" &&
-			(token === "cp" ||
-				token === "mv" ||
-				token === "touch" ||
-				token === "tee" ||
-				token === "install")
-		) {
+		if (typeof token === "string" && Object.hasOwn(WRITE_COMMAND_GRAMMARS, token)) {
 			if (!isCommandStart(tokens, i)) continue;
-			const result = checkCopyMove(tokens, i, command, sandboxRoot);
+			const result = checkWriteCommand(
+				tokens,
+				i,
+				WRITE_COMMAND_GRAMMARS[token]!,
+				command,
+				sandboxRoot,
+			);
 			if (result !== null) return result;
 		}
 

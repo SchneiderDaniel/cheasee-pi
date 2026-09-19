@@ -13,8 +13,13 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ParseEntry } from "shell-quote";
 import * as mod from "../index.ts";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const SB = "/home/user/project";
 
@@ -38,6 +43,8 @@ describe("byte-identical: public API surface (index.ts barrel)", () => {
 	it("keeps internal helpers module-private (not re-exported)", () => {
 		assert.equal("checkWriteDest" in mod, false);
 		assert.equal("checkWriteToken" in mod, false);
+		assert.equal("collectWriteTargets" in mod, false);
+		assert.equal("WRITE_COMMAND_GRAMMARS" in mod, false);
 		assert.equal("findRawCdExpansion" in mod, false);
 	});
 });
@@ -151,6 +158,57 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it('multi-destination operands (tee/touch operands: "all")', () => {
+		// The reported escape: only the last operand used to be checked.
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee /etc/outside/file backup.txt", SB),
+			"outside sandbox: /etc/outside/file",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("touch /etc/outside/x ok.txt", SB),
+			"outside sandbox: /etc/outside/x",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee /etc/a /etc/b", SB),
+			"outside sandbox: /etc/a", // first unsafe target wins
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee -a - /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("echo hi | tee", SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`touch ${SB}/a ${SB}/b`, SB), null);
+	});
+
+	it("option-aware operands (valueOptions + targetDirectoryOptions)", () => {
+		// -r value is a reference file, not a write target.
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SB), null);
+		assert.equal(
+			mod.findUnsafeWriteInBash("touch -r /etc/hosts /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("cp -t /etc/out a b", SB), "outside sandbox: /etc/out");
+		assert.equal(mod.findUnsafeWriteInBash("cp -t/etc/out a", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp --target-directory=/etc/out a", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp --target-directory /etc/out a", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("mv -t /etc/out a", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -t /etc/out src", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SB}/b`, SB), null);
+		assert.equal(
+			mod.findUnsafeWriteInBash(`install -m 755 -o root -g root src ${SB}/dst`, SB),
+			null,
+		);
+	});
+
 	it("ln branch (symlink target checked)", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash(`ln -s /etc/passwd ${SB}/link`, SB),
@@ -250,8 +308,14 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		); // cp before dd
 	});
 
-	it("`>` is not a SEPARATOR, so scan continues past it (checkWriteDest pins)", () => {
-		assert.equal(mod.findUnsafeWriteInBash("touch /etc/x > /etc/y", SB), "outside sandbox: /etc/y");
+	it("`>` is not a SEPARATOR, so scan continues past it (operand-scan pins)", () => {
+		// Intentional ordering delta: `touch` is multi-destination, so operands
+		// are collected in argv order and the first unsafe target is reported.
+		assert.equal(mod.findUnsafeWriteInBash("touch /etc/x > /etc/y", SB), "outside sandbox: /etc/x");
+		assert.equal(
+			mod.findUnsafeWriteInBash("echo hi | tee a >b /etc/out", SB),
+			"outside sandbox: /etc/out",
+		);
 	});
 
 	it("boundaries: null for safe/empty input", () => {
@@ -311,5 +375,13 @@ describe("byte-identical: findUnsafeCd raw-scan strings (co-location guard)", ()
 		assert.equal(mod.findUnsafeCd("cd -", SB), "<previous-dir>");
 		assert.equal(mod.findUnsafeCd("cd -- /etc", SB), "/etc");
 		assert.equal(mod.findUnsafeCd("echo | cd /etc", SB), "/etc");
+	});
+});
+
+describe("characterization: .fixcheck snapshot stays byte-identical", () => {
+	it("unsafe-write.ts matches its .fixcheck snapshot", () => {
+		const live = readFileSync(join(HERE, "..", "unsafe-write.ts"), "utf8");
+		const snapshot = readFileSync(join(HERE, "..", ".fixcheck", "unsafe-write.ts"), "utf8");
+		assert.equal(live, snapshot, "re-sync .fixcheck/unsafe-write.ts with the live detector");
 	});
 });
