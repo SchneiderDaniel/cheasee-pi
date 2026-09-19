@@ -14,7 +14,7 @@ import {
 	hasShellExpansion,
 	isCommandStart,
 	isPathSafe,
-	tokenizeCommand,
+	tokenizeCommandPreservingExpansions,
 } from "./meaningful-token.ts";
 
 /**
@@ -335,10 +335,19 @@ function checkDd(
 }
 
 /**
+ * A token that is *nothing but* an unresolved variable reference (`$OUT`,
+ * `$1`, `$?`). tokenizeCommand collapses these to "", while
+ * tokenizeCommandPreservingExpansions keeps the name; either way the shell —
+ * not the detector — decides the path, so both fail closed with the command
+ * string as the reason.
+ */
+const UNRESOLVED_VAR_ONLY = /^\$[A-Za-z_0-9*@#?$!-]*$/;
+
+/**
  * Check a path token for write safety (redirect target, dd of=, etc.).
  */
 function checkWriteToken(token: string, command: string, sandboxRoot: string): string | null {
-	if (token === "") {
+	if (token === "" || UNRESOLVED_VAR_ONLY.test(token)) {
 		return command; // Unresolved variable
 	}
 	if (hasShellExpansion(token)) {
@@ -357,16 +366,30 @@ function checkWriteToken(token: string, command: string, sandboxRoot: string): s
  * - Shell redirects: > file, >> file, 2> file, etc.
  * - cp/mv/install destinations (last operand or -t/--target-directory value)
  * - tee/touch targets (every operand — both are multi-destination)
+ * - A command word the shell builds at run time (`c$X -t /out src`)
  *
- * Uses shell-quote parse() for correct operator detection,
+ * Uses shell-quote parse() for correct operator detection, keeping expansion
+ * provenance (tokenizeCommandPreservingExpansions) so a variable attached to an
+ * option word is not silently dropped before the destination scan,
  * then applies hasShellExpansion and isPathSafe on all identified
  * destination paths.
  */
 export function findUnsafeWriteInBash(command: string, sandboxRoot: string): string | null {
-	const tokens = tokenizeCommand(command);
+	const tokens = tokenizeCommandPreservingExpansions(command);
 
 	for (let i = 0; i < tokens.length; i++) {
 		const token = tokens[i]!;
+
+		// ── Command word built by expansion ───────────────────────
+		// `c$X -t /out src` runs `cp -t /out src`, and `$(which tee) /out`
+		// runs tee: the shell picks the command word at run time, so no
+		// grammar lookup below can match it. tokenizeCommandPreservingExpansions
+		// keeps the `$` visible — fail closed instead of reading the token as a
+		// harmless unknown command. Scoped to `$`/backtick so a literal `[`
+		// (the test command) is not misread as an expansion.
+		if (typeof token === "string" && /[$`]/.test(token) && isCommandStart(tokens, i)) {
+			return command;
+		}
 
 		// ── Redirect branch: > file, >> file ──────────────────────
 		if (typeof token === "object" && "op" in token && (token.op === ">" || token.op === ">>")) {

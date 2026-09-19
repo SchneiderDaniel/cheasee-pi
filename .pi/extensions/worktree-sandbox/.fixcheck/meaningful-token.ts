@@ -12,14 +12,29 @@
  * runtime is CJS where a require() cycle would yield undefined exports.
  */
 
-import { resolve as resolvePath } from "node:path";
+import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { parse } from "shell-quote";
 import type { ParseEntry } from "shell-quote";
 
 // ─── Path containment ──────────────────────────────────────────────
 
+/**
+ * True when `absolutePath` lexically resolves inside `sandboxRoot`.
+ *
+ * Normalizes the input via `path.resolve` (collapsing `..`, `//`, trailing
+ * slashes) BEFORE the containment test, so an absolute path with `..`
+ * components (e.g. `<sandbox>/../../../../etc/passwd`) cannot pass a raw
+ * string-prefix check and escape to the filesystem (CWE-22 / Vite
+ * CVE-2023-34092 class: check-before-normalize). The containment test uses
+ * `path.relative`, which rejects `..`-prefixed, `..`-equal, and cross-drive
+ * results in a separator-agnostic way.
+ */
 export function isPathWithinSandbox(absolutePath: string, sandboxRoot: string): boolean {
-	return absolutePath === sandboxRoot || absolutePath.startsWith(sandboxRoot + "/");
+	const resolved = resolvePath(absolutePath);
+	const rel = relativePath(sandboxRoot, resolved);
+	if (rel === "") return true;
+	if (isAbsolute(rel)) return false; // different drive / root (Windows)
+	return rel !== ".." && !rel.startsWith(".." + sep);
 }
 
 export function isPathSafe(target: string, sandboxRoot: string): boolean {
@@ -42,6 +57,23 @@ export function isPathSafe(target: string, sandboxRoot: string): boolean {
  */
 export function tokenizeCommand(cmd: string): ParseEntry[] {
 	return parse(cmd) as ParseEntry[];
+}
+
+/**
+ * Tokenize like tokenizeCommand, but keep expansion provenance.
+ *
+ * shell-quote resolves an unresolved variable to "" and, when the variable is
+ * attached to a word, silently drops the `$` as well — so `cp -t$OUT src`
+ * tokenizes to ["cp", "-t", "src"] and a caller looking for write destinations
+ * cannot tell `-t` from `-t$OUT` (the option value is simply gone). Here each
+ * unresolved variable survives in its token as its own reference (`-t$OUT`),
+ * which keeps hasShellExpansion firing on it so the write detector fails closed.
+ *
+ * Token boundaries are identical to tokenizeCommand for the same input (the
+ * env value changes token content only), so the two can be used side by side.
+ */
+export function tokenizeCommandPreservingExpansions(cmd: string): ParseEntry[] {
+	return parse(cmd, (key) => `$${key}`) as ParseEntry[];
 }
 
 /**

@@ -125,6 +125,8 @@ flowchart TD
 | glob write operand | `echo x \| tee /outside/* ok.txt` | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()` |
 | glob target-directory | `cp -t /outside/* src` | Glob value extracted and checked, not dropped |
 | glob value option | `touch -r /outside/* ok.txt` | Glob/expansion option values checked — extra expanded words become operands (arity guard) |
+| Attached expansion on a flag | `cp -t$OUT src`, `touch -r$REF ok.txt` | Expansion-preserving tokenization keeps the `$` on the token instead of letting shell-quote drop it |
+| Command word built by expansion | `c$X -t /outside src` | Expansion in command position fails closed — no grammar can be matched |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 
@@ -177,6 +179,13 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   unmodelled, and GuardFall/ShellSieve measured 69–99% of real-world command
   denylists as bypassable via alternative argv shapes. Treat this as lexical
   interception, not a process boundary.
+- **Expansion provenance is preserved before scanning** — shell-quote resolves
+  an unresolved variable to `""` and silently drops the `$` when it is attached
+  to a word (`cp -t$OUT src` → `["cp", "-t", "src"]`), which would hand the
+  detector an option value that never existed. The write detector tokenizes
+  with `tokenizeCommandPreservingExpansions` so the reference stays visible and
+  the command fails closed; a variable the shell — not the detector — resolves
+  is always treated as unsafe.
 
 ## License
 

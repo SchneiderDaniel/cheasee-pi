@@ -60,6 +60,23 @@ export function tokenizeCommand(cmd: string): ParseEntry[] {
 }
 
 /**
+ * Tokenize like tokenizeCommand, but keep expansion provenance.
+ *
+ * shell-quote resolves an unresolved variable to "" and, when the variable is
+ * attached to a word, silently drops the `$` as well — so `cp -t$OUT src`
+ * tokenizes to ["cp", "-t", "src"] and a caller looking for write destinations
+ * cannot tell `-t` from `-t$OUT` (the option value is simply gone). Here each
+ * unresolved variable survives in its token as its own reference (`-t$OUT`),
+ * which keeps hasShellExpansion firing on it so the write detector fails closed.
+ *
+ * Token boundaries are identical to tokenizeCommand for the same input (the
+ * env value changes token content only), so the two can be used side by side.
+ */
+export function tokenizeCommandPreservingExpansions(cmd: string): ParseEntry[] {
+	return parse(cmd, (key) => `$${key}`) as ParseEntry[];
+}
+
+/**
  * Check if a path token contains shell expansion syntax.
  * Detects: $, `, ~, {, *, ?, [ which bash would expand before resolving paths.
  */

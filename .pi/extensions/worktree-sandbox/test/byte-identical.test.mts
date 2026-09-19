@@ -45,6 +45,7 @@ describe("byte-identical: public API surface (index.ts barrel)", () => {
 		assert.equal("checkWriteToken" in mod, false);
 		assert.equal("collectWriteTargets" in mod, false);
 		assert.equal("WRITE_COMMAND_GRAMMARS" in mod, false);
+		assert.equal("tokenizeCommandPreservingExpansions" in mod, false);
 		assert.equal("findRawCdExpansion" in mod, false);
 	});
 });
@@ -365,6 +366,28 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 		);
 	});
 
+	it("shell expansion attached to an option token fails closed", () => {
+		// shell-quote collapses an unresolved variable to "" and, when it is
+		// attached to a word, drops the `$` (`cp -t$OUT src` → ["cp","-t","src"]).
+		// With provenance kept, the option value stays visible and the command
+		// fails closed with the same whole-command reason a bare variable gets.
+		assert.equal(mod.findUnsafeWriteInBash("cp -t$OUT src", SB), "cp -t$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("cp -at$OUT src", SB), "cp -at$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("install -t$OUT src", SB), "install -t$OUT src");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r$REF ok.txt", SB), "touch -r$REF ok.txt");
+		assert.equal(mod.findUnsafeWriteInBash("cp a $DEST", SB), "cp a $DEST");
+	});
+
+	it("command word built by expansion fails closed", () => {
+		// The shell picks the command word at run time, so no write grammar can
+		// be matched against the token — block instead of reading it as an
+		// unknown (harmless) command.
+		assert.equal(mod.findUnsafeWriteInBash("c$X -t /etc/out src", SB), "c$X -t /etc/out src");
+		assert.equal(mod.findUnsafeWriteInBash("$(which tee) /etc/out", SB), "$(which tee) /etc/out");
+		// A literal `[` (the test command) is not an expansion.
+		assert.equal(mod.findUnsafeWriteInBash("[ -f x ]", SB), null);
+	});
+
 	it("absolute paths with .. that escape sandbox are blocked (traversal)", () => {
 		assert.equal(
 			mod.findUnsafeWriteInBash(`echo x > ${SB}/../../../../etc/passwd`, SB),
@@ -416,5 +439,11 @@ describe("characterization: .fixcheck snapshot stays byte-identical", () => {
 		const live = readFileSync(join(HERE, "..", "unsafe-write.ts"), "utf8");
 		const snapshot = readFileSync(join(HERE, "..", ".fixcheck", "unsafe-write.ts"), "utf8");
 		assert.equal(live, snapshot, "re-sync .fixcheck/unsafe-write.ts with the live detector");
+	});
+
+	it("meaningful-token.ts matches its .fixcheck snapshot", () => {
+		const live = readFileSync(join(HERE, "..", "meaningful-token.ts"), "utf8");
+		const snapshot = readFileSync(join(HERE, "..", ".fixcheck", "meaningful-token.ts"), "utf8");
+		assert.equal(live, snapshot, "re-sync .fixcheck/meaningful-token.ts with the live token helpers");
 	});
 });

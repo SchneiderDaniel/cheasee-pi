@@ -615,6 +615,27 @@ describe("worktree-sandbox gates", () => {
 			}
 		});
 
+		it("blocks attached shell expansion on option tokens through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			for (const command of [
+				"cp -t$OUT src",
+				"cp -at$OUT src",
+				"install -t$OUT src",
+				"touch -r$REF ok.txt",
+				"c$X -t /etc/out src",
+			]) {
+				const event = makeToolCallEvent("bash", { command });
+				const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+				const result = await handler(event, ctx);
+
+				assert.ok(result !== undefined, `expected block for: ${command}`);
+				assert.equal(result.block, true, `expected block for: ${command}`);
+			}
+		});
+
 		it("allows tee with all operands inside sandbox", async () => {
 			const pi = makeMockPi();
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);

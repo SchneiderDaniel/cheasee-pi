@@ -751,6 +751,54 @@ describe("findUnsafeWriteInBash", () => {
 		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SANDBOX}/b`, SANDBOX), null);
 	});
 
+	it("returns reason for shell expansion attached to an option token", () => {
+		// shell-quote resolves an unresolved variable to "" and, when it is
+		// attached to a word, drops the `$` entirely (`cp -t$OUT src` →
+		// ["cp","-t","src"]), so the option value vanished before the detector
+		// could check it. The write detector tokenizes with expansion provenance,
+		// keeps the `$` on the token, and fails closed on the command.
+		for (const command of [
+			"cp -t$OUT src",
+			"cp -at$OUT src",
+			"mv -t$OUT src",
+			"install -t$OUT src",
+			'cp -t"$OUT" src',
+			"cp -t${OUT} src",
+			"touch -r$REF ok.txt",
+			"touch -mr$REF ok.txt",
+		]) {
+			assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command, command);
+		}
+	});
+
+	it("returns reason for attached expansion in dd of=", () => {
+		const command = "dd of=$OUT if=/dev/zero";
+		assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command);
+	});
+
+	it("returns reason when the command word itself is built by expansion", () => {
+		// `c$X -t /out src` runs `cp -t /out src` — the shell picks the command
+		// word, so no write grammar can be matched against the token. Fail closed.
+		assert.equal(
+			mod.findUnsafeWriteInBash("c$X -t /etc/out src", SANDBOX),
+			"c$X -t /etc/out src",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("$(which tee) /etc/out", SANDBOX),
+			"$(which tee) /etc/out",
+		);
+	});
+
+	it("returns null for the `[` test command (not an expansion)", () => {
+		assert.equal(mod.findUnsafeWriteInBash("[ -f x ]", SANDBOX), null);
+	});
+
+	it("keeps bare unresolved variables fail-closed (command as reason)", () => {
+		for (const command of ["cp a $DEST", "echo hi | tee $DEST backup.txt", "echo x > $OUT"]) {
+			assert.equal(mod.findUnsafeWriteInBash(command, SANDBOX), command, command);
+		}
+	});
+
 	it("returns reason for dd of outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash(
 			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",
