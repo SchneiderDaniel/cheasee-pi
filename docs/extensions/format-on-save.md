@@ -13,7 +13,7 @@ nav_order: 11
 
 **Why.** Auto-formats TS/JS files with Prettier and runs ESLint diagnostics after every `write` or `edit` — no manual step needed. Catches code quality issues early, before the supervisor Audit stage.
 
-**How it works.** Hooks `tool_result` events for write/edit. Checks file existence, size (<5MB), and project trust. Runs Prettier formatter then ESLint linter asynchronously. TUI mode shows toast notifications via `ctx.ui.notify()`, RPC sends `followUp` messages via `pi.sendUserMessage()`, JSON/print stay silent. Non-blocking — errors don't crash the session. Trust gate prevents untrusted project configs from running arbitrary formatter commands.
+**How it works.** Hooks `tool_result` events for write/edit. Checks file existence, size (<1MB), and project trust. Runs Prettier formatter then ESLint linter asynchronously. TUI mode shows toast notifications via `ctx.ui.notify()`, RPC sends `followUp` messages via `pi.sendUserMessage()`, JSON/print stay silent. Non-blocking — errors don't crash the session. Trust gate prevents untrusted project configs from running arbitrary formatter commands.
 
 **Location:** `.pi/extensions/format-on-save/`
 
@@ -42,7 +42,7 @@ flowchart TD
     D -- no --> E[Skip (pip install, npm...)]
     D -- yes --> F{file exists?}
     F -- no --> G[Skip]
-    F -- yes --> H{file < 5MB?}
+    F -- yes --> H{file < 1MB?}
     H -- no --> I[Skip]
     H -- yes --> J{project trusted?}
     J -- no --> K[Skip]
@@ -69,7 +69,7 @@ flowchart TD
 - **Dynamic imports for adapters** — `PrettierFormatter` and `EslintLinter` are dynamically imported. Missing dependencies (prettier, eslint) handled gracefully inside adapters.
 - **Trust gate** — Untrusted projects skip formatting/linting entirely (step J). Prevents running arbitrary formatter commands from project-local config.
 - **Mode-adaptive notifications** — TUI: `ctx.ui.notify()`. RPC: `pi.sendUserMessage(followUp)`. JSON/print: `console.error` only (no notification spam).
-- **Size gate (5MB)** — `MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024`. Prevents trying to format/lint large generated files.
+- **Size gate (1MB)** — `MAX_FILE_SIZE_BYTES = 1_048_576`. Prevents trying to format/lint large generated files.
 - **File path heuristic** — `looksLikeFilePath()` checks for extensions like `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`. Rejects paths like `pip install` or `npm i`.
 - **ESLint config error prefixing** — When lint error matches config error patterns (`ConfigError`, `Failed to load`, `Could not find`, `eslint.config`, `.eslintrc`, `configuration`, `Config (`), prefixes `[config error] ` in logs.
 - **Diagnostic followUp deduplication** — Only sends followUp when `diagnostics.length > 0`. Clean lint results produce no output.
@@ -98,7 +98,7 @@ interface Linter {
 
 Tests cover:
 - File path heuristics (valid paths, pip install, npm commands)
-- Size gate (below/above 5MB)
+- Size gate (below/above 1MB)
 - Trust gate (trusted → format+lint, untrusted → skip)
 - Format notification modes (TUI, RPC, JSON/print)
 - Lint diagnostic formatting and followUp generation
