@@ -202,6 +202,26 @@ describe("byte-identical: findUnsafeWriteInBash reason strings per branch", () =
 			mod.findUnsafeWriteInBash("install -t /etc/out src", SB),
 			"outside sandbox: /etc/out",
 		);
+		// Bundled short options: `-at` is `-a` + `-t`, so its value is still a
+		// destination (`-at /etc/out`). A value-taking option swallows the rest
+		// of the bundle, so `-St.bak` does NOT bundle a `-t`.
+		assert.equal(mod.findUnsafeWriteInBash("cp -at /etc/out src", SB), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp -at/etc/out src", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("mv -bt /etc/out a", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -at /etc/out src", SB),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -at ${SB}/out a`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`mv -bt ${SB}/out a`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`install -at ${SB}/out src`, SB), null);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -St.bak a ${SB}/b`, SB), null);
 		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SB}/b`, SB), null);
 		assert.equal(
 			mod.findUnsafeWriteInBash(`install -m 755 -o root -g root src ${SB}/dst`, SB),

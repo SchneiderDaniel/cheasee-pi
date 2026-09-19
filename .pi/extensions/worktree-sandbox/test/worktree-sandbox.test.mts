@@ -683,6 +683,29 @@ describe("findUnsafeWriteInBash", () => {
 		assert.equal(result, "outside sandbox: /etc/out");
 	});
 
+	it("returns reason for bundled -t target-directory outside sandbox", () => {
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp -at /etc/out src", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("mv -bt /etc/out a", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(
+			mod.findUnsafeWriteInBash("install -at /etc/out src", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
+		assert.equal(mod.findUnsafeWriteInBash("cp -at/etc/out src", SANDBOX), "outside sandbox: /etc/out");
+	});
+
+	it("returns null for bundled -t target-directory inside sandbox", () => {
+		assert.equal(mod.findUnsafeWriteInBash(`cp -at ${SANDBOX}/out src`, SANDBOX), null);
+		// A value-taking option swallows the bundle remainder, so -St.bak is a
+		// suffix value, not a bundled -t.
+		assert.equal(mod.findUnsafeWriteInBash(`cp -St.bak a ${SANDBOX}/b`, SANDBOX), null);
+	});
+
 	it("returns reason for install -t target-directory outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash("install -t /etc/out src", SANDBOX);
 		assert.equal(result, "outside sandbox: /etc/out");

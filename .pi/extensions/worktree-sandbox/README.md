@@ -23,7 +23,7 @@ Worktree Sandbox enforces this at the tool call boundary — **deterministic enf
 4. **Shell-aware parsing** — Uses `shell-quote` library to correctly tokenize bash commands, detecting:
    - `cd` targets with shell expansion (`$VAR`, `~`, `$(cmd)`)
    - Redirect targets (`>`, `>>`, `2>`) outside worktree
-   - `cp`/`mv`/`touch` destinations outside worktree
+   - `cp`/`mv`/`install` destinations and `tee`/`touch` operands outside worktree
 5. **Block notifications** — Blocked operations show a toast notification in TUI: `[sandbox] Blocked cd to outside worktree: $HOME`
 
 ### Guard flow
@@ -121,6 +121,7 @@ flowchart TD
 | cp/mv destination | `cp x /outside/file` | Command detection |
 | tee/touch operands | `echo x \| tee /outside/f ok.txt` | Write-grammar table (`operands: "all"`) |
 | target-directory option | `cp -t /outside src` | `targetDirectoryOptions` in grammar table |
+| bundled target-directory | `cp -at /outside src` | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`) |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 

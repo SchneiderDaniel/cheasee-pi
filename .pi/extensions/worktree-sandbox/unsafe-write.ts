@@ -136,10 +136,31 @@ function collectWriteTargets(
 				continue;
 			}
 			if (!t.startsWith("--")) {
-				// Attached short-option value: -tDIR, -S.bak
-				const short = t.slice(0, 2);
-				if (grammar.targetDirectoryOptions?.includes(short)) {
-					explicit.push(t.slice(2));
+				// Short-option bundle: walk the letters left to right. A
+				// value-taking option swallows the rest of the bundle, so a `t`
+				// after it is that option's value, not a bundled `-t`. A `t`
+				// itself takes the attached remainder or the next token as its
+				// destination directory (-t/etc/out, -at /etc/out).
+				const letters = t.slice(1);
+				for (let k = 0; k < letters.length; k++) {
+					const letter = `-${letters[k]}`;
+					if (grammar.targetDirectoryOptions?.includes(letter)) {
+						const attached = letters.slice(k + 1);
+						const next = tokens[j + 1];
+						if (attached !== "") {
+							explicit.push(attached);
+						} else if (typeof next === "string") {
+							explicit.push(next);
+							j++; // consume the option value
+						}
+						break;
+					}
+					if (grammar.valueOptions?.includes(letter)) {
+						if (letters.slice(k + 1) === "" && typeof tokens[j + 1] === "string") {
+							j++; // consume the value
+						}
+						break; // value swallows the remainder of the bundle
+					}
 				}
 			}
 			continue; // Any other flag
