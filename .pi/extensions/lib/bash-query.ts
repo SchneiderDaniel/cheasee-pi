@@ -4,15 +4,16 @@
  * Inlines bash-command classification into a single pure module
  * (was extracted from agent-harness BashCommand class).
  *
- * Layer: domain — zero dependencies (no pi runtime, no agent-harness).
- * Pure functions with no I/O.
+ * Layer: domain — pure functions with no I/O. Depends only on shell-quote
+ * (POSIX tokenizer) for redirect operator detection; no pi runtime, no
+ * agent-harness.
  *
  * Subsumes two overlapping detection code paths:
  *   1. BashCommand.isSearch() — standalone grep/rg
  *   2. isPipedFileGrep() — piped file→grep patterns
- *
- * READ_BASH_CMDS inlined to keep dependency-free.
  */
+
+import { parse } from "shell-quote";
 
 // ── Constants ──
 
@@ -60,10 +61,24 @@ function firstSegment(cmd: string): string {
 	return pipeIdx >= 0 ? cmd.slice(0, pipeIdx).trim() : cmd.trim();
 }
 
-/** True if a segment has a write/append redirect operator (> or >>) as a token. */
-function hasWriteRedirect(seg: string): boolean {
-	const tokens = seg.split(/\s+/);
-	return tokens.includes(">") || tokens.includes(">>");
+/** Shell write-redirect operators, as shell-quote `{op}` tokens. */
+const WRITE_REDIRECT_OPS: ReadonlySet<string> = new Set([">", ">>", ">&"]);
+
+/**
+ * True when a command contains a shell write-redirect operator (`>`, `>>`, `>&`).
+ *
+ * Uses shell-quote parse() so attached and combined forms (`foo>out`, `2>`,
+ * `&>`, `>|`) are recognized — a whitespace token split misses all of those.
+ * Only `{op}` object tokens count: a quoted or escaped `>` arrives as a string
+ * token (`grep 'a > b' f`) and is not a redirect.
+ */
+function hasWriteRedirect(cmd: string): boolean {
+	for (const entry of parse(cmd)) {
+		if (typeof entry === "object" && "op" in entry && WRITE_REDIRECT_OPS.has(entry.op)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /** Get the first non-empty token from a string. */
@@ -130,6 +145,8 @@ export function hasBypassAnnotation(cmd: string): boolean {
  *
  * Returns false for:
  *  - grep/rg chained with && or ;
+ *  - grep/rg with a write redirect (`grep foo > out.txt`) — a write op, and
+ *    `ripgrep_search` cannot write output files
  *  - Non-file pipe output piped to grep (e.g., ls | grep foo)
  *  - grep in quoted args, not first token
  *  - find → false (not a search, stays pass-through)
@@ -139,6 +156,10 @@ export function isBashSearch(cmd: string): boolean {
 	if (!cmd) return false;
 	const lower = cmd.toLowerCase().trim();
 	if (!lower) return false;
+
+	// A write redirect means the command's purpose is to write, not to search
+	// (`ripgrep_search` cannot persist output). Guard both branches below.
+	if (hasWriteRedirect(cmd)) return false;
 
 	// Piped file→grep: starts with file-read cmd and pipes to grep/rg
 	// Subsumes isPipedFileGrep()
@@ -172,9 +193,9 @@ export function isBashSearch(cmd: string): boolean {
  * is O(file size) — it loads the entire file into memory before slicing.
  *
  * Matches `BashCommand.isFileRead()` semantics:
- *  - Checks FIRST pipe segment only
+ *  - Checks FIRST pipe segment for the read command
  *  - First token must be a known read command
- *  - Redirect (>, >>) in first segment suppresses detection
+ *  - Any write redirect (`>`, `>>`, `>&`) anywhere suppresses detection
  *
  * Does NOT check for pipes (piped context can still be a read
  * if the first segment is a read command — e.g., `cat file | grep foo`).
@@ -187,8 +208,9 @@ export function isBashFileRead(cmd: string): boolean {
 	const first = firstSegment(lower);
 	if (!first) return false;
 
-	// Redirect in first segment → not a read
-	if (hasWriteRedirect(first)) return false;
+	// Any write redirect → this is a write, not a read (shell-quote catches
+	// attached forms the old whitespace split missed, e.g. `cat file>out`).
+	if (hasWriteRedirect(cmd)) return false;
 
 	const token = firstToken(first);
 	if (!token) return false;
@@ -210,7 +232,9 @@ export function isBashFileModify(cmd: string): boolean {
 	const lower = cmd.toLowerCase();
 	if (!lower) return false;
 
-	// Redirect operators (>, >>) always modify files
+	// Deliberate over-approximation for cache invalidation: any `>` character
+	// (even quoted or attached) invalidates the read cache. This is NOT a
+	// redirect classifier — use hasWriteRedirect() for that.
 	if (lower.includes(">")) return true;
 
 	const first = firstSegment(lower);

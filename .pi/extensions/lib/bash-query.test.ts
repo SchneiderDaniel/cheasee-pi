@@ -58,8 +58,57 @@ describe("isBashSearch", () => {
 		assert.strictEqual(isBashSearch("echo hi; grep foo"), false);
 	});
 
-	it("grep with redirect → true (matches BashCommand.isSearch behavior)", () => {
-		assert.strictEqual(isBashSearch("grep foo > out.txt"), true);
+	// ── #1724: a write redirect makes grep/rg a write op, not a search ──
+	// `ripgrep_search` cannot write output files, so redirect-bearing grep/rg
+	// must pass through to bash.
+
+	it("grep with spaced write redirect → false (write op, not a search)", () => {
+		assert.strictEqual(isBashSearch("grep foo > out.txt"), false);
+	});
+
+	it("grep with append redirect → false", () => {
+		assert.strictEqual(isBashSearch("grep foo >> out.txt"), false);
+	});
+
+	it("grep with attached redirect (no space) → false", () => {
+		assert.strictEqual(isBashSearch("grep foo>out.txt"), false);
+	});
+
+	it("rg with attached append redirect → false", () => {
+		assert.strictEqual(isBashSearch("rg foo>>out.txt"), false);
+	});
+
+	it("grep with fd-prefixed redirect (2>) → false", () => {
+		assert.strictEqual(isBashSearch("grep foo 2> err.txt"), false);
+	});
+
+	it("grep with combined redirect (&>) → false", () => {
+		assert.strictEqual(isBashSearch("grep foo &> out.txt"), false);
+	});
+
+	it("grep with noclobber override (>|) → false", () => {
+		assert.strictEqual(isBashSearch("grep foo >| out.txt"), false);
+	});
+
+	it("grep with fd-merge redirect (2>&1) → false", () => {
+		assert.strictEqual(isBashSearch("grep foo 2>&1"), false);
+	});
+
+	it("piped file→grep with trailing write redirect → false", () => {
+		assert.strictEqual(isBashSearch("cat file | grep foo > out.txt"), false);
+	});
+
+	it("grep > /dev/null → false (redirect suppression, pass through)", () => {
+		assert.strictEqual(isBashSearch("grep foo file > /dev/null"), false);
+	});
+
+	it("quoted '>' is not a redirect: grep 'a > b' file → true", () => {
+		assert.strictEqual(isBashSearch("grep 'a > b' file"), true);
+	});
+
+	it("redirect symmetry: grep foo | tee out.txt and grep foo > out.txt agree (both pass)", () => {
+		assert.strictEqual(isBashSearch("grep foo | tee out.txt"), false);
+		assert.strictEqual(isBashSearch("grep foo > out.txt"), false);
 	});
 
 	it("grep in quoted arg, not first token → false", () => {
@@ -180,6 +229,18 @@ describe("isBashFileRead", () => {
 
 	it("cat with append redirect → false", () => {
 		assert.strictEqual(isBashFileRead("cat >> file"), false);
+	});
+
+	it("cat with attached redirect → false (shell-quote catches foo>out)", () => {
+		assert.strictEqual(isBashFileRead("cat file>out.txt"), false);
+	});
+
+	it("cat with fd-prefixed redirect (2>) → false", () => {
+		assert.strictEqual(isBashFileRead("cat file 2> err.txt"), false);
+	});
+
+	it("cat piped with trailing write redirect → false", () => {
+		assert.strictEqual(isBashFileRead("cat file | grep foo > out.txt"), false);
 	});
 
 	it("read cmd in pipe, not first → false", () => {
