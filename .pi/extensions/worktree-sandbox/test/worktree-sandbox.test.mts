@@ -730,6 +730,27 @@ describe("findUnsafeWriteInBash", () => {
 		assert.equal(mod.findUnsafeWriteInBash("install -t /etc/* src", SANDBOX), "/etc/*");
 	});
 
+	it("returns reason for glob value-option tokens outside sandbox (fail closed)", () => {
+		// A glob in an option-value slot expands to several words, and every
+		// word after the first lands in operand position (`touch -r /etc/* ok.txt`
+		// becomes `touch -r /etc/a /etc/b ok.txt`) — an outside write target the
+		// sandbox never sees if the value is trusted. Fail closed on the value.
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/[ab] ok.txt", SANDBOX), "/etc/[ab]");
+		assert.equal(mod.findUnsafeWriteInBash("touch -r/etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -mr /etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch --reference=/etc/* ok.txt", SANDBOX), "/etc/*");
+		assert.equal(mod.findUnsafeWriteInBash("touch -d /etc/* ok.txt", SANDBOX), "/etc/*");
+	});
+
+	it("returns null for expansion-free value options", () => {
+		assert.equal(mod.findUnsafeWriteInBash("touch -r /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash("touch --reference /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash("touch -mr /etc/hosts ok.txt", SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash(`touch -d 2020-01-01 ${SANDBOX}/f`, SANDBOX), null);
+		assert.equal(mod.findUnsafeWriteInBash(`cp -S .bak a ${SANDBOX}/b`, SANDBOX), null);
+	});
+
 	it("returns reason for dd of outside sandbox", () => {
 		const result = mod.findUnsafeWriteInBash(
 			"dd if=/dev/zero of=/etc/outside.txt bs=1 count=1",

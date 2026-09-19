@@ -93,13 +93,26 @@ function tokenText(entry: ParseEntry | undefined): string | null {
 }
 
 /**
+ * True when a token consumed as an option *value* cannot be trusted to stay a
+ * single word: glob words expand to one-or-more paths and shell-expansion
+ * markers (or an empty unresolved variable) mean the operand count after
+ * expansion is unknown. Only the first expanded word is the option's value —
+ * the rest become real operands (`touch -r /etc/* ok.txt` → `touch -r /etc/a
+ * /etc/b ok.txt`), so the value must fail closed.
+ */
+function valueNeedsArityGuard(value: string): boolean {
+	return value === "" || hasShellExpansion(value);
+}
+
+/**
  * Collect every write target a command's argv implies.
  *
  * Scans the remainder of the current command, skipping non-separator
  * operators (so `tee a >log b` still sees `b` as an operand), stopping at
  * SEPARATORS/comments, honouring `--` end-of-options, consuming `valueOptions`
- * values, and extracting `targetDirectoryOptions` values. Glob words count as
- * operands/values (fail closed), not as skippable operators.
+ * values (glob/expansion values are themselves checked — see
+ * `valueNeedsArityGuard`), and extracting `targetDirectoryOptions` values. Glob
+ * words count as operands/values (fail closed), not as skippable operators.
  */
 function collectWriteTargets(
 	tokens: ParseEntry[],
@@ -133,8 +146,18 @@ function collectWriteTargets(
 			const eq = t.indexOf("=");
 			if (eq !== -1) {
 				// Attached long-option value: --target-directory=DIR, --suffix=.bak
-				if (grammar.targetDirectoryOptions?.includes(t.slice(0, eq))) {
-					explicit.push(t.slice(eq + 1));
+				const name = t.slice(0, eq);
+				const value = t.slice(eq + 1);
+				if (grammar.targetDirectoryOptions?.includes(name)) {
+					explicit.push(value);
+				} else if (
+					grammar.valueOptions?.includes(name) &&
+					valueNeedsArityGuard(value)
+				) {
+					// Glob/expansion value may expand to several words. Only the
+					// first is the option's value; the rest land in operand
+					// position, so the value must fail closed.
+					explicit.push(value);
 				}
 				continue;
 			}
@@ -147,7 +170,13 @@ function collectWriteTargets(
 				continue;
 			}
 			if (grammar.valueOptions?.includes(t)) {
-				if (tokenText(tokens[j + 1]) !== null) j++; // consume the value
+				const value = tokenText(tokens[j + 1]);
+				if (value !== null) {
+					// touch -r /etc/* ok.txt → bash expands `/etc/*` into extra
+					// operands that touch then writes; check the value itself.
+					if (valueNeedsArityGuard(value)) explicit.push(value);
+					j++; // consume the value
+				}
 				continue;
 			}
 			if (!t.startsWith("--")) {
@@ -171,8 +200,15 @@ function collectWriteTargets(
 						break;
 					}
 					if (grammar.valueOptions?.includes(letter)) {
-						if (letters.slice(k + 1) === "" && tokenText(tokens[j + 1]) !== null) {
-							j++; // consume the value
+						const rest = letters.slice(k + 1);
+						if (rest === "") {
+							const value = tokenText(tokens[j + 1]);
+							if (value !== null) {
+								if (valueNeedsArityGuard(value)) explicit.push(value);
+								j++; // consume the value
+							}
+						} else if (valueNeedsArityGuard(rest)) {
+							explicit.push(rest); // attached value may expand to operands
 						}
 						break; // value swallows the remainder of the bundle
 					}

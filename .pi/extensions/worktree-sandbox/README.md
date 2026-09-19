@@ -124,6 +124,7 @@ flowchart TD
 | bundled target-directory | `cp -at /outside src` | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`) |
 | glob write operand | `echo x \| tee /outside/* ok.txt` | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()` |
 | glob target-directory | `cp -t /outside/* src` | Glob value extracted and checked, not dropped |
+| glob value option | `touch -r /outside/* ok.txt` | Glob/expansion option values checked — extra expanded words become operands (arity guard) |
 | Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
 | `cd -` | `cd -` | Previous dir always potentially unsafe |
 

@@ -597,6 +597,24 @@ describe("worktree-sandbox gates", () => {
 			}
 		});
 
+		it("blocks glob value-option escape through the public handler", async () => {
+			const pi = makeMockPi();
+			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+			const handler = pi.handlers.get("tool_call")!;
+
+			for (const command of [
+				"touch -r /etc/* ok.txt",
+				"touch -mr /etc/[ab] ok.txt",
+			]) {
+				const event = makeToolCallEvent("bash", { command });
+				const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
+				const result = await handler(event, ctx);
+
+				assert.ok(result !== undefined, `expected block for: ${command}`);
+				assert.equal(result.block, true, `expected block for: ${command}`);
+			}
+		});
+
 		it("allows tee with all operands inside sandbox", async () => {
 			const pi = makeMockPi();
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
