@@ -58,6 +58,9 @@ tool_call(event)
 | `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
 | `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
 | `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
+| `> /dev/nullable` / `<sb>/dev/null` | Not a device: exact-match on resolved path, not prefix |
+| `mv x /dev/null` / `ln -sf x /dev/null` | Directory-entry ops: `/dev/null` exemption is content-sink only |
+| `cp --remove-destination x /dev/null` | `cp` excluded from content sinks: unlink/backup modes mutate the dir entry |
 
 ## Install
 
@@ -137,6 +140,7 @@ flowchart TD
 | `/absolute/outside` | absolute (outside) | Blocked |
 | `../../outside` | traversal | Blocked |
 | `<sandbox>/../../../../etc/passwd` | absolute traversal | Blocked (resolved before check) |
+| `/dev/null` | side-effect-free device | Blocked for tool paths; bash content-sink redirects exempt |
 | Directory for `read` | any | Blocked, suggest `bash ls` |
 
 ### Threat Model
@@ -156,6 +160,23 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   the trust gate (untrusted projects skip sandbox entirely) mitigates the
   practical exposure. If physical containment is ever required, apply
   `fs.realpathSync` to the deepest existing ancestor and re-check containment.
+- **Device exemption** — `isSideEffectFreeDevice` allow-lists exactly
+  `/dev/null` on the *resolved* target (`/dev/null/` and `/dev/../dev/null`
+  collapse to it; `/dev/nullable` and `/dev/null/../etc/passwd` do not), and it
+  is composed only into pure **content sinks**: shell redirects (`>`, `>>`),
+  `dd of=`, and `tee`. Writing bytes there is discarded and opening the device
+  for output neither creates, renames, nor re-links a directory entry. `tee`
+  takes one destination per operand, so *every* non-flag operand is validated —
+  a trailing `/dev/null` cannot launder an earlier real write such as
+  `tee /etc/evil /dev/null`.
+  Operations that can mutate the `/dev/null` directory entry or its metadata
+  (`cp` with `--remove-destination`/`-b`/`--backup`, `mv`, `ln`, `install`,
+  `touch`) and `cd` keep the strict containment check — a privileged process
+  must not be able to unlink or replace `/dev/null` outside the worktree. The
+  set is enumerated, not a `/dev/` prefix: raw devices
+  (`/dev/sda`, `/dev/mem`, `/dev/kmsg`) and fd aliases (`/dev/stdout`,
+  `/dev/stderr`, `/dev/fd/N`, which write through to the process fd) stay
+  blocked. `read`/`write`/`edit` to `/dev/null` fail closed.
 - **TOCTOU** — The interceptor's `statSync` check and the tool's later open are
   separate syscalls (CWE-367). A concurrent attacker could swap a path between
   check and use. The resolve-first fix closes the deterministic escape; the
