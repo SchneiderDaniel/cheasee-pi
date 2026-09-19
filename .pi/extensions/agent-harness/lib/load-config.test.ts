@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { loadProjectConfig, loadDefaultRules, ALLOWED_CONFIG_KEYS } from "./load-config.ts";
-import type { ResolvedHarnessRules } from "./harness-rules.ts";
+import type { ResolvedHarnessRules, ToolMeta } from "./load-config.ts";
 
 // ── Helpers ──
 
@@ -158,6 +158,13 @@ describe("loadProjectConfig", () => {
 
 	it("ALLOWED_CONFIG_KEYS is exported and equals {toolMeta, cascadeThreshold}", () => {
 		assert.deepEqual([...ALLOWED_CONFIG_KEYS].sort(), ["cascadeThreshold", "toolMeta"]);
+	});
+
+	it("re-exports ResolvedHarnessRules and ToolMeta types (preserved public API)", () => {
+		const rules: ResolvedHarnessRules = loadDefaultRules();
+		const meta: ToolMeta = { cascadeThreshold: 4, passThrough: false };
+		assert.equal(typeof rules.cascadeThreshold, "number");
+		assert.equal(meta.cascadeThreshold, 4);
 	});
 
 	it("unknown key 'tools' throws and names the offending key", () => {

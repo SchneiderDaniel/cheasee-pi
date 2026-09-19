@@ -14,7 +14,7 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { AgentHarness, getBashSubKey } from "../index.ts";
-import type { ToolCallResult } from "../index.ts";
+import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
 import agentHarness from "../index.ts";
 import { CASCADE_THRESHOLD, CACHE_TTL_TURNS } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -1215,6 +1215,53 @@ describe("AgentHarness — session_start config loading", () => {
 
 		assert.equal(notifyCalls.length, 1);
 		assert.match(notifyCalls[0], /parse/i);
+	});
+
+	it("sequential sessions: a broken config in session 2 falls back to defaults instead of leaking session 1's rules", async () => {
+		// Session 1 gets a permissive per-tool threshold from its own project config.
+		const permissiveDir = createConfigTempDir();
+		writeHarnessConfig(permissiveDir, { toolMeta: { write: { cascadeThreshold: 20 } } });
+		// Session 2 runs in a different project whose config fails validation.
+		const brokenDir = createConfigTempDir();
+		writeHarnessConfig(brokenDir, BAD_CONFIG);
+
+		const api = createMockAPI();
+		agentHarness(api);
+
+		process.chdir(permissiveDir);
+		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
+		assert.equal(await defaultThresholdEndures(api), 8, "session 1 runs with its threshold-20 rule");
+
+		process.chdir(brokenDir);
+		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
+		assert.equal(
+			await defaultThresholdEndures(api),
+			7,
+			"session 2 must fall back to the default threshold (8th write blocks), not session 1's threshold 20",
+		);
+	});
+});
+
+// ── Preserved public exports (issue #1725 regression) ──
+
+describe("AgentHarness — preserved public exports", () => {
+	it("entry point re-exports loadProjectConfig and ResolvedHarnessRules; loader re-exports ToolMeta", async () => {
+		const entry = await import("../index.ts");
+		const loader = await import("../lib/load-config.ts");
+
+		// Runtime: the entry-point re-export is the loader's function.
+		assert.equal(entry.loadProjectConfig, loader.loadProjectConfig);
+		// Type: ResolvedHarnessRules still resolves through the entry point.
+		const rules: ResolvedHarnessRules = loader.loadDefaultRules();
+		assert.equal(typeof rules.cascadeThreshold, "number");
+
+		// Static: type-only re-exports cannot be asserted at runtime, so pin them in source.
+		const entrySrc = fs.readFileSync(path.join(import.meta.dirname, "..", "index.ts"), "utf-8");
+		assert.match(entrySrc, /export type \{ ResolvedHarnessRules \} from "\.\/agent-harness\.ts";/);
+		assert.match(entrySrc, /export \{ loadProjectConfig \} from "\.\/lib\/load-config\.ts";/);
+
+		const loaderSrc = fs.readFileSync(path.join(import.meta.dirname, "..", "lib", "load-config.ts"), "utf-8");
+		assert.match(loaderSrc, /export type \{ ResolvedHarnessRules, ToolMeta \} from "\.\/harness-rules\.ts";/);
 	});
 });
 

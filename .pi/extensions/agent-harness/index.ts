@@ -9,11 +9,13 @@
 
 import type { ExtensionAPI, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { AgentHarness } from "./agent-harness.ts";
-import { loadProjectConfig } from "./lib/load-config.ts";
+import { loadProjectConfig, loadDefaultRules } from "./lib/load-config.ts";
 import type { ConfigLoaderContext } from "./lib/load-config.ts";
 
 export { AgentHarness, getBashSubKey } from "./agent-harness.ts";
 export type { ToolCallResult } from "./agent-harness.ts";
+export type { ResolvedHarnessRules } from "./agent-harness.ts";
+export { loadProjectConfig } from "./lib/load-config.ts";
 
 /**
  * Surface a config-load failure mode-adaptively (mirrors format-on-save):
@@ -45,7 +47,9 @@ export default function agentHarness(pi: ExtensionAPI): void {
 			const rules = loadProjectConfig(configCtx, projectRoot);
 			harness.setRules(rules);
 		} catch (e) {
-			// Fail-safe: continue with defaults, but never silently discard the user's config
+			// Fail-safe: discard the failed config, fall back to defaults, but never silently drop it.
+			// Without resetting the rules here, a previous session's config would leak into this one.
+			harness.setRules(loadDefaultRules());
 			notifyConfigFailure(pi, configCtx, (e as Error).message);
 		}
 	});

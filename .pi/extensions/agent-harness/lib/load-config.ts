@@ -52,7 +52,7 @@ export const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set([
 // ── Exports ──
 
 export { loadDefaultRules } from "./harness-rules.ts";
-export type { ResolvedHarnessRules } from "./harness-rules.ts";
+export type { ResolvedHarnessRules, ToolMeta } from "./harness-rules.ts";
 
 /**
  * Load project harness configuration, gated by trust.
