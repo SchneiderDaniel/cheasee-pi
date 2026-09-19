@@ -249,7 +249,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 			const searcherName = useRipgrep ? "ripgrep" : "grep";
 
 			// Check cache first
-			const cached = getCachedResult(query, directory);
+			const cached = getCachedResult(query, directory, maxCount);
 			if (cached) {
 				const summary = buildStructuredSummary(
 					cached.result,
@@ -309,7 +309,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 				: parseGrepOutput(result.stdout, MAX_TOTAL_RESULTS);
 
 			// Cache the result
-			setCachedResult(query, directory, {
+			setCachedResult(query, directory, maxCount, {
 				result: searchResult,
 				rawStdout: result.stdout ?? "",
 			});
