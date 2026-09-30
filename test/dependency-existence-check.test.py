@@ -1423,7 +1423,7 @@ class EndToEndTests(unittest.TestCase):
             dec.REGISTRIES[n].interval = iv
 
     def test_e2e_real_worktree(self):
-        repo = _HERE.parent  # the real worktree (package.json + go.mod + submanifests)
+        repo = _HERE.parent  # the real worktree (package.json + go.mod + Cargo.lock + submanifests)
         fetcher = FakeFetcher(default=make_response)
         code, out = run_main(["--root", str(repo), "--json"], fetcher)
         r = json.loads(out)
@@ -1436,6 +1436,7 @@ class EndToEndTests(unittest.TestCase):
         for u in urls:
             self.assertTrue(any(h in u for h in (
                 "registry.npmjs.org", "proxy.golang.org", "pypi.org", "rubygems.org",
+                "crates.io",
             )), u)
         # Root package.json direct dep resolved from package-lock.json.
         lock = json.loads((repo / "package-lock.json").read_text())
