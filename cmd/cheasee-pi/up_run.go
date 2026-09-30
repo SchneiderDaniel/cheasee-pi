@@ -141,6 +141,21 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		printCodeFlowHint(port)
 	}
 
+	// UI URL: the port the sidecar actually published (`docker port`),
+	// authoritative when the container already runs — uiHostPort's probe sees
+	// that live bind as occupancy and shifts to the next free port, printing a
+	// URL that points at nothing. Falls back to derive+probe on any docker
+	// error (first up, stopped sidecar). No exec-env forwarding: unlike
+	// CodeFlow's in-container context-info echo, no in-container consumer of
+	// the UI port exists in this slice.
+	if port, err := uiBoundPort(ctx, root); err == nil {
+		printUIHint(port)
+	} else if port, err := uiHostPort(root); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
+	} else {
+		printUIHint(port)
+	}
+
 	// One-line cheatsheet so a fresh session has the in-pi help and the
 	// stop/cleanup commands in front of it the moment pi launches.
 	fmt.Fprintf(os.Stderr, "  ℹ inside pi: /help · exit session: Ctrl+D · stop container: cheasee-pi down · full cleanup: cheasee-pi clean\n")

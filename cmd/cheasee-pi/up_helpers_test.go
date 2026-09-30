@@ -148,6 +148,8 @@ func setUpRunMode(t *testing.T, workdir string, dryRun bool) {
 	// Hermetic CodeFlow port: a host CODEFLOW_PORT must not leak into the
 	// derived-case assertions (the env-override cases set it explicitly).
 	t.Setenv("CODEFLOW_PORT", "")
+	// Same for the UI port — derived-case assertions must not see a host value.
+	t.Setenv("PI_UI_PORT", "")
 	t.Cleanup(func() {
 		upWorkdir = savedWorkdir
 		upDryRun = savedDryRun

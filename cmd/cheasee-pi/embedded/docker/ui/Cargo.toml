@@ -1,0 +1,12 @@
+[package]
+name = "cheasee-pi-ui"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+# axum's default feature set covers http1 + tokio/net, so no feature flags are
+# needed for `axum::serve`. tokio is declared explicitly because `#[tokio::main]`
+# needs the `macros` + `rt-multi-thread` features, which axum's re-export does
+# not enable.
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

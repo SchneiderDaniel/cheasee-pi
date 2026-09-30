@@ -327,6 +327,70 @@ func codeflowBoundPort(ctx context.Context, workspaceRoot string) (string, error
 	return host, nil
 }
 
+// ──────────────────────────────────────────────
+// UI host port
+// ──────────────────────────────────────────────
+
+// uiPortBase is the low end of the derived per-repo UI host port range. The
+// 1024-wide band sits disjoint from (and above) CodeFlow's [8470, 9493], so
+// the two sidecars of one workspace can never resolve to the same port. Width
+// is a power of two (2³² mod 1024 == 0 → no FNV skew) and the top stays below
+// the Linux ephemeral floor (32768), so a derived UI port is never an
+// ephemeral allocation. PI_UI_PORT / docker.uiPort are the explicit escapes.
+const (
+	uiPortBase  = 9500
+	uiPortRange = 1024
+)
+
+// uiContainerName follows the repo-slug scheme for the UI sidecar service.
+func uiContainerName(workspaceRoot string) string {
+	return "ui-" + truncateSlug(repoSlug(workspaceRoot), 54)
+}
+
+// uiHostPort resolves the UI host port for a workspace, mirroring
+// codeflowHostPort: cheasee-settings.json docker.uiPort (explicit per-repo
+// config) > process env PI_UI_PORT (passed through untouched) > derived
+// uiPortBase+fnv32(repoSlug)%uiPortRange, probed with next-free fallback.
+// Range exhaustion fails closed with an actionable error naming PI_UI_PORT.
+func uiHostPort(workspaceRoot string) (string, error) {
+	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil && s.Docker.UIPort != "" {
+		return s.Docker.UIPort, nil
+	}
+	if env := os.Getenv("PI_UI_PORT"); env != "" {
+		return env, nil
+	}
+	start := uiPortBase + int(fnv32(repoSlug(workspaceRoot))%uiPortRange)
+	for p := start; p < uiPortBase+uiPortRange; p++ {
+		if portProbe(p) == nil {
+			return strconv.Itoa(p), nil
+		}
+	}
+	return "", fmt.Errorf("no free host port in [%d, %d] for the UI service — stop another workspace or set PI_UI_PORT explicitly", uiPortBase, uiPortBase+uiPortRange-1)
+}
+
+// uiBoundPort resolves the host port the running UI sidecar actually
+// published, via `docker port ui-<slug> 3000/tcp`. Authoritative over the
+// probe in uiHostPort: on a re-up the sidecar already holds its bind, and the
+// probe treats that live bind as occupancy and shifts to the next free port —
+// printing a UI URL that points at nothing. Falls back to derive+probe in the
+// caller on any docker error (first up, stopped sidecar).
+func uiBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
+	out, err := runCommandContext(ctx, "docker", "port", uiContainerName(workspaceRoot), "3000/tcp").Output()
+	if err != nil {
+		return "", err
+	}
+	// "0.0.0.0:8938" | "127.0.0.1:8938" | "[::]:8938" — the host port is
+	// the last colon segment.
+	host := strings.TrimSpace(string(out))
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[i+1:]
+	}
+	if host == "" {
+		return "", fmt.Errorf("docker port: no published host port for %s", uiContainerName(workspaceRoot))
+	}
+	return host, nil
+}
+
 // fnv32 is the FNV-1a 32-bit hash used for the deterministic port offset.
 func fnv32(s string) uint32 {
 	h := fnv.New32a()

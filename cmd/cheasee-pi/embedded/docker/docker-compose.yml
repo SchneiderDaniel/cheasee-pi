@@ -98,3 +98,30 @@ services:
       - ./codeflow/config.json:/opt/codeflow/config.json:ro
     ports:
       - "${CODEFLOW_HOST_IP:-127.0.0.1}:${CODEFLOW_PORT:-8470}:8470"
+
+  ui:
+    # Cheasee-Pi web control center (Axum placeholder in this slice) for the
+    # workspace. Host side via PI_UI_PORT — `cheasee-pi start` derives a
+    # per-repo port (9500 + repo-slug hash, 9500–10523) so parallel containers
+    # don't collide on the fixed default; an explicit PI_UI_PORT or
+    # docker.uiPort overrides. Host-side bind is hard-pinned to 127.0.0.1 (no
+    # CODEFLOW_HOST_IP-style opt-in): loopback-only is a hard invariant for
+    # the control center, never routable off-host. Container side is fixed at
+    # 3000 — ui/src/main.rs binds all container interfaces there (required for
+    # the published DNAT port to reach it); keep them in sync when changing
+    # either.
+    build:
+      context: ui
+      dockerfile: Dockerfile
+    container_name: ${PI_UI_CONTAINER:-ui}
+    labels:
+      - com.cheaseepi.managed=true
+    restart: unless-stopped
+    volumes:
+      - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
+      # Read-only: gh hosts.yml can hold a plaintext OAuth token when no system
+      # keyring is available, and the UI server is network-reachable.
+      - ~/.config/gh:/home/agentuser/.config/gh:ro${VOLUME_RELABEL:-}
+      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:ro${VOLUME_RELABEL:-}
+    ports:
+      - "127.0.0.1:${PI_UI_PORT:-9500}:3000"

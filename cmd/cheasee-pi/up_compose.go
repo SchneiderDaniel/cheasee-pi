@@ -82,11 +82,13 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string) {
 	// Derived identity env is authoritative — strip inherited keys so
 	// duplicate KEY= entries (nondeterministic resolution across libc/exec)
-	// can never leak in. A user-set CODEFLOW_PORT is not clobbered: the
-	// resolver returns it verbatim and it is re-appended as the single entry.
+	// can never leak in. A user-set CODEFLOW_PORT / PI_UI_PORT is not
+	// clobbered: the resolver returns it verbatim and it is re-appended as the
+	// single entry.
 	env := stripEnvKeys(os.Environ(),
 		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
 		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
+		"PI_UI_PORT", "PI_UI_CONTAINER",
 		codeflowSpecEnv,
 	)
 	env = append(env,
@@ -96,6 +98,7 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		// distinct containers (compose interpolates them into container_name).
 		"CHEASEEPI_CONTAINER="+containerName,
 		"CODEFLOW_CONTAINER="+codeflowContainerName(workspaceHostPath),
+		"PI_UI_CONTAINER="+uiContainerName(workspaceHostPath),
 		// Per-repo compose project — compose precedence (-p > env > file
 		// name: > dir basename) makes the env win over the file's fallback
 		// name: cheasee-pi; the cache-dir basename (the CLI version key, e.g.
@@ -123,6 +126,14 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
 	} else {
 		env = append(env, "CODEFLOW_PORT="+port)
+	}
+	// UI host port: settings docker.uiPort > process env PI_UI_PORT
+	// (pass-through) > derived+probed. Resolution failure is loud (stderr) and
+	// leaves the compose fallback (9500) to fail loudly on its own if occupied.
+	if port, err := uiHostPort(workspaceHostPath); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
+	} else {
+		env = append(env, "PI_UI_PORT="+port)
 	}
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")
