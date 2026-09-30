@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { loadProjectConfig, loadDefaultRules } from "./load-config.ts";
-import type { ResolvedHarnessRules } from "./harness-rules.ts";
+import { loadProjectConfig, loadDefaultRules, ALLOWED_CONFIG_KEYS } from "./load-config.ts";
+import type { ResolvedHarnessRules, ToolMeta } from "./load-config.ts";
 
 // ── Helpers ──
 
@@ -154,5 +154,37 @@ describe("loadProjectConfig", () => {
 		assert.equal(before.cascadeThreshold, after.cascadeThreshold);
 		assert.equal(before.cascadeThreshold, 8);
 		assert.deepEqual(before.toolMeta, after.toolMeta);
+	});
+
+	it("ALLOWED_CONFIG_KEYS is exported and equals {toolMeta, cascadeThreshold}", () => {
+		assert.deepEqual([...ALLOWED_CONFIG_KEYS].sort(), ["cascadeThreshold", "toolMeta"]);
+	});
+
+	it("re-exports ResolvedHarnessRules and ToolMeta types (preserved public API)", () => {
+		const rules: ResolvedHarnessRules = loadDefaultRules();
+		const meta: ToolMeta = { cascadeThreshold: 4, passThrough: false };
+		assert.equal(typeof rules.cascadeThreshold, "number");
+		assert.equal(meta.cascadeThreshold, 4);
+	});
+
+	it("unknown key 'tools' throws and names the offending key", () => {
+		const dir = createTempDir();
+		writeConfig(dir, {
+			tools: { bash: { cascadeThreshold: 4 } },
+		});
+		assert.throws(() => loadProjectConfig(makeCtx(), dir), /Unknown key.*"tools"/);
+	});
+
+	it("thrown allowed-keys list is derived from ALLOWED_CONFIG_KEYS (no second drift source)", () => {
+		const dir = createTempDir();
+		writeConfig(dir, { bogus: true });
+		try {
+			loadProjectConfig(makeCtx(), dir);
+			assert.fail("expected loadProjectConfig to throw");
+		} catch (e) {
+			const match = /Allowed keys:\s*(.+)$/.exec((e as Error).message);
+			assert.ok(match, `error message must list allowed keys: "${(e as Error).message}"`);
+			assert.deepEqual(match[1].split(",").map((s) => s.trim()).sort(), [...ALLOWED_CONFIG_KEYS].sort());
+		}
 	});
 });

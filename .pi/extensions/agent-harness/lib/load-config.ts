@@ -26,6 +26,7 @@ interface ProjectHarnessConfig {
 /** Minimal context for config loading — a subset of ToolCallContext. */
 export interface ConfigLoaderContext {
 	isProjectTrusted?: () => boolean;
+	mode?: "tui" | "rpc" | "json" | "print";
 	ui?: {
 		notify?: (message: string, type?: "info" | "warning" | "error") => void;
 	};
@@ -37,7 +38,16 @@ export interface ConfigLoaderContext {
 // ── Constants ──
 
 const CONFIG_RELATIVE_PATH = path.join(".pi", "harness-config.json");
-const ALLOWED_KEYS = new Set(["toolMeta", "cascadeThreshold"]);
+
+/**
+ * Allowed top-level keys in `.pi/harness-config.json`.
+ * Single source of truth for validation, the unknown-key error message, and the
+ * docs-consistency test — the docs example must stay within this set.
+ */
+export const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set([
+	"toolMeta",
+	"cascadeThreshold",
+]);
 
 // ── Exports ──
 
@@ -100,9 +110,9 @@ export function loadProjectConfig(
 
 	// Validate keys — reject unknown keys
 	for (const key of Object.keys(parsed)) {
-		if (!ALLOWED_KEYS.has(key)) {
+		if (!ALLOWED_CONFIG_KEYS.has(key)) {
 			throw new Error(
-				`Unknown key in .pi/harness-config.json: "${key}". Allowed keys: toolMeta, cascadeThreshold`,
+				`Unknown key in .pi/harness-config.json: "${key}". Allowed keys: ${[...ALLOWED_CONFIG_KEYS].join(", ")}`,
 			);
 		}
 	}

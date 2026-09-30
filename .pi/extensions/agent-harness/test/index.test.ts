@@ -14,7 +14,7 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { AgentHarness, getBashSubKey } from "../index.ts";
-import type { ToolCallResult } from "../index.ts";
+import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
 import agentHarness from "../index.ts";
 import { CASCADE_THRESHOLD, CACHE_TTL_TURNS } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -133,6 +133,19 @@ describe("AgentHarness — bash tool mismatch", () => {
 		}
 	});
 
+	it("bash grep/rg with a write redirect (save results to file) does NOT block (#1724)", () => {
+		const h = new AgentHarness();
+		for (const cmd of [
+			"grep 'TODO' bigfile.ts > matches.txt",
+			"grep foo>>out.txt",
+			"rg pattern 2> err.txt",
+			"grep foo &> out.txt",
+			"cat file | grep foo > out.txt",
+		]) {
+			assert.equal(h.handleToolCall(makeEvent("bash", { command: cmd }), makeCtx()), null, cmd);
+		}
+	});
+
 	it("piped grep (ls | grep), chained (cd && rg), piped head pass through", () => {
 		const h = new AgentHarness();
 		for (const cmd of [
@@ -202,6 +215,36 @@ describe("AgentHarness — error retry blocking", () => {
 
 		h.handleTurnStart(); // decays 1→0
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "e.ts" }), makeCtx()), null);
+	});
+
+	it("block message reports sessionTurn, not toolCallIndex", () => {
+		const h = new AgentHarness();
+		// Turn 0: two errors (toolCallIndex 0 and 1)
+		h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx());
+		h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx());
+
+		// Turn boundary: sessionTurn → 1, errors decay 2→1
+		h.handleTurnStart();
+
+		// Turn 1: one more error (toolCallIndex 2) → errors back to 2
+		h.handleToolCall(makeEvent("read", { path: "c.ts" }, true), makeCtx());
+
+		const r = h.handleToolCall(makeEvent("read", { path: "d.ts" }), makeCtx());
+		assert.ok(r?.block);
+		assert.ok(
+			r!.reason.includes("last turn 1"),
+			`expected \"last turn 1\" (session turn), got: ${r!.reason}`,
+		);
+	});
+
+	it("multiple errors within one turn report the same session turn", () => {
+		const h = new AgentHarness();
+		assert.equal(h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx()), null);
+		assert.equal(h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx()), null);
+
+		const r = h.handleToolCall(makeEvent("read", { path: "c.ts" }), makeCtx());
+		assert.ok(r?.block);
+		assert.ok(r!.reason.includes("last turn 0"), r!.reason);
 	});
 });
 
@@ -1069,6 +1112,199 @@ describe("AgentHarness — session_start config loading", () => {
 			assert.equal(results[i], undefined, `call ${i + 1} in session 2 should pass`);
 		}
 		assert.ok(results[2]?.block, "3rd call in session 2 should block (threshold 3)");
+	});
+
+	// ── Validation failures are surfaced (mode-adaptive, issue #1725) ──
+
+	const BAD_CONFIG = { tools: { bash: { cascadeThreshold: 4 } } };
+
+	/** Fire session_start and report how many consecutive writes pass before the block. */
+	async function defaultThresholdEndures(api: ReturnType<typeof createMockAPI>): Promise<number> {
+		let passed = 0;
+		for (let i = 0; i < 8; i++) {
+			const r = await api.fire(
+				"tool_call",
+				{ toolName: "write", input: { path: "f.ts", content: "" } },
+				makeConfigCtx(),
+			);
+			if (!r?.block) passed++;
+		}
+		return passed;
+	}
+
+	it("mode 'tui' + unknown-key config → ui.notify once with warning naming the key, defaults still applied", async () => {
+		const dir = createConfigTempDir();
+		writeHarnessConfig(dir, BAD_CONFIG);
+		process.chdir(dir);
+
+		const notifyCalls: Array<{ message: string; type?: string }> = [];
+		const api = createMockAPI();
+		agentHarness(api);
+
+		await api.fire(
+			"session_start",
+			{ type: "session_start", reason: "new" },
+			makeConfigCtx({
+				mode: "tui",
+				ui: { notify: (message: string, type?: string) => notifyCalls.push({ message, type }) },
+			}),
+		);
+
+		assert.equal(notifyCalls.length, 1, "exactly one warning");
+		assert.equal(notifyCalls[0].type, "warning");
+		assert.ok(notifyCalls[0].message.includes("tools"), `message should name the key: ${notifyCalls[0].message}`);
+		assert.equal(await defaultThresholdEndures(api), 7, "7 writes pass — config was discarded, defaults apply");
+	});
+
+	it("mode 'rpc' + unknown-key config → sendUserMessage once naming the key, ui.notify NOT called", async () => {
+		const dir = createConfigTempDir();
+		writeHarnessConfig(dir, BAD_CONFIG);
+		process.chdir(dir);
+
+		let notifyCalled = false;
+		const sent: string[] = [];
+		const api = createMockAPI();
+		(api as any).sendUserMessage = (message: string) => sent.push(message);
+		agentHarness(api);
+
+		await api.fire(
+			"session_start",
+			{ type: "session_start", reason: "new" },
+			makeConfigCtx({
+				mode: "rpc",
+				ui: { notify: () => { notifyCalled = true; } },
+			}),
+		);
+
+		assert.equal(sent.length, 1, "sendUserMessage called once");
+		assert.ok(sent[0].includes("tools"), `message should name the key: ${sent[0]}`);
+		assert.equal(notifyCalled, false, "ui.notify must not be used in rpc mode");
+	});
+
+	for (const mode of ["json", "print"] as const) {
+		it(`mode '${mode}' + unknown-key config → console.error naming the key, no ui.notify / sendUserMessage`, async () => {
+			const dir = createConfigTempDir();
+			writeHarnessConfig(dir, BAD_CONFIG);
+			process.chdir(dir);
+
+			let notifyCalled = false;
+			let sendCalled = false;
+			const errors: unknown[][] = [];
+			const originalError = console.error;
+			console.error = (...args: unknown[]) => { errors.push(args); };
+			try {
+				const api = createMockAPI();
+				(api as any).sendUserMessage = () => { sendCalled = true; };
+				agentHarness(api);
+
+				await api.fire(
+					"session_start",
+					{ type: "session_start", reason: "new" },
+					makeConfigCtx({ mode, ui: { notify: () => { notifyCalled = true; } } }),
+				);
+			} finally {
+				console.error = originalError;
+			}
+
+			assert.ok(errors.length >= 1, "console.error must be called");
+			assert.ok(
+				errors.some((args) => String(args[0]).includes("tools")),
+				`error output should name the key: ${JSON.stringify(errors)}`,
+			);
+			assert.equal(notifyCalled, false, "ui.notify must not be used");
+			assert.equal(sendCalled, false, "sendUserMessage must not be used");
+		});
+	}
+
+	it("mode undefined (backward compat) + unknown-key config → console.error branch, no throw", async () => {
+		const dir = createConfigTempDir();
+		writeHarnessConfig(dir, BAD_CONFIG);
+		process.chdir(dir);
+
+		let notifyCalled = false;
+		const errors: unknown[][] = [];
+		const originalError = console.error;
+		console.error = (...args: unknown[]) => { errors.push(args); };
+		try {
+			const api = createMockAPI();
+			agentHarness(api);
+			await api.fire(
+				"session_start",
+				{ type: "session_start", reason: "new" },
+				makeConfigCtx({ ui: { notify: () => { notifyCalled = true; } } }),
+			);
+		} finally {
+			console.error = originalError;
+		}
+
+		assert.ok(errors.some((args) => String(args[0]).includes("tools")));
+		assert.equal(notifyCalled, false);
+	});
+
+	it("malformed JSON config → surfaced with parse failure, defaults applied", async () => {
+		const dir = createConfigTempDir();
+		fs.writeFileSync(path.join(dir, ".pi", "harness-config.json"), "not valid json{", "utf-8");
+		process.chdir(dir);
+
+		const notifyCalls: string[] = [];
+		const api = createMockAPI();
+		agentHarness(api);
+
+		await api.fire(
+			"session_start",
+			{ type: "session_start", reason: "new" },
+			makeConfigCtx({ mode: "tui", ui: { notify: (message: string) => notifyCalls.push(message) } }),
+		);
+
+		assert.equal(notifyCalls.length, 1);
+		assert.match(notifyCalls[0], /parse/i);
+	});
+
+	it("sequential sessions: a broken config in session 2 falls back to defaults instead of leaking session 1's rules", async () => {
+		// Session 1 gets a permissive per-tool threshold from its own project config.
+		const permissiveDir = createConfigTempDir();
+		writeHarnessConfig(permissiveDir, { toolMeta: { write: { cascadeThreshold: 20 } } });
+		// Session 2 runs in a different project whose config fails validation.
+		const brokenDir = createConfigTempDir();
+		writeHarnessConfig(brokenDir, BAD_CONFIG);
+
+		const api = createMockAPI();
+		agentHarness(api);
+
+		process.chdir(permissiveDir);
+		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
+		assert.equal(await defaultThresholdEndures(api), 8, "session 1 runs with its threshold-20 rule");
+
+		process.chdir(brokenDir);
+		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
+		assert.equal(
+			await defaultThresholdEndures(api),
+			7,
+			"session 2 must fall back to the default threshold (8th write blocks), not session 1's threshold 20",
+		);
+	});
+});
+
+// ── Preserved public exports (issue #1725 regression) ──
+
+describe("AgentHarness — preserved public exports", () => {
+	it("entry point re-exports loadProjectConfig and ResolvedHarnessRules; loader re-exports ToolMeta", async () => {
+		const entry = await import("../index.ts");
+		const loader = await import("../lib/load-config.ts");
+
+		// Runtime: the entry-point re-export is the loader's function.
+		assert.equal(entry.loadProjectConfig, loader.loadProjectConfig);
+		// Type: ResolvedHarnessRules still resolves through the entry point.
+		const rules: ResolvedHarnessRules = loader.loadDefaultRules();
+		assert.equal(typeof rules.cascadeThreshold, "number");
+
+		// Static: type-only re-exports cannot be asserted at runtime, so pin them in source.
+		const entrySrc = fs.readFileSync(path.join(import.meta.dirname, "..", "index.ts"), "utf-8");
+		assert.match(entrySrc, /export type \{ ResolvedHarnessRules \} from "\.\/agent-harness\.ts";/);
+		assert.match(entrySrc, /export \{ loadProjectConfig \} from "\.\/lib\/load-config\.ts";/);
+
+		const loaderSrc = fs.readFileSync(path.join(import.meta.dirname, "..", "lib", "load-config.ts"), "utf-8");
+		assert.match(loaderSrc, /export type \{ ResolvedHarnessRules, ToolMeta \} from "\.\/harness-rules\.ts";/);
 	});
 });
 

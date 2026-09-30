@@ -19,18 +19,22 @@
 
 // ── Types ──
 
+/** @public */
 export interface ReadCacheEntry {
 	turn: number;
 	timestamp: number;
 }
 
+/** @public */
 export interface ErrorEntry {
+	/** Session turn in which the error occurred (0-based, mirrors ReadCacheEntry.turn). */
 	turn: number;
 	toolName: string;
 	/** Optional error detail/message. */
 	message?: string;
 }
 
+/** @public */
 export interface ConsecutiveInfo {
 	toolName: string;
 	count: number;

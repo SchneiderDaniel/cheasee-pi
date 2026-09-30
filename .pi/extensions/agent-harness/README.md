@@ -8,6 +8,7 @@ Every incorrect tool call costs tokens. Every error loop burns context window. E
 
 **What it saves:**
 - `bash | grep` → redirected to `ripgrep_search` (faster, structured, cached)
+- `bash grep > file` → passes through (a write redirect is a write op; `ripgrep_search` cannot write output files)
 - `bash cat` → redirected to `read` (avoids spawning subshells)
 - Error retry loops → blocked after 2 consecutive errors on same tool
 - Same-tool cascades → 8+ consecutive `bash` calls are blocked with batching suggestion
@@ -96,24 +97,29 @@ flowchart TD
 ### Key Design Decisions
 
 - **Force-bypass (Escape Hatch)** — Two per-call mechanisms: `input._harness.force: true` on any tool, or `# bypass-harness` comment annotation on bash commands. Both require `hasUI: true` (interactive session) to prevent automated abuse. `_harness` is consumed and stripped by the harness before the tool sees it. Force-bypassed calls count toward the cascade counter (recorded as real calls). Parsing for the bash annotation is token-aware (quoted-string immunity) and best-effort (heredocs/continuations fall through to false; use `_harness.force` for those edge cases).
-- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags.
+- **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. Top-level `cascadeThreshold` sets the global default; `toolMeta.<tool>.cascadeThreshold` overrides it for that tool.
 - **Read caching with dual TTL (6 turns / 30 s)** — `TimedMap` stores an existence marker (`{ turn, timestamp }`) keyed by `path|offset|limit` for 6 turns or 30 s wall-clock. A hit returns no bytes: in TUI mode it blocks the re-read with a hint (content already in the agent's context); non-TUI passes through. Any `write`/`edit` or file-modifying `bash` clears the entire cache.
 - **Error retry guard caps at 2** — First retry reasonable (transient). Second+ consecutive same-tool same-args blocked. Counter resets on turn_start.
 - **Cascade detection resets on turn_start** — Prevents long-running multi-tool sequences from false positives.
 - **Pass-through list** — `ask_user`, `ask_user_read`, registered tool registrations, command handlers exempt from validation.
-- **Fail-safe defaults** — On config load failure, continues with hardcoded defaults. Never blocks due to config errors.
+- **Fail-safe defaults** — On config load failure, continues with hardcoded defaults and warns the user (TUI notify / RPC message / console.error). Never blocks due to config errors, never silently discards the config.
 
 ### Config Format (.pi/harness-config.json)
 
+Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThreshold` overrides it per tool.
+
 ```json
 {
-  "tools": {
+  "toolMeta": {
     "read": { "cascadeThreshold": 6, "passThrough": false },
     "bash": { "cascadeThreshold": 4, "passThrough": false },
     "ask_user": { "passThrough": true }
-  }
+  },
+  "cascadeThreshold": 8
 }
 ```
+
+Unknown top-level keys are rejected: the config is discarded, the harness warns, and default rules apply.
 
 ### Force-Bypass Details
 
