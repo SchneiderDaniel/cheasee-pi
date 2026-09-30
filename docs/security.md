@@ -31,7 +31,7 @@ The [Agent Harness](extensions/agent-harness) extension intercepts every tool ca
 - **Tool mismatch prevention** — `bash | grep` / `bash cat` is blocked, agent redirected to `ripgrep_search` / `read`
 - **Error loop prevention** — After 2 consecutive errors, further calls to same tool are blocked
 - **Cascade prevention** — 8+ consecutive same-tool calls trigger a block with batching suggestion
-- **Read caching** — Re-reading the same file within 6 turns returns cached content, preventing redundant I/O
+- **Read caching** — Re-reading the same path+offset+limit within 6 turns (or 30 s) is blocked with a hint in TUI mode (non-TUI passes through), preventing redundant I/O; the cache stores an existence marker only — it does not return cached bytes
 
 Rules are configurable via `.pi/harness-config.json`.
 
