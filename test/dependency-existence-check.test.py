@@ -794,6 +794,28 @@ class AdapterExtractionTests(unittest.TestCase):
         self.assertTrue(by_name2["serde_derive"].transitive)  # referenced by serde
         self.assertFalse(by_name2["serde"].transitive)  # root of the graph
 
+    def test_rust_cargo_lock_skips_own_crate(self):
+        # The crate's own package (named in the sibling Cargo.toml) is local,
+        # never a crates.io registry entry, and must not be reported.
+        a = dec.RustAdapter()
+        td = tempfile.TemporaryDirectory()
+        try:
+            d = Path(td.name)
+            (d / "Cargo.toml").write_text(
+                '[package]\nname = "my-local-crate"\nversion = "0.1.0"\n'
+                "[dependencies]\nserde = \"1\"\n"
+            )
+            lock = (
+                '[[package]]\nname = "my-local-crate"\nversion = "0.1.0"\n'
+                "dependencies = [\n \"serde\",\n]\n\n"
+                '[[package]]\nname = "serde"\nversion = "1.0.200"\n'
+            )
+            extracted = a.extract(lock, d / "Cargo.lock")
+            self.assertEqual([x.name for x in extracted], ["serde"])
+            self.assertTrue(extracted[0].transitive)  # referenced by the skipped root crate
+        finally:
+            td.cleanup()
+
     def test_java_pom_xml(self):
         a = dec.JavaAdapter()
         text = (
@@ -1423,7 +1445,7 @@ class EndToEndTests(unittest.TestCase):
             dec.REGISTRIES[n].interval = iv
 
     def test_e2e_real_worktree(self):
-        repo = _HERE.parent  # the real worktree (package.json + go.mod + submanifests)
+        repo = _HERE.parent  # the real worktree (package.json + go.mod + Cargo.lock + submanifests)
         fetcher = FakeFetcher(default=make_response)
         code, out = run_main(["--root", str(repo), "--json"], fetcher)
         r = json.loads(out)
@@ -1436,6 +1458,7 @@ class EndToEndTests(unittest.TestCase):
         for u in urls:
             self.assertTrue(any(h in u for h in (
                 "registry.npmjs.org", "proxy.golang.org", "pypi.org", "rubygems.org",
+                "crates.io",
             )), u)
         # Root package.json direct dep resolved from package-lock.json.
         lock = json.loads((repo / "package-lock.json").read_text())

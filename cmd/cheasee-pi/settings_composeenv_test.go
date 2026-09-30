@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -177,5 +178,106 @@ func TestApplyComposeEnv_nameOverrideKeepsDerivedProject(t *testing.T) {
 	}
 	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+composeProjectName(workdir)) {
 		t.Errorf("project name must stay repo-derived under --name override, got %v", cmd.env)
+	}
+}
+
+// ──────────────────────────────────────────────
+// UI env injection (PI_UI_PORT / PI_UI_CONTAINER)
+// ──────────────────────────────────────────────
+
+// assertOneUIEnv asserts exactly one PI_UI_PORT and one PI_UI_CONTAINER entry
+// and returns the resolved port — duplicate entries resolve
+// nondeterministically across libc/exec builds, so the count is the contract.
+func assertOneUIEnv(t *testing.T, env []string) string {
+	t.Helper()
+	var port string
+	for _, key := range []string{"PI_UI_PORT", "PI_UI_CONTAINER"} {
+		var hits []string
+		for _, e := range env {
+			if k, v, ok := strings.Cut(e, "="); ok && k == key {
+				hits = append(hits, v)
+			}
+		}
+		if len(hits) != 1 {
+			t.Fatalf("exactly one %s entry expected, got %v", key, hits)
+		}
+		if key == "PI_UI_PORT" {
+			port = hits[0]
+		}
+	}
+	return port
+}
+
+func TestApplyComposeEnv_UIPortOneEntry(t *testing.T) {
+	t.Setenv("PI_UI_PORT", "")
+	workdir := t.TempDir()
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
+
+	port := assertOneUIEnv(t, cmd.env)
+	n, err := strconv.Atoi(port)
+	if err != nil || n < uiPortBase || n >= uiPortBase+uiPortRange {
+		t.Errorf("PI_UI_PORT must be a port in [9500, 10523], got %q", port)
+	}
+	if !slices.Contains(cmd.env, "PI_UI_CONTAINER="+uiContainerName(workdir)) {
+		t.Errorf("PI_UI_CONTAINER must carry the repo-slug UI name, got %v", cmd.env)
+	}
+	// The CodeFlow env is untouched by the UI addition.
+	assertOneCodeflowPort(t, cmd.env)
+}
+
+func TestApplyComposeEnv_UIPassThroughAndInheritedReplaced(t *testing.T) {
+	// A host PI_UI_PORT passes through verbatim; an inherited PI_UI_CONTAINER is
+	// stripped and replaced by the derived name. Exactly-one each proves
+	// stripEnvKeys gained both keys.
+	t.Setenv("PI_UI_PORT", "9000")
+	t.Setenv("PI_UI_CONTAINER", "stale")
+	workdir := t.TempDir()
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
+
+	if port := assertOneUIEnv(t, cmd.env); port != "9000" {
+		t.Errorf("user-set PI_UI_PORT must pass through verbatim, got %q", port)
+	}
+	if !slices.Contains(cmd.env, "PI_UI_CONTAINER="+uiContainerName(workdir)) {
+		t.Errorf("PI_UI_CONTAINER must be the derived name, got %v", cmd.env)
+	}
+}
+
+func TestApplyComposeEnv_UISettingsWins(t *testing.T) {
+	t.Setenv("PI_UI_PORT", "9000")
+	workdir := t.TempDir()
+	testutil.WriteCheaseeSettingsFile(t, workdir, `{"docker": {"uiPort": "9100"}}`)
+	cmd := &mockCmd{}
+	applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
+
+	if !slices.Contains(cmd.env, "PI_UI_PORT=9100") {
+		t.Errorf("settings docker.uiPort must win over env, got %v", cmd.env)
+	}
+}
+
+func TestApplyComposeEnv_UIPortExhaustionWarns(t *testing.T) {
+	t.Setenv("PI_UI_PORT", "")
+	saved := portProbe
+	portProbe = func(p int) error { return fmt.Errorf("in use") }
+	t.Cleanup(func() { portProbe = saved })
+
+	workdir := t.TempDir()
+	var cmd *mockCmd
+	stderr := testutil.CaptureStderr(t, func() {
+		cmd = &mockCmd{}
+		applyComposeEnv(cmd, workdir, containerName(workdir), t.TempDir())
+	})
+	for _, e := range cmd.env {
+		if strings.HasPrefix(e, "PI_UI_PORT=") {
+			t.Errorf("exhaustion must leave no PI_UI_PORT entry, got %q", e)
+		}
+	}
+	if !strings.Contains(stderr, "UI port") {
+		t.Errorf("exhaustion must warn on stderr, got: %q", stderr)
+	}
+	// The container name is independent of port resolution: still injected.
+	if !slices.Contains(cmd.env, "PI_UI_CONTAINER="+uiContainerName(workdir)) {
+		t.Errorf("PI_UI_CONTAINER must still be injected on port exhaustion, got %v", cmd.env)
 	}
 }

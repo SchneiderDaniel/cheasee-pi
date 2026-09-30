@@ -32,6 +32,10 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"codeflow/config.json",
 		"codeflow/Dockerfile",
 		"codeflow/server.py",
+		"ui/Dockerfile",
+		"ui/Cargo.toml",
+		"ui/Cargo.lock",
+		"ui/src/main.rs",
 	}
 
 	assetFS := embeddedFS

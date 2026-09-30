@@ -54,6 +54,10 @@ cmd/cheasee-pi/cheasee-pi
 *.exe
 *.test
 
+# Rust build scratch for the embedded ui/ project. Never run cargo in-tree:
+# //go:embed (and the docker build context) would ship target/ and .cargo/.
+cmd/cheasee-pi/embedded/docker/ui/target/
+
 # Python bytecode
 __pycache__/
 *.pyc

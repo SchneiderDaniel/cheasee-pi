@@ -37,6 +37,7 @@ type DockerSettings struct {
 	Memory       string `json:"memory"`
 	CPUs         string `json:"cpus"`
 	CodeflowPort string `json:"codeflowPort,omitempty"`
+	UIPort       string `json:"uiPort,omitempty"`
 }
 
 // GitIdentitySettings mirrors the "gitIdentity" section of the scaffold schema.

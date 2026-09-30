@@ -166,6 +166,31 @@ GitHub-specific features (ownership attribution, pull-request impact analysis)
 require the real GitHub API and are unavailable in local mode; the structure
 graph, blast radius, and health score work fully offline.
 
+## UI (web control center)
+
+The stack also includes a local `ui` service: the cheasee-pi web control
+center. In this release it serves a placeholder landing page on `GET /`; RPC
+endpoints arrive in later slices. It starts automatically with
+`cheasee-pi start`, which prints:
+
+```
+ℹ UI: http://127.0.0.1:9713
+```
+
+The host port is **derived per repository** in the band 9500–10523 (9500 + a
+deterministic hash of the repo identity, probed with a next-free fallback),
+disjoint from the CodeFlow band so the two sidecars of one workspace never
+collide.
+
+The host side is **hard-pinned to loopback** (`127.0.0.1`) — there is no
+all-interfaces opt-in, so the control center is never routable off-host. The
+URL is printed with the literal `127.0.0.1` rather than `localhost` so it
+matches the published IPv4 loopback bind on every host.
+
+To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
+the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
+over the env).
+
 ## Run pi
 
 ### Using the CLI (auto)
@@ -422,7 +447,9 @@ interfere with new sessions.
    deterministic hash, next-free fallback) — two parallel workspaces normally
 get distinct ports. A custom `docker.codeflowPort` / `CODEFLOW_PORT` that
 collides with another service still fails "port is already allocated"; check
-with `docker ps` and pick a free port.
+with `docker ps` and pick a free port. The UI host port is derived the same
+way (9500 + hash, band 9500–10523); pin it with `docker.uiPort` / `PI_UI_PORT`
+if it collides.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
    cheasee-pi rebuild
