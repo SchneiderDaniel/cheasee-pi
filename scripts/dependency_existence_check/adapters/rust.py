@@ -40,6 +40,16 @@ class RustAdapter(Adapter):
         return deps
 
     def _lock(self, text: str, path: Path | None) -> list[Dependency]:
+        # The lock's own crate (name in the sibling Cargo.toml) is a local
+        # package and never a crates.io registry entry.
+        own = None
+        if path is not None:
+            manifest = path.with_name("Cargo.toml")
+            if manifest.is_file():
+                try:
+                    own = tomllib.loads(manifest.read_text()).get("package", {}).get("name")
+                except (tomllib.TOMLDecodeError, OSError):
+                    own = None
         blocks = re.split(r"^\[\[package\]\]\s*$", text, flags=re.M)
         packages: list[tuple[str, str | None]] = []
         referenced: set[str] = set()
@@ -56,5 +66,7 @@ class RustAdapter(Adapter):
                     referenced.add(r.split()[0])
         deps = []
         for n, v in packages:
+            if n == own:
+                continue
             deps.append(self._dep(n, v, 0, n in referenced, path, 20))
         return deps
