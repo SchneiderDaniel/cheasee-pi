@@ -217,3 +217,34 @@ func TestUI_SBOMDocumentsStack(t *testing.T) {
 		}
 	}
 }
+
+// TestUI_WSClientLifecycleWiring pins the two lifecycle defects a prior audit
+// caught: a send that silently no-ops (or discards its error), and a retry
+// counter reset on open. The behavior itself is covered by the Rust tests in
+// retry.rs; this keeps the wiring from being deleted where the wasm build
+// compiles it, since the Go gate cannot run Rust.
+func TestUI_WSClientLifecycleWiring(t *testing.T) {
+	retry := uiAsset(t, "src", "retry.rs")
+	for _, want := range []string{
+		"pub struct Reconnect",
+		"pub enum SendOutcome",
+		"pub fn deliver",
+		"on_stable",
+	} {
+		if !strings.Contains(retry, want) {
+			t.Errorf("ui/src/retry.rs must contain %q (reconnect/send policy)", want)
+		}
+	}
+
+	ws := uiAsset(t, "src", "ws.rs")
+	for _, want := range []string{"deliver", "on_stable", "SendOutcome"} {
+		if !strings.Contains(ws, want) {
+			t.Errorf("ui/src/ws.rs must contain %q (client lifecycle wiring)", want)
+		}
+	}
+	// The old silent send must not come back: the native error was discarded
+	// and a send on a closed socket was a no-op.
+	if strings.Contains(ws, "let _ = live.socket.send_with_str") {
+		t.Error("ui/src/ws.rs must surface send errors, not discard them")
+	}
+}

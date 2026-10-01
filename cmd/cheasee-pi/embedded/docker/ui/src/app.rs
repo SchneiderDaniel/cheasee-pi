@@ -5,12 +5,15 @@ use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, Title};
 
 /// Connection state the echo view renders. A dropped socket must never read as
-/// a silent hang, so the view always shows one of these three.
+/// a silent hang, nor a lost frame as a successful send, so the view always
+/// shows one of these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectionStatus {
     Connecting,
     Connected,
     Disconnected,
+    /// A send was attempted while the socket was closed or rejected it.
+    SendFailed,
 }
 
 impl ConnectionStatus {
@@ -19,6 +22,7 @@ impl ConnectionStatus {
             ConnectionStatus::Connecting => "connecting",
             ConnectionStatus::Connected => "connected",
             ConnectionStatus::Disconnected => "disconnected — retrying",
+            ConnectionStatus::SendFailed => "send failed — not delivered",
         }
     }
 }
@@ -69,7 +73,7 @@ fn Echo() -> impl IntoView {
             return;
         }
         #[cfg(feature = "hydrate")]
-        crate::ws::send(text);
+        crate::ws::send(text, status);
         #[cfg(not(feature = "hydrate"))]
         let _ = text;
     };

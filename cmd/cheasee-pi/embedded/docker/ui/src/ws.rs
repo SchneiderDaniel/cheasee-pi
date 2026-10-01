@@ -17,7 +17,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
-use crate::retry::backoff;
+use crate::retry::{deliver, Reconnect, SendOutcome, STABLE_CONNECTION_MS};
 
 /// The live socket plus the closures the browser holds callbacks into. Stored
 /// together so dropping the pair at once can never leave a JS callback pointing
@@ -43,37 +43,58 @@ fn ws_url() -> String {
     format!("{scheme}://{}/ws", location.host().unwrap_or_default())
 }
 
-/// Send one text frame if the socket is open. A no-op otherwise: the view
-/// already shows the disconnected state, so this never hides a failure.
-pub fn send(text: String) {
-    LIVE.with(|live| {
-        if let Some(live) = live.borrow().as_ref() {
-            if live.socket.ready_state() == WebSocket::OPEN {
-                let _ = live.socket.send_with_str(&text);
-            }
-        }
+/// Send one text frame, reporting the outcome to the caller *and* the view.
+///
+/// A send against a closed socket, or one the native socket rejects, must be
+/// visible — a lost frame can never masquerade as a successful send.
+pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) -> SendOutcome {
+    let outcome = LIVE.with(|live| match live.borrow().as_ref() {
+        Some(live) => deliver(&live.socket, &text),
+        None => SendOutcome::NotConnected,
     });
+    if outcome != SendOutcome::Sent {
+        set_status.set(ConnectionStatus::SendFailed);
+    }
+    outcome
 }
 
 /// Connect, then reconnect with backoff until the page goes away. `set_echo`
 /// receives each echoed frame; `set_status` drives the visible connection state.
 pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus>) {
-    // Shared attempt counter: reset on a successful open, bumped after each
-    // drop, so backoff grows across a flapping connection but not across a
-    // single reconnect.
-    let attempt = Rc::new(Cell::new(0u32));
+    // Shared reconnect policy plus a generation token: each attempt bumps it,
+    // which makes a stability timer left pending by a short-lived socket inert.
+    let reconnect = Rc::new(RefCell::new(Reconnect::new()));
+    let generation = Rc::new(Cell::new(0u32));
     spawn_local(async move {
         loop {
+            let my_generation = generation.get().wrapping_add(1);
+            generation.set(my_generation);
+            reconnect.borrow_mut().on_open();
             set_status.set(ConnectionStatus::Connecting);
-            if let Ok(closed) = open(set_echo, set_status, attempt.clone()) {
+
+            if let Ok(closed) = open(set_echo, set_status) {
+                // A socket only counts as stable if it is still the current one
+                // after the window; one that opens and immediately drops keeps
+                // the retry counter climbing instead of resetting.
+                let timer_generation = generation.clone();
+                let timer_reconnect = reconnect.clone();
+                spawn_local(async move {
+                    gloo_timers::future::TimeoutFuture::new(STABLE_CONNECTION_MS as u32).await;
+                    if timer_generation.get() == my_generation {
+                        timer_reconnect.borrow_mut().on_stable();
+                    }
+                });
                 let _ = closed.await;
+                // Invalidate the timer before the backoff wait so it cannot
+                // mark a just-dropped socket stable.
+                generation.set(generation.get().wrapping_add(1));
             }
+
             // Drop the dead socket and its closures before waiting to retry.
             LIVE.with(|live| *live.borrow_mut() = None);
             set_status.set(ConnectionStatus::Disconnected);
-            let next = attempt.get() + 1;
-            attempt.set(next);
-            gloo_timers::future::TimeoutFuture::new(backoff(next).as_millis() as u32).await;
+            let delay = reconnect.borrow_mut().on_close();
+            gloo_timers::future::TimeoutFuture::new(delay.as_millis() as u32).await;
         }
     });
 }
@@ -83,14 +104,12 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
 fn open(
     set_echo: RwSignal<String>,
     set_status: RwSignal<ConnectionStatus>,
-    attempt: Rc<Cell<u32>>,
 ) -> Result<oneshot::Receiver<()>, ()> {
     let socket = WebSocket::new(&ws_url()).map_err(|_| ())?;
     let (tx, rx) = oneshot::channel::<()>();
     let mut tx = Some(tx);
 
     let on_open = Closure::<dyn FnMut()>::new(move || {
-        attempt.set(0);
         set_status.set(ConnectionStatus::Connected);
     });
     let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
@@ -120,4 +139,15 @@ fn open(
     });
 
     Ok(rx)
+}
+
+/// The native socket as the transport the send policy drives.
+impl crate::retry::Transport for WebSocket {
+    fn is_open(&self) -> bool {
+        self.ready_state() == WebSocket::OPEN
+    }
+
+    fn send_text(&self, text: &str) -> Result<(), ()> {
+        self.send_with_str(text).map_err(|_| ())
+    }
 }

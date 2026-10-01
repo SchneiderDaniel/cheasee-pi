@@ -271,4 +271,34 @@ mod tests {
             assert_eq!(echoed.to_text().unwrap(), payload, "frame not echoed verbatim");
         }
     }
+
+    /// AC3 boundary: the echo is verbatim for empty and binary frames too — no
+    /// framing assumption slips in here before slice 4 layers JSONL framing.
+    #[tokio::test]
+    async fn ws_echoes_binary_and_empty_frames_verbatim() {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+
+        init_executor();
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = server::router(options(&site_dir()));
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+            .await
+            .unwrap();
+
+        socket.send(Message::Text(String::new())).await.unwrap();
+        let echoed = socket.next().await.unwrap().unwrap();
+        assert_eq!(echoed.to_text().unwrap(), "", "empty text frame not echoed");
+
+        socket.send(Message::Binary(vec![1, 2, 3])).await.unwrap();
+        let echoed = socket.next().await.unwrap().unwrap();
+        assert_eq!(echoed.into_data(), vec![1, 2, 3], "binary frame not echoed verbatim");
+    }
 }
