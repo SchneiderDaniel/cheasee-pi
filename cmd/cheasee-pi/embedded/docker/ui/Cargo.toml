@@ -13,6 +13,12 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Shared (both targets). leptos_meta is pulled in so the shell can emit the
 # hashed stylesheet + meta tags in one place.
+#
+# Advisory note: leptos 0.8 transitively pulls two unmaintained crates — `paste`
+# (RUSTSEC-2024-0436, via leptos/tachys/reactive_graph/either_of) and
+# `proc-macro-error2` (RUSTSEC-2026-0173, via rstml -> syn_derive). Neither has a
+# maintained replacement reachable through this dependency chain; they are
+# tracked in docs/sbom.md and clear by bumping leptos once upstream drops them.
 leptos = "0.8"
 leptos_meta = "0.8"
 serde = { version = "1", features = ["derive"] }

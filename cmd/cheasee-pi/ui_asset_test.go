@@ -218,11 +218,12 @@ func TestUI_SBOMDocumentsStack(t *testing.T) {
 	}
 }
 
-// TestUI_WSClientLifecycleWiring pins the two lifecycle defects a prior audit
-// caught: a send that silently no-ops (or discards its error), and a retry
-// counter reset on open. The behavior itself is covered by the Rust tests in
-// retry.rs; this keeps the wiring from being deleted where the wasm build
-// compiles it, since the Go gate cannot run Rust.
+// TestUI_WSClientLifecycleWiring pins the lifecycle defects a prior audit
+// caught: a send that silently no-ops (or discards its error), a retry counter
+// reset on open, and a stability timer armed before the socket ever opened. The
+// behavior itself is covered by the Rust tests in retry.rs; this keeps the
+// wiring from being deleted where the wasm build compiles it, since the Go gate
+// cannot run Rust.
 func TestUI_WSClientLifecycleWiring(t *testing.T) {
 	retry := uiAsset(t, "src", "retry.rs")
 	for _, want := range []string{
@@ -230,6 +231,12 @@ func TestUI_WSClientLifecycleWiring(t *testing.T) {
 		"pub enum SendOutcome",
 		"pub fn deliver",
 		"on_stable",
+		// Injectable lifecycle: the stability timer is an event a host test can
+		// fire, so open/close/reconnect are assertable without a browser.
+		"pub struct Session",
+		"pub enum SessionEffect",
+		"pub fn stable_elapsed",
+		"pub fn send_status",
 	} {
 		if !strings.Contains(retry, want) {
 			t.Errorf("ui/src/retry.rs must contain %q (reconnect/send policy)", want)
@@ -237,7 +244,15 @@ func TestUI_WSClientLifecycleWiring(t *testing.T) {
 	}
 
 	ws := uiAsset(t, "src", "ws.rs")
-	for _, want := range []string{"deliver", "on_stable", "SendOutcome"} {
+	for _, want := range []string{
+		"deliver",
+		"SendOutcome",
+		"Session",
+		"dial_started",
+		"opened()",
+		"stable_elapsed",
+		"transport_closed",
+	} {
 		if !strings.Contains(ws, want) {
 			t.Errorf("ui/src/ws.rs must contain %q (client lifecycle wiring)", want)
 		}

@@ -55,6 +55,16 @@ nav_order: 10
 | `axum` | 0.8 | MIT | HTTP server: routing, WebSocket upgrade, static assets |
 | `cargo-leptos` | 0.3 | MIT | Two-target hydrate/SSR build + content-hashed assets |
 
+Upstream advisories on transitive leptos-stack crates (tracked, not directly fixable here):
+
+- `paste` (RUSTSEC-2024-0436, unmaintained) — pulled by `leptos`, `tachys`,
+  `reactive_graph`, `reactive_stores`, and `either_of`. No maintained
+  replacement exists in the pinned leptos 0.8 line; resolve by tracking the
+  upstream leptos migration off `paste`.
+- `proc-macro-error2` (RUSTSEC-2026-0173, unmaintained) — pulled by
+  `rstml` → `syn_derive`. Same upstream-tracking resolution; there is no
+  reachable direct replacement through the leptos macro stack.
+
 ## System dependencies
 
 | Tool | Version | License | Purpose |

@@ -6,7 +6,7 @@
 //! server is surfaced verbatim, leaving slice 4 free to layer strict framing on
 //! the pi child pipe instead.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use futures::channel::oneshot;
@@ -17,7 +17,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
-use crate::retry::{deliver, Reconnect, SendOutcome, STABLE_CONNECTION_MS};
+use crate::retry::{
+    deliver, send_status, SendOutcome, Session, SessionEffect, STABLE_CONNECTION_MS,
+};
 
 /// The live socket plus the closures the browser holds callbacks into. Stored
 /// together so dropping the pair at once can never leave a JS callback pointing
@@ -43,57 +45,52 @@ fn ws_url() -> String {
     format!("{scheme}://{}/ws", location.host().unwrap_or_default())
 }
 
-/// Send one text frame, reporting the outcome to the caller *and* the view.
+/// Translate a lifecycle decision into the state the view renders.
+fn status_of(effect: SessionEffect) -> ConnectionStatus {
+    match effect {
+        SessionEffect::Connecting => ConnectionStatus::Connecting,
+        SessionEffect::Connected => ConnectionStatus::Connected,
+        SessionEffect::Reconnect(_) => ConnectionStatus::Disconnected,
+        SessionEffect::SendFailed => ConnectionStatus::SendFailed,
+    }
+}
+
+/// Send one text frame, reporting the outcome to the view.
 ///
 /// A send against a closed socket, or one the native socket rejects, must be
-/// visible — a lost frame can never masquerade as a successful send.
-pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) -> SendOutcome {
+/// visible; a delivered frame must equally clear a previous failure, or a later
+/// success would still read as undelivered.
+pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) {
     let outcome = LIVE.with(|live| match live.borrow().as_ref() {
         Some(live) => deliver(&live.socket, &text),
         None => SendOutcome::NotConnected,
     });
-    if outcome != SendOutcome::Sent {
-        set_status.set(ConnectionStatus::SendFailed);
-    }
-    outcome
+    set_status.set(status_of(send_status(outcome)));
 }
 
 /// Connect, then reconnect with backoff until the page goes away. `set_echo`
 /// receives each echoed frame; `set_status` drives the visible connection state.
 pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus>) {
-    // Shared reconnect policy plus a generation token: each attempt bumps it,
-    // which makes a stability timer left pending by a short-lived socket inert.
-    let reconnect = Rc::new(RefCell::new(Reconnect::new()));
-    let generation = Rc::new(Cell::new(0u32));
+    // The lifecycle policy lives in `retry::Session` (host-testable); this shell
+    // only feeds it transport callbacks and applies the returned effects.
+    let session = Rc::new(RefCell::new(Session::new()));
     spawn_local(async move {
         loop {
-            let my_generation = generation.get().wrapping_add(1);
-            generation.set(my_generation);
-            reconnect.borrow_mut().on_open();
-            set_status.set(ConnectionStatus::Connecting);
+            set_status.set(status_of(session.borrow_mut().dial_started()));
+            let generation = session.borrow().generation();
 
-            if let Ok(closed) = open(set_echo, set_status) {
-                // A socket only counts as stable if it is still the current one
-                // after the window; one that opens and immediately drops keeps
-                // the retry counter climbing instead of resetting.
-                let timer_generation = generation.clone();
-                let timer_reconnect = reconnect.clone();
-                spawn_local(async move {
-                    gloo_timers::future::TimeoutFuture::new(STABLE_CONNECTION_MS as u32).await;
-                    if timer_generation.get() == my_generation {
-                        timer_reconnect.borrow_mut().on_stable();
-                    }
-                });
+            // A rejected URL never opens; fall straight through to the backoff.
+            if let Ok(closed) = open(session.clone(), generation, set_echo, set_status) {
                 let _ = closed.await;
-                // Invalidate the timer before the backoff wait so it cannot
-                // mark a just-dropped socket stable.
-                generation.set(generation.get().wrapping_add(1));
             }
 
             // Drop the dead socket and its closures before waiting to retry.
             LIVE.with(|live| *live.borrow_mut() = None);
+            let delay = match session.borrow_mut().closed() {
+                SessionEffect::Reconnect(delay) => delay,
+                _ => continue,
+            };
             set_status.set(ConnectionStatus::Disconnected);
-            let delay = reconnect.borrow_mut().on_close();
             gloo_timers::future::TimeoutFuture::new(delay.as_millis() as u32).await;
         }
     });
@@ -102,6 +99,8 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
 /// Open one socket. `Ok(rx)` resolves when the socket closes (or errors and
 /// closes); `Err` means the URL itself was rejected — retried by the caller.
 fn open(
+    session: Rc<RefCell<Session>>,
+    generation: u32,
     set_echo: RwSignal<String>,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
@@ -109,8 +108,17 @@ fn open(
     let (tx, rx) = oneshot::channel::<()>();
     let mut tx = Some(tx);
 
+    let open_session = session.clone();
     let on_open = Closure::<dyn FnMut()>::new(move || {
-        set_status.set(ConnectionStatus::Connected);
+        set_status.set(status_of(open_session.borrow_mut().opened()));
+        // The stability window starts at the real open, not at dial time: a
+        // handshake that pends past it and then fails must not count as stable,
+        // and the generation keeps a late timer off a newer socket.
+        let timer_session = open_session.clone();
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(STABLE_CONNECTION_MS as u32).await;
+            timer_session.borrow_mut().stable_elapsed(generation);
+        });
     });
     let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
         if let Some(text) = event.data().as_string() {
@@ -118,8 +126,12 @@ fn open(
         }
     });
     // A failed connect fires `error` then `close`; closing on either is enough
-    // to drive the retry. `take` makes the second event a no-op.
+    // to drive the retry. `take` makes the second event a no-op. Disarm the
+    // stability timer before signalling the loop so it cannot reset the backoff
+    // in the gap.
+    let close_session = session;
     let on_close = Closure::<dyn FnMut()>::new(move || {
+        close_session.borrow_mut().transport_closed();
         if let Some(tx) = tx.take() {
             let _ = tx.send(());
         }

@@ -66,6 +66,90 @@ impl Reconnect {
     }
 }
 
+/// One decision the connection lifecycle produced. The browser shell (`ws`) is
+/// the only place these become DOM state or a sleep — the decisions themselves
+/// stay host-testable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionEffect {
+    /// A dial began; the channel is not yet usable.
+    Connecting,
+    /// The socket opened, or a send that had failed now left successfully.
+    Connected,
+    /// The socket is down; the shell reconnects after this delay.
+    Reconnect(Duration),
+    /// A send was attempted and did not leave the socket.
+    SendFailed,
+}
+
+/// Injectable connection lifecycle — when to retry and whether a connection is
+/// stable, separated from the async browser shell that owns the real socket.
+///
+/// The shell feeds transport callbacks and stability-timer firings in, then
+/// applies the returned [`SessionEffect`]. The stability timer is therefore
+/// just the [`Session::stable_elapsed`] event, so a test owns the clock: a
+/// delayed failed handshake and a flapping server are ordinary inputs here.
+#[derive(Debug, Default)]
+pub struct Session {
+    reconnect: Reconnect,
+    generation: u32,
+    /// Armed by [`Session::opened`], cleared by a close or a fresh dial. A
+    /// stability timer firing while this is clear lost the race with the
+    /// socket's lifetime and must not reset the retry counter.
+    stable_armed: bool,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Token for the dial that just started. A timer carries the token it was
+    /// armed under, so a late timer from a dead socket cannot mark the
+    /// *current* socket stable.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// A dial attempt began. Nothing resets here — a server that accepts and
+    /// immediately drops must keep the delay growing.
+    pub fn dial_started(&mut self) -> SessionEffect {
+        self.generation = self.generation.wrapping_add(1);
+        self.stable_armed = false;
+        SessionEffect::Connecting
+    }
+
+    /// The socket's `open` fired: the channel is usable, and the stability
+    /// window starts *here*, not at dial time. A handshake that pends then
+    /// fails never reaches this, so it cannot count as a stable session.
+    pub fn opened(&mut self) -> SessionEffect {
+        self.stable_armed = true;
+        SessionEffect::Connected
+    }
+
+    /// The stability window elapsed for `generation`. The connection was a real
+    /// session, so the next disconnect retries at the base delay; a timer from a
+    /// socket that already dropped, or from an earlier dial, is inert.
+    pub fn stable_elapsed(&mut self, generation: u32) {
+        if self.stable_armed && generation == self.generation {
+            self.stable_armed = false;
+            self.reconnect.on_stable();
+        }
+    }
+
+    /// The socket closed. Disarms the stability timer *before* the shell signals
+    /// its reconnect loop, so a timer firing in that gap cannot reset the
+    /// backoff for a connection that never held.
+    pub fn transport_closed(&mut self) {
+        self.stable_armed = false;
+    }
+
+    /// The connection is down for good; returns the delay before reconnecting.
+    pub fn closed(&mut self) -> SessionEffect {
+        self.stable_armed = false;
+        SessionEffect::Reconnect(self.reconnect.on_close())
+    }
+}
+
 /// Outcome of one attempt to put a frame on the wire. The browser branch of
 /// `ws::send` maps this to a user-visible state, so a lost frame is never a
 /// silent no-op.
@@ -95,6 +179,17 @@ pub fn deliver<T: Transport>(transport: &T, text: &str) -> SendOutcome {
     match transport.send_text(text) {
         Ok(()) => SendOutcome::Sent,
         Err(()) => SendOutcome::SendFailed,
+    }
+}
+
+/// Map a send outcome to the status the shell shows. A delivered frame clears a
+/// previous failure — otherwise one failed send would leave the UI claiming a
+/// later delivered message was not delivered. A frame that did not leave (closed
+/// socket or rejected send) is always surfaced.
+pub fn send_status(outcome: SendOutcome) -> SessionEffect {
+    match outcome {
+        SendOutcome::Sent => SessionEffect::Connected,
+        SendOutcome::NotConnected | SendOutcome::SendFailed => SessionEffect::SendFailed,
     }
 }
 
@@ -189,6 +284,113 @@ mod tests {
     fn send_on_open_socket_succeeds() {
         let t = Fake { open: true, reject: false };
         assert_eq!(deliver(&t, "x"), SendOutcome::Sent);
+    }
+
+    // ── Session: the browser adapter's open/close/timer/retry lifecycle ──────
+
+    fn reconnect_delay(effect: SessionEffect) -> u64 {
+        match effect {
+            SessionEffect::Reconnect(delay) => delay.as_millis() as u64,
+            other => panic!("expected a reconnect delay, got {other:?}"),
+        }
+    }
+
+    /// Finding: the stability timer used to be armed at dial time, so a
+    /// handshake that pends past the window and *then* fails reset the retry
+    /// counter despite never connecting. The window now opens on `opened`, so a
+    /// delayed failed handshake — and even a stray timer firing mid-handshake —
+    /// keeps the delay growing.
+    #[test]
+    fn delayed_failed_handshake_keeps_the_backoff_growing() {
+        let mut s = Session::new();
+        let mut delays = Vec::new();
+        for _ in 0..3 {
+            assert_eq!(s.dial_started(), SessionEffect::Connecting);
+            // The pending handshake's window elapses, then it fails. No open
+            // happened, so the timer is inert.
+            s.stable_elapsed(s.generation());
+            delays.push(reconnect_delay(s.closed()));
+        }
+        assert_eq!(delays, vec![1000, 2000, 4000]);
+    }
+
+    /// A socket that opens and immediately drops is flapping, not a session:
+    /// the delay must keep growing across open/drop cycles.
+    #[test]
+    fn open_immediate_drop_still_grows() {
+        let mut s = Session::new();
+        let mut delays = Vec::new();
+        for _ in 0..3 {
+            s.dial_started();
+            assert_eq!(s.opened(), SessionEffect::Connected);
+            // No stability event: the drop happened inside the window.
+            delays.push(reconnect_delay(s.closed()));
+        }
+        assert_eq!(delays, vec![1000, 2000, 4000]);
+    }
+
+    /// A connection that holds past the window is a real session: the next
+    /// disconnect retries at the base delay.
+    #[test]
+    fn stable_open_then_drop_resets_to_base() {
+        let mut s = Session::new();
+        s.dial_started();
+        assert_eq!(s.opened(), SessionEffect::Connected);
+        s.stable_elapsed(s.generation());
+        assert_eq!(reconnect_delay(s.closed()), 500);
+    }
+
+    /// The full event order the browser shell emits across a session — dial,
+    /// open, drop, timer, retry — so the shell's wiring cannot drift from the
+    /// policy these tests pin.
+    #[test]
+    fn adapter_lifecycle_sequence_matches_the_shell() {
+        let mut s = Session::new();
+        // Attempt 1: opens, drops inside the window — backoff grows.
+        assert_eq!(s.dial_started(), SessionEffect::Connecting);
+        assert_eq!(s.opened(), SessionEffect::Connected);
+        s.transport_closed();
+        assert_eq!(reconnect_delay(s.closed()), 1000);
+        // Attempt 2: handshake pends past the window then fails — still grows.
+        assert_eq!(s.dial_started(), SessionEffect::Connecting);
+        s.stable_elapsed(s.generation());
+        assert_eq!(reconnect_delay(s.closed()), 2000);
+        // Attempt 3: holds past the window, then drops — resets to base.
+        assert_eq!(s.dial_started(), SessionEffect::Connecting);
+        assert_eq!(s.opened(), SessionEffect::Connected);
+        s.stable_elapsed(s.generation());
+        s.transport_closed();
+        assert_eq!(reconnect_delay(s.closed()), 500);
+    }
+
+    /// A timer left behind by a previous socket must not mark the *current*
+    /// socket stable when it later fires.
+    #[test]
+    fn stale_timer_from_a_previous_socket_is_ignored() {
+        let mut s = Session::new();
+        s.dial_started();
+        let old = s.generation();
+        assert_eq!(s.opened(), SessionEffect::Connected);
+        s.transport_closed();
+        assert_eq!(reconnect_delay(s.closed()), 1000);
+
+        s.dial_started();
+        assert_eq!(s.opened(), SessionEffect::Connected);
+        s.stable_elapsed(old); // socket #1's timer arrives late
+        assert_eq!(
+            reconnect_delay(s.closed()),
+            2000,
+            "a stale timer reset the backoff"
+        );
+    }
+
+    /// Finding: a successful send used to leave a previous `SendFailed` status
+    /// in place, so a delivered frame could still read as undelivered.
+    #[test]
+    fn successful_send_clears_a_previous_failure() {
+        assert_eq!(send_status(SendOutcome::SendFailed), SessionEffect::SendFailed);
+        assert_eq!(send_status(SendOutcome::Sent), SessionEffect::Connected);
+        assert_eq!(send_status(SendOutcome::NotConnected), SessionEffect::SendFailed);
     }
 }
 
