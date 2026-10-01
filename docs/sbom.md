@@ -45,6 +45,16 @@ nav_order: 10
 | `github.com/spf13/cobra` | v1.10.2 | Apache-2.0 | CLI framework |
 | `golang.org/x/mod` | v0.40.0 | BSD-3-Clause | Go module utilities |
 
+## Rust crates (web control center)
+
+| Crate | Version | License | Purpose |
+|-------|---------|---------|---------|
+| `leptos` | 0.8 | MIT | UI framework (server-rendered + hydrated) |
+| `leptos_axum` | 0.8 | MIT | Leptos ↔ Axum SSR integration |
+| `leptos_meta` | 0.8 | MIT | Head/meta tags + hydration bootstrap |
+| `axum` | 0.8 | MIT | HTTP server: routing, WebSocket upgrade, static assets |
+| `cargo-leptos` | 0.3 | MIT | Two-target hydrate/SSR build + content-hashed assets |
+
 ## System dependencies
 
 | Tool | Version | License | Purpose |

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -327,6 +328,41 @@ func TestCompose_UIMounts(t *testing.T) {
 func TestCompose_UINoDockerSock(t *testing.T) {
 	if strings.Contains(readCompose(t), "/var/run/docker.sock") {
 		t.Error("compose must not mount the docker socket (epic hard constraint)")
+	}
+}
+
+func TestCompose_UIHealthcheck(t *testing.T) {
+	content := readCompose(t)
+	svc := composeService(t, content, "ui")
+	hc, ok := svc["healthcheck"].(map[string]any)
+	if !ok {
+		t.Fatalf("ui healthcheck block missing, got %v", svc["healthcheck"])
+	}
+	test, ok := hc["test"].([]any)
+	if !ok || len(test) == 0 {
+		t.Fatalf("ui healthcheck.test missing, got %v", hc["test"])
+	}
+	joined := fmt.Sprint(test...)
+	if !strings.Contains(joined, "http://127.0.0.1:3000/health") {
+		t.Errorf("ui healthcheck must probe http://127.0.0.1:3000/health, got %q", joined)
+	}
+	for _, key := range []string{"interval", "retries", "start_period"} {
+		if _, ok := hc[key]; !ok {
+			t.Errorf("ui healthcheck must set %q, got %v", key, hc)
+		}
+	}
+
+	// The raw ui block must not carry the banned host-seam literals (the
+	// string-scanning TestCompose_UILoopbackOnly depends on it).
+	idx := strings.Index(content, "\n  ui:")
+	if idx < 0 {
+		t.Fatal("ui service block not found in compose file")
+	}
+	uiBlock := content[idx:]
+	for _, forbidden := range []string{"PI_UI_HOST_IP", "0.0.0.0"} {
+		if strings.Contains(uiBlock, forbidden) {
+			t.Errorf("ui block must not contain %q even in the healthcheck", forbidden)
+		}
 	}
 }
 

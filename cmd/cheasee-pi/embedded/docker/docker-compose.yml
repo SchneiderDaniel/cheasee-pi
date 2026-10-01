@@ -100,8 +100,8 @@ services:
       - "${CODEFLOW_HOST_IP:-127.0.0.1}:${CODEFLOW_PORT:-8470}:8470"
 
   ui:
-    # Cheasee-Pi web control center (Axum placeholder in this slice) for the
-    # workspace. Host side via PI_UI_PORT — `cheasee-pi start` derives a
+    # Cheasee-Pi web control center: the Leptos hydrate shell served by Axum
+    # (GET /, /assets/*, /ws, /health). Host side via PI_UI_PORT — `cheasee-pi start` derives a
     # per-repo port (9500 + repo-slug hash, 9500–10523) so parallel containers
     # don't collide on the fixed default; an explicit PI_UI_PORT or
     # docker.uiPort overrides. Host-side bind is hard-pinned to 127.0.0.1 (no
@@ -125,3 +125,12 @@ services:
       - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:ro${VOLUME_RELABEL:-}
     ports:
       - "127.0.0.1:${PI_UI_PORT:-9500}:3000"
+    healthcheck:
+      # The server's /health endpoint is the liveness signal (the entrypoint
+      # marker belongs to the agent container, not this sidecar). Probed over
+      # container-loopback, matching the host-side port pin — the compose scan
+      # in TestCompose_UILoopbackOnly rejects the all-interfaces literal here.
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      retries: 3
+      start_period: 10s

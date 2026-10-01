@@ -1,0 +1,59 @@
+:root {
+  color-scheme: dark;
+  --bg: #12141a;
+  --fg: #e6e8ee;
+  --accent: #4f9cf9;
+  --muted: #8b93a7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+}
+
+.shell {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+.shell h1 {
+  font-size: 1.5rem;
+  margin-top: 0;
+}
+
+button {
+  background: var(--accent);
+  color: #06121f;
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+input {
+  background: #1c1f27;
+  color: var(--fg);
+  border: 1px solid #2c3140;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+}
+
+.echo input {
+  margin-right: 0.5rem;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.875rem;
+}

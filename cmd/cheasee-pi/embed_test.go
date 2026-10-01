@@ -36,6 +36,12 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"ui/Cargo.toml",
 		"ui/Cargo.lock",
 		"ui/src/main.rs",
+		"ui/src/lib.rs",
+		"ui/src/app.rs",
+		"ui/src/ws.rs",
+		"ui/src/protocol.rs",
+		"ui/src/retry.rs",
+		"ui/style/main.css",
 	}
 
 	assetFS := embeddedFS

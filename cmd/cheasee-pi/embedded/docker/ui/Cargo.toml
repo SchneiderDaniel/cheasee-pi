@@ -3,10 +3,97 @@ name = "cheasee-pi-ui"
 version = "0.0.0"
 edition = "2021"
 
+# Two targets, one crate: cargo-leptos builds the lib for wasm32 with the
+# `hydrate` feature and the bin for the host with `ssr` (see [features] and
+# [package.metadata.leptos] below). `cdylib` is the wasm entry point, `rlib`
+# lets the server bin link the same crate.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-# axum's default feature set covers http1 + tokio/net, so no feature flags are
-# needed for `axum::serve`. tokio is declared explicitly because `#[tokio::main]`
-# needs the `macros` + `rt-multi-thread` features, which axum's re-export does
-# not enable.
-axum = "0.8"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+# Shared (both targets). leptos_meta is pulled in so the shell can emit the
+# hashed stylesheet + meta tags in one place.
+leptos = "0.8"
+leptos_meta = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Server-only (ssr). axum stays a normal dependency name so the committed lock
+# keeps pinning it for the CI dependency scan.
+axum = { version = "0.8", optional = true }
+leptos_axum = { version = "0.8", optional = true }
+# The no-router SSR path never calls leptos_axum's private `init_executor`, so
+# the global async executor is initialised explicitly (see src/main.rs).
+any_spawner = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"], optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
+tower-http = { version = "0.6", features = ["fs", "set-header"], optional = true }
+
+# Browser-only (hydrate). The WS client is written against web-sys's native
+# WebSocket (a callback-driven API) rather than gloo-net's futures wrapper: the
+# wrapper's Stream item (Result<Message, _>) and Sink item (Message) differ, so
+# it cannot be split into a concurrent send/receive pair.
+wasm-bindgen = { version = "0.2.106", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+futures = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["Window", "Location", "WebSocket", "MessageEvent"], optional = true }
+
+# Test-only: the WS echo adapter test drives a real upgrade over loopback.
+[dev-dependencies]
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-tungstenite = "0.24"
+
+[features]
+# Empty default is mandatory for the cargo-leptos two-target build: the lib is
+# compiled with `--no-default-features --features hydrate`, the bin with
+# `--no-default-features --features ssr`.
+default = []
+hydrate = [
+    "leptos/hydrate",
+    "dep:wasm-bindgen",
+    "dep:console_error_panic_hook",
+    "dep:gloo-timers",
+    "dep:futures",
+    "dep:web-sys",
+]
+ssr = [
+    "dep:any_spawner",
+    "dep:axum",
+    "dep:leptos_axum",
+    "dep:tokio",
+    "dep:tower",
+    "dep:tower-http",
+    "leptos/ssr",
+    "leptos_meta/ssr",
+]
+
+# Size-optimized profile for the wasm bundle in release mode.
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[package.metadata.leptos]
+output-name = "cheasee-pi-ui"
+# Everything cargo-leptos emits lands under target/site; the server serves the
+# `assets` sub-dir at the `/assets/*` route (AC2). Keep site-pkg-dir in sync
+# with the route in src/main.rs.
+site-root = "target/site"
+site-pkg-dir = "assets"
+# Content-hash the JS/WASM/CSS filenames (AC2): the names change per build, so
+# the server can serve them `immutable` forever. Off by default in cargo-leptos.
+hash-files = true
+# Plain CSS, not sass/scss — dart-sass is a build-time download cargo-leptos
+# would otherwise fetch, and the `no_downloads` build must stay off it.
+style-file = "style/main.css"
+site-addr = "0.0.0.0:3000"
+reload-port = 3001
+env = "PROD"
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
