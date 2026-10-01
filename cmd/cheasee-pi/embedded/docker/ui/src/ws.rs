@@ -17,9 +17,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
-use crate::retry::{
-    deliver, send_status, SendOutcome, Session, SessionEffect, STABLE_CONNECTION_MS,
-};
+use crate::retry::{deliver, send_status, Adapter, SendOutcome, SessionEffect};
 
 /// The live socket plus the closures the browser holds callbacks into. Stored
 /// together so dropping the pair at once can never leave a JS callback pointing
@@ -71,22 +69,22 @@ pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) {
 /// Connect, then reconnect with backoff until the page goes away. `set_echo`
 /// receives each echoed frame; `set_status` drives the visible connection state.
 pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus>) {
-    // The lifecycle policy lives in `retry::Session` (host-testable); this shell
-    // only feeds it transport callbacks and applies the returned effects.
-    let session = Rc::new(RefCell::new(Session::new()));
+    // The lifecycle wiring lives in `retry::Adapter` (host-testable); this shell
+    // feeds it transport callbacks and applies the returned effects.
+    let adapter = Rc::new(RefCell::new(Adapter::new()));
     spawn_local(async move {
         loop {
-            set_status.set(status_of(session.borrow_mut().dial_started()));
-            let generation = session.borrow().generation();
+            let (_, dial) = adapter.borrow_mut().dial_started();
+            set_status.set(status_of(dial));
 
             // A rejected URL never opens; fall straight through to the backoff.
-            if let Ok(closed) = open(session.clone(), generation, set_echo, set_status) {
+            if let Ok(closed) = open(adapter.clone(), set_echo, set_status) {
                 let _ = closed.await;
             }
 
             // Drop the dead socket and its closures before waiting to retry.
             LIVE.with(|live| *live.borrow_mut() = None);
-            let delay = match session.borrow_mut().closed() {
+            let delay = match adapter.borrow_mut().closed() {
                 SessionEffect::Reconnect(delay) => delay,
                 _ => continue,
             };
@@ -99,8 +97,7 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
 /// Open one socket. `Ok(rx)` resolves when the socket closes (or errors and
 /// closes); `Err` means the URL itself was rejected — retried by the caller.
 fn open(
-    session: Rc<RefCell<Session>>,
-    generation: u32,
+    adapter: Rc<RefCell<Adapter>>,
     set_echo: RwSignal<String>,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
@@ -108,16 +105,18 @@ fn open(
     let (tx, rx) = oneshot::channel::<()>();
     let mut tx = Some(tx);
 
-    let open_session = session.clone();
+    let open_adapter = adapter.clone();
     let on_open = Closure::<dyn FnMut()>::new(move || {
-        set_status.set(status_of(open_session.borrow_mut().opened()));
-        // The stability window starts at the real open, not at dial time: a
-        // handshake that pends past it and then fails must not count as stable,
-        // and the generation keeps a late timer off a newer socket.
-        let timer_session = open_session.clone();
+        // The window is armed by `opened` and carries the generation it was
+        // armed under: a handshake that pends past the window and then fails
+        // never reaches this callback, and a late timer from a dead socket
+        // cannot mark a newer one stable.
+        let (effect, timer) = open_adapter.borrow_mut().opened();
+        set_status.set(status_of(effect));
+        let timer_adapter = open_adapter.clone();
         spawn_local(async move {
-            gloo_timers::future::TimeoutFuture::new(STABLE_CONNECTION_MS as u32).await;
-            timer_session.borrow_mut().stable_elapsed(generation);
+            gloo_timers::future::TimeoutFuture::new(timer.after.as_millis() as u32).await;
+            timer_adapter.borrow_mut().stable_elapsed(timer.generation);
         });
     });
     let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
@@ -129,9 +128,9 @@ fn open(
     // to drive the retry. `take` makes the second event a no-op. Disarm the
     // stability timer before signalling the loop so it cannot reset the backoff
     // in the gap.
-    let close_session = session;
+    let close_adapter = adapter;
     let on_close = Closure::<dyn FnMut()>::new(move || {
-        close_session.borrow_mut().transport_closed();
+        close_adapter.borrow_mut().transport_closed();
         if let Some(tx) = tx.take() {
             let _ = tx.send(());
         }

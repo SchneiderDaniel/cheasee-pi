@@ -150,6 +150,74 @@ impl Session {
     }
 }
 
+/// A stability window the shell must arm. Returned by [`Adapter::opened`] — and
+/// only there — so the window can never start before the socket actually opened.
+/// The shim schedules [`Adapter::stable_elapsed`] for `generation` after `after`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StabilityTimer {
+    pub generation: u32,
+    pub after: Duration,
+}
+
+/// The browser shell's lifecycle surface: every socket callback and timer
+/// firing the wasm build produces is one method here, and `ws` is a thin shim
+/// that owns the native socket and calls in.
+///
+/// This type exists so the *wiring* is host-testable. A test against [`Session`]
+/// alone cannot see the shell arming the window from the wrong callback (or not
+/// at all) — the exact defect a prior audit caught — because the arming is a
+/// decision of this adapter, not of the policy underneath.
+#[derive(Debug, Default)]
+pub struct Adapter {
+    session: Session,
+}
+
+impl Adapter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A dial began: the generation the socket's stability timer must carry,
+    /// plus the state to show meanwhile. Deliberately arms nothing — a handshake
+    /// that pends and then fails must not count as a stable session.
+    pub fn dial_started(&mut self) -> (u32, SessionEffect) {
+        let effect = self.session.dial_started();
+        (self.session.generation(), effect)
+    }
+
+    /// The socket's `open` callback: the usable state, plus the stability window
+    /// to arm. The window names the live generation so a late timer cannot mark
+    /// a newer socket stable.
+    pub fn opened(&mut self) -> (SessionEffect, StabilityTimer) {
+        let effect = self.session.opened();
+        (
+            effect,
+            StabilityTimer {
+                generation: self.session.generation(),
+                after: Duration::from_millis(STABLE_CONNECTION_MS),
+            },
+        )
+    }
+
+    /// The stability window elapsed for `generation`; inert if stale or disarmed.
+    pub fn stable_elapsed(&mut self, generation: u32) {
+        self.session.stable_elapsed(generation);
+    }
+
+    /// The socket's `close`/`error` callback: disarm the window *before* the
+    /// reconnect loop is signalled, so a timer firing in the gap cannot reset the
+    /// backoff for a connection that never held.
+    pub fn transport_closed(&mut self) {
+        self.session.transport_closed();
+    }
+
+    /// The loop's post-close step: the state to show and, for `Reconnect`, the
+    /// delay before the next dial.
+    pub fn closed(&mut self) -> SessionEffect {
+        self.session.closed()
+    }
+}
+
 /// Outcome of one attempt to put a frame on the wire. The browser branch of
 /// `ws::send` maps this to a user-visible state, so a lost frame is never a
 /// silent no-op.
@@ -340,27 +408,95 @@ mod tests {
         assert_eq!(reconnect_delay(s.closed()), 500);
     }
 
-    /// The full event order the browser shell emits across a session — dial,
-    /// open, drop, timer, retry — so the shell's wiring cannot drift from the
-    /// policy these tests pin.
+    // ── Adapter: the browser callback wiring the wasm shell delegates to ─────
+
+    /// Deterministic stand-in for the browser event loop. It drives the *same*
+    /// `Adapter` methods `ws.rs` calls from its socket callbacks, and owns the
+    /// clock for the stability window: a socket holds `held_ms` before dropping,
+    /// and a window that had not elapsed when the socket closed is fired late to
+    /// prove it is inert rather than merely absent.
+    struct Shell {
+        adapter: Adapter,
+    }
+
+    impl Shell {
+        fn new() -> Self {
+            Self { adapter: Adapter::new() }
+        }
+
+        /// One connect attempt: dial, open, let the window elapse only if the
+        /// socket held long enough, close, then ask for the reconnect delay.
+        /// Returns that delay in ms.
+        fn attempt(&mut self, held_ms: u64) -> u64 {
+            let (generation, dial) = self.adapter.dial_started();
+            assert_eq!(dial, SessionEffect::Connecting);
+
+            let (open, timer) = self.adapter.opened();
+            assert_eq!(open, SessionEffect::Connected);
+            // The window is armed by `opened` (never by `dial_started`) and names
+            // the live generation.
+            assert_eq!(
+                timer.generation, generation,
+                "window armed for the wrong generation"
+            );
+
+            let elapsed = held_ms >= timer.after.as_millis() as u64;
+            if elapsed {
+                self.adapter.stable_elapsed(timer.generation);
+            }
+
+            self.adapter.transport_closed();
+            let delay = reconnect_delay(self.adapter.closed());
+
+            // A timer still pending at close fires late; it must be inert.
+            if !elapsed {
+                self.adapter.stable_elapsed(timer.generation);
+            }
+            delay
+        }
+
+        /// A dial whose handshake never opens (pends past the window, then
+        /// fails): no `opened`, so no window armed. A mid-handshake timer firing
+        /// must be inert too.
+        fn failed_handshake(&mut self) -> u64 {
+            let (generation, dial) = self.adapter.dial_started();
+            assert_eq!(dial, SessionEffect::Connecting);
+            self.adapter.stable_elapsed(generation);
+            self.adapter.transport_closed();
+            reconnect_delay(self.adapter.closed())
+        }
+    }
+
+    /// Finding: the lifecycle test used to drive `Session` directly, so a wiring
+    /// bug in the shell — arming the window from the wrong callback, or not at
+    /// all — passed while browser reconnect stayed broken. This drives `Adapter`,
+    /// the exact surface `ws.rs` calls from its callbacks.
     #[test]
-    fn adapter_lifecycle_sequence_matches_the_shell() {
-        let mut s = Session::new();
-        // Attempt 1: opens, drops inside the window — backoff grows.
-        assert_eq!(s.dial_started(), SessionEffect::Connecting);
-        assert_eq!(s.opened(), SessionEffect::Connected);
-        s.transport_closed();
-        assert_eq!(reconnect_delay(s.closed()), 1000);
-        // Attempt 2: handshake pends past the window then fails — still grows.
-        assert_eq!(s.dial_started(), SessionEffect::Connecting);
-        s.stable_elapsed(s.generation());
-        assert_eq!(reconnect_delay(s.closed()), 2000);
-        // Attempt 3: holds past the window, then drops — resets to base.
-        assert_eq!(s.dial_started(), SessionEffect::Connecting);
-        assert_eq!(s.opened(), SessionEffect::Connected);
-        s.stable_elapsed(s.generation());
-        s.transport_closed();
-        assert_eq!(reconnect_delay(s.closed()), 500);
+    fn adapter_wiring_arms_the_window_on_open_and_disarms_on_close() {
+        let mut shell = Shell::new();
+        // Flapping server: accept, drop inside the window. The window armed on
+        // `open` never elapsed, so the retry delay must keep growing.
+        assert_eq!(shell.attempt(0), 1_000, "first flapping drop");
+        assert_eq!(shell.attempt(0), 2_000, "second flapping drop");
+        // A socket that holds past the window is a real session: the next
+        // disconnect retries at the base delay.
+        assert_eq!(
+            shell.attempt(STABLE_CONNECTION_MS),
+            500,
+            "a session past the window resets the backoff"
+        );
+        assert_eq!(shell.attempt(0), 1_000, "growth restarts after the reset");
+    }
+
+    /// A pending handshake exceeds the window and then fails. No `opened` fired,
+    /// so no window was armed: the delay must keep growing, not reset because
+    /// wall-clock time passed.
+    #[test]
+    fn adapter_wiring_delayed_failed_handshake_keeps_growing() {
+        let mut shell = Shell::new();
+        assert_eq!(shell.failed_handshake(), 1_000);
+        assert_eq!(shell.failed_handshake(), 2_000);
+        assert_eq!(shell.failed_handshake(), 4_000);
     }
 
     /// A timer left behind by a previous socket must not mark the *current*

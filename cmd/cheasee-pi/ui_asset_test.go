@@ -221,7 +221,8 @@ func TestUI_SBOMDocumentsStack(t *testing.T) {
 // TestUI_WSClientLifecycleWiring pins the lifecycle defects a prior audit
 // caught: a send that silently no-ops (or discards its error), a retry counter
 // reset on open, and a stability timer armed before the socket ever opened. The
-// behavior itself is covered by the Rust tests in retry.rs; this keeps the
+// behavior itself is covered by the Rust tests in retry.rs, which drive the
+// `Adapter` surface `ws.rs` calls in from its socket callbacks; this keeps the
 // wiring from being deleted where the wasm build compiles it, since the Go gate
 // cannot run Rust.
 func TestUI_WSClientLifecycleWiring(t *testing.T) {
@@ -237,6 +238,10 @@ func TestUI_WSClientLifecycleWiring(t *testing.T) {
 		"pub enum SessionEffect",
 		"pub fn stable_elapsed",
 		"pub fn send_status",
+		// The callback-to-session wiring the wasm shell delegates to. Without
+		// it the lifecycle tests shrink back to driving `Session` directly.
+		"pub struct Adapter",
+		"pub struct StabilityTimer",
 	} {
 		if !strings.Contains(retry, want) {
 			t.Errorf("ui/src/retry.rs must contain %q (reconnect/send policy)", want)
@@ -245,6 +250,7 @@ func TestUI_WSClientLifecycleWiring(t *testing.T) {
 
 	ws := uiAsset(t, "src", "ws.rs")
 	for _, want := range []string{
+		"Adapter",
 		"deliver",
 		"SendOutcome",
 		"Session",
