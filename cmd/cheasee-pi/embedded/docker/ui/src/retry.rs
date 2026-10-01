@@ -5,6 +5,8 @@
 //! retry, [`deliver`] says *whether* a frame actually left the socket. Keeping
 //! both here means the client lifecycle is assertable without a browser.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
 /// First retry delay, in milliseconds.
@@ -56,13 +58,19 @@ impl Reconnect {
         self.stable = true;
     }
 
-    /// The socket closed; returns the delay to wait before reconnecting.
+    /// The socket closed; returns the delay to wait before reconnecting. The
+    /// delay comes from the *current* attempt, which is advanced only after the
+    /// delay is computed: the first retry is the declared base
+    /// ([`BASE_BACKOFF_MS`]) and the next is double it, not base-plus-one-step.
     pub fn on_close(&mut self) -> Duration {
-        if !self.stable {
-            self.attempt = self.attempt.saturating_add(1);
+        if self.stable {
+            // A connection that held past the window is a real session.
+            self.attempt = 0;
         }
+        let delay = backoff(self.attempt);
+        self.attempt = self.attempt.saturating_add(1);
         self.stable = false;
-        backoff(self.attempt)
+        delay
     }
 }
 
@@ -218,6 +226,66 @@ impl Adapter {
     }
 }
 
+/// The native socket surface the connection wiring installs callbacks on. The
+/// wasm shell (`ws`) implements this over `web_sys::WebSocket`; the host
+/// lifecycle test implements it with a fake whose callbacks it can fire, so the
+/// wiring below is exercised without a browser.
+pub trait Socket {
+    fn on_open<F: FnMut() + 'static>(&self, handler: F);
+    fn on_message<F: FnMut(String) + 'static>(&self, handler: F);
+    fn on_close<F: FnMut() + 'static>(&self, handler: F);
+}
+
+/// The delayed callback the stability window needs. The wasm shell schedules
+/// on `gloo_timers`; the host test records the task and fires it on demand, so
+/// "the window is armed from `on_open`" is an assertable fact.
+pub trait Timer {
+    fn after<F: FnMut() + 'static>(&self, delay: Duration, task: F);
+}
+
+/// Install the connection lifecycle on one socket. This is the *single*
+/// implementation of the callback wiring: `ws` calls it with the browser socket
+/// and the view's signals, and the lifecycle tests call it with a fake socket
+/// and clock. A regression that stops arming the stability window from
+/// `on_open`, or stops disarming it on `on_close`, therefore fails the tests
+/// instead of only failing in a browser.
+///
+/// Wiring contract, in one place:
+/// - `on_open`: mark connected and arm the stability window for this socket —
+///   never at dial time, or a handshake that pends then fails would count as a
+///   session and reset the backoff.
+/// - `on_message`: hand the frame to the view verbatim (framing-agnostic).
+/// - `on_close`: disarm the window *before* signalling the retry loop, then
+///   signal it, so a timer firing in the gap cannot reset the backoff.
+pub fn wire<S, T>(
+    socket: &S,
+    timer: T,
+    adapter: Rc<RefCell<Adapter>>,
+    mut status: impl FnMut(SessionEffect) + 'static,
+    mut echo: impl FnMut(String) + 'static,
+    mut closed: impl FnMut() + 'static,
+) where
+    S: Socket,
+    T: Timer + 'static,
+{
+    let open_adapter = adapter.clone();
+    socket.on_open(move || {
+        let (effect, window) = open_adapter.borrow_mut().opened();
+        status(effect);
+        let timer_adapter = open_adapter.clone();
+        timer.after(window.after, move || {
+            timer_adapter.borrow_mut().stable_elapsed(window.generation);
+        });
+    });
+
+    socket.on_message(move |text| echo(text));
+
+    socket.on_close(move || {
+        adapter.borrow_mut().transport_closed();
+        closed();
+    });
+}
+
 /// Outcome of one attempt to put a frame on the wire. The browser branch of
 /// `ws::send` maps this to a user-visible state, so a lost frame is never a
 /// silent no-op.
@@ -231,8 +299,8 @@ pub enum SendOutcome {
     SendFailed,
 }
 
-/// Minimal socket surface the send policy needs. Implemented by the native
-/// `web_sys::WebSocket` in `ws` and by a fake in tests.
+/// Minimal socket surface the send policy needs. Implemented by `ws`'s
+/// `BrowserSocket` (over the native `web_sys::WebSocket`) and by a fake in tests.
 pub trait Transport {
     fn is_open(&self) -> bool;
     fn send_text(&self, text: &str) -> Result<(), ()>;
@@ -296,7 +364,9 @@ mod tests {
     fn flapping_connection_grows_the_backoff() {
         let mut r = Reconnect::new();
         let delays: Vec<u64> = (0..5).map(|_| flap(&mut r)).collect();
-        assert_eq!(delays, vec![1000, 2000, 4000, 8000, 8000]);
+        // The first retry is the declared base; each flapping drop doubles it
+        // until the ceiling.
+        assert_eq!(delays, vec![500, 1000, 2000, 4000, 8000]);
         for pair in delays.windows(2) {
             assert!(pair[1] >= pair[0], "backoff must not shrink: {delays:?}");
         }
@@ -307,8 +377,8 @@ mod tests {
     #[test]
     fn stable_connection_resets_to_the_base_delay() {
         let mut r = Reconnect::new();
+        assert_eq!(flap(&mut r), 500);
         assert_eq!(flap(&mut r), 1000);
-        assert_eq!(flap(&mut r), 2000);
         r.on_open();
         r.on_stable();
         assert_eq!(r.on_close().as_millis() as u64, 500);
@@ -379,7 +449,7 @@ mod tests {
             s.stable_elapsed(s.generation());
             delays.push(reconnect_delay(s.closed()));
         }
-        assert_eq!(delays, vec![1000, 2000, 4000]);
+        assert_eq!(delays, vec![500, 1000, 2000]);
     }
 
     /// A socket that opens and immediately drops is flapping, not a session:
@@ -394,7 +464,7 @@ mod tests {
             // No stability event: the drop happened inside the window.
             delays.push(reconnect_delay(s.closed()));
         }
-        assert_eq!(delays, vec![1000, 2000, 4000]);
+        assert_eq!(delays, vec![500, 1000, 2000]);
     }
 
     /// A connection that holds past the window is a real session: the next
@@ -408,116 +478,197 @@ mod tests {
         assert_eq!(reconnect_delay(s.closed()), 500);
     }
 
-    // ── Adapter: the browser callback wiring the wasm shell delegates to ─────
+    // ── Wire: the callback plumbing `ws.rs` installs on the live socket ──────
 
-    /// Deterministic stand-in for the browser event loop. It drives the *same*
-    /// `Adapter` methods `ws.rs` calls from its socket callbacks, and owns the
-    /// clock for the stability window: a socket holds `held_ms` before dropping,
-    /// and a window that had not elapsed when the socket closed is fired late to
-    /// prove it is inert rather than merely absent.
-    struct Shell {
-        adapter: Adapter,
+    /// A fake socket the test fires by hand. [`wire`] registers the callbacks
+    /// here, so firing them runs the *actual* wiring closures — not a lookalike.
+    /// A regression that moves `opened()` out of `on_open`, forgets to arm the
+    /// window, or never disarms on close fails these tests.
+    #[derive(Default)]
+    struct FakeSocket {
+        open: RefCell<Option<Box<dyn FnMut()>>>,
+        message: RefCell<Option<Box<dyn FnMut(String)>>>,
+        close: RefCell<Option<Box<dyn FnMut()>>>,
     }
 
-    impl Shell {
-        fn new() -> Self {
-            Self { adapter: Adapter::new() }
+    impl Socket for FakeSocket {
+        fn on_open<F: FnMut() + 'static>(&self, handler: F) {
+            *self.open.borrow_mut() = Some(Box::new(handler));
         }
+        fn on_message<F: FnMut(String) + 'static>(&self, handler: F) {
+            *self.message.borrow_mut() = Some(Box::new(handler));
+        }
+        fn on_close<F: FnMut() + 'static>(&self, handler: F) {
+            *self.close.borrow_mut() = Some(Box::new(handler));
+        }
+    }
 
-        /// One connect attempt: dial, open, let the window elapse only if the
-        /// socket held long enough, close, then ask for the reconnect delay.
-        /// Returns that delay in ms.
-        fn attempt(&mut self, held_ms: u64) -> u64 {
-            let (generation, dial) = self.adapter.dial_started();
-            assert_eq!(dial, SessionEffect::Connecting);
+    impl FakeSocket {
+        fn fire_open(&self) {
+            (self.open.borrow_mut().as_mut().expect("on_open registered"))();
+        }
+        fn fire_message(&self, text: &str) {
+            (self.message.borrow_mut().as_mut().expect("on_message registered"))(text.to_string());
+        }
+        fn fire_close(&self) {
+            (self.close.borrow_mut().as_mut().expect("on_close registered"))();
+        }
+    }
 
-            let (open, timer) = self.adapter.opened();
-            assert_eq!(open, SessionEffect::Connected);
-            // The window is armed by `opened` (never by `dial_started`) and names
-            // the live generation.
-            assert_eq!(
-                timer.generation, generation,
-                "window armed for the wrong generation"
+    /// Fake clock: records every stability window [`wire`] arms and fires them
+    /// on demand, so "the window is armed from `on_open`" is an assertable fact
+    /// without a browser event loop.
+    #[derive(Clone, Default)]
+    struct FakeTimer {
+        windows: Rc<RefCell<Vec<(Duration, Box<dyn FnMut()>)>>>,
+    }
+
+    impl Timer for FakeTimer {
+        fn after<F: FnMut() + 'static>(&self, delay: Duration, task: F) {
+            self.windows.borrow_mut().push((delay, Box::new(task)));
+        }
+    }
+
+    impl FakeTimer {
+        fn count(&self) -> usize {
+            self.windows.borrow().len()
+        }
+        fn delay(&self, index: usize) -> u64 {
+            self.windows.borrow()[index].0.as_millis() as u64
+        }
+        fn fire(&self, index: usize) {
+            let mut windows = self.windows.borrow_mut();
+            (windows[index].1)();
+        }
+    }
+
+    /// What the view would render (the sinks `wire` reports into).
+    #[derive(Default)]
+    struct View {
+        status: RefCell<Vec<SessionEffect>>,
+        echoed: RefCell<Vec<String>>,
+        closed: RefCell<usize>,
+    }
+
+    /// Drives [`wire`] exactly as `ws.rs` does, but with a fireable fake socket
+    /// and clock: the callbacks are the real ones, only the transport is faked.
+    struct Harness {
+        adapter: Rc<RefCell<Adapter>>,
+        socket: FakeSocket,
+        timer: FakeTimer,
+        view: Rc<View>,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let adapter = Rc::new(RefCell::new(Adapter::new()));
+            let socket = FakeSocket::default();
+            let timer = FakeTimer::default();
+            let view = Rc::new(View::default());
+
+            let status = view.clone();
+            let echo = view.clone();
+            let closed = view.clone();
+            wire(
+                &socket,
+                timer.clone(),
+                adapter.clone(),
+                move |effect| status.status.borrow_mut().push(effect),
+                move |text| echo.echoed.borrow_mut().push(text),
+                move || *closed.closed.borrow_mut() += 1,
             );
 
-            let elapsed = held_ms >= timer.after.as_millis() as u64;
-            if elapsed {
-                self.adapter.stable_elapsed(timer.generation);
-            }
-
-            self.adapter.transport_closed();
-            let delay = reconnect_delay(self.adapter.closed());
-
-            // A timer still pending at close fires late; it must be inert.
-            if !elapsed {
-                self.adapter.stable_elapsed(timer.generation);
-            }
-            delay
+            Self { adapter, socket, timer, view }
         }
 
-        /// A dial whose handshake never opens (pends past the window, then
-        /// fails): no `opened`, so no window armed. A mid-handshake timer firing
-        /// must be inert too.
-        fn failed_handshake(&mut self) -> u64 {
-            let (generation, dial) = self.adapter.dial_started();
-            assert_eq!(dial, SessionEffect::Connecting);
-            self.adapter.stable_elapsed(generation);
-            self.adapter.transport_closed();
-            reconnect_delay(self.adapter.closed())
+        /// The dial step `ws.rs`'s loop performs before installing callbacks.
+        fn dial(&mut self) {
+            let (_, effect) = self.adapter.borrow_mut().dial_started();
+            assert_eq!(effect, SessionEffect::Connecting);
+        }
+
+        /// The reconnect step `ws.rs`'s loop performs after the socket closes.
+        fn reconnect_delay(&mut self) -> u64 {
+            reconnect_delay(self.adapter.borrow_mut().closed())
+        }
+
+        fn last_status(&self) -> SessionEffect {
+            *self.view.status.borrow().last().expect("no status recorded")
         }
     }
 
-    /// Finding: the lifecycle test used to drive `Session` directly, so a wiring
-    /// bug in the shell — arming the window from the wrong callback, or not at
-    /// all — passed while browser reconnect stayed broken. This drives `Adapter`,
-    /// the exact surface `ws.rs` calls from its callbacks.
+    /// The window is armed by the socket's `open` callback and not before; a
+    /// connection that then holds past the window resets the next delay to base.
     #[test]
-    fn adapter_wiring_arms_the_window_on_open_and_disarms_on_close() {
-        let mut shell = Shell::new();
-        // Flapping server: accept, drop inside the window. The window armed on
-        // `open` never elapsed, so the retry delay must keep growing.
-        assert_eq!(shell.attempt(0), 1_000, "first flapping drop");
-        assert_eq!(shell.attempt(0), 2_000, "second flapping drop");
-        // A socket that holds past the window is a real session: the next
-        // disconnect retries at the base delay.
-        assert_eq!(
-            shell.attempt(STABLE_CONNECTION_MS),
-            500,
-            "a session past the window resets the backoff"
-        );
-        assert_eq!(shell.attempt(0), 1_000, "growth restarts after the reset");
+    fn wiring_arms_the_window_on_open_then_resets_after_stable() {
+        let mut h = Harness::new();
+        h.dial();
+        assert_eq!(h.timer.count(), 0, "dial must not arm a stability window");
+        assert_eq!(h.last_status(), SessionEffect::Connecting);
+
+        h.socket.fire_open();
+        assert_eq!(h.last_status(), SessionEffect::Connected);
+        assert_eq!(h.timer.count(), 1, "on_open must arm the stability window");
+        assert_eq!(h.timer.delay(0), STABLE_CONNECTION_MS);
+
+        h.timer.fire(0); // the connection held past the window -> a real session
+        h.socket.fire_close();
+        assert_eq!(*h.view.closed.borrow(), 1, "on_close must signal the loop");
+        assert_eq!(h.reconnect_delay(), 500, "a stable session resets the backoff");
     }
 
-    /// A pending handshake exceeds the window and then fails. No `opened` fired,
-    /// so no window was armed: the delay must keep growing, not reset because
-    /// wall-clock time passed.
+    /// A socket that opens and drops before the window elapses is flapping: the
+    /// delay must keep growing, with 500 ms on the first retry.
     #[test]
-    fn adapter_wiring_delayed_failed_handshake_keeps_growing() {
-        let mut shell = Shell::new();
-        assert_eq!(shell.failed_handshake(), 1_000);
-        assert_eq!(shell.failed_handshake(), 2_000);
-        assert_eq!(shell.failed_handshake(), 4_000);
+    fn wiring_keeps_growing_across_flapping_drops() {
+        let mut h = Harness::new();
+        for (i, want) in [500u64, 1_000, 2_000, 4_000].into_iter().enumerate() {
+            h.dial();
+            h.socket.fire_open();
+            assert_eq!(h.timer.count(), i + 1, "each open arms one window");
+            h.socket.fire_close();
+            assert_eq!(h.reconnect_delay(), want, "flapping drop #{i}");
+        }
     }
 
-    /// A timer left behind by a previous socket must not mark the *current*
-    /// socket stable when it later fires.
+    /// A handshake that never opens cannot arm a window, so its failure must keep
+    /// the delay growing rather than reset it because wall-clock time passed.
     #[test]
-    fn stale_timer_from_a_previous_socket_is_ignored() {
-        let mut s = Session::new();
-        s.dial_started();
-        let old = s.generation();
-        assert_eq!(s.opened(), SessionEffect::Connected);
-        s.transport_closed();
-        assert_eq!(reconnect_delay(s.closed()), 1000);
+    fn wiring_failed_handshake_keeps_growing() {
+        let mut h = Harness::new();
+        for want in [500u64, 1_000, 2_000] {
+            h.dial();
+            h.socket.fire_close(); // error/close without an open
+            assert_eq!(h.reconnect_delay(), want);
+        }
+        assert_eq!(h.timer.count(), 0, "a failed handshake must not arm a window");
+    }
 
-        s.dial_started();
-        assert_eq!(s.opened(), SessionEffect::Connected);
-        s.stable_elapsed(old); // socket #1's timer arrives late
-        assert_eq!(
-            reconnect_delay(s.closed()),
-            2000,
-            "a stale timer reset the backoff"
-        );
+    /// A window armed for a socket that already dropped must be inert when it
+    /// fires late — it may not mark the *current* socket stable.
+    #[test]
+    fn wiring_stale_window_from_a_previous_socket_is_inert() {
+        let mut h = Harness::new();
+        h.dial();
+        h.socket.fire_open(); // window #0
+        h.socket.fire_close();
+        assert_eq!(h.reconnect_delay(), 500);
+
+        h.dial();
+        h.socket.fire_open(); // window #1
+        h.timer.fire(0); // socket #0's window arrives late
+        h.socket.fire_close();
+        assert_eq!(h.reconnect_delay(), 1_000, "a stale window reset the backoff");
+    }
+
+    /// The wiring forwards the server's frame verbatim — it parses nothing.
+    #[test]
+    fn wiring_forwards_echoed_frames_verbatim() {
+        let mut h = Harness::new();
+        h.dial();
+        h.socket.fire_open();
+        h.socket.fire_message(r#"{"n":1}"#);
+        assert_eq!(*h.view.echoed.borrow(), vec![r#"{"n":1}"#.to_string()]);
     }
 
     /// Finding: a successful send used to leave a previous `SendFailed` status

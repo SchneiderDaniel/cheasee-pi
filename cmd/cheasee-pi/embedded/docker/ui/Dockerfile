@@ -39,10 +39,14 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-# The server binary; the hash file HASHED-asset lookups read from next to the
-# binary (HashedStylesheet/HydrationScripts); and the site dir `/assets/*` serves.
-COPY --from=builder /build/target/release/cheasee-pi-ui /app/cheasee-pi-ui
-COPY --from=builder /build/target/release/hash.txt /app/hash.txt
+# The server binary and the hash file HASHED-asset lookups read from next to the
+# binary (HashedStylesheet/HydrationScripts). cargo-leptos writes the server
+# artifacts to the `bin-target-dir` declared in Cargo.toml, i.e.
+# target/server/release — not the default cargo target.
+COPY --from=builder /build/target/server/release/cheasee-pi-ui /app/cheasee-pi-ui
+COPY --from=builder /build/target/server/release/hash.txt /app/hash.txt
+# /target/site holds the content-hashed JS/WASM/CSS; `site-root = "target/site"`
+# in Cargo.toml is unaffected by the server target dir above.
 COPY --from=builder /build/target/site /app/site
 
 # Point Leptos at the copied artifacts. LEPTOS_HASH_FILES must be true or the

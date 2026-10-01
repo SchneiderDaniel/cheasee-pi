@@ -84,6 +84,11 @@ panic = "abort"
 
 [package.metadata.leptos]
 output-name = "cheasee-pi-ui"
+# The server target dir. cargo-leptos passes `--target-dir=target/server` to the
+# ssr build, so the server binary and the hash file land in
+# target/server/release (the frontend build already uses its own target/front).
+# Keep this in sync with the Dockerfile's `COPY --from=builder` paths.
+bin-target-dir = "target/server"
 # Everything cargo-leptos emits lands under target/site; the server serves the
 # `assets` sub-dir at the `/assets/*` route (AC2). Keep site-pkg-dir in sync
 # with the route in src/main.rs.

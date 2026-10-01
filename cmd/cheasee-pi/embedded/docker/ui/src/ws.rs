@@ -1,36 +1,102 @@
 //! Browser WebSocket adapter — owns the live-event channel lifecycle.
 //!
-//! Deep module: callers get `connect`/`send` and a pair of signals; the
-//! reconnect-with-backoff and the native socket stay behind this boundary. The
-//! channel is framing-agnostic here — every JSON text frame echoed by the
-//! server is surfaced verbatim, leaving slice 4 free to layer strict framing on
-//! the pi child pipe instead.
+//! Thin shell: it owns the native `WebSocket` and the browser clock, and hands
+//! the callback-to-adapter wiring to [`crate::retry::wire`] — the *same*
+//! function the host lifecycle tests drive with a fake socket and clock. The
+//! channel is framing-agnostic: every JSON text frame echoed by the server is
+//! surfaced verbatim, leaving slice 4 free to layer strict framing on the pi
+//! child pipe instead.
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use futures::channel::oneshot;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use wasm_bindgen::closure::Closure;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
-use crate::retry::{deliver, send_status, Adapter, SendOutcome, SessionEffect};
+use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
 
-/// The live socket plus the closures the browser holds callbacks into. Stored
-/// together so dropping the pair at once can never leave a JS callback pointing
-/// at a freed Rust closure.
-struct Live {
+/// The live socket plus the JS closures the browser holds callbacks into. Each
+/// closure is kept alive as a `JsValue` for the socket's lifetime; dropping the
+/// pair at once can never leave a JS callback pointing at a freed Rust closure.
+struct BrowserSocket {
     socket: WebSocket,
-    _open: Closure<dyn FnMut()>,
-    _message: Closure<dyn FnMut(MessageEvent)>,
-    _close: Closure<dyn FnMut()>,
+    handlers: RefCell<Vec<JsValue>>,
+}
+
+impl BrowserSocket {
+    fn new(socket: WebSocket) -> Self {
+        Self {
+            socket,
+            handlers: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn keep(&self, closure: JsValue) {
+        self.handlers.borrow_mut().push(closure);
+    }
+}
+
+/// The native socket's callback surface. `wire` installs the lifecycle here; the
+/// host test installs it on a fake implementing the same trait.
+impl Socket for BrowserSocket {
+    fn on_open<F: FnMut() + 'static>(&self, handler: F) {
+        let boxed: Box<dyn FnMut()> = Box::new(handler);
+        let closure = Closure::wrap(boxed);
+        self.socket.set_onopen(Some(closure.as_ref().unchecked_ref()));
+        self.keep(closure.into_js_value());
+    }
+
+    fn on_message<F: FnMut(String) + 'static>(&self, mut handler: F) {
+        let closure = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
+            if let Some(text) = event.data().as_string() {
+                handler(text);
+            }
+        });
+        self.socket
+            .set_onmessage(Some(closure.as_ref().unchecked_ref()));
+        self.keep(closure.into_js_value());
+    }
+
+    fn on_close<F: FnMut() + 'static>(&self, handler: F) {
+        let boxed: Box<dyn FnMut()> = Box::new(handler);
+        let closure = Closure::wrap(boxed);
+        self.socket.set_onclose(Some(closure.as_ref().unchecked_ref()));
+        self.keep(closure.into_js_value());
+    }
+}
+
+/// The native socket as the transport the send policy drives.
+impl crate::retry::Transport for BrowserSocket {
+    fn is_open(&self) -> bool {
+        self.socket.ready_state() == WebSocket::OPEN
+    }
+
+    fn send_text(&self, text: &str) -> Result<(), ()> {
+        self.socket.send_with_str(text).map_err(|_| ())
+    }
+}
+
+/// The browser clock: a scheduled `gloo_timers` timeout. `wire` arms the
+/// stability window through this, so the timing policy stays in `retry`.
+struct BrowserTimer;
+
+impl Timer for BrowserTimer {
+    fn after<F: FnMut() + 'static>(&self, delay: Duration, mut task: F) {
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(delay.as_millis() as u32).await;
+            task();
+        });
+    }
 }
 
 thread_local! {
-    static LIVE: RefCell<Option<Live>> = const { RefCell::new(None) };
+    static LIVE: RefCell<Option<BrowserSocket>> = const { RefCell::new(None) };
 }
 
 fn ws_url() -> String {
@@ -60,7 +126,7 @@ fn status_of(effect: SessionEffect) -> ConnectionStatus {
 /// success would still read as undelivered.
 pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) {
     let outcome = LIVE.with(|live| match live.borrow().as_ref() {
-        Some(live) => deliver(&live.socket, &text),
+        Some(live) => deliver(live, &text),
         None => SendOutcome::NotConnected,
     });
     set_status.set(status_of(send_status(outcome)));
@@ -69,8 +135,9 @@ pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) {
 /// Connect, then reconnect with backoff until the page goes away. `set_echo`
 /// receives each echoed frame; `set_status` drives the visible connection state.
 pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus>) {
-    // The lifecycle wiring lives in `retry::Adapter` (host-testable); this shell
-    // feeds it transport callbacks and applies the returned effects.
+    // The lifecycle decisions live in `retry` (host-testable); this shell owns
+    // the native socket and the clock, installs the shared `retry::wire`
+    // callbacks, and applies the returned effects.
     let adapter = Rc::new(RefCell::new(Adapter::new()));
     spawn_local(async move {
         loop {
@@ -94,71 +161,34 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
     });
 }
 
-/// Open one socket. `Ok(rx)` resolves when the socket closes (or errors and
-/// closes); `Err` means the URL itself was rejected — retried by the caller.
+/// Open one socket and install the shared callback wiring on it. `Ok(rx)`
+/// resolves when the socket closes (or errors and closes); `Err` means the URL
+/// itself was rejected — retried by the caller.
 fn open(
     adapter: Rc<RefCell<Adapter>>,
     set_echo: RwSignal<String>,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
     let socket = WebSocket::new(&ws_url()).map_err(|_| ())?;
+    let browser = BrowserSocket::new(socket);
     let (tx, rx) = oneshot::channel::<()>();
     let mut tx = Some(tx);
 
-    let open_adapter = adapter.clone();
-    let on_open = Closure::<dyn FnMut()>::new(move || {
-        // The window is armed by `opened` and carries the generation it was
-        // armed under: a handshake that pends past the window and then fails
-        // never reaches this callback, and a late timer from a dead socket
-        // cannot mark a newer one stable.
-        let (effect, timer) = open_adapter.borrow_mut().opened();
-        set_status.set(status_of(effect));
-        let timer_adapter = open_adapter.clone();
-        spawn_local(async move {
-            gloo_timers::future::TimeoutFuture::new(timer.after.as_millis() as u32).await;
-            timer_adapter.borrow_mut().stable_elapsed(timer.generation);
-        });
-    });
-    let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
-        if let Some(text) = event.data().as_string() {
-            set_echo.set(text);
-        }
-    });
-    // A failed connect fires `error` then `close`; closing on either is enough
-    // to drive the retry. `take` makes the second event a no-op. Disarm the
-    // stability timer before signalling the loop so it cannot reset the backoff
-    // in the gap.
-    let close_adapter = adapter;
-    let on_close = Closure::<dyn FnMut()>::new(move || {
-        close_adapter.borrow_mut().transport_closed();
-        if let Some(tx) = tx.take() {
-            let _ = tx.send(());
-        }
-    });
+    // The callback-to-adapter wiring lives once, in `retry::wire`; the host
+    // lifecycle tests install that same function on a fake socket.
+    wire(
+        &browser,
+        BrowserTimer,
+        adapter,
+        move |effect| set_status.set(status_of(effect)),
+        move |text| set_echo.set(text),
+        move || {
+            if let Some(tx) = tx.take() {
+                let _ = tx.send(());
+            }
+        },
+    );
 
-    socket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-    socket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-    socket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-
-    LIVE.with(|live| {
-        *live.borrow_mut() = Some(Live {
-            socket,
-            _open: on_open,
-            _message: on_message,
-            _close: on_close,
-        });
-    });
-
+    LIVE.with(|live| *live.borrow_mut() = Some(browser));
     Ok(rx)
-}
-
-/// The native socket as the transport the send policy drives.
-impl crate::retry::Transport for WebSocket {
-    fn is_open(&self) -> bool {
-        self.ready_state() == WebSocket::OPEN
-    }
-
-    fn send_text(&self, text: &str) -> Result<(), ()> {
-        self.send_with_str(text).map_err(|_| ())
-    }
 }
