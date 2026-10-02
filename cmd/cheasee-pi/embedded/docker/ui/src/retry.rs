@@ -582,9 +582,13 @@ mod tests {
         }
 
         /// The dial step `ws.rs`'s loop performs before installing callbacks.
+        /// `ws.rs`'s `connect` loop records the Connecting status itself — it is
+        /// not wired through [`wire`], whose closures cover open/message/close
+        /// only — so the harness mirrors that push here.
         fn dial(&mut self) {
             let (_, effect) = self.adapter.borrow_mut().dial_started();
             assert_eq!(effect, SessionEffect::Connecting);
+            self.view.status.borrow_mut().push(effect);
         }
 
         /// The reconnect step `ws.rs`'s loop performs after the socket closes.

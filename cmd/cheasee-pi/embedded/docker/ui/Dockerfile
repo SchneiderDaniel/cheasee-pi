@@ -12,8 +12,9 @@ FROM rust:1.99-bookworm AS builder
 WORKDIR /build
 
 # wasm target plus the tools cargo-leptos's `no_downloads` build expects on
-# PATH: `wasm-opt` (binaryen) and a `wasm-bindgen` CLI. Installing binaryen
-# keeps `docker build` off GitHub-release downloads.
+# PATH: `wasm-opt` (binaryen) and a `wasm-bindgen` CLI. binaryen comes from
+# Debian apt; the cargo-leptos prebuilt binary below is the one deliberate
+# GitHub-release download in this image, pinned to v0.3.10 and arch-matched.
 RUN rustup target add wasm32-unknown-unknown \
  && apt-get update \
  && apt-get install -y --no-install-recommends binaryen \
@@ -41,6 +42,13 @@ RUN WB="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Car
 
 COPY src ./src
 COPY style ./style
+# Run the host-side unit/integration suite (protocol + retry policy, the Axum
+# routes, and the real WS loopback upgrade) before building anything. CI has
+# no cargo-test job for this crate, so the tests actually run wherever this
+# image builds — including the PR smoke gate. Built with the same release
+# profile and target dir as the leptos server build below, so the shared dep
+# artifacts are compiled once, not twice.
+RUN cargo test --release --target-dir target/server --no-default-features --features ssr
 # cargo-leptos builds the wasm lib (feature `hydrate`) and the server bin
 # (feature `ssr`) per [package.metadata.leptos], then hashes the asset names.
 RUN cargo leptos build --release
@@ -53,6 +61,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
+# Non-root runtime: the image is a loopback-pinned sidecar and every host
+# credential mount is out of scope for it, so root buys nothing but risk.
+# Port 3000 is unprivileged, so the bind needs no elevation.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin ui
+
 WORKDIR /app
 # The server binary and the hash file HASHED-asset lookups read from next to the
 # binary (HashedStylesheet/HydrationScripts). cargo-leptos writes the server
@@ -63,6 +76,7 @@ COPY --from=builder /build/target/server/release/hash.txt /app/hash.txt
 # /target/site holds the content-hashed JS/WASM/CSS; `site-root = "target/site"`
 # in Cargo.toml is unaffected by the server target dir above.
 COPY --from=builder /build/target/site /app/site
+RUN chown -R ui:ui /app
 
 # Point Leptos at the copied artifacts. LEPTOS_HASH_FILES must be true or the
 # server asks for unhashed filenames that do not exist in the image.
@@ -72,5 +86,6 @@ ENV LEPTOS_SITE_ROOT=/app/site \
     LEPTOS_HASH_FILES=true \
     LEPTOS_ENV=PROD
 
+USER ui
 EXPOSE 3000
 CMD ["/app/cheasee-pi-ui"]
