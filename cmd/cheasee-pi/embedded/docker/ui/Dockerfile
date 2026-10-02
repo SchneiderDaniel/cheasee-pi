@@ -19,13 +19,25 @@ RUN rustup target add wasm32-unknown-unknown \
  && apt-get install -y --no-install-recommends binaryen \
  && rm -rf /var/lib/apt/lists/*
 
-# Pin cargo-leptos, and read the wasm-bindgen CLI version straight from the
-# committed lock so the CLI can never drift from the wasm-bindgen crate it runs.
+# Pin cargo-leptos via its prebuilt release binary — a `cargo install` of it
+# compiles swc/git2 etc. (≈8 min cold). The download happens once, at image
+# build. Read the wasm-bindgen CLI version straight from the committed lock so
+# the CLI can never drift from the wasm-bindgen crate it runs.
 COPY Cargo.toml Cargo.lock ./
 RUN WB="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)" \
  && test -n "$WB" \
  && cargo install wasm-bindgen-cli --version "$WB" --locked \
- && cargo install cargo-leptos --version 0.3.10 --locked --no-default-features --features no_downloads
+ && ARCH="$(uname -m)" \
+ && case "$ARCH" in \
+      x86_64) CL_TRIPLE="x86_64-unknown-linux-gnu" ;; \
+      aarch64) CL_TRIPLE="aarch64-unknown-linux-gnu" ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL --retry 5 --retry-all-errors \
+      "https://github.com/leptos-rs/cargo-leptos/releases/download/v0.3.10/cargo-leptos-${CL_TRIPLE}.tar.gz" -o /tmp/cargo-leptos.tar.gz \
+ && tar -xzf /tmp/cargo-leptos.tar.gz -C /tmp \
+ && install -m 755 "/tmp/cargo-leptos-${CL_TRIPLE}/cargo-leptos" /usr/local/cargo/bin/cargo-leptos \
+ && rm -rf /tmp/cargo-leptos.tar.gz "/tmp/cargo-leptos-${CL_TRIPLE}"
 
 COPY src ./src
 COPY style ./style

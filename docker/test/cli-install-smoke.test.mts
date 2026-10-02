@@ -318,8 +318,10 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		// runs `docker compose build` from there. The raw compose command cannot
 		// run first — the cache dir starts empty until the binary extracts.
 		const result = exec(`"${BINARY_PATH}" build --no-docker-check`, {
-			timeout: 600_000,
-			cwd: workdir, // 10 min — cold build is slow
+			// 20 min — cold build compiles the whole Leptos UI (wasm + server)
+			// inside DinD with an empty layer cache (PR #1764).
+			timeout: 1_200_000,
+			cwd: workdir,
 		});
 		assert.strictEqual(result.status, 0, `build exited ${result.status}: ${result.stderr}`);
 	});
