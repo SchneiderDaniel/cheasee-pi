@@ -1,0 +1,7 @@
+{"id":"req-1","type":"response","command":"prompt","success":true}
+{"id":"req-5","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}
+{"id":"req-6","type":"response","command":"get_state","success":true,"data":{"thinkingLevel":"medium","isStreaming":false,"isCompacting":false,"steeringMode":"all","followUpMode":"one-at-a-time","sessionId":"abc123","autoCompactionEnabled":true,"messageCount":5,"pendingMessageCount":0}}
+{"id":"req-8","type":"response","command":"cycle_model","success":true,"data":null}
+{"id":"req-12","type":"response","command":"bash","success":true,"data":{"output":"total 48","exitCode":0}}
+{"type":"response","command":"set_model","success":false,"error":"Model not found: invalid/model"}
+{"type":"response","command":"parse","success":false,"error":"Failed to parse command: Unexpected token"}

@@ -70,6 +70,15 @@ func TestUI_FileLayout(t *testing.T) {
 		{"src", "retry.rs"},
 		{"src", "auth.rs"},
 		{"src", "pi_process.rs"},
+		{"src", "rpc", "mod.rs"},
+		{"src", "rpc", "framing.rs"},
+		{"src", "rpc", "client.rs"},
+		{"tests", "rpc_protocol.rs"},
+		{"tests", "fixtures", "PI_VERSION"},
+		{"tests", "fixtures", "commands.jsonl"},
+		{"tests", "fixtures", "responses.jsonl"},
+		{"tests", "fixtures", "events.jsonl"},
+		{"tests", "fixtures", "extension_ui.jsonl"},
 		{"provider_env_map.json"},
 		{"style", "main.css"},
 	} {
@@ -176,13 +185,18 @@ func TestUI_CargoFeatures(t *testing.T) {
 }
 
 // TestUI_ProtocolBoundary keeps the shared DTO module transport-free: it is the
-// innermost policy slice 4 fills, and must not learn about axum or the browser.
+// innermost policy slice 4 fills, and must not learn about axum, tokio, or the
+// browser. The framing/correlation layer lives in src/rpc/ behind the ssr
+// feature instead, so there is exactly one wire vocabulary.
 func TestUI_ProtocolBoundary(t *testing.T) {
 	src := uiAsset(t, "src", "protocol.rs")
-	for _, forbidden := range []string{"use axum", "axum::", "web_sys"} {
+	for _, forbidden := range []string{"use axum", "axum::", "web_sys", "use tokio"} {
 		if strings.Contains(src, forbidden) {
 			t.Errorf("ui/src/protocol.rs must stay transport-free, found %q", forbidden)
 		}
+	}
+	if _, err := os.Stat(filepath.Join("embedded", "docker", "ui", "src", "rpc", "types.rs")); !os.IsNotExist(err) {
+		t.Error("ui/src/rpc/types.rs must not exist — protocol.rs is the single wire vocabulary")
 	}
 }
 

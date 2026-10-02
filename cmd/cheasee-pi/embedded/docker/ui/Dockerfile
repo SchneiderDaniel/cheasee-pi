@@ -41,6 +41,10 @@ RUN WB="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Car
  && rm -rf /tmp/cargo-leptos.tar.gz "/tmp/cargo-leptos-${CL_TRIPLE}"
 
 COPY src ./src
+# Integration tests + the captured JSONL fixture corpus. Without this COPY the
+# image's `cargo test` silently skips tests/ and the AC1/AC2 framing and
+# correlation suites would never run in the gate.
+COPY tests ./tests
 # Embedded at compile time by `include_str!("../provider_env_map.json")` in
 # src/auth.rs — must sit next to src/, not inside it. Drift-pinned to
 # `cheasee-pi auth envvars --format json` by ui_provider_env_map_test.go.

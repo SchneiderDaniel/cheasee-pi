@@ -22,7 +22,7 @@ mod server {
     use std::sync::Arc;
     use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
-    use cheasee_pi_ui::{auth, pi_process, shell};
+    use cheasee_pi_ui::{auth, pi_process, rpc, shell};
 
     /// The fixed in-container listen port. The compose mapping publishes it to
     /// the host loopback; keep it in sync with that mapping's container side.
@@ -42,6 +42,10 @@ mod server {
         pub has_provider_keys: bool,
         pub source: auth::AuthSource,
         pub auth_error: Option<String>,
+        /// The RPC client over the child's pipes, when the spawn succeeded.
+        /// Constructing it here is the composition root's whole job: no
+        /// protocol logic lives in this file.
+        pub rpc: Option<Arc<rpc::RpcClient>>,
     }
 
     /// Router state. `Arc` so the pid registry ownership is shared, not copied,
@@ -67,6 +71,7 @@ mod server {
                     has_provider_keys: false,
                     source: auth::AuthSource::Missing,
                     auth_error: None,
+                    rpc: None,
                 }),
             }
         }
@@ -101,8 +106,9 @@ mod server {
         let has_provider_keys = child_env.has_provider_keys;
         let source = child_env.source;
 
+        let mut rpc: Option<Arc<rpc::RpcClient>> = None;
         let pid = match pi_process::spawn(&spec, &child_env, &session_id) {
-            Ok(child) => {
+            Ok(mut child) => {
                 let pid = child.pid;
                 // Session marker is a child-identity token (CodeQL: S6311);
                 // it is exposed via /debug/child, never echoed to the log.
@@ -110,6 +116,12 @@ mod server {
                     "cheasee-pi-ui: spawned {} (pid {pid})",
                     spec.program.display()
                 );
+                // Hand the protocol pipes to the client before the child goes
+                // into the registry: stdout has exactly one reader (AC4).
+                rpc = child
+                    .take_io()
+                    .map(rpc::RpcClient::from_child_io)
+                    .map(Arc::new);
                 registry.insert(session_id.clone(), child);
                 Some(pid)
             }
@@ -129,6 +141,7 @@ mod server {
                 has_provider_keys,
                 source,
                 auth_error,
+                rpc,
             }),
         }
     }
@@ -186,6 +199,7 @@ mod server {
             "auth_source": auth_source_name(spawn.source),
             "auth_error": spawn.auth_error,
             "env_var_names": spawn.env_var_names,
+            "rpc_client": spawn.rpc.is_some(),
         }))
     }
 
@@ -466,6 +480,7 @@ mod tests {
                 has_provider_keys: true,
                 source: cheasee_pi_ui::auth::AuthSource::Config,
                 auth_error: None,
+                rpc: None,
             }),
         };
         let res = server::router(state).oneshot(get("/debug/child")).await.unwrap();
@@ -476,6 +491,7 @@ mod tests {
         assert_eq!(json["session_id"], "sess-test");
         assert_eq!(json["has_provider_keys"], true);
         assert_eq!(json["auth_source"], "config");
+        assert_eq!(json["rpc_client"], false);
         assert_eq!(
             json["env_var_names"],
             serde_json::json!(["OPENAI_API_KEY", "PATH"])

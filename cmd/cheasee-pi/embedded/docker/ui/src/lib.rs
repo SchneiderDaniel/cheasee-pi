@@ -15,6 +15,11 @@ pub mod retry;
 pub mod auth;
 #[cfg(feature = "ssr")]
 pub mod pi_process;
+// Server-only: strict JSONL framing + id-correlating client over the child's
+// pipes. Gated for the same reason as `pi_process` — it links `tokio::process`
+// types and the wasm32 hydrate build must not.
+#[cfg(feature = "ssr")]
+pub mod rpc;
 
 // Browser-only transport. Gated so the server target never links web-sys.
 #[cfg(feature = "hydrate")]

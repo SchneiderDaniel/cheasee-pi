@@ -1,0 +1,18 @@
+{"type":"agent_start"}
+{"type":"agent_end","messages":[{"role":"assistant","content":"hi"}]}
+{"type":"turn_start"}
+{"type":"turn_end","message":{"role":"assistant"},"toolResults":[{"toolCallId":"call_abc123"}]}
+{"type":"message_start","message":{"role":"assistant"}}
+{"type":"message_update","message":{"role":"assistant"},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hello"},"usage":{"input":10,"output":2}}
+{"type":"message_end","message":{"role":"assistant"}}
+{"type":"tool_execution_start","toolCallId":"call_abc123","toolName":"bash","args":{"command":"ls -la"}}
+{"type":"tool_execution_update","toolCallId":"call_abc123","toolName":"bash","args":{"command":"ls -la"},"partialResult":{"content":[{"type":"text","text":"partial"}]}}
+{"type":"tool_execution_end","toolCallId":"call_abc123","toolName":"bash","result":{"content":[{"type":"text","text":"total 48"}]},"isError":false}
+{"type":"queue_update","steering":["Focus on error handling"],"followUp":["After that, summarize the result"]}
+{"type":"compaction_start","reason":"threshold"}
+{"type":"compaction_end","reason":"threshold","result":{"summary":"Summary of conversation"},"aborted":false,"willRetry":false}
+{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":2000,"errorMessage":"529 overloaded_error"}
+{"type":"auto_retry_end","success":true,"attempt":2}
+{"type":"extension_error","extensionPath":"/path/to/extension.ts","event":"tool_call","error":"boom"}
+{"type":"agent_settled"}
+{"type":"bash_execution_update","id":"req-12","output":"partial output"}

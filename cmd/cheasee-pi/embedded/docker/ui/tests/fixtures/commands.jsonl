@@ -1,0 +1,19 @@
+{"id":"req-1","type":"prompt","message":"Hello, world!"}
+{"id":"req-2","type":"steer","message":"Stop and do this instead"}
+{"id":"req-3","type":"follow_up","message":"After you're done, also do this"}
+{"id":"req-4","type":"abort"}
+{"id":"req-5","type":"new_session"}
+{"id":"req-6","type":"get_state"}
+{"id":"req-7","type":"set_model","provider":"anthropic","modelId":"claude-sonnet-4-20250514"}
+{"id":"req-8","type":"cycle_model"}
+{"id":"req-9","type":"get_available_models"}
+{"id":"req-10","type":"set_thinking_level","level":"medium"}
+{"id":"req-11","type":"compact"}
+{"id":"req-12","type":"bash","command":"ls -la"}
+{"id":"req-13","type":"get_session_stats"}
+{"id":"req-14","type":"export_html"}
+{"id":"req-15","type":"switch_session","sessionPath":"/home/agentuser/.pi/sessions/s.jsonl"}
+{"id":"req-16","type":"fork","entryId":"abc123"}
+{"id":"req-17","type":"clone"}
+{"id":"req-18","type":"get_messages"}
+{"id":"req-19","type":"get_commands"}
