@@ -41,6 +41,10 @@ RUN WB="$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Car
  && rm -rf /tmp/cargo-leptos.tar.gz "/tmp/cargo-leptos-${CL_TRIPLE}"
 
 COPY src ./src
+# Embedded at compile time by `include_str!("../provider_env_map.json")` in
+# src/auth.rs — must sit next to src/, not inside it. Drift-pinned to
+# `cheasee-pi auth envvars --format json` by ui_provider_env_map_test.go.
+COPY provider_env_map.json ./
 COPY style ./style
 # Run the host-side unit/integration suite (protocol + retry policy, the Axum
 # routes, and the real WS loopback upgrade) before building anything. CI has
@@ -55,16 +59,40 @@ RUN cargo leptos build --release
 
 FROM debian:bookworm-slim
 
-# curl is the compose healthcheck probe; the slim base image ships no HTTP
-# client, and curl is what the healthcheck and the human validation call.
+# curl is the compose healthcheck probe; ca-certificates + gnupg back the
+# NodeSource repo setup below.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
  && rm -rf /var/lib/apt/lists/*
 
-# Non-root runtime: the image is a loopback-pinned sidecar and every host
-# credential mount is out of scope for it, so root buys nothing but risk.
-# Port 3000 is unprivileged, so the bind needs no elevation.
+# Node.js 22 (NodeSource): the runtime for the pi-coding-agent CLI this server
+# spawns as its RPC child. Same major as the pi image so the spawned `pi`
+# matches the terminal client exactly.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+# pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
+# PI_VERSION is pinned equal to the pi image's value by
+# TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
+ARG PI_VERSION=latest
+ARG PI_BUILD_STAMP
+RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
+ && npm cache clean --force \
+ && rm -rf /tmp/* \
+ && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
+
+# Non-root runtime: the image is a loopback-pinned sidecar; port 3000 is
+# unprivileged, so the bind needs no elevation.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin ui
+
+# The auth.json mount target. The spawned child's HOME (ENV HOME below) is
+# /home/agentuser so `pi` resolves the same mounted auth.json the terminal
+# client does; the compose `user:` override aligns the process uid with the
+# host so it can traverse the host-owned 0700 config dir. World-traversable
+# (0755) so a numeric-uid override can still reach it.
+RUN mkdir -p /home/agentuser/.config \
+ && chmod 755 /home/agentuser /home/agentuser/.config
 
 WORKDIR /app
 # The server binary and the hash file HASHED-asset lookups read from next to the
@@ -84,7 +112,8 @@ ENV LEPTOS_SITE_ROOT=/app/site \
     LEPTOS_SITE_PKG_DIR=assets \
     LEPTOS_OUTPUT_NAME=cheasee-pi-ui \
     LEPTOS_HASH_FILES=true \
-    LEPTOS_ENV=PROD
+    LEPTOS_ENV=PROD \
+    HOME=/home/agentuser
 
 USER ui
 EXPOSE 3000
