@@ -104,8 +104,10 @@ mod server {
         let pid = match pi_process::spawn(&spec, &child_env, &session_id) {
             Ok(child) => {
                 let pid = child.pid;
+                // Session marker is a child-identity token (CodeQL: S6311);
+                // it is exposed via /debug/child, never echoed to the log.
                 eprintln!(
-                    "cheasee-pi-ui: spawned {} (pid {pid}, session {session_id})",
+                    "cheasee-pi-ui: spawned {} (pid {pid})",
                     spec.program.display()
                 );
                 registry.insert(session_id.clone(), child);
