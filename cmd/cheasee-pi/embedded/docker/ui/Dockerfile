@@ -2,9 +2,12 @@
 # Multi-stage: a rust builder produces the server binary and the content-hashed
 # wasm/CSS bundle via cargo-leptos; the slim runtime serves both.
 #
-# Toolchain floor is the leptos 0.8 MSRV (1.88) — bump this only together with
-# the leptos line in Cargo.toml.
-FROM rust:1.88-bookworm AS builder
+# Toolchain floor: leptos 0.8 MSRV is 1.88, but the fresh `cargo install
+# cargo-leptos` below resolves toolchain crates (cargo-util-schemas,
+# tokio-process-tools) that already need rustc 1.90+, so the image is pinned
+# well above the leptos MSRV. Bump only when an install resolution demands
+# newer.
+FROM rust:1.99-bookworm AS builder
 
 WORKDIR /build
 
