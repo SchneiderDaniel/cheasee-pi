@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,9 @@ func TestUI_FileLayout(t *testing.T) {
 		{"src", "ws.rs"},
 		{"src", "protocol.rs"},
 		{"src", "retry.rs"},
+		{"src", "auth.rs"},
+		{"src", "pi_process.rs"},
+		{"provider_env_map.json"},
 		{"style", "main.css"},
 	} {
 		path := filepath.Join(append([]string{"embedded", "docker", "ui"}, rel...)...)
@@ -200,6 +204,56 @@ func TestUI_DockerfileBuildWiring(t *testing.T) {
 	}
 	if strings.Contains(df, "wget") {
 		t.Error("ui/Dockerfile must not mention wget (curl is the probe binary)")
+	}
+}
+
+// piVersionArgPattern matches the Dockerfile's `ARG PI_VERSION=<default>` line.
+var piVersionArgPattern = regexp.MustCompile(`(?m)^ARG PI_VERSION=(\S+)$`)
+
+func dockerfilePiVersionDefault(t *testing.T, content, name string) string {
+	t.Helper()
+	m := piVersionArgPattern.FindStringSubmatch(content)
+	if m == nil {
+		t.Fatalf("%s must declare ARG PI_VERSION=<default>", name)
+	}
+	return m[1]
+}
+
+// TestUI_DockerfileShipsPi proves the spawned `pi --mode rpc` binary exists in
+// the ui image and that the child's HOME points at the mounted config dir
+// (AC3/AC5). Without `pi` the spawn itself fails at runtime.
+func TestUI_DockerfileShipsPi(t *testing.T) {
+	df := uiAsset(t, "Dockerfile")
+	for _, want := range []string{
+		"@earendil-works/pi-coding-agent@${PI_VERSION}",
+		"setup_22.x",
+		"HOME=/home/agentuser",
+		"/home/agentuser/.config",
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("ui/Dockerfile must contain %q", want)
+		}
+	}
+}
+
+// TestUI_DockerfileEmbedsProviderEnvMap guards the compile-time input:
+// `include_str!("../provider_env_map.json")` in src/auth.rs fails the image
+// build if the file is not copied into the builder stage.
+func TestUI_DockerfileEmbedsProviderEnvMap(t *testing.T) {
+	df := uiAsset(t, "Dockerfile")
+	if !strings.Contains(df, "COPY provider_env_map.json") {
+		t.Error("ui/Dockerfile must COPY provider_env_map.json into the builder stage (include_str! input)")
+	}
+}
+
+// TestUI_DockerfilePiVersionMatchesPiImage pins the ui image's pi version to
+// the pi image's, so the UI-spawned child is the exact build the terminal
+// client runs (AC5).
+func TestUI_DockerfilePiVersionMatchesPiImage(t *testing.T) {
+	ui := dockerfilePiVersionDefault(t, uiAsset(t, "Dockerfile"), "ui/Dockerfile")
+	pi := dockerfilePiVersionDefault(t, readDockerfile(t), "docker/Dockerfile")
+	if ui != pi {
+		t.Errorf("ui/Dockerfile PI_VERSION=%q must match docker/Dockerfile PI_VERSION=%q", ui, pi)
 	}
 }
 

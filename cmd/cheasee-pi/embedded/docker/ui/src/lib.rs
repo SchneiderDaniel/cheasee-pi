@@ -8,6 +8,14 @@ pub mod app;
 pub mod protocol;
 pub mod retry;
 
+// Server-only (ssr): auth.json resolution and the spawned `pi` RPC child.
+// Gated on `ssr` because both use `tokio::process`/`std`, which the wasm32
+// hydrate build must not link.
+#[cfg(feature = "ssr")]
+pub mod auth;
+#[cfg(feature = "ssr")]
+pub mod pi_process;
+
 // Browser-only transport. Gated so the server target never links web-sys.
 #[cfg(feature = "hydrate")]
 pub mod ws;

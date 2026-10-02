@@ -19,15 +19,135 @@ mod server {
     };
     use leptos::prelude::*;
     use serde_json::json;
+    use std::sync::Arc;
     use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
-    use cheasee_pi_ui::shell;
+    use cheasee_pi_ui::{auth, pi_process, shell};
 
     /// The fixed in-container listen port. The compose mapping publishes it to
     /// the host loopback; keep it in sync with that mapping's container side.
     pub const PORT: u16 = 3000;
 
     const CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+
+    /// Everything the composition root learned about the spawned `pi` child:
+    /// the pid registry that owns it, the child's pid, and the auth state the
+    /// `/debug/child` surface reports. Never holds secret values in a form the
+    /// HTTP layer can expose — only env var *names*.
+    pub struct SpawnState {
+        pub registry: pi_process::PidRegistry,
+        pub pid: Option<u32>,
+        pub session_id: String,
+        pub env_var_names: Vec<String>,
+        pub has_provider_keys: bool,
+        pub source: auth::AuthSource,
+        pub auth_error: Option<String>,
+    }
+
+    /// Router state. `Arc` so the pid registry ownership is shared, not copied,
+    /// across axum's per-request state clones.
+    #[derive(Clone)]
+    pub struct AppState {
+        pub options: LeptosOptions,
+        pub spawn: Arc<SpawnState>,
+    }
+
+    impl AppState {
+        /// Router state with no spawned child — for tests that only exercise
+        /// routing and SSR.
+        #[cfg(test)]
+        pub fn without_child(options: LeptosOptions) -> Self {
+            Self {
+                options,
+                spawn: Arc::new(SpawnState {
+                    registry: pi_process::PidRegistry::new(),
+                    pid: None,
+                    session_id: String::new(),
+                    env_var_names: Vec::new(),
+                    has_provider_keys: false,
+                    source: auth::AuthSource::Missing,
+                    auth_error: None,
+                }),
+            }
+        }
+    }
+
+    /// Resolve the provider env from the mounted auth.json, spawn
+    /// `pi --mode rpc`, and build the router state.
+    ///
+    /// Neither a missing/malformed auth.json nor a failed spawn is fatal: the
+    /// UI must still come up and report a clear "no provider keys" state (AC4),
+    /// mirroring `runUpE`'s warning.
+    pub fn bootstrap(options: LeptosOptions) -> AppState {
+        let (child_env, auth_error) = match auth::load_child_env() {
+            Ok(env) => (env, None),
+            Err(err) => {
+                eprintln!(
+                    "cheasee-pi-ui: WARNING: {err}; continuing with no provider keys"
+                );
+                (auth::ChildEnv::none(), Some(err.to_string()))
+            }
+        };
+
+        if !child_env.has_provider_keys {
+            eprintln!("  \u{26a0} No provider keys found. Models may not be available.");
+            eprintln!("  \u{2139} Use: cheasee-pi auth add <provider>");
+        }
+
+        let session_id = new_session_id();
+        let spec = pi_process::PiSpec::default();
+        let env_var_names = pi_process::child_env_var_names(&child_env);
+        let registry = pi_process::PidRegistry::new();
+        let has_provider_keys = child_env.has_provider_keys;
+        let source = child_env.source;
+
+        let pid = match pi_process::spawn(&spec, &child_env, &session_id) {
+            Ok(child) => {
+                let pid = child.pid;
+                eprintln!(
+                    "cheasee-pi-ui: spawned {} (pid {pid}, session {session_id})",
+                    spec.program.display()
+                );
+                registry.insert(session_id.clone(), child);
+                Some(pid)
+            }
+            Err(err) => {
+                eprintln!("cheasee-pi-ui: WARNING: could not spawn pi RPC child: {err}");
+                None
+            }
+        };
+
+        AppState {
+            options,
+            spawn: Arc::new(SpawnState {
+                registry,
+                pid,
+                session_id,
+                env_var_names,
+                has_provider_keys,
+                source,
+                auth_error,
+            }),
+        }
+    }
+
+    /// A short unique session marker injected as `CHEASEE_SESSION_ID`, mirroring
+    /// Go's `newSessionID` (hex, no dashes). Slice 8's marker-kill scans for it.
+    fn new_session_id() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        format!("{:016x}", nanos ^ (u64::from(std::process::id()) << 32))
+    }
+
+    fn auth_source_name(source: auth::AuthSource) -> &'static str {
+        match source {
+            auth::AuthSource::Config => "config",
+            auth::AuthSource::Legacy => "legacy",
+            auth::AuthSource::Missing => "missing",
+        }
+    }
 
     /// Liveness probe for the compose healthcheck.
     async fn health() -> impl IntoResponse {
@@ -50,13 +170,27 @@ mod server {
         }
     }
 
+    /// Debug surface for the spawned child: its PID and the child env var
+    /// *names* only (mirrors Go's `redactEnvValue`). Secret values are never
+    /// returned — `/proc/<pid>/environ` is the only other observable surface
+    /// and is uid-restricted.
+    async fn debug_child(State(state): State<AppState>) -> impl IntoResponse {
+        let spawn = &state.spawn;
+        Json(json!({
+            "pid": spawn.pid,
+            "session_id": spawn.session_id,
+            "child_count": spawn.registry.len(),
+            "has_provider_keys": spawn.has_provider_keys,
+            "auth_source": auth_source_name(spawn.source),
+            "auth_error": spawn.auth_error,
+            "env_var_names": spawn.env_var_names,
+        }))
+    }
+
     /// SSR entry: stream the hydrated shell for `/`.
-    async fn root(
-        State(options): State<LeptosOptions>,
-        request: Request<Body>,
-    ) -> Response<Body> {
-        let context_options = options.clone();
-        let shell_options = options;
+    async fn root(State(state): State<AppState>, request: Request<Body>) -> Response<Body> {
+        let context_options = state.options.clone();
+        let shell_options = state.options.clone();
         let handler = leptos_axum::render_app_to_stream_with_context(
             move || provide_context(context_options.clone()),
             move || shell(shell_options.clone()),
@@ -66,9 +200,9 @@ mod server {
 
     /// Build the router. Separate from `main` so tests can drive it via
     /// `tower::ServiceExt::oneshot` without binding a port.
-    pub fn router(options: LeptosOptions) -> Router {
-        let assets_dir = std::path::Path::new(options.site_root.as_ref())
-            .join(options.site_pkg_dir.as_ref());
+    pub fn router(state: AppState) -> Router {
+        let assets_dir = std::path::Path::new(state.options.site_root.as_ref())
+            .join(state.options.site_pkg_dir.as_ref());
         let assets = get_service(ServeDir::new(assets_dir)).layer(
             SetResponseHeaderLayer::overriding(
                 header::CACHE_CONTROL,
@@ -80,10 +214,11 @@ mod server {
             .route("/", get(root))
             .route("/health", get(health))
             .route("/ws", get(ws_handler))
+            .route("/debug/child", get(debug_child))
             // axum 0.8 path syntax: nest strips the prefix, so the hashed
             // bundles are served from `/assets/<file>` (AC2).
             .nest_service("/assets", assets)
-            .with_state(options)
+            .with_state(state)
     }
 }
 
@@ -102,11 +237,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let options = get_configuration(None)?.leptos_options;
 
+    // Resolve the provider env from the mounted auth.json and spawn the pi RPC
+    // child before serving (AC1/AC3/AC4). A missing auth.json or a failed
+    // spawn warns; the UI still serves.
+    let state = server::bootstrap(options);
+
     // Bind all interfaces inside the container: the host reaches this process
     // through docker's published DNAT port, and a loopback bind is unreachable
     // from there. Host-side reachability stays the compose mapping's job.
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", PORT)).await?;
-    axum::serve(listener, server::router(options)).await?;
+    axum::serve(listener, server::router(state)).await?;
     Ok(())
 }
 
@@ -116,6 +256,7 @@ fn main() {}
 #[cfg(all(test, feature = "ssr"))]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
@@ -152,6 +293,11 @@ mod tests {
             .build()
     }
 
+    /// Router state with no spawned child, for routing/SSR tests.
+    fn app(site: &std::path::Path) -> axum::Router {
+        server::router(server::AppState::without_child(options(site)))
+    }
+
     fn get(uri: &str) -> Request<Body> {
         Request::builder().uri(uri).body(Body::empty()).unwrap()
     }
@@ -159,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn health_returns_ok_json() {
         init_executor();
-        let app = server::router(options(&site_dir()));
+        let app = app(&site_dir());
         let res = app.oneshot(get("/health")).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let content_type = res
@@ -179,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn root_serves_hydration_shell() {
         init_executor();
-        let app = server::router(options(&site_dir()));
+        let app = app(&site_dir());
         let res = app.oneshot(get("/")).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let content_type = res
@@ -207,7 +353,7 @@ mod tests {
         let site = site_dir();
         std::fs::write(site.join("assets/cheasee-pi-ui.js"), "console.log(1)").unwrap();
         std::fs::write(site.join("assets/cheasee-pi-ui.wasm"), b"\0asm").unwrap();
-        let app = server::router(options(&site));
+        let app = app(&site);
 
         let res = app.clone().oneshot(get("/assets/cheasee-pi-ui.js")).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -230,7 +376,7 @@ mod tests {
     #[tokio::test]
     async fn ws_without_upgrade_is_rejected() {
         init_executor();
-        let app = server::router(options(&site_dir()));
+        let app = app(&site_dir());
         let res = app.oneshot(get("/ws")).await.unwrap();
         assert!(
             res.status().is_client_error(),
@@ -254,7 +400,7 @@ mod tests {
             .await
             .unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = server::router(options(&site_dir()));
+        let app = app(&site_dir());
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
@@ -284,7 +430,7 @@ mod tests {
             .await
             .unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = server::router(options(&site_dir()));
+        let app = app(&site_dir());
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
@@ -300,5 +446,43 @@ mod tests {
         socket.send(Message::Binary(vec![1, 2, 3])).await.unwrap();
         let echoed = socket.next().await.unwrap().unwrap();
         assert_eq!(echoed.into_data(), vec![1, 2, 3], "binary frame not echoed verbatim");
+    }
+
+    /// The child-debug surface reports the recorded pid and the child env var
+    /// *names* only — never values (mirrors Go's `redactEnvValue`; AC2's
+    /// "log env var names only" rule holds from the start).
+    #[tokio::test]
+    async fn debug_child_reports_pid_and_env_names_only() {
+        init_executor();
+        let state = server::AppState {
+            options: options(&site_dir()),
+            spawn: Arc::new(server::SpawnState {
+                registry: cheasee_pi_ui::pi_process::PidRegistry::new(),
+                pid: Some(4242),
+                session_id: "sess-test".to_string(),
+                env_var_names: vec!["OPENAI_API_KEY".to_string(), "PATH".to_string()],
+                has_provider_keys: true,
+                source: cheasee_pi_ui::auth::AuthSource::Config,
+                auth_error: None,
+            }),
+        };
+        let res = server::router(state).oneshot(get("/debug/child")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = to_bytes(res.into_body(), 64 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["pid"], 4242);
+        assert_eq!(json["session_id"], "sess-test");
+        assert_eq!(json["has_provider_keys"], true);
+        assert_eq!(json["auth_source"], "config");
+        assert_eq!(
+            json["env_var_names"],
+            serde_json::json!(["OPENAI_API_KEY", "PATH"])
+        );
+        // Names only: no value-bearing key exists on this surface.
+        assert!(json.get("env").is_none(), "debug surface must not expose env values");
+        assert!(
+            json.get("env_vars").is_none(),
+            "debug surface must not expose env values"
+        );
     }
 }

@@ -41,6 +41,9 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"ui/src/ws.rs",
 		"ui/src/protocol.rs",
 		"ui/src/retry.rs",
+		"ui/src/auth.rs",
+		"ui/src/pi_process.rs",
+		"ui/provider_env_map.json",
 		"ui/style/main.css",
 	}
 

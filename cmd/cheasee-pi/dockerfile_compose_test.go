@@ -378,3 +378,40 @@ func TestCompose_UIBuildContext(t *testing.T) {
 		t.Errorf("ui build dockerfile = %v, want Dockerfile", got)
 	}
 }
+
+// TestCompose_UIUserAlignsWithHost pins the uid alignment that lets the ui
+// server (non-root sidecar) traverse the host-owned 0700 ~/.config/cheasee-pi
+// bind mount and read auth.json (AC1). Without it the mount is unreadable and
+// AC1 is unreachable regardless of the resolution code.
+func TestCompose_UIUserAlignsWithHost(t *testing.T) {
+	svc := composeService(t, readCompose(t), "ui")
+	want := "${HOST_UID:-1000}:${HOST_GID:-1000}"
+	if got := svc["user"]; got != want {
+		t.Errorf("ui user = %v, want %q (host uid alignment for the 0700 config mount)", got, want)
+	}
+
+	// Empty host env must fall back to a numeric default, not an empty
+	// (compose-invalid) user string.
+	t.Setenv("HOST_UID", "")
+	t.Setenv("HOST_GID", "")
+	rendered := composeService(t, renderComposeInterpolation(t, readCompose(t)), "ui")
+	if got := rendered["user"]; got != "1000:1000" {
+		t.Errorf("ui user with HOST_UID/GID unset = %v, want 1000:1000", got)
+	}
+}
+
+// TestCompose_UIBuildPassesPiVersion pins the ui image's pi build arg, so the
+// UI-spawned RPC child is the same pi build the terminal client uses (AC5).
+func TestCompose_UIBuildPassesPiVersion(t *testing.T) {
+	build, ok := composeService(t, readCompose(t), "ui")["build"].(map[string]any)
+	if !ok {
+		t.Fatal("ui build section missing")
+	}
+	args, ok := build["args"].(map[string]any)
+	if !ok {
+		t.Fatalf("ui build args missing, got %v", build["args"])
+	}
+	if got := args["PI_VERSION"]; got != "${PI_VERSION:-latest}" {
+		t.Errorf("ui build arg PI_VERSION = %v, want ${PI_VERSION:-latest}", got)
+	}
+}

@@ -113,10 +113,16 @@ services:
     build:
       context: ui
       dockerfile: Dockerfile
+      args:
+        PI_VERSION: ${PI_VERSION:-latest}
     container_name: ${PI_UI_CONTAINER:-ui}
     labels:
       - com.cheaseepi.managed=true
     restart: unless-stopped
+    # Run as the host uid/gid so the server can traverse the host-owned 0700
+    # ~/.config/cheasee-pi bind mount and read auth.json (AC1). HOST_UID/GID
+    # are the same seam the agent service uses; unset defaults to 1000.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
       # Read-only: gh hosts.yml can hold a plaintext OAuth token when no system
