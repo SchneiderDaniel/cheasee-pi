@@ -75,6 +75,20 @@ impl std::error::Error for FramingError {
     }
 }
 
+// `io::Error` is not `Clone`, so the fan-out message cannot derive `Clone` on
+// `FramingError`. Reconstructing the `Io` arm preserves its kind and message,
+// which is all a `ProtocolMessage` consumer renders.
+impl Clone for FramingError {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Io(err) => Self::Io(io::Error::new(err.kind(), err.to_string())),
+            Self::NotUtf8 => Self::NotUtf8,
+            Self::TooLong { limit } => Self::TooLong { limit: *limit },
+            Self::UnterminatedTail { bytes } => Self::UnterminatedTail { bytes: *bytes },
+        }
+    }
+}
+
 impl From<io::Error> for FramingError {
     fn from(err: io::Error) -> Self {
         Self::Io(err)

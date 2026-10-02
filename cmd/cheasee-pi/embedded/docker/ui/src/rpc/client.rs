@@ -20,7 +20,7 @@
 //! which `pi_process` drains and this module never reads (AC4).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -92,14 +92,31 @@ pub enum ProtocolMessage {
     /// Valid JSON that belongs to no family this build knows, or a response
     /// that matched no pending id. Kept raw so a later slice can log it.
     Unknown(Value),
+    /// A transport-level framing fault on stdout — invalid UTF-8, an overlong
+    /// record, or a stream that ended mid-record. Deliberately distinct from
+    /// [`ProtocolMessage::ParseError`], which means the bytes *were* valid
+    /// UTF-8 and simply not valid JSON (AC5's two error classes).
+    Frame(FramingError),
     /// A record that could not be parsed, plus the `command:"parse"` failure
     /// pi emits for malformed input. Never routed through the id map: that
     /// record has no request id by design (`docs/rpc.md`).
     ParseError { raw: String, error: String },
 }
 
-type PendingMap = HashMap<String, oneshot::Sender<Result<Response, RpcError>>>;
-type Pending = Mutex<PendingMap>;
+type PendingSender = oneshot::Sender<Result<Response, RpcError>>;
+
+/// Pending-request bookkeeping, mutated only under one lock so that "may I
+/// register a request?" and "has the reader exited?" cannot race.
+#[derive(Default)]
+struct PendingState {
+    map: HashMap<String, PendingSender>,
+    /// Set by the stdout reader on exit and by [`RpcClient::shutdown`]. Once
+    /// true, no new request may be registered: it would be written to a stdin
+    /// nobody answers and wait forever.
+    terminated: bool,
+}
+
+type Pending = Mutex<PendingState>;
 
 /// State shared with the stdout reader task.
 struct Shared {
@@ -114,7 +131,6 @@ pub struct RpcClient {
     pending: Arc<Pending>,
     events: broadcast::Sender<ProtocolMessage>,
     next_id: AtomicU64,
-    gone: AtomicBool,
 }
 
 impl RpcClient {
@@ -125,7 +141,7 @@ impl RpcClient {
         stdin: Box<dyn AsyncWrite + Send + Unpin>,
     ) -> Self {
         let (events, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
-        let pending: Arc<Pending> = Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Pending> = Arc::new(Mutex::new(PendingState::default()));
         let shared = Shared {
             pending: Arc::clone(&pending),
             events: events.clone(),
@@ -137,7 +153,6 @@ impl RpcClient {
             pending,
             events,
             next_id: AtomicU64::new(0),
-            gone: AtomicBool::new(false),
         }
     }
 
@@ -155,9 +170,6 @@ impl RpcClient {
     /// overwritten with the generated one, so correlation cannot be lost by a
     /// caller that forgets to stamp an id.
     pub async fn request(&self, command: &Command) -> Result<Response, RpcError> {
-        if self.gone.load(Ordering::SeqCst) {
-            return Err(RpcError::ChildGone);
-        }
         let id = format!("req_{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
         let mut value = serde_json::to_value(command).map_err(|source| RpcError::Protocol {
             raw: String::new(),
@@ -167,13 +179,20 @@ impl RpcClient {
             map.insert("id".to_string(), Value::String(id.clone()));
         }
 
-        // Register before writing: the response can arrive before `write_all`
-        // returns, and an unregistered id would be dropped as a fallthrough.
+        // Register under the same lock the reader takes when it terminates, so
+        // a request can never be registered after the reader has exited. The
+        // response can arrive before `write_all` returns, hence register first.
         let (tx, rx) = oneshot::channel();
-        self.lock_pending().insert(id.clone(), tx);
+        {
+            let mut state = self.lock_pending();
+            if state.terminated {
+                return Err(RpcError::ChildGone);
+            }
+            state.map.insert(id.clone(), tx);
+        }
 
         if let Err(err) = self.write_value(&value).await {
-            self.lock_pending().remove(&id);
+            self.lock_pending().map.remove(&id);
             self.reject_all_pending();
             return Err(err);
         }
@@ -204,12 +223,14 @@ impl RpcClient {
     /// shutdown ("Pi disposes the active runtime before exiting"). Idempotent;
     /// later requests fail with [`RpcError::ChildGone`] instead of hanging.
     pub async fn shutdown(&self) {
-        self.gone.store(true, Ordering::SeqCst);
+        // Mark terminal and reject in-flight requests under the one lock the
+        // reader also uses, so a request racing shutdown cannot slip in after.
+        self.reject_all_pending();
         self.stdin.lock().await.take();
     }
 
     async fn write_value(&self, value: &Value) -> Result<(), RpcError> {
-        if self.gone.load(Ordering::SeqCst) {
+        if self.lock_pending().terminated {
             return Err(RpcError::ChildGone);
         }
         let bytes = encode_record(value).map_err(|source| RpcError::Protocol {
@@ -229,7 +250,7 @@ impl RpcClient {
         stdin.flush().await.map_err(|_| RpcError::ChildGone)
     }
 
-    fn lock_pending(&self) -> std::sync::MutexGuard<'_, PendingMap> {
+    fn lock_pending(&self) -> std::sync::MutexGuard<'_, PendingState> {
         self.pending.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -240,10 +261,13 @@ impl RpcClient {
     }
 }
 
-/// Drain the pending map into `ChildGone` errors.
+/// Mark the client terminal and reject everything in flight. The caller is
+/// told the child is gone, never left waiting; a later `request` fails fast
+/// instead of registering into a dead map.
 fn reject_all(pending: &Pending) {
-    let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
-    for (_, tx) in map.drain() {
+    let mut state = pending.lock().unwrap_or_else(|e| e.into_inner());
+    state.terminated = true;
+    for (_, tx) in state.map.drain() {
         let _ = tx.send(Err(RpcError::ChildGone));
     }
 }
@@ -262,26 +286,17 @@ where
         match reader.next_record().await {
             Ok(Some(bytes)) => match String::from_utf8(bytes) {
                 Ok(raw) => dispatch(&shared, &raw),
-                Err(err) => emit(
-                    &shared,
-                    ProtocolMessage::ParseError {
-                        raw: String::from_utf8_lossy(err.as_bytes()).into_owned(),
-                        error: FramingError::NotUtf8.to_string(),
-                    },
-                ),
+                // A transport encoding fault, not a JSON one. It must not be
+                // reported as a parse failure (AC5 taxonomy).
+                Err(_) => emit(&shared, ProtocolMessage::Frame(FramingError::NotUtf8)),
             },
             // Clean EOF: the child is gone.
             Ok(None) => break,
             Err(err) => {
-                // Surfaces a mid-record kill as a visible error before the
+                // A framing fault (mid-record kill, overlong record, stdout
+                // read failure) is surfaced as a transport error before the
                 // pending requests are rejected below.
-                emit(
-                    &shared,
-                    ProtocolMessage::ParseError {
-                        raw: String::new(),
-                        error: err.to_string(),
-                    },
-                );
+                emit(&shared, ProtocolMessage::Frame(err));
                 break;
             }
         }
@@ -335,6 +350,7 @@ fn dispatch(shared: &Shared, raw: &str) {
                 .pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
+                .map
                 .remove(&id);
             if let Some(tx) = sender {
                 let decoded = serde_json::from_value::<Response>(value).map_err(|source| {
@@ -805,6 +821,45 @@ mod tests {
         assert!(matches!(err, RpcError::ChildGone), "got {err:?}");
     }
 
+    /// Audit fix: once stdout hits EOF the client is terminal. A later request
+    /// must fail fast, not be written to a stdin nobody answers and hang — the
+    /// child's stdin stays open here precisely to exercise that.
+    #[tokio::test]
+    async fn request_after_stdout_eof_fails_fast_instead_of_hanging() {
+        let (client, to_child, child_stdin) = harness();
+        drop(to_child); // stdout EOF
+        let _child_stdin = child_stdin; // keep stdin writable
+
+        let err = timeout(BOUND, client.request(&abort_cmd()))
+            .await
+            .expect("a request after stdout EOF must not hang")
+            .unwrap_err();
+        assert!(matches!(err, RpcError::ChildGone), "got {err:?}");
+    }
+
+    /// Audit fix: invalid UTF-8 is a transport framing fault, not a JSON parse
+    /// error. It surfaces as `Frame`, and it is not fatal: the reader
+    /// continues to the next record.
+    #[tokio::test]
+    async fn non_utf8_record_is_surfaced_as_a_framing_fault() {
+        let (client, mut to_child, _from_child) = harness();
+        let mut events = client.events();
+
+        to_child.write_all(b"\xff\xfe\n").await.unwrap();
+        to_child.flush().await.unwrap();
+        match next_event(&mut events).await {
+            ProtocolMessage::Frame(FramingError::NotUtf8) => {}
+            other => panic!("expected Frame(NotUtf8), got {other:?}"),
+        }
+
+        // Not fatal: the next well-formed record is still delivered.
+        write_record(&mut to_child, json!({"type":"agent_start"})).await;
+        assert!(matches!(
+            next_event(&mut events).await,
+            ProtocolMessage::Session(Event::AgentStart)
+        ));
+    }
+
     #[tokio::test]
     async fn stdin_write_failure_rejects_pending_requests() {
         let (client, _to_child, from_child) = harness();
@@ -936,11 +991,10 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, RpcError::ChildGone), "got {err:?}");
 
-        // The unterminated tail is surfaced, never delivered as a record.
+        // The unterminated tail is surfaced as a transport framing fault,
+        // never delivered as a record.
         match next_event(&mut events).await {
-            ProtocolMessage::ParseError { error, .. } => {
-                assert!(error.contains("mid-record"), "error = {error}")
-            }
+            ProtocolMessage::Frame(FramingError::UnterminatedTail { .. }) => {}
             other => panic!("expected a surfaced framing fault, got {other:?}"),
         }
 
