@@ -31,7 +31,7 @@ leptos_axum = { version = "0.8", optional = true }
 # The no-router SSR path never calls leptos_axum's private `init_executor`, so
 # the global async executor is initialised explicitly (see src/main.rs).
 any_spawner = { version = "0.3", optional = true }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "io-util", "time"], optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "process", "io-util", "time", "sync"], optional = true }
 # Unix signal-to-process-group kill for the spawned `pi` child (slice 8's
 # marker-kill reuses it). Already present transitively via tokio/net; made a
 # direct dep so `kill(-pid, SIGTERM)` needs no shell-out.

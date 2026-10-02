@@ -92,15 +92,33 @@ impl StderrBuffer {
 
 /// A running `pi --mode rpc` child. Owns the pipes slice 4 consumes and the
 /// `stderr` tail for diagnostics.
+///
+/// `stdin`/`stdout` are `Option` because exactly one consumer may hold them:
+/// [`PiChild::take_io`] hands them to the RPC client once, and a second call
+/// returns `None`. Two stdout readers would silently steal records from each
+/// other (AC4).
 pub struct PiChild {
     pub child: Child,
     pub pid: u32,
-    pub stdin: ChildStdin,
-    pub stdout: ChildStdout,
+    pub stdin: Option<ChildStdin>,
+    pub stdout: Option<ChildStdout>,
     pub stderr: Arc<Mutex<StderrBuffer>>,
 }
 
+/// The protocol pipes, handed to the RPC client exactly once.
+pub struct ChildIo {
+    pub stdin: ChildStdin,
+    pub stdout: ChildStdout,
+}
+
 impl PiChild {
+    /// Hand over the protocol pipes. Returns `None` on a second call, so the
+    /// single-reader invariant is enforced by the type, not by convention.
+    pub fn take_io(&mut self) -> Option<ChildIo> {
+        let stdin = self.stdin.take()?;
+        let stdout = self.stdout.take()?;
+        Some(ChildIo { stdin, stdout })
+    }
     /// Snapshot the drained stderr without holding the lock.
     pub fn stderr_snapshot(&self) -> StderrBuffer {
         self.stderr
@@ -188,8 +206,8 @@ pub fn spawn(spec: &PiSpec, env: &ChildEnv, session_id: &str) -> io::Result<PiCh
     Ok(PiChild {
         child,
         pid,
-        stdin,
-        stdout,
+        stdin: Some(stdin),
+        stdout: Some(stdout),
         stderr,
     })
 }
@@ -316,7 +334,8 @@ mod tests {
 
     /// Read the shim's `KEY=VALUE` stdout lines up to its `END` marker.
     async fn read_shim_env(child: &mut PiChild) -> HashMap<String, String> {
-        let mut lines = BufReader::new(&mut child.stdout).lines();
+        let io = child.take_io().expect("shim pipes are handed over once");
+        let mut lines = BufReader::new(io.stdout).lines();
         let mut map = HashMap::new();
         while let Some(line) = lines.next_line().await.unwrap() {
             if line == "END" {
@@ -442,8 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn child_env_var_names_lists_names_only_sorted() {
-        let mut env = ChildEnv::none();
+    fn child_env_var_names_lists_names_only_sorted() {        let mut env = ChildEnv::none();
         env.vars.insert("OPENAI_API_KEY".into(), "very-secret".into());
         env.vars.insert("GH_TOKEN".into(), "also-secret".into());
 
@@ -464,6 +482,30 @@ mod tests {
             !names.iter().any(|n| n.contains("secret")),
             "names-only list leaked a value: {names:?}"
         );
+    }
+
+    /// AC4: stdout must have exactly one reader. `take_io` enforces it.
+    #[tokio::test]
+    async fn take_io_hands_pipes_over_exactly_once() {
+        let dir = unique_dir("take-io");
+        let spec = spec_for(&write_shim(&dir));
+        let mut child = spawn(&spec, &ChildEnv::none(), "sess-io").unwrap();
+
+        let io = child.take_io().expect("first call hands the pipes over");
+        let mut lines = BufReader::new(io.stdout).lines();
+        let first = lines.next_line().await.unwrap().unwrap_or_default();
+        assert!(
+            first.starts_with("PATH="),
+            "handed-over stdout must still carry the child's records: {first:?}"
+        );
+
+        assert!(child.stdin.is_none(), "stdin must be moved out");
+        assert!(child.stdout.is_none(), "stdout must be moved out");
+        assert!(child.take_io().is_none(), "a second call must return None");
+
+        drop(io.stdin);
+        child.kill();
+        let _ = child.wait().await;
     }
 
     #[tokio::test]
@@ -500,7 +542,7 @@ mod tests {
             .expect("pi must be on PATH — run this inside the built ui image");
 
         let mut out = String::new();
-        BufReader::new(&mut child.stdout)
+        BufReader::new(child.take_io().expect("pi pipes").stdout)
             .read_to_string(&mut out)
             .await
             .unwrap();

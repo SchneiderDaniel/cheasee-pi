@@ -1,0 +1,12 @@
+{"type":"extension_ui_request","id":"uuid-1","method":"select","title":"Allow dangerous command?","options":["Allow","Block"],"timeout":10000}
+{"type":"extension_ui_request","id":"uuid-2","method":"confirm","title":"Clear session?","message":"All messages will be lost.","timeout":5000}
+{"type":"extension_ui_request","id":"uuid-3","method":"input","title":"Enter a value","placeholder":"type something..."}
+{"type":"extension_ui_request","id":"uuid-4","method":"editor","title":"Edit some text","prefill":"Line 1\nLine 2"}
+{"type":"extension_ui_request","id":"uuid-5","method":"notify","message":"Command blocked by user","notifyType":"warning"}
+{"type":"extension_ui_request","id":"uuid-6","method":"setStatus","statusKey":"my-ext","statusText":"Turn 3 running..."}
+{"type":"extension_ui_request","id":"uuid-7","method":"setWidget","widgetKey":"w","widgetLines":["a"],"widgetPlacement":"aboveEditor"}
+{"type":"extension_ui_request","id":"uuid-8","method":"setTitle","title":"New title"}
+{"type":"extension_ui_request","id":"uuid-9","method":"set_editor_text","text":"draft"}
+{"type":"extension_ui_response","id":"uuid-1","value":"Allow"}
+{"type":"extension_ui_response","id":"uuid-2","confirmed":true}
+{"type":"extension_ui_response","id":"uuid-3","cancelled":true}
