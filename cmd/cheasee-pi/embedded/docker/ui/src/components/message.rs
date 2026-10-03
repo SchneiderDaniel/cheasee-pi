@@ -36,29 +36,36 @@ pub fn Transcript() -> impl IntoView {
             </p>
             <div class="rows">
                 <For
-                    each=move || state.rows.get()
+                    each=move || state.rows_view.get()
                     key=|row| row.id
-                    children=move |row| match row.kind {
-                        RowKind::Text(body) => {
-                            view! { <pre class="block block-text" aria-live="off">{body.text}</pre> }
-                                .into_any()
-                        }
-                        RowKind::Thinking(body) => {
-                            view! { <pre class="block block-thinking" aria-live="off">{body.text}</pre> }
-                                .into_any()
-                        }
-                        RowKind::Tool(card) => view! { <ToolCardRow card=card/> }.into_any(),
-                        RowKind::Marker(marker) => view! { <Marker marker=marker/> }.into_any(),
-                        RowKind::ExtensionError(card) => {
-                            view! {
-                                <div class="extension-error" role="alert">
-                                    {format!(
-                                        "extension error ({}): {}",
-                                        card.event, card.error,
-                                    )}
-                                </div>
+                    children=move |row| {
+                        // `id` is the stable key; read the payload signal
+                        // inside the row so a same-id delta (text, tool
+                        // snapshot, final status) updates this row in place
+                        // instead of freezing at its first value (AC1/AC5).
+                        let kind = row.kind;
+                        move || match kind.get() {
+                            RowKind::Text(body) => {
+                                view! { <pre class="block block-text" aria-live="off">{body.text}</pre> }
+                                    .into_any()
                             }
-                            .into_any()
+                            RowKind::Thinking(body) => {
+                                view! { <pre class="block block-thinking" aria-live="off">{body.text}</pre> }
+                                    .into_any()
+                            }
+                            RowKind::Tool(card) => view! { <ToolCardRow card=card/> }.into_any(),
+                            RowKind::Marker(marker) => view! { <Marker marker=marker/> }.into_any(),
+                            RowKind::ExtensionError(card) => {
+                                view! {
+                                    <div class="extension-error" role="alert">
+                                        {format!(
+                                            "extension error ({}): {}",
+                                            card.event, card.error,
+                                        )}
+                                    </div>
+                                }
+                                .into_any()
+                            }
                         }
                     }
                 />

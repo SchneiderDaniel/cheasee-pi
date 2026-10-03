@@ -9,11 +9,13 @@
 //! [`ChatState`] is the reactive adapter: it owns an [`Assembler`] and copies
 //! its snapshot into Leptos signals, coalescing per-delta writes behind a
 //! frame-rate flush so a token stream does not become one DOM mutation per
-//! token (precedent: the context-info TPS sampler, 150 ms). The single display
-//! signal is `rows` — replayed history followed by the live run — keyed by
-//! [`Row::id`] in the view.
+//! token (precedent: the context-info TPS sampler, 150 ms). The `rows` signal
+//! is the replayed-history + live-run snapshot (history followed by the live
+//! run); the view iterates `rows_view`, a keyed list of [`RowView`] handles
+//! whose `id` is stable across flushes and whose `kind` is a reused signal, so
+//! a same-id delta reaches the DOM without re-keying the row.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 use serde_json::Value;
@@ -124,6 +126,41 @@ impl RowKind {
 pub struct Row {
     pub id: u64,
     pub kind: RowKind,
+}
+
+/// A reactive handle to one transcript row, for the keyed `<For>`.
+///
+/// `id` is the stable key; `kind` is a signal reused across flushes so a
+/// same-id update (a text delta, a tool snapshot, a final status) mutates the
+/// retained row instead of leaving the view frozen at the first value it saw.
+#[derive(Clone, Copy, Debug)]
+pub struct RowView {
+    pub id: u64,
+    pub kind: RwSignal<RowKind>,
+}
+
+/// Builds the view list for `rows`, reusing the payload signal of every id
+/// already present in `existing` and creating signals only for new rows.
+///
+/// Pure and public so the renderer regression test can assert that a same-id
+/// update actually mutates the signal the view reads.
+pub fn reconcile_row_views(existing: &[RowView], rows: &[Row]) -> Vec<RowView> {
+    let by_id: HashMap<u64, RwSignal<RowKind>> =
+        existing.iter().map(|view| (view.id, view.kind)).collect();
+    rows.iter()
+        .map(|row| {
+            let kind = match by_id.get(&row.id) {
+                Some(sig) => {
+                    if sig.get_untracked() != row.kind {
+                        sig.set(row.kind.clone());
+                    }
+                    *sig
+                }
+                None => RwSignal::new(row.kind.clone()),
+            };
+            RowView { id: row.id, kind }
+        })
+        .collect()
 }
 
 /// Cumulative token/cost readout. `available` is false until pi reports usage
@@ -840,8 +877,12 @@ fn usage_from_value(value: &Value) -> Option<Usage> {
 pub struct ChatState {
     assembler: RwSignal<Assembler>,
     /// The ordered transcript the view renders: replayed history followed by
-    /// the live run, keyed by [`Row::id`].
+    /// the live run, keyed by [`Row::id`]. Snapshot for consumers/tests.
     pub rows: RwSignal<Vec<Row>>,
+    /// The keyed view list derived from [`Self::rows`]: stable [`RowView::id`]
+    /// keys with a reused payload signal, so a same-id update reaches the DOM
+    /// without re-keying the row (AC5).
+    pub rows_view: RwSignal<Vec<RowView>>,
     pub usage: RwSignal<Usage>,
     pub status: RwSignal<StreamStatus>,
     pub will_retry: RwSignal<Option<bool>>,
@@ -863,6 +904,7 @@ impl ChatState {
         Self {
             assembler: RwSignal::new(Assembler::default()),
             rows: RwSignal::new(Vec::new()),
+            rows_view: RwSignal::new(Vec::new()),
             usage: RwSignal::new(Usage::default()),
             status: RwSignal::new(StreamStatus::default()),
             will_retry: RwSignal::new(None),
@@ -1009,6 +1051,11 @@ impl ChatState {
         let (rows, usage, status, will_retry) = self
             .assembler
             .with(|a| (a.transcript(), a.usage(), a.status(), a.will_retry()));
+        // Update the reused per-row payload signals before publishing the
+        // keyed view list, so same-id deltas mutate the retained row instead
+        // of freezing at the value first rendered (AC1/AC5).
+        let views = reconcile_row_views(&self.rows_view.get_untracked(), &rows);
+        self.rows_view.set(views);
         self.rows.set(rows);
         self.usage.set(usage);
         self.status.set(status);

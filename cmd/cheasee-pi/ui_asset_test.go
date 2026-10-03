@@ -251,6 +251,11 @@ func TestUI_EventWidgets(t *testing.T) {
 	if strings.Contains(message, "collect_view") {
 		t.Error("components/message.rs must not rebuild the whole transcript per flush (no collect_view)")
 	}
+	// Each row must read its payload signal, not a captured snapshot, or a
+	// same-id delta leaves the row frozen at its first value (AC1/AC5).
+	if !strings.Contains(message, "kind.get()") {
+		t.Error("components/message.rs must read each row's payload signal so same-id updates reach the view")
+	}
 
 	// One retry/compaction surface only: the inline spans moved to banners.rs.
 	controls := uiAsset(t, "src", "components", "controls.rs")

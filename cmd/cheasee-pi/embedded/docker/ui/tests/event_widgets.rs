@@ -6,17 +6,17 @@
 //! `session_controls.rs`). Go structural guards cover the keyed `<For>` and the
 //! single-surface wiring.
 //!
-//! Functions are `tool_card_*`, `banners_*` and `rpc_*`-prefixed so targeted
-//! filters reach the right group.
+//! Functions are `tool_card_*`, `banners_*`, `rpc_*` and `renderer_*`-prefixed
+//! so targeted filters reach the right group.
 
 use cheasee_pi_ui::bridge::ServerMessage;
 use cheasee_pi_ui::controls::{
     CompactionPhase, CompactionReason, CompactionState, ControlsState, RetryPill, RetrySource,
 };
 use cheasee_pi_ui::protocol::Event;
-use cheasee_pi_ui::stream::MAX_LIVE_TEXT;
+use cheasee_pi_ui::stream::{reconcile_row_views, Assembler, MAX_LIVE_TEXT};
 use cheasee_pi_ui::tool_card::{content_text, ToolCard, ToolStatus};
-use leptos::prelude::{Get, Owner};
+use leptos::prelude::{Get, GetUntracked, Owner};
 use serde_json::{json, Value};
 
 fn controls() -> ControlsState {
@@ -381,4 +381,78 @@ fn rpc_unmodelled_event_still_decodes_as_unknown() {
     let value: Value = json!({"type": "future_event"});
     let event: Event = serde_json::from_value(value).unwrap();
     assert!(matches!(event, Event::Unknown));
+}
+
+// ── Renderer reactivity (keyed rows) ─────────────────────────────────────────
+
+fn delta(index: u32, delta: &str) -> Event {
+    Event::MessageUpdate {
+        message: None,
+        assistant_message_event: json!({"type": "text_delta", "contentIndex": index, "delta": delta}),
+        usage: None,
+    }
+}
+
+/// Audit regression: the keyed `<For>` renders each row from a stable `id` and
+/// a reused payload signal. A same-id text update must mutate that signal — if
+/// the view captured a snapshot, it would freeze at the first delta.
+#[test]
+fn renderer_same_id_text_update_reaches_row_signal() {
+    let owner = Owner::new();
+    owner.set();
+    let mut a = Assembler::default();
+    a.apply(&Event::MessageStart { message: json!({}) });
+    a.apply(&delta(0, "Hel"));
+    let first = reconcile_row_views(&[], a.rows());
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        first[0].kind.get_untracked().as_text().unwrap().text,
+        "Hel"
+    );
+
+    a.apply(&delta(0, "lo"));
+    let second = reconcile_row_views(&first, a.rows());
+    assert_eq!(second[0].id, first[0].id, "stable key");
+    assert_eq!(
+        second[0].kind.get_untracked().as_text().unwrap().text,
+        "Hello",
+        "same-id delta must reach the retained row signal (AC1)"
+    );
+}
+
+/// Audit regression: a tool card keyed by `toolCallId` updates output and final
+/// status in place — no second row, and an error result is not shown as success.
+#[test]
+fn renderer_same_id_tool_update_reaches_row_signal() {
+    let owner = Owner::new();
+    owner.set();
+    let mut a = Assembler::default();
+    a.apply(&Event::ToolExecutionStart {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        args: json!({"command": "ls"}),
+    });
+    let first = reconcile_row_views(&[], a.rows());
+    assert_eq!(first.len(), 1);
+
+    a.apply(&Event::ToolExecutionUpdate {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        args: json!({"command": "ls"}),
+        partial_result: json!({"content": [{"type": "text", "text": "partial"}]}),
+    });
+    a.apply(&Event::ToolExecutionEnd {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        result: json!({"content": [{"type": "text", "text": "boom"}], "isError": true}),
+        is_error: true,
+    });
+
+    let second = reconcile_row_views(&first, a.rows());
+    assert_eq!(second.len(), 1, "one card per toolCallId");
+    assert_eq!(second[0].id, first[0].id, "stable key");
+    let kind = second[0].kind.get_untracked();
+    let card = kind.as_tool().expect("tool row");
+    assert_eq!(card.output, "boom");
+    assert_eq!(card.status, ToolStatus::Error);
 }
