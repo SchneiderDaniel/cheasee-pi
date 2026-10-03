@@ -95,11 +95,19 @@ export async function runPreAudit(
 ): Promise<PreAuditResult> {
 	const { issueNum, worktreePath, defaultBranch } = options;
 
+	// Retry budget is scoped to the active branch only. The file-level entry
+	// list includes entries from abandoned branches too, which would let phantom
+	// retries exhaust the budget before the active branch has used it.
+	const branchEntries = (ctx.sessionManager.getBranch() ?? []) as unknown as Array<
+		Record<string, unknown>
+	>;
+	const retryCount = countRetryAttempts(mapSessionEntriesToRetryEntries(branchEntries), issueNum);
+
 	// 0. Check project trust before any LSP server interaction
 	const trustCheck = checkProjectTrust(ctx);
 	if (!trustCheck.trusted) {
 		pi.sendUserMessage?.(trustCheck.note, { deliverAs: "followUp" });
-		return { proceed: true, note: trustCheck.note };
+		return { proceed: true, note: trustCheck.note, diagnostics: [], retryCount };
 	}
 
 	// 1. Get modified files via git diff
@@ -125,14 +133,19 @@ export async function runPreAudit(
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? (err as any).stderr?.toString() || err.message : String(err);
 		pi.sendUserMessage?.(`LSP audit skipped: git diff failed (${msg})`, { deliverAs: "followUp" });
-		return { proceed: true, note: `LSP audit skipped: git diff failed` };
+		return { proceed: true, note: `LSP audit skipped: git diff failed`, diagnostics: [], retryCount };
 	}
 
 	const modifiedFiles = extractModifiedFiles(gitOutput, resolvePath(worktreePath));
 
 	// AC3: No modified files → skip
 	if (modifiedFiles.length === 0) {
-		return { proceed: true, note: "LSP audit skipped: no modified files in Developer session" };
+		return {
+			proceed: true,
+			note: "LSP audit skipped: no modified files in Developer session",
+			diagnostics: [],
+			retryCount,
+		};
 	}
 
 	// 2. Load server mappings from settings (resolved relative to worktree)
@@ -165,7 +178,7 @@ export async function runPreAudit(
 	if (hasServerErrors && hasNoDiagnostics) {
 		// All servers failed — skip audit, proceed with warning
 		const note = `LSP audit skipped: all configured servers failed — ${merged.errors.join("; ")}`;
-		return { proceed: true, note };
+		return { proceed: true, note, diagnostics: [], retryCount };
 	}
 
 	// 5. Diagnostics already filtered per-server by auditFileGroup (R3 AC3).
@@ -177,21 +190,15 @@ export async function runPreAudit(
 		if (merged.errors.length > 0) {
 			note += ` (server warnings: ${merged.errors.join("; ")})`;
 		}
-		return { proceed: true, note };
+		return { proceed: true, note, diagnostics: filteredDiags, retryCount };
 	}
 
-	// 6. Check retry count
-	const sessionManager = ctx.sessionManager;
-	const entries = mapSessionEntriesToRetryEntries(
-		sessionManager.getEntries() as unknown as Array<Record<string, unknown>>,
-	);
-	const retryCount = countRetryAttempts(entries, issueNum);
-
+	// 6. Retry budget was read at entry from the active branch only.
 	if (!shouldRetry(retryCount)) {
 		// AC2: Retries exhausted → proceed to Audit with errors documented
 		const formatted = formatDiagnostics(filteredDiags);
 		const note = `LSP audit exhausted (${retryCount}/${MAX_RETRIES} retries). Remaining issues:\n${formatted}`;
-		return { proceed: true, note };
+		return { proceed: true, note, diagnostics: filteredDiags, retryCount };
 	}
 
 	// R2: Inject follow-up message to Developer, keep in Implementation
@@ -218,6 +225,8 @@ export async function runPreAudit(
 	return {
 		proceed: false,
 		note: `LSP audit: ${filteredDiags.length} issue(s) found — retry ${attemptNum}/${MAX_RETRIES}`,
+		diagnostics: filteredDiags,
+		retryCount,
 	};
 }
 

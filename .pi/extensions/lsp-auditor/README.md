@@ -8,7 +8,7 @@
 - **Supervisor integration** — Called automatically by the supervisor extension during the Audit stage
 - **Multi-language support** — TypeScript, JavaScript, TSX, JSX, Python, Rust, Go, and more via configurable server mappings
 - **Per-server severity thresholds** — Filter diagnostics by severity per language server (e.g., errors only for strict checks)
-- **Retry logic** — Up to 3 retry attempts per audit, backed by session-stored retry counters
+- **Retry logic** — Up to 3 retry attempts per audit, backed by active-branch-scoped retry counters
 - **File grouping** — Groups files by matching LSP server (e.g., all `.ts` files go to `typescript-language-server`)
 - **Structured diagnostics output** — Returns `file`, `line`, `column`, `severity`, and `message` for every finding
 - **Git-aware** — Only audits files modified since the default branch
@@ -189,7 +189,7 @@ flowchart TD
 
 - **File discovery via `git diff`** — Only checks modified files vs defaultBranch. `git diff <defaultBranch> --name-only`.
 - **Per-server severity threshold** — Each server configures `severityThreshold` (error/warning/info). Diagnostics below threshold filtered out.
-- **Retry with session-stored counters** — Up to 3 retries per server group. `shouldRetry()` checks both attempt count and transient vs permanent error types.
+- **Retry with active-branch-scoped counters** — Up to 3 retries per issue, counted from `sessionManager.getBranch()` (abandoned branches never consume the budget). `shouldRetry()` checks the attempt count.
 - **Trust gate** — Untrusted projects skip entirely (returns `{ proceed: true }` with warning). Matches VS Code Restricted Mode.
 - **Passive by default** — No lifecycle hooks. Activated by supervisor's `runPreAudit()` or manual `/lsp-auditor`.
 - **Spawn + didOpen protocol** — LSP servers spawned on-demand, files opened via `didOpen`, diagnostics from `publishDiagnostics` notifications.

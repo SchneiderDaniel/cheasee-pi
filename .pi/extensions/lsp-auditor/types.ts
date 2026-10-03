@@ -40,6 +40,8 @@ export interface PreAuditOptions {
 export interface PreAuditResult {
 	proceed: boolean;
 	note: string;
+	diagnostics: LspDiagnostic[];
+	retryCount: number;
 }
 
 // ─── Port Interfaces ─────────────────────────────────────────────────
