@@ -127,6 +127,32 @@ func TestImageNamePrefix_IsSingleSourceOfTruth(t *testing.T) {
 	}
 }
 
+// TestListCheaseePiImages_includesUI (AC5): the `ui` service's built image is
+// `cheasee-pi-<slug>-ui`, which imageNamePrefix already covers — no code change,
+// but a regression pin that prune-images never drops the sidecar image.
+func TestListCheaseePiImages_includesUI(t *testing.T) {
+	const ui = "cheasee-pi-repoA-ui:latest"
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		return &mockCmd{outputFn: func() ([]byte, error) {
+			return []byte("cheasee-pi-repoA-cheasee-pi:latest|3.4GB\n" + ui + "|0.9GB\n"), nil
+		}}
+	})
+
+	images, err := listCheaseePiImages(context.Background())
+	if err != nil {
+		t.Fatalf("listCheaseePiImages: %v", err)
+	}
+	if !slices.ContainsFunc(images, func(img cheaseePiImage) bool { return img.Ref == ui }) {
+		t.Errorf("listCheaseePiImages must include %s, got %v", ui, images)
+	}
+	if !isCheaseePiImageRef(ui) {
+		t.Errorf("isCheaseePiImageRef(%q) = false, want true", ui)
+	}
+}
+
 func TestListCheaseePiImages_FilterAndPostFilter(t *testing.T) {
 	var recorded [][]string
 	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
@@ -692,7 +718,7 @@ func TestRunPruneImagesE_rerunEmptyIsIdempotent(t *testing.T) {
 
 func TestPruneImages_Journey(t *testing.T) {
 	resetPruneState(t)
-	const imageLS = "cheasee-pi-repoA-cheasee-pi:latest|3.4GB\ncheasee-pi-repoA-codeflow:latest|1.2GB\n"
+	const imageLS = "cheasee-pi-repoA-cheasee-pi:latest|3.4GB\ncheasee-pi-repoA-codeflow:latest|1.2GB\ncheasee-pi-repoA-ui:latest|0.9GB\n"
 
 	// 1. A managed container exists → the user sees the clean-first
 	//    instruction and nothing is removed.
@@ -710,7 +736,7 @@ func TestPruneImages_Journey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("journey: dry-run: %v", err)
 	}
-	for _, want := range []string{"cheasee-pi-repoA-cheasee-pi:latest", "cheasee-pi-repoA-codeflow:latest", "Dry-run"} {
+	for _, want := range []string{"cheasee-pi-repoA-cheasee-pi:latest", "cheasee-pi-repoA-codeflow:latest", "cheasee-pi-repoA-ui:latest", "Dry-run"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("journey: dry-run must report %q, got %q", want, stderr)
 		}
@@ -727,6 +753,7 @@ func TestPruneImages_Journey(t *testing.T) {
 	for _, want := range []string{
 		"Removed image cheasee-pi-repoA-cheasee-pi:latest",
 		"Removed image cheasee-pi-repoA-codeflow:latest",
+		"Removed image cheasee-pi-repoA-ui:latest",
 		"Pruned dangling Docker images",
 		"Pruned Docker build cache (all projects)",
 	} {

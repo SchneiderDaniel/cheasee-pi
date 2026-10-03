@@ -160,6 +160,20 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// stop/cleanup commands in front of it the moment pi launches.
 	fmt.Fprintf(os.Stderr, "  ℹ inside pi: /help · exit session: Ctrl+D · stop container: cheasee-pi down · full cleanup: cheasee-pi clean\n")
 
+	// Phase 6b: publish the live-session claim on the shared workspace mount so
+	// the ui sidecar's cross-container in-use guard can refuse a second attach.
+	// Best-effort: a failed claim write degrades the guard to advisory, never a
+	// failed start. The claim is dropped on every exit path below.
+	sessionDir := filepath.Join(root, ".pi", "sessions")
+	if err := writeInUseClaim(sessionDir, sessionID, upName); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ in-use claim: %v\n", err)
+	}
+	defer func() {
+		if err := removeInUseClaim(sessionDir, sessionID); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ in-use claim cleanup: %v\n", err)
+		}
+	}()
+
 	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
 	// age reaping is clean's job, a pre-start age sweep could kill a long-
 	// running session the user still has attached elsewhere)

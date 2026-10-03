@@ -458,6 +458,7 @@ var upSplitRules = []prefixRule{
 	{"TestOrphanScanBash", "up_orphans_test.go"},
 	{"TestScanOrphans", "up_orphans_test.go"},
 	{"TestKillSessionByMarker", "up_orphans_test.go"},
+	{"TestInUseClaim", "up_orphans_test.go"},
 	{"TestClassifyWorkspace", "up_workspace_test.go"},
 	{"TestResolveStartWorkspace", "up_workspace_test.go"},
 	{"TestResolveWorkspaceParent", "up_workspace_test.go"},

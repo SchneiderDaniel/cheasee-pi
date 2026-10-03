@@ -152,6 +152,28 @@ func TestExecArgs_valuesSurviveUnescaped(t *testing.T) {
 	}
 }
 
+// TestExecArgs_pinsSessionIDPair keeps the terminal and the UI on one join
+// key: the pi child must carry `--session-id <CHEASEE_SESSION_ID>` so the
+// shared-mount claim, the reaper, and the session file all agree.
+func TestExecArgs_pinsSessionIDPair(t *testing.T) {
+	env := map[string]string{"CHEASEE_SESSION_ID": "deadbeef"}
+	args := execArgs(env, "cheasee-pi", "/workspaces/main")
+	i := indexOf(args, "--session-id")
+	if i < 0 || i+1 >= len(args) {
+		t.Fatalf("execArgs must pin --session-id <marker>, got %v", args)
+	}
+	if args[i+1] != "deadbeef" {
+		t.Errorf("--session-id value = %q, want the session marker", args[i+1])
+	}
+	if !slices.Contains(args, "-e") || !slices.Contains(args, "CHEASEE_SESSION_ID=deadbeef") {
+		t.Errorf("the env marker and the flag must both be present: %v", args)
+	}
+	// No marker → no flag (tests and legacy callers pass a bare env map).
+	if slices.Contains(execArgs(nil, "cheasee-pi", "/workspaces/main"), "--session-id") {
+		t.Error("an absent marker must not emit --session-id")
+	}
+}
+
 // ──────────────────────────────────────────────
 // orphanScanBash tests — Phase 2
 // ──────────────────────────────────────────────

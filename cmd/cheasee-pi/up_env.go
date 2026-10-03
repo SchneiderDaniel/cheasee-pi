@@ -105,6 +105,13 @@ func execArgs(env map[string]string, name, target string) []string {
 		name,
 		"/usr/bin/pi", "--approve",
 	)
+	// Pin pi's session id to the CHEASEE_SESSION_ID marker so the terminal
+	// session, its claim file, and killSessionByMarker share one exact join key.
+	// `--session-id` is exact-match (and creates when missing), unlike
+	// `--session`'s cross-project prefix search.
+	if sessionID := env["CHEASEE_SESSION_ID"]; sessionID != "" {
+		args = append(args, "--session-id", sessionID)
+	}
 	return args
 }
 

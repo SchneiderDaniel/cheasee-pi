@@ -31,6 +31,12 @@ pub mod rpc;
 #[cfg(feature = "ssr")]
 pub mod session;
 
+// Server-only: the session store sharing `.pi/sessions` with the terminal
+// client — list/resolve/resume plus the cross-container in-use guard. Gated
+// because it links `tokio::fs` and the [`pi_process`] registry.
+#[cfg(feature = "ssr")]
+pub mod sessions_store;
+
 // Browser-only transport. Gated so the server target never links web-sys.
 #[cfg(feature = "hydrate")]
 pub mod ws;

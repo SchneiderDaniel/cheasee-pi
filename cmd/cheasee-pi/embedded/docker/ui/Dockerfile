@@ -50,6 +50,10 @@ COPY tests ./tests
 # `cheasee-pi auth envvars --format json` by ui_provider_env_map_test.go.
 COPY provider_env_map.json ./
 COPY style ./style
+# The spawn-path tests assert the child's working directory and pinned session
+# dir are the shared workspace mount; this builder stage is not the runtime, so
+# create that path for the in-image suite.
+RUN mkdir -p /workspaces/main/.pi/sessions
 # Run the host-side unit/integration suite (protocol + retry policy, the Axum
 # routes, and the real WS loopback upgrade) before building anything. CI has
 # no cargo-test job for this crate, so the tests actually run wherever this

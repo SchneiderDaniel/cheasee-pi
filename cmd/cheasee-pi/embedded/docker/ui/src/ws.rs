@@ -20,6 +20,7 @@ use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
 use crate::bridge::ClientMessage;
+use crate::components::session_list::SessionListState;
 use crate::controls::ControlsState;
 use crate::extension_ui::ExtensionUiState;
 use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
@@ -155,6 +156,7 @@ pub fn connect(
     state: ChatState,
     controls: ControlsState,
     extension_ui: ExtensionUiState,
+    session_list: SessionListState,
     set_status: RwSignal<ConnectionStatus>,
 ) {
     // The lifecycle decisions live in `retry` (host-testable); this shell owns
@@ -167,7 +169,14 @@ pub fn connect(
             set_status.set(status_of(dial));
 
             // A rejected URL never opens; fall straight through to the backoff.
-            if let Ok(closed) = open(adapter.clone(), state, controls, extension_ui, set_status) {
+            if let Ok(closed) = open(
+                adapter.clone(),
+                state,
+                controls,
+                extension_ui,
+                session_list,
+                set_status,
+            ) {
                 let _ = closed.await;
             }
 
@@ -191,6 +200,7 @@ fn open(
     state: ChatState,
     controls: ControlsState,
     extension_ui: ExtensionUiState,
+    session_list: SessionListState,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
     let socket = WebSocket::new(&ws_url()).map_err(|_| ())?;
@@ -204,11 +214,20 @@ fn open(
         &browser,
         BrowserTimer,
         adapter,
-        move |effect| set_status.set(status_of(effect)),
+        move |effect| {
+            set_status.set(status_of(effect));
+            // First list fetch on every (re)connect: the server has no push for
+            // new session files, so the panel would otherwise stay empty until
+            // a manual Refresh.
+            if matches!(effect, SessionEffect::Connected) {
+                let _ = send(ClientMessage::ListSessions { id: None }, set_status);
+            }
+        },
         move |text| {
             state.ingest_frame(&text);
             controls.ingest_frame(&text);
             extension_ui.ingest_frame(&text);
+            session_list.ingest_frame(&text);
         },
         move || {
             if let Some(tx) = tx.take() {

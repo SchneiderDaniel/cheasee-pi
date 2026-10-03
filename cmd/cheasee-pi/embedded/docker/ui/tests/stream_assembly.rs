@@ -369,3 +369,80 @@ fn stream_control_events_do_not_touch_the_transcript() {
     assert_eq!(state.blocks.get(), before);
     assert_eq!(state.status.get(), StreamStatus::Streaming);
 }
+
+/// Session envelopes: the harness commands carry ids (not paths), and the
+/// server row never leaks a host path or the process marker.
+#[test]
+fn stream_session_envelopes_round_trip() {
+    use cheasee_pi_ui::bridge::SessionRow;
+
+    let list = ClientMessage::ListSessions {
+        id: Some("c1".into()),
+    };
+    let value = serde_json::to_value(&list).unwrap();
+    assert_eq!(value["type"], "list_sessions");
+    assert_eq!(
+        serde_json::from_value::<ClientMessage>(value).unwrap(),
+        list
+    );
+
+    let resume = ClientMessage::ResumeSession {
+        id: None,
+        session_id: "abc".into(),
+        mode: Some("fork".into()),
+        entry_id: Some("e1".into()),
+    };
+    let value = serde_json::to_value(&resume).unwrap();
+    assert_eq!(value["type"], "resume_session");
+    assert_eq!(value["sessionId"], "abc");
+    assert_eq!(value["mode"], "fork");
+    assert_eq!(value["entryId"], "e1");
+    assert_eq!(
+        serde_json::from_value::<ClientMessage>(value).unwrap(),
+        resume
+    );
+
+    let stop = ClientMessage::StopSession {
+        id: None,
+        session_id: "abc".into(),
+    };
+    assert_eq!(serde_json::to_value(&stop).unwrap()["type"], "stop_session");
+
+    let row = SessionRow {
+        id: "abc".into(),
+        name: Some("My session".into()),
+        modified: 7,
+        created: None,
+        message_count: 3,
+        in_use: false,
+        unavailable: false,
+    };
+    let message = ServerMessage::SessionList {
+        id: None,
+        sessions: vec![row],
+    };
+    let value = serde_json::to_value(&message).unwrap();
+    assert_eq!(value["type"], "session_list");
+    assert_eq!(value["sessions"][0]["messageCount"], 3);
+    let serialized = value.to_string();
+    assert!(
+        !serialized.contains("\"path\""),
+        "the session row must never carry a host path: {serialized}"
+    );
+    assert!(
+        !serialized.contains("CHEASEE_SESSION_ID"),
+        "the session row must never carry the process marker: {serialized}"
+    );
+    assert_eq!(
+        serde_json::from_value::<ServerMessage>(value).unwrap(),
+        message
+    );
+
+    let action = ServerMessage::SessionAction {
+        id: None,
+        session_id: "abc".into(),
+        success: false,
+        error: Some("in use".into()),
+    };
+    assert_eq!(serde_json::to_value(&action).unwrap()["success"], false);
+}

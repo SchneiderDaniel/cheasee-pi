@@ -29,6 +29,17 @@ pub const CHILD_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 /// is the path `pi` reads its own auth from, matching the terminal client.
 pub const CHILD_HOME: &str = "/home/agentuser";
 pub const CHILD_LANG: &str = "C.UTF-8";
+/// The child's working directory — the shared workspace mount. Without it the
+/// child inherits `/app`, resolves no project settings, and writes sessions to
+/// `~/.pi/agent/sessions`, which is not the terminal client's directory.
+pub const CHILD_CWD: &str = "/workspaces/main";
+/// The session directory env override, pinned so the UI child writes to the
+/// same flat `.pi/sessions` the terminal client and the UI scanner read. This
+/// is `PI_CODING_AGENT_SESSION_DIR` (pi derives it from `APP_NAME`).
+pub const SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
+/// The shared session directory (mirrors `sessionDir` in the embedded
+/// `pi/settings.json`).
+pub const SESSION_DIR: &str = "/workspaces/main/.pi/sessions";
 /// Session marker env var; slice 8's marker-kill scans for this.
 pub const SESSION_ID_VAR: &str = "CHEASEE_SESSION_ID";
 /// Cap on retained stderr bytes. The pipe is still drained past the cap (the
@@ -37,12 +48,13 @@ pub const STDERR_CAP: usize = 16 * 1024;
 
 /// The env var *names* every child gets regardless of auth.json, in the exact
 /// order they are set.
-pub fn static_env_var_names() -> [&'static str; 5] {
+pub fn static_env_var_names() -> [&'static str; 6] {
     [
         SESSION_ID_VAR,
         "HOME",
         "LANG",
         "PATH",
+        SESSION_DIR_ENV,
         "PI_SKIP_VERSION_CHECK",
     ]
 }
@@ -157,10 +169,12 @@ pub fn spawn(spec: &PiSpec, env: &ChildEnv, session_id: &str) -> io::Result<PiCh
     let mut std_cmd = std::process::Command::new(&spec.program);
     std_cmd.args(&spec.args);
     std_cmd.env_clear();
+    std_cmd.current_dir(CHILD_CWD);
     std_cmd.env("PATH", CHILD_PATH);
     std_cmd.env("HOME", CHILD_HOME);
     std_cmd.env("LANG", CHILD_LANG);
     std_cmd.env("PI_SKIP_VERSION_CHECK", "1");
+    std_cmd.env(SESSION_DIR_ENV, SESSION_DIR);
     std_cmd.env(SESSION_ID_VAR, session_id);
     for (name, value) in &env.vars {
         std_cmd.env(name, value);
@@ -212,6 +226,57 @@ pub fn spawn(spec: &PiSpec, env: &ChildEnv, session_id: &str) -> io::Result<PiCh
     })
 }
 
+/// True when a child's argv is a `pi` process: a direct `/usr/bin/pi`/`pi`
+/// argv[0], a shebang-launched `node <...>/pi-coding-agent/<...>` argv, or any
+/// argv carrying an adjacent `--session`/`--session-id` flag pair. Tokenized —
+/// an anchored prefix match on argv[0] misses the shebang install, whose
+/// cmdline is `node\0/path/cli.js\0--mode\0rpc\0`.
+pub fn argv_is_pi_session<S: AsRef<str>>(argv: &[S]) -> bool {
+    if let Some(first) = argv.first() {
+        let first: &str = first.as_ref();
+        if first == "/usr/bin/pi" || first == "pi" || first.ends_with("/pi") {
+            return true;
+        }
+    }
+    if argv.iter().any(|a| a.as_ref().contains("pi-coding-agent")) {
+        return true;
+    }
+    argv.windows(2)
+        .any(|pair| matches!(pair[0].as_ref(), "--session" | "--session-id"))
+}
+
+/// True when a live process in this PID namespace carries
+/// `CHEASEE_SESSION_ID=<session_id>` in its environment.
+///
+/// This is exact only for children of *this* process (same PID namespace). The
+/// terminal's pi lives in the agent container's namespace and is invisible
+/// here; its liveness joins cross-container through the shared `.pi/sessions`
+/// claim file instead. An unreadable `/proc/<pid>/environ` (owner-only, 0400) is
+/// treated as empty — the guard fails closed on a present claim, never open.
+pub fn marker_alive(session_id: &str) -> bool {
+    if session_id.is_empty() {
+        return false;
+    }
+    let needle = format!("{SESSION_ID_VAR}={session_id}");
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(raw) = std::fs::read(entry.path().join("environ")) else {
+            continue;
+        };
+        if raw.split(|b| *b == 0).any(|v| v == needle.as_bytes()) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Continuously read stderr into a capped buffer until EOF. Never parsed.
 async fn drain_stderr(raw: tokio::process::ChildStderr, sink: Arc<Mutex<StderrBuffer>>) {
     let mut reader = BufReader::new(raw);
@@ -259,6 +324,28 @@ impl PidRegistry {
             .unwrap_or_else(|e| e.into_inner())
             .get(session_id)
             .map(|c| c.pid)
+    }
+
+    /// Kill and reap the exact child recorded under `session_id`. Returns
+    /// whether a child was registered: a stop for an unknown session is a
+    /// reported "no", never a blanket sweep of sibling children.
+    pub fn kill_one(&self, session_id: &str) -> bool {
+        let child = {
+            self.children
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(session_id)
+        };
+        match child {
+            Some(mut child) => {
+                child.kill();
+                tokio::spawn(async move {
+                    let _ = child.wait().await;
+                });
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -316,7 +403,10 @@ mod tests {
              echo \"HOME=$HOME\"\n\
              echo \"LANG=$LANG\"\n\
              echo \"SESSION=$CHEASEE_SESSION_ID\"\n\
+             echo \"SESSIONDIR=$PI_CODING_AGENT_SESSION_DIR\"\n\
+             echo \"PWD=$PWD\"\n\
              echo \"LEAK=$CHEASEE_TEST_HOST_LEAK\"\n\
+             echo \"LEAKDIR=$CHEASEE_TEST_DIR_LEAK\"\n\
              echo \"PROVIDER=$OPENAI_API_KEY\"\n\
              echo \"GH=$GH_TOKEN\"\n\
              echo \"STDERR-MARKER\" 1>&2\n\
@@ -408,6 +498,9 @@ mod tests {
 
         // Present in the server process; must not reach the child (AC2).
         std::env::set_var("CHEASEE_TEST_HOST_LEAK", "host-secret");
+        // The session-dir override is pinned, not inherited: a host-set value
+        // must not redirect the child's sessions away from the shared mount.
+        std::env::set_var("CHEASEE_TEST_DIR_LEAK", "host-dir");
 
         let mut child = spawn(&spec, &ChildEnv::none(), "sess-clean").unwrap();
         let got = read_shim_env(&mut child).await;
@@ -424,6 +517,59 @@ mod tests {
 
         child.kill();
         let _ = child.wait().await;
+    }
+
+    /// Phase 1: the child runs in the shared workspace mount with the session
+    /// dir pinned, so terminal and UI sessions share one flat `.pi/sessions`.
+    #[tokio::test]
+    async fn spawn_pins_workspace_cwd_and_session_dir() {
+        let dir = unique_dir("cwd");
+        let spec = spec_for(&write_shim(&dir));
+
+        let mut child = spawn(&spec, &ChildEnv::none(), "sess-cwd").unwrap();
+        let got = read_shim_env(&mut child).await;
+        assert_eq!(got.get("PWD").map(String::as_str), Some(CHILD_CWD));
+        assert_eq!(
+            got.get("SESSIONDIR").map(String::as_str),
+            Some(SESSION_DIR)
+        );
+
+        child.kill();
+        let _ = child.wait().await;
+    }
+
+    /// Phase 4: the in-use guard's argv match must see a shebang-launched pi
+    /// (the common install) and the explicit session flag pair, and must never
+    /// prefix-match an unrelated argv[0].
+    #[test]
+    fn argv_tokenizer_matches_shebang_and_session_pairs() {
+        let shebang = [
+            "node".to_string(),
+            "/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js".to_string(),
+            "--mode".to_string(),
+            "rpc".to_string(),
+        ];
+        assert!(argv_is_pi_session(&shebang));
+
+        assert!(argv_is_pi_session(&["/usr/bin/pi", "--approve"]));
+        assert!(argv_is_pi_session(&["pi", "--mode", "rpc"]));
+        assert!(argv_is_pi_session(&[
+            "/usr/bin/pi",
+            "--session",
+            "/workspaces/main/.pi/sessions/x.jsonl"
+        ]));
+        assert!(argv_is_pi_session(&[
+            "/usr/bin/pi",
+            "--session-id",
+            "deadbeef"
+        ]));
+
+        // Near misses: python3.12, pipewire, a bare `node` script, and an
+        // empty argv must all be rejected (no `*pi*` substring match).
+        assert!(!argv_is_pi_session(&["python3.12", "/opt/app.py"]));
+        assert!(!argv_is_pi_session(&["pipewire", "--mode", "rpc"]));
+        assert!(!argv_is_pi_session(&["node", "/opt/app.js"]));
+        assert!(!argv_is_pi_session::<String>(&[]));
     }
 
     #[tokio::test]
@@ -475,6 +621,7 @@ mod tests {
                 "LANG",
                 "OPENAI_API_KEY",
                 "PATH",
+                "PI_CODING_AGENT_SESSION_DIR",
                 "PI_SKIP_VERSION_CHECK",
             ]
         );

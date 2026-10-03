@@ -71,6 +71,27 @@ func TestListManagedContainers_psFailureSurfaces(t *testing.T) {
 	}
 }
 
+func TestListManagedContainers_includesUI(t *testing.T) {
+	// AC4: the `ui` sidecar is compose-managed (com.cheaseepi.managed=true), so
+	// the managed-label pass must enumerate it — otherwise `clean` can never
+	// reap its orphaned pi children and `down` misses one of the three services.
+	stubDockerPS(t, func(filter string) string {
+		switch filter {
+		case "label=" + managedLabel:
+			return "cheasee-pi-repoA\ncheasee-pi-repoA-codeflow\nui-repoA\n"
+		}
+		return ""
+	})
+
+	got, err := listManagedContainers(context.Background())
+	if err != nil {
+		t.Fatalf("listManagedContainers: %v", err)
+	}
+	if !slices.Contains(got, "ui-repoA") {
+		t.Errorf("listManagedContainers must enumerate the managed ui container, got %v", got)
+	}
+}
+
 func TestIsLegacyContainerName_postFilter(t *testing.T) {
 	cases := map[string]bool{
 		"cheasee-pi":      true,

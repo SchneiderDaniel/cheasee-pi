@@ -25,6 +25,7 @@ use crate::bridge::{ClientMessage, ServerMessage};
 use crate::extension_ui::is_blocking;
 use crate::protocol::{Command, ExtensionUiRequest, ExtensionUiResponse, Response, ExtensionUI};
 use crate::rpc::{ProtocolMessage, RpcClient, RpcError};
+use crate::sessions_store::SessionsStore;
 
 /// The browser connection surface the relay drives.
 ///
@@ -51,13 +52,24 @@ pub struct Session {
     /// across browser connections so slice 9's `get_state`/replay can re-show
     /// it, and cleared when the answer is relayed.
     pending: Arc<Mutex<Option<ExtensionUiRequest>>>,
+    /// Server-side session store. `None` in tests that exercise only the
+    /// forwarding path; harness commands then surface as an error rather than a
+    /// silent drop.
+    store: Option<Arc<SessionsStore>>,
 }
 
 impl Session {
     pub fn new(client: Arc<RpcClient>) -> Self {
+        Self::with_store(client, None)
+    }
+
+    /// Build a relay that also handles the local session-harness commands
+    /// (list/resume/stop) through `store`.
+    pub fn with_store(client: Arc<RpcClient>, store: Option<Arc<SessionsStore>>) -> Self {
         Self {
             client,
             pending: Arc::new(Mutex::new(None)),
+            store,
         }
     }
 
@@ -72,7 +84,7 @@ impl Session {
 
     /// Relay until the browser connection or the pi child goes away.
     pub async fn relay(&self, sink: impl ClientSink) {
-        relay_with_client(&self.client, &self.pending, sink).await;
+        relay_with_client(&self.client, &self.pending, self.store.as_deref(), sink).await;
     }
 }
 
@@ -84,6 +96,7 @@ pub async fn relay(session: Arc<Session>, sink: impl ClientSink) {
 async fn relay_with_client(
     client: &Arc<RpcClient>,
     pending: &Mutex<Option<ExtensionUiRequest>>,
+    store: Option<&SessionsStore>,
     mut sink: impl ClientSink,
 ) {
     // AC1: subscribe to pi events *before* writing any command.
@@ -99,7 +112,22 @@ async fn relay_with_client(
                 Some(Ok(ClientMessage::ExtensionUiResponse { id, value, confirmed, cancelled })) => {
                     respond_extension_ui(client, pending, &out_tx, id, value, confirmed, cancelled).await;
                 }
-                Some(Ok(command)) => forward(client, command, &out_tx),
+                Some(Ok(command)) => {
+                    if is_local_session_command(&command) {
+                        match store {
+                            Some(store) => handle_local_session(store, client, &out_tx, command).await,
+                            None => {
+                                // The relay was built without a store (test
+                                // harness); surface the miss, never drop it.
+                                let _ = out_tx.send(ServerMessage::Error {
+                                    message: "session store is not available".to_string(),
+                                }).await;
+                            }
+                        }
+                    } else {
+                        forward(client, command, &out_tx);
+                    }
+                }
                 // A frame the client could not have intended to be ignored: a
                 // client-side encoding/version error must be visible, not a
                 // silently dropped command.
@@ -142,6 +170,110 @@ async fn relay_with_client(
 async fn send(sink: &mut impl ClientSink, message: &ServerMessage) -> Result<(), ()> {
     let text = serde_json::to_string(message).map_err(|_| ())?;
     sink.send_text(text).await
+}
+
+/// Whether `message` is handled by the local session store instead of being
+/// forwarded to pi.
+fn is_local_session_command(message: &ClientMessage) -> bool {
+    matches!(
+        message,
+        ClientMessage::ListSessions { .. }
+            | ClientMessage::ResumeSession { .. }
+            | ClientMessage::StopSession { .. }
+    )
+}
+
+/// Turn a browser resume request into the pi command to send. Resume resolves
+/// and validates the session server-side; fork/clone branch non-destructively
+/// (they need no guard).
+async fn action_command(
+    store: &SessionsStore,
+    session_id: &str,
+    mode: Option<&str>,
+    entry_id: Option<String>,
+) -> Result<Command, String> {
+    match mode.unwrap_or("resume") {
+        "resume" => store.resume(session_id).await,
+        "fork" => entry_id
+            .map(|entry_id| Command::Fork {
+                id: None,
+                entry_id,
+            })
+            .ok_or_else(|| "fork requires an entryId".to_string()),
+        "clone" => Ok(Command::Clone { id: None }),
+        other => Err(format!("unknown resume mode {other:?}")),
+    }
+}
+
+/// Run one local session command and answer on the same connection. Never
+/// forwards to pi: `ListSessions`/`StopSession` are pure harness commands, and
+/// `ResumeSession` resolves the caller's id to a server-owned in-dir path first.
+async fn handle_local_session(
+    store: &SessionsStore,
+    client: &Arc<RpcClient>,
+    out: &mpsc::Sender<ServerMessage>,
+    message: ClientMessage,
+) {
+    match message {
+        ClientMessage::ListSessions { id } => {
+            let sessions: Vec<crate::bridge::SessionRow> = match store.list().await {
+                Ok(entries) => entries.iter().map(|entry| entry.to_row()).collect(),
+                Err(message) => {
+                    let _ = out.send(ServerMessage::Error { message }).await;
+                    return;
+                }
+            };
+            let _ = out.send(ServerMessage::SessionList { id, sessions }).await;
+        }
+        ClientMessage::ResumeSession {
+            id,
+            session_id,
+            mode,
+            entry_id,
+        } => {
+            let (success, error) =
+                match action_command(store, &session_id, mode.as_deref(), entry_id).await {
+                    Ok(command) => match client.send(&command).await {
+                        Ok(()) => (true, None),
+                        Err(err) => (false, Some(err.to_string())),
+                    },
+                    Err(error) => (false, Some(error)),
+                };
+            let _ = out
+                .send(ServerMessage::SessionAction {
+                    id,
+                    session_id,
+                    success,
+                    error,
+                })
+                .await;
+        }
+        ClientMessage::StopSession { id, session_id } => {
+            // AC3 ordering: abort the running turn, then marker-kill the exact
+            // child. The registry kill is scoped to this session id, so sibling
+            // children survive.
+            let abort = client.send(&Command::Abort { id: None }).await;
+            let killed = store.registry().kill_one(&session_id);
+            let (success, error) = match (abort, killed) {
+                (Err(err), _) => (false, Some(err.to_string())),
+                (Ok(()), true) => (true, None),
+                (Ok(()), false) => (
+                    false,
+                    Some(format!("no live child for session {session_id}")),
+                ),
+            };
+            let _ = out
+                .send(ServerMessage::SessionAction {
+                    id,
+                    session_id,
+                    success,
+                    error,
+                })
+                .await;
+        }
+        // `is_local_session_command` only routes the three arms above.
+        _ => {}
+    }
 }
 
 /// Forward one browser command to pi and report its response back. The request
@@ -395,6 +527,10 @@ fn to_command(message: ClientMessage) -> Option<Routed> {
         // Handled by `respond_extension_ui` directly: it never maps to a pi
         // command and never produces a command response.
         ClientMessage::ExtensionUiResponse { .. } => None,
+        // Handled by the store (`handle_local_session`), never forwarded.
+        ClientMessage::ListSessions { .. }
+        | ClientMessage::ResumeSession { .. }
+        | ClientMessage::StopSession { .. } => None,
         ClientMessage::Unknown => None,
     }
 }
