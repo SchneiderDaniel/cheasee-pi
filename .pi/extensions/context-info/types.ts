@@ -46,6 +46,12 @@ export interface FooterConfig {
 	trustStatus: "trusted" | "untrusted" | undefined;
 	sessionId: string;
 
+	// ── Session service links (row 3, right-aligned) ────────
+	/** Resolved web control-center URL, or null when unresolvable. */
+	uiUrl: string | null;
+	/** Resolved CodeFlow URL, or null when unresolvable. */
+	codeflowUrl: string | null;
+
 	// ── Supervisor issue info ────────────────────────────────
 	/** Current supervisor issue number (mutable at runtime via value wrapper) */
 	issueNumber: { value: number | undefined };

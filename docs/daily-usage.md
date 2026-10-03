@@ -191,6 +191,12 @@ To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
 the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
 over the env).
 
+The resolved host port is forwarded into the pi session as `PI_UI_PORT`
+(alongside `CODEFLOW_PORT`), and the session footer row 3 shows a
+right-aligned `UI · CodeFlow` link group: clickable where the terminal
+supports OSC 8 hyperlinks, plain text otherwise. The UI link targets the
+same `127.0.0.1:<port>` URL the startup hint prints.
+
 ## Run pi
 
 ### Using the CLI (auto)

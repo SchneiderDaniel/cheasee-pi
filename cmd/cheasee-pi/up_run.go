@@ -141,19 +141,21 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		printCodeFlowHint(port)
 	}
 
-	// UI URL: the port the sidecar actually published (`docker port`),
-	// authoritative when the container already runs — uiHostPort's probe sees
-	// that live bind as occupancy and shifts to the next free port, printing a
-	// URL that points at nothing. Falls back to derive+probe on any docker
-	// error (first up, stopped sidecar). No exec-env forwarding: unlike
-	// CodeFlow's in-container context-info echo, no in-container consumer of
-	// the UI port exists in this slice.
-	if port, err := uiBoundPort(ctx, root); err == nil {
+	// UI URL: bound-first single resolution (resolveUIHostPort) so the printed
+	// hint, the compose env, and the in-session footer link all carry the same
+	// port. `docker port` is authoritative when the container already runs —
+	// uiHostPort's probe sees that live bind as occupancy and shifts to the
+	// next free port, printing a URL that points at nothing. Falls back to
+	// derive+probe on any docker error (first up, stopped sidecar). The
+	// resolved host port is forwarded as PI_UI_PORT (host namespace, NOT the
+	// sidecar's container port 3000) for the in-container context-info footer
+	// link; resolution failure leaves the key absent and start still succeeds,
+	// the extension falling back to its own derivation.
+	if port, err := resolveUIHostPort(ctx, root); err == nil {
+		envMap["PI_UI_PORT"] = port
 		printUIHint(port)
-	} else if port, err := uiHostPort(root); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	} else {
-		printUIHint(port)
+		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	}
 
 	// One-line cheatsheet so a fresh session has the in-pi help and the

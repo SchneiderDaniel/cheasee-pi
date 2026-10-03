@@ -6,7 +6,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, hyperlink, getCapabilities } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
@@ -292,7 +292,6 @@ export function installFooter(
 				const right2 = rightParts.join(" " + sep + " ");
 
 				// ── Build row 3: session name/ID + trust status ──
-				let row3 = "";
 				const row3Parts: string[] = [];
 
 				// Session name (Improvement #2) or session ID fallback
@@ -314,7 +313,45 @@ export function installFooter(
 					row3Parts.push(theme.fg("dim", "\u2753"));
 				}
 
-				row3 = row3Parts.join(" " + sep + " ");
+				const left3 = row3Parts.join(" " + sep + " ");
+
+				// ── Row 3 service links (right-aligned, OSC 8-gated) ──
+				// Same capability gate as the CodeFlow notify in index.ts: on
+				// terminals that swallow OSC 8, the labels stay plain text. The
+				// URLs are resolved once per session in index.ts (byte-stable
+				// across renders, required for TuiAltScreen's line diff).
+				const hyperlinksOn = getCapabilities().hyperlinks;
+				const labelled = (text: string, url: string): string =>
+					hyperlinksOn ? hyperlink(text, url) : text;
+				const linkParts: string[] = [];
+				if (footerConfig.uiUrl) linkParts.push(labelled("UI", footerConfig.uiUrl));
+				if (footerConfig.codeflowUrl) linkParts.push(labelled("CodeFlow", footerConfig.codeflowUrl));
+				const linkGroup = linkParts.join(" · ");
+
+				// Two-part layout: the links are kept and the left session/trust
+				// segment truncates first (AC5). A whole-row truncateToWidth would
+				// drop the rightmost content — exactly the links.
+				let row3: string;
+				if (linkGroup === "") {
+					row3 = left3;
+				} else {
+					const pad = width - visibleWidth(linkGroup);
+					if (pad <= 0) {
+						// Group does not fully fit: keep whole links only (never a
+						// mid-link cut, which would leave an unclosed OSC 8 span).
+						let fitted = "";
+						for (const part of linkParts) {
+							const candidate = fitted === "" ? part : fitted + " · " + part;
+							if (visibleWidth(candidate) > width) break;
+							fitted = candidate;
+						}
+						row3 = fitted;
+					} else {
+						const leftFit = truncateToWidth(left3, pad);
+						row3 =
+							leftFit + " ".repeat(Math.max(0, pad - visibleWidth(leftFit))) + linkGroup;
+					}
+				}
 
 				// ── Assemble rows ───────────────────────────────────
 				const rows: string[] = [row1];

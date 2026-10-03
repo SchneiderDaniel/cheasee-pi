@@ -30,6 +30,8 @@ export function createDefaultFooterConfig(): FooterConfig {
 		sessionName: undefined,
 		trustStatus: undefined,
 		sessionId: "",
+		uiUrl: null,
+		codeflowUrl: null,
 		issueNumber: { value: undefined },
 		issueRepo: { value: undefined },
 		issueTitle: { value: undefined },

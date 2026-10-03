@@ -45,8 +45,8 @@ func TestPrintUIHint_neverLocalhost(t *testing.T) {
 
 func TestRunUpE_UIHintBoundPortBranch(t *testing.T) {
 	// `docker port` publishes distinct ports for codeflow and ui: each hint
-	// must print its own published port, and the UI port must NOT leak into
-	// the exec env (no in-container consumer).
+	// must print its own published port, and the UI port must reach the exec
+	// env as PI_UI_PORT so the in-session footer link agrees with the hint.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	exec := stubExecPIContainer(t)
@@ -74,17 +74,17 @@ func TestRunUpE_UIHintBoundPortBranch(t *testing.T) {
 	if !strings.Contains(stderr, "http://localhost:8891/?repo=local/workspace&run=1") {
 		t.Errorf("CodeFlow URL must still print, got: %q", stderr)
 	}
-	if _, ok := exec.env["PI_UI_PORT"]; ok {
-		t.Errorf("exec env must NOT carry PI_UI_PORT, got %v", exec.env)
+	if got := exec.env["PI_UI_PORT"]; got != "9713" {
+		t.Errorf("exec env PI_UI_PORT = %q, want 9713", got)
 	}
 }
 
 func TestRunUpE_UIHintFallback(t *testing.T) {
 	// `docker port` yields nothing (first up / stopped sidecar) → the hint
-	// comes from the derived+probed port.
+	// comes from the derived+probed port, and the same value reaches the env.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
-	stubExecPIContainer(t)
+	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 
 	stderr := testutil.CaptureStderr(t, func() {
@@ -99,15 +99,18 @@ func TestRunUpE_UIHintFallback(t *testing.T) {
 	if !strings.Contains(stderr, "http://127.0.0.1:"+want) {
 		t.Errorf("fallback branch must print the derived UI URL (port %s), got: %q", want, stderr)
 	}
+	if got := exec.env["PI_UI_PORT"]; got != want {
+		t.Errorf("exec env PI_UI_PORT = %q, want the printed %q", got, want)
+	}
 }
 
 func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
-	// Probe exhaustion must fail closed: no UI URL line, and the CodeFlow hint
-	// (off the probe via CODEFLOW_PORT) is unaffected.
+	// Probe exhaustion must fail closed: no UI URL line, no PI_UI_PORT key,
+	// and the CodeFlow hint (off the probe via CODEFLOW_PORT) is unaffected.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	t.Setenv("CODEFLOW_PORT", "9000")
-	stubExecPIContainer(t)
+	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 	saved := portProbe
 	portProbe = func(_ int) error { return fmt.Errorf("in use") }
@@ -120,6 +123,12 @@ func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
 	})
 	if strings.Contains(stderr, "http://127.0.0.1:") {
 		t.Errorf("resolution failure must not print a UI URL, got: %q", stderr)
+	}
+	if !strings.Contains(stderr, "⚠ UI port:") {
+		t.Errorf("resolution failure must surface the ⚠ UI port line, got: %q", stderr)
+	}
+	if _, ok := exec.env["PI_UI_PORT"]; ok {
+		t.Errorf("exec env must not carry PI_UI_PORT on resolution failure, got %v", exec.env)
 	}
 	if !strings.Contains(stderr, "http://localhost:9000") {
 		t.Errorf("CodeFlow hint must be unaffected, got: %q", stderr)
@@ -140,6 +149,9 @@ func TestUIHint_singleSourceStatic(t *testing.T) {
 	if strings.Contains(string(upRun), "http://127.0.0.1:") {
 		t.Error("up_run.go must not contain the UI URL literal — call printUIHint instead")
 	}
+	if !strings.Contains(string(upRun), "PI_UI_PORT") {
+		t.Error("up_run.go must forward the resolved UI port as PI_UI_PORT to the exec env")
+	}
 	hint, err := os.ReadFile("ui_hint.go")
 	if err != nil {
 		t.Fatalf("read ui_hint.go: %v", err)
@@ -158,9 +170,12 @@ func TestDailyUsageDoc_uiHint(t *testing.T) {
 	if !strings.Contains(content, "http://127.0.0.1:") {
 		t.Error("daily-usage.md §UI must show the literal 127.0.0.1 URL")
 	}
-	for _, want := range []string{"9500", "10523", "docker.uiPort", "PI_UI_PORT"} {
+	for _, want := range []string{"9500", "10523", "docker.uiPort", "PI_UI_PORT", "UI · CodeFlow"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("daily-usage.md §UI must mention %q", want)
 		}
+	}
+	if !strings.Contains(content, "PI_UI_PORT") || !strings.Contains(content, "forwarded") {
+		t.Error("daily-usage.md §UI must state that PI_UI_PORT is forwarded into the session")
 	}
 }
