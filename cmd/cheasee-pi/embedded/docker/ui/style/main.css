@@ -225,3 +225,135 @@ input {
 .prompt .stop {
   color: #f0a0a0;
 }
+
+/* ── Extension UI: blocking dialog overlay ───────────────────────────────── */
+
+.ext-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 55%);
+}
+
+.ext-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  background: #1c1f27;
+  border: 1px solid #2c3140;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 60%);
+}
+
+.ext-dialog-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.ext-dialog-message {
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.ext-dialog-options,
+.ext-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ext-dialog-input,
+.ext-dialog-editor {
+  flex: 1 1 100%;
+  background: #12141a;
+  color: var(--fg);
+  border: 1px solid #2c3140;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+}
+
+.ext-dialog-editor {
+  min-height: 8rem;
+}
+
+.ext-dialog-timeout {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  margin: 0.75rem 0 0;
+}
+
+/* ── Extension UI: toasts and status/widget chrome ───────────────────────── */
+
+.ext-toasts {
+  position: fixed;
+  inset: auto 1rem 1rem auto;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ext-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 14rem;
+  background: #1c1f27;
+  border-left: 3px solid var(--accent);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 50%);
+}
+
+.ext-toast-warning {
+  border-left-color: #f0b45f;
+}
+
+.ext-toast-error {
+  border-left-color: #f0a0a0;
+}
+
+.ext-toast-message {
+  flex: 1;
+}
+
+.ext-toast-close {
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.35rem;
+  font-size: 1rem;
+}
+
+.ext-chrome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.ext-title {
+  font-weight: 600;
+}
+
+.ext-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ext-status,
+.ext-widget {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  border: 1px solid #2c3140;
+  border-radius: 0.375rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.ext-widget-line {
+  white-space: pre-wrap;
+}

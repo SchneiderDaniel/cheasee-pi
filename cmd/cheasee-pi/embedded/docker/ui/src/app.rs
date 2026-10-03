@@ -7,10 +7,13 @@ use leptos_meta::{provide_meta_context, Title};
 use crate::bridge::ClientMessage;
 use crate::components::bash::BashPanel;
 use crate::components::controls::ControlsPanel;
+use crate::components::dialog::DialogOverlay;
 use crate::components::dispatch;
 use crate::components::message::Transcript;
 use crate::components::queue::QueuePanel;
+use crate::components::status::{NotifyToasts, StatusChrome};
 use crate::controls::ControlsState;
+use crate::extension_ui::ExtensionUiState;
 use crate::stream::ChatState;
 
 /// Connection state the view renders. A dropped socket must never read as a
@@ -51,17 +54,24 @@ pub fn App() -> impl IntoView {
     // is separate from the transcript and provided for the same lifetime.
     let controls = ControlsState::new();
     provide_context(controls);
+    // Extension UI chrome shares the composer draft so `set_editor_text` lands
+    // in the same signal the prompt input reads.
+    let extension_ui = ExtensionUiState::new(controls.draft);
+    provide_context(extension_ui);
     let status = RwSignal::new(ConnectionStatus::Disconnected);
 
     // Browser-only: open the WS, reconnect with backoff, and feed frames into
     // the chat state. Compiled out of the server target entirely.
     #[cfg(feature = "hydrate")]
-    crate::ws::connect(chat, controls, status);
+    crate::ws::connect(chat, controls, extension_ui, status);
 
     view! {
         <Title text="cheasee-pi"/>
+        <DialogOverlay status=status/>
+        <NotifyToasts/>
         <main class="shell">
             <h1>"cheasee-pi control center"</h1>
+            <StatusChrome/>
             <Counter/>
             <ControlsPanel status=status/>
             <QueuePanel status=status/>

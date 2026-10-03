@@ -9,6 +9,7 @@ pub mod bash;
 pub mod bridge;
 pub mod components;
 pub mod controls;
+pub mod extension_ui;
 pub mod protocol;
 pub mod retry;
 pub mod stream;

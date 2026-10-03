@@ -16,13 +16,14 @@
 //! `Session` owns no pipes and no broadcast — [`RpcClient`] does. A second owner
 //! would desync the id map.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use tokio::sync::{broadcast::error::RecvError, mpsc};
 
 use crate::bridge::{ClientMessage, ServerMessage};
-use crate::protocol::{Command, Response};
+use crate::extension_ui::is_blocking;
+use crate::protocol::{Command, ExtensionUiRequest, ExtensionUiResponse, Response, ExtensionUI};
 use crate::rpc::{ProtocolMessage, RpcClient, RpcError};
 
 /// The browser connection surface the relay drives.
@@ -46,16 +47,32 @@ pub trait ClientSink {
 /// Shared, per-child relay state. Cheap to clone behind an `Arc`.
 pub struct Session {
     client: Arc<RpcClient>,
+    /// The single blocking dialog currently awaiting an answer (AC2). Shared
+    /// across browser connections so slice 9's `get_state`/replay can re-show
+    /// it, and cleared when the answer is relayed.
+    pending: Arc<Mutex<Option<ExtensionUiRequest>>>,
 }
 
 impl Session {
     pub fn new(client: Arc<RpcClient>) -> Self {
-        Self { client }
+        Self {
+            client,
+            pending: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The blocking request awaiting an answer, if any. `Some` survives
+    /// unrelated events so a reconnect can re-show it (slice 9).
+    pub fn pending_dialog(&self) -> Option<ExtensionUiRequest> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Relay until the browser connection or the pi child goes away.
     pub async fn relay(&self, sink: impl ClientSink) {
-        relay_with_client(&self.client, sink).await;
+        relay_with_client(&self.client, &self.pending, sink).await;
     }
 }
 
@@ -64,7 +81,11 @@ pub async fn relay(session: Arc<Session>, sink: impl ClientSink) {
     session.relay(sink).await;
 }
 
-async fn relay_with_client(client: &Arc<RpcClient>, mut sink: impl ClientSink) {
+async fn relay_with_client(
+    client: &Arc<RpcClient>,
+    pending: &Mutex<Option<ExtensionUiRequest>>,
+    mut sink: impl ClientSink,
+) {
     // AC1: subscribe to pi events *before* writing any command.
     let mut events = client.events();
     // Responses to forwarded commands are produced on spawned tasks and funnelled
@@ -75,6 +96,9 @@ async fn relay_with_client(client: &Arc<RpcClient>, mut sink: impl ClientSink) {
         tokio::select! {
             biased;
             command = sink.recv() => match command {
+                Some(Ok(ClientMessage::ExtensionUiResponse { id, value, confirmed, cancelled })) => {
+                    respond_extension_ui(client, pending, &out_tx, id, value, confirmed, cancelled).await;
+                }
                 Some(Ok(command)) => forward(client, command, &out_tx),
                 // A frame the client could not have intended to be ignored: a
                 // client-side encoding/version error must be visible, not a
@@ -96,7 +120,7 @@ async fn relay_with_client(client: &Arc<RpcClient>, mut sink: impl ClientSink) {
             }
             event = events.recv() => match event {
                 Ok(protocol) => {
-                    if let Some(message) = to_server_message(protocol) {
+                    if let Some(message) = to_server_message(protocol, pending) {
                         if send(&mut sink, &message).await.is_err() {
                             break;
                         }
@@ -159,6 +183,49 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
             })
             .await;
     });
+}
+
+/// Relay an answer to the pending dialog back to pi, and clear the slot.
+///
+/// An answer whose id is not the pending one (already answered, replaced,
+/// never pending — e.g. a `notify` uuid) is dropped with no frame and no
+/// error: pi discards a late answer too, and the client must not invent a
+/// second one (AC2/AC3). The response produces no command response.
+async fn respond_extension_ui(
+    client: &Arc<RpcClient>,
+    pending: &Mutex<Option<ExtensionUiRequest>>,
+    out: &mpsc::Sender<ServerMessage>,
+    id: String,
+    value: Option<String>,
+    confirmed: Option<bool>,
+    cancelled: Option<bool>,
+) {
+    let matched = {
+        let mut slot = pending.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.as_ref().is_some_and(|request| request.id == id) {
+            *slot = None;
+            true
+        } else {
+            false
+        }
+    };
+    if !matched {
+        return;
+    }
+    let response = ExtensionUI::ExtensionUiResponse(ExtensionUiResponse {
+        id,
+        value,
+        confirmed,
+        cancelled,
+    });
+    if let Err(err) = client.send(&response).await {
+        // A failed write to a live child must be visible, not a silent drop.
+        let _ = out
+            .send(ServerMessage::Error {
+                message: err.to_string(),
+            })
+            .await;
+    }
 }
 
 /// A translated browser command plus how its response correlates back.
@@ -325,13 +392,19 @@ fn to_command(message: ClientMessage) -> Option<Routed> {
             "abort_bash",
             id,
         )),
+        // Handled by `respond_extension_ui` directly: it never maps to a pi
+        // command and never produces a command response.
+        ClientMessage::ExtensionUiResponse { .. } => None,
         ClientMessage::Unknown => None,
     }
 }
 
-/// Map a pi record to what the browser should see. Extension UI and unmodelled
-/// records carry nothing this slice renders.
-fn to_server_message(message: ProtocolMessage) -> Option<ServerMessage> {
+/// Map a pi record to what the browser should see. A blocking extension UI
+/// request also occupies the session's single pending slot (AC2).
+fn to_server_message(
+    message: ProtocolMessage,
+    pending: &Mutex<Option<ExtensionUiRequest>>,
+) -> Option<ServerMessage> {
     match message {
         ProtocolMessage::Session(event) => Some(ServerMessage::Event { event }),
         ProtocolMessage::Frame(err) => Some(ServerMessage::Error {
@@ -341,6 +414,15 @@ fn to_server_message(message: ProtocolMessage) -> Option<ServerMessage> {
             kind: "parse_error".to_string(),
             detail: format!("{error} (raw: {raw})"),
         }),
+        ProtocolMessage::ExtensionUi(ExtensionUI::ExtensionUiRequest(request)) => {
+            if is_blocking(&request.method) {
+                // Newest wins: pi defines no queue, so the slot is replaced.
+                *pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.clone());
+            }
+            Some(ServerMessage::ExtensionUi { request })
+        }
+        // An `extension_ui_response` from pi is not ours to render, and an
+        // unmodelled record carries nothing this slice renders.
         ProtocolMessage::ExtensionUi(_) | ProtocolMessage::Unknown(_) => None,
     }
 }
@@ -706,9 +788,10 @@ mod tests {
     /// A framing fault on the child pipe reaches the browser as an error.
     #[test]
     fn frame_errors_become_server_errors() {
-        let message = to_server_message(ProtocolMessage::Frame(
-            crate::rpc::framing::FramingError::NotUtf8,
-        ));
+        let message = to_server_message(
+            ProtocolMessage::Frame(crate::rpc::framing::FramingError::NotUtf8),
+            &Mutex::new(None),
+        );
         assert!(matches!(message, Some(ServerMessage::Error { .. })));
     }
 }

@@ -14,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::protocol::Event;
+use crate::protocol::{Event, ExtensionUiRequest};
 
 /// A browser -> server command.
 ///
@@ -121,6 +121,18 @@ pub enum ClientMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Answer a pi `extension_ui_request`. Fire-and-forget: it produces no
+    /// command response, and `id` is pi's uuid, not a browser correlation id.
+    /// Exactly one of `value`/`confirmed`/`cancelled` is set.
+    ExtensionUiResponse {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        confirmed: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cancelled: Option<bool>,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -171,6 +183,9 @@ pub enum ServerMessage {
     },
     /// A non-fatal notice (e.g. pi emit a parse failure on the child pipe).
     Notice { kind: String, detail: String },
+    /// An `extension_ui_request` relayed from pi: a dialog or fire-and-forget
+    /// chrome call. `request.method` selects which component handles it.
+    ExtensionUi { request: ExtensionUiRequest },
     /// The relay's broadcast lagged and skipped `skipped` pi records. Surfaced
     /// as a banner; replay/catch-up is slice 9.
     Lagged { skipped: u64 },
