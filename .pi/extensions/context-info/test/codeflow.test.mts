@@ -21,6 +21,7 @@ import {
 	repoSlug,
 	resolveWorkspaceRoot,
 	sanitizeSlug,
+	validPort,
 } from "../codeflow.ts";
 
 // ── Fixtures ────────────────────────────────────
@@ -110,12 +111,28 @@ describe("parseGitRemote", () => {
 	});
 });
 
+describe("validPort", () => {
+	it("accepts decimal ports 1-65535 and rejects everything else", () => {
+		for (const ok of ["1", "80", "9500", "65535"]) assert.strictEqual(validPort(ok), ok);
+		for (const bad of ["", "0", "65536", "abc", "12x", "-1", "1.5", "\u001b]8;;evil\u0007", null, undefined]) {
+			assert.strictEqual(validPort(bad as any), null, `validPort(${JSON.stringify(bad)}) must be null`);
+		}
+	});
+});
+
 // ── Adapter: precedence + I/O ───────────────────
 
 describe("codeflowHostPort", () => {
-	it("precedence: settings docker.codeflowPort wins over env and derivation", async () => {
+	it("precedence: env CODEFLOW_PORT (forwarded bound port) wins over settings and derivation", async () => {
 		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
 		await withEnv("9000", async () => {
+			assert.strictEqual(await codeflowHostPort(root), "9000");
+		});
+	});
+
+	it("precedence: settings docker.codeflowPort wins over derivation when env absent", async () => {
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
+		await withEnv(undefined, async () => {
 			assert.strictEqual(await codeflowHostPort(root), "9100");
 		});
 	});
@@ -124,6 +141,18 @@ describe("codeflowHostPort", () => {
 		const { root } = makeWorkspace();
 		await withEnv("9000", async () => {
 			assert.strictEqual(await codeflowHostPort(root), "9000");
+		});
+	});
+
+	it("stale docker.codeflowPort + forwarded bound port → env wins (footer matches the printed hint)", async () => {
+		// Regression for the audit finding: the sidecar is bound to 9123 while
+		// the workspace settings still say 9100; `cheasee-pi start` forwards the
+		// bound port via CODEFLOW_PORT, so the resolver must return 9123 or the
+		// footer/notify link would point at the stale 9100.
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
+		await withEnv("9123", async () => {
+			assert.strictEqual(await codeflowHostPort(root), "9123");
+			assert.strictEqual(await codeflowUrl(root), "http://localhost:9123/?repo=local/workspace&run=1");
 		});
 	});
 
@@ -144,6 +173,22 @@ describe("codeflowHostPort", () => {
 		await withEnv(undefined, async () => {
 			const port = await codeflowHostPort(root);
 			assert.ok(port !== null && port >= "8470" && port <= "9493");
+		});
+	});
+
+	it("invalid forwarded CODEFLOW_PORT (control chars) → null, never interpolated", async () => {
+		const { root } = makeWorkspace();
+		await withEnv("\u001b]8;;evil\u0007", async () => {
+			assert.strictEqual(await codeflowHostPort(root), null);
+			assert.strictEqual(await codeflowUrl(root), null);
+		});
+	});
+
+	it("invalid settings docker.codeflowPort (control chars) falls through to a derived valid port", async () => {
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"\u001b]8;;evil\u0007"}}`);
+		await withEnv(undefined, async () => {
+			const port = await codeflowHostPort(root);
+			assert.ok(port !== null && /^[0-9]{1,5}$/.test(port), "settings payload must not reach the URL");
 		});
 	});
 

@@ -13,52 +13,8 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
 import { installFooter } from "../footer.ts";
-
-// ---------------------------------------------------------------------------
-// Inline FooterConfig/ContextStatusBarConfig (matches types.ts)
-// ---------------------------------------------------------------------------
-
-interface TpsSample {
-	time: number;
-	cumulativeTokens: number;
-}
-
-interface ThresholdEntry {
-	maxTokens: number | null;
-}
-
-interface ContextStatusBarConfig {
-	enabled: boolean;
-	thresholds: ThresholdEntry[];
-	showTimer: boolean;
-	showTps: boolean;
-	showCache: boolean;
-	welcomeTimeoutMs: number;
-}
-
-interface FooterConfig {
-	worktreeName: string | null;
-	thinkingLevel: string;
-	tpsSamples: TpsSample[];
-	lastComputedTps: { value: number | null };
-	lastContextWindow: { value: number | undefined };
-	toolCallCount: { value: number };
-	cacheRead: number | undefined;
-	cacheWrite: number | undefined;
-	cacheHitRate: number | undefined;
-	sessionName: string | undefined;
-	trustStatus: "trusted" | "untrusted" | undefined;
-	sessionId: string;
-	issueNumber: { value: number | undefined };
-	issueRepo: { value: string | undefined };
-	issueTitle: { value: string | undefined };
-
-	// ── Container resource monitoring ────────────────────────
-	prevCpuUsage: number;
-	prevCpuTime: number;
-	allocatedCpus: number;
-	containerDisplay: { value: string };
-}
+import { createDefaultFooterConfig } from "../footer-state.ts";
+import type { ContextStatusBarConfig, FooterConfig } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Helper: create mock context with theme
@@ -88,27 +44,7 @@ function defaultConfig(): ContextStatusBarConfig {
 }
 
 function defaultFooterConfig(): FooterConfig {
-	return {
-		worktreeName: null,
-		thinkingLevel: "",
-		tpsSamples: [],
-		lastComputedTps: { value: null },
-		lastContextWindow: { value: undefined },
-		toolCallCount: { value: 0 },
-		cacheRead: undefined,
-		cacheWrite: undefined,
-		cacheHitRate: undefined,
-		sessionName: undefined,
-		trustStatus: undefined,
-		sessionId: "",
-		issueNumber: { value: undefined },
-		issueRepo: { value: undefined },
-		issueTitle: { value: undefined },
-		prevCpuUsage: 0,
-		prevCpuTime: 0,
-		allocatedCpus: 4,
-		containerDisplay: { value: "" },
-	};
+	return createDefaultFooterConfig();
 }
 
 /**

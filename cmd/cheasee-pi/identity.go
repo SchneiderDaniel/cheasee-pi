@@ -391,6 +391,20 @@ func uiBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
 	return host, nil
 }
 
+// resolveUIHostPort resolves the UI host port for the start path, bound-first
+// and single-resolution: the port the running sidecar actually published
+// (`docker port`) > uiHostPort's settings/env/derive+probe chain. One value
+// feeds the compose env, the `ℹ UI:` hint, and the PI_UI_PORT exec env, so
+// all three always agree. Resolution failure returns uiHostPort's verbatim
+// error so the caller's `⚠ UI port:` line is byte-identical to the
+// unmerged branches.
+func resolveUIHostPort(ctx context.Context, workspaceRoot string) (string, error) {
+	if port, err := uiBoundPort(ctx, workspaceRoot); err == nil {
+		return port, nil
+	}
+	return uiHostPort(workspaceRoot)
+}
+
 // fnv32 is the FNV-1a 32-bit hash used for the deterministic port offset.
 func fnv32(s string) uint32 {
 	h := fnv.New32a()

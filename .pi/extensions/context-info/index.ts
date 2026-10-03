@@ -16,6 +16,7 @@ import type {
 import { getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 import { loadConfig, readPiSetting } from "./config.ts";
 import { codeflowUrl } from "./codeflow.ts";
+import { uiUrl } from "./ui.ts";
 import { installFooter } from "./footer.ts";
 import { FooterState } from "./footer-state.ts";
 import { listLocalExtensions } from "./extensions.ts";
@@ -242,6 +243,16 @@ export default function contextInfo(pi: ExtensionAPI): void {
 			state.footerConfig.trustStatus = undefined;
 		}
 
+		// ── Service links (footer row 3) ───────────────────────
+		// Resolve both URLs once per session, BEFORE installing the footer,
+		// so the first render already carries the links (no post-install
+		// async gap) and the values stay byte-stable across re-renders
+		// (TuiAltScreen diffs raw lines, escape sequences included). The
+		// CodeFlow value is reused for the startup notify below — one
+		// resolution, no divergence.
+		state.footerConfig.uiUrl = await uiUrl(ctx.cwd);
+		state.footerConfig.codeflowUrl = await codeflowUrl(ctx.cwd);
+
 		// Install custom footer (mode-guarded inside installFooter)
 		state.callInstallFooter();
 
@@ -277,13 +288,13 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		ctx.ui.notify("For Info:  /cheasee-pi-info", "info");
 
 		// ── CodeFlow URL hint ───────────────────────────────
-		// Post the live CodeFlow URL (resolved from the same source of truth
-		// the CLI uses; the CLI forwards its bound port via CODEFLOW_PORT) as
-		// a clickable hyperlink. Gate the OSC 8 wrap on terminal capabilities
-		// (conservative default = plain URL text survives OSC 8-swallowing
-		// terminals), mirroring the markdown component's gate. Unresolvable
-		// workspace → no second notify, never throws.
-		const url = await codeflowUrl(ctx.cwd);
+		// Post the live CodeFlow URL (resolved once above, from the same source
+		// of truth the CLI uses; the CLI forwards its bound port via
+		// CODEFLOW_PORT) as a clickable hyperlink. Gate the OSC 8 wrap on
+		// terminal capabilities (conservative default = plain URL text survives
+		// OSC 8-swallowing terminals), mirroring the markdown component's gate.
+		// Unresolvable workspace → no second notify, never throws.
+		const url = state.footerConfig.codeflowUrl;
 		if (url) {
 			const caps = getCapabilities();
 			ctx.ui.notify("CodeFlow:  " + (caps.hyperlinks ? hyperlink(url, url) : url), "info");
