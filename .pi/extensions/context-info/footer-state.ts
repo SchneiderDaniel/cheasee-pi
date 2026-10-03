@@ -53,7 +53,6 @@ export class FooterState {
 
 	// ── State properties ──────────────────────────────────────────
 	config: ContextStatusBarConfig | null = null;
-	emitted = false;
 	lastSampledOutput: number | undefined = undefined;
 
 	timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -147,7 +146,6 @@ export class FooterState {
 
 	resetProperties(): void {
 		this.config = null;
-		this.emitted = false;
 		this.lastSampledOutput = undefined;
 
 		Object.assign(this.footerConfig, createDefaultFooterConfig());

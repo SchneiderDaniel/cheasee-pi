@@ -86,29 +86,12 @@ function createContextInfoExtension(): {
 		getSessionName: () => _sessionName,
 	};
 
-	// Simulate the extension's default export logic
-	let contextWindow: number | undefined;
-	let contextTokens: number | undefined;
-	let emitted = false;
-
-	function tryEmit() {
-		if (emitted) return;
-		if (contextWindow === undefined || contextWindow <= 0) return;
-		if (contextTokens === undefined || contextTokens <= 0) return;
-		emitted = true;
-		logCalls.push(
-			JSON.stringify({
-				type: "context_info",
-				contextTokens,
-				contextWindow,
-			}),
-		);
-	}
+	// Regression: context-info must NEVER print to stdout in TUI mode —
+	// tryEmit's console.log landed raw bytes inside the TUI frame (the
+	// "random text" stuck in the text entry while Working). Removed in
+	// favor of footer-only context stats. logCalls stays for assertions.
 
 	handlers.set("session_start", () => {
-		contextWindow = undefined;
-		contextTokens = undefined;
-		emitted = false;
 		_cacheRead = undefined;
 		_cacheWrite = undefined;
 		_cacheHitRate = undefined;
@@ -134,11 +117,6 @@ function createContextInfoExtension(): {
 	});
 
 	handlers.set("model_select", (event: any) => {
-		const cw = event.model?.contextWindow;
-		if (typeof cw === "number" && cw > 0) {
-			contextWindow = cw;
-			tryEmit();
-		}
 		// Reset cache hit rate on model change (per research finding)
 		_cacheHitRate = undefined;
 		// Re-read session name (in case setSessionName was called mid-session)
@@ -163,11 +141,6 @@ function createContextInfoExtension(): {
 			if (typeof _cacheRead === "number" && typeof _cacheWrite === "number") {
 				_cacheHitRate = Math.round((_cacheRead / (_cacheRead + _cacheWrite)) * 100);
 			}
-		}
-		const ctxUsage = mockCtx.getContextUsage();
-		if (ctxUsage && typeof ctxUsage.tokens === "number" && ctxUsage.tokens > 0) {
-			contextTokens = ctxUsage.tokens;
-			tryEmit();
 		}
 	});
 
@@ -536,7 +509,11 @@ describe("contextInfo from index.ts", () => {
 		};
 
 		await handlers.get("session_start")!({}, ctx);
-		assert.strictEqual(notifies.length, 1, "unresolvable workspace must emit only the For Info hint");
+		assert.strictEqual(
+			notifies.length,
+			1,
+			"unresolvable workspace must emit only the For Info hint",
+		);
 		assert.strictEqual(notifies[0], "For Info:  /cheasee-pi-info");
 
 		// Cleanup: stop timer via session_shutdown
@@ -576,7 +553,11 @@ describe("contextInfo from index.ts", () => {
 			resetCapabilitiesCache();
 		}
 
-		assert.strictEqual(notifies.length, 4, "two session_starts must emit 2 For Info + 2 CodeFlow notifies");
+		assert.strictEqual(
+			notifies.length,
+			4,
+			"two session_starts must emit 2 For Info + 2 CodeFlow notifies",
+		);
 		assert.ok(notifies[1].startsWith("CodeFlow:  "), "first CodeFlow notify present");
 		assert.ok(notifies[3].startsWith("CodeFlow:  "), "second CodeFlow notify present");
 
@@ -858,7 +839,7 @@ describe("context-info extension — happy path", () => {
 		ctx = createContextInfoExtension();
 	});
 
-	it("P2.1: model_select then assistant message with usage → emit", () => {
+	it("P2.1: model_select + assistant message with usage → no stdout emit (regression: TUI ghost text)", () => {
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
 		setCtxUsage(ctx, 12400);
@@ -866,29 +847,20 @@ describe("context-info extension — happy path", () => {
 			message: { role: "assistant" },
 		});
 
-		assert.strictEqual(ctx.logCalls.length, 1);
-		assert.strictEqual(
-			ctx.logCalls[0],
-			'{"type":"context_info","contextTokens":12400,"contextWindow":256000}',
-		);
+		assert.strictEqual(ctx.logCalls.length, 0);
 	});
 
-	it("P2.2: message_end before model_select → deferred emit", () => {
+	it("P2.2: message_end before model_select → still no stdout emit", () => {
 		invoke(ctx, "session_start", {});
 		setCtxUsage(ctx, 12400);
 		invoke(ctx, "message_end", {
 			message: { role: "assistant" },
 		});
-		// No emit yet — waiting for model info
 		assert.strictEqual(ctx.logCalls.length, 0);
 
-		// Now model info arrives → emit
+		// Model info arriving later changes nothing either
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
-		assert.strictEqual(ctx.logCalls.length, 1);
-		assert.strictEqual(
-			ctx.logCalls[0],
-			'{"type":"context_info","contextTokens":12400,"contextWindow":256000}',
-		);
+		assert.strictEqual(ctx.logCalls.length, 0);
 	});
 });
 
@@ -985,7 +957,7 @@ describe("context-info extension — reset behavior", () => {
 		ctx = createContextInfoExtension();
 	});
 
-	it("P2.12: second session_start resets state → separate emits per round", () => {
+	it("P2.12: second session_start resets state → still never emits to stdout", () => {
 		// Round 1
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
@@ -993,7 +965,7 @@ describe("context-info extension — reset behavior", () => {
 		invoke(ctx, "message_end", {
 			message: { role: "assistant" },
 		});
-		assert.strictEqual(ctx.logCalls.length, 1);
+		assert.strictEqual(ctx.logCalls.length, 0);
 
 		// Round 2 — reset mockCtx as well (new session)
 		invoke(ctx, "session_start", {});
@@ -1002,11 +974,7 @@ describe("context-info extension — reset behavior", () => {
 		invoke(ctx, "message_end", {
 			message: { role: "assistant" },
 		});
-		assert.strictEqual(ctx.logCalls.length, 2);
-		assert.strictEqual(
-			ctx.logCalls[1],
-			'{"type":"context_info","contextTokens":8000,"contextWindow":512000}',
-		);
+		assert.strictEqual(ctx.logCalls.length, 0);
 	});
 });
 
@@ -1557,11 +1525,13 @@ describe("context-info extension — footer mirrors pi's live thinking level", (
 			ui: {
 				setFooter: (fn: unknown) => {
 					if (typeof fn === "function") {
-						const component = (fn as (
-							tui: unknown,
-							theme: { fg: (c: string, t: string) => string },
-							footerData: unknown,
-						) => { render: (w: number) => string[] })(
+						const component = (
+							fn as (
+								tui: unknown,
+								theme: { fg: (c: string, t: string) => string },
+								footerData: unknown,
+							) => { render: (w: number) => string[] }
+						)(
 							{ requestRender: () => {}, setClearOnShrink: () => {} },
 							{ fg: (_color: string, text: string) => text },
 							{
