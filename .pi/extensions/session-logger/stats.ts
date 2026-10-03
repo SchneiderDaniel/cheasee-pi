@@ -3,6 +3,12 @@ import { createPerTurnState, flushTurn } from "./per-turn.ts";
 import type { TurnStats, PerTurnState } from "./per-turn.ts";
 import { handleModelChanges } from "./session-utils.ts";
 
+/**
+ * @public
+ * Re-exported for consumers that import turn stats from the session-logger stats module.
+ */
+export type { TurnStats } from "./per-turn.ts";
+
 export interface ToolExecution {
 	toolCallId: string;
 	toolName: string;
