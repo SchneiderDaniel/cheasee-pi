@@ -91,23 +91,37 @@ pub struct Assembler {
     usage: Usage,
     status: StreamStatus,
     will_retry: Option<bool>,
+    /// Set once an assistant `message_end` has been applied. It is authoritative
+    /// for the whole message, so any later `message_update` is a trailing delta
+    /// that must not append to the final text; the flag clears only on the next
+    /// `message_start` (or a fresh `agent_start`).
+    finalized: bool,
 }
 
 impl Assembler {
     /// Reduce one event. Returns whether anything visible changed.
     pub fn apply(&mut self, event: &Event) -> bool {
+        // `message_end` is authoritative: ignore trailing deltas for a message
+        // that is already finalized, until the next `message_start` opens one.
+        if self.finalized && matches!(event, Event::MessageUpdate { .. }) {
+            return false;
+        }
         match event {
             Event::AgentStart => {
-                let changed = self.status != StreamStatus::Streaming || self.will_retry.is_some();
+                let changed = self.status != StreamStatus::Streaming
+                    || self.will_retry.is_some()
+                    || self.finalized;
                 self.status = StreamStatus::Streaming;
                 self.will_retry = None;
+                self.finalized = false;
                 changed
             }
             // A new assistant message: its blocks are built fresh, so a
             // previous run's text is never appended to.
             Event::MessageStart { .. } => {
-                let changed = !self.blocks.is_empty();
+                let changed = !self.blocks.is_empty() || self.finalized;
                 self.blocks.clear();
+                self.finalized = false;
                 changed
             }
             Event::MessageUpdate {
@@ -193,7 +207,10 @@ impl Assembler {
             return false;
         }
 
-        let mut changed = false;
+        // The message is now authoritative; subsequent deltas are ignored until
+        // the next `message_start`.
+        let mut changed = !self.finalized;
+        self.finalized = true;
         if let Some(content) = obj.get("content").and_then(Value::as_array) {
             let mut blocks = Vec::new();
             for (i, part) in content.iter().enumerate() {
@@ -600,6 +617,29 @@ mod tests {
         assert_eq!(a.blocks()[1].text, "final answer");
         assert_eq!(a.usage().input, 7);
         assert!(a.usage().available);
+    }
+
+    /// `message_end` is authoritative: a trailing `message_update` for the same
+    /// message must not append to the final text, and the next `message_start`
+    /// re-opens the message for a new run.
+    #[test]
+    fn trailing_delta_after_message_end_is_ignored_until_next_message_start() {
+        let mut a = Assembler::default();
+        a.apply(&Event::MessageStart { message: json!({}) });
+        a.apply(&delta(0, "partial"));
+        a.apply(&Event::MessageEnd {
+            message: json!({
+                "role": "assistant",
+                "content": [{"type": "text", "text": "final"}]
+            }),
+        });
+        // A stray delta after the authoritative end cannot corrupt the text.
+        assert!(!a.apply(&delta(0, " CORRUPT")));
+        assert_eq!(a.blocks()[0].text, "final");
+        // The next message start re-opens assembly.
+        assert!(a.apply(&Event::MessageStart { message: json!({}) }));
+        assert!(a.apply(&delta(0, "second")));
+        assert_eq!(a.blocks()[0].text, "second");
     }
 
     /// AC4: usage is cumulative — a later snapshot replaces the earlier one

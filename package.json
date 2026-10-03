@@ -27,16 +27,16 @@
 	"devDependencies": {
 		"@types/node": "^25.9.1",
 		"eslint": "^10.5.0",
-		"js-yaml": "^5.2.2",
+		"js-yaml": "^5.4.2",
 		"prettier": "^3.8.3",
 		"typescript": "^6.0.3"
 	},
 	"overrides": {
-		"brace-expansion": "5.0.9",
-		"undici": "^8.9.0",
+		"brace-expansion": "5.0.12",
+		"undici": "8.10.2",
 		"protobufjs": "7.6.5",
 		"minimatch": {
-			"brace-expansion": "5.0.9"
+			"brace-expansion": "5.0.12"
 		},
 		"@google/genai": {
 			"protobufjs": "7.6.5"

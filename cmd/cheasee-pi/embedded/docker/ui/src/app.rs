@@ -94,7 +94,10 @@ fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
             } else {
                 None
             };
-            crate::ws::send(
+            // Only clear the draft when the frame actually left the socket: a
+            // prompt typed before connection or during a send failure must not
+            // be lost.
+            let delivered = crate::ws::send(
                 crate::bridge::ClientMessage::Prompt {
                     id: None,
                     message,
@@ -102,10 +105,15 @@ fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                 },
                 status,
             );
+            if delivered {
+                draft.set(String::new());
+            }
         }
         #[cfg(not(feature = "hydrate"))]
-        let _ = message;
-        draft.set(String::new());
+        {
+            let _ = message;
+            draft.set(String::new());
+        }
     };
 
     view! {

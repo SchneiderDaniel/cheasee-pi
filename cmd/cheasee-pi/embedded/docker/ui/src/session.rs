@@ -36,7 +36,11 @@ pub trait ClientSink {
         text: String,
     ) -> impl std::future::Future<Output = Result<(), ()>> + Send + '_;
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Option<ClientMessage>> + Send + '_;
+    /// The next client frame: `Ok` a decoded command, `Err` a malformed frame
+    /// the relay must surface to the browser, `None` a closed connection.
+    fn recv(
+        &mut self,
+    ) -> impl std::future::Future<Output = Option<Result<ClientMessage, String>>> + Send + '_;
 }
 
 /// Shared, per-child relay state. Cheap to clone behind an `Arc`.
@@ -71,7 +75,18 @@ async fn relay_with_client(client: &Arc<RpcClient>, mut sink: impl ClientSink) {
         tokio::select! {
             biased;
             command = sink.recv() => match command {
-                Some(command) => forward(client, command, &out_tx),
+                Some(Ok(command)) => forward(client, command, &out_tx),
+                // A frame the client could not have intended to be ignored: a
+                // client-side encoding/version error must be visible, not a
+                // silently dropped command.
+                Some(Err(error)) => {
+                    let message = ServerMessage::Error {
+                        message: format!("malformed client frame: {error}"),
+                    };
+                    if send(&mut sink, &message).await.is_err() {
+                        break;
+                    }
+                }
                 None => break,
             },
             Some(message) = out_rx.recv() => {
@@ -108,7 +123,7 @@ async fn send(sink: &mut impl ClientSink, message: &ServerMessage) -> Result<(),
 /// Forward one browser command to pi and report its response back. The request
 /// is spawned so a pending response never stalls the event stream.
 fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<ServerMessage>) {
-    let Some((command, name)) = to_command(message) else {
+    let Some((command, name, browser_id)) = to_command(message) else {
         return;
     };
     let client = Arc::clone(client);
@@ -124,7 +139,10 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
         let body = response.body();
         let _ = out
             .send(ServerMessage::CommandResponse {
-                id: body.and_then(|b| b.id.clone()),
+                // The browser's correlation id, *not* pi's generated `req_N`:
+                // the two id spaces stay decoupled, so a client that stamps an
+                // id can correlate this response even with concurrent commands.
+                id: browser_id,
                 command: name.to_string(),
                 success: body.map(|b| b.success).unwrap_or(false),
                 error: body.and_then(|b| b.error.clone()),
@@ -140,14 +158,15 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
     });
 }
 
-/// Translate a browser command into pi's vocabulary. Returns the command and
-/// the response `command` name it will be answered with.
-fn to_command(message: ClientMessage) -> Option<(Command, &'static str)> {
+/// Translate a browser command into pi's vocabulary. Returns the command, the
+/// response `command` name it will be answered with, and the browser's
+/// correlation id to echo back (pi gets its own generated id).
+fn to_command(message: ClientMessage) -> Option<(Command, &'static str, Option<String>)> {
     match message {
         ClientMessage::Prompt {
+            id,
             message,
             streaming_behavior,
-            ..
         } => Some((
             Command::Prompt {
                 id: None,
@@ -156,24 +175,27 @@ fn to_command(message: ClientMessage) -> Option<(Command, &'static str)> {
                 streaming_behavior: streaming_behavior.map(|b| b.as_wire().to_string()),
             },
             "prompt",
+            id,
         )),
-        ClientMessage::Steer { message, .. } => Some((
+        ClientMessage::Steer { id, message } => Some((
             Command::Steer {
                 id: None,
                 message,
                 images: None,
             },
             "steer",
+            id,
         )),
-        ClientMessage::FollowUp { message, .. } => Some((
+        ClientMessage::FollowUp { id, message } => Some((
             Command::FollowUp {
                 id: None,
                 message,
                 images: None,
             },
             "follow_up",
+            id,
         )),
-        ClientMessage::Abort { .. } => Some((Command::Abort { id: None }, "abort")),
+        ClientMessage::Abort { id } => Some((Command::Abort { id: None }, "abort", id)),
         ClientMessage::Unknown => None,
     }
 }
@@ -209,7 +231,7 @@ mod tests {
     type Frames = JsonlReader<BufReader<DuplexStream>>;
 
     struct FakeSink {
-        commands: mpsc::UnboundedReceiver<ClientMessage>,
+        commands: mpsc::UnboundedReceiver<Result<ClientMessage, String>>,
         sent: mpsc::UnboundedSender<ServerMessage>,
     }
 
@@ -220,14 +242,14 @@ mod tests {
             Ok(())
         }
 
-        async fn recv(&mut self) -> Option<ClientMessage> {
+        async fn recv(&mut self) -> Option<Result<ClientMessage, String>> {
             self.commands.recv().await
         }
     }
 
     /// A fake browser wired to two channels: commands in, frames out.
     fn fake() -> (
-        mpsc::UnboundedSender<ClientMessage>,
+        mpsc::UnboundedSender<Result<ClientMessage, String>>,
         mpsc::UnboundedReceiver<ServerMessage>,
         FakeSink,
     ) {
@@ -277,11 +299,11 @@ mod tests {
         let relay = tokio::spawn(async move { session.relay(sink).await });
 
         command_tx
-            .send(ClientMessage::Prompt {
+            .send(Ok(ClientMessage::Prompt {
                 id: None,
                 message: "hi".into(),
                 streaming_behavior: Some(StreamingBehavior::Steer),
-            })
+            }))
             .unwrap();
 
         let frame = next_command(&mut frames).await;
@@ -328,7 +350,7 @@ mod tests {
         let session = Arc::new(Session::new(Arc::clone(&client)));
         let relay = tokio::spawn(async move { session.relay(sink).await });
 
-        command_tx.send(ClientMessage::Abort { id: None }).unwrap();
+        command_tx.send(Ok(ClientMessage::Abort { id: None })).unwrap();
         let frame = next_command(&mut frames).await;
         let id = frame["id"].as_str().unwrap().to_string();
         write_record(
@@ -353,6 +375,63 @@ mod tests {
     #[test]
     fn unknown_client_messages_are_dropped() {
         assert!(to_command(ClientMessage::Unknown).is_none());
+    }
+
+    /// The relay echoes the *browser's* correlation id, not pi's generated
+    /// `req_N`, so a client with concurrent commands can still correlate.
+    #[tokio::test]
+    async fn relay_echoes_the_browser_command_id() {
+        let (client, mut to_child, mut frames) = harness();
+        let (command_tx, mut received, sink) = fake();
+        let session = Arc::new(Session::new(Arc::clone(&client)));
+        let relay = tokio::spawn(async move { session.relay(sink).await });
+
+        command_tx
+            .send(Ok(ClientMessage::Prompt {
+                id: Some("browser-1".into()),
+                message: "hi".into(),
+                streaming_behavior: None,
+            }))
+            .unwrap();
+        let frame = next_command(&mut frames).await;
+        let pi_id = frame["id"].as_str().unwrap().to_string();
+        assert_ne!(pi_id, "browser-1", "pi stamps its own id");
+        write_record(
+            &mut to_child,
+            serde_json::json!({"type": "response", "command": "prompt", "success": true, "id": pi_id}),
+        )
+        .await;
+
+        match next_message(&mut received).await {
+            ServerMessage::CommandResponse { id, .. } => {
+                assert_eq!(id.as_deref(), Some("browser-1"));
+            }
+            other => panic!("expected a command response, got {other:?}"),
+        }
+
+        drop(command_tx);
+        let _ = relay.await;
+    }
+
+    /// A malformed client frame is surfaced to the browser, not silently
+    /// dropped.
+    #[tokio::test]
+    async fn relay_surfaces_a_malformed_client_frame() {
+        let (client, _to_child, _frames) = harness();
+        let (command_tx, mut received, sink) = fake();
+        let session = Arc::new(Session::new(Arc::clone(&client)));
+        let relay = tokio::spawn(async move { session.relay(sink).await });
+
+        command_tx.send(Err("expected value".into())).unwrap();
+        match next_message(&mut received).await {
+            ServerMessage::Error { message } => {
+                assert!(message.contains("malformed client frame"), "{message}");
+            }
+            other => panic!("expected an error frame, got {other:?}"),
+        }
+
+        drop(command_tx);
+        let _ = relay.await;
     }
 
     /// A framing fault on the child pipe reaches the browser as an error.

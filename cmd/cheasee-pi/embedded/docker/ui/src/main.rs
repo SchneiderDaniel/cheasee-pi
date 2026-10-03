@@ -211,16 +211,15 @@ mod server {
                 .map_err(|_| ())
         }
 
-        async fn recv(&mut self) -> Option<ClientMessage> {
+        async fn recv(&mut self) -> Option<Result<ClientMessage, String>> {
             loop {
                 match self.socket.recv().await {
                     Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
-                        Ok(message) => return Some(message),
+                        Ok(message) => return Some(Ok(message)),
                         // A malformed client frame must not kill the
-                        // connection; drop it and keep reading.
-                        Err(err) => {
-                            eprintln!("cheasee-pi-ui: ignoring bad client frame: {err}")
-                        }
+                        // connection; surface it so the browser learns its
+                        // command was not accepted, then keep reading.
+                        Err(err) => return Some(Err(err.to_string())),
                     },
                     Some(Ok(Message::Close(_))) | None => return None,
                     Some(Ok(_)) => {}

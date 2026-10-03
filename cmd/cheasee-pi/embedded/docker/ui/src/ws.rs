@@ -125,15 +125,16 @@ fn status_of(effect: SessionEffect) -> ConnectionStatus {
 ///
 /// A send against a closed socket, or one the native socket rejects, must be
 /// visible; a delivered frame must equally clear a previous failure, or a later
-/// success would still read as undelivered.
-pub fn send(message: ClientMessage, set_status: RwSignal<ConnectionStatus>) {
+/// success would still read as undelivered. Returns whether the frame actually
+/// left the socket, so the caller can retain a draft that was not delivered.
+pub fn send(message: ClientMessage, set_status: RwSignal<ConnectionStatus>) -> bool {
     let text = match serde_json::to_string(&message) {
         Ok(text) => text,
         // Encoding our own envelope cannot fail in practice; if it ever did, a
         // silent no-op would read as a delivered prompt.
         Err(_) => {
             set_status.set(ConnectionStatus::SendFailed);
-            return;
+            return false;
         }
     };
     let outcome = LIVE.with(|live| match live.borrow().as_ref() {
@@ -141,6 +142,7 @@ pub fn send(message: ClientMessage, set_status: RwSignal<ConnectionStatus>) {
         None => SendOutcome::NotConnected,
     });
     set_status.set(status_of(send_status(outcome)));
+    matches!(outcome, SendOutcome::Sent)
 }
 
 /// Connect, then reconnect with backoff until the page goes away. `state`
