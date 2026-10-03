@@ -18,3 +18,5 @@
 {"type":"bash_execution_update","id":"req-12","output":"partial output"}
 {"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hello"},"usage":{"input":10,"output":2}}
 {"type":"agent_end","messages":[],"willRetry":true}
+{"type":"thinking_level_changed","level":"high"}
+{"type":"bash_execution_update","id":"b1","delta":"line one\n"}

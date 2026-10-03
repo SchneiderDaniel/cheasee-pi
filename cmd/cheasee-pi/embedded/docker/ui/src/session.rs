@@ -22,8 +22,8 @@ use serde_json::Value;
 use tokio::sync::{broadcast::error::RecvError, mpsc};
 
 use crate::bridge::{ClientMessage, ServerMessage};
-use crate::protocol::Command;
-use crate::rpc::{ProtocolMessage, RpcClient};
+use crate::protocol::{Command, Response};
+use crate::rpc::{ProtocolMessage, RpcClient, RpcError};
 
 /// The browser connection surface the relay drives.
 ///
@@ -123,13 +123,13 @@ async fn send(sink: &mut impl ClientSink, message: &ServerMessage) -> Result<(),
 /// Forward one browser command to pi and report its response back. The request
 /// is spawned so a pending response never stalls the event stream.
 fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<ServerMessage>) {
-    let Some((command, name, browser_id)) = to_command(message) else {
+    let Some(routed) = to_command(message) else {
         return;
     };
     let client = Arc::clone(client);
     let out = out.clone();
     tokio::spawn(async move {
-        let response = match client.request(&command).await {
+        let response = match routed.wire_request(&client).await {
             Ok(response) => response,
             Err(err) => {
                 let _ = out.send(ServerMessage::Error { message: err.to_string() }).await;
@@ -142,8 +142,8 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
                 // The browser's correlation id, *not* pi's generated `req_N`:
                 // the two id spaces stay decoupled, so a client that stamps an
                 // id can correlate this response even with concurrent commands.
-                id: browser_id,
-                command: name.to_string(),
+                id: routed.browser_id.clone(),
+                command: routed.name.to_string(),
                 success: body.map(|b| b.success).unwrap_or(false),
                 error: body.and_then(|b| b.error.clone()),
                 // `prompt` responses carry `data.disposition`
@@ -153,21 +153,54 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
                     .and_then(|d| d.get("disposition"))
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                // Pass the payload through untouched: the model list, thinking
+                // levels, stats, and `clear_queue`'s text all travel here.
+                data: body.and_then(|b| b.data.clone()),
             })
             .await;
     });
 }
 
-/// Translate a browser command into pi's vocabulary. Returns the command, the
-/// response `command` name it will be answered with, and the browser's
-/// correlation id to echo back (pi gets its own generated id).
-fn to_command(message: ClientMessage) -> Option<(Command, &'static str, Option<String>)> {
+/// A translated browser command plus how its response correlates back.
+struct Routed {
+    command: Command,
+    /// The `command` name pi answers with.
+    name: &'static str,
+    /// The browser's correlation id, echoed on the response.
+    browser_id: Option<String>,
+    /// The browser id is also the wire correlation key (bash), so the request
+    /// is registered under it rather than a minted `req_N`.
+    preserve_id: bool,
+}
+
+impl Routed {
+    /// A command whose pi-side id is minted by the client; only the response
+    /// is correlated with the browser's id.
+    fn browser(command: Command, name: &'static str, browser_id: Option<String>) -> Self {
+        Self {
+            command,
+            name,
+            browser_id,
+            preserve_id: false,
+        }
+    }
+
+    async fn wire_request(&self, client: &RpcClient) -> Result<Response, RpcError> {
+        match (&self.browser_id, self.preserve_id) {
+            (Some(id), true) => client.request_with_id(id, &self.command).await,
+            _ => client.request(&self.command).await,
+        }
+    }
+}
+
+/// Translate a browser command into pi's vocabulary.
+fn to_command(message: ClientMessage) -> Option<Routed> {
     match message {
         ClientMessage::Prompt {
             id,
             message,
             streaming_behavior,
-        } => Some((
+        } => Some(Routed::browser(
             Command::Prompt {
                 id: None,
                 message,
@@ -177,7 +210,7 @@ fn to_command(message: ClientMessage) -> Option<(Command, &'static str, Option<S
             "prompt",
             id,
         )),
-        ClientMessage::Steer { id, message } => Some((
+        ClientMessage::Steer { id, message } => Some(Routed::browser(
             Command::Steer {
                 id: None,
                 message,
@@ -186,7 +219,7 @@ fn to_command(message: ClientMessage) -> Option<(Command, &'static str, Option<S
             "steer",
             id,
         )),
-        ClientMessage::FollowUp { id, message } => Some((
+        ClientMessage::FollowUp { id, message } => Some(Routed::browser(
             Command::FollowUp {
                 id: None,
                 message,
@@ -195,7 +228,103 @@ fn to_command(message: ClientMessage) -> Option<(Command, &'static str, Option<S
             "follow_up",
             id,
         )),
-        ClientMessage::Abort { id } => Some((Command::Abort { id: None }, "abort", id)),
+        ClientMessage::Abort { id } => Some(Routed::browser(Command::Abort { id: None }, "abort", id)),
+        ClientMessage::ClearQueue { id } => Some(Routed::browser(
+            Command::ClearQueue { id: None },
+            "clear_queue",
+            id,
+        )),
+        ClientMessage::GetState { id } => {
+            Some(Routed::browser(Command::GetState { id: None }, "get_state", id))
+        }
+        ClientMessage::GetAvailableModels { id } => Some(Routed::browser(
+            Command::GetAvailableModels { id: None },
+            "get_available_models",
+            id,
+        )),
+        ClientMessage::SetModel {
+            id,
+            provider,
+            model_id,
+        } => Some(Routed::browser(
+            Command::SetModel {
+                id: None,
+                provider,
+                model_id,
+            },
+            "set_model",
+            id,
+        )),
+        ClientMessage::CycleModel { id } => Some(Routed::browser(
+            Command::CycleModel { id: None },
+            "cycle_model",
+            id,
+        )),
+        ClientMessage::GetAvailableThinkingLevels { id } => Some(Routed::browser(
+            Command::GetAvailableThinkingLevels { id: None },
+            "get_available_thinking_levels",
+            id,
+        )),
+        ClientMessage::SetThinkingLevel { id, level } => Some(Routed::browser(
+            Command::SetThinkingLevel { id: None, level },
+            "set_thinking_level",
+            id,
+        )),
+        ClientMessage::CycleThinkingLevel { id } => Some(Routed::browser(
+            Command::CycleThinkingLevel { id: None },
+            "cycle_thinking_level",
+            id,
+        )),
+        ClientMessage::GetSessionStats { id } => Some(Routed::browser(
+            Command::GetSessionStats { id: None },
+            "get_session_stats",
+            id,
+        )),
+        ClientMessage::Compact {
+            id,
+            custom_instructions,
+        } => Some(Routed::browser(
+            Command::Compact {
+                id: None,
+                custom_instructions,
+            },
+            "compact",
+            id,
+        )),
+        ClientMessage::SetAutoCompaction { id, enabled } => Some(Routed::browser(
+            Command::SetAutoCompaction { id: None, enabled },
+            "set_auto_compaction",
+            id,
+        )),
+        ClientMessage::SetAutoRetry { id, enabled } => Some(Routed::browser(
+            Command::SetAutoRetry { id: None, enabled },
+            "set_auto_retry",
+            id,
+        )),
+        ClientMessage::AbortRetry { id } => Some(Routed::browser(
+            Command::AbortRetry { id: None },
+            "abort_retry",
+            id,
+        )),
+        ClientMessage::Bash {
+            id,
+            command,
+            exclude_from_context,
+        } => Some(Routed {
+            command: Command::Bash {
+                id: None,
+                command,
+                exclude_from_context,
+            },
+            name: "bash",
+            browser_id: Some(id),
+            preserve_id: true,
+        }),
+        ClientMessage::AbortBash { id } => Some(Routed::browser(
+            Command::AbortBash { id: None },
+            "abort_bash",
+            id,
+        )),
         ClientMessage::Unknown => None,
     }
 }
@@ -375,6 +504,146 @@ mod tests {
     #[test]
     fn unknown_client_messages_are_dropped() {
         assert!(to_command(ClientMessage::Unknown).is_none());
+    }
+
+    /// AC1–AC5: every control maps to exactly one pi command variant and wire
+    /// `type`; the browser vocabulary is curated, never a raw passthrough.
+    #[test]
+    fn to_command_maps_every_control_to_its_pi_vocabulary() {
+        let cases: Vec<(ClientMessage, &str)> = vec![
+            (ClientMessage::ClearQueue { id: None }, "clear_queue"),
+            (ClientMessage::GetState { id: None }, "get_state"),
+            (
+                ClientMessage::GetAvailableModels { id: None },
+                "get_available_models",
+            ),
+            (
+                ClientMessage::SetModel {
+                    id: None,
+                    provider: "anthropic".into(),
+                    model_id: "claude".into(),
+                },
+                "set_model",
+            ),
+            (ClientMessage::CycleModel { id: None }, "cycle_model"),
+            (
+                ClientMessage::GetAvailableThinkingLevels { id: None },
+                "get_available_thinking_levels",
+            ),
+            (
+                ClientMessage::SetThinkingLevel {
+                    id: None,
+                    level: "high".into(),
+                },
+                "set_thinking_level",
+            ),
+            (
+                ClientMessage::CycleThinkingLevel { id: None },
+                "cycle_thinking_level",
+            ),
+            (
+                ClientMessage::GetSessionStats { id: None },
+                "get_session_stats",
+            ),
+            (
+                ClientMessage::Compact {
+                    id: None,
+                    custom_instructions: None,
+                },
+                "compact",
+            ),
+            (
+                ClientMessage::SetAutoCompaction {
+                    id: None,
+                    enabled: true,
+                },
+                "set_auto_compaction",
+            ),
+            (
+                ClientMessage::SetAutoRetry {
+                    id: None,
+                    enabled: false,
+                },
+                "set_auto_retry",
+            ),
+            (ClientMessage::AbortRetry { id: None }, "abort_retry"),
+            (
+                ClientMessage::Bash {
+                    id: "b1".into(),
+                    command: "echo hi".into(),
+                    exclude_from_context: None,
+                },
+                "bash",
+            ),
+            (ClientMessage::AbortBash { id: None }, "abort_bash"),
+        ];
+        for (message, expected) in cases {
+            let routed = to_command(message).expect("control is routable");
+            assert_eq!(routed.name, expected);
+            let value = serde_json::to_value(&routed.command).unwrap();
+            assert_eq!(value["type"], expected, "{expected} wire type");
+        }
+    }
+
+    /// AC2: `set_model` / `set_thinking_level` carry their payload in pi's
+    /// camelCase field names.
+    #[test]
+    fn to_command_carries_control_payloads() {
+        let routed = to_command(ClientMessage::SetModel {
+            id: None,
+            provider: "anthropic".into(),
+            model_id: "claude".into(),
+        })
+        .unwrap();
+        let value = serde_json::to_value(&routed.command).unwrap();
+        assert_eq!(value["provider"], "anthropic");
+        assert_eq!(value["modelId"], "claude");
+
+        let routed = to_command(ClientMessage::SetThinkingLevel {
+            id: None,
+            level: "high".into(),
+        })
+        .unwrap();
+        let value = serde_json::to_value(&routed.command).unwrap();
+        assert_eq!(value["level"], "high");
+
+        let routed = to_command(ClientMessage::Compact {
+            id: Some("c1".into()),
+            custom_instructions: Some("be brief".into()),
+        })
+        .unwrap();
+        let value = serde_json::to_value(&routed.command).unwrap();
+        assert_eq!(value["customInstructions"], "be brief");
+        assert_eq!(routed.browser_id.as_deref(), Some("c1"));
+    }
+
+    /// AC4: bash is the one control whose browser id is also the wire id, so
+    /// `bash_execution_update` ids can be matched to it.
+    #[test]
+    fn to_command_routes_bash_through_the_browser_id() {
+        let routed = to_command(ClientMessage::Bash {
+            id: "b1".into(),
+            command: "echo hi".into(),
+            exclude_from_context: Some(true),
+        })
+        .unwrap();
+        assert_eq!(routed.name, "bash");
+        assert!(routed.preserve_id, "bash must keep the browser id on the wire");
+        assert_eq!(routed.browser_id.as_deref(), Some("b1"));
+        let value = serde_json::to_value(&routed.command).unwrap();
+        assert_eq!(value["excludeFromContext"], true);
+    }
+
+    /// Only bash preserves the caller id; an ordinary command still lets the
+    /// client mint `req_N` (asserted end-to-end by
+    /// `relay_echoes_the_browser_command_id`).
+    #[test]
+    fn to_command_does_not_preserve_ids_for_non_bash_controls() {
+        let routed = to_command(ClientMessage::ClearQueue {
+            id: Some("c1".into()),
+        })
+        .unwrap();
+        assert!(!routed.preserve_id);
     }
 
     /// The relay echoes the *browser's* correlation id, not pi's generated

@@ -4,7 +4,13 @@
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, Title};
 
+use crate::bridge::ClientMessage;
+use crate::components::bash::BashPanel;
+use crate::components::controls::ControlsPanel;
+use crate::components::dispatch;
 use crate::components::message::Transcript;
+use crate::components::queue::QueuePanel;
+use crate::controls::ControlsState;
 use crate::stream::ChatState;
 
 /// Connection state the view renders. A dropped socket must never read as a
@@ -41,18 +47,25 @@ pub fn App() -> impl IntoView {
     // hydration requires.
     let chat = ChatState::new();
     provide_context(chat);
+    // The control-plane state (queue, model/thinking, stats, toggles, draft)
+    // is separate from the transcript and provided for the same lifetime.
+    let controls = ControlsState::new();
+    provide_context(controls);
     let status = RwSignal::new(ConnectionStatus::Disconnected);
 
     // Browser-only: open the WS, reconnect with backoff, and feed frames into
     // the chat state. Compiled out of the server target entirely.
     #[cfg(feature = "hydrate")]
-    crate::ws::connect(chat, status);
+    crate::ws::connect(chat, controls, status);
 
     view! {
         <Title text="cheasee-pi"/>
         <main class="shell">
             <h1>"cheasee-pi control center"</h1>
             <Counter/>
+            <ControlsPanel status=status/>
+            <QueuePanel status=status/>
+            <BashPanel status=status/>
             <PromptInput status=status/>
             <Transcript/>
         </main>
@@ -75,7 +88,10 @@ fn Counter() -> impl IntoView {
 /// The prompt box: sends a [`ClientMessage::Prompt`] to the server.
 #[component]
 fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
-    let draft = RwSignal::new(String::new());
+    // The draft is owned by the control state so `clear_queue` can restore the
+    // text it removed back into the editor.
+    let controls = expect_context::<ControlsState>();
+    let draft = controls.draft;
     // Used only to decide the streaming behavior of a mid-run prompt.
     #[cfg(feature = "hydrate")]
     let chat = expect_context::<ChatState>();
@@ -116,6 +132,31 @@ fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
         }
     };
 
+    // AC1: Stop maps to `abort`. It deliberately leaves pi's queue intact —
+    // clearing queued input is the queue panel's own "clear queue" control.
+    let stop = move |_| dispatch(ClientMessage::Abort { id: None }, status);
+
+    // AC1: a prompt typed mid-run is either delivered to the running turn
+    // (`Send` -> steer) or held until the agent stops (`Queue` -> follow_up).
+    let queue = move |_| {
+        let message = draft.get();
+        if message.trim().is_empty() {
+            return;
+        }
+        #[cfg(feature = "hydrate")]
+        {
+            // Only clear on a delivered frame, matching `send`.
+            if crate::ws::send(ClientMessage::FollowUp { id: None, message }, status) {
+                draft.set(String::new());
+            }
+        }
+        #[cfg(not(feature = "hydrate"))]
+        {
+            let _ = message;
+            draft.set(String::new());
+        }
+    };
+
     view! {
         <section class="prompt">
             <input
@@ -125,6 +166,8 @@ fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                 on:input=move |ev| draft.set(event_target_value(&ev))
             />
             <button on:click=send>"Send"</button>
+            <button class="queue-prompt" on:click=queue>"Queue"</button>
+            <button class="stop" on:click=stop>"Stop"</button>
             <p class="status">"status: " {move || status.get().label()}</p>
         </section>
     }

@@ -17,3 +17,5 @@
 {"id":"req-17","type":"clone"}
 {"id":"req-18","type":"get_messages"}
 {"id":"req-19","type":"get_commands"}
+{"id":"req-20","type":"clear_queue"}
+{"id":"req-21","type":"get_available_thinking_levels"}

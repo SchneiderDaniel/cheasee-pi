@@ -12,6 +12,7 @@
 //! connection.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::protocol::Event;
 
@@ -43,6 +44,80 @@ pub enum ClientMessage {
         message: String,
     },
     Abort {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Empty pi's steering/follow-up queue. `abort` leaves the queue intact, so
+    /// Stop is a separate decision from clear-queue.
+    ClearQueue {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    GetState {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    GetAvailableModels {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    SetModel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        provider: String,
+        model_id: String,
+    },
+    CycleModel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    GetAvailableThinkingLevels {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    SetThinkingLevel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        level: String,
+    },
+    CycleThinkingLevel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    GetSessionStats {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    Compact {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        custom_instructions: Option<String>,
+    },
+    SetAutoCompaction {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        enabled: bool,
+    },
+    SetAutoRetry {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        enabled: bool,
+    },
+    AbortRetry {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Run a shell command inline. `id` is mandatory and is used verbatim as
+    /// the wire correlation id, because `bash_execution_update` events repeat
+    /// it — the relay must not mint its own for this command.
+    Bash {
+        id: String,
+        command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exclude_from_context: Option<bool>,
+    },
+    AbortBash {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
@@ -88,6 +163,11 @@ pub enum ServerMessage {
         error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         disposition: Option<String>,
+        /// The pi response's `data` payload, passed through untyped. Model
+        /// lists, thinking levels, session stats, and `clear_queue`'s removed
+        /// text all reach the browser through this single hop.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<Value>,
     },
     /// A non-fatal notice (e.g. pi emit a parse failure on the child pipe).
     Notice { kind: String, detail: String },

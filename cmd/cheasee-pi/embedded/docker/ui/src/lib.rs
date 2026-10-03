@@ -5,8 +5,10 @@
 //! by the Axum composition root in `src/main.rs`.
 
 pub mod app;
+pub mod bash;
 pub mod bridge;
 pub mod components;
+pub mod controls;
 pub mod protocol;
 pub mod retry;
 pub mod stream;

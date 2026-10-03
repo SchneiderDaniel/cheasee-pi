@@ -79,7 +79,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
 # PI_VERSION is pinned equal to the pi image's value by
 # TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
-ARG PI_VERSION=latest
+ARG PI_VERSION=1.0.1
 ARG PI_BUILD_STAMP
 RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
  && npm cache clean --force \

@@ -63,6 +63,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Empty the steering/follow-up queue and return the removed text, so the
+    /// client can restore it into the editor. `abort` alone leaves the queue
+    /// intact, which is why Stop has to choose between the two.
+    ClearQueue {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
     NewSession {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -91,6 +98,10 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         level: String,
+    },
+    GetAvailableThinkingLevels {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
     CycleThinkingLevel {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,12 +228,14 @@ pub enum Response {
     FollowUp(ResponseBody),
     Abort(ResponseBody),
     NewSession(ResponseBody),
+    ClearQueue(ResponseBody),
     GetState(ResponseBody),
     SetModel(ResponseBody),
     CycleModel(ResponseBody),
     GetAvailableModels(ResponseBody),
     SetThinkingLevel(ResponseBody),
     CycleThinkingLevel(ResponseBody),
+    GetAvailableThinkingLevels(ResponseBody),
     SetSteeringMode(ResponseBody),
     SetFollowUpMode(ResponseBody),
     Compact(ResponseBody),
@@ -259,12 +272,14 @@ impl Response {
             | Self::FollowUp(b)
             | Self::Abort(b)
             | Self::NewSession(b)
+            | Self::ClearQueue(b)
             | Self::GetState(b)
             | Self::SetModel(b)
             | Self::CycleModel(b)
             | Self::GetAvailableModels(b)
             | Self::SetThinkingLevel(b)
             | Self::CycleThinkingLevel(b)
+            | Self::GetAvailableThinkingLevels(b)
             | Self::SetSteeringMode(b)
             | Self::SetFollowUpMode(b)
             | Self::Compact(b)
@@ -395,6 +410,11 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         final_error: Option<String>,
     },
+    /// The active thinking level changed without a command — the UI follows
+    /// this instead of polling `get_state` after every `set_thinking_level`.
+    ThinkingLevelChanged {
+        level: String,
+    },
     ExtensionError {
         extension_path: String,
         event: String,
@@ -405,9 +425,16 @@ pub enum Event {
     /// client must not mistake it for that command's response. The payload
     /// beyond the id is unmodelled, so it is kept verbatim rather than guessed
     /// at and dropped.
+    /// `delta` is a raw stdout/stderr chunk, not a line, so the consumer must
+    /// reassemble lines. It is optional and typed; a non-`delta` payload (e.g.
+    /// the legacy `output` key) is preserved in `extra` and read by
+    /// [`Event::bash_delta`]. No serde alias: an alias would serialize the
+    /// legacy key back as `delta` and break the fixture round-trip.
     BashExecutionUpdate {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delta: Option<String>,
         #[serde(flatten)]
         extra: Map<String, Value>,
     },
@@ -415,6 +442,20 @@ pub enum Event {
     /// enum would hard-error the stream on exactly the events the epic renders.
     #[serde(other)]
     Unknown,
+}
+
+impl Event {
+    /// The bash output chunk of a [`Event::BashExecutionUpdate`], tolerating the
+    /// legacy `output` key. `None` means the event carries no output text.
+    pub fn bash_delta(&self) -> Option<&str> {
+        match self {
+            Event::BashExecutionUpdate { delta, extra, .. } => delta
+                .as_deref()
+                .or_else(|| extra.get("output").and_then(Value::as_str))
+                .or_else(|| extra.get("delta").and_then(Value::as_str)),
+            _ => None,
+        }
+    }
 }
 
 /// The `assistantMessageEvent` payload of a [`Event::MessageUpdate`].
@@ -539,3 +580,136 @@ pub enum ExtensionUI {
     #[serde(other)]
     Unknown,
 }
+
+// ── Response `data` payloads (AC2/AC3/AC5) ───────────────────────────────────
+// These are the typed shapes the controls read out of `ResponseBody.data`.
+// Every field is defaulted, so a pi release that adds or drops one still
+// decodes; the caller decides what a missing field means.
+
+/// One `Model` from `get_available_models` / the echoed `set_model` payload.
+///
+/// Only the fields the picker displays are typed; the rest of pi's `Model`
+/// object is ignored (it is never sent back).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub reasoning: bool,
+    #[serde(default)]
+    pub context_window: Option<u64>,
+}
+
+impl ModelInfo {
+    /// The label the picker shows: the model name, falling back to its id.
+    pub fn label(&self) -> &str {
+        if self.name.is_empty() {
+            &self.id
+        } else {
+            &self.name
+        }
+    }
+}
+
+/// `get_available_thinking_levels` payload. `["off"]` means the active model
+/// does not support reasoning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ThinkingLevels {
+    #[serde(default)]
+    pub levels: Vec<String>,
+}
+
+/// Token counters nested inside [`SessionStats`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTokens {
+    #[serde(default)]
+    pub input: u64,
+    #[serde(default)]
+    pub output: u64,
+    #[serde(default)]
+    pub cache_read: u64,
+    #[serde(default)]
+    pub cache_write: u64,
+    #[serde(default)]
+    pub total: u64,
+}
+
+/// Context-window usage. `tokens` and `percent` are **null when unknown**
+/// (right after compaction, before the next provider response), which is a
+/// third state distinct from 0 and 100.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsage {
+    #[serde(default)]
+    pub tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: u64,
+    #[serde(default)]
+    pub percent: Option<f64>,
+}
+
+/// `get_session_stats` payload: cumulative session totals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStats {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_file: Option<String>,
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub user_messages: u64,
+    #[serde(default)]
+    pub assistant_messages: u64,
+    #[serde(default)]
+    pub tool_calls: u64,
+    #[serde(default)]
+    pub tool_results: u64,
+    #[serde(default)]
+    pub total_messages: u64,
+    #[serde(default)]
+    pub tokens: SessionTokens,
+    #[serde(default)]
+    pub cost: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<ContextUsage>,
+}
+
+/// The full pending queue as pi reports it. `queue_update` carries this shape,
+/// and `clear_queue` returns the text it removed in the same shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueContents {
+    #[serde(default)]
+    pub steering: Vec<String>,
+    #[serde(default)]
+    pub follow_up: Vec<String>,
+}
+
+impl QueueContents {
+    pub fn is_empty(&self) -> bool {
+        self.steering.is_empty() && self.follow_up.is_empty()
+    }
+
+    /// The removed text as one editable draft, preserving the order pi held.
+    pub fn as_draft(&self) -> String {
+        self.steering
+            .iter()
+            .chain(self.follow_up.iter())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// `clear_queue`'s response payload — the queue it emptied.
+///
+/// Same shape as [`QueueContents`]; kept as a named alias so the response
+/// meaning is readable at the call site without a second identical struct.
+pub type ClearQueueData = QueueContents;

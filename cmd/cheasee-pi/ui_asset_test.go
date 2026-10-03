@@ -66,14 +66,26 @@ func TestUI_FileLayout(t *testing.T) {
 		{"src", "lib.rs"},
 		{"src", "app.rs"},
 		{"src", "ws.rs"},
+		{"src", "bridge.rs"},
 		{"src", "protocol.rs"},
 		{"src", "retry.rs"},
+		{"src", "stream.rs"},
+		{"src", "bash.rs"},
+		{"src", "controls.rs"},
+		{"src", "components", "mod.rs"},
+		{"src", "components", "message.rs"},
+		{"src", "components", "controls.rs"},
+		{"src", "components", "bash.rs"},
+		{"src", "components", "queue.rs"},
 		{"src", "auth.rs"},
 		{"src", "pi_process.rs"},
 		{"src", "rpc", "mod.rs"},
 		{"src", "rpc", "framing.rs"},
 		{"src", "rpc", "client.rs"},
+		{"src", "session.rs"},
 		{"tests", "rpc_protocol.rs"},
+		{"tests", "stream_assembly.rs"},
+		{"tests", "session_controls.rs"},
 		{"tests", "fixtures", "PI_VERSION"},
 		{"tests", "fixtures", "commands.jsonl"},
 		{"tests", "fixtures", "responses.jsonl"},
@@ -268,6 +280,28 @@ func TestUI_DockerfilePiVersionMatchesPiImage(t *testing.T) {
 	pi := dockerfilePiVersionDefault(t, readDockerfile(t), "docker/Dockerfile")
 	if ui != pi {
 		t.Errorf("ui/Dockerfile PI_VERSION=%q must match docker/Dockerfile PI_VERSION=%q", ui, pi)
+	}
+}
+
+// TestUI_PiVersionSidecarMatchesDockerfiles guards the runtime/type skew: the
+// JSONL fixtures record the pi version their wire vocabulary was captured from,
+// so the image that runs pi must be that same version. A newer runtime pi would
+// otherwise answer a command set the fixtures never saw.
+func TestUI_PiVersionSidecarMatchesDockerfiles(t *testing.T) {
+	sidecar := strings.TrimSpace(uiAsset(t, "tests", "fixtures", "PI_VERSION"))
+	at := strings.LastIndex(sidecar, "@")
+	if at < 0 || at == len(sidecar)-1 {
+		t.Fatalf("PI_VERSION sidecar must be @scope/pkg@version, got %q", sidecar)
+	}
+	sidecarVersion := sidecar[at+1:]
+
+	ui := dockerfilePiVersionDefault(t, uiAsset(t, "Dockerfile"), "ui/Dockerfile")
+	pi := dockerfilePiVersionDefault(t, readDockerfile(t), "docker/Dockerfile")
+	if sidecarVersion != ui || sidecarVersion != pi {
+		t.Errorf(
+			"fixture sidecar pi=%q must equal ui/Dockerfile=%q and docker/Dockerfile=%q",
+			sidecarVersion, ui, pi,
+		)
 	}
 }
 
