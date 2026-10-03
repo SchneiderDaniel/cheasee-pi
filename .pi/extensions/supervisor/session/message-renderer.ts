@@ -3,7 +3,7 @@
 // One-level dispatch table (session/message-renderers/) replaces the old
 // switch (Clean Code ch. 3 — small functions; G23 — one switch rule).
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, MessageRenderer, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
 	Container,
@@ -13,11 +13,15 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { RENDERERS, fallbackRenderer } from "./message-renderers/index.ts";
+import type { SupervisorDetails } from "./message-renderers/types.ts";
 import { getTermWidth } from "../lib/formatting.ts";
 
-export function createMessageRenderer(_pi: ExtensionAPI, cwd?: string) {
-	return (message: any, options: any, theme: any) => {
-		const rawDetails = (message as any).details;
+export function createMessageRenderer(
+	_pi: ExtensionAPI,
+	cwd?: string,
+): MessageRenderer<SupervisorDetails> {
+	return (message, options, theme) => {
+		const rawDetails = message.details;
 
 		// No details → render as Markdown
 		if (!rawDetails && typeof message.content === "string") {
@@ -26,15 +30,15 @@ export function createMessageRenderer(_pi: ExtensionAPI, cwd?: string) {
 		}
 		if (!rawDetails) return new Text("(no details)", 1, 1);
 
-		const eventType = rawDetails.eventType as string | undefined;
+		const eventType = rawDetails.eventType;
 
 		// Dispatch on eventType — RENDERERS[eventType] ?? fallbackRenderer
 		return (RENDERERS[eventType ?? ""] ?? fallbackRenderer)(message, options, theme, cwd);
 	};
 }
 
-export function createSummaryRenderer(pi: ExtensionAPI) {
-	return (message: any, _options: any, theme: any) => {
+export function createSummaryRenderer(pi: ExtensionAPI): MessageRenderer {
+	return (message, _options, theme) => {
 		const content = typeof message.content === "string" ? message.content : "";
 		const w = Math.max(40, getTermWidth() - 4);
 		const fit = (s: string) => truncateToWidth(s, w);
@@ -43,7 +47,7 @@ export function createSummaryRenderer(pi: ExtensionAPI) {
 
 		// Determine status color from header emoji
 		const firstLine = content.split("\n")[0] || "";
-		let statusColor = "dim";
+		let statusColor: ThemeColor = "dim";
 		if (firstLine.includes("✅")) {
 			statusColor = "success";
 		} else if (firstLine.includes("❌")) {
