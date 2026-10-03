@@ -490,18 +490,38 @@ impl Assembler {
         self.push_row(kind);
     }
 
-    /// Replace the current message's rendered text/thinking rows with the
-    /// authoritative blocks. Tool cards, markers and earlier turns are kept.
+    /// Reconcile the current message's rendered text/thinking rows with the
+    /// authoritative blocks *in place*. A row keeps its position, so rows that
+    /// arrived between deltas (tool cards, markers, extension errors) stay
+    /// chronological; a block with no row yet is appended and a row with no
+    /// block is dropped. Earlier turns are never touched.
     fn rebuild_message_rows(&mut self) {
-        let tail = self.rows.split_off(self.message_start);
-        self.rows
-            .extend(tail.into_iter().filter(|r| !r.kind.is_text()));
-        let blocks = self.blocks.clone();
-        for block in blocks {
-            if block.kind == BlockKind::ToolCall {
-                continue;
+        let blocks: Vec<Block> = self
+            .blocks
+            .iter()
+            .filter(|b| b.kind != BlockKind::ToolCall)
+            .cloned()
+            .collect();
+        // Match text rows to blocks by arrival order: `content_index` can shift
+        // when the authoritative message re-indexes its parts, so index alone
+        // cannot pair them.
+        let text_positions: Vec<usize> = (self.message_start..self.rows.len())
+            .filter(|&i| self.rows[i].kind.is_text())
+            .collect();
+        for (k, &pos) in text_positions.iter().enumerate() {
+            if let Some(block) = blocks.get(k) {
+                self.rows[pos].kind =
+                    text_row(block.kind, block.index, block.text.clone(), block.truncated);
             }
-            let kind = text_row(block.kind, block.index, block.text, block.truncated);
+        }
+        // Drop rows the finalized message no longer contains (reverse so the
+        // earlier positions stay valid).
+        for &pos in text_positions.iter().skip(blocks.len()).rev() {
+            self.rows.remove(pos);
+        }
+        // Blocks with no row yet were never streamed; append them.
+        for block in blocks.iter().skip(text_positions.len()) {
+            let kind = text_row(block.kind, block.index, block.text.clone(), block.truncated);
             self.push_row(kind);
         }
     }
@@ -1455,6 +1475,39 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["run-start", "text", "turn-end"]);
+    }
+
+    /// Audit regression: an `extension_error` arriving after a text delta but
+    /// before `message_end` must not be reordered — the finalized text row is
+    /// reconciled in place, so the transcript stays chronological.
+    #[test]
+    fn extension_error_before_message_end_keeps_chronology() {
+        let mut a = Assembler::default();
+        a.apply(&Event::MessageStart { message: json!({}) });
+        a.apply(&delta(0, "streaming"));
+        a.apply(&Event::ExtensionError {
+            extension_path: "/e.ts".into(),
+            event: "tool_call".into(),
+            error: "boom".into(),
+        });
+        a.apply(&Event::MessageEnd {
+            message: json!({
+                "role": "assistant",
+                "content": [{"type": "text", "text": "final"}]
+            }),
+        });
+        let kinds: Vec<&str> = a
+            .rows()
+            .iter()
+            .map(|r| match r.kind {
+                RowKind::Text(_) => "text",
+                RowKind::ExtensionError(_) => "error",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["text", "error"]);
+        assert_eq!(a.rows()[0].kind.as_text().unwrap().text, "final");
+        assert!(a.rows().windows(2).all(|w| w[1].id > w[0].id));
     }
 
     /// Phase 3: an extension error is a row and the stream continues.
