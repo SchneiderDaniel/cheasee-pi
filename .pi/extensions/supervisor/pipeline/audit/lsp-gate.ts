@@ -9,6 +9,7 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import { resolve as resolvePath } from "node:path";
 import type { ErrorCollector } from "../error-collector.ts";
 import { determineAuditGate, getRunGate } from "../../checks/audit-gate-decision.ts";
+import { MAX_RETRIES } from "../../../lsp-auditor/retry.ts";
 
 /**
  * Run LSP pre-audit diagnostics.
@@ -88,7 +89,7 @@ export async function runLspPreAudit(
 		policyName: "lsp",
 		intendedNext: "Audit",
 		result: preAuditResult,
-		context: { hasModifiedFiles, changeAlreadyOnMain, retryCount },
+		context: { hasModifiedFiles, changeAlreadyOnMain, retryCount, maxRetries: MAX_RETRIES },
 	});
 
 	if (decision.note) {

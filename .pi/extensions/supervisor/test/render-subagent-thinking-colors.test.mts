@@ -65,8 +65,8 @@ function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCal
 		},
 	};
 
-	const component = renderSubagentResult(message as any, { expanded: true }, theme, process.cwd());
-	component.render(80);
+	const component = renderSubagentResult(message as any, { expanded: true }, theme as never, process.cwd());
+	component!.render(80);
 	return fgCalls;
 }
 

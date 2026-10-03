@@ -91,6 +91,7 @@ export { formatDiagnostics, filterBySeverity } from "./formatting.ts";
 export { buildServerMappings } from "./server-mappings.ts";
 export { extractModifiedFiles, groupFilesByServer } from "./file-discovery.ts";
 export { countRetryAttempts, shouldRetry, MAX_RETRIES } from "./retry.ts";
+export { countBranchRetryAttempts, mapSessionEntriesToRetryEntries } from "./branch-retries.ts";
 export { formatForMode } from "./output-adapter.ts";
 export type {
 	LspDiagnostic,

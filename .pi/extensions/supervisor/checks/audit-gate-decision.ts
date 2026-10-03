@@ -21,6 +21,8 @@ export type PolicyName = "tsc" | "lsp";
 export interface PolicyContext {
 	hasModifiedFiles?: boolean;
 	retryCount?: number;
+	/** Retry budget owner's threshold; defaults to 3 when absent/invalid. */
+	maxRetries?: number;
 	[key: string]: unknown;
 }
 
@@ -37,6 +39,14 @@ interface PolicyEntry {
 
 function normalizeRetryCount(raw: unknown): number {
 	if (typeof raw !== "number" || Number.isNaN(raw) || raw < 0) return 0;
+	return raw;
+}
+
+/** Default retry budget when the owner does not inject one. */
+const DEFAULT_MAX_RETRIES = 3;
+
+function normalizeMaxRetries(raw: unknown): number {
+	if (typeof raw !== "number" || Number.isNaN(raw) || raw < 0) return DEFAULT_MAX_RETRIES;
 	return raw;
 }
 
@@ -91,7 +101,10 @@ const POLICIES: Record<string, PolicyEntry> = {
 				return { nextStatus: "Audit", note: r.note, triggered: true };
 			}
 			const n = normalizeRetryCount(ctx.retryCount);
-			if (n >= 3) {
+			// Threshold owned by the retry module, injected via context — not a
+			// literal duplicated here.
+			const maxRetries = normalizeMaxRetries(ctx.maxRetries);
+			if (n >= maxRetries) {
 				return { nextStatus: "Audit", note: r.note, triggered: true };
 			}
 			return { nextStatus: "Implementation", note: r.note, triggered: true };
