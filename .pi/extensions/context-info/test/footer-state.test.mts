@@ -108,7 +108,6 @@ describe("FooterState — construction & defaults", () => {
 		const state = new FooterState(createMockCtx());
 		assert.strictEqual(state.config, null);
 		assert.strictEqual(state.footerConfig.lastContextWindow.value, undefined);
-		assert.strictEqual(state.emitted, false);
 		assert.strictEqual(state.footerConfig.thinkingLevel, "");
 		assert.strictEqual(state.footerConfig.worktreeName, null);
 		assert.strictEqual(state.timerInterval, null);
@@ -300,7 +299,6 @@ describe("FooterState — reset", () => {
 		const state = new FooterState(createMockCtx());
 		state.config = ENABLED_CONFIG;
 		state.footerConfig.lastContextWindow.value = 256000;
-		state.emitted = true;
 		state.footerConfig.thinkingLevel = "high";
 		state.footerConfig.worktreeName = "my-branch";
 		state.footerConfig.tpsSamples = [{ time: Date.now(), cumulativeTokens: 100 }];
@@ -318,7 +316,6 @@ describe("FooterState — reset", () => {
 
 		assert.strictEqual(state.config, null);
 		assert.strictEqual(state.footerConfig.lastContextWindow.value, undefined);
-		assert.strictEqual(state.emitted, false);
 		assert.strictEqual(state.footerConfig.thinkingLevel, "");
 		assert.strictEqual(state.footerConfig.worktreeName, null);
 		assert.deepStrictEqual(state.footerConfig.tpsSamples, []);
@@ -386,7 +383,11 @@ describe("FooterState — dispose", () => {
 		const state = new FooterState(createMockCtx(), fn);
 		state.dispose();
 		state.addToolCall();
-		assert.strictEqual(state.footerConfig.toolCallCount.value, 0, "should not increment tool count when disposed");
+		assert.strictEqual(
+			state.footerConfig.toolCallCount.value,
+			0,
+			"should not increment tool count when disposed",
+		);
 		// callInstallFooter should also not fire
 		assert.strictEqual(fn.mock.calls.length, 0, "should not call installFooterCb when disposed");
 	});

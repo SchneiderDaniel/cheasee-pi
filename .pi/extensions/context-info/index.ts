@@ -44,37 +44,6 @@ function getWorktreeName(cwd: string): string | null {
 	}
 }
 
-function isJsonMode(): boolean {
-	const idx = process.argv.indexOf("--mode");
-	if (idx !== -1 && idx + 1 < process.argv.length) {
-		return process.argv[idx + 1] === "json";
-	}
-	return false;
-}
-
-function tryEmit(
-	ctx: { getContextUsage: () => { tokens?: number | null; contextWindow?: number } | undefined },
-	state: {
-		emitted: boolean;
-		footerConfig: { lastContextWindow: { value: number | undefined } };
-	},
-): void {
-	if (state.emitted) return;
-	const cw = state.footerConfig.lastContextWindow.value;
-	if (!cw || cw <= 0) return;
-	const usage = ctx.getContextUsage();
-	if (!usage || typeof usage.tokens !== "number" || usage.tokens <= 0) return;
-	state.emitted = true;
-	if (isJsonMode()) return;
-	console.log(
-		JSON.stringify({
-			type: "context_info",
-			contextTokens: usage.tokens,
-			contextWindow: cw,
-		}),
-	);
-}
-
 // Inlined from cheasee-pi-info.ts (single consumer: this module)
 const CASTLE_ART: string[] = [
 	"                                                #@@@%+:",
@@ -366,7 +335,6 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		if (state.config) {
 			state.callInstallFooter();
 		}
-		tryEmit(ctx, state);
 	});
 
 	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
@@ -397,10 +365,6 @@ export default function contextInfo(pi: ExtensionAPI): void {
 			state.footerConfig.cacheHitRate = Math.round(
 				(eventUsage.cacheRead / (eventUsage.cacheRead + eventUsage.cacheWrite)) * 100,
 			);
-		}
-		const usage = ctx.getContextUsage();
-		if (usage && typeof usage.tokens === "number" && usage.tokens > 0) {
-			tryEmit(ctx, state);
 		}
 	});
 
