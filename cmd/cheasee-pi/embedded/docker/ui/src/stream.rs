@@ -485,6 +485,8 @@ impl ChatState {
                 self.notice.set(Some(message.clone()));
                 true
             }
+            // Extension UI chrome is the concern of `ExtensionUiState`.
+            ServerMessage::ExtensionUi { .. } => false,
             ServerMessage::Unknown => false,
         }
     }
