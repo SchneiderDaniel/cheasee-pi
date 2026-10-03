@@ -1543,4 +1543,40 @@ mod tests {
         assert_eq!(state.rows.get()[0].kind.as_text().unwrap().text, "hi");
         assert_eq!(state.rows.get()[1].kind.as_text().unwrap().text, "live");
     }
+
+    /// Phase 5: the same `toolCallId` folded from replay (the SSR pass) and
+    /// reduced from live `tool_execution_*` (the hydrate pass) yields the same
+    /// card shape, so history and live rows cannot diverge on hydration.
+    #[test]
+    fn replay_and_live_agree_on_tool_shape() {
+        let mut replayed = Assembler::default();
+        replayed.apply_replay(&[
+            json!({"id": "a1", "message": {"role": "assistant", "content": [
+                {"type": "toolcall", "id": "call_1", "name": "bash", "arguments": {"command": "ls"}}
+            ]}}),
+            json!({"id": "t1", "message": {"role": "toolResult", "toolCallId": "call_1",
+                "content": [{"type": "text", "text": "total 48"}]}}),
+        ]);
+
+        let mut live = Assembler::default();
+        live.apply(&Event::ToolExecutionStart {
+            tool_call_id: "call_1".into(),
+            tool_name: "bash".into(),
+            args: json!({"command": "ls"}),
+        });
+        live.apply(&Event::ToolExecutionEnd {
+            tool_call_id: "call_1".into(),
+            tool_name: "bash".into(),
+            result: json!({"content": [{"type": "text", "text": "total 48"}]}),
+            is_error: false,
+        });
+
+        assert_eq!(replayed.history().len(), 1);
+        assert_eq!(live.rows().len(), 1);
+        assert_eq!(
+            replayed.history()[0].kind.as_tool().unwrap(),
+            live.rows()[0].kind.as_tool().unwrap(),
+            "replay and live tool cards must have the same shape"
+        );
+    }
 }
