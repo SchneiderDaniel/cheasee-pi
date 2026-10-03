@@ -2,16 +2,20 @@
  * UI URL resolver — derive-only parity copy of the CLI's
  * uiHostPort (cmd/cheasee-pi/identity.go).
  *
- * The CLI (Go, host process) owns the port-resolution policy:
- * cheasee-settings.json docker.uiPort > env PI_UI_PORT > derived
+ * The CLI (Go, host process) owns the port-resolution policy for the compose
+ * mapping: cheasee-settings.json docker.uiPort > env PI_UI_PORT > derived
  * base+fnv32(slug)%range, probed next-free on the HOST loopback. This module
  * re-derives the same value inside the container WITHOUT probing — the
  * container's loopback is a different namespace than the host's, so a probe
- * there would yield garbage. `cheasee-pi start` forwards the bound-first
- * resolved host port via the PI_UI_PORT exec env, so the in-session footer
- * link matches the printed `ℹ UI:` hint; this resolver is the fallback when
- * that env is absent (e.g. a session started outside the CLI, or resolution
- * failure on the CLI side).
+ * there would yield garbage.
+ *
+ * In-container precedence is env PI_UI_PORT FIRST, then settings, then
+ * derived. `cheasee-pi start` forwards the bound-first resolved host port
+ * (resolveUIHostPort — the port the running sidecar actually published, which
+ * can differ from a stale docker.uiPort on a re-up), so the forwarded value
+ * must win over the settings file, or the footer link would disagree with the
+ * printed `ℹ UI:` hint in exactly that stale-sidecar case. Settings/derived
+ * remain the fallback for sessions started outside the CLI.
  *
  * PI_UI_PORT holds a HOST port here — the UI sidecar listens on container
  * port 3000, published to the host. Never treat this value as an in-container
@@ -40,8 +44,8 @@ export function uiPortFromSlug(slug: string): number {
 }
 
 /** Reads docker.uiPort from the workspace settings; null when absent or
- *  malformed (fall through to env/derived, mirroring the CLI's
- *  error-ignored settings read). */
+ *  malformed (fall through to derived, mirroring the CLI's error-ignored
+ *  settings read). */
 function readSettingsUIPort(root: string): string | null {
 	try {
 		const parsed = JSON.parse(readFileSync(join(root, SETTINGS_FILE), "utf-8")) as {
@@ -55,8 +59,8 @@ function readSettingsUIPort(root: string): string | null {
 }
 
 /**
- * Resolves the UI host port for the session: settings docker.uiPort > env
- * PI_UI_PORT (the value the CLI forwards) > derived
+ * Resolves the UI host port for the session: env PI_UI_PORT (the bound-first
+ * value the CLI forwards — authoritative) > settings docker.uiPort > derived
  * base+fnv32(slug)%range. Null when no workspace marker is reachable from cwd
  * (nothing to anchor on — CLI sessions are always marker-gated, so this only
  * fires for sessions started outside any workspace).
@@ -64,9 +68,13 @@ function readSettingsUIPort(root: string): string | null {
 export async function uiHostPort(cwd: string): Promise<string | null> {
 	const root = resolveWorkspaceRoot(cwd);
 	if (root === null) return null;
+	// Env first: `cheasee-pi start` forwards the bound-first resolved host port
+	// (resolveUIHostPort), which is authoritative over docker.uiPort — on a
+	// re-up the sidecar's live bind can differ from a stale settings value, and
+	// the printed `ℹ UI:` hint uses the forwarded value.
+	if (process.env.PI_UI_PORT) return process.env.PI_UI_PORT;
 	const settings = readSettingsUIPort(root);
 	if (settings !== null) return settings;
-	if (process.env.PI_UI_PORT) return process.env.PI_UI_PORT;
 	return String(uiPortFromSlug(await repoSlug(root)));
 }
 

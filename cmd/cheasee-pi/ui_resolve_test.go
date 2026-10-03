@@ -202,6 +202,8 @@ func TestRunUpE_UIPortFailureLeavesCodeflowIntact(t *testing.T) {
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	t.Setenv("CODEFLOW_PORT", "9000")
+	// Hermetic: force the derive+probe path regardless of the ambient env.
+	t.Setenv("PI_UI_PORT", "")
 	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 	saved := portProbe

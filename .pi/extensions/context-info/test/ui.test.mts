@@ -75,10 +75,21 @@ describe("uiPortFromSlug", () => {
 // ── Adapter: precedence + I/O ───────────────────
 
 describe("uiHostPort", () => {
-	it("precedence: settings docker.uiPort wins over env PI_UI_PORT and derivation", async () => {
+	it("precedence: env PI_UI_PORT (CLI-forwarded bound port) wins over settings and derivation", async () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
 		await withEnv("9700", async () => {
-			assert.strictEqual(await uiHostPort(root), "9600");
+			assert.strictEqual(await uiHostPort(root), "9700");
+		});
+	});
+
+	it("cross-layer parity: forwarded PI_UI_PORT=9713 beats stale settings docker.uiPort=9600", async () => {
+		// Mirrors resolveUIHostPort's bound-first resolution: the CLI forwards
+		// the port the sidecar actually published (9713) while the settings file
+		// still names 9600. The footer link must match the printed `ℹ UI:` hint.
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
+		await withEnv("9713", async () => {
+			assert.strictEqual(await uiHostPort(root), "9713");
+			assert.strictEqual(await uiUrl(root), "http://127.0.0.1:9713");
 		});
 	});
 

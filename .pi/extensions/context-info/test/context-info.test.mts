@@ -1627,6 +1627,19 @@ describe("context-info extension — footer mirrors pi's live thinking level", (
 // ---------------------------------------------------------------------------
 
 describe("context-info extension — footer service links", () => {
+	// The host session forwards CODEFLOW_PORT and PI_UI_PORT into the container
+	// env; scrub both so the settings-derived assertions stay hermetic. Note
+	// PI_UI_PORT is authoritative in ui.ts, so an inherited value would otherwise
+	// shadow the settings ports asserted here.
+	beforeEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+	});
+	afterEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+	});
+
 	/** Temp workspace with explicit settings + optional sibling bare remote. */
 	function makeWorkspace(settings: string): { root: string } {
 		const parent = mkdtempSync(join(tmpdir(), "svc-links-"));
@@ -1724,6 +1737,32 @@ describe("context-info extension — footer service links", () => {
 			`CodeFlow:  \x1b]8;;${cfUrl}\x1b\\${cfUrl}\x1b]8;;\x1b\\`,
 			"notify must reuse the footer's CodeFlow URL (one resolution)",
 		);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("cross-layer: forwarded PI_UI_PORT beats stale settings docker.uiPort", async () => {
+		// Mirrors resolveUIHostPort: the CLI forwards the sidecar's actually
+		// published port (9713) even though the settings file still names 9600.
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(root);
+		contextInfo(pi as any);
+
+		process.env.PI_UI_PORT = "9713";
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			delete process.env.PI_UI_PORT;
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(
+			row3.includes("\x1b]8;;http://127.0.0.1:9713\x1b\\UI"),
+			`footer UI link must use the forwarded bound port: ${row3}`,
+		);
+		assert.ok(!row3.includes("127.0.0.1:9600"), `stale settings port must not appear: ${row3}`);
 
 		await handlers.get("session_shutdown")!();
 	});

@@ -84,6 +84,9 @@ func TestRunUpE_UIHintFallback(t *testing.T) {
 	// comes from the derived+probed port, and the same value reaches the env.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
+	// Hermetic: an inherited PI_UI_PORT would short-circuit uiHostPort's
+	// derive+probe and make the fallback assertion env-dependent.
+	t.Setenv("PI_UI_PORT", "")
 	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 
@@ -110,6 +113,8 @@ func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	t.Setenv("CODEFLOW_PORT", "9000")
+	// Hermetic: force the derive+probe path regardless of the ambient env.
+	t.Setenv("PI_UI_PORT", "")
 	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 	saved := portProbe
