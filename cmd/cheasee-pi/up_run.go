@@ -185,6 +185,13 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", len(killed))
 	}
 
+	// Reclaim container /tmp scratch before pi starts (subagent runs and
+	// interrupted builds leave go-build/pi-session dirs that fill a tight
+	// overlay until pi's session mkdtemp hits ENOSPC). Non-fatal.
+	if err := cleanContainerTmp(ctx, upName); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ %v\n", err)
+	}
+
 	// Phase 8: exec pi.
 	execErr := execPIContainer(upName, envMap, target)
 

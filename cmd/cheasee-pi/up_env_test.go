@@ -505,3 +505,24 @@ func TestRedactEnvValue(t *testing.T) {
 		t.Errorf("empty value should print in full, got %q", got)
 	}
 }
+
+func TestTmpCleanFindArgs_whitelistOnlyMaxdepthOne(t *testing.T) {
+	args := tmpCleanFindArgs()
+	// maxdepth 1 + whitelist: the cleanup never recurses or sweeps mounts
+	if args[0] != "-maxdepth" || args[1] != "1" {
+		t.Fatalf("find args must start with -maxdepth 1, got %v", args[:2])
+	}
+	joined := strings.Join(args, " ")
+	for _, p := range tmpCleanPatterns {
+		if !strings.Contains(joined, "-name "+p) {
+			t.Errorf("pattern %q missing from find args", p)
+		}
+	}
+	if !strings.Contains(joined, "-exec rm -rf -- {} +") {
+		t.Errorf("find args must use -exec rm -rf -- {} +, got: %s", joined)
+	}
+	// no bare "*" pattern: an unanchored glob would wipe unrelated /tmp files
+	if strings.Contains(joined, "-name *") {
+		t.Errorf("find args contain unanchored glob")
+	}
+}

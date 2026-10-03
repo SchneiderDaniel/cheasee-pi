@@ -129,3 +129,50 @@ var execPIContainer = func(name string, env map[string]string, target string) er
 
 	return cmd.Run()
 }
+
+// tmpCleanPatterns lists stale scratch names reclaimed from the container's
+// /tmp before each pi launch. The supervisor leaves them behind across runs in
+// a long-lived container (go-build* from Go builds terminated mid-compile,
+// zig-* extracted toolchains, pi-session-*/agent-loop-reject-cwd-* from
+// subagent loops, plus small caches); on a nearly-full overlay they fill the
+// write layer until pi's own session mkdtemp fails with ENOSPC. Whitelist
+// only — /tmp is never wholesale-wiped.
+var tmpCleanPatterns = []string{
+	"go-build*",
+	"zig-*",
+	"pi-session-*",
+	"agent-loop-reject-cwd-*",
+	"node-compile-cache",
+	"sysroot",
+	"jiti",
+}
+
+// tmpCleanFindArgs builds the find invocation that prunes the stale scratch
+// patterns in the container's /tmp. maxdepth 1 — never recurses, never
+// traverses mounts (a bind of /tmp would otherwise be swept). Pure function so
+// tests can pin the exact whitelist and -exec form.
+func tmpCleanFindArgs() []string {
+	expr := []string{"-maxdepth", "1", "-mindepth", "1", "("}
+	for i, p := range tmpCleanPatterns {
+		if i > 0 {
+			expr = append(expr, "-o")
+		}
+		expr = append(expr, "-name", p)
+	}
+	return append(expr, ")", "-exec", "rm", "-rf", "--", "{}", "+")
+}
+
+// cleanContainerTmp prunes stale scratch from the container's /tmp before pi
+// starts, so an overlay that accumulated leftovers from previous runs does not
+// break pi's session-dir mkdtemp (ENOSPC). Runs via docker exec (default root
+// exec user, same privilege level as the entrypoint). Non-fatal by design: a
+// cleanup failure must not block start — waitHealthy already gates execing pi
+// on the container being up.
+func cleanContainerTmp(ctx context.Context, name string) error {
+	args := append([]string{"exec", name, "find", "/tmp"}, tmpCleanFindArgs()...)
+	out, err := runCommandContext(ctx, "docker", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("clean container /tmp: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
