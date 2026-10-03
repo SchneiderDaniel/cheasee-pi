@@ -14,7 +14,18 @@ import { fileURLToPath } from "node:url";
 import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import * as messageRendererModule from "../session/message-renderer.ts";
-import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
+import {
+	createMessageRenderer as createMessageRendererTyped,
+	createSummaryRenderer as createSummaryRendererTyped,
+} from "../session/message-renderer.ts";
+
+// Tests feed partial message fixtures; the production renderer contract is
+// enforced by renderer-contract.type-test.mts. Keep test call sites loose.
+type LooseRenderer = (message: any, options?: any, theme?: any) => any;
+const createMessageRenderer = (...args: Parameters<typeof createMessageRendererTyped>) =>
+	createMessageRendererTyped(...args) as LooseRenderer;
+const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
+	createSummaryRendererTyped(...args) as LooseRenderer;
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
 import {
 	MAX_TASK_PREVIEW_CHARS,
@@ -118,12 +129,12 @@ describe("RENDERERS dispatch table", () => {
 	});
 
 	it("fallbackRenderer is exported and handles string content as Markdown", () => {
-		const c = fallbackRenderer({ content: "fallback" }, {}, mockTheme);
+		const c = fallbackRenderer({ content: "fallback" } as never, {} as never, mockTheme as never);
 		assert.ok(c instanceof Markdown, "string content should render Markdown");
 	});
 
 	it("fallbackRenderer handles non-string content as placeholder Text", () => {
-		const c = fallbackRenderer({}, {}, mockTheme);
+		const c = fallbackRenderer({} as never, {} as never, mockTheme as never);
 		assert.ok(c instanceof Text, "non-string content should render Text");
 		const lines = renderStripped(c as Text);
 		assert.ok(

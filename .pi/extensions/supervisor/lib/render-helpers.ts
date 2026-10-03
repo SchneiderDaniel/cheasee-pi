@@ -17,6 +17,16 @@ import {
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { getBuiltinToolLabels } from "./tool-line.ts";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+
+/**
+ * Minimal theme surface the render helpers need. `fg` takes `ThemeColor`
+ * (not `string`) so both pi's real `Theme` and lenient test doubles with a
+ * `string`-accepting `fg` remain assignable.
+ */
+export interface RenderTheme {
+	fg: (color: ThemeColor, text: string) => string;
+}
 
 /**
  * Render a thinking block (markdown content with thinkingText color + italic styling)
@@ -33,7 +43,7 @@ import { getBuiltinToolLabels } from "./tool-line.ts";
 export function renderThinkingBlock(
 	container: Container,
 	text: string,
-	theme: { fg: (color: string, text: string) => string },
+	theme: RenderTheme,
 ): void {
 	const mdTheme = getMarkdownTheme();
 	container.addChild(
@@ -58,7 +68,7 @@ export function renderThinkingBlock(
 export function renderTextLines(
 	container: Container,
 	lines: string[],
-	theme: { fg: (color: string, text: string) => string },
+	theme: RenderTheme,
 	width: number,
 ): void {
 	for (const line of lines) {

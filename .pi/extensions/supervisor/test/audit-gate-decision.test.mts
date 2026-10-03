@@ -12,7 +12,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { determineAuditGate } from "../checks/audit-gate-decision.ts";
-import type { AuditGateDecision } from "../checks/audit-gate-decision.ts";
+import type { AuditGateDecision, PolicyContext } from "../checks/audit-gate-decision.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: Shared frame — passthrough and null-result routing
@@ -339,5 +339,60 @@ describe("determineAuditGate — lsp policy", () => {
 		});
 		assert.strictEqual(result.nextStatus, "Audit");
 		assert.strictEqual(result.triggered, true);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 4: lsp retry threshold injected by the owner (maxRetries)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("audit-gate-decision — lsp maxRetries injection", () => {
+	function lsp(retryCount: number, maxRetries?: number) {
+		const context: PolicyContext = { hasModifiedFiles: true, retryCount };
+		if (maxRetries !== undefined) context.maxRetries = maxRetries;
+		return determineAuditGate({
+			policyName: "lsp",
+			intendedNext: "Audit",
+			result: { proceed: false, note: "errors found" },
+			context,
+		});
+	}
+
+	it("retry 2, maxRetries 3 → Implementation", () => {
+		assert.strictEqual(lsp(2, 3).nextStatus, "Implementation");
+	});
+
+	it("retry 3, maxRetries 3 → Audit (exhausted)", () => {
+		assert.strictEqual(lsp(3, 3).nextStatus, "Audit");
+	});
+
+	it("retry 3, maxRetries 5 → Implementation (literal 3 removed)", () => {
+		assert.strictEqual(lsp(3, 5).nextStatus, "Implementation");
+	});
+
+	it("retry 5, maxRetries 5 → Audit", () => {
+		assert.strictEqual(lsp(5, 5).nextStatus, "Audit");
+	});
+
+	it("retry 3, maxRetries omitted → Audit (default 3 preserves existing behavior)", () => {
+		assert.strictEqual(lsp(3).nextStatus, "Audit");
+	});
+
+	it("maxRetries NaN → normalized to default 3", () => {
+		assert.strictEqual(lsp(3, NaN).nextStatus, "Audit");
+		assert.strictEqual(lsp(2, NaN).nextStatus, "Implementation");
+	});
+
+	it("maxRetries -1 → normalized to default 3", () => {
+		assert.strictEqual(lsp(3, -1).nextStatus, "Audit");
+		assert.strictEqual(lsp(2, -1).nextStatus, "Implementation");
+	});
+
+	it("combined: sibling-only retries not counted (0) + proceed:false → Implementation", () => {
+		assert.strictEqual(lsp(0).nextStatus, "Implementation");
+	});
+
+	it("combined: 3 active-branch retries + proceed:false → Audit", () => {
+		assert.strictEqual(lsp(3).nextStatus, "Audit");
 	});
 });
