@@ -131,8 +131,7 @@ fn stream_bounds_the_live_text() {
 
 /// pi >=0.84 emits `message_update` without the cumulative `message` field.
 #[test]
-fn stream_decodes_a_delta_only_message_update() {
-    let event: Event = serde_json::from_value(json!({
+fn stream_decodes_a_delta_only_message_update() {    let event: Event = serde_json::from_value(json!({
         "type": "message_update",
         "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "hi"},
     }))
@@ -205,6 +204,7 @@ fn stream_chat_state_surfaces_lag_and_rejection() {
         success: false,
         error: Some("busy".into()),
         disposition: None,
+        data: None,
     });
     assert_eq!(state.notice.get().as_deref(), Some("busy"));
 }
@@ -232,4 +232,140 @@ fn stream_chat_state_flushes_frames_into_signals() {
         .unwrap(),
     );
     assert_eq!(state.status.get(), StreamStatus::Settled);
+}
+
+/// AC2/AC3/AC5: the response envelope carries pi's `data` payload through, and
+/// omits the key entirely when there is none.
+#[test]
+fn stream_command_response_data_passes_through() {
+    let with_data = ServerMessage::CommandResponse {
+        id: Some("c1".into()),
+        command: "get_session_stats".into(),
+        success: true,
+        error: None,
+        disposition: None,
+        data: Some(json!({"sessionId": "s"})),
+    };
+    let value = serde_json::to_value(&with_data).unwrap();
+    assert_eq!(value["data"]["sessionId"], "s");
+    assert_eq!(
+        serde_json::from_value::<ServerMessage>(value).unwrap(),
+        with_data
+    );
+
+    let without = ServerMessage::CommandResponse {
+        id: None,
+        command: "abort".into(),
+        success: true,
+        error: None,
+        disposition: None,
+        data: None,
+    };
+    let value = serde_json::to_value(&without).unwrap();
+    assert!(
+        value.get("data").is_none(),
+        "an absent payload must not serialize as null"
+    );
+}
+
+/// AC1–AC5: each curated control envelope round-trips over its wire `type`.
+#[test]
+fn stream_control_envelopes_round_trip() {
+    let cases = vec![
+        ClientMessage::ClearQueue { id: None },
+        ClientMessage::GetState { id: None },
+        ClientMessage::GetAvailableModels { id: None },
+        ClientMessage::SetModel {
+            id: None,
+            provider: "anthropic".into(),
+            model_id: "claude".into(),
+        },
+        ClientMessage::CycleModel { id: None },
+        ClientMessage::GetAvailableThinkingLevels { id: None },
+        ClientMessage::SetThinkingLevel {
+            id: None,
+            level: "high".into(),
+        },
+        ClientMessage::CycleThinkingLevel { id: None },
+        ClientMessage::GetSessionStats { id: None },
+        ClientMessage::Compact {
+            id: None,
+            custom_instructions: None,
+        },
+        ClientMessage::SetAutoCompaction {
+            id: None,
+            enabled: true,
+        },
+        ClientMessage::SetAutoRetry {
+            id: None,
+            enabled: false,
+        },
+        ClientMessage::AbortRetry { id: None },
+        ClientMessage::Bash {
+            id: "b1".into(),
+            command: "echo hi".into(),
+            exclude_from_context: None,
+        },
+        ClientMessage::AbortBash { id: None },
+    ];
+    for message in cases {
+        let value = serde_json::to_value(&message).unwrap();
+        assert!(value["type"].is_string(), "{value} has no wire type");
+        assert_eq!(
+            serde_json::from_value::<ClientMessage>(value).unwrap(),
+            message
+        );
+    }
+
+    // A control envelope this build does not model still decodes.
+    let future: ClientMessage = serde_json::from_value(json!({"type": "set_telepathy"})).unwrap();
+    assert!(matches!(future, ClientMessage::Unknown));
+}
+
+/// The control events are `ControlsState`'s; applying them to the transcript
+/// must be a no-op (and must not panic).
+#[test]
+fn stream_control_events_do_not_touch_the_transcript() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+    state.apply(&ServerMessage::Event {
+        event: Event::AgentStart,
+    });
+    let before = state.blocks.get();
+
+    for event in [
+        Event::QueueUpdate {
+            steering: vec!["a".into()],
+            follow_up: vec![],
+        },
+        Event::CompactionStart {
+            reason: "threshold".into(),
+        },
+        Event::CompactionEnd {
+            reason: "threshold".into(),
+            result: json!({}),
+            aborted: false,
+            will_retry: false,
+            error_message: None,
+        },
+        Event::AutoRetryStart {
+            attempt: 1,
+            max_attempts: 3,
+            delay_ms: 1000,
+            error_message: "e".into(),
+        },
+        Event::AutoRetryEnd {
+            success: true,
+            attempt: 2,
+            final_error: None,
+        },
+        Event::ThinkingLevelChanged {
+            level: "high".into(),
+        },
+    ] {
+        assert!(!state.apply(&ServerMessage::Event { event }));
+    }
+    assert_eq!(state.blocks.get(), before);
+    assert_eq!(state.status.get(), StreamStatus::Streaming);
 }

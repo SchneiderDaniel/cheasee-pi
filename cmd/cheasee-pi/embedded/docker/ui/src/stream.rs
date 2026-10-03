@@ -157,6 +157,18 @@ impl Assembler {
                 self.status = StreamStatus::Settled;
                 changed
             }
+            // Control-plane events do not touch the transcript. The queue,
+            // model/thinking selection, retry banner, compaction state, and
+            // bash chunks belong to `ControlsState`; the assembler only keeps
+            // the transcript. These arms are explicit so a future event cannot
+            // be mistaken for one the transcript is supposed to render.
+            Event::QueueUpdate { .. }
+            | Event::CompactionStart { .. }
+            | Event::CompactionEnd { .. }
+            | Event::AutoRetryStart { .. }
+            | Event::AutoRetryEnd { .. }
+            | Event::ThinkingLevelChanged { .. }
+            | Event::BashExecutionUpdate { .. } => false,
             _ => false,
         }
     }
@@ -716,6 +728,7 @@ mod tests {
             success: false,
             error: Some("agent is streaming; specify streamingBehavior".into()),
             disposition: None,
+            data: None,
         }));
         assert!(state.notice.get().unwrap().contains("streamingBehavior"));
     }

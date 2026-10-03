@@ -55,6 +55,9 @@ pub enum RpcError {
         raw: String,
         source: serde_json::Error,
     },
+    /// A caller-supplied request id is already in flight. Registering a second
+    /// sender under it would overwrite (and strand) the first, so it fails fast.
+    IdInUse { id: String },
 }
 
 impl std::fmt::Display for RpcError {
@@ -68,6 +71,7 @@ impl std::fmt::Display for RpcError {
             Self::Protocol { raw, source } => {
                 write!(f, "invalid RPC record: {source} (raw: {raw})")
             }
+            Self::IdInUse { id } => write!(f, "request id {id:?} is already in flight"),
         }
     }
 }
@@ -171,12 +175,27 @@ impl RpcClient {
     /// caller that forgets to stamp an id.
     pub async fn request(&self, command: &Command) -> Result<Response, RpcError> {
         let id = format!("req_{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        self.request_with_id(&id, command).await
+    }
+
+    /// Send a command under a caller-supplied id and await its response.
+    ///
+    /// Used when the id is itself a correlation key the caller already holds:
+    /// `bash_execution_update` events repeat the originating `bash` command's
+    /// id, so that id must go on the wire verbatim rather than being replaced
+    /// by a minted `req_N`. A duplicate in-flight id is rejected with
+    /// [`RpcError::IdInUse`] instead of silently overwriting the first sender.
+    pub async fn request_with_id(
+        &self,
+        id: &str,
+        command: &Command,
+    ) -> Result<Response, RpcError> {
         let mut value = serde_json::to_value(command).map_err(|source| RpcError::Protocol {
             raw: String::new(),
             source,
         })?;
         if let Value::Object(map) = &mut value {
-            map.insert("id".to_string(), Value::String(id.clone()));
+            map.insert("id".to_string(), Value::String(id.to_string()));
         }
 
         // Register under the same lock the reader takes when it terminates, so
@@ -188,11 +207,14 @@ impl RpcClient {
             if state.terminated {
                 return Err(RpcError::ChildGone);
             }
-            state.map.insert(id.clone(), tx);
+            if state.map.contains_key(id) {
+                return Err(RpcError::IdInUse { id: id.to_string() });
+            }
+            state.map.insert(id.to_string(), tx);
         }
 
         if let Err(err) = self.write_value(&value).await {
-            self.lock_pending().map.remove(&id);
+            self.lock_pending().map.remove(id);
             self.reject_all_pending();
             return Err(err);
         }
@@ -520,6 +542,65 @@ mod tests {
             .await;
             assert!(pending.await.unwrap().is_ok());
         }
+    }
+
+    /// AC4: a caller-supplied id goes on the wire verbatim, because
+    /// `bash_execution_update` events repeat it.
+    #[tokio::test]
+    async fn request_with_id_writes_the_caller_id() {
+        let (client, mut to_child, from_child) = harness();
+        let client = Arc::new(client);
+        let mut frames = frames(from_child);
+
+        let c = Arc::clone(&client);
+        let pending = tokio::spawn(async move {
+            c.request_with_id(
+                "b1",
+                &Command::Bash {
+                    id: None,
+                    command: "echo hi".into(),
+                    exclude_from_context: None,
+                },
+            )
+            .await
+        });
+        let frame = next_frame(&mut frames).await;
+        assert_eq!(frame["id"], "b1", "the caller's id must not be minted");
+        assert_eq!(frame["type"], "bash");
+        write_record(
+            &mut to_child,
+            json!({"type":"response","command":"bash","success":true,"id":"b1"}),
+        )
+        .await;
+        assert!(pending.await.unwrap().is_ok());
+    }
+
+    /// A duplicate in-flight id fails fast instead of overwriting (and
+    /// stranding) the first sender.
+    #[tokio::test]
+    async fn request_with_id_rejects_a_duplicate() {
+        let (client, mut to_child, from_child) = harness();
+        let client = Arc::new(client);
+        let mut frames = frames(from_child);
+
+        let c1 = Arc::clone(&client);
+        let first = tokio::spawn(async move { c1.request_with_id("b1", &abort_cmd()).await });
+        let frame = next_frame(&mut frames).await;
+        assert_eq!(frame["id"], "b1");
+
+        let err = client
+            .request_with_id("b1", &abort_cmd())
+            .await
+            .expect_err("a duplicate id must be rejected");
+        assert!(matches!(err, RpcError::IdInUse { ref id } if id == "b1"));
+
+        // The first request is not stranded: its response still resolves it.
+        write_record(
+            &mut to_child,
+            json!({"type":"response","command":"abort","success":true,"id":"b1"}),
+        )
+        .await;
+        assert!(first.await.unwrap().is_ok());
     }
 
     /// AC2: "Command handling is asynchronous, so clients should correlate by

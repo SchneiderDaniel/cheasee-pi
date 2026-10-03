@@ -20,6 +20,7 @@ use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
 use crate::bridge::ClientMessage;
+use crate::controls::ControlsState;
 use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
 use crate::stream::ChatState;
 
@@ -146,9 +147,13 @@ pub fn send(message: ClientMessage, set_status: RwSignal<ConnectionStatus>) -> b
 }
 
 /// Connect, then reconnect with backoff until the page goes away. `state`
-/// receives each decoded server frame; `set_status` drives the visible
-/// connection state.
-pub fn connect(state: ChatState, set_status: RwSignal<ConnectionStatus>) {
+/// receives each decoded server frame into the transcript and `controls` into
+/// the control surface; `set_status` drives the visible connection state.
+pub fn connect(
+    state: ChatState,
+    controls: ControlsState,
+    set_status: RwSignal<ConnectionStatus>,
+) {
     // The lifecycle decisions live in `retry` (host-testable); this shell owns
     // the native socket and the clock, installs the shared `retry::wire`
     // callbacks, and applies the returned effects.
@@ -159,7 +164,7 @@ pub fn connect(state: ChatState, set_status: RwSignal<ConnectionStatus>) {
             set_status.set(status_of(dial));
 
             // A rejected URL never opens; fall straight through to the backoff.
-            if let Ok(closed) = open(adapter.clone(), state, set_status) {
+            if let Ok(closed) = open(adapter.clone(), state, controls, set_status) {
                 let _ = closed.await;
             }
 
@@ -181,6 +186,7 @@ pub fn connect(state: ChatState, set_status: RwSignal<ConnectionStatus>) {
 fn open(
     adapter: Rc<RefCell<Adapter>>,
     state: ChatState,
+    controls: ControlsState,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
     let socket = WebSocket::new(&ws_url()).map_err(|_| ())?;
@@ -197,6 +203,7 @@ fn open(
         move |effect| set_status.set(status_of(effect)),
         move |text| {
             state.ingest_frame(&text);
+            controls.ingest_frame(&text);
         },
         move || {
             if let Some(tx) = tx.take() {
