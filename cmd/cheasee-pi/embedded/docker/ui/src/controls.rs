@@ -243,7 +243,7 @@ impl ControlsState {
                 success,
                 final_error,
                 ..
-            } => self.clear_retry(!success, final_error.as_deref()),
+            } => self.clear_retry(RetrySource::Auto, !success, final_error.as_deref()),
             Event::SummarizationRetryScheduled {
                 attempt,
                 max_attempts,
@@ -269,7 +269,7 @@ impl ControlsState {
                 success,
                 final_error,
                 ..
-            } => self.clear_retry(!success, final_error.as_deref()),
+            } => self.clear_retry(RetrySource::Summarization, !success, final_error.as_deref()),
             Event::CompactionStart { reason } => {
                 self.compaction.set(Some(CompactionState {
                     reason: CompactionReason::from_wire(reason),
@@ -307,17 +307,22 @@ impl ControlsState {
         }
     }
 
-    /// Clear the active retry pill. A final failure is surfaced as a notice
-    /// rather than silently dropping the error.
-    fn clear_retry(&self, failed: bool, error: Option<&str>) -> bool {
-        let had = self.retry.get_untracked().is_some();
-        self.retry.set(None);
-        if failed {
-            if let Some(err) = error {
-                self.notice.set(Some(format!("retry failed: {err}")));
-            }
+    /// Clear the active retry pill. Only the matching source ends the pill, so
+    /// an ending event from the other retry loop cannot hide a still-running
+    /// retry. A final failure is surfaced as a notice — with a generic message
+    /// when the event carries no error — rather than silently dropping it.
+    fn clear_retry(&self, source: RetrySource, failed: bool, error: Option<&str>) -> bool {
+        let mut changed = false;
+        if self.retry.get_untracked().map(|pill| pill.source) == Some(source) {
+            self.retry.set(None);
+            changed = true;
         }
-        had || failed
+        if failed {
+            let err = error.unwrap_or("unknown error");
+            self.notice.set(Some(format!("retry failed: {err}")));
+            changed = true;
+        }
+        changed
     }
 
     fn apply_response(

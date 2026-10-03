@@ -297,6 +297,63 @@ fn banners_only_one_retry_pill_is_active() {
     assert_eq!(pill.error_message, "sum");
 }
 
+#[test]
+fn banners_retry_end_ignores_foreign_source() {
+    let c = controls();
+    // A summarization retry is active; an auto-retry ending must not clear it.
+    c.apply(&event(Event::SummarizationRetryScheduled {
+        attempt: 1,
+        max_attempts: 2,
+        delay_ms: 500,
+        error_message: "sum".into(),
+    }));
+    assert!(!c.apply(&event(Event::AutoRetryEnd {
+        success: true,
+        attempt: 1,
+        final_error: None,
+    })));
+    assert_eq!(
+        c.retry.get().unwrap().source,
+        RetrySource::Summarization,
+        "foreign end event must not clear the active pill"
+    );
+
+    // ...and the reverse: auto active, summarization ending is ignored.
+    c.apply(&event(Event::AutoRetryStart {
+        attempt: 1,
+        max_attempts: 3,
+        delay_ms: 1000,
+        error_message: "auto".into(),
+    }));
+    c.apply(&event(Event::SummarizationRetryFinished {
+        success: true,
+        attempt: 1,
+        final_error: None,
+    }));
+    assert_eq!(c.retry.get().unwrap().source, RetrySource::Auto);
+}
+
+#[test]
+fn banners_retry_failure_without_error_still_notices() {
+    let c = controls();
+    c.apply(&event(Event::AutoRetryStart {
+        attempt: 1,
+        max_attempts: 3,
+        delay_ms: 1000,
+        error_message: "e".into(),
+    }));
+    assert!(c.apply(&event(Event::AutoRetryEnd {
+        success: false,
+        attempt: 3,
+        final_error: None,
+    })));
+    assert!(c.retry.get().is_none(), "pill clears");
+    assert!(
+        c.notice.get().unwrap().contains("retry failed"),
+        "a failure without a finalError still surfaces a notice"
+    );
+}
+
 // ── Additive wire arms ─────────────────────────────────────────────────────
 
 #[test]
