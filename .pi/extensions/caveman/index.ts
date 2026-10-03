@@ -40,7 +40,7 @@ export default function caveman(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		await configStore.ensureConfigLoaded();
 
-		const result = resolveSessionLevel(configStore.getConfig(), ctx.sessionManager.getEntries());
+		const result = resolveSessionLevel(configStore.getConfig(), ctx.sessionManager.getBranch());
 		configStore.setLevel(result.level);
 		if (shouldAppendCavemanEntry(result.shouldAppendEntry, ctx.isProjectTrusted())) {
 			pi.appendEntry("caveman-level", { level: result.level });

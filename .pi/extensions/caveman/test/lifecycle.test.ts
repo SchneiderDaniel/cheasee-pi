@@ -52,6 +52,7 @@ function createMockCtx(
 	return {
 		sessionManager: {
 			getEntries: () => entries,
+			getBranch: () => entries,
 		},
 	};
 }
