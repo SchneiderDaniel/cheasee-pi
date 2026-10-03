@@ -41,7 +41,7 @@ export class LoggerPipeline {
 			sessionManager: {
 				getSessionFile(): string | undefined;
 				getCwd(): string;
-				getEntries(): any[];
+				getBranch(): readonly any[];
 			};
 		},
 		overrides?: { sessionName?: string; mode?: string },

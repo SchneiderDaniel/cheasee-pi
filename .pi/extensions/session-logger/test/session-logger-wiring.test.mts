@@ -70,7 +70,7 @@ function createSessionStartCtx(overrides?: {
 		sessionManager: {
 			getSessionFile: () => overrides?.sessionFile,
 			getCwd: () => overrides?.cwd ?? "/tmp",
-			getEntries: () => overrides?.entries ?? [],
+			getBranch: () => overrides?.entries ?? [],
 		},
 	};
 }
