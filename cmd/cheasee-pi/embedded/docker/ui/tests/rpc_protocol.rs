@@ -10,6 +10,7 @@
 
 use std::path::PathBuf;
 
+use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
 use cheasee_pi_ui::protocol::{
     AssistantMessageEvent, ClearQueueData, Command, ContextUsage, Event, ExtensionUI,
     ExtensionUiRequest, ExtensionUiResponse, ModelInfo, QueueContents, Response, SessionStats,
@@ -52,7 +53,7 @@ where
 #[test]
 fn rpc_every_captured_command_round_trips_with_its_id() {
     let samples = fixture_values("commands.jsonl");
-    assert_eq!(samples.len(), 21, "captured command corpus changed");
+    assert_eq!(samples.len(), 23, "captured command corpus changed");
 
     for sample in samples {
         let command: Command =
@@ -160,6 +161,62 @@ fn rpc_an_unmodelled_response_command_decodes_as_unknown() {
     }))
     .unwrap();
     assert!(matches!(response, Response::Unknown));
+}
+
+/// AC2/AC4: `get_entries` omits `since` when absent, because pi treats
+/// `since: null` as a present-but-unknown id.
+#[test]
+fn rpc_get_entries_omits_an_absent_since() {
+    let present = round_trip(&Command::GetEntries {
+        id: Some("req-22".into()),
+        since: Some("b5a3a53d".into()),
+    });
+    assert_eq!(present["type"], "get_entries");
+    assert_eq!(present["since"], "b5a3a53d");
+    let decoded: Command = serde_json::from_value(present.clone()).unwrap();
+    assert_eq!(decoded, Command::GetEntries {
+        id: Some("req-22".into()),
+        since: Some("b5a3a53d".into()),
+    });
+
+    let absent = round_trip(&Command::GetEntries {
+        id: None,
+        since: None,
+    });
+    assert_eq!(absent["type"], "get_entries");
+    assert!(absent.get("since").is_none(), "since must be omitted: {absent}");
+    assert!(absent.get("id").is_none(), "id must be omitted: {absent}");
+}
+
+/// AC2/AC4: a `get_entries` response reaches `.data.entries`/`.data.leafId`
+/// through `Response::GetEntries`, never `Response::Unknown`.
+#[test]
+fn rpc_get_entries_response_decodes_with_data_and_error() {
+    let response: Response = serde_json::from_value(json!({
+        "type": "response",
+        "command": "get_entries",
+        "success": true,
+        "id": "req-22",
+        "data": {"entries": [{"id": "b5a3a53d"}], "leafId": "b5a3a53d"},
+    }))
+    .unwrap();
+    assert!(matches!(response, Response::GetEntries(_)));
+    let body = response.body().expect("GetEntries has a body");
+    let data = body.data.clone().expect("data is present");
+    assert_eq!(data["entries"][0]["id"], "b5a3a53d");
+    assert_eq!(data["leafId"], "b5a3a53d");
+
+    let errored: Response = serde_json::from_value(json!({
+        "type": "response",
+        "command": "get_entries",
+        "success": false,
+        "id": "req-22",
+        "error": "Entry not found: b5a3a53d",
+    }))
+    .unwrap();
+    let body = errored.body().unwrap();
+    assert!(!body.success);
+    assert_eq!(body.error.as_deref(), Some("Entry not found: b5a3a53d"));
 }
 
 // ── Response `data` DTOs ────────────────────────────────────────────────────
@@ -595,6 +652,114 @@ fn rpc_an_additive_unknown_field_is_tolerated() {
     }))
     .unwrap();
     assert!(matches!(response, Response::GetState(_)));
+}
+
+// ── Reconnect envelopes (slice 9) ──────────────────────────────────────────
+
+/// AC1: `Subscribe` round-trips with `since`, and omits it when absent.
+#[test]
+fn rpc_subscribe_round_trips_with_and_without_since() {
+    let with = ClientMessage::Subscribe {
+        id: Some("c1".into()),
+        session_id: "sess-1".into(),
+        since: Some("b5a3a53d".into()),
+    };
+    let value = round_trip(&with);
+    assert_eq!(value["type"], "subscribe");
+    assert_eq!(value["sessionId"], "sess-1");
+    assert_eq!(value["since"], "b5a3a53d");
+    assert_eq!(serde_json::from_value::<ClientMessage>(value).unwrap(), with);
+
+    // Absent `since`: the persisted-cursor case, key omitted.
+    let persisted = round_trip(&ClientMessage::Subscribe {
+        id: None,
+        session_id: "sess-1".into(),
+        since: None,
+    });
+    assert!(persisted.get("since").is_none(), "since must be omitted");
+    assert!(matches!(
+        serde_json::from_value::<ClientMessage>(persisted).unwrap(),
+        ClientMessage::Subscribe { since: None, .. }
+    ));
+}
+
+#[test]
+fn rpc_unsubscribe_round_trips() {
+    let value = round_trip(&ClientMessage::Unsubscribe {
+        id: Some("c2".into()),
+        session_id: "sess-1".into(),
+    });
+    assert_eq!(value["type"], "unsubscribe");
+    assert_eq!(value["sessionId"], "sess-1");
+}
+
+/// AC2/AC3: the reconnect header carries live/leaf/state/pending/text.
+#[test]
+fn rpc_session_state_round_trips_all_fields() {
+    let message = ServerMessage::SessionState {
+        id: Some("c1".into()),
+        session_id: "sess-1".into(),
+        live: true,
+        leaf_id: Some("b5a3a53d".into()),
+        state: Some(json!({"isStreaming": true, "isCompacting": false})),
+        pending: Some(ExtensionUiRequest {
+            id: "uuid-1".into(),
+            method: "confirm".into(),
+            params: serde_json::Map::new(),
+        }),
+        last_assistant_text: Some("partial".into()),
+        cursor_invalid: true,
+    };
+    let value = round_trip(&message);
+    assert_eq!(value["type"], "session_state");
+    assert_eq!(value["live"], true);
+    assert_eq!(value["leafId"], "b5a3a53d");
+    assert_eq!(value["state"]["isStreaming"], true);
+    assert_eq!(value["pending"]["id"], "uuid-1");
+    assert_eq!(value["lastAssistantText"], "partial");
+    assert_eq!(value["cursorInvalid"], true);
+    assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), message);
+}
+
+#[test]
+fn rpc_session_replay_round_trips() {
+    let message = ServerMessage::SessionReplay {
+        id: Some("c1".into()),
+        session_id: "sess-1".into(),
+        entries: vec![json!({"id": "b5a3a53d"})],
+        done: false,
+    };
+    let value = round_trip(&message);
+    assert_eq!(value["type"], "session_replay");
+    assert_eq!(value["entries"][0]["id"], "b5a3a53d");
+    assert_eq!(value["done"], false);
+    assert_eq!(serde_json::from_value::<ServerMessage>(value).unwrap(), message);
+}
+
+/// AC2: a resync-required lag round-trips, and a legacy
+/// `{"type":"lagged","skipped":5}` frame still decodes.
+#[test]
+fn rpc_lagged_resync_round_trips_and_legacy_decodes() {
+    let value = round_trip(&ServerMessage::Lagged {
+        skipped: 7,
+        resync_required: true,
+    });
+    assert_eq!(value["type"], "lagged");
+    assert_eq!(value["skipped"], 7);
+    assert_eq!(value["resyncRequired"], true);
+
+    let legacy: ServerMessage = serde_json::from_value(json!({"type": "lagged", "skipped": 5}))
+        .unwrap();
+    match legacy {
+        ServerMessage::Lagged {
+            skipped,
+            resync_required,
+        } => {
+            assert_eq!(skipped, 5);
+            assert!(!resync_required, "legacy frames default to no resync");
+        }
+        other => panic!("expected Lagged, got {other:?}"),
+    }
 }
 
 // ── Fixture corpus ─────────────────────────────────────────────────────────

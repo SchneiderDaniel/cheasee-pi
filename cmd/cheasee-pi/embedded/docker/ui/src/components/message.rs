@@ -27,9 +27,10 @@ pub fn Transcript() -> impl IntoView {
             </p>
             {move || {
                 state
-                    .blocks
+                    .history
                     .get()
                     .into_iter()
+                    .chain(state.blocks.get())
                     .map(|block| {
                         let class = match block.kind {
                             BlockKind::Text => "block block-text",

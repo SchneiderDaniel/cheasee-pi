@@ -16,5 +16,5 @@
 pub mod client;
 pub mod framing;
 
-pub use client::{ProtocolMessage, RpcClient, RpcError, EVENT_CHANNEL_CAPACITY};
+pub use client::{ProtocolMessage, RpcClient, RpcError, RpcReplaySource, EVENT_CHANNEL_CAPACITY};
 pub use framing::{encode_record, FramingError, JsonlReader, MAX_RECORD_BYTES};

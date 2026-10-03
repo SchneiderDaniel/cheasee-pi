@@ -19,7 +19,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
-use crate::bridge::ClientMessage;
+use crate::bridge::{ClientMessage, ServerMessage};
 use crate::components::session_list::SessionListState;
 use crate::controls::ControlsState;
 use crate::extension_ui::ExtensionUiState;
@@ -102,6 +102,82 @@ impl Timer for BrowserTimer {
 
 thread_local! {
     static LIVE: RefCell<Option<BrowserSocket>> = const { RefCell::new(None) };
+    /// The session this tab is following and the last entry id it has seen, so
+    /// a reconnect can ask the server to replay the gap (AC2/AC4).
+    static ACTIVE: RefCell<Option<ActiveSubscription>> = const { RefCell::new(None) };
+}
+
+/// The browser's durable cursor: a stable entry id, never an index.
+#[derive(Clone)]
+struct ActiveSubscription {
+    session_id: String,
+    last_seen: Option<String>,
+}
+
+/// Follow `session_id` and replay from `since` (or the remembered cursor).
+/// Called when a row is opened/resumed; the id is remembered for reconnects.
+pub fn subscribe(
+    session_id: String,
+    since: Option<String>,
+    set_status: RwSignal<ConnectionStatus>,
+) -> bool {
+    let since = since.or_else(|| {
+        ACTIVE.with(|active| active.borrow().as_ref().and_then(|s| s.last_seen.clone()))
+    });
+    ACTIVE.with(|active| {
+        *active.borrow_mut() = Some(ActiveSubscription {
+            session_id: session_id.clone(),
+            last_seen: since.clone(),
+        });
+    });
+    send(
+        ClientMessage::Subscribe {
+            id: None,
+            session_id,
+            since,
+        },
+        set_status,
+    )
+}
+
+/// Re-issue `Subscribe` for the remembered session on (re)connect or after a
+/// lossy lag, so the durable log heals the gap.
+fn resubscribe(set_status: RwSignal<ConnectionStatus>) {
+    let active = ACTIVE.with(|active| active.borrow().clone());
+    if let Some(active) = active {
+        let _ = send(
+            ClientMessage::Subscribe {
+                id: None,
+                session_id: active.session_id,
+                since: active.last_seen,
+            },
+            set_status,
+        );
+    }
+}
+
+/// Advance the cursor on a replay frame, and resync on a lag notice.
+fn handle_reconnect_frame(message: &ServerMessage, set_status: RwSignal<ConnectionStatus>) {
+    match message {
+        ServerMessage::Lagged {
+            resync_required: true,
+            ..
+        } => resubscribe(set_status),
+        ServerMessage::SessionReplay { entries, .. } => {
+            let last = entries
+                .iter()
+                .rev()
+                .find_map(|entry| entry.get("id").and_then(|value| value.as_str()));
+            if let Some(id) = last {
+                ACTIVE.with(|active| {
+                    if let Some(active) = active.borrow_mut().as_mut() {
+                        active.last_seen = Some(id.to_string());
+                    }
+                });
+            }
+        }
+        _ => {}
+    }
 }
 
 fn ws_url() -> String {
@@ -218,9 +294,11 @@ fn open(
             set_status.set(status_of(effect));
             // First list fetch on every (re)connect: the server has no push for
             // new session files, so the panel would otherwise stay empty until
-            // a manual Refresh.
+            // a manual Refresh. A remembered session is re-subscribed so the
+            // reconnect replays from the durable cursor (AC2).
             if matches!(effect, SessionEffect::Connected) {
                 let _ = send(ClientMessage::ListSessions { id: None }, set_status);
+                resubscribe(set_status);
             }
         },
         move |text| {
@@ -228,6 +306,9 @@ fn open(
             controls.ingest_frame(&text);
             extension_ui.ingest_frame(&text);
             session_list.ingest_frame(&text);
+            if let Ok(message) = serde_json::from_str::<ServerMessage>(&text) {
+                handle_reconnect_frame(&message, set_status);
+            }
         },
         move || {
             if let Some(tx) = tx.take() {

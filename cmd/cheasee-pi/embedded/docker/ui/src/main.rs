@@ -49,6 +49,10 @@ mod server {
         pub rpc: Option<Arc<rpc::RpcClient>>,
         /// The shared session store the relay handles list/resume/stop through.
         pub store: Arc<sessions_store::SessionsStore>,
+        /// The per-session registry (AC1): pi session id → shared relay state.
+        /// Empty when no child was spawned; on-disk sessions still replay from
+        /// the store (AC4).
+        pub sessions: Arc<session::SessionRegistry>,
     }
 
     /// Router state. `Arc` so the pid registry ownership is shared, not copied,
@@ -82,18 +86,19 @@ mod server {
                     auth_error: None,
                     rpc: None,
                     store,
+                    sessions: Arc::new(session::SessionRegistry::new()),
                 }),
             }
         }
     }
 
     /// Resolve the provider env from the mounted auth.json, spawn
-    /// `pi --mode rpc`, and build the router state.
+    /// `pi --mode rpc`, learn its session id, and build the router state.
     ///
     /// Neither a missing/malformed auth.json nor a failed spawn is fatal: the
     /// UI must still come up and report a clear "no provider keys" state (AC4),
     /// mirroring `runUpE`'s warning.
-    pub fn bootstrap(options: LeptosOptions) -> AppState {
+    pub async fn bootstrap(options: LeptosOptions) -> AppState {
         let (child_env, auth_error) = match auth::load_child_env() {
             Ok(env) => (env, None),
             Err(err) => {
@@ -146,6 +151,36 @@ mod server {
             }
         };
 
+        let sessions = Arc::new(session::SessionRegistry::new());
+        if let Some(client) = rpc.clone() {
+            // The registry is keyed by pi's own `sessionId`, which only the child
+            // can report. Register the live handle *only* once that id is known
+            // and validated: substituting the synthetic marker would make a
+            // subscribe with the real pi id miss the live registry and fall
+            // back to child-less file replay while the child is still running.
+            match resolve_pi_session_id(&client).await {
+                Some(pi_session_id) => {
+                    let relay = Arc::new(session::Session::live(
+                        client,
+                        Arc::clone(&store),
+                        pi_session_id.clone(),
+                        Arc::clone(&sessions),
+                    ));
+                    sessions.insert(Arc::new(session::SessionHandle {
+                        pi_session_id,
+                        marker_id: session_id.clone(),
+                        session: relay,
+                        child_pid: pid,
+                    }));
+                }
+                None => {
+                    eprintln!(
+                        "cheasee-pi-ui: WARNING: pi did not report a sessionId; the live child is not registered under its pi session id"
+                    );
+                }
+            }
+        }
+
         AppState {
             options,
             spawn: Arc::new(SpawnState {
@@ -158,6 +193,7 @@ mod server {
                 auth_error,
                 rpc,
                 store,
+                sessions,
             }),
         }
     }
@@ -170,6 +206,37 @@ mod server {
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
         format!("{:016x}", nanos ^ (u64::from(std::process::id()) << 32))
+    }
+
+    /// Learn the child's pi session id from `get_state`, retrying briefly so a
+    /// slow startup does not lose the live binding. `None` means the lookup
+    /// genuinely failed after the retries — the caller surfaces it instead of
+    /// registering the live child under a different (marker) id.
+    async fn resolve_pi_session_id(client: &rpc::RpcClient) -> Option<String> {
+        for _ in 0..5 {
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                client.request(&cheasee_pi_ui::protocol::Command::GetState { id: None }),
+            )
+            .await;
+            if let Ok(Ok(response)) = response {
+                if let Some(body) = response.body() {
+                    if body.success {
+                        if let Some(id) = body
+                            .data
+                            .as_ref()
+                            .and_then(|data| data.get("sessionId"))
+                            .and_then(|value| value.as_str())
+                            .filter(|id| !id.is_empty())
+                        {
+                            return Some(id.to_string());
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        None
     }
 
     fn auth_source_name(source: auth::AuthSource) -> &'static str {
@@ -194,24 +261,42 @@ mod server {
         ws.on_upgrade(move |socket| handle_socket(socket, spawn))
     }
 
-    /// One browser connection over the shared pi child. The relay is
-    /// `session::relay` — this adapter only builds the transport sink.
+    /// One browser connection over a shared session. The registry resolves the
+    /// session (`Subscribe`), and the relay is `session::relay` — this adapter
+    /// only builds the transport sink.
     async fn handle_socket(socket: WebSocket, spawn: Arc<SpawnState>) {
-        let Some(rpc) = spawn.rpc.clone() else {
-            // No child: tell the browser instead of leaving it hanging. The
-            // UI must still come up and report the state (AC4).
-            let mut socket = socket;
-            let message = ServerMessage::Error {
-                message: "no pi child is running".to_string(),
-            };
-            if let Ok(text) = serde_json::to_string(&message) {
-                let _ = socket.send(Message::Text(text.into())).await;
-            }
-            return;
+        let mut socket = socket;
+        let session = match spawn.sessions.first().map(|handle| handle.session.clone()) {
+            Some(session) => session,
+            // A live client with no registry entry (e.g. a test harness, or a
+            // `get_state` that timed out at bootstrap): relay it directly. The
+            // registry is still attached so a subscribe can resolve any session
+            // registered later.
+            None => match spawn.rpc.clone() {
+                Some(rpc) => Arc::new(
+                    session::Session::with_store(rpc, Some(Arc::clone(&spawn.store)))
+                        .with_registry(Arc::clone(&spawn.sessions)),
+                ),
+                None => {
+                    // No child: tell the browser up front (the UI must still
+                    // come up and report the state, AC4), then keep the relay
+                    // open so a `Subscribe` can still replay history.
+                    let message = ServerMessage::Error {
+                        message: "no pi child is running".to_string(),
+                    };
+                    if let Ok(text) = serde_json::to_string(&message) {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    Arc::new(
+                        session::Session::detached(spawn.store.clone(), String::new())
+                            .with_registry(spawn.sessions.clone()),
+                    )
+                }
+            },
         };
-        session::Session::with_store(rpc, Some(Arc::clone(&spawn.store)))
-            .relay(WsSink { socket })
-            .await;
+        session.relay(WsSink { socket }).await;
     }
 
     /// The axum WebSocket as `session::ClientSink`: text frames carry the
@@ -317,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Resolve the provider env from the mounted auth.json and spawn the pi RPC
     // child before serving (AC1/AC3/AC4). A missing auth.json or a failed
     // spawn warns; the UI still serves.
-    let state = server::bootstrap(options);
+    let state = server::bootstrap(options).await;
 
     // Bind all interfaces inside the container: the host reaches this process
     // through docker's published DNAT port, and a loopback bind is unreachable
@@ -534,6 +619,7 @@ mod tests {
                     std::path::Path::new(cheasee_pi_ui::pi_process::SESSION_DIR).join(".cheasee-inuse"),
                     Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
                 )),
+                sessions: Arc::new(cheasee_pi_ui::session::SessionRegistry::new()),
             }),
         };
 
@@ -548,6 +634,46 @@ mod tests {
         let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
             .await
             .unwrap();
+
+        // The relay starts unbound: subscribe first so events are delivered.
+        let subscribe = ClientMessage::Subscribe {
+            id: None,
+            session_id: String::new(),
+            since: None,
+        };
+        socket
+            .send(WsMessage::Text(serde_json::to_string(&subscribe).unwrap()))
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            let frame = tokio::time::timeout(bound, commands.next_record_str())
+                .await
+                .expect("replay command written")
+                .unwrap()
+                .unwrap();
+            let command: serde_json::Value = serde_json::from_str(&frame).unwrap();
+            let id = command["id"].as_str().unwrap().to_string();
+            let response = match command["type"].as_str().unwrap() {
+                "get_entries" => serde_json::json!({"type":"response","command":"get_entries","success":true,"id":id,"data":{"entries":[],"leafId":null}}),
+                "get_state" => serde_json::json!({"type":"response","command":"get_state","success":true,"id":id,"data":{}}),
+                "get_last_assistant_text" => serde_json::json!({"type":"response","command":"get_last_assistant_text","success":true,"id":id,"data":{"text":null}}),
+                other => panic!("unexpected replay request {other}"),
+            };
+            child_stdout
+                .write_all(&encode_record(&response).unwrap())
+                .await
+                .unwrap();
+            child_stdout.flush().await.unwrap();
+        }
+        // Drain the `SessionState` header and the terminal replay frame.
+        for _ in 0..2 {
+            let frame = tokio::time::timeout(bound, socket.next())
+                .await
+                .expect("subscribe frame")
+                .unwrap()
+                .unwrap();
+            let _ = serde_json::from_str::<ServerMessage>(frame.to_text().unwrap()).unwrap();
+        }
 
         let prompt = ClientMessage::Prompt {
             id: None,
@@ -635,6 +761,7 @@ mod tests {
                     std::path::Path::new(cheasee_pi_ui::pi_process::SESSION_DIR).join(".cheasee-inuse"),
                     Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
                 )),
+                sessions: Arc::new(cheasee_pi_ui::session::SessionRegistry::new()),
             }),
         };
         let res = server::router(state).oneshot(get("/debug/child")).await.unwrap();
