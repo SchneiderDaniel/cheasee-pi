@@ -77,9 +77,13 @@ export default function ponytailExtension(pi) {
 	let currentMode = DEFAULT_MODE;
 	let configuredDefaultMode = getDefaultMode();
 
+	const clearStatus = (ctx) => {
+		ctx?.ui?.setStatus?.("ponytail", undefined);
+	};
+
 	const updateStatus = (ctx) => {
 		if (currentMode === "off") {
-			ctx?.ui?.setStatus?.("ponytail", undefined);
+			clearStatus(ctx);
 		} else {
 			ctx?.ui?.setStatus?.("ponytail", "ponytail: " + currentMode.toUpperCase());
 		}
@@ -191,8 +195,8 @@ export default function ponytailExtension(pi) {
 		updateStatus(ctx);
 	});
 
-	pi.on("session_end", async (_event, ctx) => {
-		ctx?.ui?.setStatus?.("ponytail", undefined);
+	pi.on("session_shutdown", async (_event, ctx) => {
+		clearStatus(ctx);
 	});
 
 	pi.on("before_agent_start", async (event) => {
