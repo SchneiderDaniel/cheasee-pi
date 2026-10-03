@@ -17,11 +17,12 @@
  * printed `ℹ UI:` hint in exactly that stale-sidecar case. Settings/derived
  * remain the fallback for sessions started outside the CLI.
  *
- * PI_UI_PORT defined-but-empty is the CLI's explicit "host-port resolution
- * failed" signal (range exhausted): the extension suppresses the UI link
- * rather than deriving a port that belongs to another workspace's sidecar. An
- * ABSENT PI_UI_PORT means no CLI ran (e.g. pi started directly), so deriving
- * is still correct there.
+ * PI_UI_PORT defined-but-empty is never forwarded: the CLI OMITS the key on
+ * resolution failure (range exhausted) and sets the separate
+ * CHEASEE_UI_PORT_UNRESOLVED=1 marker instead; the extension reads the marker
+ * and suppresses the UI link rather than deriving a port that belongs to
+ * another workspace's sidecar. An ABSENT PI_UI_PORT without the marker means
+ * no CLI ran (e.g. pi started directly), so deriving is still correct there.
  *
  * PI_UI_PORT holds a HOST port here — the UI sidecar listens on container
  * port 3000, published to the host. Never treat this value as an in-container
@@ -76,15 +77,16 @@ function readSettingsUIPort(root: string): string | null {
 export async function uiHostPort(cwd: string): Promise<string | null> {
 	const root = resolveWorkspaceRoot(cwd);
 	if (root === null) return null;
-	// Env first: `cheasee-pi start` forwards the bound-first resolved host port
+	// The CLI ran but could not resolve a host port (range exhausted): it omits
+	// PI_UI_PORT and sets this marker. Suppress the link — deriving here would
+	// name an occupied port that is not this workspace's UI. An absent marker
+	// with absent PI_UI_PORT means no CLI ran, so deriving stays correct.
+	if (process.env.CHEASEE_UI_PORT_UNRESOLVED === "1") return null;
+	// Env next: `cheasee-pi start` forwards the bound-first resolved host port
 	// (resolveUIHostPort), authoritative over docker.uiPort — on a re-up the
 	// sidecar's live bind can differ from a stale settings value, and the
-	// printed `ℹ UI:` hint uses the forwarded value. The CLI also forwards an
-	// EMPTY PI_UI_PORT when its own resolution fails (host port range
-	// exhausted): a defined-but-empty value means "resolved, but unavailable"
-	// and suppresses the link — deriving then would name an occupied port that
-	// is not this workspace's UI. An absent key means no CLI ran at all, so
-	// deriving stays correct for direct pi sessions.
+	// printed `ℹ UI:` hint uses the forwarded value. Settings/derived are the
+	// fallback for sessions started outside the CLI.
 	if (process.env.PI_UI_PORT !== undefined) return validPort(process.env.PI_UI_PORT);
 	const settings = readSettingsUIPort(root);
 	if (settings !== null) return settings;

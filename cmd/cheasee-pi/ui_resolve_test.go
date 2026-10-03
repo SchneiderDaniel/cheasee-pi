@@ -215,13 +215,16 @@ func TestRunUpE_UIPortFailureLeavesCodeflowIntact(t *testing.T) {
 			t.Fatalf("runUpE: %v", err)
 		}
 	})
-	if got := exec.env["CODEFLOW_PORT"]; got != "9000" {
-		t.Errorf("CODEFLOW_PORT must survive UI failure, got %q", got)
+	if got, ok := exec.env["CODEFLOW_PORT"]; !ok || got != "9000" {
+		t.Errorf("CODEFLOW_PORT must survive UI failure, got %q (present=%v)", got, ok)
 	}
 	if !strings.Contains(stderr, "http://localhost:9000") {
 		t.Errorf("CodeFlow hint must survive UI failure, got %q", stderr)
 	}
-	if got, ok := exec.env["PI_UI_PORT"]; !ok || got != "" {
-		t.Errorf("PI_UI_PORT must be forwarded empty on UI failure (suppression signal), got %q (present=%v) in %v", got, ok, exec.env)
+	if got, ok := exec.env["PI_UI_PORT"]; ok {
+		t.Errorf("PI_UI_PORT must be OMITTED on UI failure, got %q in %v", got, exec.env)
+	}
+	if got := exec.env["CHEASEE_UI_PORT_UNRESOLVED"]; got != "1" {
+		t.Errorf("CHEASEE_UI_PORT_UNRESOLVED must be set on UI failure, got %q in %v", got, exec.env)
 	}
 }

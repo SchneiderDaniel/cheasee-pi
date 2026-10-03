@@ -149,15 +149,19 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// derive+probe on any docker error (first up, stopped sidecar). The
 	// resolved host port is forwarded as PI_UI_PORT (host namespace, NOT the
 	// sidecar's container port 3000) for the in-container context-info footer
-	// link. On resolution failure the key is forwarded EMPTY, not omitted: the
-	// extension reads defined-but-empty as "CLI ran, port unavailable" and
-	// suppresses the UI link, while an absent key (no CLI) still derives. Start
-	// still succeeds either way.
+	// link.
+	//
+	// On resolution failure PI_UI_PORT is OMITTED — never forwarded empty, which
+	// would put a bare `PI_UI_PORT=` in the docker exec env and claim a port that
+	// is not there (R1 AC3). The failure travels on its own marker key instead:
+	// the extension reads CHEASEE_UI_PORT_UNRESOLVED=1 to suppress its UI link,
+	// while an absent PI_UI_PORT WITHOUT the marker (no CLI ran) still derives.
+	// Start succeeds either way (best-effort, like the CodeFlow forwarding).
 	if port, err := resolveUIHostPort(ctx, root); err == nil {
 		envMap["PI_UI_PORT"] = port
 		printUIHint(port)
 	} else {
-		envMap["PI_UI_PORT"] = ""
+		envMap["CHEASEE_UI_PORT_UNRESOLVED"] = "1"
 		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	}
 

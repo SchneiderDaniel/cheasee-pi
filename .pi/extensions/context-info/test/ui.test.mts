@@ -50,8 +50,24 @@ function withEnv(port: string | undefined, fn: () => Promise<void>): Promise<voi
 	})();
 }
 
+/** Sets/clears the CLI failure marker (CHEASEE_UI_PORT_UNRESOLVED) for fn. */
+function withUnresolved(flag: string | undefined, fn: () => Promise<void>): Promise<void> {
+	const saved = process.env.CHEASEE_UI_PORT_UNRESOLVED;
+	return (async () => {
+		try {
+			if (flag === undefined) delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+			else process.env.CHEASEE_UI_PORT_UNRESOLVED = flag;
+			await fn();
+		} finally {
+			if (saved === undefined) delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+			else process.env.CHEASEE_UI_PORT_UNRESOLVED = saved;
+		}
+	})();
+}
+
 afterEach(() => {
 	delete process.env.PI_UI_PORT;
+	delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 });
 
 // ── Entity: pure derivation ─────────────────────
@@ -126,15 +142,17 @@ describe("uiHostPort", () => {
 		});
 	});
 
-	it("CLI resolution failure (PI_UI_PORT forwarded empty) suppresses the UI link", async () => {
-		// Regression for the audit finding: range exhaustion on the host leaves
-		// the UI unavailable, so the CLI forwards PI_UI_PORT as an empty string.
-		// Deriving then would name an occupied port that is not this workspace's
-		// UI — the resolver must return null instead.
+	it("CLI resolution failure (marker set, PI_UI_PORT omitted) suppresses the UI link", async () => {
+		// Range exhaustion on the host leaves the UI unavailable: the CLI omits
+		// PI_UI_PORT and sets CHEASEE_UI_PORT_UNRESOLVED=1. Deriving then would
+		// name an occupied port that is not this workspace's UI — the resolver
+		// must return null instead.
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
-		await withEnv("", async () => {
-			assert.strictEqual(await uiHostPort(root), null);
-			assert.strictEqual(await uiUrl(root), null);
+		await withEnv(undefined, async () => {
+			await withUnresolved("1", async () => {
+				assert.strictEqual(await uiHostPort(root), null);
+				assert.strictEqual(await uiUrl(root), null);
+			});
 		});
 	});
 

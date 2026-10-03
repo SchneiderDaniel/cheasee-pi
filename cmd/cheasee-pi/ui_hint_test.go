@@ -108,11 +108,11 @@ func TestRunUpE_UIHintFallback(t *testing.T) {
 }
 
 func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
-	// Probe exhaustion must fail closed: no UI URL line, and PI_UI_PORT is
-	// forwarded EMPTY (defined-but-empty is the extension's "CLI ran, port
-	// unavailable → suppress the footer link" signal — leaving it absent would
-	// make the extension derive a port it does not own). CodeFlow (off the
-	// probe via CODEFLOW_PORT) is unaffected.
+	// Probe exhaustion must fail closed: no UI URL line, PI_UI_PORT is OMITTED
+	// (never forwarded empty — a bare `PI_UI_PORT=` would claim a port that is
+	// not there), and the separate CHEASEE_UI_PORT_UNRESOLVED marker is set so
+	// the extension suppresses the footer link. CodeFlow (off the probe via
+	// CODEFLOW_PORT) is unaffected.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	t.Setenv("CODEFLOW_PORT", "9000")
@@ -135,8 +135,11 @@ func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
 	if !strings.Contains(stderr, "⚠ UI port:") {
 		t.Errorf("resolution failure must surface the ⚠ UI port line, got: %q", stderr)
 	}
-	if got, ok := exec.env["PI_UI_PORT"]; !ok || got != "" {
-		t.Errorf("exec env must carry an empty PI_UI_PORT on resolution failure, got %q (present=%v) in %v", got, ok, exec.env)
+	if got, ok := exec.env["PI_UI_PORT"]; ok {
+		t.Errorf("resolution failure must OMIT PI_UI_PORT, got %q in %v", got, exec.env)
+	}
+	if got := exec.env["CHEASEE_UI_PORT_UNRESOLVED"]; got != "1" {
+		t.Errorf("resolution failure must set CHEASEE_UI_PORT_UNRESOLVED=1, got %q in %v", got, exec.env)
 	}
 	if !strings.Contains(stderr, "http://localhost:9000") {
 		t.Errorf("CodeFlow hint must be unaffected, got: %q", stderr)
@@ -186,19 +189,20 @@ func TestDailyUsageDoc_uiHint(t *testing.T) {
 	if !strings.Contains(content, "PI_UI_PORT") || !strings.Contains(content, "forwarded") {
 		t.Error("daily-usage.md §UI must state that PI_UI_PORT is forwarded into the session")
 	}
-	// Contract revision (audit finding): the footer group is OSC 8 emission;
-	// the host terminal is the opener, and the in-container openUrl path is
-	// documented as a non-goal. Pin the wording so the contract cannot silently
-	// drift back to "clicking opens a browser in-container".
-	for _, want := range []string{"OSC 8", "terminal", "not routable", "control characters", "xdg-open"} {
+	// Click contract (audit finding): the footer group is a host-terminal OSC 8
+	// hyperlink; the host terminal is the opener, pi does not intercept the
+	// click, and the in-container network namespace is documented as a non-goal.
+	// Pin the wording so the contract cannot silently drift.
+	for _, want := range []string{"OSC 8", "host terminal", "does not intercept", "control characters"} {
 		if !strings.Contains(strings.ToLower(content), strings.ToLower(want)) {
-			t.Errorf("daily-usage.md §UI must document the OSC 8 emission contract (%q)", want)
+			t.Errorf("daily-usage.md §UI must document the OSC 8 host-terminal click contract (%q)", want)
 		}
 	}
-	// Suppression contract (audit finding): CLI resolution failure forwards an
-	// empty PI_UI_PORT and the footer drops the UI link, while an absent key
-	// (no CLI) keeps the derived fallback.
-	for _, want := range []string{"empty", "suppresses", "started outside the CLI"} {
+	// Suppression contract (audit finding): on CLI resolution failure PI_UI_PORT
+	// is omitted and the separate marker is set, so docker exec never sees a bare
+	// PI_UI_PORT=; the footer drops the UI link, while an absent key (no CLI)
+	// keeps the derived fallback.
+	for _, want := range []string{"omits", "CHEASEE_UI_PORT_UNRESOLVED", "suppresses", "started outside the CLI", "no marker"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("daily-usage.md §UI must document the resolution-failure suppression (%q)", want)
 		}

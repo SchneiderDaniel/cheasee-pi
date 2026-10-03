@@ -9,7 +9,10 @@
  */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { resetCapabilitiesCache, setCapabilities, visibleWidth } from "@earendil-works/pi-tui";
 import { installFooter } from "../footer.ts";
 import { createDefaultFooterConfig } from "../footer-state.ts";
@@ -222,5 +225,40 @@ describe("footer row 3 — layout", () => {
 		const render = installAndGetRender(defaultConfig(), configWith(UI_URL, CF_URL));
 		const [first, second] = withHyperlinks(true, () => [row3(render(80)), row3(render(80))] as const);
 		assert.strictEqual(first, second, "row 3 must be byte-stable for TuiAltScreen line diffing");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Click path: the host terminal opens the link (pi does not intercept it)
+// ---------------------------------------------------------------------------
+
+describe("footer row 3 — host-terminal click path", () => {
+	it("installed pi-tui does not enable SGR mouse tracking", () => {
+		// The footer emits OSC 8 links to the session PTY (the host terminal),
+		// which is the click handler and opens the loopback URL in the host
+		// browser. That contract holds only while pi-tui leaves SGR mouse
+		// reporting OFF: if a future pi-tui enables it and routes an OSC 8 hit
+		// to its own openUrl → openBrowser (`xdg-open`), the click would be
+		// intercepted inside the container, where the image has no xdg-open and
+		// the host-loopback URL is unroutable. This guard fails loudly (the
+		// product is unchanged) so the click contract gets re-validated at that
+		// upgrade.
+		const dist = dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-tui")));
+		const sources = ["index.js", "tui.js", "terminal.js"]
+			.map((f) => join(dist, f))
+			.map((f) => {
+				try {
+					return readFileSync(f, "utf-8");
+				} catch {
+					return "";
+				}
+			})
+			.join("\n");
+		for (const seq of ["\x1b[?1000h", "\x1b[?1002h", "\x1b[?1003h", "\x1b[?1006h"]) {
+			assert.ok(
+				!sources.includes(seq),
+				`pi-tui now enables SGR mouse tracking (${seq}) — re-validate the footer link click path`,
+			);
+		}
 	});
 });

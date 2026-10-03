@@ -234,10 +234,12 @@ describe("contextInfo from index.ts", () => {
 	beforeEach(() => {
 		delete process.env.CODEFLOW_PORT;
 		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 	});
 	afterEach(() => {
 		delete process.env.CODEFLOW_PORT;
 		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 	});
 
 	it("contextInfo is the default export — a function", () => {
@@ -1634,10 +1636,12 @@ describe("context-info extension — footer service links", () => {
 	beforeEach(() => {
 		delete process.env.CODEFLOW_PORT;
 		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 	});
 	afterEach(() => {
 		delete process.env.CODEFLOW_PORT;
 		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 	});
 
 	/** Temp workspace with explicit settings + optional sibling bare remote. */
@@ -1767,20 +1771,21 @@ describe("context-info extension — footer service links", () => {
 		await handlers.get("session_shutdown")!();
 	});
 
-	it("CLI resolution failure (empty PI_UI_PORT) suppresses the UI link, CodeFlow survives", async () => {
-		// Regression for the audit finding: on host port exhaustion the CLI
-		// forwards PI_UI_PORT empty, so the footer must NOT fall back to the
-		// settings/derived port (which names another workspace's occupied bind).
+	it("CLI resolution failure (marker set, PI_UI_PORT omitted) suppresses the UI link, CodeFlow survives", async () => {
+		// Regression for the audit finding: on host port exhaustion the CLI omits
+		// PI_UI_PORT and sets CHEASEE_UI_PORT_UNRESOLVED=1, so the footer must NOT
+		// fall back to the settings/derived port (which names another workspace's
+		// occupied bind).
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
 		const { pi, handlers, ctx, renders } = makeHarness(root);
 		contextInfo(pi as any);
 
-		process.env.PI_UI_PORT = "";
+		process.env.CHEASEE_UI_PORT_UNRESOLVED = "1";
 		try {
 			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
 			await handlers.get("session_start")!({}, ctx);
 		} finally {
-			delete process.env.PI_UI_PORT;
+			delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
 			resetCapabilitiesCache();
 		}
 

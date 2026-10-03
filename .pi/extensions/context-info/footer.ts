@@ -321,17 +321,19 @@ export function installFooter(
 				// URLs are resolved once per session in index.ts (byte-stable
 				// across renders, required for TuiAltScreen's line diff).
 				//
-				// Delivered contract = OSC 8 emission only. The terminal on the
-				// host is the opener, with its usual click/modifier (iTerm2
-				// cmd-click, WezTerm plain click). pi's fullscreen TUI also reads
-				// the link and routes a click to openBrowser → `xdg-open` INSIDE
-				// the container, where xdg-open is absent and the host-loopback
-				// URL is unroutable — a swallowed no-op. That in-container path is
-				// an accepted limitation, not the contract: an extension cannot
-				// reach the host browser, so the emitted sequence is the whole
-				// deliverable. The URL is a display string only, never pinged or
-				// opened in-container. URLs are validated as decimal ports in
-				// ui.ts/codeflow.ts before they land here.
+				// Click path: the OSC 8 sequence is emitted straight to the
+				// session PTY, i.e. the HOST terminal — the opener lives on the
+				// host, where these loopback URLs resolve. The installed pi-tui
+				// (0.79.10) enables bracketed paste and the kitty keyboard
+				// protocol but NOT SGR mouse tracking (no `\x1b[?1000h`,
+				// `?1002h`, `?1006h`; its dist has no openUrl/OSC 8 click
+				// routing), so pi does not intercept the click and cannot shadow
+				// the terminal's own opener. Terminals without OSC 8 support
+				// report hyperlinks:false and get plain text via the gate above.
+				// The URLs are display strings only, never pinged or opened
+				// in-container (container loopback is a different network
+				// namespace). Ports are validated as decimals in
+				// ui.ts/codeflow.ts before hyperlink() sees them.
 				const hyperlinksOn = getCapabilities().hyperlinks;
 				const labelled = (text: string, url: string): string =>
 					hyperlinksOn ? hyperlink(text, url) : text;
