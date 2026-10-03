@@ -7,7 +7,9 @@
 
 use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage, StreamingBehavior};
 use cheasee_pi_ui::protocol::{AssistantMessageEvent, Event};
-use cheasee_pi_ui::stream::{Assembler, BlockKind, ChatState, StreamStatus, MAX_LIVE_TEXT};
+use cheasee_pi_ui::stream::{
+    Assembler, ChatState, Marker, Row, RowKind, StreamStatus, MAX_LIVE_TEXT,
+};
 use leptos::prelude::{Get, Owner};
 use serde_json::{json, Value};
 
@@ -23,6 +25,17 @@ fn delta(index: u32, delta: &str) -> Event {
     update(json!({"type": "text_delta", "contentIndex": index, "delta": delta}))
 }
 
+/// The `(content_index, text)` of every text/thinking row, in order.
+fn texts(rows: &[Row]) -> Vec<(u32, String)> {
+    rows.iter()
+        .filter_map(|row| {
+            row.kind
+                .as_text()
+                .map(|b| (b.content_index, b.text.clone()))
+        })
+        .collect()
+}
+
 #[test]
 fn stream_assembles_text_deltas_in_order() {
     let mut assembler = Assembler::default();
@@ -31,14 +44,15 @@ fn stream_assembles_text_deltas_in_order() {
     assembler.apply(&delta(0, ", "));
     assembler.apply(&delta(0, "world"));
 
-    assert_eq!(assembler.blocks().len(), 1);
-    assert_eq!(assembler.blocks()[0].index, 0);
-    assert_eq!(assembler.blocks()[0].kind, BlockKind::Text);
-    assert_eq!(assembler.blocks()[0].text, "Hello, world");
+    assert_eq!(
+        texts(assembler.rows()),
+        vec![(0, "Hello, world".to_string())]
+    );
+    assert!(matches!(assembler.rows()[0].kind, RowKind::Text(_)));
 }
 
-/// AC2: blocks are keyed by `contentIndex`, so interleaved thinking and text do
-/// not merge into one block.
+/// AC2: rows are keyed by `contentIndex`, so interleaved thinking and text do
+/// not merge into one row.
 #[test]
 fn stream_groups_blocks_by_content_index() {
     let mut assembler = Assembler::default();
@@ -48,10 +62,11 @@ fn stream_groups_blocks_by_content_index() {
     ));
     assembler.apply(&delta(0, "!"));
 
-    assert_eq!(assembler.blocks().len(), 2);
-    assert_eq!(assembler.blocks()[0].text, "answer!");
-    assert_eq!(assembler.blocks()[1].kind, BlockKind::Thinking);
-    assert_eq!(assembler.blocks()[1].text, "hmm");
+    assert_eq!(
+        texts(assembler.rows()),
+        vec![(0, "answer!".to_string()), (1, "hmm".to_string())]
+    );
+    assert!(matches!(assembler.rows()[1].kind, RowKind::Thinking(_)));
 }
 
 /// AC2/AC3: `text_end.content` replaces the delta buffer, and
@@ -64,7 +79,10 @@ fn stream_end_events_are_authoritative() {
     assembler.apply(&update(
         json!({"type": "text_end", "contentIndex": 0, "content": "Hello world"}),
     ));
-    assert_eq!(assembler.blocks()[0].text, "Hello world");
+    assert_eq!(
+        texts(assembler.rows()),
+        vec![(0, "Hello world".to_string())]
+    );
 
     assembler.apply(&Event::MessageEnd {
         message: json!({
@@ -75,11 +93,11 @@ fn stream_end_events_are_authoritative() {
             ]
         }),
     });
-    assert_eq!(assembler.blocks().len(), 2);
-    assert_eq!(assembler.blocks()[0].kind, BlockKind::Thinking);
-    assert_eq!(assembler.blocks()[0].text, "let me think");
-    assert_eq!(assembler.blocks()[1].kind, BlockKind::Text);
-    assert_eq!(assembler.blocks()[1].text, "final");
+    assert_eq!(
+        texts(assembler.rows()),
+        vec![(0, "let me think".to_string()), (1, "final".to_string())]
+    );
+    assert!(matches!(assembler.rows()[0].kind, RowKind::Thinking(_)));
 }
 
 /// AC4: `usage` is a cumulative snapshot — replaced, never summed.
@@ -125,20 +143,22 @@ fn stream_bounds_the_live_text() {
     for _ in 0..(MAX_LIVE_TEXT / 10 + 2) {
         assembler.apply(&delta(0, "0123456789"));
     }
-    assert!(assembler.blocks()[0].truncated);
-    assert!(assembler.blocks()[0].text.len() <= MAX_LIVE_TEXT);
+    let body = assembler.rows()[0].kind.as_text().unwrap();
+    assert!(body.truncated);
+    assert!(body.text.len() <= MAX_LIVE_TEXT);
 }
 
 /// pi >=0.84 emits `message_update` without the cumulative `message` field.
 #[test]
-fn stream_decodes_a_delta_only_message_update() {    let event: Event = serde_json::from_value(json!({
+fn stream_decodes_a_delta_only_message_update() {
+    let event: Event = serde_json::from_value(json!({
         "type": "message_update",
         "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "hi"},
     }))
     .expect("delta-only record must decode");
     let mut assembler = Assembler::default();
     assembler.apply(&event);
-    assert_eq!(assembler.blocks()[0].text, "hi");
+    assert_eq!(texts(assembler.rows()), vec![(0, "hi".to_string())]);
 }
 
 #[test]
@@ -171,7 +191,10 @@ fn stream_bridge_envelope_round_trips() {
     let value = serde_json::to_value(&prompt).unwrap();
     assert_eq!(value["type"], "prompt");
     assert_eq!(value["streamingBehavior"], "followUp");
-    assert_eq!(serde_json::from_value::<ClientMessage>(value).unwrap(), prompt);
+    assert_eq!(
+        serde_json::from_value::<ClientMessage>(value).unwrap(),
+        prompt
+    );
 
     // An unknown envelope decodes rather than failing the connection.
     let unknown: ClientMessage = serde_json::from_value(json!({"type": "future"})).unwrap();
@@ -226,7 +249,7 @@ fn stream_chat_state_flushes_frames_into_signals() {
         })
         .unwrap(),
     );
-    assert_eq!(state.blocks.get()[0].text, "hello");
+    assert_eq!(texts(&state.rows.get()), vec![(0, "hello".to_string())]);
 
     state.ingest_frame(
         &serde_json::to_string(&ServerMessage::Event {
@@ -335,7 +358,7 @@ fn stream_control_events_do_not_touch_the_transcript() {
     state.apply(&ServerMessage::Event {
         event: Event::AgentStart,
     });
-    let before = state.blocks.get();
+    let before = state.rows.get();
 
     for event in [
         Event::QueueUpdate {
@@ -363,13 +386,30 @@ fn stream_control_events_do_not_touch_the_transcript() {
             attempt: 2,
             final_error: None,
         },
+        Event::SummarizationRetryScheduled {
+            attempt: 1,
+            max_attempts: 2,
+            delay_ms: 500,
+            error_message: "e".into(),
+        },
+        Event::SummarizationRetryAttemptStart {
+            attempt: 1,
+            max_attempts: 2,
+            delay_ms: 500,
+            error_message: "e".into(),
+        },
+        Event::SummarizationRetryFinished {
+            success: true,
+            attempt: 1,
+            final_error: None,
+        },
         Event::ThinkingLevelChanged {
             level: "high".into(),
         },
     ] {
         assert!(!state.apply(&ServerMessage::Event { event }));
     }
-    assert_eq!(state.blocks.get(), before);
+    assert_eq!(state.rows.get(), before);
     assert_eq!(state.status.get(), StreamStatus::Streaming);
 }
 
@@ -469,10 +509,9 @@ fn stream_replay_entries_are_folded_and_deduplicated() {
         entries: entries.clone(),
         done: false,
     }));
-    assert_eq!(state.history.get().len(), 2);
-    assert_eq!(state.history.get()[0].text, "hello");
-    assert_eq!(state.history.get()[1].text, "hi there");
-    assert!(state.blocks.get().is_empty(), "history is separate from the live run");
+    assert_eq!(state.rows.get().len(), 2);
+    assert_eq!(texts(&state.rows.get())[0], (0, "hello".to_string()));
+    assert_eq!(texts(&state.rows.get())[1], (0, "hi there".to_string()));
 
     // The same replay again is a no-op: dedupe is by stable entry id.
     assert!(!state.apply(&ServerMessage::SessionReplay {
@@ -481,5 +520,103 @@ fn stream_replay_entries_are_folded_and_deduplicated() {
         entries,
         done: true,
     }));
-    assert_eq!(state.history.get().len(), 2, "no duplicate rows");
+    assert_eq!(state.rows.get().len(), 2, "no duplicate rows");
+}
+
+/// AC1: tool execution events become durable rows between text rows.
+#[test]
+fn stream_tool_events_become_rows_between_text() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+    let event = |event| ServerMessage::Event { event };
+
+    state.apply(&event(delta(0, "before")));
+    state.apply(&event(Event::ToolExecutionStart {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        args: json!({"command": "ls"}),
+    }));
+    state.apply(&event(Event::ToolExecutionUpdate {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        args: json!({"command": "ls"}),
+        partial_result: json!({"content": [{"type": "text", "text": "par"}]}),
+    }));
+    state.apply(&event(Event::ToolExecutionUpdate {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        args: json!({"command": "ls"}),
+        partial_result: json!({"content": [{"type": "text", "text": "partial"}]}),
+    }));
+    state.apply(&event(Event::ToolExecutionEnd {
+        tool_call_id: "call_1".into(),
+        tool_name: "bash".into(),
+        result: json!({"content": [{"type": "text", "text": "total 48"}]}),
+        is_error: false,
+    }));
+    state.apply(&event(Event::MessageStart { message: json!({}) }));
+    state.apply(&event(delta(0, "after")));
+
+    let rows = state.rows.get();
+    let kinds: Vec<&str> = rows
+        .iter()
+        .map(|r| match r.kind {
+            RowKind::Text(_) => "text",
+            RowKind::Tool(_) => "tool",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, vec!["text", "tool", "text"]);
+    // The streaming snapshots replaced, never appended.
+    let card = rows[1].kind.as_tool().unwrap();
+    assert_eq!(card.output, "total 48");
+    assert_eq!(card.status, cheasee_pi_ui::tool_card::ToolStatus::Done);
+}
+
+/// AC2: run/turn boundaries emit marker rows.
+#[test]
+fn stream_turns_emit_markers() {
+    let mut assembler = Assembler::default();
+    assembler.apply(&Event::AgentStart);
+    assembler.apply(&Event::TurnStart);
+    assembler.apply(&Event::AgentEnd {
+        messages: vec![],
+        will_retry: None,
+    });
+    let markers: Vec<Marker> = assembler
+        .rows()
+        .iter()
+        .filter_map(|r| match r.kind {
+            RowKind::Marker(m) => Some(m),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        markers,
+        vec![Marker::RunStart, Marker::TurnStart, Marker::RunEnd]
+    );
+}
+
+/// AC5: replay and live rows share one monotonic id-space and render in order.
+#[test]
+fn stream_rows_render_history_then_live_in_one_key_space() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+    state.apply(&ServerMessage::SessionReplay {
+        id: None,
+        session_id: "s".into(),
+        entries: vec![json!({"id": "u1", "message": {"role": "user", "content": "hi"}})],
+        done: false,
+    });
+    state.apply(&ServerMessage::Event {
+        event: delta(0, "live"),
+    });
+    let rows = state.rows.get();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows[1].id > rows[0].id,
+        "history and live share one key-space"
+    );
 }

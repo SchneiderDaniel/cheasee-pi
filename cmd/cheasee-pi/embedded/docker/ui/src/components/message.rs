@@ -1,16 +1,25 @@
-//! The transcript renderer: the assembled [`crate::stream::Assembler`] blocks as
-//! plain text nodes plus the streaming-status and usage readout.
+//! The transcript renderer: the assembled [`crate::stream::ChatState`] rows as
+//! plain text nodes, tool cards, markers and extension-error cards, plus the
+//! streaming-status and usage readout.
 //!
 //! Deliberately text-only. `set_inner_html`/markdown rendering would be this
 //! crate's first injection surface (no sanitisation dependency exists here) and
 //! no acceptance criterion requires it.
+//!
+//! The row list is rendered with a keyed `<For>` over `row.id`, so a new delta
+//! updates one row's DOM and untouched rows are never rebuilt (AC5). Streaming
+//! bodies carry `aria-live="off"` so a token stream is not one screen-reader
+//! announcement per delta; state transitions (a tool finishing, an extension
+//! error) carry their own roles.
 
 use leptos::prelude::*;
 
-use crate::stream::{BlockKind, ChatState};
+use crate::components::banners::Marker;
+use crate::components::tool_card::ToolCardRow;
+use crate::stream::{ChatState, RowKind};
 
-/// Renders the current run's blocks, the streaming indicator, and the
-/// cumulative usage readout.
+/// Renders the ordered transcript, the streaming indicator, and the cumulative
+/// usage readout.
 #[component]
 pub fn Transcript() -> impl IntoView {
     let state = expect_context::<ChatState>();
@@ -25,22 +34,35 @@ pub fn Transcript() -> impl IntoView {
                     None => "",
                 }}
             </p>
-            {move || {
-                state
-                    .history
-                    .get()
-                    .into_iter()
-                    .chain(state.blocks.get())
-                    .map(|block| {
-                        let class = match block.kind {
-                            BlockKind::Text => "block block-text",
-                            BlockKind::Thinking => "block block-thinking",
-                            BlockKind::ToolCall => "block block-tool",
-                        };
-                        view! { <pre class=class>{block.text}</pre> }
-                    })
-                    .collect_view()
-            }}
+            <div class="rows">
+                <For
+                    each=move || state.rows.get()
+                    key=|row| row.id
+                    children=move |row| match row.kind {
+                        RowKind::Text(body) => {
+                            view! { <pre class="block block-text" aria-live="off">{body.text}</pre> }
+                                .into_any()
+                        }
+                        RowKind::Thinking(body) => {
+                            view! { <pre class="block block-thinking" aria-live="off">{body.text}</pre> }
+                                .into_any()
+                        }
+                        RowKind::Tool(card) => view! { <ToolCardRow card=card/> }.into_any(),
+                        RowKind::Marker(marker) => view! { <Marker marker=marker/> }.into_any(),
+                        RowKind::ExtensionError(card) => {
+                            view! {
+                                <div class="extension-error" role="alert">
+                                    {format!(
+                                        "extension error ({}): {}",
+                                        card.event, card.error,
+                                    )}
+                                </div>
+                            }
+                            .into_any()
+                        }
+                    }
+                />
+            </div>
             <p class="usage">
                 {move || {
                     let usage = state.usage.get();

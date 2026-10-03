@@ -422,6 +422,35 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         final_error: Option<String>,
     },
+    /// Summarization-retry lifecycle for the compaction/summarization path.
+    /// Pinned pi 0.79.10 never emits these; they are modelled additively so a
+    /// newer pi's retry pills render and the enum stays open (a closed enum
+    /// would hard-error the stream).
+    SummarizationRetryScheduled {
+        attempt: u32,
+        #[serde(default)]
+        max_attempts: u32,
+        #[serde(default)]
+        delay_ms: u64,
+        #[serde(default)]
+        error_message: String,
+    },
+    SummarizationRetryAttemptStart {
+        attempt: u32,
+        #[serde(default)]
+        max_attempts: u32,
+        #[serde(default)]
+        delay_ms: u64,
+        #[serde(default)]
+        error_message: String,
+    },
+    SummarizationRetryFinished {
+        success: bool,
+        #[serde(default)]
+        attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        final_error: Option<String>,
+    },
     /// The active thinking level changed without a command — the UI follows
     /// this instead of polling `get_state` after every `set_thinking_level`.
     ThinkingLevelChanged {
