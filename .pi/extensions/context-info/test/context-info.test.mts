@@ -228,6 +228,20 @@ function invoke(ctx: TestCtx, event: string, ...args: any[]) {
 // ---------------------------------------------------------------------------
 
 describe("contextInfo from index.ts", () => {
+	// The host session forwards CODEFLOW_PORT (and PI_UI_PORT) into the
+	// container env; scrub both so the derived-port assertions stay hermetic
+	// and independent of where the suite runs.
+	beforeEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+	});
+	afterEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+	});
+
 	it("contextInfo is the default export — a function", () => {
 		// contextInfo is imported at runtime from ../index.ts.
 		// Verifying it's a function confirms the module loaded successfully
@@ -1605,6 +1619,244 @@ describe("context-info extension — footer mirrors pi's live thinking level", (
 		assert.ok(row0.includes("○ off"), `live 'off' must render '○ off', got: ${row0}`);
 
 		// Cleanup: stop timer via session_shutdown
+		await handlers.get("session_shutdown")!();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Session service links — session_start resolves both URLs once, BEFORE
+// installing the footer, and reuses the CodeFlow value for the notify.
+// ---------------------------------------------------------------------------
+
+describe("context-info extension — footer service links", () => {
+	// The host session forwards CODEFLOW_PORT and PI_UI_PORT into the container
+	// env; scrub both so the settings-derived assertions stay hermetic. Note
+	// PI_UI_PORT is authoritative in ui.ts, so an inherited value would otherwise
+	// shadow the settings ports asserted here.
+	beforeEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+	});
+	afterEach(() => {
+		delete process.env.CODEFLOW_PORT;
+		delete process.env.PI_UI_PORT;
+		delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+	});
+
+	/** Temp workspace with explicit settings + optional sibling bare remote. */
+	function makeWorkspace(settings: string): { root: string } {
+		const parent = mkdtempSync(join(tmpdir(), "svc-links-"));
+		const root = join(parent, "ws");
+		mkdirSync(root, { recursive: true });
+		writeFileSync(join(root, "cheasee-settings.json"), settings);
+		const bare = join(parent, ".bare");
+		mkdirSync(bare, { recursive: true });
+		execSync(`git --git-dir "${bare}" init --bare`, { stdio: "ignore" });
+		execSync(`git --git-dir "${bare}" config remote.origin.url "git@github.com:alice/foo.git"`, {
+			stdio: "ignore",
+		});
+		return { root };
+	}
+
+	/** TUI harness capturing the last rendered rows + notify messages. */
+	function makeHarness(cwd: string) {
+		const handlers = new Map<string, (...args: any[]) => void>();
+		const renders: string[][] = [];
+		const notifies: string[] = [];
+		const pi = {
+			on: (event: string, handler: (...args: any[]) => void) => {
+				handlers.set(event, handler);
+			},
+			registerCommand: () => {},
+			getSessionName: () => undefined,
+			events: { on: () => {} },
+		};
+		const ctx = {
+			mode: "tui",
+			ui: {
+				setFooter: (fn: unknown) => {
+					if (typeof fn === "function") {
+						const component = (
+							fn as (
+								tui: unknown,
+								theme: { fg: (c: string, t: string) => string },
+								footerData: unknown,
+							) => { render: (w: number) => string[] }
+						)(
+							{ requestRender: () => {}, setClearOnShrink: () => {} },
+							{ fg: (_color: string, text: string) => text },
+							{
+								onBranchChange: () => () => {},
+								getGitBranch: () => "main",
+								getExtensionStatuses: () => new Map(),
+							},
+						);
+						renders.push(component.render(120));
+					}
+				},
+				setStatus: () => {},
+				setWidget: () => {},
+				setWorkingIndicator: () => {},
+				notify: (msg: string) => {
+					notifies.push(msg);
+				},
+				theme: { fg: (_c: string, t: string) => t },
+			},
+			isProjectTrusted: () => true,
+			getContextUsage: () => undefined,
+			sessionManager: { getSessionFile: () => "/tmp/test_uuid.jsonl" },
+			model: { id: "test-model", contextWindow: 128000 },
+			cwd,
+		};
+		return { pi, handlers, ctx, renders, notifies };
+	}
+
+	function lastRow(renders: string[][]): string {
+		return renders.at(-1)!.at(-1)!;
+	}
+
+	it("resolves both links before install; CodeFlow notify matches the footer link", async () => {
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders, notifies } = makeHarness(root);
+		contextInfo(pi as any);
+
+		const uiUrl = "http://127.0.0.1:9600";
+		const cfUrl = "http://localhost:9100/?repo=local/workspace&run=1";
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(row3.includes(`\x1b]8;;${uiUrl}\x1b\\UI`), `UI link must be present: ${row3}`);
+		assert.ok(
+			row3.includes(`\x1b]8;;${cfUrl}\x1b\\CodeFlow`),
+			`CodeFlow link must be present: ${row3}`,
+		);
+		assert.strictEqual(
+			notifies[1],
+			`CodeFlow:  \x1b]8;;${cfUrl}\x1b\\${cfUrl}\x1b]8;;\x1b\\`,
+			"notify must reuse the footer's CodeFlow URL (one resolution)",
+		);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("cross-layer: forwarded PI_UI_PORT beats stale settings docker.uiPort", async () => {
+		// Mirrors resolveUIHostPort: the CLI forwards the sidecar's actually
+		// published port (9713) even though the settings file still names 9600.
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(root);
+		contextInfo(pi as any);
+
+		process.env.PI_UI_PORT = "9713";
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			delete process.env.PI_UI_PORT;
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(
+			row3.includes("\x1b]8;;http://127.0.0.1:9713\x1b\\UI"),
+			`footer UI link must use the forwarded bound port: ${row3}`,
+		);
+		assert.ok(!row3.includes("127.0.0.1:9600"), `stale settings port must not appear: ${row3}`);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("CLI resolution failure (marker set, PI_UI_PORT omitted) suppresses the UI link, CodeFlow survives", async () => {
+		// Regression for the audit finding: on host port exhaustion the CLI omits
+		// PI_UI_PORT and sets CHEASEE_UI_PORT_UNRESOLVED=1, so the footer must NOT
+		// fall back to the settings/derived port (which names another workspace's
+		// occupied bind).
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(root);
+		contextInfo(pi as any);
+
+		process.env.CHEASEE_UI_PORT_UNRESOLVED = "1";
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(!row3.includes("127.0.0.1"), `UI link must be suppressed entirely: ${row3}`);
+		assert.ok(
+			row3.includes("\x1b]8;;http://localhost:9100/?repo=local/workspace&run=1\x1b\\CodeFlow"),
+			`CodeFlow link must survive a UI resolution failure: ${row3}`,
+		);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("hyperlinks:false → plain labels, no OSC 8 in row 3", async () => {
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(root);
+		contextInfo(pi as any);
+
+		try {
+			setCapabilities({ hyperlinks: false, images: null, trueColor: false });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(row3.includes("UI") && row3.includes("CodeFlow"), `labels must render: ${row3}`);
+		assert.ok(!row3.includes("\x1b]8;;"), `no OSC 8 when unsupported: ${row3}`);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("no workspace marker → only the For Info notify, no links in row 3", async () => {
+		const outside = mkdtempSync(join(tmpdir(), "svc-none-"));
+		const { pi, handlers, ctx, renders, notifies } = makeHarness(outside);
+		contextInfo(pi as any);
+
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
+		assert.deepStrictEqual(notifies, ["For Info:  /cheasee-pi-info"], "no CodeFlow notify");
+		const row3 = lastRow(renders);
+		assert.ok(!row3.includes("UI") && !row3.includes("CodeFlow"), `no links: ${row3}`);
+
+		await handlers.get("session_shutdown")!();
+	});
+
+	it("repeated session_start with a different workspace shows the new port", async () => {
+		const first = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const second = makeWorkspace(`{"docker":{"uiPort":"9601","codeflowPort":"9101"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(first.root);
+		contextInfo(pi as any);
+
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+			assert.ok(lastRow(renders).includes("http://127.0.0.1:9600"), "first workspace port");
+
+			ctx.cwd = second.root;
+			await handlers.get("session_start")!({}, ctx);
+			const row3 = lastRow(renders);
+			assert.ok(row3.includes("http://127.0.0.1:9601"), `second workspace port: ${row3}`);
+			assert.ok(!row3.includes("http://127.0.0.1:9600"), `stale port must be gone: ${row3}`);
+		} finally {
+			resetCapabilitiesCache();
+		}
+
 		await handlers.get("session_shutdown")!();
 	});
 });

@@ -191,6 +191,34 @@ To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
 the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
 over the env).
 
+The host port the running sidecar actually published is forwarded into the pi
+session as `PI_UI_PORT` (bound-first, alongside the CodeFlow sidecar's
+`CODEFLOW_PORT`), so the in-session footer link always agrees with the printed
+`ℹ UI:` hint even when a stale `docker.uiPort` differs from the live bind. When
+the host port cannot be resolved (range exhausted) the CLI omits `PI_UI_PORT`
+(never a bare `PI_UI_PORT=`) and sets the separate failure marker
+`CHEASEE_UI_PORT_UNRESOLVED=1`; the footer reads the marker and suppresses the
+`UI` link rather than deriving an occupied port that belongs to another
+workspace, while the start still succeeds. A session started outside the CLI
+(no forwarded variable and no marker) keeps the settings/derived fallback.
+
+The session footer row 3 shows a right-aligned `UI · CodeFlow` link group. Each
+label is an OSC 8 hyperlink to its URL when the terminal reports hyperlink
+support, and plain text otherwise (the same gate as the CodeFlow startup
+notify). The sequence goes straight to the session PTY, i.e. the **host
+terminal**, which is the click handler and opens the URL in the host browser
+with its usual click/modifier (iTerm2 cmd-click, WezTerm plain click, kitty
+Ctrl-Shift-click). The installed pi-tui (0.79.10) does not enable SGR mouse
+tracking and has no OSC 8 click routing, so pi does not intercept the click and
+cannot shadow that host opener. The URLs are host-loopback addresses
+(`127.0.0.1` / `localhost`); they are display strings only — never pinged or
+opened inside the container, where host loopback is a different network
+namespace. A port that is not a decimal in 1–65535 is rejected before it
+reaches the sequence, so a hand-edited settings or env payload cannot inject
+terminal control characters. On a terminal too narrow to fit both the left
+session/trust content and the group, the group is kept and the left content is
+truncated first.
+
 ## Run pi
 
 ### Using the CLI (auto)

@@ -71,10 +71,13 @@ func TestUI_FileLayout(t *testing.T) {
 		{"src", "retry.rs"},
 		{"src", "stream.rs"},
 		{"src", "bash.rs"},
+		{"src", "tool_card.rs"},
 		{"src", "controls.rs"},
 		{"src", "components", "mod.rs"},
 		{"src", "components", "message.rs"},
 		{"src", "components", "controls.rs"},
+		{"src", "components", "banners.rs"},
+		{"src", "components", "tool_card.rs"},
 		{"src", "components", "bash.rs"},
 		{"src", "components", "queue.rs"},
 		{"src", "components", "session_list.rs"},
@@ -87,6 +90,7 @@ func TestUI_FileLayout(t *testing.T) {
 		{"src", "sessions_store.rs"},
 		{"tests", "rpc_protocol.rs"},
 		{"tests", "stream_assembly.rs"},
+		{"tests", "event_widgets.rs"},
 		{"tests", "session_controls.rs"},
 		{"tests", "fixtures", "PI_VERSION"},
 		{"tests", "fixtures", "commands.jsonl"},
@@ -232,6 +236,54 @@ func TestUI_DockerfileBuildWiring(t *testing.T) {
 	}
 	if strings.Contains(df, "wget") {
 		t.Error("ui/Dockerfile must not mention wget (curl is the probe binary)")
+	}
+}
+
+// TestUI_EventWidgets guards the slice that renders the remaining event
+// families. The Rust suite asserts the reducers; this static guard covers the
+// wiring the host suite cannot (keyed rendering, single retry/compaction
+// surface, copyable text, streaming-announcement policy).
+func TestUI_EventWidgets(t *testing.T) {
+	message := uiAsset(t, "src", "components", "message.rs")
+	if !strings.Contains(message, "<For") || !strings.Contains(message, "rows") {
+		t.Error("components/message.rs must render the transcript with a keyed <For> over rows (AC5)")
+	}
+	if strings.Contains(message, "collect_view") {
+		t.Error("components/message.rs must not rebuild the whole transcript per flush (no collect_view)")
+	}
+	// Each row must read its payload signal, not a captured snapshot, or a
+	// same-id delta leaves the row frozen at its first value (AC1/AC5).
+	if !strings.Contains(message, "kind.get()") {
+		t.Error("components/message.rs must read each row's payload signal so same-id updates reach the view")
+	}
+
+	// One retry/compaction surface only: the inline spans moved to banners.rs.
+	controls := uiAsset(t, "src", "components", "controls.rs")
+	for _, gone := range []string{"retry-banner", "compacting"} {
+		if strings.Contains(controls, gone) {
+			t.Errorf("components/controls.rs must not render %q — it lives in banners.rs", gone)
+		}
+	}
+
+	banners := uiAsset(t, "src", "components", "banners.rs")
+	for _, want := range []string{"compaction-banner", "retry-pill", "row-marker", "aria-live"} {
+		if !strings.Contains(banners, want) {
+			t.Errorf("components/banners.rs must contain %q", want)
+		}
+	}
+
+	// Tool output stays plain text: no user-select rule may disable selection.
+	css := uiAsset(t, "style", "main.css")
+	if strings.Contains(css, "user-select") {
+		t.Error("style/main.css must not set user-select — tool output must stay copyable (AC5)")
+	}
+	if strings.Contains(css, "content-visibility: auto") && !strings.Contains(css, "contain-intrinsic-size") {
+		t.Error("content-visibility: auto needs contain-intrinsic-size or the scrollbar jumps")
+	}
+
+	tool := uiAsset(t, "src", "components", "tool_card.rs")
+	if !strings.Contains(tool, `aria-live="off"`) && !strings.Contains(tool, "aria-busy") {
+		t.Error("components/tool_card.rs streaming body must be aria-live=\"off\" or aria-busy")
 	}
 }
 

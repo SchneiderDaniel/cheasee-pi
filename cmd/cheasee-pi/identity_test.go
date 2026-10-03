@@ -330,6 +330,8 @@ func TestCheaseeImageRef_overLongSlugFollowsProjectNotContainerCap(t *testing.T)
 // ──────────────────────────────────────────────
 
 func TestCodeflowHostPort_derivedDeterministicInRange(t *testing.T) {
+	// Hermetic: an inherited CODEFLOW_PORT would short-circuit derivation.
+	t.Setenv("CODEFLOW_PORT", "")
 	root := filepath.Join(t.TempDir(), "ws")
 	p1, err := codeflowHostPort(root)
 	if err != nil {
@@ -349,6 +351,8 @@ func TestCodeflowHostPort_derivedDeterministicInRange(t *testing.T) {
 }
 
 func TestCodeflowHostPort_twoRootsDistinctPorts(t *testing.T) {
+	// Hermetic: an inherited CODEFLOW_PORT would collapse both roots onto it.
+	t.Setenv("CODEFLOW_PORT", "")
 	// Fixed slugs whose fnv32-derived ports differ (verified: 484 vs 50).
 	rootA := filepath.Join(t.TempDir(), "repo-alpha")
 	rootB := filepath.Join(t.TempDir(), "repo-beta")
@@ -390,6 +394,8 @@ func TestCodeflowHostPort_settingsWinsOverEnv(t *testing.T) {
 }
 
 func TestCodeflowHostPort_occupiedFallsBackToNextFree(t *testing.T) {
+	// Hermetic: an inherited CODEFLOW_PORT would skip the probe entirely.
+	t.Setenv("CODEFLOW_PORT", "")
 	root := filepath.Join(t.TempDir(), "ws")
 	start := codeflowPortBase + int(fnv32(repoSlug(root))%codeflowPortRange)
 	if start == codeflowPortBase+codeflowPortRange-1 {
@@ -438,6 +444,8 @@ func TestExplicitCodeflowPort_settingsBeatsEnv(t *testing.T) {
 }
 
 func TestCodeflowHostPort_rangeExhaustedFailsClosed(t *testing.T) {
+	// Hermetic: an inherited CODEFLOW_PORT would return before probing.
+	t.Setenv("CODEFLOW_PORT", "")
 	saved := portProbe
 	portProbe = func(p int) error { return fmt.Errorf("in use") }
 	t.Cleanup(func() { portProbe = saved })

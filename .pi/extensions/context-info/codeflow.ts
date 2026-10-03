@@ -7,10 +7,16 @@
  * base+fnv32(slug)%range, probed next-free on the HOST loopback. This module
  * re-derives the same value inside the container WITHOUT probing — the
  * container's loopback is a different namespace than the host's, so a probe
- * there would yield garbage. `cheasee-pi start` now forwards the CLI-resolved
- * port via the CODEFLOW_PORT exec env, so the in-session hint matches the
- * actually-bound port even in the rare probe-shift cases; this resolver is
- * the fallback when that env is absent (e.g. a session started outside the
+ * there would yield garbage.
+ *
+ * In-container precedence puts env CODEFLOW_PORT FIRST (a deliberate
+ * inversion of the CLI's host-side settings-first order): `cheasee-pi start`
+ * overwrites the exec env with the BOUND port (`docker port` — the port the
+ * running sidecar actually published, which can differ from a stale
+ * docker.codeflowPort on a re-up). The forwarded value is therefore
+ * authoritative, or the footer link / notify would disagree with the printed
+ * `ℹ CodeFlow:` hint in exactly that stale-sidecar case. Settings/derived
+ * remain the fallback when the env is absent (a session started outside the
  * CLI, or resolution failure on the CLI side).
  *
  * Pure derivation + thin fs/git I/O — never emits ANSI; OSC 8 hyperlink
@@ -87,6 +93,21 @@ export function parseGitRemote(raw: string): GitRemote | null {
 		return { owner: "", repo: parts[0] };
 	}
 	return null;
+}
+
+/**
+ * Validates a port string before it is interpolated into a URL that the
+ * footer/notify emits verbatim (hyperlink() does not escape its target, and
+ * the OSC 8 payload is a terminal control sequence). Decimal only, 1-65535:
+ * rejects empty, non-numeric, out-of-range, and — critically — any payload
+ * carrying control characters from a hand-edited settings file or a
+ * mis-forwarded env var. Returns the value unchanged when valid, else null.
+ */
+export function validPort(value: string | null | undefined): string | null {
+	if (value === null || value === undefined || value === "") return null;
+	if (!/^[0-9]{1,5}$/.test(value)) return null;
+	const n = Number(value);
+	return n >= 1 && n <= 65535 ? value : null;
 }
 
 /**
@@ -167,18 +188,28 @@ async function bareRepoURL(root: string): Promise<string> {
 // ── Resolution precedence ───────────────────────
 
 /**
- * Resolves the CodeFlow host port for the session: settings
- * docker.codeflowPort > env CODEFLOW_PORT (the value the CLI forwards) >
- * derived base+fnv32(slug)%range. Null when no workspace marker is reachable
- * from cwd (nothing to anchor on — CLI sessions are always marker-gated, so
- * this only fires for sessions started outside any workspace).
+ * Resolves the CodeFlow host port for the session: env CODEFLOW_PORT (the
+ * bound-first value the CLI forwards — authoritative) > settings
+ * docker.codeflowPort > derived base+fnv32(slug)%range. Null when no workspace
+ * marker is reachable from cwd (nothing to anchor on — CLI sessions are always
+ * marker-gated, so this only fires for sessions started outside any
+ * workspace).
  */
 export async function codeflowHostPort(cwd: string): Promise<string | null> {
 	const root = resolveWorkspaceRoot(cwd);
 	if (root === null) return null;
+	// Env first: `cheasee-pi start` overwrites CODEFLOW_PORT with the port the
+	// running sidecar actually published (codeflowBoundPort), which is
+	// authoritative over docker.codeflowPort — on a re-up the live bind can
+	// differ from a stale settings value, and the printed `ℹ CodeFlow:` hint
+	// uses the forwarded value. Settings/derived are the fallback when absent.
+	// The forwarded value is validated (never interpolated raw into the OSC 8
+	// target); an invalid forward suppresses the link rather than deriving a
+	// port that would not match the printed hint.
+	const forwarded = process.env.CODEFLOW_PORT;
+	if (forwarded) return validPort(forwarded);
 	const settings = readSettingsCodeflowPort(root);
 	if (settings !== null) return settings;
-	if (process.env.CODEFLOW_PORT) return process.env.CODEFLOW_PORT;
 	return String(codeflowPortFromSlug(await repoSlug(root)));
 }
 
@@ -191,7 +222,9 @@ function readSettingsCodeflowPort(root: string): string | null {
 			docker?: { codeflowPort?: unknown };
 		};
 		const port = parsed?.docker?.codeflowPort;
-		return typeof port === "string" && port !== "" ? port : null;
+		// Invalid settings fall through to derivation (mirrors the CLI's
+		// error-ignored settings read); validPort blocks control-char payloads.
+		return validPort(typeof port === "string" ? port : null);
 	} catch {
 		return null;
 	}

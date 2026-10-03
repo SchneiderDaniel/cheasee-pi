@@ -1,6 +1,6 @@
 //! Control-plane reactive state: the queue, model/thinking selection, session
-//! stats, the auto-compaction/auto-retry toggles, the retry banner, and the
-//! composer draft.
+//! stats, the auto-compaction/auto-retry toggles, the compaction banner, the
+//! retry pill, and the composer draft.
 //!
 //! [`crate::stream::ChatState`] stays transcript-only; everything a mid-run
 //! control needs to render lives here. The one rule that shapes this module:
@@ -15,15 +15,86 @@ use serde_json::Value;
 
 use crate::bash::BashLogs;
 use crate::bridge::ServerMessage;
-use crate::protocol::{ClearQueueData, Event, ModelInfo, QueueContents, SessionStats, ThinkingLevels};
+use crate::protocol::{
+    ClearQueueData, Event, ModelInfo, QueueContents, SessionStats, ThinkingLevels,
+};
 
-/// A running auto-retry, raised by `auto_retry_start`.
+/// Which retry loop a pill belongs to. Auto is pi's provider auto-retry;
+/// Summarization is the compaction/summarization retry path. Only one pill is
+/// shown at a time — a new start replaces whatever was active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetrySource {
+    Auto,
+    Summarization,
+}
+
+/// A running retry, raised by `auto_retry_start` or the additive
+/// `summarization_retry_*` events.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RetryBanner {
+pub struct RetryPill {
+    pub source: RetrySource,
     pub attempt: u32,
     pub max_attempts: u32,
     pub delay_ms: u64,
     pub error_message: String,
+}
+
+/// Why compaction started. The wire `reason` is authoritative; anything the
+/// build does not model stays [`CompactionReason::Unknown`] rather than
+/// inventing a label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompactionReason {
+    Manual,
+    Threshold,
+    Overflow,
+    #[default]
+    Unknown,
+}
+
+impl CompactionReason {
+    pub fn from_wire(raw: &str) -> Self {
+        match raw {
+            "manual" => CompactionReason::Manual,
+            "threshold" => CompactionReason::Threshold,
+            "overflow" => CompactionReason::Overflow,
+            _ => CompactionReason::Unknown,
+        }
+    }
+
+    /// The banner label, mirroring pi's own TUI wording per reason.
+    pub fn label(self) -> &'static str {
+        match self {
+            CompactionReason::Manual => "Compacting context…",
+            CompactionReason::Threshold => "Auto-compacting…",
+            CompactionReason::Overflow => "Context overflow detected, Auto-compacting…",
+            CompactionReason::Unknown => "Compacting…",
+        }
+    }
+}
+
+/// Whether compaction is still running or finished, and how it ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompactionPhase {
+    Running,
+    Finished {
+        aborted: bool,
+        will_retry: bool,
+        error_message: Option<String>,
+    },
+}
+
+/// A compaction banner. `reason` labels it; `phase` says whether it is still
+/// running (`compaction_start` / `get_state` restored) or finished.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionState {
+    pub reason: CompactionReason,
+    pub phase: CompactionPhase,
+}
+
+impl CompactionState {
+    pub fn label(&self) -> &'static str {
+        self.reason.label()
+    }
 }
 
 /// The control-plane signals the panels read and [`ControlsState::apply`] writes.
@@ -40,8 +111,10 @@ pub struct ControlsState {
     /// auto-retry, so its toggle starts indeterminate.
     pub auto_compaction: RwSignal<Option<bool>>,
     pub auto_retry: RwSignal<Option<bool>>,
-    pub retry: RwSignal<Option<RetryBanner>>,
-    pub is_compacting: RwSignal<bool>,
+    /// The single active retry pill (auto or summarization), if any.
+    pub retry: RwSignal<Option<RetryPill>>,
+    /// The compaction banner, if compaction is running or last finished.
+    pub compaction: RwSignal<Option<CompactionState>>,
     /// The composer draft. Owned here (not by the input) so `clear_queue` can
     /// restore the text it removed.
     pub draft: RwSignal<String>,
@@ -72,7 +145,7 @@ impl ControlsState {
             auto_compaction: RwSignal::new(None),
             auto_retry: RwSignal::new(None),
             retry: RwSignal::new(None),
-            is_compacting: RwSignal::new(false),
+            compaction: RwSignal::new(None),
             draft: RwSignal::new(String::new()),
             notice: RwSignal::new(None),
             bash: RwSignal::new(BashLogs::default()),
@@ -102,7 +175,13 @@ impl ControlsState {
                 error,
                 data,
                 ..
-            } => self.apply_response(id.as_deref(), command, *success, error.as_deref(), data.as_ref()),
+            } => self.apply_response(
+                id.as_deref(),
+                command,
+                *success,
+                error.as_deref(),
+                data.as_ref(),
+            ),
             ServerMessage::Error { message } => {
                 self.notice.set(Some(message.clone()));
                 true
@@ -151,7 +230,8 @@ impl ControlsState {
                 delay_ms,
                 error_message,
             } => {
-                self.retry.set(Some(RetryBanner {
+                self.retry.set(Some(RetryPill {
+                    source: RetrySource::Auto,
                     attempt: *attempt,
                     max_attempts: *max_attempts,
                     delay_ms: *delay_ms,
@@ -163,22 +243,55 @@ impl ControlsState {
                 success,
                 final_error,
                 ..
-            } => {
-                let had = self.retry.get_untracked().is_some();
-                self.retry.set(None);
-                if !success {
-                    if let Some(err) = final_error {
-                        self.notice.set(Some(format!("auto-retry failed: {err}")));
-                    }
-                }
-                had || !success
+            } => self.clear_retry(RetrySource::Auto, !success, final_error.as_deref()),
+            Event::SummarizationRetryScheduled {
+                attempt,
+                max_attempts,
+                delay_ms,
+                error_message,
             }
-            Event::CompactionStart { .. } => {
-                self.is_compacting.set(true);
+            | Event::SummarizationRetryAttemptStart {
+                attempt,
+                max_attempts,
+                delay_ms,
+                error_message,
+            } => {
+                self.retry.set(Some(RetryPill {
+                    source: RetrySource::Summarization,
+                    attempt: *attempt,
+                    max_attempts: *max_attempts,
+                    delay_ms: *delay_ms,
+                    error_message: error_message.clone(),
+                }));
                 true
             }
-            Event::CompactionEnd { .. } => {
-                self.is_compacting.set(false);
+            Event::SummarizationRetryFinished {
+                success,
+                final_error,
+                ..
+            } => self.clear_retry(RetrySource::Summarization, !success, final_error.as_deref()),
+            Event::CompactionStart { reason } => {
+                self.compaction.set(Some(CompactionState {
+                    reason: CompactionReason::from_wire(reason),
+                    phase: CompactionPhase::Running,
+                }));
+                true
+            }
+            Event::CompactionEnd {
+                reason,
+                aborted,
+                will_retry,
+                error_message,
+                ..
+            } => {
+                self.compaction.set(Some(CompactionState {
+                    reason: CompactionReason::from_wire(reason),
+                    phase: CompactionPhase::Finished {
+                        aborted: *aborted,
+                        will_retry: *will_retry,
+                        error_message: error_message.clone(),
+                    },
+                }));
                 true
             }
             // AC4: route by the id pi repeats, so concurrent commands cannot
@@ -192,6 +305,24 @@ impl ControlsState {
             }
             _ => false,
         }
+    }
+
+    /// Clear the active retry pill. Only the matching source ends the pill, so
+    /// an ending event from the other retry loop cannot hide a still-running
+    /// retry. A final failure is surfaced as a notice — with a generic message
+    /// when the event carries no error — rather than silently dropping it.
+    fn clear_retry(&self, source: RetrySource, failed: bool, error: Option<&str>) -> bool {
+        let mut changed = false;
+        if self.retry.get_untracked().map(|pill| pill.source) == Some(source) {
+            self.retry.set(None);
+            changed = true;
+        }
+        if failed {
+            let err = error.unwrap_or("unknown error");
+            self.notice.set(Some(format!("retry failed: {err}")));
+            changed = true;
+        }
+        changed
     }
 
     fn apply_response(
@@ -280,8 +411,19 @@ impl ControlsState {
                     changed = true;
                 }
                 if let Some(compacting) = data.and_then(|d| d["isCompacting"].as_bool()) {
-                    self.is_compacting.set(compacting);
-                    changed = true;
+                    // A restored compaction has no reason on the wire: use the
+                    // generic label, never invent one. `compaction_end.reason`
+                    // is authoritative once the event fires.
+                    if compacting && self.compaction.get_untracked().is_none() {
+                        self.compaction.set(Some(CompactionState {
+                            reason: CompactionReason::Unknown,
+                            phase: CompactionPhase::Running,
+                        }));
+                        changed = true;
+                    } else if !compacting && self.compaction.get_untracked().is_some() {
+                        self.compaction.set(None);
+                        changed = true;
+                    }
                 }
                 changed
             }
@@ -405,7 +547,10 @@ mod tests {
             "get_session_stats",
             json!({"contextUsage": {"tokens": 0, "contextWindow": 200000, "percent": 0}}),
         ));
-        assert_eq!(c.stats.get().unwrap().context_usage.unwrap().percent, Some(0.0));
+        assert_eq!(
+            c.stats.get().unwrap().context_usage.unwrap().percent,
+            Some(0.0)
+        );
 
         c.apply(&ok(
             "get_session_stats",

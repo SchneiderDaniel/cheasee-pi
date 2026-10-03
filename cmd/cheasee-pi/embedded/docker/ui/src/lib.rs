@@ -13,6 +13,7 @@ pub mod extension_ui;
 pub mod protocol;
 pub mod retry;
 pub mod stream;
+pub mod tool_card;
 
 // Server-only (ssr): auth.json resolution and the spawned `pi` RPC child.
 // Gated on `ssr` because both use `tokio::process`/`std`, which the wasm32

@@ -141,19 +141,28 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		printCodeFlowHint(port)
 	}
 
-	// UI URL: the port the sidecar actually published (`docker port`),
-	// authoritative when the container already runs — uiHostPort's probe sees
-	// that live bind as occupancy and shifts to the next free port, printing a
-	// URL that points at nothing. Falls back to derive+probe on any docker
-	// error (first up, stopped sidecar). No exec-env forwarding: unlike
-	// CodeFlow's in-container context-info echo, no in-container consumer of
-	// the UI port exists in this slice.
-	if port, err := uiBoundPort(ctx, root); err == nil {
+	// UI URL: bound-first single resolution (resolveUIHostPort) so the printed
+	// hint, the compose env, and the in-session footer link all carry the same
+	// port. `docker port` is authoritative when the container already runs —
+	// uiHostPort's probe sees that live bind as occupancy and shifts to the
+	// next free port, printing a URL that points at nothing. Falls back to
+	// derive+probe on any docker error (first up, stopped sidecar). The
+	// resolved host port is forwarded as PI_UI_PORT (host namespace, NOT the
+	// sidecar's container port 3000) for the in-container context-info footer
+	// link.
+	//
+	// On resolution failure PI_UI_PORT is OMITTED — never forwarded empty, which
+	// would put a bare `PI_UI_PORT=` in the docker exec env and claim a port that
+	// is not there (R1 AC3). The failure travels on its own marker key instead:
+	// the extension reads CHEASEE_UI_PORT_UNRESOLVED=1 to suppress its UI link,
+	// while an absent PI_UI_PORT WITHOUT the marker (no CLI ran) still derives.
+	// Start succeeds either way (best-effort, like the CodeFlow forwarding).
+	if port, err := resolveUIHostPort(ctx, root); err == nil {
+		envMap["PI_UI_PORT"] = port
 		printUIHint(port)
-	} else if port, err := uiHostPort(root); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	} else {
-		printUIHint(port)
+		envMap["CHEASEE_UI_PORT_UNRESOLVED"] = "1"
+		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	}
 
 	// One-line cheatsheet so a fresh session has the in-pi help and the

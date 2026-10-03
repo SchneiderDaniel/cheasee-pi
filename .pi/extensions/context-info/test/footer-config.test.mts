@@ -63,6 +63,8 @@ describe("FooterConfig", () => {
 		assert.strictEqual(config.issueNumber.value, undefined);
 		assert.strictEqual(config.issueRepo.value, undefined);
 		assert.strictEqual(config.issueTitle.value, undefined);
+		assert.strictEqual(config.uiUrl, null);
+		assert.strictEqual(config.codeflowUrl, null);
 	});
 
 	it("value wrappers allow mutation through shared reference", () => {
@@ -119,6 +121,8 @@ describe("FooterConfig", () => {
 			sessionName: "my-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			uiUrl: "http://127.0.0.1:9600",
+			codeflowUrl: "http://localhost:9100/?repo=local/workspace&run=1",
 			issueNumber: { value: 862 },
 			issueRepo: { value: "owner/repo" },
 			issueTitle: { value: "Refactor footer" },
@@ -400,6 +404,8 @@ describe("installFooter with FooterConfig", () => {
 			sessionName: "test-session",
 			trustStatus: "trusted",
 			sessionId: "",
+			uiUrl: null,
+			codeflowUrl: null,
 			issueNumber: { value: undefined },
 			issueRepo: { value: undefined },
 			issueTitle: { value: undefined },
