@@ -70,7 +70,7 @@ function createSessionStartCtx(sessionFile: string, cwd: string): any {
 		sessionManager: {
 			getSessionFile: () => sessionFile,
 			getCwd: () => cwd,
-			getEntries: () => [],
+			getBranch: () => [],
 		},
 	};
 }
@@ -305,6 +305,7 @@ describe("session-logger persisted state — module load & restart", () => {
 		defaultExport(first.pi);
 		const cmd = first.commands.find((c) => c.name === "session-logger")!;
 		await cmd.opts.handler("off", {
+			hasUI: true,
 			ui: { notify: (msg: string, type: string) => notifyCalls.push({ msg, type }) },
 		});
 
@@ -357,6 +358,7 @@ describe("session-logger persisted state — module load & restart", () => {
 		defaultExport(first.pi);
 		const cmd = first.commands.find((c) => c.name === "session-logger")!;
 		await cmd.opts.handler("on", {
+			hasUI: true,
 			ui: { notify: (msg: string, type: string) => notifyCalls.push({ msg, type }) },
 		});
 

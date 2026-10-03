@@ -3,8 +3,6 @@ import { createPerTurnState, flushTurn } from "./per-turn.ts";
 import type { TurnStats, PerTurnState } from "./per-turn.ts";
 import { handleModelChanges } from "./session-utils.ts";
 
-export type { TurnStats } from "./per-turn.ts";
-
 export interface ToolExecution {
 	toolCallId: string;
 	toolName: string;
@@ -33,9 +31,19 @@ export interface StatsSnapshot {
 	}>;
 }
 
+/**
+ * Port for seeding branch-sensitive statistics.
+ *
+ * `getBranch()` returns the active branch only (root→leaf), excluding entries
+ * that belong to other branches of a forked/resumed session.
+ */
+interface BranchEntrySource {
+	getBranch(): readonly any[];
+}
+
 export interface SessionStats {
 	addUsage(usage: Usage): void;
-	seedStats(sm: { getEntries(): any[] }): void;
+	seedStats(sm: BranchEntrySource): void;
 	reset(): void;
 	getSnapshot(): StatsSnapshot;
 	incrementCompaction(): void;
@@ -114,8 +122,8 @@ export function createSessionStats(): SessionStats {
 			turnState.currentTurnCost += cost;
 		},
 
-		seedStats(sm: { getEntries(): any[] }) {
-			const entries = sm.getEntries();
+		seedStats(sm: BranchEntrySource) {
+			const entries = sm.getBranch();
 			handleModelChanges(entries, modelChanges, thinkingChanges);
 
 			for (const entry of entries) {

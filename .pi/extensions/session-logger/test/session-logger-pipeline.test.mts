@@ -45,7 +45,7 @@ function createSessionManager(tmpDir: string, overrides?: {
 	return {
 		getSessionFile: () => sessionFile,
 		getCwd: () => overrides?.cwd ?? tmpDir,
-		getEntries: () => overrides?.entries ?? [],
+		getBranch: () => overrides?.entries ?? [],
 	};
 }
 
@@ -318,7 +318,7 @@ describe("LoggerPipeline onSessionStart — FS assertions", () => {
 			sessionManager: {
 				getSessionFile: () => undefined,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 
@@ -357,7 +357,7 @@ describe("LoggerPipeline onSessionStart — FS assertions", () => {
 			sessionManager: {
 				getSessionFile: () => sessionFile,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 
@@ -391,7 +391,7 @@ describe("LoggerPipeline onSessionStart — FS assertions", () => {
 			sessionManager: {
 				getSessionFile: () => sessionFile,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 
@@ -551,7 +551,7 @@ describe("LoggerPipeline — full lifecycle", () => {
 			sessionManager: {
 				getSessionFile: () => sessionFile,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 
@@ -615,7 +615,7 @@ describe("LoggerPipeline — full lifecycle", () => {
 			sessionManager: {
 				getSessionFile: () => sessionFile,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 
@@ -650,7 +650,7 @@ describe("LoggerPipeline — full lifecycle", () => {
 			sessionManager: {
 				getSessionFile: () => sessionFile,
 				getCwd: () => tmpDir,
-				getEntries: () => [],
+				getBranch: () => [],
 			},
 		};
 

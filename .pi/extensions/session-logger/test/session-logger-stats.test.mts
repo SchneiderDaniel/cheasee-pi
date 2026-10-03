@@ -162,7 +162,7 @@ describe("createSessionStats", () => {
 	it("seedStats from session entries populates stats", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{
 						type: "message",
@@ -197,7 +197,7 @@ describe("createSessionStats", () => {
 	it("seedStats counts compactions", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{
 						type: "compaction",
@@ -224,7 +224,7 @@ describe("createSessionStats", () => {
 	it("seedStats collects model changes", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{
 						type: "model_change",
@@ -251,7 +251,7 @@ describe("createSessionStats", () => {
 	it("seedStats collects thinking level changes", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{
 						type: "thinking_level_change",
@@ -284,7 +284,7 @@ describe("createSessionStats", () => {
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.001 },
 		});
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{
 						type: "compaction",
@@ -320,7 +320,7 @@ describe("createSessionStats", () => {
 	it("modelChanges and thinkingChanges in snapshot are immutable copies", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getEntries() {
+			getBranch() {
 				return [
 					{ type: "model_change", timestamp: "t1", provider: "openai", modelId: "gpt-4" },
 					{ type: "thinking_level_change", timestamp: "t2", thinkingLevel: "high" },
