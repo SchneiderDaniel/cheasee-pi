@@ -12,9 +12,14 @@ import type { PreAuditOptions, PreAuditResult, LspDiagnostic, AuditResult } from
 import { formatDiagnostics } from "./formatting.ts";
 import { buildServerMappings } from "./server-mappings.ts";
 import { extractModifiedFiles, groupFilesByServer } from "./file-discovery.ts";
-import { countRetryAttempts, shouldRetry, MAX_RETRIES, RETRY_ENTRY_TYPE } from "./retry.ts";
+import { shouldRetry, MAX_RETRIES, RETRY_ENTRY_TYPE } from "./retry.ts";
+import { countBranchRetryAttempts } from "./branch-retries.ts";
 import { auditFileGroup } from "./lsp-client.ts";
 import { readSettings } from "./settings.ts";
+
+// Re-exported for backwards compatibility — the adapter now lives in
+// branch-retries.ts, which also owns the active-branch retry counter.
+export { mapSessionEntriesToRetryEntries } from "./branch-retries.ts";
 
 // ─── Project Trust Helper ────────────────────────────────────────────
 
@@ -62,26 +67,6 @@ export function checkProjectTrust(
 }
 
 /**
- * Map session-storage entries to retry-logic shape.
- *
- * Session entries from `appendEntry()` have shape:
- *   { type: "custom", customType: "<type>", data: <payload> }
- * Retry logic expects:  { type: "<type>", payload: <payload> }
- *
- * Non-custom entries pass through with full entry as payload.
- */
-export function mapSessionEntriesToRetryEntries(
-	entries: Array<Record<string, unknown>>,
-): Array<{ type: string; payload: unknown }> {
-	return entries.map((e) => {
-		if (e.type === "custom") {
-			return { type: (e.customType as string) ?? "", payload: e.data };
-		}
-		return { type: e.type as string, payload: e };
-	});
-}
-
-/**
  * Run pre-audit LSP diagnostics on modified files.
  *
  * Called by supervisor before transitioning Implementation → Audit.
@@ -95,13 +80,11 @@ export async function runPreAudit(
 ): Promise<PreAuditResult> {
 	const { issueNum, worktreePath, defaultBranch } = options;
 
-	// Retry budget is scoped to the active branch only. The file-level entry
-	// list includes entries from abandoned branches too, which would let phantom
-	// retries exhaust the budget before the active branch has used it.
-	const branchEntries = (ctx.sessionManager.getBranch() ?? []) as unknown as Array<
-		Record<string, unknown>
-	>;
-	const retryCount = countRetryAttempts(mapSessionEntriesToRetryEntries(branchEntries), issueNum);
+	// Retry budget is scoped to the active branch only (see branch-retries.ts).
+	// The file-level entry list includes entries from abandoned branches too,
+	// which would let phantom retries exhaust the budget before the active
+	// branch has used it.
+	const retryCount = countBranchRetryAttempts(ctx.sessionManager, issueNum);
 
 	// 0. Check project trust before any LSP server interaction
 	const trustCheck = checkProjectTrust(ctx);

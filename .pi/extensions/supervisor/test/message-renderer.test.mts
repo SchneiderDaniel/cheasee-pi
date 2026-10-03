@@ -10,7 +10,18 @@ import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { Box, Container, Text, Markdown, type Component } from "@earendil-works/pi-tui";
 import { initTheme, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { createMessageRenderer, createSummaryRenderer } from "../session/message-renderer.ts";
+import {
+	createMessageRenderer as createMessageRendererTyped,
+	createSummaryRenderer as createSummaryRendererTyped,
+} from "../session/message-renderer.ts";
+
+// Tests feed partial message fixtures; the production renderer contract is
+// enforced by renderer-contract.type-test.mts. Keep test call sites loose.
+type LooseRenderer = (message: any, options?: any, theme?: any) => any;
+const createMessageRenderer = (...args: Parameters<typeof createMessageRendererTyped>) =>
+	createMessageRendererTyped(...args) as LooseRenderer;
+const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
+	createSummaryRendererTyped(...args) as LooseRenderer;
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 import type { TextContent } from "../subagent/types.ts";
 

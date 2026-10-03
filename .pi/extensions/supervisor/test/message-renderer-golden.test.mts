@@ -443,7 +443,7 @@ function goldenPath(name: string): string {
 
 function renderCase(c: GoldenCase): string {
 	const renderer = createMessageRenderer({} as never, CWD);
-	const component = renderer(c.message, c.options ?? {}, activeTheme());
+	const component = renderer(c.message as never, (c.options ?? {}) as never, activeTheme() as never);
 	const expected = COMPONENT_BY_NAME[c.component];
 	assert.ok(
 		component instanceof expected,
