@@ -21,6 +21,7 @@ import {
 	repoSlug,
 	resolveWorkspaceRoot,
 	sanitizeSlug,
+	validPort,
 } from "../codeflow.ts";
 
 // ── Fixtures ────────────────────────────────────
@@ -110,6 +111,15 @@ describe("parseGitRemote", () => {
 	});
 });
 
+describe("validPort", () => {
+	it("accepts decimal ports 1-65535 and rejects everything else", () => {
+		for (const ok of ["1", "80", "9500", "65535"]) assert.strictEqual(validPort(ok), ok);
+		for (const bad of ["", "0", "65536", "abc", "12x", "-1", "1.5", "\u001b]8;;evil\u0007", null, undefined]) {
+			assert.strictEqual(validPort(bad as any), null, `validPort(${JSON.stringify(bad)}) must be null`);
+		}
+	});
+});
+
 // ── Adapter: precedence + I/O ───────────────────
 
 describe("codeflowHostPort", () => {
@@ -163,6 +173,22 @@ describe("codeflowHostPort", () => {
 		await withEnv(undefined, async () => {
 			const port = await codeflowHostPort(root);
 			assert.ok(port !== null && port >= "8470" && port <= "9493");
+		});
+	});
+
+	it("invalid forwarded CODEFLOW_PORT (control chars) → null, never interpolated", async () => {
+		const { root } = makeWorkspace();
+		await withEnv("\u001b]8;;evil\u0007", async () => {
+			assert.strictEqual(await codeflowHostPort(root), null);
+			assert.strictEqual(await codeflowUrl(root), null);
+		});
+	});
+
+	it("invalid settings docker.codeflowPort (control chars) falls through to a derived valid port", async () => {
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"\u001b]8;;evil\u0007"}}`);
+		await withEnv(undefined, async () => {
+			const port = await codeflowHostPort(root);
+			assert.ok(port !== null && /^[0-9]{1,5}$/.test(port), "settings payload must not reach the URL");
 		});
 	});
 

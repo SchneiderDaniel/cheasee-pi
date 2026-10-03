@@ -108,8 +108,11 @@ func TestRunUpE_UIHintFallback(t *testing.T) {
 }
 
 func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
-	// Probe exhaustion must fail closed: no UI URL line, no PI_UI_PORT key,
-	// and the CodeFlow hint (off the probe via CODEFLOW_PORT) is unaffected.
+	// Probe exhaustion must fail closed: no UI URL line, and PI_UI_PORT is
+	// forwarded EMPTY (defined-but-empty is the extension's "CLI ran, port
+	// unavailable → suppress the footer link" signal — leaving it absent would
+	// make the extension derive a port it does not own). CodeFlow (off the
+	// probe via CODEFLOW_PORT) is unaffected.
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
 	t.Setenv("CODEFLOW_PORT", "9000")
@@ -132,8 +135,8 @@ func TestRunUpE_UIHintResolutionFailure(t *testing.T) {
 	if !strings.Contains(stderr, "⚠ UI port:") {
 		t.Errorf("resolution failure must surface the ⚠ UI port line, got: %q", stderr)
 	}
-	if _, ok := exec.env["PI_UI_PORT"]; ok {
-		t.Errorf("exec env must not carry PI_UI_PORT on resolution failure, got %v", exec.env)
+	if got, ok := exec.env["PI_UI_PORT"]; !ok || got != "" {
+		t.Errorf("exec env must carry an empty PI_UI_PORT on resolution failure, got %q (present=%v) in %v", got, ok, exec.env)
 	}
 	if !strings.Contains(stderr, "http://localhost:9000") {
 		t.Errorf("CodeFlow hint must be unaffected, got: %q", stderr)
@@ -187,9 +190,17 @@ func TestDailyUsageDoc_uiHint(t *testing.T) {
 	// the host terminal is the opener, and the in-container openUrl path is
 	// documented as a non-goal. Pin the wording so the contract cannot silently
 	// drift back to "clicking opens a browser in-container".
-	for _, want := range []string{"OSC 8", "terminal", "not routable"} {
-		if !strings.Contains(content, want) {
+	for _, want := range []string{"OSC 8", "terminal", "not routable", "control characters", "xdg-open"} {
+		if !strings.Contains(strings.ToLower(content), strings.ToLower(want)) {
 			t.Errorf("daily-usage.md §UI must document the OSC 8 emission contract (%q)", want)
+		}
+	}
+	// Suppression contract (audit finding): CLI resolution failure forwards an
+	// empty PI_UI_PORT and the footer drops the UI link, while an absent key
+	// (no CLI) keeps the derived fallback.
+	for _, want := range []string{"empty", "suppresses", "started outside the CLI"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("daily-usage.md §UI must document the resolution-failure suppression (%q)", want)
 		}
 	}
 }

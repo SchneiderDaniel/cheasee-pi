@@ -126,6 +126,45 @@ describe("uiHostPort", () => {
 		});
 	});
 
+	it("CLI resolution failure (PI_UI_PORT forwarded empty) suppresses the UI link", async () => {
+		// Regression for the audit finding: range exhaustion on the host leaves
+		// the UI unavailable, so the CLI forwards PI_UI_PORT as an empty string.
+		// Deriving then would name an occupied port that is not this workspace's
+		// UI — the resolver must return null instead.
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
+		await withEnv("", async () => {
+			assert.strictEqual(await uiHostPort(root), null);
+			assert.strictEqual(await uiUrl(root), null);
+		});
+	});
+
+	it("absent PI_UI_PORT still derives (session started outside the CLI)", async () => {
+		const { root, parent } = makeWorkspace();
+		makeBareWithRemote(parent, "git@github.com:alice/foo.git");
+		await withEnv(undefined, async () => {
+			assert.strictEqual(await uiHostPort(root), String(uiPortFromSlug("alice-foo")));
+		});
+	});
+
+	it("invalid forwarded PI_UI_PORT (non-numeric / control chars) → null, never interpolated", async () => {
+		const { root } = makeWorkspace();
+		for (const bad of ["abc", "0", "65536", "12x", "\u001b]8;;evil\u0007", "-1"]) {
+			await withEnv(bad, async () => {
+				assert.strictEqual(await uiHostPort(root), null, `port ${JSON.stringify(bad)} must be rejected`);
+				assert.strictEqual(await uiUrl(root), null);
+			});
+		}
+	});
+
+	it("invalid settings docker.uiPort (control chars) falls through to a derived valid port", async () => {
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"\u001b]8;;evil\u0007"}}`);
+		await withEnv(undefined, async () => {
+			const port = await uiHostPort(root);
+			assert.ok(port !== null && /^[0-9]{1,5}$/.test(port), "settings payload must not reach the URL");
+			assert.ok(Number(port) >= 9500 && Number(port) <= 10523);
+		});
+	});
+
 	it("no workspace marker reachable → null, no throw", async () => {
 		const outside = mkdtempSync(join(tmpdir(), "ui-outside-"));
 		await withEnv(undefined, async () => {
@@ -168,6 +207,14 @@ describe("uiUrl", () => {
 		await withEnv(undefined, async () => {
 			const url = await uiUrl(root);
 			assert.ok(url !== null && !url.includes("\x1b]8;;"), "uiUrl must be plain text");
+		});
+	});
+
+	it("contains no control characters for any resolvable fixture", async () => {
+		const { root } = makeWorkspace();
+		await withEnv(undefined, async () => {
+			const url = await uiUrl(root);
+			assert.ok(url !== null && !/[\u0000-\u001f\u007f]/.test(url), "no control chars may reach the OSC 8 target");
 		});
 	});
 });

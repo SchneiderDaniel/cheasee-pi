@@ -17,6 +17,12 @@
  * printed `ℹ UI:` hint in exactly that stale-sidecar case. Settings/derived
  * remain the fallback for sessions started outside the CLI.
  *
+ * PI_UI_PORT defined-but-empty is the CLI's explicit "host-port resolution
+ * failed" signal (range exhausted): the extension suppresses the UI link
+ * rather than deriving a port that belongs to another workspace's sidecar. An
+ * ABSENT PI_UI_PORT means no CLI ran (e.g. pi started directly), so deriving
+ * is still correct there.
+ *
  * PI_UI_PORT holds a HOST port here — the UI sidecar listens on container
  * port 3000, published to the host. Never treat this value as an in-container
  * port.
@@ -27,7 +33,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fnv32, repoSlug, resolveWorkspaceRoot } from "./codeflow.ts";
+import { fnv32, repoSlug, resolveWorkspaceRoot, validPort } from "./codeflow.ts";
 
 /** Workspace marker — the "initialized" gate both CLI and extension share. */
 const SETTINGS_FILE = "cheasee-settings.json";
@@ -52,7 +58,9 @@ function readSettingsUIPort(root: string): string | null {
 			docker?: { uiPort?: unknown };
 		};
 		const port = parsed?.docker?.uiPort;
-		return typeof port === "string" && port !== "" ? port : null;
+		// Invalid settings fall through to env/derivation; validPort blocks
+		// control-char payloads before they reach a URL/OSC 8 sequence.
+		return validPort(typeof port === "string" ? port : null);
 	} catch {
 		return null;
 	}
@@ -69,10 +77,15 @@ export async function uiHostPort(cwd: string): Promise<string | null> {
 	const root = resolveWorkspaceRoot(cwd);
 	if (root === null) return null;
 	// Env first: `cheasee-pi start` forwards the bound-first resolved host port
-	// (resolveUIHostPort), which is authoritative over docker.uiPort — on a
-	// re-up the sidecar's live bind can differ from a stale settings value, and
-	// the printed `ℹ UI:` hint uses the forwarded value.
-	if (process.env.PI_UI_PORT) return process.env.PI_UI_PORT;
+	// (resolveUIHostPort), authoritative over docker.uiPort — on a re-up the
+	// sidecar's live bind can differ from a stale settings value, and the
+	// printed `ℹ UI:` hint uses the forwarded value. The CLI also forwards an
+	// EMPTY PI_UI_PORT when its own resolution fails (host port range
+	// exhausted): a defined-but-empty value means "resolved, but unavailable"
+	// and suppresses the link — deriving then would name an occupied port that
+	// is not this workspace's UI. An absent key means no CLI ran at all, so
+	// deriving stays correct for direct pi sessions.
+	if (process.env.PI_UI_PORT !== undefined) return validPort(process.env.PI_UI_PORT);
 	const settings = readSettingsUIPort(root);
 	if (settings !== null) return settings;
 	return String(uiPortFromSlug(await repoSlug(root)));

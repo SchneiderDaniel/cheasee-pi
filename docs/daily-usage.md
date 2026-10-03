@@ -195,21 +195,29 @@ The host port the running sidecar actually published is forwarded into the pi
 session as `PI_UI_PORT` (bound-first, alongside the CodeFlow sidecar's
 `CODEFLOW_PORT`), so the in-session footer link always agrees with the printed
 `ℹ UI:` hint even when a stale `docker.uiPort` differs from the live bind. When
-the port cannot be resolved the variable is simply not set and the start still
-succeeds; the link then falls back to the settings/derived value.
+the host port cannot be resolved (range exhausted) the CLI forwards an **empty**
+`PI_UI_PORT` and the footer suppresses the `UI` link rather than deriving an
+occupied port that belongs to another workspace; the start still succeeds. A
+session started outside the CLI (no forwarded variable at all) keeps the
+settings/derived fallback.
 
 The session footer row 3 shows a right-aligned `UI · CodeFlow` link group. The
-delivered contract is **plain OSC 8 hyperlink emission**: each label wraps its
-URL when the terminal reports hyperlink support, and renders as plain text
-otherwise (the same gate as the CodeFlow startup notify). Opening the link is
-the terminal's job — the OSC 8 sequence is the whole contract, and a terminal
-that supports OSC 8 opens the URL on the host with its usual click/modifier
-(iTerm2 cmd-click, WezTerm plain click, kitty Ctrl-Shift-click). The URLs are
-host-loopback addresses (`127.0.0.1` / `localhost`); from inside the pi
-container they are not routable, so the group is a display string only and is
-never pinged or opened in-container. On a terminal too narrow to fit both the
-left session/trust content and the group, the group is kept and the left
-content is truncated first.
+delivered contract is **plain OSC 8 hyperlink emission only**: each label wraps
+its URL when the terminal reports hyperlink support, and renders as plain text
+otherwise (the same gate as the CodeFlow startup notify); a port that is not a
+decimal in 1–65535 is rejected before it reaches the sequence, so a hand-edited
+settings or env payload cannot inject terminal control characters. Opening the
+link is the terminal's job — the OSC 8 sequence is the whole contract, and a
+terminal that supports OSC 8 opens the URL on the host with its usual
+click/modifier (iTerm2 cmd-click, WezTerm plain click, kitty Ctrl-Shift-click).
+The URLs are host-loopback addresses (`127.0.0.1` / `localhost`); from inside
+the pi container they are not routable, and pi's own in-session click handler
+routes an intercepted link to `openBrowser` → `xdg-open` inside the container,
+which the image does not install and whose failure is swallowed. That path is
+an accepted no-op, not the acceptance contract (OSC 8 emission is): the group
+is a display string only and is never pinged or opened in-container. On a
+terminal too narrow to fit both the left session/trust content and the group,
+the group is kept and the left content is truncated first.
 
 ## Run pi
 

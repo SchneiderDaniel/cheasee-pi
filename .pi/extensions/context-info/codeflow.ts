@@ -96,6 +96,21 @@ export function parseGitRemote(raw: string): GitRemote | null {
 }
 
 /**
+ * Validates a port string before it is interpolated into a URL that the
+ * footer/notify emits verbatim (hyperlink() does not escape its target, and
+ * the OSC 8 payload is a terminal control sequence). Decimal only, 1-65535:
+ * rejects empty, non-numeric, out-of-range, and — critically — any payload
+ * carrying control characters from a hand-edited settings file or a
+ * mis-forwarded env var. Returns the value unchanged when valid, else null.
+ */
+export function validPort(value: string | null | undefined): string | null {
+	if (value === null || value === undefined || value === "") return null;
+	if (!/^[0-9]{1,5}$/.test(value)) return null;
+	const n = Number(value);
+	return n >= 1 && n <= 65535 ? value : null;
+}
+
+/**
  * Lowercases and maps non-alphanumerics to '-' — parity with the CLI's
  * sanitizeSlug (valid docker/compose charset). Consecutive separators are not
  * collapsed; leading/trailing '-' are trimmed.
@@ -188,7 +203,11 @@ export async function codeflowHostPort(cwd: string): Promise<string | null> {
 	// authoritative over docker.codeflowPort — on a re-up the live bind can
 	// differ from a stale settings value, and the printed `ℹ CodeFlow:` hint
 	// uses the forwarded value. Settings/derived are the fallback when absent.
-	if (process.env.CODEFLOW_PORT) return process.env.CODEFLOW_PORT;
+	// The forwarded value is validated (never interpolated raw into the OSC 8
+	// target); an invalid forward suppresses the link rather than deriving a
+	// port that would not match the printed hint.
+	const forwarded = process.env.CODEFLOW_PORT;
+	if (forwarded) return validPort(forwarded);
 	const settings = readSettingsCodeflowPort(root);
 	if (settings !== null) return settings;
 	return String(codeflowPortFromSlug(await repoSlug(root)));
@@ -203,7 +222,9 @@ function readSettingsCodeflowPort(root: string): string | null {
 			docker?: { codeflowPort?: unknown };
 		};
 		const port = parsed?.docker?.codeflowPort;
-		return typeof port === "string" && port !== "" ? port : null;
+		// Invalid settings fall through to derivation (mirrors the CLI's
+		// error-ignored settings read); validPort blocks control-char payloads.
+		return validPort(typeof port === "string" ? port : null);
 	} catch {
 		return null;
 	}

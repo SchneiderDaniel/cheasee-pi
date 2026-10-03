@@ -1767,6 +1767,33 @@ describe("context-info extension — footer service links", () => {
 		await handlers.get("session_shutdown")!();
 	});
 
+	it("CLI resolution failure (empty PI_UI_PORT) suppresses the UI link, CodeFlow survives", async () => {
+		// Regression for the audit finding: on host port exhaustion the CLI
+		// forwards PI_UI_PORT empty, so the footer must NOT fall back to the
+		// settings/derived port (which names another workspace's occupied bind).
+		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
+		const { pi, handlers, ctx, renders } = makeHarness(root);
+		contextInfo(pi as any);
+
+		process.env.PI_UI_PORT = "";
+		try {
+			setCapabilities({ hyperlinks: true, images: null, trueColor: true });
+			await handlers.get("session_start")!({}, ctx);
+		} finally {
+			delete process.env.PI_UI_PORT;
+			resetCapabilitiesCache();
+		}
+
+		const row3 = lastRow(renders);
+		assert.ok(!row3.includes("127.0.0.1"), `UI link must be suppressed entirely: ${row3}`);
+		assert.ok(
+			row3.includes("\x1b]8;;http://localhost:9100/?repo=local/workspace&run=1\x1b\\CodeFlow"),
+			`CodeFlow link must survive a UI resolution failure: ${row3}`,
+		);
+
+		await handlers.get("session_shutdown")!();
+	});
+
 	it("hyperlinks:false → plain labels, no OSC 8 in row 3", async () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
 		const { pi, handlers, ctx, renders } = makeHarness(root);

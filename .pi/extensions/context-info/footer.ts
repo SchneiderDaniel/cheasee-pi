@@ -321,13 +321,17 @@ export function installFooter(
 				// URLs are resolved once per session in index.ts (byte-stable
 				// across renders, required for TuiAltScreen's line diff).
 				//
-				// Contract: the emitted OSC 8 sequence IS the deliverable — the
-				// terminal (on the host) is the opener, with its usual
-				// click/modifier. pi's fullscreen TUI also reads the link and
-				// routes a click to openBrowser in-container, where xdg-open is
-				// absent and the host-loopback URL is unroutable — so that path
-				// is a no-op by design and is never relied upon; the URL is a
-				// display string only, never pinged.
+				// Delivered contract = OSC 8 emission only. The terminal on the
+				// host is the opener, with its usual click/modifier (iTerm2
+				// cmd-click, WezTerm plain click). pi's fullscreen TUI also reads
+				// the link and routes a click to openBrowser → `xdg-open` INSIDE
+				// the container, where xdg-open is absent and the host-loopback
+				// URL is unroutable — a swallowed no-op. That in-container path is
+				// an accepted limitation, not the contract: an extension cannot
+				// reach the host browser, so the emitted sequence is the whole
+				// deliverable. The URL is a display string only, never pinged or
+				// opened in-container. URLs are validated as decimal ports in
+				// ui.ts/codeflow.ts before they land here.
 				const hyperlinksOn = getCapabilities().hyperlinks;
 				const labelled = (text: string, url: string): string =>
 					hyperlinksOn ? hyperlink(text, url) : text;

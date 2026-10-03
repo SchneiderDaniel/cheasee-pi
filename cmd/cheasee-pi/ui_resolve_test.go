@@ -221,7 +221,7 @@ func TestRunUpE_UIPortFailureLeavesCodeflowIntact(t *testing.T) {
 	if !strings.Contains(stderr, "http://localhost:9000") {
 		t.Errorf("CodeFlow hint must survive UI failure, got %q", stderr)
 	}
-	if _, ok := exec.env["PI_UI_PORT"]; ok {
-		t.Errorf("PI_UI_PORT must stay absent on UI failure, got %v", exec.env)
+	if got, ok := exec.env["PI_UI_PORT"]; !ok || got != "" {
+		t.Errorf("PI_UI_PORT must be forwarded empty on UI failure (suppression signal), got %q (present=%v) in %v", got, ok, exec.env)
 	}
 }
