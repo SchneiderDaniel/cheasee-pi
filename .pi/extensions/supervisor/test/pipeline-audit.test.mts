@@ -248,6 +248,27 @@ describe("pipeline.ts — worktreePath passed to runTscAndLspAudit (Phase 3)", (
 });
 
 // ===========================================================================
+// Phase 8: LSP gate consumes runner-supplied retryCount (issue #1773)
+// ===========================================================================
+
+describe("pipeline/audit/lsp-gate.ts — retryCount sourced from runner (Phase 8)", () => {
+	it("[source guard] no getEntries() recount in lsp-gate.ts", () => {
+		const src = readLspGateSource();
+		assert.ok(!src.includes("getEntries("), "lsp-gate.ts must not read session entries directly");
+		assert.ok(!src.includes("lsp-audit-retry"), "inline retry recount loop removed");
+	});
+
+	it("[source guard] derives retryCount from preAuditResult.retryCount", () => {
+		const src = readLspGateSource();
+		assert.ok(
+			src.includes("preAuditResult.retryCount") || src.includes("preAuditResult?.retryCount"),
+			"retryCount comes from the runner result",
+		);
+		assert.ok(src.includes("retryCount"), "retryCount threaded into context");
+	});
+});
+
+// ===========================================================================
 // Phase 4: Path construction consistency (resolvePath not string concat)
 // ===========================================================================
 

@@ -101,7 +101,7 @@ function formatStructured(diagnostics: LspDiagnostic[]): StructuredDiagnostics {
 			line: d.line,
 			col: d.column,
 			severity: d.severity,
-			message: d.message,
+			message: truncateMessage(d.message),
 		}));
 		files.push({ path: filePath, issues });
 	}

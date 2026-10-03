@@ -349,3 +349,54 @@ describe("formatForMode — delegation to formatDiagnostics", () => {
 		assert.strictEqual(result, formatDiagnostics(NON_ALPHA_DIAGS));
 	});
 });
+
+// =========================================================================
+// Phase 5: structured messages honor the 500-char cap
+// =========================================================================
+
+describe("formatForMode — structured message truncation (Phase 5)", () => {
+	const LONG_1000 = "y".repeat(1000);
+	const make = (message: string): LspDiagnostic[] => [
+		{ file: "/workspace/a.ts", line: 1, column: 1, severity: "Error", message },
+	];
+
+	it("RPC 1000-char message → issues[0].message length 500 ending in ...", () => {
+		const result = formatForMode(make(LONG_1000), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const msg = result.files[0]!.issues[0]!.message;
+		assert.strictEqual(msg.length, 500);
+		assert.ok(msg.endsWith("..."));
+	});
+
+	it("JSON 1000-char message → length 500 ending in ...", () => {
+		const result = formatForMode(make(LONG_1000), "json", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const msg = result.files[0]!.issues[0]!.message;
+		assert.strictEqual(msg.length, 500);
+		assert.ok(msg.endsWith("..."));
+	});
+
+	it("exactly 500 chars → unchanged, no ...", () => {
+		const result = formatForMode(make(EXACT_500_MSG), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const msg = result.files[0]!.issues[0]!.message;
+		assert.strictEqual(msg.length, 500);
+		assert.ok(!msg.endsWith("..."));
+	});
+
+	it("501 chars → length 500 ending in ...", () => {
+		const result = formatForMode(make(LONG_MSG_501), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const msg = result.files[0]!.issues[0]!.message;
+		assert.strictEqual(msg.length, 500);
+		assert.ok(msg.endsWith("..."));
+	});
+
+	it("text and structured render the same truncated message", () => {
+		const diags = make(LONG_1000);
+		const text = formatDiagnostics(diags);
+		const structured = formatForMode(diags, "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const structuredMsg = structured.files[0]!.issues[0]!.message;
+		assert.ok(text.includes(structuredMsg), "text embeds the same truncated message");
+	});
+
+	it("empty diagnostics → { files: [] } (regression)", () => {
+		assert.deepStrictEqual(formatForMode([], "rpc", WORKTREE_PATH, false), { files: [] });
+	});
+});

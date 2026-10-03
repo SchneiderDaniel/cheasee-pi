@@ -45,21 +45,6 @@ export async function runLspPreAudit(
 			hasModifiedFiles = false;
 		}
 
-		const entries = ctx.sessionManager.getEntries();
-		retryCount = 0;
-		for (const e of entries) {
-			if (
-				e.type === "custom" &&
-				e.customType === "lsp-audit-retry" &&
-				e.data &&
-				typeof e.data === "object" &&
-				"issueNum" in e.data &&
-				(e.data as Record<string, unknown>).issueNum === issueNum
-			) {
-				retryCount++;
-			}
-		}
-
 		if (hasModifiedFiles) {
 			preAuditResult = await runPreAuditFn(
 				{
@@ -71,6 +56,10 @@ export async function runLspPreAudit(
 				pi,
 				ctx,
 			);
+			// Retry budget is owned by runPreAudit (active-branch scoped); the
+			// supervisor consumes the count as data rather than re-reading session
+			// entries itself.
+			retryCount = preAuditResult?.retryCount ?? 0;
 		}
 	}
 

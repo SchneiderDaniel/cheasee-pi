@@ -62,9 +62,7 @@ export default function lspAuditor(pi: ExtensionAPI): void {
 				});
 			} else if (mode === "rpc" || mode === "json") {
 				// RPC/JSON mode: structured data that programmatic consumers can parse
-				const diagnostics = extractLastDiagnostics(result);
-				const structured =
-					diagnostics.length > 0 ? formatForMode(diagnostics, mode, cwd, hasUI) : null;
+				const structured = formatForMode(result.diagnostics, mode, cwd, hasUI);
 				pi.sendMessage?.({
 					content: JSON.stringify({
 						proceed: result.proceed,
@@ -84,27 +82,6 @@ export default function lspAuditor(pi: ExtensionAPI): void {
 			}
 		},
 	});
-}
-
-/**
- * Try to extract diagnostics from the last session turn for structured output.
- * In the command handler, the result only has note/proceed — diagnostics are
- * sent via sendUserMessage during runPreAudit. This helper reads the last
- * session entry to find diagnostics if available.
- *
- * For the structured RPC/JSON modes, we aim to provide the full diagnostic
- * payload. If unavailable in session, returns empty array.
- */
-function extractLastDiagnostics(result: {
-	proceed: boolean;
-	note: string;
-}): import("./types.ts").LspDiagnostic[] {
-	// The runPreAudit sends diagnostics via sendUserMessage follow-ups.
-	// For structured output modes, the command handler can't easily
-	// re-extract them from the result object without parsing messages.
-	// Return empty — extensions can override by storing diagnostics
-	// in a module-level variable if needed.
-	return [];
 }
 
 // Re-export for direct integration/supervisor usage
