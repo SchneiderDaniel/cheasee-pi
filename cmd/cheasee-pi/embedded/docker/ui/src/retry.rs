@@ -254,7 +254,8 @@ pub trait Timer {
 /// - `on_open`: mark connected and arm the stability window for this socket —
 ///   never at dial time, or a handshake that pends then fails would count as a
 ///   session and reset the backoff.
-/// - `on_message`: hand the frame to the view verbatim (framing-agnostic).
+/// - `on_message`: hand the frame to the decoder (the `echo` callback is now
+///   `ChatState::ingest_frame`, which parses the server envelope).
 /// - `on_close`: disarm the window *before* signalling the retry loop, then
 ///   signal it, so a timer firing in the gap cannot reset the backoff.
 pub fn wire<S, T>(

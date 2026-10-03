@@ -301,7 +301,17 @@ pub enum Event {
     AgentEnd {
         #[serde(default)]
         messages: Vec<Value>,
+        /// Pi ended this low-level run but will retry it automatically. Set
+        /// independently of the settled state, so the UI surfaces it instead
+        /// of showing a stopped spinner (`docs/json.md`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        will_retry: Option<bool>,
     },
+    /// Pi will not continue automatically. This — not `agent_end` — is where
+    /// the streaming indicator clears: retry, overflow recovery, compaction
+    /// retry, steering and follow-up work can all still follow an `agent_end`
+    /// (`docs/json.md`).
+    AgentSettled,
     TurnStart,
     TurnEnd {
         message: Value,
@@ -315,8 +325,15 @@ pub enum Event {
     /// provider-reported usage for the assistant response — it is not a delta,
     /// and can stay zero until completion when the provider reports nothing
     /// while streaming (`docs/json.md`). Slice 5 renders it.
+    ///
+    /// `message` is *optional*: pi >=0.84 removed the cumulative `message`
+    /// field (and every `assistantMessageEvent.partial` snapshot) to fix
+    /// quadratic output growth, emitting only `usage` + `assistantMessageEvent`.
+    /// A required field here would fail the decode and silently drop every
+    /// delta into [`crate::rpc::ProtocolMessage::Unknown`].
     MessageUpdate {
-        message: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<Value>,
         assistant_message_event: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Value>,
@@ -394,11 +411,85 @@ pub enum Event {
         #[serde(flatten)]
         extra: Map<String, Value>,
     },
-    /// An event type this build does not model (e.g. `agent_settled`, which
-    /// the pinned pi documents nowhere). Decoding succeeds; a closed enum would
-    /// hard-error the stream on exactly the events the epic renders.
+    /// An event type this build does not model. Decoding succeeds; a closed
+    /// enum would hard-error the stream on exactly the events the epic renders.
     #[serde(other)]
     Unknown,
+}
+
+/// The `assistantMessageEvent` payload of a [`Event::MessageUpdate`].
+///
+/// Delta event shapes on the wire (`docs/json.md`): `text_delta` is
+/// `{contentIndex, delta}`, `text_end` is `{contentIndex, content}` with the
+/// authoritative block text. `contentIndex` is the index into the message's
+/// `content` array, so text, thinking and tool-call blocks interleave — the
+/// assembler must key accumulated state by index, not by block kind.
+///
+/// Forward compatible: an unknown `type` decodes to [`Self::Unknown`] rather
+/// than failing the whole record, because `Event` keeps this raw and parses it
+/// with [`Self::parse_lenient`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum AssistantMessageEvent {
+    TextStart {
+        content_index: u32,
+    },
+    TextDelta {
+        content_index: u32,
+        #[serde(default)]
+        delta: String,
+    },
+    TextEnd {
+        content_index: u32,
+        #[serde(default)]
+        content: String,
+    },
+    ThinkingStart {
+        content_index: u32,
+    },
+    ThinkingDelta {
+        content_index: u32,
+        #[serde(default)]
+        delta: String,
+    },
+    ThinkingEnd {
+        content_index: u32,
+        #[serde(default)]
+        content: String,
+    },
+    ToolcallStart {
+        content_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+    },
+    ToolcallDelta {
+        content_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delta: Option<Value>,
+    },
+    ToolcallEnd {
+        content_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_call: Option<Value>,
+    },
+    /// An event type this build does not model; the assembler ignores it
+    /// without dropping the surrounding `message_update`.
+    #[serde(other)]
+    Unknown,
+}
+
+impl AssistantMessageEvent {
+    /// Tolerant decode of a raw `assistantMessageEvent` value.
+    ///
+    /// Returns `None` only when the value is not an object carrying a `type`
+    /// string; a known `type` with an unexpected payload, or an unmodelled
+    /// `type`, yields [`AssistantMessageEvent::Unknown`] instead of a hard
+    /// decode failure.
+    pub fn parse_lenient(value: &Value) -> Option<Self> {
+        serde_json::from_value(value.clone()).ok()
+    }
 }
 
 /// An `extension_ui_request` from pi: a dialog or fire-and-forget UI call
