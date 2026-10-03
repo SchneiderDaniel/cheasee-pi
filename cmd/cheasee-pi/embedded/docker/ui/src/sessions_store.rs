@@ -101,9 +101,11 @@ pub fn parse_session_entry(bytes: &[u8]) -> ParsedSession {
                     }
                 }
             }
-            // Everything else (messages, tool calls, unknown records) counts as
-            // one retained entry.
-            Some(_) | None => parsed.message_count += 1,
+            // pi counts only transcript `message` records as messages; state
+            // records (`model_change`, `custom`, `thinking_level_change`, …)
+            // are not messages.
+            Some("message") => parsed.message_count += 1,
+            _ => {}
         }
     }
     parsed
@@ -323,10 +325,13 @@ mod tests {
     #[test]
     fn parse_reads_header_and_last_name() {
         let bytes = b"{\"type\":\"session\",\"id\":\"abc123\",\"cwd\":\"/workspaces/main\",\"timestamp\":\"2024-01-01T00:00:00Z\"}\n\
-{\"type\":\"user\",\"text\":\"hi\"}\n\
+{\"type\":\"model_change\"}\n\
+{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n\
 {\"type\":\"session_info\",\"name\":\"first\"}\n\
-{\"type\":\"assistant\"}\n\
-{\"type\":\"session_info\",\"name\":\"second\"}\n";
+{\"type\":\"message\",\"message\":{\"role\":\"assistant\"}}\n\
+{\"type\":\"custom\"}\n\
+{\"type\":\"session_info\",\"name\":\"second\"}\n\
+{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n";
         let parsed = parse_session_entry(bytes);
         assert_eq!(parsed.id.as_deref(), Some("abc123"));
         assert_eq!(parsed.cwd.as_deref(), Some("/workspaces/main"));
