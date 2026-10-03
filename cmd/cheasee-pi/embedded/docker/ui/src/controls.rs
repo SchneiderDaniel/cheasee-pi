@@ -107,6 +107,13 @@ impl ControlsState {
                 self.notice.set(Some(message.clone()));
                 true
             }
+            // AC3: a reconnect header carries the same `get_state` payload a
+            // `get_state` response would, so the control surface is restored
+            // (streaming/compaction/auto-compaction) without a second request.
+            ServerMessage::SessionState { state, .. } => match state {
+                Some(data) => self.apply_response(None, "get_state", true, None, Some(data)),
+                None => false,
+            },
             // Notices and lag are the transcript's concern.
             _ => false,
         }
@@ -266,13 +273,18 @@ impl ControlsState {
                 }
                 None => false,
             },
-            "get_state" => match data.and_then(|d| d["autoCompactionEnabled"].as_bool()) {
-                Some(enabled) => {
+            "get_state" => {
+                let mut changed = false;
+                if let Some(enabled) = data.and_then(|d| d["autoCompactionEnabled"].as_bool()) {
                     self.auto_compaction.set(Some(enabled));
-                    true
+                    changed = true;
                 }
-                None => false,
-            },
+                if let Some(compacting) = data.and_then(|d| d["isCompacting"].as_bool()) {
+                    self.is_compacting.set(compacting);
+                    changed = true;
+                }
+                changed
+            }
             "set_auto_compaction" => {
                 if let Some(enabled) = self.pending_auto_compaction.get_untracked() {
                     self.auto_compaction.set(Some(enabled));

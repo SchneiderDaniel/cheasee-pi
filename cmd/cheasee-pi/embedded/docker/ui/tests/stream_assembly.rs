@@ -194,7 +194,10 @@ fn stream_chat_state_surfaces_lag_and_rejection() {
     owner.set();
     let state = ChatState::new();
 
-    state.apply(&ServerMessage::Lagged { skipped: 5 });
+    state.apply(&ServerMessage::Lagged {
+        skipped: 5,
+        resync_required: true,
+    });
     assert_eq!(state.lagged.get(), 5);
     assert!(state.notice.get().unwrap().contains("5 events dropped"));
 

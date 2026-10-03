@@ -103,6 +103,12 @@ impl ExtensionUiState {
     pub fn apply(&self, message: &ServerMessage) -> bool {
         match message {
             ServerMessage::ExtensionUi { request } => self.apply_request(request),
+            // AC3: the reconnect header re-shows the session's pending dialog,
+            // which is shared across every subscriber of the session.
+            ServerMessage::SessionState { pending, .. } => match pending {
+                Some(request) => self.apply_request(request),
+                None => false,
+            },
             _ => false,
         }
     }

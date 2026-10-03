@@ -19,3 +19,5 @@
 {"id":"req-19","type":"get_commands"}
 {"id":"req-20","type":"clear_queue"}
 {"id":"req-21","type":"get_available_thinking_levels"}
+{"id":"req-22","type":"get_entries","since":"b5a3a53d"}
+{"id":"req-23","type":"get_entries"}

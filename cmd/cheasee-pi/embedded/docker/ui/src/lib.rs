@@ -31,6 +31,12 @@ pub mod rpc;
 #[cfg(feature = "ssr")]
 pub mod session;
 
+// Server-only: the subscribe use case — durable-log replay, leaf-path
+// filtering, and cursor persistence behind a `ReplaySource` port. Gated because
+// its adapters link `tokio`/`tokio::fs`.
+#[cfg(feature = "ssr")]
+pub mod subscribe;
+
 // Server-only: the session store sharing `.pi/sessions` with the terminal
 // client — list/resolve/resume plus the cross-container in-use guard. Gated
 // because it links `tokio::fs` and the [`pi_process`] registry.

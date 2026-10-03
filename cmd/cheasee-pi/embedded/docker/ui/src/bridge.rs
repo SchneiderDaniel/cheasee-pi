@@ -159,6 +159,24 @@ pub enum ClientMessage {
         id: Option<String>,
         session_id: String,
     },
+    /// Bind this connection to `session_id` and replay from `since` (the
+    /// client's last-seen entry id). Absent `since` means "use the persisted
+    /// cursor, else full replay". Multiple connections may subscribe to one
+    /// session; each receives the fan-out of pi's broadcast (AC1).
+    Subscribe {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<String>,
+    },
+    /// Stop delivering live events to this connection without dropping the
+    /// socket or touching the child (AC5). Re-subscribing resumes the tail.
+    Unsubscribe {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -248,9 +266,44 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
-    /// The relay's broadcast lagged and skipped `skipped` pi records. Surfaced
-    /// as a banner; replay/catch-up is slice 9.
-    Lagged { skipped: u64 },
+    /// The relay's broadcast lagged and skipped `skipped` pi records. Lossy by
+    /// contract; `resync_required` tells the client to re-send `Subscribe {
+    /// since: lastSeenEntryId }` so the durable log heals the gap (AC2).
+    Lagged {
+        skipped: u64,
+        /// Forward-compatible: a legacy `{"type":"lagged","skipped":n}` frame
+        /// decodes with this defaulted to `false`.
+        #[serde(default)]
+        resync_required: bool,
+    },
+    /// One header frame per subscribe: whether a live child backs the session,
+    /// the current leaf, the raw `get_state` payload, the session-scoped
+    /// pending dialog, and the in-flight assistant text (AC2/AC3).
+    SessionState {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        live: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        leaf_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending: Option<ExtensionUiRequest>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_assistant_text: Option<String>,
+        #[serde(default)]
+        cursor_invalid: bool,
+    },
+    /// A chunk of the `get_entries` replay. `done: true` on the terminal frame
+    /// closes the replay boundary; the live tail follows it (AC2).
+    SessionReplay {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        entries: Vec<Value>,
+        done: bool,
+    },
     /// A transport- or child-level error.
     Error { message: String },
     #[serde(other)]

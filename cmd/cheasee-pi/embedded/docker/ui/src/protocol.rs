@@ -180,6 +180,16 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// Slice every session entry after `since` (a stable entry id), plus the
+    /// current leaf id. `since` must be *omitted* when absent: pi tests
+    /// `!== undefined`, so `since: null` is treated as a present-but-unknown id
+    /// and answers `Entry not found`.
+    GetEntries {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<String>,
+    },
     SetSessionName {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -251,6 +261,7 @@ pub enum Response {
     Clone(ResponseBody),
     GetForkMessages(ResponseBody),
     GetLastAssistantText(ResponseBody),
+    GetEntries(ResponseBody),
     SetSessionName(ResponseBody),
     GetMessages(ResponseBody),
     GetCommands(ResponseBody),
@@ -295,6 +306,7 @@ impl Response {
             | Self::Clone(b)
             | Self::GetForkMessages(b)
             | Self::GetLastAssistantText(b)
+            | Self::GetEntries(b)
             | Self::SetSessionName(b)
             | Self::GetMessages(b)
             | Self::GetCommands(b) => Some(b),

@@ -16,16 +16,18 @@
 //! `Session` owns no pipes and no broadcast — [`RpcClient`] does. A second owner
 //! would desync the id map.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use tokio::sync::{broadcast::error::RecvError, mpsc};
+use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc};
 
 use crate::bridge::{ClientMessage, ServerMessage};
 use crate::extension_ui::is_blocking;
 use crate::protocol::{Command, ExtensionUiRequest, ExtensionUiResponse, Response, ExtensionUI};
-use crate::rpc::{ProtocolMessage, RpcClient, RpcError};
-use crate::sessions_store::SessionsStore;
+use crate::rpc::{ProtocolMessage, RpcClient, RpcError, RpcReplaySource};
+use crate::sessions_store::{FileReplaySource, SessionsStore};
+use crate::subscribe::{self, NoCursorStore};
 
 /// The browser connection surface the relay drives.
 ///
@@ -45,17 +47,24 @@ pub trait ClientSink {
     ) -> impl std::future::Future<Output = Option<Result<ClientMessage, String>>> + Send + '_;
 }
 
-/// Shared, per-child relay state. Cheap to clone behind an `Arc`.
+/// State shared by every connection bound to one pi session. Cheap to clone
+/// behind an `Arc`; `client` is `None` for a child-less (file-replay) session
+/// created after a `ui` restart (AC4).
 pub struct Session {
-    client: Arc<RpcClient>,
-    /// The single blocking dialog currently awaiting an answer (AC2). Shared
-    /// across browser connections so slice 9's `get_state`/replay can re-show
-    /// it, and cleared when the answer is relayed.
+    client: Option<Arc<RpcClient>>,
+    /// The single blocking dialog currently awaiting an answer (AC2/AC3).
+    /// Shared across browser connections so a reconnect re-shows it, and
+    /// cleared when the answer is relayed.
     pending: Arc<Mutex<Option<ExtensionUiRequest>>>,
     /// Server-side session store. `None` in tests that exercise only the
     /// forwarding path; harness commands then surface as an error rather than a
     /// silent drop.
     store: Option<Arc<SessionsStore>>,
+    /// pi's session id when known; the registry key for the live child.
+    pi_session_id: String,
+    /// The registry a connection consults to resolve `Subscribe`. `None` in
+    /// tests that drive a single child directly.
+    registry: Option<Arc<SessionRegistry>>,
 }
 
 impl Session {
@@ -67,14 +76,50 @@ impl Session {
     /// (list/resume/stop) through `store`.
     pub fn with_store(client: Arc<RpcClient>, store: Option<Arc<SessionsStore>>) -> Self {
         Self {
-            client,
+            client: Some(client),
             pending: Arc::new(Mutex::new(None)),
             store,
+            pi_session_id: String::new(),
+            registry: None,
         }
     }
 
+    /// The full server constructor: a live child, its pi session id, and the
+    /// shared registry (AC1).
+    pub fn live(
+        client: Arc<RpcClient>,
+        store: Arc<SessionsStore>,
+        pi_session_id: String,
+        registry: Arc<SessionRegistry>,
+    ) -> Self {
+        Self {
+            client: Some(client),
+            pending: Arc::new(Mutex::new(None)),
+            store: Some(store),
+            pi_session_id,
+            registry: Some(registry),
+        }
+    }
+
+    /// A child-less session: replay straight from the JSONL (AC4).
+    pub fn detached(store: Arc<SessionsStore>, pi_session_id: String) -> Self {
+        Self {
+            client: None,
+            pending: Arc::new(Mutex::new(None)),
+            store: Some(store),
+            pi_session_id,
+            registry: None,
+        }
+    }
+
+    /// Attach the registry a connection consults to resolve `Subscribe`.
+    pub fn with_registry(mut self, registry: Arc<SessionRegistry>) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
     /// The blocking request awaiting an answer, if any. `Some` survives
-    /// unrelated events so a reconnect can re-show it (slice 9).
+    /// unrelated events so a reconnect can re-show it (AC3).
     pub fn pending_dialog(&self) -> Option<ExtensionUiRequest> {
         self.pending
             .lock()
@@ -83,24 +128,180 @@ impl Session {
     }
 
     /// Relay until the browser connection or the pi child goes away.
-    pub async fn relay(&self, sink: impl ClientSink) {
-        relay_with_client(&self.client, &self.pending, self.store.as_deref(), sink).await;
+    pub async fn relay(self: &Arc<Self>, sink: impl ClientSink) {
+        relay_session(self.clone(), sink).await;
     }
 }
 
-/// Relay `session`'s pi child to one browser connection.
-pub async fn relay(session: Arc<Session>, sink: impl ClientSink) {
-    session.relay(sink).await;
+/// One live session: its pi session id, the synthetic marker used by
+/// [`crate::pi_process::PidRegistry`], the shared [`Session`], and the child pid
+/// the relay must never touch (AC5).
+pub struct SessionHandle {
+    pub pi_session_id: String,
+    pub marker_id: String,
+    pub session: Arc<Session>,
+    pub child_pid: Option<u32>,
 }
 
-async fn relay_with_client(
-    client: &Arc<RpcClient>,
-    pending: &Mutex<Option<ExtensionUiRequest>>,
-    store: Option<&SessionsStore>,
-    mut sink: impl ClientSink,
-) {
+/// The per-session registry (AC1): pi session id → shared [`Session`]. Every
+/// connection to a session shares one child and one pending dialog.
+#[derive(Default)]
+pub struct SessionRegistry {
+    sessions: Mutex<HashMap<String, Arc<SessionHandle>>>,
+}
+
+impl SessionRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a session. Re-registering the same pi id replaces the handle;
+    /// the caller owns any child lifecycle (this never kills).
+    pub fn insert(&self, handle: Arc<SessionHandle>) {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(handle.pi_session_id.clone(), handle);
+    }
+
+    pub fn get(&self, session_id: &str) -> Option<Arc<SessionHandle>> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
+    }
+
+    /// The pid of the child backing `session_id`, if any. Unchanged across a
+    /// subscribe/unsubscribe/subscribe cycle (AC5).
+    pub fn pid(&self, session_id: &str) -> Option<u32> {
+        self.get(session_id).and_then(|handle| handle.child_pid)
+    }
+
+    pub fn len(&self) -> usize {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Any registered session, for a connection that has not subscribed yet.
+    pub fn first(&self) -> Option<Arc<SessionHandle>> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .next()
+            .cloned()
+    }
+}
+
+/// Relay `session` to one browser connection.
+pub async fn relay(session: Arc<Session>, sink: impl ClientSink) {
+    relay_session(session, sink).await;
+}
+
+/// One live-frame outcome, so the select arm stays flat.
+enum EventOutcome {
+    Message(ProtocolMessage),
+    Lagged(u64),
+    Closed,
+}
+
+async fn next_event(events: &mut Option<broadcast::Receiver<ProtocolMessage>>) -> EventOutcome {
+    match events
+        .as_mut()
+        .expect("guarded by the select precondition")
+        .recv()
+        .await
+    {
+        Ok(protocol) => EventOutcome::Message(protocol),
+        Err(RecvError::Lagged(skipped)) => EventOutcome::Lagged(skipped),
+        Err(RecvError::Closed) => EventOutcome::Closed,
+    }
+}
+
+/// Resolve a subscribe target: a registered session (live), else a child-less
+/// file-replay session (AC4), else an error the caller surfaces.
+fn resolve_subscription(active: &Arc<Session>, session_id: &str) -> Result<Arc<Session>, String> {
+    if let Some(registry) = &active.registry {
+        if let Some(handle) = registry.get(session_id) {
+            return Ok(handle.session.clone());
+        }
+    }
+    if active.pi_session_id == session_id {
+        return Ok(active.clone());
+    }
+    if let Some(store) = &active.store {
+        // Unknown ids still resolve to a detached source; its first replay
+        // returns `NotFound`, surfaced by the caller as an error frame.
+        let mut detached = Session::detached(store.clone(), session_id.to_string());
+        detached.registry = active.registry.clone();
+        return Ok(Arc::new(detached));
+    }
+    Err(format!("unknown session {session_id}"))
+}
+
+/// Run the subscribe use case and emit `SessionState` + replay chunks.
+async fn run_subscribe(
+    active: &Arc<Session>,
+    session_id: &str,
+    since: Option<String>,
+    id: Option<String>,
+    sink: &mut impl ClientSink,
+) -> Result<(), String> {
+    let no_cursor = NoCursorStore;
+    let outcome = match (&active.client, &active.store) {
+        (Some(client), Some(store)) => {
+            let source = RpcReplaySource::new(client.clone());
+            subscribe::subscribe(&source, store.as_ref(), session_id, since).await
+        }
+        (Some(client), None) => {
+            let source = RpcReplaySource::new(client.clone());
+            subscribe::subscribe(&source, &no_cursor, session_id, since).await
+        }
+        (None, Some(store)) => {
+            let file = FileReplaySource::new(store.clone(), session_id);
+            subscribe::subscribe(&file, &file, session_id, since).await
+        }
+        (None, None) => return Err(format!("session {session_id} has no replay source")),
+    }
+    .map_err(|err| err.to_string())?;
+
+    let header = ServerMessage::SessionState {
+        id: id.clone(),
+        session_id: session_id.to_string(),
+        live: outcome.live,
+        leaf_id: outcome.leaf_id,
+        state: outcome.state,
+        pending: active.pending_dialog(),
+        last_assistant_text: outcome.last_assistant_text,
+        cursor_invalid: outcome.cursor_invalid,
+    };
+    send(sink, &header).await.map_err(|_| "connection closed".to_string())?;
+
+    for chunk in subscribe::chunk_replay(&outcome.entries) {
+        let frame = ServerMessage::SessionReplay {
+            id: id.clone(),
+            session_id: session_id.to_string(),
+            entries: chunk.entries,
+            done: chunk.done,
+        };
+        send(sink, &frame)
+            .await
+            .map_err(|_| "connection closed".to_string())?;
+    }
+    Ok(())
+}
+
+async fn relay_session(session: Arc<Session>, mut sink: impl ClientSink) {
+    let mut active = session;
     // AC1: subscribe to pi events *before* writing any command.
-    let mut events = client.events();
+    let mut events = active.client.as_ref().map(|client| client.events());
+    // Unsubscribe silences the live tail for this connection without dropping
+    // the socket or touching the child (AC5).
+    let mut subscribed = true;
     // Responses to forwarded commands are produced on spawned tasks and funnelled
     // back here, so a slow pi response never blocks the event stream.
     let (out_tx, mut out_rx) = mpsc::channel::<ServerMessage>(64);
@@ -109,13 +310,40 @@ async fn relay_with_client(
         tokio::select! {
             biased;
             command = sink.recv() => match command {
+                Some(Ok(ClientMessage::Subscribe { id, session_id, since })) => {
+                    match resolve_subscription(&active, &session_id) {
+                        Ok(target) => {
+                            if !Arc::ptr_eq(&active, &target) {
+                                // Rebind the live tail *before* any replay so no
+                                // event is lost between subscribe and replay (AC2).
+                                events = target.client.as_ref().map(|client| client.events());
+                            }
+                            active = target;
+                            subscribed = true;
+                            if let Err(message) =
+                                run_subscribe(&active, &session_id, since, id, &mut sink).await
+                            {
+                                if send(&mut sink, &ServerMessage::Error { message }).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(message) => {
+                            let _ = out_tx.send(ServerMessage::Error { message }).await;
+                        }
+                    }
+                }
+                Some(Ok(ClientMessage::Unsubscribe { .. })) => subscribed = false,
                 Some(Ok(ClientMessage::ExtensionUiResponse { id, value, confirmed, cancelled })) => {
-                    respond_extension_ui(client, pending, &out_tx, id, value, confirmed, cancelled).await;
+                    respond_extension_ui(&active, &out_tx, id, value, confirmed, cancelled).await;
                 }
                 Some(Ok(command)) => {
                     if is_local_session_command(&command) {
-                        match store {
-                            Some(store) => handle_local_session(store, client, &out_tx, command).await,
+                        match &active.store {
+                            Some(store) => {
+                                handle_local_session(store, active.client.as_ref(), &out_tx, command)
+                                    .await
+                            }
                             None => {
                                 // The relay was built without a store (test
                                 // harness); surface the miss, never drop it.
@@ -124,8 +352,12 @@ async fn relay_with_client(
                                 }).await;
                             }
                         }
-                    } else {
+                    } else if let Some(client) = &active.client {
                         forward(client, command, &out_tx);
+                    } else {
+                        let _ = out_tx.send(ServerMessage::Error {
+                            message: "no pi child is running for this session".to_string(),
+                        }).await;
                     }
                 }
                 // A frame the client could not have intended to be ignored: a
@@ -146,22 +378,27 @@ async fn relay_with_client(
                     break;
                 }
             }
-            event = events.recv() => match event {
-                Ok(protocol) => {
-                    if let Some(message) = to_server_message(protocol, pending) {
+            event = next_event(&mut events), if events.is_some() => match event {
+                EventOutcome::Message(protocol) => {
+                    if subscribed {
+                        if let Some(message) = to_server_message(protocol, &active.pending) {
+                            if send(&mut sink, &message).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                EventOutcome::Lagged(skipped) => {
+                    if subscribed {
+                        // Lossy, not fatal: the durable log heals the gap when
+                        // the client re-subscribes with its last seen id (AC2).
+                        let message = ServerMessage::Lagged { skipped, resync_required: true };
                         if send(&mut sink, &message).await.is_err() {
                             break;
                         }
                     }
                 }
-                Err(RecvError::Lagged(skipped)) => {
-                    // Lossy, not fatal: surface the drop and keep the receiver.
-                    let message = ServerMessage::Lagged { skipped };
-                    if send(&mut sink, &message).await.is_err() {
-                        break;
-                    }
-                }
-                Err(RecvError::Closed) => break,
+                EventOutcome::Closed => events = None,
             },
         }
     }
@@ -210,7 +447,7 @@ async fn action_command(
 /// `ResumeSession` resolves the caller's id to a server-owned in-dir path first.
 async fn handle_local_session(
     store: &SessionsStore,
-    client: &Arc<RpcClient>,
+    client: Option<&Arc<RpcClient>>,
     out: &mpsc::Sender<ServerMessage>,
     message: ClientMessage,
 ) {
@@ -233,9 +470,12 @@ async fn handle_local_session(
         } => {
             let (success, error) =
                 match action_command(store, &session_id, mode.as_deref(), entry_id).await {
-                    Ok(command) => match client.send(&command).await {
-                        Ok(()) => (true, None),
-                        Err(err) => (false, Some(err.to_string())),
+                    Ok(command) => match client {
+                        Some(client) => match client.send(&command).await {
+                            Ok(()) => (true, None),
+                            Err(err) => (false, Some(err.to_string())),
+                        },
+                        None => (false, Some("no pi child is running".to_string())),
                     },
                     Err(error) => (false, Some(error)),
                 };
@@ -252,7 +492,10 @@ async fn handle_local_session(
             // AC3 ordering: abort the running turn, then marker-kill the exact
             // child. The registry kill is scoped to this session id, so sibling
             // children survive.
-            let abort = client.send(&Command::Abort { id: None }).await;
+            let abort = match client {
+                Some(client) => client.send(&Command::Abort { id: None }).await,
+                None => Err(RpcError::ChildGone),
+            };
             let killed = store.registry().kill_one(&session_id);
             let (success, error) = match (abort, killed) {
                 (Err(err), _) => (false, Some(err.to_string())),
@@ -324,8 +567,7 @@ fn forward(client: &Arc<RpcClient>, message: ClientMessage, out: &mpsc::Sender<S
 /// error: pi discards a late answer too, and the client must not invent a
 /// second one (AC2/AC3). The response produces no command response.
 async fn respond_extension_ui(
-    client: &Arc<RpcClient>,
-    pending: &Mutex<Option<ExtensionUiRequest>>,
+    session: &Session,
     out: &mpsc::Sender<ServerMessage>,
     id: String,
     value: Option<String>,
@@ -333,7 +575,7 @@ async fn respond_extension_ui(
     cancelled: Option<bool>,
 ) {
     let matched = {
-        let mut slot = pending.lock().unwrap_or_else(|e| e.into_inner());
+        let mut slot = session.pending.lock().unwrap_or_else(|e| e.into_inner());
         if slot.as_ref().is_some_and(|request| request.id == id) {
             *slot = None;
             true
@@ -344,6 +586,16 @@ async fn respond_extension_ui(
     if !matched {
         return;
     }
+    let Some(client) = &session.client else {
+        // A dialog answer for a child-less session has nowhere to go; surface
+        // it rather than pretending it was delivered.
+        let _ = out
+            .send(ServerMessage::Error {
+                message: "no pi child is running for this session".to_string(),
+            })
+            .await;
+        return;
+    };
     let response = ExtensionUI::ExtensionUiResponse(ExtensionUiResponse {
         id,
         value,
@@ -531,6 +783,8 @@ fn to_command(message: ClientMessage) -> Option<Routed> {
         ClientMessage::ListSessions { .. }
         | ClientMessage::ResumeSession { .. }
         | ClientMessage::StopSession { .. } => None,
+        // Handled by the relay's binding state machine, never forwarded to pi.
+        ClientMessage::Subscribe { .. } | ClientMessage::Unsubscribe { .. } => None,
         ClientMessage::Unknown => None,
     }
 }

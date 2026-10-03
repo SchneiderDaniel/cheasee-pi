@@ -74,6 +74,13 @@ pub fn SessionList(status: RwSignal<ConnectionStatus>) -> impl IntoView {
 
     let refresh = move |_| dispatch(ClientMessage::ListSessions { id: None }, status);
     let resume = move |session_id: String| {
+        // Open the session in the transcript: bind the connection and replay
+        // from the persisted cursor (AC1/AC2). Browser-only transport, so it is
+        // compiled only for the hydrate target.
+        #[cfg(feature = "hydrate")]
+        {
+            crate::ws::subscribe(session_id.clone(), None, status);
+        }
         dispatch(
             ClientMessage::ResumeSession {
                 id: None,

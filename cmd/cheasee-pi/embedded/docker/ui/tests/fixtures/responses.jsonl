@@ -5,3 +5,4 @@
 {"id":"req-12","type":"response","command":"bash","success":true,"data":{"output":"total 48","exitCode":0}}
 {"type":"response","command":"set_model","success":false,"error":"Model not found: invalid/model"}
 {"type":"response","command":"parse","success":false,"error":"Failed to parse command: Unexpected token"}
+{"id":"req-22","type":"response","command":"get_entries","success":true,"data":{"entries":[{"id":"b5a3a53d","type":"message"}],"leafId":"b5a3a53d"}}

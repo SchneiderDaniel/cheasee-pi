@@ -26,6 +26,14 @@ use serde_json::Value;
 use crate::bridge::SessionRow;
 use crate::pi_process::{marker_alive, PidRegistry};
 use crate::protocol::Command;
+use crate::subscribe::{
+    BoxFuture, Cursor, CursorStore, ReplayData, ReplayError, ReplaySource,
+};
+
+/// Hidden sub-directory holding per-session cursors. Deliberately outside the
+/// `*.jsonl` namespace so [`SessionsStore::list`] can never turn a cursor into
+/// a phantom session row.
+pub const STATE_DIR: &str = ".cheasee-state";
 
 /// One session file parsed into metadata the server may render and the relay
 /// may describe. `path` never leaves the server.
@@ -294,6 +302,194 @@ impl SessionsStore {
             session_path: path.to_string_lossy().into_owned(),
         })
     }
+
+    // ── Slice 9: durable-log replay + cursor ────────────────────────────────
+
+    /// Replay a child-less session straight from its JSONL: entries strictly
+    /// after `since`, plus the leaf reconstructed from the `parentId` chain.
+    ///
+    /// An unknown `since` is [`ReplayError::CursorInvalid`] — pi answers
+    /// `Entry not found` for exactly this case, and the caller falls back to a
+    /// full replay rather than an empty one (AC2/AC4). Torn trailing lines are
+    /// skipped (a live file is written one line at a time), never fatal.
+    pub async fn read_entries_since(
+        &self,
+        session_id: &str,
+        since: Option<&str>,
+    ) -> Result<ReplayData, ReplayError> {
+        let path = self
+            .resolve(session_id)
+            .await
+            .map_err(ReplayError::NotFound)?;
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|err| ReplayError::Failed(format!("read {}: {err}", path.display())))?;
+        let entries = session_records(&bytes);
+        let leaf_id = leaf_id_of(&entries);
+        let entries = match since {
+            None => entries,
+            Some(cursor) => {
+                let index = entries
+                    .iter()
+                    .position(|entry| entry_id_of(entry) == Some(cursor));
+                match index {
+                    Some(index) => entries[index + 1..].to_vec(),
+                    None => {
+                        return Err(ReplayError::CursorInvalid(format!(
+                            "Entry not found: {cursor}"
+                        )));
+                    }
+                }
+            }
+        };
+        Ok(ReplayData {
+            entries,
+            leaf_id,
+            state: None,
+            last_assistant_text: None,
+            live: false,
+        })
+    }
+
+    /// `<dir>/.cheasee-state/<session_id>.cursor`. The id is validated the same
+    /// way [`SessionsStore::resolve`] validates it, so a cursor path can never
+    /// escape the session dir or collide with a `*.jsonl` session file.
+    fn cursor_path(&self, session_id: &str) -> Result<PathBuf, String> {
+        if session_id.is_empty()
+            || session_id.contains('/')
+            || session_id.contains('\\')
+            || session_id.contains("..")
+        {
+            return Err(format!("invalid session id: {session_id:?}"));
+        }
+        Ok(self.dir.join(STATE_DIR).join(format!("{session_id}.cursor")))
+    }
+
+    /// The persisted cursor, or `None` when absent/corrupt. A garbage cursor
+    /// file is treated as "no cursor" (full replay), never a panic.
+    pub async fn read_cursor(&self, session_id: &str) -> Option<Cursor> {
+        let path = self.cursor_path(session_id).ok()?;
+        let bytes = tokio::fs::read(&path).await.ok()?;
+        serde_json::from_slice(&bytes).ok()
+    }
+
+    /// Persist the cursor with a temp-write + rename, so an interrupted write
+    /// leaves the previous cursor valid rather than a torn file.
+    pub async fn write_cursor(&self, session_id: &str, cursor: Cursor) -> Result<(), String> {
+        let path = self.cursor_path(session_id)?;
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|err| format!("create {}: {err}", parent.display()))?;
+        }
+        let encoded = serde_json::to_vec(&cursor).map_err(|err| err.to_string())?;
+        let temp = path.with_extension("cursor.tmp");
+        tokio::fs::write(&temp, &encoded)
+            .await
+            .map_err(|err| format!("write {}: {err}", temp.display()))?;
+        tokio::fs::rename(&temp, &path)
+            .await
+            .map_err(|err| format!("rename {}: {err}", path.display()))
+    }
+}
+
+/// Every non-header session record, in file order. Lines that do not parse
+/// (a torn tail on a live file) are skipped.
+fn session_records(bytes: &[u8]) -> Vec<Value> {
+    let mut records = Vec::new();
+    for line in bytes.split(|b| *b == b'\n') {
+        let line = trim_ascii(line);
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if !value.is_object() {
+            continue;
+        }
+        if value.get("type").and_then(Value::as_str) == Some("session") {
+            continue;
+        }
+        records.push(value);
+    }
+    records
+}
+
+fn entry_id_of(value: &Value) -> Option<&str> {
+    value.get("id").and_then(Value::as_str)
+}
+
+/// The current leaf: the last record that no other record names as its parent.
+/// Falls back to the last record's id when the tree has no obvious leaf.
+fn leaf_id_of(entries: &[Value]) -> Option<String> {
+    let mut has_child: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for entry in entries {
+        if let Some(parent) = entry.get("parentId").and_then(Value::as_str) {
+            has_child.insert(parent);
+        }
+    }
+    entries
+        .iter()
+        .rev()
+        .find_map(|entry| match entry_id_of(entry) {
+            Some(id) if !has_child.contains(id) => Some(id.to_string()),
+            _ => None,
+        })
+        .or_else(|| entries.last().and_then(|entry| entry_id_of(entry)).map(str::to_string))
+}
+
+/// The child-less replay adapter: reads the session JSONL directly. Used after a
+/// server restart, when no RPC client exists to answer `get_entries`.
+pub struct FileReplaySource {
+    store: Arc<SessionsStore>,
+    session_id: String,
+}
+
+impl FileReplaySource {
+    pub fn new(store: Arc<SessionsStore>, session_id: impl Into<String>) -> Self {
+        Self {
+            store,
+            session_id: session_id.into(),
+        }
+    }
+}
+
+impl ReplaySource for FileReplaySource {
+    fn replay<'a>(
+        &'a self,
+        since: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<ReplayData, ReplayError>> {
+        Box::pin(async move { self.store.read_entries_since(&self.session_id, since).await })
+    }
+}
+
+impl CursorStore for FileReplaySource {
+    fn read_cursor<'a>(&'a self, _session_id: &'a str) -> BoxFuture<'a, Option<Cursor>> {
+        Box::pin(async move { self.store.read_cursor(&self.session_id).await })
+    }
+
+    fn write_cursor<'a>(
+        &'a self,
+        _session_id: &'a str,
+        cursor: Cursor,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move { self.store.write_cursor(&self.session_id, cursor).await })
+    }
+}
+
+impl CursorStore for SessionsStore {
+    fn read_cursor<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, Option<Cursor>> {
+        Box::pin(async move { SessionsStore::read_cursor(self, session_id).await })
+    }
+
+    fn write_cursor<'a>(
+        &'a self,
+        session_id: &'a str,
+        cursor: Cursor,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move { SessionsStore::write_cursor(self, session_id, cursor).await })
+    }
 }
 
 #[cfg(test)]
@@ -453,5 +649,158 @@ mod tests {
             }
             other => panic!("expected SwitchSession, got {other:?}"),
         }
+    }
+
+    // ── Slice 9: file replay + cursor ───────────────────────────────────────
+
+    fn linear_session(dir: &Path, id: &str, ids: &[&str]) -> PathBuf {
+        let mut body = format!("{{\"type\":\"session\",\"id\":{id:?}}}\n");
+        for (i, entry) in ids.iter().enumerate() {
+            let parent = if i == 0 {
+                "null".to_string()
+            } else {
+                format!("{:?}", ids[i - 1])
+            };
+            body.push_str(&format!(
+                "{{\"type\":\"message\",\"id\":{entry:?},\"parentId\":{parent}}}\n"
+            ));
+        }
+        write_session(dir, &format!("{id}_{id}.jsonl"), &body)
+    }
+
+    fn ids_of(entries: &[Value]) -> Vec<String> {
+        entries
+            .iter()
+            .filter_map(|e| e.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_slices_after_the_cursor() {
+        let dir = temp_dir("replay-since");
+        linear_session(&dir, "aaaa0001", &["a", "b", "c", "d"]);
+        let data = store(&dir)
+            .read_entries_since("aaaa0001", Some("b"))
+            .await
+            .unwrap();
+        assert_eq!(ids_of(&data.entries), vec!["c", "d"]);
+        assert_eq!(data.leaf_id.as_deref(), Some("d"));
+        assert!(!data.live);
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_unknown_cursor_is_invalid() {
+        let dir = temp_dir("replay-unknown");
+        linear_session(&dir, "aaaa0002", &["a", "b"]);
+        let err = store(&dir)
+            .read_entries_since("aaaa0002", Some("zzzz"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ReplayError::CursorInvalid(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_without_a_cursor_is_full() {
+        let dir = temp_dir("replay-full");
+        linear_session(&dir, "aaaa0003", &["a", "b", "c"]);
+        let data = store(&dir).read_entries_since("aaaa0003", None).await.unwrap();
+        assert_eq!(ids_of(&data.entries), vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_skips_a_torn_tail_line() {
+        let dir = temp_dir("replay-torn");
+        let mut body = String::from("{\"type\":\"session\",\"id\":\"aaaa0004\"}\n");
+        body.push_str("{\"type\":\"message\",\"id\":\"a\",\"parentId\":null}\n");
+        body.push_str("{\"type\":\"message\",\"id\":\"b\",\"paren"); // torn
+        write_session(&dir, "aaaa0004_aaaa0004.jsonl", &body);
+        let data = store(&dir).read_entries_since("aaaa0004", None).await.unwrap();
+        assert_eq!(ids_of(&data.entries), vec!["a"]);
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_header_only_is_empty() {
+        let dir = temp_dir("replay-empty");
+        write_session(
+            &dir,
+            "aaaa0005_aaaa0005.jsonl",
+            "{\"type\":\"session\",\"id\":\"aaaa0005\"}\n",
+        );
+        let data = store(&dir).read_entries_since("aaaa0005", None).await.unwrap();
+        assert!(data.entries.is_empty());
+        assert!(data.leaf_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_missing_session_errors() {
+        let dir = temp_dir("replay-missing");
+        let err = store(&dir)
+            .read_entries_since("nope", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ReplayError::NotFound(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn subscribe_file_replay_leaf_ignores_an_abandoned_branch() {
+        let dir = temp_dir("replay-branch");
+        // a -> b -> c, then branch from b and append x: x is now the leaf.
+        let body = "{\"type\":\"session\",\"id\":\"aaaa0006\"}\n\
+{\"type\":\"message\",\"id\":\"a\",\"parentId\":null}\n\
+{\"type\":\"message\",\"id\":\"b\",\"parentId\":\"a\"}\n\
+{\"type\":\"message\",\"id\":\"c\",\"parentId\":\"b\"}\n\
+{\"type\":\"message\",\"id\":\"x\",\"parentId\":\"b\"}\n";
+        write_session(&dir, "aaaa0006_aaaa0006.jsonl", body);
+        let data = store(&dir).read_entries_since("aaaa0006", None).await.unwrap();
+        assert_eq!(data.leaf_id.as_deref(), Some("x"));
+    }
+
+    #[tokio::test]
+    async fn subscribe_cursor_round_trips_and_is_absent_by_default() {
+        let dir = temp_dir("cursor");
+        linear_session(&dir, "bbbb0001", &["a", "b"]);
+        let store = store(&dir);
+        assert!(store.read_cursor("bbbb0001").await.is_none());
+        let cursor = Cursor {
+            leaf_id: Some("b".into()),
+            last_entry_id: Some("b".into()),
+            updated_at: None,
+        };
+        store.write_cursor("bbbb0001", cursor.clone()).await.unwrap();
+        assert_eq!(store.read_cursor("bbbb0001").await, Some(cursor));
+        assert!(
+            dir.join(STATE_DIR).join("bbbb0001.cursor").exists(),
+            "the cursor lives in .cheasee-state and never ends in .jsonl"
+        );
+    }
+
+    #[tokio::test]
+    async fn subscribe_a_corrupt_cursor_reads_as_none() {
+        let dir = temp_dir("cursor-corrupt");
+        let store = store(&dir);
+        std::fs::create_dir_all(dir.join(STATE_DIR)).unwrap();
+        std::fs::write(dir.join(STATE_DIR).join("cccc.cursor"), b"not json").unwrap();
+        assert!(store.read_cursor("cccc").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn subscribe_cursor_files_are_not_session_rows() {
+        let dir = temp_dir("cursor-list");
+        linear_session(&dir, "dddd0001", &["a"]);
+        let store = store(&dir);
+        store
+            .write_cursor(
+                "dddd0001",
+                Cursor {
+                    leaf_id: Some("a".into()),
+                    last_entry_id: Some("a".into()),
+                    updated_at: None,
+                },
+            )
+            .await
+            .unwrap();
+        let rows = store.list().await.unwrap();
+        assert_eq!(rows.len(), 1, "a cursor must never become a phantom row");
+        assert_eq!(rows[0].id, "dddd0001");
     }
 }

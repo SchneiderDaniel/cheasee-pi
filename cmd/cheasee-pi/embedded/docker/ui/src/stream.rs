@@ -475,10 +475,19 @@ impl ChatState {
                 self.notice.set(Some(format!("{kind}: {detail}")));
                 true
             }
-            ServerMessage::Lagged { skipped } => {
+            ServerMessage::Lagged {
+                skipped,
+                resync_required,
+            } => {
                 self.lagged.update(|n| *n = n.saturating_add(*skipped));
-                self.notice
-                    .set(Some(format!("{skipped} events dropped (relay lag)")));
+                // A resync signal tells the transport to re-send `Subscribe {
+                // since: lastSeenEntryId }`; the durable log heals the gap.
+                let detail = if *resync_required {
+                    format!("{skipped} events dropped (relay lag) — resyncing")
+                } else {
+                    format!("{skipped} events dropped (relay lag)")
+                };
+                self.notice.set(Some(detail));
                 true
             }
             ServerMessage::Error { message } => {
@@ -489,6 +498,25 @@ impl ChatState {
             ServerMessage::ExtensionUi { .. } => false,
             // Session list/action frames are the concern of `SessionListState`.
             ServerMessage::SessionList { .. } | ServerMessage::SessionAction { .. } => false,
+            // Subscribe header and replay chunks are reduced by the session
+            // boundary (`controls`/`extension_ui`), not the transcript
+            // assembler.
+            ServerMessage::SessionState { cursor_invalid, .. } => {
+                if *cursor_invalid {
+                    // The cursor was unknown; the server failed open to a full
+                    // replay. Surface it rather than showing a silent gap.
+                    self.notice
+                        .set(Some("session cursor was unknown — replayed full history".into()));
+                    true
+                } else {
+                    false
+                }
+            }
+            // ponytail: replay entries are not folded into the transcript yet
+            // (a `message_end` rebuilds the block list, it does not append
+            // history). The reconnect header and live tail are wired; rendering
+            // the replayed transcript is a follow-up slice.
+            ServerMessage::SessionReplay { .. } => false,
             ServerMessage::Unknown => false,
         }
     }
