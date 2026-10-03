@@ -422,3 +422,124 @@ async fn controls_journey_stats_and_retry_banner() {
     drop(command_tx);
     let _ = relay.await;
 }
+
+/// AC1/AC2/AC3 journey: the relay answers harness commands locally — list scans
+/// the shared dir, resume resolves a validated in-dir path, a claim refuses the
+/// attach, and stop aborts then marker-kills the exact child.
+#[tokio::test]
+async fn controls_journey_session_list_resume_and_stop() {
+    use cheasee_pi_ui::pi_process::PidRegistry;
+    use cheasee_pi_ui::sessions_store::SessionsStore;
+
+    let (client, mut to_child, mut frames) = harness();
+    let dir = std::env::temp_dir().join(format!(
+        "cheasee-pi-ui-controls-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cwd = dir.to_string_lossy().into_owned();
+    std::fs::write(
+        dir.join("aaaa.jsonl"),
+        format!("{{\"type\":\"session\",\"id\":\"aaaa\",\"cwd\":{cwd:?}}}\n"),
+    )
+    .unwrap();
+    let registry = Arc::new(PidRegistry::new());
+    let store = Arc::new(SessionsStore::new(
+        dir.as_path(),
+        dir.join(".cheasee-inuse"),
+        Arc::clone(&registry),
+    ));
+
+    let (command_tx, mut received, sink) = fake();
+    let session = Arc::new(Session::with_store(Arc::clone(&client), Some(store)));
+    let relay = tokio::spawn(async move { session.relay(sink).await });
+
+    // List: answered locally, never forwarded to pi.
+    command_tx
+        .send(Ok(ClientMessage::ListSessions {
+            id: Some("c1".into()),
+        }))
+        .unwrap();
+    match next_message(&mut received).await {
+        ServerMessage::SessionList { id, sessions } => {
+            assert_eq!(id.as_deref(), Some("c1"));
+            assert_eq!(sessions.len(), 1);
+            assert_eq!(sessions[0].id, "aaaa");
+            assert!(!sessions[0].in_use);
+        }
+        other => panic!("expected a session list, got {other:?}"),
+    }
+
+    // Resume: the store resolves the path and sends switch_session to pi.
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: None,
+            session_id: "aaaa".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    let frame = next_command(&mut frames).await;
+    assert_eq!(frame["type"], "switch_session");
+    assert_eq!(
+        frame["sessionPath"].as_str().unwrap(),
+        dir.join("aaaa.jsonl").to_string_lossy()
+    );
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction {
+            success,
+            session_id,
+            ..
+        } => {
+            assert!(success);
+            assert_eq!(session_id, "aaaa");
+        }
+        other => panic!("expected a session action, got {other:?}"),
+    }
+
+    // A terminal claim refuses the attach.
+    std::fs::create_dir_all(dir.join(".cheasee-inuse")).unwrap();
+    std::fs::write(dir.join(".cheasee-inuse").join("aaaa"), b"{}").unwrap();
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: None,
+            session_id: "aaaa".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction {
+            success, error, ..
+        } => {
+            assert!(!success);
+            assert!(error.unwrap().contains("in use"));
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    std::fs::remove_file(dir.join(".cheasee-inuse").join("aaaa")).unwrap();
+
+    // Stop with no registered child: abort is sent, and the miss is surfaced.
+    command_tx
+        .send(Ok(ClientMessage::StopSession {
+            id: None,
+            session_id: "aaaa".into(),
+        }))
+        .unwrap();
+    let frame = next_command(&mut frames).await;
+    assert_eq!(frame["type"], "abort");
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction { success, error, .. } => {
+            assert!(!success);
+            assert!(error.unwrap().contains("no live child"));
+        }
+        other => panic!("expected a stop action, got {other:?}"),
+    }
+
+    drop(command_tx);
+    let _ = relay.await;
+}

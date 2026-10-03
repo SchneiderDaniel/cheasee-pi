@@ -23,7 +23,7 @@ mod server {
     use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
     use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
-    use cheasee_pi_ui::{auth, pi_process, rpc, session, shell};
+    use cheasee_pi_ui::{auth, pi_process, rpc, session, sessions_store, shell};
 
     /// The fixed in-container listen port. The compose mapping publishes it to
     /// the host loopback; keep it in sync with that mapping's container side.
@@ -36,7 +36,7 @@ mod server {
     /// `/debug/child` surface reports. Never holds secret values in a form the
     /// HTTP layer can expose — only env var *names*.
     pub struct SpawnState {
-        pub registry: pi_process::PidRegistry,
+        pub registry: Arc<pi_process::PidRegistry>,
         pub pid: Option<u32>,
         pub session_id: String,
         pub env_var_names: Vec<String>,
@@ -47,6 +47,8 @@ mod server {
         /// Constructing it here is the composition root's whole job: no
         /// protocol logic lives in this file.
         pub rpc: Option<Arc<rpc::RpcClient>>,
+        /// The shared session store the relay handles list/resume/stop through.
+        pub store: Arc<sessions_store::SessionsStore>,
     }
 
     /// Router state. `Arc` so the pid registry ownership is shared, not copied,
@@ -62,10 +64,16 @@ mod server {
         /// routing and SSR.
         #[cfg(test)]
         pub fn without_child(options: LeptosOptions) -> Self {
+            let registry = Arc::new(pi_process::PidRegistry::new());
+            let store = Arc::new(sessions_store::SessionsStore::new(
+                pi_process::SESSION_DIR,
+                std::path::Path::new(pi_process::SESSION_DIR).join(".cheasee-inuse"),
+                Arc::clone(&registry),
+            ));
             Self {
                 options,
                 spawn: Arc::new(SpawnState {
-                    registry: pi_process::PidRegistry::new(),
+                    registry,
                     pid: None,
                     session_id: String::new(),
                     env_var_names: Vec::new(),
@@ -73,6 +81,7 @@ mod server {
                     source: auth::AuthSource::Missing,
                     auth_error: None,
                     rpc: None,
+                    store,
                 }),
             }
         }
@@ -103,7 +112,12 @@ mod server {
         let session_id = new_session_id();
         let spec = pi_process::PiSpec::default();
         let env_var_names = pi_process::child_env_var_names(&child_env);
-        let registry = pi_process::PidRegistry::new();
+        let registry = Arc::new(pi_process::PidRegistry::new());
+        let store = Arc::new(sessions_store::SessionsStore::new(
+            pi_process::SESSION_DIR,
+            std::path::Path::new(pi_process::SESSION_DIR).join(".cheasee-inuse"),
+            Arc::clone(&registry),
+        ));
         let has_provider_keys = child_env.has_provider_keys;
         let source = child_env.source;
 
@@ -143,6 +157,7 @@ mod server {
                 source,
                 auth_error,
                 rpc,
+                store,
             }),
         }
     }
@@ -175,14 +190,14 @@ mod server {
         State(state): State<AppState>,
         ws: WebSocketUpgrade,
     ) -> impl IntoResponse {
-        let rpc = state.spawn.rpc.clone();
-        ws.on_upgrade(move |socket| handle_socket(socket, rpc))
+        let spawn = state.spawn.clone();
+        ws.on_upgrade(move |socket| handle_socket(socket, spawn))
     }
 
     /// One browser connection over the shared pi child. The relay is
     /// `session::relay` — this adapter only builds the transport sink.
-    async fn handle_socket(socket: WebSocket, rpc: Option<Arc<rpc::RpcClient>>) {
-        let Some(rpc) = rpc else {
+    async fn handle_socket(socket: WebSocket, spawn: Arc<SpawnState>) {
+        let Some(rpc) = spawn.rpc.clone() else {
             // No child: tell the browser instead of leaving it hanging. The
             // UI must still come up and report the state (AC4).
             let mut socket = socket;
@@ -194,7 +209,9 @@ mod server {
             }
             return;
         };
-        session::Session::new(rpc).relay(WsSink { socket }).await;
+        session::Session::with_store(rpc, Some(Arc::clone(&spawn.store)))
+            .relay(WsSink { socket })
+            .await;
     }
 
     /// The axum WebSocket as `session::ClientSink`: text frames carry the
@@ -504,7 +521,7 @@ mod tests {
         let state = server::AppState {
             options: options(&site_dir()),
             spawn: Arc::new(server::SpawnState {
-                registry: cheasee_pi_ui::pi_process::PidRegistry::new(),
+                registry: Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
                 pid: Some(1),
                 session_id: "sess-ws".to_string(),
                 env_var_names: Vec::new(),
@@ -512,6 +529,11 @@ mod tests {
                 source: cheasee_pi_ui::auth::AuthSource::Missing,
                 auth_error: None,
                 rpc: Some(client),
+                store: Arc::new(cheasee_pi_ui::sessions_store::SessionsStore::new(
+                    cheasee_pi_ui::pi_process::SESSION_DIR,
+                    std::path::Path::new(cheasee_pi_ui::pi_process::SESSION_DIR).join(".cheasee-inuse"),
+                    Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
+                )),
             }),
         };
 
@@ -600,7 +622,7 @@ mod tests {
         let state = server::AppState {
             options: options(&site_dir()),
             spawn: Arc::new(server::SpawnState {
-                registry: cheasee_pi_ui::pi_process::PidRegistry::new(),
+                registry: Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
                 pid: Some(4242),
                 session_id: "sess-test".to_string(),
                 env_var_names: vec!["OPENAI_API_KEY".to_string(), "PATH".to_string()],
@@ -608,6 +630,11 @@ mod tests {
                 source: cheasee_pi_ui::auth::AuthSource::Config,
                 auth_error: None,
                 rpc: None,
+                store: Arc::new(cheasee_pi_ui::sessions_store::SessionsStore::new(
+                    cheasee_pi_ui::pi_process::SESSION_DIR,
+                    std::path::Path::new(cheasee_pi_ui::pi_process::SESSION_DIR).join(".cheasee-inuse"),
+                    Arc::new(cheasee_pi_ui::pi_process::PidRegistry::new()),
+                )),
             }),
         };
         let res = server::router(state).oneshot(get("/debug/child")).await.unwrap();

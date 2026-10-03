@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -77,6 +78,10 @@ func runDownE(_ *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "  ℹ No cheasee-pi container found for this workspace (project %q) — nothing to stop\n", project)
 		return nil
 	}
+	// compose down removes every service container of the project (agent,
+	// codeflow, ui) in one call; report the full set so the operator sees all
+	// three are covered.
+	fmt.Fprintf(os.Stderr, "  ℹ Removing %d container(s): %s\n", len(containers), strings.Join(containers, ", "))
 
 	cmd := runCommandContext(ctx, "docker", "compose", "-f", composeFile, "down")
 
@@ -90,6 +95,11 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "  ℹ Stopping container...\n")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker compose down: %w", err)
+	}
+	// The containers that owned the live-session claims are gone; drop the
+	// claims so a stale file cannot block a resume forever.
+	if err := purgeInUseClaims(filepath.Join(workspace, ".pi", "sessions")); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ in-use claims: %v\n", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Container stopped and removed\n")
 	return nil

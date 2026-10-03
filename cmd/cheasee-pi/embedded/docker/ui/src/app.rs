@@ -11,6 +11,7 @@ use crate::components::dialog::DialogOverlay;
 use crate::components::dispatch;
 use crate::components::message::Transcript;
 use crate::components::queue::QueuePanel;
+use crate::components::session_list::{SessionList, SessionListState};
 use crate::components::status::{NotifyToasts, StatusChrome};
 use crate::controls::ControlsState;
 use crate::extension_ui::ExtensionUiState;
@@ -59,11 +60,15 @@ pub fn App() -> impl IntoView {
     let extension_ui = ExtensionUiState::new(controls.draft);
     provide_context(extension_ui);
     let status = RwSignal::new(ConnectionStatus::Disconnected);
+    // The session list is fed by the same WS frame callback as the transcript;
+    // its state is provided for the same lifetime so the panel can read it.
+    let session_list = SessionListState::new();
+    provide_context(session_list);
 
     // Browser-only: open the WS, reconnect with backoff, and feed frames into
     // the chat state. Compiled out of the server target entirely.
     #[cfg(feature = "hydrate")]
-    crate::ws::connect(chat, controls, extension_ui, status);
+    crate::ws::connect(chat, controls, extension_ui, session_list, status);
 
     view! {
         <Title text="cheasee-pi"/>
@@ -73,6 +78,7 @@ pub fn App() -> impl IntoView {
             <h1>"cheasee-pi control center"</h1>
             <StatusChrome/>
             <Counter/>
+            <SessionList status=status/>
             <ControlsPanel status=status/>
             <QueuePanel status=status/>
             <BashPanel status=status/>

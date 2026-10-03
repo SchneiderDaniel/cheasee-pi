@@ -133,8 +133,53 @@ pub enum ClientMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cancelled: Option<bool>,
     },
+    /// List the workspace sessions from the shared `.pi/sessions` mount. Handled
+    /// by the relay's session store, never forwarded to pi.
+    ListSessions {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// Attach the running ui child to an existing session, or branch from it.
+    /// `mode` is `"resume"` | `"fork"` | `"clone"`; `entry_id` is required for
+    /// `fork` (the entry to branch from). The server resolves `session_id` to an
+    /// in-directory path before it reaches pi.
+    ResumeSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entry_id: Option<String>,
+    },
+    /// Stop the exact ui-spawned child for `session_id`: `abort` then
+    /// marker-kill. Distinct from `Abort`, which only ends the current turn.
+    StopSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+    },
     #[serde(other)]
     Unknown,
+}
+
+/// One session row the browser may render. Carries ids and metadata only: no
+/// host path (the server resolves ids to paths itself) and no process marker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRow {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Session `modified` time in epoch milliseconds; rows sort on it.
+    pub modified: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<String>,
+    pub message_count: usize,
+    /// A live process (this UI's registry or a terminal claim) owns the session.
+    pub in_use: bool,
+    /// The file could not be parsed; it is listed but not resumable.
+    pub unavailable: bool,
 }
 
 /// How a prompt issued mid-stream is handled. The wire values are exactly
@@ -186,6 +231,23 @@ pub enum ServerMessage {
     /// An `extension_ui_request` relayed from pi: a dialog or fire-and-forget
     /// chrome call. `request.method` selects which component handles it.
     ExtensionUi { request: ExtensionUiRequest },
+    /// The session list answering a [`ClientMessage::ListSessions`].
+    SessionList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        sessions: Vec<SessionRow>,
+    },
+    /// The outcome of a resume/fork/clone/stop request. `success: false` carries
+    /// the refusal reason (in-use guard, missing cwd, unknown child) and must be
+    /// surfaced, never swallowed.
+    SessionAction {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        session_id: String,
+        success: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// The relay's broadcast lagged and skipped `skipped` pi records. Surfaced
     /// as a banner; replay/catch-up is slice 9.
     Lagged { skipped: u64 },

@@ -168,6 +168,37 @@ func TestRunDownE_legacyProjectNotTargeted(t *testing.T) {
 	}
 }
 
+func TestRunDownE_removesAllThreeServices(t *testing.T) {
+	// AC5: compose down removes every service container of the workspace
+	// project — agent, codeflow, and ui. The test pins that the single compose
+	// call is scoped to the workspace project and that all three names the
+	// project enumerates are reported to the operator.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	parent, root := mkWorkspace(t, `{}`)
+	writeBareRemote(t, parent, "https://github.com/alice/repo-a.git")
+	chdir(t, root)
+
+	members := "cheasee-pi-alice-repo-a\ncheasee-pi-alice-repo-a-codeflow\nui-alice-repo-a\n"
+	composeCmd, composeArgs := stubDownFlow(t, members)
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := runDownE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("runDownE: %v", err)
+		}
+	})
+
+	if !slices.Contains(*composeArgs, "down") {
+		t.Fatalf("compose down must be invoked, got %v", *composeArgs)
+	}
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != "cheasee-pi-alice-repo-a" {
+		t.Errorf("compose down must target the workspace project, got %q", got)
+	}
+	for _, name := range []string{"cheasee-pi-alice-repo-a", "cheasee-pi-alice-repo-a-codeflow", "ui-alice-repo-a"} {
+		if !strings.Contains(stderr, name) {
+			t.Errorf("down must report all three project containers; %q missing from %q", name, stderr)
+		}
+	}
+}
+
 // composeEnvValue extracts a KEY=value entry from an env slice.
 func composeEnvValue(env []string, key string) string {
 	for _, e := range env {

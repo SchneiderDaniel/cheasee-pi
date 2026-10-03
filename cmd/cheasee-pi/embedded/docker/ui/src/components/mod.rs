@@ -7,6 +7,7 @@ pub mod controls;
 pub mod dialog;
 pub mod message;
 pub mod queue;
+pub mod session_list;
 pub mod status;
 
 use leptos::prelude::*;

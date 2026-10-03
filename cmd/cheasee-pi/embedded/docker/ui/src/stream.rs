@@ -487,6 +487,8 @@ impl ChatState {
             }
             // Extension UI chrome is the concern of `ExtensionUiState`.
             ServerMessage::ExtensionUi { .. } => false,
+            // Session list/action frames are the concern of `SessionListState`.
+            ServerMessage::SessionList { .. } | ServerMessage::SessionAction { .. } => false,
             ServerMessage::Unknown => false,
         }
     }

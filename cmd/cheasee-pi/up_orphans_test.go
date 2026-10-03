@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -33,8 +35,22 @@ func TestOrphanScanBash_anchoredCmdline(t *testing.T) {
 	if strings.Contains(orphanScanBash, `*pi*`) {
 		t.Error("orphanScanBash uses dangerous *pi* substring match")
 	}
-	if !strings.Contains(orphanScanBash, `/usr/bin/pi`) && !strings.Contains(orphanScanBash, `"pi `) {
-		t.Error("orphanScanBash missing anchored /usr/bin/pi or pi pattern")
+	// The direct-exec indirection: a `/usr/bin/pi` argv[0] still matches.
+	if !strings.Contains(orphanScanBash, `/usr/bin/pi`) {
+		t.Error("orphanScanBash missing the direct /usr/bin/pi argv match")
+	}
+	// A shebang-launched pi never has argv[0]=pi — the tokenizer must key on the
+	// package path and the session flag pair instead.
+	if strings.Contains(orphanScanBash, "cmdline=$(") {
+		t.Error("orphanScanBash must tokenize argv, not prefix-match the joined cmdline")
+	}
+}
+
+func TestOrphanScanBash_matchesShebangPiArgvTokens(t *testing.T) {
+	for _, want := range []string{"pi_is_session", "pi-coding-agent", "--session", "--session-id", `read -r -d ''`} {
+		if !strings.Contains(orphanScanBash, want) {
+			t.Errorf("orphanScanBash must match shebang pi argv tokens; missing %q", want)
+		}
 	}
 }
 
@@ -317,6 +333,67 @@ func TestKillSessionByMarker_emptyIDIsNoop(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("empty id must not touch the seam, got %d call(s)", calls)
+	}
+}
+
+// TestKillSessionByMarker_purgesClaim guards the cross-container join: the
+// reaper must drop the shared-mount claim for the exact session it killed, or
+// a stale claim blocks every future resume.
+func TestKillSessionByMarker_purgesClaim(t *testing.T) {
+	var capturedArgs []string
+	stubRunCommandContext(t, func(_ context.Context, _ string, arg ...string) runner {
+		capturedArgs = arg
+		return &mockCmd{combinedFn: func() ([]byte, error) { return []byte(""), nil }}
+	})
+
+	if err := killSessionByMarker(context.Background(), "cheasee-pi", "deadbeef"); err != nil {
+		t.Fatalf("killSessionByMarker: %v", err)
+	}
+	script := capturedArgs[4]
+	claim := inUseClaimDir + "/deadbeef"
+	if !strings.Contains(script, "rm -f "+claim) {
+		t.Errorf("reaper must remove the claim %s, got: %s", claim, script)
+	}
+}
+
+// TestInUseClaim_writeAndRemove pins the claim lifecycle the ui guard reads.
+func TestInUseClaim_writeAndRemove(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), ".pi", "sessions")
+
+	if err := writeInUseClaim(sessionDir, "deadbeef", "cheasee-pi-repoA"); err != nil {
+		t.Fatalf("writeInUseClaim: %v", err)
+	}
+	claim := filepath.Join(sessionDir, ".cheasee-inuse", "deadbeef")
+	body, err := os.ReadFile(claim)
+	if err != nil {
+		t.Fatalf("claim file missing: %v", err)
+	}
+	for _, want := range []string{"cheasee-pi-repoA", "startedAt"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("claim body must carry %q, got %s", want, body)
+		}
+	}
+
+	if err := removeInUseClaim(sessionDir, "deadbeef"); err != nil {
+		t.Fatalf("removeInUseClaim: %v", err)
+	}
+	if _, err := os.Stat(claim); !os.IsNotExist(err) {
+		t.Errorf("claim must be gone, stat err = %v", err)
+	}
+	// Re-removing a missing claim is not an error.
+	if err := removeInUseClaim(sessionDir, "deadbeef"); err != nil {
+		t.Errorf("missing claim removal must be a no-op, got %v", err)
+	}
+
+	// The whole directory purge that clean/down use.
+	if err := writeInUseClaim(sessionDir, "cafef00d", "cheasee-pi-repoA"); err != nil {
+		t.Fatalf("writeInUseClaim: %v", err)
+	}
+	if err := purgeInUseClaims(sessionDir); err != nil {
+		t.Fatalf("purgeInUseClaims: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, ".cheasee-inuse")); !os.IsNotExist(err) {
+		t.Errorf("claim dir must be removed, stat err = %v", err)
 	}
 }
 

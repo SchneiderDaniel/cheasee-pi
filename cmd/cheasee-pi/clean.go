@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -190,7 +191,20 @@ func cleanAndRemove(ctx context.Context, targets []string) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "  ℹ No stale pi sessions found\n")
 	}
-	return removeContainers(ctx, targets)
+	if err := removeContainers(ctx, targets); err != nil {
+		return err
+	}
+	// Claims for the just-removed sessions must not outlive their containers —
+	// a stale claim would block a resume forever. Scoped to the current
+	// workspace: the all-repos sweep does not know sibling mount paths.
+	if wd, err := os.Getwd(); err == nil {
+		if root, state, err := resolveStartWorkspace(wd); err == nil && state == WorkspaceInitialized {
+			if err := purgeInUseClaims(filepath.Join(root, ".pi", "sessions")); err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ in-use claims: %v\n", err)
+			}
+		}
+	}
+	return nil
 }
 
 // pruneBuildCache removes the Docker buildx build cache.
