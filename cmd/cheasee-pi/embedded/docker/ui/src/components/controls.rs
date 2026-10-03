@@ -9,6 +9,7 @@ use leptos::prelude::*;
 
 use crate::app::ConnectionStatus;
 use crate::bridge::ClientMessage;
+use crate::components::banners::{CompactionBanner, RetryPill};
 use crate::components::dispatch;
 use crate::controls::ControlsState;
 
@@ -29,11 +30,14 @@ pub fn ControlsPanel(status: RwSignal<ConnectionStatus>) -> impl IntoView {
         });
     }
 
-    let refresh_models =
-        move |_| dispatch(ClientMessage::GetAvailableModels { id: None }, status);
+    let refresh_models = move |_| dispatch(ClientMessage::GetAvailableModels { id: None }, status);
     let cycle_model = move |_| dispatch(ClientMessage::CycleModel { id: None }, status);
-    let refresh_levels =
-        move |_| dispatch(ClientMessage::GetAvailableThinkingLevels { id: None }, status);
+    let refresh_levels = move |_| {
+        dispatch(
+            ClientMessage::GetAvailableThinkingLevels { id: None },
+            status,
+        )
+    };
     let cycle_level = move |_| dispatch(ClientMessage::CycleThinkingLevel { id: None }, status);
     let compact = move |_| {
         dispatch(
@@ -198,12 +202,7 @@ pub fn ControlsPanel(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                         Some(false) => "auto-compaction: off",
                     }}
                 </button>
-                {move || {
-                    controls
-                        .is_compacting
-                        .get()
-                        .then(|| view! { <span class="compacting">"compacting…"</span> })
-                }}
+                <CompactionBanner/>
             </div>
 
             <div class="control retry-control">
@@ -214,19 +213,8 @@ pub fn ControlsPanel(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                         Some(false) => "auto-retry: off",
                     }}
                 </button>
-                {move || {
-                    controls.retry.get().map(|banner| {
-                        view! {
-                            <span class="retry-banner">
-                                {format!(
-                                    "retry {}/{} in {}ms: {}",
-                                    banner.attempt, banner.max_attempts, banner.delay_ms, banner.error_message,
-                                )}
-                            </span>
-                        }
-                    })
-                }}
                 <button on:click=abort_retry>"abort retry"</button>
+                <RetryPill/>
             </div>
 
             {move || controls.notice.get().map(|notice| view! { <p class="control-notice">{notice}</p> })}

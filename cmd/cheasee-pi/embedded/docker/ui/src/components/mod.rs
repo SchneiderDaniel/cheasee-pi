@@ -2,6 +2,7 @@
 //! `controls`/`queue`/`bash` render the mid-run control surface, and
 //! `dialog`/`status` render the extension UI overlay and toast/chrome.
 
+pub mod banners;
 pub mod bash;
 pub mod controls;
 pub mod dialog;
@@ -9,6 +10,7 @@ pub mod message;
 pub mod queue;
 pub mod session_list;
 pub mod status;
+pub mod tool_card;
 
 use leptos::prelude::*;
 
