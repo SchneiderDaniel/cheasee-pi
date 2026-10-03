@@ -523,6 +523,66 @@ fn stream_replay_entries_are_folded_and_deduplicated() {
     assert_eq!(state.rows.get().len(), 2, "no duplicate rows");
 }
 
+/// AC1/AC5: replay parses pi's actual camel-case `toolCall` content type and
+/// pairs its `toolResult` by `toolCallId` into one named card (history must not
+/// lose the tool name/args, nor leave a nameless standalone card).
+#[test]
+fn stream_replay_pairs_camel_case_tool_call_and_result() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+    let entries = vec![
+        json!({"id": "a1", "message": {"role": "assistant", "content": [
+            {"type": "toolCall", "id": "call_1", "name": "bash", "arguments": {"command": "ls"}}
+        ]}}),
+        json!({"id": "t1", "message": {"role": "toolResult", "toolCallId": "call_1",
+            "toolName": "bash", "content": [{"type": "text", "text": "total 48"}], "isError": false}}),
+    ];
+    state.apply(&ServerMessage::SessionReplay {
+        id: None,
+        session_id: "s".into(),
+        entries,
+        done: true,
+    });
+
+    let rows = state.rows.get();
+    assert_eq!(rows.len(), 1, "call and result fold to one card");
+    let card = rows[0].kind.as_tool().expect("tool row");
+    assert_eq!(card.tool_call_id, "call_1");
+    assert_eq!(card.name, "bash");
+    assert!(card.args.contains("ls"), "args preserved: {}", card.args);
+    assert_eq!(card.output, "total 48");
+    assert_eq!(card.status, cheasee_pi_ui::tool_card::ToolStatus::Done);
+}
+
+/// Audit regression: a persisted `isError: true` result must replay as an error
+/// card, not silently as success.
+#[test]
+fn stream_replay_error_result_keeps_error_status() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+    let entries = vec![
+        json!({"id": "a1", "message": {"role": "assistant", "content": [
+            {"type": "toolCall", "id": "call_1", "name": "bash", "arguments": {"command": "boom"}}
+        ]}}),
+        json!({"id": "t1", "message": {"role": "toolResult", "toolCallId": "call_1",
+            "toolName": "bash", "content": [{"type": "text", "text": "command failed"}], "isError": true}}),
+    ];
+    state.apply(&ServerMessage::SessionReplay {
+        id: None,
+        session_id: "s".into(),
+        entries,
+        done: true,
+    });
+
+    let rows = state.rows.get();
+    assert_eq!(rows.len(), 1);
+    let card = rows[0].kind.as_tool().expect("tool row");
+    assert_eq!(card.status, cheasee_pi_ui::tool_card::ToolStatus::Error);
+    assert_eq!(card.output, "command failed");
+}
+
 /// AC1: tool execution events become durable rows between text rows.
 #[test]
 fn stream_tool_events_become_rows_between_text() {

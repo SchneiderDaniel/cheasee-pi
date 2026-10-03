@@ -605,8 +605,9 @@ impl Assembler {
     }
 
     /// Pair a replayed `toolResult` with the `toolCall` row it answers, by
-    /// `toolCallId`. Falls back to a standalone done card when the call was
-    /// never folded.
+    /// `toolCallId`. Falls back to a standalone card when the call was never
+    /// folded. The persisted `isError` flag decides the status, so a failed
+    /// historical call is not misrepresented as success.
     fn fold_tool_result(&mut self, message: &Value) -> bool {
         let tool_call_id = message
             .get("toolCallId")
@@ -614,6 +615,16 @@ impl Assembler {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        let is_error = message
+            .get("isError")
+            .or_else(|| message.get("is_error"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let status = if is_error {
+            ToolStatus::Error
+        } else {
+            ToolStatus::Done
+        };
         let (output, truncated) = bounded(content_text(message));
         if let Some(row) = self.history.iter_mut().rev().find(|r| {
             r.kind
@@ -623,7 +634,7 @@ impl Assembler {
             if let RowKind::Tool(card) = &mut row.kind {
                 card.output = output;
                 card.truncated = truncated;
-                card.status = ToolStatus::Done;
+                card.status = status;
                 return true;
             }
         }
@@ -632,7 +643,7 @@ impl Assembler {
             name: String::new(),
             args: String::new(),
             output,
-            status: ToolStatus::Done,
+            status,
             truncated,
         };
         let id = self.alloc_id();
@@ -672,7 +683,7 @@ fn block_kind(raw: &str) -> Option<BlockKind> {
     match raw {
         "text" => Some(BlockKind::Text),
         "thinking" => Some(BlockKind::Thinking),
-        "toolcall" | "tool_call" => Some(BlockKind::ToolCall),
+        "toolcall" | "tool_call" | "toolCall" => Some(BlockKind::ToolCall),
         _ => None,
     }
 }
@@ -719,7 +730,7 @@ fn row_kinds_from_message(message: &Value) -> Vec<RowKind> {
                             truncated,
                         }));
                     }
-                    "toolcall" | "tool_call" => {
+                    "toolcall" | "tool_call" | "toolCall" => {
                         let id = part
                             .get("id")
                             .or_else(|| part.get("toolCallId"))
