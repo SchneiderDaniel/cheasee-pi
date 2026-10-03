@@ -120,19 +120,53 @@ async fn assert_no_message(received: &mut mpsc::UnboundedReceiver<ServerMessage>
     );
 }
 
-/// Spawn the real relay and return its driver handles.
-fn spawn_relay(
+/// Answer the three replay requests a subscribe issues, then drain the header
+/// and terminal replay frame. The relay starts unbound, so every test that
+/// expects events must bind first.
+async fn bind_relay(
+    command_tx: &mpsc::UnboundedSender<Result<ClientMessage, String>>,
+    received: &mut mpsc::UnboundedReceiver<ServerMessage>,
+    to_child: &mut DuplexStream,
+    frames: &mut Frames,
+) {
+    command_tx
+        .send(Ok(ClientMessage::Subscribe {
+            id: None,
+            session_id: String::new(),
+            since: None,
+        }))
+        .unwrap();
+    for _ in 0..3 {
+        let command = next_command(frames).await;
+        let id = command["id"].as_str().unwrap().to_string();
+        let response = match command["type"].as_str().unwrap() {
+            "get_entries" => json!({"type":"response","command":"get_entries","success":true,"id":id,"data":{"entries":[],"leafId":null}}),
+            "get_state" => json!({"type":"response","command":"get_state","success":true,"id":id,"data":{}}),
+            "get_last_assistant_text" => json!({"type":"response","command":"get_last_assistant_text","success":true,"id":id,"data":{"text":null}}),
+            other => panic!("unexpected binding request {other}"),
+        };
+        write_record(to_child, response).await;
+    }
+    let _ = next_message(received).await; // SessionState
+    let _ = next_message(received).await; // SessionReplay
+}
+
+/// Spawn the real relay, bind it to its session, and return its driver handles.
+async fn spawn_relay(
     client: &Arc<RpcClient>,
+    to_child: &mut DuplexStream,
+    frames: &mut Frames,
 ) -> (
     mpsc::UnboundedSender<Result<ClientMessage, String>>,
     mpsc::UnboundedReceiver<ServerMessage>,
     tokio::task::JoinHandle<()>,
     Arc<Session>,
 ) {
-    let (command_tx, received, sink) = fake();
+    let (command_tx, mut received, sink) = fake();
     let session = Arc::new(Session::new(Arc::clone(client)));
     let session_for_test = Arc::clone(&session);
     let relay = tokio::spawn(async move { session.relay(sink).await });
+    bind_relay(&command_tx, &mut received, to_child, frames).await;
     (command_tx, received, relay, session_for_test)
 }
 
@@ -254,8 +288,8 @@ fn extension_ui_response_shapes_serialize_with_exactly_one_key() {
 #[tokio::test]
 async fn extension_ui_relay_forwards_each_method_unmutated() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, _session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, _session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     let requests: Vec<ExtensionUiRequest> = fixture_values("extension_ui.jsonl")
         .into_iter()
@@ -293,7 +327,7 @@ async fn extension_ui_relay_forwards_each_method_unmutated() {
 async fn extension_ui_answer_writes_response_and_no_command_response() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(
         &mut to_child,
@@ -324,7 +358,7 @@ async fn extension_ui_answer_writes_response_and_no_command_response() {
 async fn extension_ui_confirm_shapes_reach_pi() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, _session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, _session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(&mut to_child, request("c1", "confirm", json!({"title": "Go?"}))).await;
     let _ = next_message(&mut received).await;
@@ -350,8 +384,8 @@ async fn extension_ui_confirm_shapes_reach_pi() {
 #[tokio::test]
 async fn extension_ui_newest_blocking_replaces_pending() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(&mut to_child, request("first", "input", json!({"title": "a"}))).await;
     let _ = next_message(&mut received).await;
@@ -372,7 +406,7 @@ async fn extension_ui_newest_blocking_replaces_pending() {
 async fn extension_ui_non_pending_answer_writes_nothing() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     // An answer for a request that never occupied the slot (a `notify` id).
     write_record(
@@ -401,8 +435,8 @@ async fn extension_ui_non_pending_answer_writes_nothing() {
 #[tokio::test]
 async fn extension_ui_timeout_decodes_and_editor_has_none() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(&mut to_child, request("s", "select", json!({"options": ["a"], "timeout": 2500}))).await;
     let _ = next_message(&mut received).await;
@@ -422,8 +456,8 @@ async fn extension_ui_timeout_decodes_and_editor_has_none() {
 #[tokio::test]
 async fn extension_ui_notify_never_occupies_the_pending_slot() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(
         &mut to_child,
@@ -574,7 +608,7 @@ fn extension_ui_ingest_frame_decodes_and_ignores_malformed() {
 async fn extension_ui_operator_journey_confirm() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let (controls, state) = state_with_draft();
     let _ = controls;
 
@@ -609,8 +643,8 @@ async fn extension_ui_operator_journey_confirm() {
 #[tokio::test]
 async fn extension_ui_operator_mixed_chrome_journey() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, _session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, _session) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let (controls, state) = state_with_draft();
 
     for raw in [
@@ -644,8 +678,8 @@ async fn extension_ui_operator_mixed_chrome_journey() {
 #[tokio::test]
 async fn extension_ui_reconnect_seam_keeps_pending_request() {
     let _owner = owner();
-    let (client, mut to_child, _frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (client, mut to_child, mut frames) = harness();
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(&mut to_child, request("keep", "editor", json!({"title": "Edit"}))).await;
     let _ = next_message(&mut received).await;
@@ -670,7 +704,7 @@ async fn extension_ui_reconnect_seam_keeps_pending_request() {
 async fn extension_ui_duplicate_late_answer_is_tolerated() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(&mut to_child, request("q1", "select", json!({"options": ["x"]}))).await;
     let _ = next_message(&mut received).await;
@@ -715,7 +749,7 @@ fn extension_ui_missing_required_fields_do_not_clear_unrelated_state() {
 async fn extension_ui_fire_and_forget_never_emits_a_response() {
     let _owner = owner();
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay, _session) = spawn_relay(&client);
+    let (command_tx, mut received, relay, _session) = spawn_relay(&client, &mut to_child, &mut frames).await;
 
     write_record(
         &mut to_child,

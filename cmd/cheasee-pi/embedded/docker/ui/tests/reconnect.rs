@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
 use cheasee_pi_ui::pi_process::PidRegistry;
+use cheasee_pi_ui::protocol::Event;
 use cheasee_pi_ui::rpc::framing::{encode_record, JsonlReader};
 use cheasee_pi_ui::rpc::RpcClient;
 use cheasee_pi_ui::session::{ClientSink, Session, SessionHandle, SessionRegistry};
@@ -23,6 +24,8 @@ use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
 use tokio::sync::mpsc;
 
 const BOUND: Duration = Duration::from_secs(2);
+/// How long "nothing arrived" is proven for.
+const QUIET: Duration = Duration::from_millis(200);
 
 type Frames = JsonlReader<BufReader<DuplexStream>>;
 
@@ -85,15 +88,6 @@ async fn next_message(received: &mut mpsc::UnboundedReceiver<ServerMessage>) -> 
         .await
         .expect("a server message within 2s")
         .expect("browser channel open")
-}
-
-/// Let freshly spawned relay tasks reach their first poll, so their broadcast
-/// receivers exist before the fake child emits anything (a broadcast with no
-/// receiver drops the value).
-async fn settle() {
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
 }
 
 fn temp_session_dir(tag: &str) -> PathBuf {
@@ -186,6 +180,35 @@ fn subscribe(session_id: &str, since: Option<&str>) -> ClientMessage {
     }
 }
 
+/// Drain the header + terminal replay frame a subscribe emits (an empty replay
+/// is still one `done: true` chunk).
+async fn drain_subscribe(received: &mut mpsc::UnboundedReceiver<ServerMessage>) {
+    match next_message(received).await {
+        ServerMessage::SessionState { .. } => {}
+        other => panic!("expected a state header, got {other:?}"),
+    }
+    match next_message(received).await {
+        ServerMessage::SessionReplay { done, .. } => assert!(done, "terminal replay frame"),
+        other => panic!("expected a replay chunk, got {other:?}"),
+    }
+}
+
+/// Subscribe `tx` to `session_id`, answer the three replay requests with an
+/// empty history, and drain the header + replay. Leaves the connection bound
+/// and live (AC1's binding protocol).
+async fn bind(
+    tx: &mpsc::UnboundedSender<Result<ClientMessage, String>>,
+    received: &mut mpsc::UnboundedReceiver<ServerMessage>,
+    frames: &mut Frames,
+    to_child: &mut DuplexStream,
+    session_id: &str,
+    since: Option<&str>,
+) {
+    tx.send(Ok(subscribe(session_id, since))).unwrap();
+    serve_replay(frames, to_child, since, json!([]), "leaf", json!({}), None).await;
+    drain_subscribe(received).await;
+}
+
 fn entry_ids(entries: &[Value]) -> Vec<String> {
     entries
         .iter()
@@ -196,7 +219,7 @@ fn entry_ids(entries: &[Value]) -> Vec<String> {
 /// AC1: two subscribers to one session each receive the same broadcast event.
 #[tokio::test]
 async fn reconnect_fanout_two_subscribers_receive_every_event() {
-    let (client, mut to_child, _frames) = harness();
+    let (client, mut to_child, mut frames) = harness();
     let registry = Arc::new(SessionRegistry::new());
     let dir = temp_session_dir("fanout");
     let session = register_live(&registry, client, store(&dir), "sess-1", Some(111));
@@ -208,7 +231,11 @@ async fn reconnect_fanout_two_subscribers_receive_every_event() {
     let task_a = tokio::spawn(async move { sub_a.relay(sink_a).await });
     let task_b = tokio::spawn(async move { sub_b.relay(sink_b).await });
 
-    settle().await;
+    // Both connections must bind before any event is delivered (the relay
+    // starts unbound).
+    bind(&tx_a, &mut rx_a, &mut frames, &mut to_child, "sess-1", None).await;
+    bind(&tx_b, &mut rx_b, &mut frames, &mut to_child, "sess-1", None).await;
+
     write_record(&mut to_child, json!({"type": "agent_start"})).await;
 
     for rx in [&mut rx_a, &mut rx_b] {
@@ -287,8 +314,10 @@ async fn reconnect_header_restores_in_flight_metadata() {
     let (tx, mut rx, sink) = fake();
     let task = tokio::spawn(async move { sub.relay(sink).await });
 
-    // A blocking dialog is pending before the reconnect.
-    settle().await;
+    // Bind first so the dialog is captured in the shared pending slot.
+    bind(&tx, &mut rx, &mut frames, &mut to_child, "sess-3", None).await;
+
+    // A blocking dialog becomes pending.
     write_record(
         &mut to_child,
         json!({"type": "extension_ui_request", "id": "uuid-1", "method": "confirm", "message": "?"}),
@@ -299,6 +328,7 @@ async fn reconnect_header_restores_in_flight_metadata() {
         other => panic!("expected the dialog, got {other:?}"),
     }
 
+    // Reconnect: the header restores the pending dialog and in-flight metadata.
     tx.send(Ok(subscribe("sess-3", None))).unwrap();
     serve_replay(
         &mut frames,
@@ -329,23 +359,27 @@ async fn reconnect_header_restores_in_flight_metadata() {
     let _ = task.await;
 }
 
-/// AC5: a subscribe/unsubscribe/subscribe cycle never touches the child; the
-/// pid is unchanged and no second child is registered.
+/// AC5: a subscribe/unsubscribe/subscribe cycle never touches the child. A real
+/// OS process stands in for the pi child so the assertion proves the process is
+/// still alive — a constant `child_pid` field alone would pass even if a kill
+/// path ran.
 #[tokio::test]
 async fn reconnect_subscribe_cycle_leaves_the_child_pid_untouched() {
     let (client, mut to_child, mut frames) = harness();
     let registry = Arc::new(SessionRegistry::new());
     let dir = temp_session_dir("pid");
-    let session = register_live(&registry, client, store(&dir), "sess-4", Some(4242));
+    let mut child = std::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .expect("sleep must be spawnable");
+    let pid = child.id();
+    let session = register_live(&registry, client, store(&dir), "sess-4", Some(pid));
 
     let sub = Arc::clone(&session);
     let (tx, mut rx, sink) = fake();
     let task = tokio::spawn(async move { sub.relay(sink).await });
 
-    tx.send(Ok(subscribe("sess-4", None))).unwrap();
-    serve_replay(&mut frames, &mut to_child, None, json!([]), "leaf", json!({}), None).await;
-    let _ = next_message(&mut rx).await; // SessionState
-    let _ = next_message(&mut rx).await; // SessionReplay
+    bind(&tx, &mut rx, &mut frames, &mut to_child, "sess-4", None).await;
 
     tx.send(Ok(ClientMessage::Unsubscribe {
         id: None,
@@ -353,22 +387,26 @@ async fn reconnect_subscribe_cycle_leaves_the_child_pid_untouched() {
     }))
     .unwrap();
 
-    tx.send(Ok(subscribe("sess-4", None))).unwrap();
-    serve_replay(&mut frames, &mut to_child, None, json!([]), "leaf", json!({}), None).await;
-    let _ = next_message(&mut rx).await;
-    let _ = next_message(&mut rx).await;
+    bind(&tx, &mut rx, &mut frames, &mut to_child, "sess-4", None).await;
 
-    assert_eq!(registry.pid("sess-4"), Some(4242), "the child pid is unchanged");
+    assert_eq!(registry.pid("sess-4"), Some(pid), "the child pid is unchanged");
     assert_eq!(registry.len(), 1, "no second child was created");
+    // The OS process itself is still running: the cycle never invoked a kill.
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the child process must still be alive after the cycle"
+    );
 
     drop(tx);
     let _ = task.await;
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// AC5 / Phase 4: `Unsubscribe` silences only that connection.
 #[tokio::test]
 async fn reconnect_unsubscribe_stops_only_that_sink() {
-    let (client, mut to_child, _frames) = harness();
+    let (client, mut to_child, mut frames) = harness();
     let registry = Arc::new(SessionRegistry::new());
     let dir = temp_session_dir("unsub");
     let session = register_live(&registry, client, store(&dir), "sess-5", Some(555));
@@ -379,6 +417,9 @@ async fn reconnect_unsubscribe_stops_only_that_sink() {
     let (tx_b, mut rx_b, sink_b) = fake();
     let task_a = tokio::spawn(async move { sub_a.relay(sink_a).await });
     let task_b = tokio::spawn(async move { sub_b.relay(sink_b).await });
+
+    bind(&tx_a, &mut rx_a, &mut frames, &mut to_child, "sess-5", None).await;
+    bind(&tx_b, &mut rx_b, &mut frames, &mut to_child, "sess-5", None).await;
 
     tx_a.send(Ok(ClientMessage::Unsubscribe {
         id: None,
@@ -515,7 +556,7 @@ async fn reconnect_journey_operator_resumes_after_disconnect() {
     let sub_b = Arc::clone(&session);
     let (tx_b, mut rx_b, sink_b) = fake();
     let task_b = tokio::spawn(async move { sub_b.relay(sink_b).await });
-    let _ = tx_b;
+    bind(&tx_b, &mut rx_b, &mut frames, &mut to_child, "sess-9", None).await;
 
     // A connects and replays from the start.
     let sub_a = Arc::clone(&session);
@@ -608,4 +649,135 @@ async fn reconnect_journey_operator_resumes_after_disconnect() {
     drop(tx_b);
     let _ = task_a2.await;
     let _ = task_b.await;
+}
+
+/// AC2 (finding 2): the live broadcast is drained while the replay is computed,
+/// so an event that the durable log already carries is not delivered twice and
+/// a genuinely new event is not lost across the replay boundary.
+#[tokio::test]
+async fn reconnect_spool_dedupes_replayed_events_and_keeps_new_ones() {
+    let (client, mut to_child, mut frames) = harness();
+    let registry = Arc::new(SessionRegistry::new());
+    let dir = temp_session_dir("spool");
+    let session = register_live(&registry, client, store(&dir), "sess-spool", Some(1));
+
+    let (tx, mut rx, sink) = fake();
+    let task = tokio::spawn(async move { session.relay(sink).await });
+
+    let replay_message = json!({"role": "assistant", "content": [{"type": "text", "text": "hi"}]});
+    tx.send(Ok(subscribe("sess-spool", None))).unwrap();
+
+    // The child sees `get_entries`; while it is in flight, pi emits one event
+    // the durable log already carries and one that is genuinely new.
+    let command = next_command(&mut frames).await;
+    assert_eq!(command["type"], "get_entries");
+    let entries_id = command["id"].as_str().unwrap().to_string();
+    write_record(
+        &mut to_child,
+        json!({"type": "message_end", "message": replay_message.clone()}),
+    )
+    .await;
+    write_record(&mut to_child, json!({"type": "agent_start"})).await;
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+
+    write_record(
+        &mut to_child,
+        json!({
+            "type": "response", "command": "get_entries", "success": true, "id": entries_id,
+            "data": {"entries": [{"id": "a", "parentId": null, "message": replay_message}], "leafId": "a"},
+        }),
+    )
+    .await;
+    for _ in 0..2 {
+        let command = next_command(&mut frames).await;
+        let id = command["id"].as_str().unwrap().to_string();
+        let response = match command["type"].as_str().unwrap() {
+            "get_state" => json!({"type":"response","command":"get_state","success":true,"id":id,"data":{}}),
+            "get_last_assistant_text" => json!({"type":"response","command":"get_last_assistant_text","success":true,"id":id,"data":{"text":null}}),
+            other => panic!("unexpected replay request {other}"),
+        };
+        write_record(&mut to_child, response).await;
+    }
+
+    // Header, then the replay containing `a`, then only the *new* live event.
+    match next_message(&mut rx).await {
+        ServerMessage::SessionState { .. } => {}
+        other => panic!("expected a state header, got {other:?}"),
+    }
+    match next_message(&mut rx).await {
+        ServerMessage::SessionReplay { entries, done, .. } => {
+            assert_eq!(entry_ids(&entries), vec!["a"]);
+            assert!(done);
+        }
+        other => panic!("expected a replay chunk, got {other:?}"),
+    }
+    match next_message(&mut rx).await {
+        ServerMessage::Event { event } => assert!(matches!(event, Event::AgentStart)),
+        other => panic!("expected the spooled new event, got {other:?}"),
+    }
+    assert!(
+        tokio::time::timeout(QUIET, rx.recv()).await.is_err(),
+        "the replayed message_end must not be delivered a second time"
+    );
+
+    drop(tx);
+    let _ = task.await;
+}
+
+/// Finding 3: subscribing to a session absent from the live registry keeps the
+/// live command client, so a following `ResumeSession` still reaches pi, and the
+/// registry is re-keyed to the resumed session.
+#[tokio::test]
+async fn reconnect_detached_subscribe_can_still_resume() {
+    let (client, _to_child, mut frames) = harness();
+    let registry = Arc::new(SessionRegistry::new());
+    let dir = temp_session_dir("resume");
+    let cwd = dir.to_string_lossy().into_owned();
+    std::fs::write(
+        dir.join("aaaa.jsonl"),
+        format!("{{\"type\":\"session\",\"id\":\"aaaa\",\"cwd\":{cwd:?}}}\n"),
+    )
+    .unwrap();
+    let store = store(&dir);
+    let live = register_live(&registry, client, Arc::clone(&store), "live-1", Some(7));
+
+    let (tx, mut rx, sink) = fake();
+    let task = tokio::spawn(async move { live.relay(sink).await });
+
+    // Subscribe to the on-disk session (not the live one): a child-less replay.
+    tx.send(Ok(subscribe("aaaa", None))).unwrap();
+    match next_message(&mut rx).await {
+        ServerMessage::SessionState { live, .. } => assert!(!live, "file replay"),
+        other => panic!("expected a child-less header, got {other:?}"),
+    }
+    let _ = next_message(&mut rx).await; // replay chunk
+
+    // Resume the on-disk session: it must reach pi over the live command client.
+    tx.send(Ok(ClientMessage::ResumeSession {
+        id: None,
+        session_id: "aaaa".into(),
+        mode: Some("resume".into()),
+        entry_id: None,
+    }))
+    .unwrap();
+    let frame = next_command(&mut frames).await;
+    assert_eq!(frame["type"], "switch_session");
+    match next_message(&mut rx).await {
+        ServerMessage::SessionAction {
+            success,
+            session_id,
+            ..
+        } => {
+            assert!(success, "resume must reach the live child");
+            assert_eq!(session_id, "aaaa");
+        }
+        other => panic!("expected a session action, got {other:?}"),
+    }
+    // The registry now maps the resumed id to the same live child.
+    assert_eq!(registry.pid("aaaa"), Some(7), "the binding was re-keyed");
+
+    drop(tx);
+    let _ = task.await;
 }

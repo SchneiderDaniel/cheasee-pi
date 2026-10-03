@@ -98,17 +98,51 @@ fn controls() -> ControlsState {
     ControlsState::new()
 }
 
-/// Spawn the real relay and return its driver handles.
-fn spawn_relay(
+/// Answer the three replay requests a subscribe issues, then drain the header
+/// and terminal replay frame. The relay starts unbound, so every test that
+/// expects events must bind first.
+async fn bind_relay(
+    command_tx: &mpsc::UnboundedSender<Result<ClientMessage, String>>,
+    received: &mut mpsc::UnboundedReceiver<ServerMessage>,
+    to_child: &mut DuplexStream,
+    frames: &mut Frames,
+) {
+    command_tx
+        .send(Ok(ClientMessage::Subscribe {
+            id: None,
+            session_id: String::new(),
+            since: None,
+        }))
+        .unwrap();
+    for _ in 0..3 {
+        let command = next_command(frames).await;
+        let id = command["id"].as_str().unwrap().to_string();
+        let response = match command["type"].as_str().unwrap() {
+            "get_entries" => json!({"type":"response","command":"get_entries","success":true,"id":id,"data":{"entries":[],"leafId":null}}),
+            "get_state" => json!({"type":"response","command":"get_state","success":true,"id":id,"data":{}}),
+            "get_last_assistant_text" => json!({"type":"response","command":"get_last_assistant_text","success":true,"id":id,"data":{"text":null}}),
+            other => panic!("unexpected binding request {other}"),
+        };
+        write_record(to_child, response).await;
+    }
+    let _ = next_message(received).await; // SessionState
+    let _ = next_message(received).await; // SessionReplay
+}
+
+/// Spawn the real relay, bind it to its session, and return its driver handles.
+async fn spawn_relay(
     client: &Arc<RpcClient>,
+    to_child: &mut DuplexStream,
+    frames: &mut Frames,
 ) -> (
     mpsc::UnboundedSender<Result<ClientMessage, String>>,
     mpsc::UnboundedReceiver<ServerMessage>,
     tokio::task::JoinHandle<()>,
 ) {
-    let (command_tx, received, sink) = fake();
+    let (command_tx, mut received, sink) = fake();
     let session = Arc::new(Session::new(Arc::clone(client)));
     let relay = tokio::spawn(async move { session.relay(sink).await });
+    bind_relay(&command_tx, &mut received, to_child, frames).await;
     (command_tx, received, relay)
 }
 
@@ -117,7 +151,7 @@ fn spawn_relay(
 #[tokio::test]
 async fn controls_journey_queue_clear_and_abort() {
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay) = spawn_relay(&client);
+    let (command_tx, mut received, relay) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let controls = controls();
 
     // A run is streaming.
@@ -200,7 +234,7 @@ async fn controls_journey_queue_clear_and_abort() {
 #[tokio::test]
 async fn controls_relay_surfaces_a_rejected_clear_queue() {
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay) = spawn_relay(&client);
+    let (command_tx, mut received, relay) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let controls = controls();
 
     command_tx
@@ -238,7 +272,7 @@ async fn controls_relay_surfaces_a_rejected_clear_queue() {
 #[tokio::test]
 async fn controls_journey_model_picker() {
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay) = spawn_relay(&client);
+    let (command_tx, mut received, relay) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let controls = controls();
 
     command_tx
@@ -297,7 +331,7 @@ async fn controls_journey_model_picker() {
 #[tokio::test]
 async fn controls_journey_inline_shell_streams_by_id() {
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay) = spawn_relay(&client);
+    let (command_tx, mut received, relay) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let controls = controls();
 
     for id in ["b1", "b2"] {
@@ -357,7 +391,7 @@ async fn controls_journey_inline_shell_streams_by_id() {
 #[tokio::test]
 async fn controls_journey_stats_and_retry_banner() {
     let (client, mut to_child, mut frames) = harness();
-    let (command_tx, mut received, relay) = spawn_relay(&client);
+    let (command_tx, mut received, relay) = spawn_relay(&client, &mut to_child, &mut frames).await;
     let controls = controls();
 
     // Handshake first: the relay subscribes to pi events when it starts, so a
@@ -431,7 +465,7 @@ async fn controls_journey_session_list_resume_and_stop() {
     use cheasee_pi_ui::pi_process::PidRegistry;
     use cheasee_pi_ui::sessions_store::SessionsStore;
 
-    let (client, mut to_child, mut frames) = harness();
+    let (client, _to_child, mut frames) = harness();
     let dir = std::env::temp_dir().join(format!(
         "cheasee-pi-ui-controls-{}-{}",
         std::process::id(),

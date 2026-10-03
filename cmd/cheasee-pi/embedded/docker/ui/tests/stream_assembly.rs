@@ -449,3 +449,37 @@ fn stream_session_envelopes_round_trip() {
     };
     assert_eq!(serde_json::to_value(&action).unwrap()["success"], false);
 }
+
+/// AC2/AC4: replay entries are folded into the transcript history and
+/// deduplicated by stable entry id, so a reconnect shows history exactly once
+/// (rather than ignoring the replay frames entirely).
+#[test]
+fn stream_replay_entries_are_folded_and_deduplicated() {
+    let owner = Owner::new();
+    owner.set();
+    let state = ChatState::new();
+
+    let entries = vec![
+        json!({"id": "u1", "message": {"role": "user", "content": "hello"}}),
+        json!({"id": "a1", "message": {"role": "assistant", "content": [{"type": "text", "text": "hi there"}]}}),
+    ];
+    assert!(state.apply(&ServerMessage::SessionReplay {
+        id: None,
+        session_id: "s".into(),
+        entries: entries.clone(),
+        done: false,
+    }));
+    assert_eq!(state.history.get().len(), 2);
+    assert_eq!(state.history.get()[0].text, "hello");
+    assert_eq!(state.history.get()[1].text, "hi there");
+    assert!(state.blocks.get().is_empty(), "history is separate from the live run");
+
+    // The same replay again is a no-op: dedupe is by stable entry id.
+    assert!(!state.apply(&ServerMessage::SessionReplay {
+        id: None,
+        session_id: "s".into(),
+        entries,
+        done: true,
+    }));
+    assert_eq!(state.history.get().len(), 2, "no duplicate rows");
+}

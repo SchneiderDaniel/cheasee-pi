@@ -144,6 +144,9 @@ pub struct SubscribeOutcome {
     pub entries: Vec<Value>,
     /// The cursor after this replay.
     pub cursor: Cursor,
+    /// A failed cursor write, surfaced rather than swallowed: AC4 needs the
+    /// cursor to survive a restart, so a silent write failure is a real gap.
+    pub cursor_error: Option<String>,
 }
 
 /// One `SessionReplay` frame's worth of entries. `done` is the terminal frame.
@@ -180,15 +183,31 @@ pub async fn subscribe(
     };
 
     let entries = dedupe(leaf_path(&data.entries, data.leaf_id.as_deref()));
-    let last_entry_id = entries.last().and_then(entry_id).map(str::to_string);
+    // Never move the cursor backwards: an incremental replay that adds no
+    // entries (an empty tail) must preserve the durable cursor rather than
+    // erasing it with `None` — otherwise a no-op reconnect breaks AC4.
+    let last_entry_id = entries
+        .last()
+        .and_then(entry_id)
+        .map(str::to_string)
+        .or_else(|| effective.clone());
     let cursor = Cursor {
         leaf_id: data.leaf_id.clone(),
         last_entry_id,
         updated_at: None,
     };
-    // Persisting is best-effort: a read-only session dir must not fail a
-    // replay that the client can still use.
-    let _ = store.write_cursor(session_id, cursor.clone()).await;
+    // A failed write must not fail the replay the client can still use, but it
+    // must be visible: swallowing it reports a durable cursor that is not there.
+    // An empty session id has no durable cursor to key, so it is not an error.
+    let cursor_error = if session_id.is_empty() {
+        None
+    } else {
+        store
+            .write_cursor(session_id, cursor.clone())
+            .await
+            .err()
+            .map(|err| format!("cursor not persisted for {session_id}: {err}"))
+    };
 
     Ok(SubscribeOutcome {
         live: data.live,
@@ -198,6 +217,7 @@ pub async fn subscribe(
         cursor_invalid,
         entries,
         cursor,
+        cursor_error,
     })
 }
 
@@ -369,6 +389,8 @@ mod tests {
     struct FakeStore {
         cursor: Mutex<Option<Cursor>>,
         writes: Mutex<Vec<Cursor>>,
+        /// When set, every write fails with this message.
+        write_error: Option<String>,
     }
 
     impl CursorStore for FakeStore {
@@ -382,11 +404,47 @@ mod tests {
             cursor: Cursor,
         ) -> BoxFuture<'a, Result<(), String>> {
             Box::pin(async move {
+                if let Some(error) = &self.write_error {
+                    return Err(error.clone());
+                }
                 self.writes.lock().unwrap().push(cursor.clone());
                 *self.cursor.lock().unwrap() = Some(cursor);
                 Ok(())
             })
         }
+    }
+
+    #[tokio::test]
+    async fn subscribe_empty_tail_preserves_the_durable_cursor() {
+        let source = FakeSource::linear(&["a", "b"]);
+        let store = FakeStore {
+            cursor: Mutex::new(Some(Cursor {
+                leaf_id: Some("b".into()),
+                last_entry_id: Some("b".into()),
+                updated_at: None,
+            })),
+            ..FakeStore::default()
+        };
+        let outcome = subscribe(&source, &store, "s", Some("b".into())).await.unwrap();
+        assert!(outcome.entries.is_empty(), "nothing after the leaf");
+        assert_eq!(
+            outcome.cursor.last_entry_id.as_deref(),
+            Some("b"),
+            "an empty tail must not erase the cursor"
+        );
+        assert!(outcome.cursor_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn subscribe_surfaces_a_cursor_write_failure() {
+        let source = FakeSource::linear(&["a"]);
+        let store = FakeStore {
+            write_error: Some("read-only session dir".into()),
+            ..FakeStore::default()
+        };
+        let outcome = subscribe(&source, &store, "s", None).await.unwrap();
+        let error = outcome.cursor_error.expect("a failed write must surface");
+        assert!(error.contains("read-only session dir"), "{error}");
     }
 
     #[tokio::test]

@@ -11,6 +11,8 @@
 //! frame-rate flush so a token stream does not become one DOM mutation per
 //! token (precedent: the context-info TPS sampler, 150 ms).
 
+use std::collections::HashSet;
+
 use leptos::prelude::*;
 use serde_json::Value;
 
@@ -96,6 +98,13 @@ pub struct Assembler {
     /// that must not append to the final text; the flag clears only on the next
     /// `message_start` (or a fresh `agent_start`).
     finalized: bool,
+    /// Replayed history from the durable log, rendered *before* the live run.
+    /// Kept separate from `blocks` so a `message_start` clearing the live run
+    /// never wipes history (AC2/AC4).
+    history: Vec<Block>,
+    /// Entry ids already folded into `history`, so replaying the same entries
+    /// twice (a reconnect, a resync) is idempotent and never duplicates a row.
+    replayed: HashSet<String>,
 }
 
 impl Assembler {
@@ -321,6 +330,40 @@ impl Assembler {
         &self.blocks
     }
 
+    /// The replayed history, oldest first.
+    pub fn history(&self) -> &[Block] {
+        &self.history
+    }
+
+    /// Fold raw pi session entries into the transcript history. Idempotent by
+    /// stable entry id; an entry with no renderable message is skipped.
+    pub fn apply_replay(&mut self, entries: &[Value]) -> bool {
+        let mut changed = false;
+        for entry in entries {
+            changed |= self.fold_replay_entry(entry);
+        }
+        changed
+    }
+
+    fn fold_replay_entry(&mut self, entry: &Value) -> bool {
+        let Some(id) = entry.get("id").and_then(Value::as_str) else {
+            return false;
+        };
+        // Dedupe by stable entry id, never by arrival order.
+        if !self.replayed.insert(id.to_string()) {
+            return false;
+        }
+        let Some(message) = entry.get("message") else {
+            return false;
+        };
+        let blocks = blocks_from_message(message);
+        if blocks.is_empty() {
+            return false;
+        }
+        self.history.extend(blocks);
+        true
+    }
+
     pub fn usage(&self) -> Usage {
         self.usage.clone()
     }
@@ -341,6 +384,42 @@ fn block_kind(raw: &str) -> Option<BlockKind> {
         "toolcall" | "tool_call" => Some(BlockKind::ToolCall),
         _ => None,
     }
+}
+
+/// Build transcript blocks from one raw pi message. A user message carries a
+/// plain string; an assistant message carries a typed content array.
+fn blocks_from_message(message: &Value) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    let mut push = |index: u32, kind: BlockKind, raw: &str| {
+        let (text, truncated) = bounded(raw.to_string());
+        blocks.push(Block {
+            index,
+            kind,
+            text,
+            truncated,
+        });
+    };
+    match message.get("content") {
+        Some(Value::String(text)) => push(0, BlockKind::Text, text),
+        Some(Value::Array(parts)) => {
+            for (i, part) in parts.iter().enumerate() {
+                let Some(kind) = part.get("type").and_then(Value::as_str).and_then(block_kind) else {
+                    continue;
+                };
+                let raw = match kind {
+                    BlockKind::Text => part.get("text").and_then(Value::as_str).unwrap_or_default(),
+                    BlockKind::Thinking => part
+                        .get("thinking")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    BlockKind::ToolCall => "",
+                };
+                push(i as u32, kind, raw);
+            }
+        }
+        _ => {}
+    }
+    blocks
 }
 
 /// Bound a block's text to [`MAX_LIVE_TEXT`], keeping the trailing
@@ -404,7 +483,10 @@ fn usage_from_value(value: &Value) -> Option<Usage> {
 #[derive(Clone, Copy)]
 pub struct ChatState {
     assembler: RwSignal<Assembler>,
+    /// The current run's blocks.
     pub blocks: RwSignal<Vec<Block>>,
+    /// History replayed from the durable log, rendered before `blocks`.
+    pub history: RwSignal<Vec<Block>>,
     pub usage: RwSignal<Usage>,
     pub status: RwSignal<StreamStatus>,
     pub will_retry: RwSignal<Option<bool>>,
@@ -426,6 +508,7 @@ impl ChatState {
         Self {
             assembler: RwSignal::new(Assembler::default()),
             blocks: RwSignal::new(Vec::new()),
+            history: RwSignal::new(Vec::new()),
             usage: RwSignal::new(Usage::default()),
             status: RwSignal::new(StreamStatus::default()),
             will_retry: RwSignal::new(None),
@@ -512,11 +595,22 @@ impl ChatState {
                     false
                 }
             }
-            // ponytail: replay entries are not folded into the transcript yet
-            // (a `message_end` rebuilds the block list, it does not append
-            // history). The reconnect header and live tail are wired; rendering
-            // the replayed transcript is a follow-up slice.
-            ServerMessage::SessionReplay { .. } => false,
+            // Replay entries are folded into the transcript history so a
+            // reconnect or a child-less restart actually shows the history
+            // (AC2/AC4); dedupe by stable entry id lives in the assembler.
+            ServerMessage::SessionReplay { entries, .. } => {
+                let changed = self
+                    .assembler
+                    .try_maybe_update(|a| {
+                        let changed = a.apply_replay(entries);
+                        (changed, changed)
+                    })
+                    .unwrap_or(false);
+                if changed {
+                    self.schedule_flush();
+                }
+                changed
+            }
             ServerMessage::Unknown => false,
         }
     }
@@ -556,15 +650,17 @@ impl ChatState {
     /// browser timer (and tests) can force a flush.
     pub fn flush_now(&self) {
         self.flush_pending.set(false);
-        let (blocks, usage, status, will_retry) = self.assembler.with(|a| {
+        let (blocks, history, usage, status, will_retry) = self.assembler.with(|a| {
             (
                 a.blocks().to_vec(),
+                a.history().to_vec(),
                 a.usage(),
                 a.status(),
                 a.will_retry(),
             )
         });
         self.blocks.set(blocks);
+        self.history.set(history);
         self.usage.set(usage);
         self.status.set(status);
         self.will_retry.set(will_retry);
