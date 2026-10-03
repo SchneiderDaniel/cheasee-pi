@@ -644,10 +644,10 @@ mod tests {
         let (client, mut to_child, _from_child) = harness();
         let mut events = client.events();
 
-        // `agent_settled` is documented nowhere in the pinned pi release.
-        write_record(&mut to_child, json!({"type":"agent_settled"})).await;
+        // A genuinely unmodelled event type (`agent_settled` is now modelled).
+        write_record(&mut to_child, json!({"type":"future_event"})).await;
         match next_event(&mut events).await {
-            ProtocolMessage::Unknown(value) => assert_eq!(value["type"], "agent_settled"),
+            ProtocolMessage::Unknown(value) => assert_eq!(value["type"], "future_event"),
             other => panic!("expected Unknown, got {other:?}"),
         }
 

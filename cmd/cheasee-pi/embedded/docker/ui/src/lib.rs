@@ -5,8 +5,11 @@
 //! by the Axum composition root in `src/main.rs`.
 
 pub mod app;
+pub mod bridge;
+pub mod components;
 pub mod protocol;
 pub mod retry;
+pub mod stream;
 
 // Server-only (ssr): auth.json resolution and the spawned `pi` RPC child.
 // Gated on `ssr` because both use `tokio::process`/`std`, which the wasm32
@@ -20,6 +23,10 @@ pub mod pi_process;
 // types and the wasm32 hydrate build must not.
 #[cfg(feature = "ssr")]
 pub mod rpc;
+// Server-only: the per-connection relay that turns the pi event broadcast into
+// browser frames. Gated because it links `tokio` and the shared `rpc::RpcClient`.
+#[cfg(feature = "ssr")]
+pub mod session;
 
 // Browser-only transport. Gated so the server target never links web-sys.
 #[cfg(feature = "hydrate")]

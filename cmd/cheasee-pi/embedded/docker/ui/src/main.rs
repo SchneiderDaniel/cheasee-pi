@@ -9,7 +9,7 @@ mod server {
     use axum::{
         body::Body,
         extract::{
-            ws::{WebSocket, WebSocketUpgrade},
+            ws::{Message, WebSocket, WebSocketUpgrade},
             State,
         },
         http::{header, HeaderValue, Request},
@@ -22,7 +22,8 @@ mod server {
     use std::sync::Arc;
     use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
-    use cheasee_pi_ui::{auth, pi_process, rpc, shell};
+    use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
+    use cheasee_pi_ui::{auth, pi_process, rpc, session, shell};
 
     /// The fixed in-container listen port. The compose mapping publishes it to
     /// the host loopback; keep it in sync with that mapping's container side.
@@ -169,18 +170,61 @@ mod server {
         Json(json!({ "status": "ok" }))
     }
 
-    /// Upgrade and hand the socket to the echo loop.
-    async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-        ws.on_upgrade(handle_socket)
+    /// Upgrade and hand the socket to the per-connection relay.
+    async fn ws_handler(
+        State(state): State<AppState>,
+        ws: WebSocketUpgrade,
+    ) -> impl IntoResponse {
+        let rpc = state.spawn.rpc.clone();
+        ws.on_upgrade(move |socket| handle_socket(socket, rpc))
     }
 
-    /// Framing-agnostic echo: whatever frame arrives goes back verbatim on the
-    /// same connection (text or binary). Slice 4 layers strict JSONL framing
-    /// on the pi child pipe, not here.
-    async fn handle_socket(mut socket: WebSocket) {
-        while let Some(Ok(frame)) = socket.recv().await {
-            if socket.send(frame).await.is_err() {
-                break;
+    /// One browser connection over the shared pi child. The relay is
+    /// `session::relay` — this adapter only builds the transport sink.
+    async fn handle_socket(socket: WebSocket, rpc: Option<Arc<rpc::RpcClient>>) {
+        let Some(rpc) = rpc else {
+            // No child: tell the browser instead of leaving it hanging. The
+            // UI must still come up and report the state (AC4).
+            let mut socket = socket;
+            let message = ServerMessage::Error {
+                message: "no pi child is running".to_string(),
+            };
+            if let Ok(text) = serde_json::to_string(&message) {
+                let _ = socket.send(Message::Text(text.into())).await;
+            }
+            return;
+        };
+        session::Session::new(rpc).relay(WsSink { socket }).await;
+    }
+
+    /// The axum WebSocket as `session::ClientSink`: text frames carry the
+    /// [`ClientMessage`]/[`ServerMessage`] envelope.
+    struct WsSink {
+        socket: WebSocket,
+    }
+
+    impl session::ClientSink for WsSink {
+        async fn send_text(&mut self, text: String) -> Result<(), ()> {
+            self.socket
+                .send(Message::Text(text.into()))
+                .await
+                .map_err(|_| ())
+        }
+
+        async fn recv(&mut self) -> Option<Result<ClientMessage, String>> {
+            loop {
+                match self.socket.recv().await {
+                    Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
+                        Ok(message) => return Some(Ok(message)),
+                        // A malformed client frame must not kill the
+                        // connection; surface it so the browser learns its
+                        // command was not accepted, then keep reading.
+                        Err(err) => return Some(Err(err.to_string())),
+                    },
+                    Some(Ok(Message::Close(_))) | None => return None,
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => return None,
+                }
             }
         }
     }
@@ -401,17 +445,13 @@ mod tests {
         );
     }
 
-    /// AC3: the live channel echoes every frame verbatim on the same
-    /// connection. Drives a real upgrade over a loopback socket rather than
-    /// asserting the handler exists.
+    /// No child: the relay reports the state instead of leaving the browser
+    /// hanging.
     #[tokio::test]
-    async fn ws_echoes_every_frame_verbatim() {
-        use futures_util::{SinkExt, StreamExt};
-        use tokio_tungstenite::tungstenite::Message;
+    async fn ws_without_child_reports_an_error_frame() {
+        use futures_util::StreamExt;
 
         init_executor();
-        // Bind via Ipv4Addr::LOCALHOST so this file never spells the loopback
-        // literal the bind guard forbids.
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
@@ -424,44 +464,131 @@ mod tests {
         let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
             .await
             .unwrap();
-        for payload in ["{\"n\":1}", "{\"n\":2}", "{\"n\":3}"] {
-            socket
-                .send(Message::Text(payload.to_string()))
-                .await
-                .unwrap();
-            let echoed = socket.next().await.unwrap().unwrap();
-            assert_eq!(echoed.to_text().unwrap(), payload, "frame not echoed verbatim");
+        let frame = socket.next().await.unwrap().unwrap();
+        let message: cheasee_pi_ui::bridge::ServerMessage =
+            serde_json::from_str(frame.to_text().unwrap()).unwrap();
+        match message {
+            cheasee_pi_ui::bridge::ServerMessage::Error { message } => {
+                assert!(message.contains("no pi child"), "message = {message}")
+            }
+            other => panic!("expected an error frame, got {other:?}"),
         }
     }
 
-    /// AC3 boundary: the echo is verbatim for empty and binary frames too — no
-    /// framing assumption slips in here before slice 4 layers JSONL framing.
+    /// AC1/AC2: a browser prompt reaches the child, and the pi event and
+    /// response reach the browser over the same connection. Drives a real
+    /// upgrade over a loopback socket with a fake child behind a real
+    /// `RpcClient`.
     #[tokio::test]
-    async fn ws_echoes_binary_and_empty_frames_verbatim() {
+    async fn ws_relays_commands_and_pi_events() {
         use futures_util::{SinkExt, StreamExt};
-        use tokio_tungstenite::tungstenite::Message;
+        use tokio::io::{AsyncWriteExt, BufReader};
+        use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+        use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
+        use cheasee_pi_ui::rpc::{encode_record, JsonlReader};
 
         init_executor();
+        let bound = std::time::Duration::from_secs(2);
+
+        // A fake pi child: we write its stdout events, and read the commands
+        // the client writes to its stdin.
+        let (mut child_stdout, stdout_rx) = tokio::io::duplex(1 << 16);
+        let (client_stdin, child_stdin) = tokio::io::duplex(1 << 16);
+        let client = Arc::new(cheasee_pi_ui::rpc::RpcClient::new(
+            Box::new(stdout_rx),
+            Box::new(client_stdin),
+        ));
+        let mut commands = JsonlReader::new(BufReader::new(child_stdin));
+
+        let state = server::AppState {
+            options: options(&site_dir()),
+            spawn: Arc::new(server::SpawnState {
+                registry: cheasee_pi_ui::pi_process::PidRegistry::new(),
+                pid: Some(1),
+                session_id: "sess-ws".to_string(),
+                env_var_names: Vec::new(),
+                has_provider_keys: true,
+                source: cheasee_pi_ui::auth::AuthSource::Missing,
+                auth_error: None,
+                rpc: Some(client),
+            }),
+        };
+
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = app(&site_dir());
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
+            let _ = axum::serve(listener, server::router(state)).await;
         });
 
         let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
             .await
             .unwrap();
 
-        socket.send(Message::Text(String::new())).await.unwrap();
-        let echoed = socket.next().await.unwrap().unwrap();
-        assert_eq!(echoed.to_text().unwrap(), "", "empty text frame not echoed");
+        let prompt = ClientMessage::Prompt {
+            id: None,
+            message: "count to 3".to_string(),
+            streaming_behavior: None,
+        };
+        socket
+            .send(WsMessage::Text(serde_json::to_string(&prompt).unwrap()))
+            .await
+            .unwrap();
 
-        socket.send(Message::Binary(vec![1, 2, 3])).await.unwrap();
-        let echoed = socket.next().await.unwrap().unwrap();
-        assert_eq!(echoed.into_data(), vec![1, 2, 3], "binary frame not echoed verbatim");
+        let frame = tokio::time::timeout(bound, commands.next_record_str())
+            .await
+            .expect("command written")
+            .unwrap()
+            .unwrap();
+        let command: serde_json::Value = serde_json::from_str(&frame).unwrap();
+        assert_eq!(command["type"], "prompt");
+        assert_eq!(command["message"], "count to 3");
+        let id = command["id"].as_str().unwrap().to_string();
+
+        // A pi event while the prompt is in flight is relayed to the browser.
+        child_stdout
+            .write_all(&encode_record(&serde_json::json!({"type": "agent_start"})).unwrap())
+            .await
+            .unwrap();
+        child_stdout.flush().await.unwrap();
+        let frame = tokio::time::timeout(bound, socket.next())
+            .await
+            .expect("event frame")
+            .unwrap()
+            .unwrap();
+        match serde_json::from_str::<ServerMessage>(frame.to_text().unwrap()).unwrap() {
+            ServerMessage::Event { .. } => {}
+            other => panic!("expected an event, got {other:?}"),
+        }
+
+        // The prompt response is relayed back too.
+        child_stdout
+            .write_all(
+                &encode_record(&serde_json::json!({
+                    "type": "response",
+                    "command": "prompt",
+                    "success": true,
+                    "id": id,
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        child_stdout.flush().await.unwrap();
+        let frame = tokio::time::timeout(bound, socket.next())
+            .await
+            .expect("response frame")
+            .unwrap()
+            .unwrap();
+        match serde_json::from_str::<ServerMessage>(frame.to_text().unwrap()).unwrap() {
+            ServerMessage::CommandResponse { success, command, .. } => {
+                assert!(success);
+                assert_eq!(command, "prompt");
+            }
+            other => panic!("expected a command response, got {other:?}"),
+        }
     }
 
     /// The child-debug surface reports the recorded pid and the child env var

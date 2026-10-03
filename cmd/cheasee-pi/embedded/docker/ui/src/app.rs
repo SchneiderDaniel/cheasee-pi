@@ -4,8 +4,11 @@
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, Title};
 
-/// Connection state the echo view renders. A dropped socket must never read as
-/// a silent hang, nor a lost frame as a successful send, so the view always
+use crate::components::message::Transcript;
+use crate::stream::ChatState;
+
+/// Connection state the view renders. A dropped socket must never read as a
+/// silent hang, nor a lost frame as a successful send, so the view always
 /// shows one of these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectionStatus {
@@ -33,12 +36,25 @@ impl ConnectionStatus {
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
+    // The streaming state lives for the whole app: the WS adapter feeds it and
+    // the transcript reads it. Defaults are deterministic, which is what
+    // hydration requires.
+    let chat = ChatState::new();
+    provide_context(chat);
+    let status = RwSignal::new(ConnectionStatus::Disconnected);
+
+    // Browser-only: open the WS, reconnect with backoff, and feed frames into
+    // the chat state. Compiled out of the server target entirely.
+    #[cfg(feature = "hydrate")]
+    crate::ws::connect(chat, status);
+
     view! {
         <Title text="cheasee-pi"/>
         <main class="shell">
             <h1>"cheasee-pi control center"</h1>
             <Counter/>
-            <Echo/>
+            <PromptInput status=status/>
+            <Transcript/>
         </main>
     }
 }
@@ -56,30 +72,52 @@ fn Counter() -> impl IntoView {
     }
 }
 
+/// The prompt box: sends a [`ClientMessage::Prompt`] to the server.
 #[component]
-fn Echo() -> impl IntoView {
+fn PromptInput(status: RwSignal<ConnectionStatus>) -> impl IntoView {
     let draft = RwSignal::new(String::new());
-    let echoed = RwSignal::new(String::new());
-    let status = RwSignal::new(ConnectionStatus::Disconnected);
-
-    // Browser-only: open the WS, reconnect with backoff, and feed frames into
-    // the signals above. Compiled out of the server target entirely.
+    // Used only to decide the streaming behavior of a mid-run prompt.
     #[cfg(feature = "hydrate")]
-    crate::ws::connect(echoed, status);
+    let chat = expect_context::<ChatState>();
 
     let send = move |_| {
-        let text = draft.get();
-        if text.is_empty() {
+        let message = draft.get();
+        if message.trim().is_empty() {
             return;
         }
         #[cfg(feature = "hydrate")]
-        crate::ws::send(text, status);
+        {
+            // pi rejects a prompt sent mid-run without a `streamingBehavior`
+            // (`docs/rpc-commands.md`); steer the running turn, the common case.
+            let streaming_behavior = if chat.status.get_untracked().is_streaming() {
+                Some(crate::bridge::StreamingBehavior::Steer)
+            } else {
+                None
+            };
+            // Only clear the draft when the frame actually left the socket: a
+            // prompt typed before connection or during a send failure must not
+            // be lost.
+            let delivered = crate::ws::send(
+                crate::bridge::ClientMessage::Prompt {
+                    id: None,
+                    message,
+                    streaming_behavior,
+                },
+                status,
+            );
+            if delivered {
+                draft.set(String::new());
+            }
+        }
         #[cfg(not(feature = "hydrate"))]
-        let _ = text;
+        {
+            let _ = message;
+            draft.set(String::new());
+        }
     };
 
     view! {
-        <section class="echo">
+        <section class="prompt">
             <input
                 type="text"
                 placeholder="type a message"
@@ -88,7 +126,6 @@ fn Echo() -> impl IntoView {
             />
             <button on:click=send>"Send"</button>
             <p class="status">"status: " {move || status.get().label()}</p>
-            <p class="echo-out">"echo: " {move || echoed.get()}</p>
         </section>
     }
 }

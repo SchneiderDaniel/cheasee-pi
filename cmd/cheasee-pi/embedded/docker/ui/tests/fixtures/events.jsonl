@@ -16,3 +16,5 @@
 {"type":"extension_error","extensionPath":"/path/to/extension.ts","event":"tool_call","error":"boom"}
 {"type":"agent_settled"}
 {"type":"bash_execution_update","id":"req-12","output":"partial output"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hello"},"usage":{"input":10,"output":2}}
+{"type":"agent_end","messages":[],"willRetry":true}

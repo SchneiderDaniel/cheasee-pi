@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use cheasee_pi_ui::protocol::{
-    Command, Event, ExtensionUI, ExtensionUiRequest, ExtensionUiResponse, Response,
+    AssistantMessageEvent, Command, Event, ExtensionUI, ExtensionUiRequest, ExtensionUiResponse, Response,
 };
 use serde_json::{json, Value};
 
@@ -147,9 +147,6 @@ fn rpc_every_captured_session_event_round_trips() {
     let samples = fixture_values("events.jsonl");
     for sample in samples {
         let kind = sample["type"].as_str().unwrap_or_default().to_string();
-        if kind == "agent_settled" {
-            continue; // covered by the Unknown test below
-        }
         let event: Event =
             serde_json::from_value(sample.clone()).unwrap_or_else(|e| panic!("{sample}: {e}"));
         assert!(
@@ -248,10 +245,75 @@ fn rpc_bash_execution_update_exposes_the_repeated_command_id() {
 
 #[test]
 fn rpc_an_unmodelled_event_type_decodes_as_unknown() {
-    // `agent_settled` is documented nowhere in the pinned release; a closed
-    // enum would hard-error the whole stream on it.
-    let event: Event = serde_json::from_value(json!({"type": "agent_settled"})).unwrap();
+    // A genuinely unmodelled type: a closed enum would hard-error the whole
+    // stream on it.
+    let event: Event = serde_json::from_value(json!({"type": "future_event"})).unwrap();
     assert!(matches!(event, Event::Unknown));
+}
+
+/// pi >=0.84 removed the cumulative `message` field from `message_update`. A
+/// record without it must still decode — a required field here silently drops
+/// every delta into `ProtocolMessage::Unknown`.
+#[test]
+fn rpc_delta_only_message_update_decodes() {
+    let event: Event = serde_json::from_value(json!({
+        "type": "message_update",
+        "assistantMessageEvent": {"type": "text_delta", "contentIndex": 0, "delta": "hi"},
+        "usage": {"input": 1, "output": 1},
+    }))
+    .unwrap();
+    match event {
+        Event::MessageUpdate {
+            message,
+            assistant_message_event,
+            usage,
+        } => {
+            assert!(message.is_none(), "the delta-only record has no message");
+            assert_eq!(assistant_message_event["delta"], "hi");
+            assert_eq!(usage.unwrap()["input"], 1);
+        }
+        other => panic!("expected MessageUpdate, got {other:?}"),
+    }
+}
+
+/// `agent_end.willRetry` is a separate signal from `agent_settled`.
+#[test]
+fn rpc_agent_end_carries_will_retry() {
+    let event: Event =
+        serde_json::from_value(json!({"type": "agent_end", "messages": [], "willRetry": true}))
+            .unwrap();
+    match event {
+        Event::AgentEnd { will_retry, .. } => assert_eq!(will_retry, Some(true)),
+        other => panic!("expected AgentEnd, got {other:?}"),
+    }
+
+    let settled: Event = serde_json::from_value(json!({"type": "agent_settled"})).unwrap();
+    assert!(matches!(settled, Event::AgentSettled));
+}
+
+/// The typed `assistantMessageEvent` vocabulary parses leniently.
+#[test]
+fn rpc_assistant_message_event_parses_leniently() {
+    let delta = AssistantMessageEvent::parse_lenient(
+        &json!({"type": "thinking_delta", "contentIndex": 1, "delta": "hmm"}),
+    )
+    .unwrap();
+    assert!(matches!(
+        delta,
+        AssistantMessageEvent::ThinkingDelta {
+            content_index: 1,
+            ..
+        }
+    ));
+
+    assert!(matches!(
+        AssistantMessageEvent::parse_lenient(&json!({"type": "future_event", "contentIndex": 0}))
+            .unwrap(),
+        AssistantMessageEvent::Unknown
+    ));
+
+    // Not an object: no event to parse.
+    assert!(AssistantMessageEvent::parse_lenient(&json!("nope")).is_none());
 }
 
 /// `usage` is the latest cumulative provider-reported usage, not a delta.

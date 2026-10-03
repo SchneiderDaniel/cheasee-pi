@@ -2,10 +2,10 @@
 //!
 //! Thin shell: it owns the native `WebSocket` and the browser clock, and hands
 //! the callback-to-adapter wiring to [`crate::retry::wire`] — the *same*
-//! function the host lifecycle tests drive with a fake socket and clock. The
-//! channel is framing-agnostic: every JSON text frame echoed by the server is
-//! surfaced verbatim, leaving slice 4 free to layer strict framing on the pi
-//! child pipe instead.
+//! function the host lifecycle tests drive with a fake socket and clock. Every
+//! incoming frame is a [`crate::bridge::ServerMessage`] fed into
+//! [`crate::stream::ChatState`]; every outgoing frame is an encoded
+//! [`crate::bridge::ClientMessage`].
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -19,7 +19,9 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{MessageEvent, WebSocket};
 
 use crate::app::ConnectionStatus;
+use crate::bridge::ClientMessage;
 use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
+use crate::stream::ChatState;
 
 /// The live socket plus the JS closures the browser holds callbacks into. Each
 /// closure is kept alive as a `JsValue` for the socket's lifetime; dropping the
@@ -119,22 +121,34 @@ fn status_of(effect: SessionEffect) -> ConnectionStatus {
     }
 }
 
-/// Send one text frame, reporting the outcome to the view.
+/// Send one [`ClientMessage`], reporting the outcome to the view.
 ///
 /// A send against a closed socket, or one the native socket rejects, must be
 /// visible; a delivered frame must equally clear a previous failure, or a later
-/// success would still read as undelivered.
-pub fn send(text: String, set_status: RwSignal<ConnectionStatus>) {
+/// success would still read as undelivered. Returns whether the frame actually
+/// left the socket, so the caller can retain a draft that was not delivered.
+pub fn send(message: ClientMessage, set_status: RwSignal<ConnectionStatus>) -> bool {
+    let text = match serde_json::to_string(&message) {
+        Ok(text) => text,
+        // Encoding our own envelope cannot fail in practice; if it ever did, a
+        // silent no-op would read as a delivered prompt.
+        Err(_) => {
+            set_status.set(ConnectionStatus::SendFailed);
+            return false;
+        }
+    };
     let outcome = LIVE.with(|live| match live.borrow().as_ref() {
         Some(live) => deliver(live, &text),
         None => SendOutcome::NotConnected,
     });
     set_status.set(status_of(send_status(outcome)));
+    matches!(outcome, SendOutcome::Sent)
 }
 
-/// Connect, then reconnect with backoff until the page goes away. `set_echo`
-/// receives each echoed frame; `set_status` drives the visible connection state.
-pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus>) {
+/// Connect, then reconnect with backoff until the page goes away. `state`
+/// receives each decoded server frame; `set_status` drives the visible
+/// connection state.
+pub fn connect(state: ChatState, set_status: RwSignal<ConnectionStatus>) {
     // The lifecycle decisions live in `retry` (host-testable); this shell owns
     // the native socket and the clock, installs the shared `retry::wire`
     // callbacks, and applies the returned effects.
@@ -145,7 +159,7 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
             set_status.set(status_of(dial));
 
             // A rejected URL never opens; fall straight through to the backoff.
-            if let Ok(closed) = open(adapter.clone(), set_echo, set_status) {
+            if let Ok(closed) = open(adapter.clone(), state, set_status) {
                 let _ = closed.await;
             }
 
@@ -166,7 +180,7 @@ pub fn connect(set_echo: RwSignal<String>, set_status: RwSignal<ConnectionStatus
 /// itself was rejected — retried by the caller.
 fn open(
     adapter: Rc<RefCell<Adapter>>,
-    set_echo: RwSignal<String>,
+    state: ChatState,
     set_status: RwSignal<ConnectionStatus>,
 ) -> Result<oneshot::Receiver<()>, ()> {
     let socket = WebSocket::new(&ws_url()).map_err(|_| ())?;
@@ -181,7 +195,9 @@ fn open(
         BrowserTimer,
         adapter,
         move |effect| set_status.set(status_of(effect)),
-        move |text| set_echo.set(text),
+        move |text| {
+            state.ingest_frame(&text);
+        },
         move || {
             if let Some(tx) = tx.take() {
                 let _ = tx.send(());
