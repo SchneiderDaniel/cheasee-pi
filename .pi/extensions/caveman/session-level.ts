@@ -22,7 +22,7 @@ import { LEVELS } from "./types.ts";
  * Shape of session entries that resolveSessionLevel inspects.
  *
  * Accepts a broader type than the pi agent's SessionEntry union so that
- * callers can pass ctx.sessionManager.getEntries() directly without a cast.
+ * callers can pass ctx.sessionManager.getBranch() directly without a cast.
  * The function only accesses .type, .customType, and .data,
  * narrowing at runtime to entries matching its contract.
  */
