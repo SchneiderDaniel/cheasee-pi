@@ -183,4 +183,13 @@ func TestDailyUsageDoc_uiHint(t *testing.T) {
 	if !strings.Contains(content, "PI_UI_PORT") || !strings.Contains(content, "forwarded") {
 		t.Error("daily-usage.md §UI must state that PI_UI_PORT is forwarded into the session")
 	}
+	// Contract revision (audit finding): the footer group is OSC 8 emission;
+	// the host terminal is the opener, and the in-container openUrl path is
+	// documented as a non-goal. Pin the wording so the contract cannot silently
+	// drift back to "clicking opens a browser in-container".
+	for _, want := range []string{"OSC 8", "terminal", "not routable"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("daily-usage.md §UI must document the OSC 8 emission contract (%q)", want)
+		}
+	}
 }

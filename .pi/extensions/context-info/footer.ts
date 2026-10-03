@@ -320,6 +320,14 @@ export function installFooter(
 				// terminals that swallow OSC 8, the labels stay plain text. The
 				// URLs are resolved once per session in index.ts (byte-stable
 				// across renders, required for TuiAltScreen's line diff).
+				//
+				// Contract: the emitted OSC 8 sequence IS the deliverable — the
+				// terminal (on the host) is the opener, with its usual
+				// click/modifier. pi's fullscreen TUI also reads the link and
+				// routes a click to openBrowser in-container, where xdg-open is
+				// absent and the host-loopback URL is unroutable — so that path
+				// is a no-op by design and is never relied upon; the URL is a
+				// display string only, never pinged.
 				const hyperlinksOn = getCapabilities().hyperlinks;
 				const labelled = (text: string, url: string): string =>
 					hyperlinksOn ? hyperlink(text, url) : text;

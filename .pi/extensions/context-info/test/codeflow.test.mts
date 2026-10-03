@@ -113,9 +113,16 @@ describe("parseGitRemote", () => {
 // ── Adapter: precedence + I/O ───────────────────
 
 describe("codeflowHostPort", () => {
-	it("precedence: settings docker.codeflowPort wins over env and derivation", async () => {
+	it("precedence: env CODEFLOW_PORT (forwarded bound port) wins over settings and derivation", async () => {
 		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
 		await withEnv("9000", async () => {
+			assert.strictEqual(await codeflowHostPort(root), "9000");
+		});
+	});
+
+	it("precedence: settings docker.codeflowPort wins over derivation when env absent", async () => {
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
+		await withEnv(undefined, async () => {
 			assert.strictEqual(await codeflowHostPort(root), "9100");
 		});
 	});
@@ -124,6 +131,18 @@ describe("codeflowHostPort", () => {
 		const { root } = makeWorkspace();
 		await withEnv("9000", async () => {
 			assert.strictEqual(await codeflowHostPort(root), "9000");
+		});
+	});
+
+	it("stale docker.codeflowPort + forwarded bound port → env wins (footer matches the printed hint)", async () => {
+		// Regression for the audit finding: the sidecar is bound to 9123 while
+		// the workspace settings still say 9100; `cheasee-pi start` forwards the
+		// bound port via CODEFLOW_PORT, so the resolver must return 9123 or the
+		// footer/notify link would point at the stale 9100.
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
+		await withEnv("9123", async () => {
+			assert.strictEqual(await codeflowHostPort(root), "9123");
+			assert.strictEqual(await codeflowUrl(root), "http://localhost:9123/?repo=local/workspace&run=1");
 		});
 	});
 

@@ -191,11 +191,25 @@ To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
 the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
 over the env).
 
-The resolved host port is forwarded into the pi session as `PI_UI_PORT`
-(alongside `CODEFLOW_PORT`), and the session footer row 3 shows a
-right-aligned `UI · CodeFlow` link group: clickable where the terminal
-supports OSC 8 hyperlinks, plain text otherwise. The UI link targets the
-same `127.0.0.1:<port>` URL the startup hint prints.
+The host port the running sidecar actually published is forwarded into the pi
+session as `PI_UI_PORT` (bound-first, alongside the CodeFlow sidecar's
+`CODEFLOW_PORT`), so the in-session footer link always agrees with the printed
+`ℹ UI:` hint even when a stale `docker.uiPort` differs from the live bind. When
+the port cannot be resolved the variable is simply not set and the start still
+succeeds; the link then falls back to the settings/derived value.
+
+The session footer row 3 shows a right-aligned `UI · CodeFlow` link group. The
+delivered contract is **plain OSC 8 hyperlink emission**: each label wraps its
+URL when the terminal reports hyperlink support, and renders as plain text
+otherwise (the same gate as the CodeFlow startup notify). Opening the link is
+the terminal's job — the OSC 8 sequence is the whole contract, and a terminal
+that supports OSC 8 opens the URL on the host with its usual click/modifier
+(iTerm2 cmd-click, WezTerm plain click, kitty Ctrl-Shift-click). The URLs are
+host-loopback addresses (`127.0.0.1` / `localhost`); from inside the pi
+container they are not routable, so the group is a display string only and is
+never pinged or opened in-container. On a terminal too narrow to fit both the
+left session/trust content and the group, the group is kept and the left
+content is truncated first.
 
 ## Run pi
 

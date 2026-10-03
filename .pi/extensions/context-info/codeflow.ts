@@ -7,10 +7,16 @@
  * base+fnv32(slug)%range, probed next-free on the HOST loopback. This module
  * re-derives the same value inside the container WITHOUT probing — the
  * container's loopback is a different namespace than the host's, so a probe
- * there would yield garbage. `cheasee-pi start` now forwards the CLI-resolved
- * port via the CODEFLOW_PORT exec env, so the in-session hint matches the
- * actually-bound port even in the rare probe-shift cases; this resolver is
- * the fallback when that env is absent (e.g. a session started outside the
+ * there would yield garbage.
+ *
+ * In-container precedence puts env CODEFLOW_PORT FIRST (a deliberate
+ * inversion of the CLI's host-side settings-first order): `cheasee-pi start`
+ * overwrites the exec env with the BOUND port (`docker port` — the port the
+ * running sidecar actually published, which can differ from a stale
+ * docker.codeflowPort on a re-up). The forwarded value is therefore
+ * authoritative, or the footer link / notify would disagree with the printed
+ * `ℹ CodeFlow:` hint in exactly that stale-sidecar case. Settings/derived
+ * remain the fallback when the env is absent (a session started outside the
  * CLI, or resolution failure on the CLI side).
  *
  * Pure derivation + thin fs/git I/O — never emits ANSI; OSC 8 hyperlink
@@ -167,18 +173,24 @@ async function bareRepoURL(root: string): Promise<string> {
 // ── Resolution precedence ───────────────────────
 
 /**
- * Resolves the CodeFlow host port for the session: settings
- * docker.codeflowPort > env CODEFLOW_PORT (the value the CLI forwards) >
- * derived base+fnv32(slug)%range. Null when no workspace marker is reachable
- * from cwd (nothing to anchor on — CLI sessions are always marker-gated, so
- * this only fires for sessions started outside any workspace).
+ * Resolves the CodeFlow host port for the session: env CODEFLOW_PORT (the
+ * bound-first value the CLI forwards — authoritative) > settings
+ * docker.codeflowPort > derived base+fnv32(slug)%range. Null when no workspace
+ * marker is reachable from cwd (nothing to anchor on — CLI sessions are always
+ * marker-gated, so this only fires for sessions started outside any
+ * workspace).
  */
 export async function codeflowHostPort(cwd: string): Promise<string | null> {
 	const root = resolveWorkspaceRoot(cwd);
 	if (root === null) return null;
+	// Env first: `cheasee-pi start` overwrites CODEFLOW_PORT with the port the
+	// running sidecar actually published (codeflowBoundPort), which is
+	// authoritative over docker.codeflowPort — on a re-up the live bind can
+	// differ from a stale settings value, and the printed `ℹ CodeFlow:` hint
+	// uses the forwarded value. Settings/derived are the fallback when absent.
+	if (process.env.CODEFLOW_PORT) return process.env.CODEFLOW_PORT;
 	const settings = readSettingsCodeflowPort(root);
 	if (settings !== null) return settings;
-	if (process.env.CODEFLOW_PORT) return process.env.CODEFLOW_PORT;
 	return String(codeflowPortFromSlug(await repoSlug(root)));
 }
 
