@@ -29,6 +29,7 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"Dockerfile",
 		"entrypoint.sh",
 		"lib/worktree-fix.sh",
+		"lib/patch-pi-session-warning.js",
 		"codeflow/config.json",
 		"codeflow/Dockerfile",
 		"codeflow/server.py",
