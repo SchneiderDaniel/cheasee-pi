@@ -588,6 +588,35 @@ export async function cleanupStalePipelineState(
 				worktreePath: state.worktreePath,
 				reason: verdict.error,
 			});
+			// The worktree this stale state file names is already gone — cleanup
+			// finished but the state-file unlink never ran (the owning pipeline
+			// died between `git worktree remove` and the unlink, or the worktree
+			// was removed out-of-band). Nothing is left to clean, so this is not
+			// an error: the stale JSON is garbage and can be deleted instead of
+			// erroring on every later run. Safe — the liveness guard above
+			// already proved the owning pipeline dead, and the success path
+			// deletes this exact file anyway. A directory that still exists
+			// (unverifiable path, outside base, bare repo, ...) stays fail-closed:
+			// error + keep the file below.
+			if (!existsSync(state.worktreePath)) {
+				log.info("state-checkpoint", "Stale state file dropped — worktree already gone", {
+					issueNum: state.issueNum,
+					worktreePath: state.worktreePath,
+				});
+				notify.info(
+					`Stale state file for issue #${state.issueNum} removed — its worktree was already cleaned up`,
+				);
+				try {
+					if (existsSync(stateFile)) {
+						unlinkSync(stateFile);
+					}
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err);
+					log.warn("state-checkpoint", `Failed to delete stale state file: ${msg}`);
+					warnings.push(`state file delete failed: ${msg}`);
+				}
+				continue;
+			}
 			notify.error(
 				`Skipping stale worktree cleanup for issue #${state.issueNum}: ${verdict.error}. Remove ${stateFile} manually if it is stale.`,
 			);
