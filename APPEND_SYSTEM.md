@@ -47,5 +47,5 @@ The supervisor pipeline runs `runPackageSafetyAudit` during the Implementation -
 BEFORE installing any package from the public npm registry, you MUST manually verify its age:
 1. Run: `npm view <pkg> time.created`
 2. IF the package is < 14 days old OR the command fails OR the field is missing -> BLOCK INSTALLATION. Output exactly: "Package [name] is [X] days old — below 14-day safety threshold. Cannot install."
-Note: This rule does not apply to git URLs, tarballs, or local paths.
+Note: This rule does not apply to git URLs, tarballs, local paths, or first-party vendor packages in the trusted scope `@earendil-works` (the pi toolchain).
 </package_safety_audit>

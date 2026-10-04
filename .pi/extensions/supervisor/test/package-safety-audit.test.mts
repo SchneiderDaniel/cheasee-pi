@@ -541,3 +541,32 @@ describe("runPackageSafetyAudit", () => {
 		}
 	});
 });
+
+// ─── Tests: trusted vendor scope ───────────────────────────────────
+
+describe("runPackageSafetyAudit — trusted vendor scope", () => {
+	it("skips npm view and stays safe for @earendil-works packages", async () => {
+		const calls: Array<{ cmd: string; args: string[] }> = [];
+		const result = await runPackageSafetyAudit(
+			mockExecWithRecording({}, calls),
+			FAKE_WORKTREE,
+			JSON.stringify({
+				dependencies: {
+					"@earendil-works/pi-mcp": "^0.99.0",
+					"@earendil-works/pi-codemode": "^0.99.0",
+				},
+			}),
+		);
+
+		assert.equal(result.status, "safe");
+		assert.equal(result.results.length, 2);
+		assert.ok(result.results.every((r) => r.safe && !r.blocked));
+		assert.ok(
+			result.results[0]!.message.includes("Trusted vendor scope"),
+			"result message should mention the trusted scope exemption",
+		);
+
+		const npmCalls = calls.filter((c) => c.cmd === "npm");
+		assert.equal(npmCalls.length, 0, "npm view must not run for trusted scope packages");
+	});
+});
