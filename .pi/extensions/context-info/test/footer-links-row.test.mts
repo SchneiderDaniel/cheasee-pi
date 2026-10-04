@@ -1,8 +1,9 @@
 /**
  * Tests for footer row 3 — right-aligned UI · CodeFlow service links.
  *
- * Validates the OSC 8-gated, two-part layout: links kept and right-aligned,
- * left session/trust content truncated first on narrow terminals.
+ * Validates the unconditional OSC 8, two-part layout: links kept and
+ * right-aligned, left session/trust content truncated first on narrow
+ * terminals.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/context-info/test/footer-links-row.test.mts
@@ -104,7 +105,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Render: presence + OSC 8 gating
+// Render: presence + OSC 8 wrapping
 // ---------------------------------------------------------------------------
 
 describe("footer row 3 — service links", () => {
@@ -130,11 +131,14 @@ describe("footer row 3 — service links", () => {
 		);
 	});
 
-	it("hyperlinks:false → both labels present as plain text, no OSC 8", () => {
+	it("hyperlinks:false → labels still carry OSC 8 (unconditional, matches issue row)", () => {
 		const render = installAndGetRender(defaultConfig(), configWith(UI_URL, CF_URL));
 		const line = withHyperlinks(false, () => row3(render(80)));
-		assert.ok(line.includes("UI") && line.includes("CodeFlow"), "labels must render as plain text");
-		assert.ok(!line.includes("\x1b]8;;"), "no OSC 8 sequence when hyperlinks are unsupported");
+		assert.ok(line.includes("UI") && line.includes("CodeFlow"), "labels must render");
+		assert.ok(
+			line.includes(`\x1b]8;;${UI_URL}\x1b\\UI`),
+			"UI must be OSC 8-wrapped even when the capability probe reports false",
+		);
 	});
 
 	it("only uiUrl set → UI present, CodeFlow absent", () => {
@@ -203,7 +207,10 @@ describe("footer row 3 — layout", () => {
 		c.sessionName = "long-session-name";
 		const render = installAndGetRender(defaultConfig(), c);
 		const line = withHyperlinks(true, () => row3(render(13)));
-		assert.ok(line.includes("UI") && line.includes("CodeFlow"), "group must stay intact at width 13");
+		assert.ok(
+			line.includes("UI") && line.includes("CodeFlow"),
+			"group must stay intact at width 13",
+		);
 		assert.ok(!line.includes("Session:"), "left session content must be dropped");
 		assert.strictEqual(visibleWidth(line), 13);
 	});
@@ -211,7 +218,11 @@ describe("footer row 3 — layout", () => {
 	it("AC5: width below group width → every OSC 8 opener is closed, no throw", () => {
 		const render = installAndGetRender(defaultConfig(), configWith(UI_URL, CF_URL));
 		const line = withHyperlinks(true, () => row3(render(10)));
-		assert.strictEqual(countOpeners(line), countClosers(line), "OSC 8 must be balanced after truncation");
+		assert.strictEqual(
+			countOpeners(line),
+			countClosers(line),
+			"OSC 8 must be balanced after truncation",
+		);
 	});
 
 	it("OSC 8 balance: closer count equals link count when both set", () => {
@@ -223,7 +234,10 @@ describe("footer row 3 — layout", () => {
 
 	it("byte-stable: two consecutive renders produce identical row 3 strings", () => {
 		const render = installAndGetRender(defaultConfig(), configWith(UI_URL, CF_URL));
-		const [first, second] = withHyperlinks(true, () => [row3(render(80)), row3(render(80))] as const);
+		const [first, second] = withHyperlinks(
+			true,
+			() => [row3(render(80)), row3(render(80))] as const,
+		);
 		assert.strictEqual(first, second, "row 3 must be byte-stable for TuiAltScreen line diffing");
 	});
 });

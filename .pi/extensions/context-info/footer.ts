@@ -6,7 +6,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { truncateToWidth, visibleWidth, hyperlink, getCapabilities } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
@@ -315,10 +315,8 @@ export function installFooter(
 
 				const left3 = row3Parts.join(" " + sep + " ");
 
-				// ── Row 3 service links (right-aligned, OSC 8-gated) ──
-				// Same capability gate as the CodeFlow notify in index.ts: on
-				// terminals that swallow OSC 8, the labels stay plain text. The
-				// URLs are resolved once per session in index.ts (byte-stable
+				// ── Row 3 service links (right-aligned, unconditional OSC 8) ──
+				// The URLs are resolved once per session in index.ts (byte-stable
 				// across renders, required for TuiAltScreen's line diff).
 				//
 				// Click path: the OSC 8 sequence is emitted straight to the
@@ -328,18 +326,19 @@ export function installFooter(
 				// protocol but NOT SGR mouse tracking (no `\x1b[?1000h`,
 				// `?1002h`, `?1006h`; its dist has no openUrl/OSC 8 click
 				// routing), so pi does not intercept the click and cannot shadow
-				// the terminal's own opener. Terminals without OSC 8 support
-				// report hyperlinks:false and get plain text via the gate above.
-				// The URLs are display strings only, never pinged or opened
-				// in-container (container loopback is a different network
+				// the terminal's own opener. The wrap is unconditional — same
+				// policy as the supervisor issue link below — because the
+				// in-container capability probe reports hyperlinks:false under
+				// `TERM=xterm` (Docker) even when the host terminal supports OSC 8.
+				// A host terminal that swallows the sequence renders the label as
+				// plain text. The URLs are display strings only, never pinged or
+				// opened in-container (container loopback is a different network
 				// namespace). Ports are validated as decimals in
 				// ui.ts/codeflow.ts before hyperlink() sees them.
-				const hyperlinksOn = getCapabilities().hyperlinks;
-				const labelled = (text: string, url: string): string =>
-					hyperlinksOn ? hyperlink(text, url) : text;
 				const linkParts: string[] = [];
-				if (footerConfig.uiUrl) linkParts.push(labelled("UI", footerConfig.uiUrl));
-				if (footerConfig.codeflowUrl) linkParts.push(labelled("CodeFlow", footerConfig.codeflowUrl));
+				if (footerConfig.uiUrl) linkParts.push(hyperlink("UI", footerConfig.uiUrl));
+				if (footerConfig.codeflowUrl)
+					linkParts.push(hyperlink("CodeFlow", footerConfig.codeflowUrl));
 				const linkGroup = linkParts.join(" · ");
 
 				// Two-part layout: the links are kept and the left session/trust
@@ -362,8 +361,7 @@ export function installFooter(
 						row3 = fitted;
 					} else {
 						const leftFit = truncateToWidth(left3, pad);
-						row3 =
-							leftFit + " ".repeat(Math.max(0, pad - visibleWidth(leftFit))) + linkGroup;
+						row3 = leftFit + " ".repeat(Math.max(0, pad - visibleWidth(leftFit))) + linkGroup;
 					}
 				}
 

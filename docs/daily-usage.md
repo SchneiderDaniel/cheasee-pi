@@ -203,9 +203,12 @@ workspace, while the start still succeeds. A session started outside the CLI
 (no forwarded variable and no marker) keeps the settings/derived fallback.
 
 The session footer row 3 shows a right-aligned `UI · CodeFlow` link group. Each
-label is an OSC 8 hyperlink to its URL when the terminal reports hyperlink
-support, and plain text otherwise (the same gate as the CodeFlow startup
-notify). The sequence goes straight to the session PTY, i.e. the **host
+label is an unconditional OSC 8 hyperlink to its URL — no capability probe,
+same policy as the supervisor issue link on row 4, because the in-container
+probe reports `hyperlinks:false` under `TERM=xterm` (Docker) even when the
+host terminal supports the sequence; a host terminal that swallows OSC 8
+renders the label as plain text. The sequence goes straight to the session
+PTY, i.e. the **host
 terminal**, which is the click handler and opens the URL in the host browser
 with its usual click/modifier (iTerm2 cmd-click, WezTerm plain click, kitty
 Ctrl-Shift-click). The installed pi-tui (0.79.10) does not enable SGR mouse
