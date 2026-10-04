@@ -1799,7 +1799,7 @@ describe("context-info extension — footer service links", () => {
 		await handlers.get("session_shutdown")!();
 	});
 
-	it("hyperlinks:false → plain labels, no OSC 8 in row 3", async () => {
+	it("hyperlinks:false → labels still OSC 8-wrapped in row 3", async () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600","codeflowPort":"9100"}}`);
 		const { pi, handlers, ctx, renders } = makeHarness(root);
 		contextInfo(pi as any);
@@ -1813,7 +1813,10 @@ describe("context-info extension — footer service links", () => {
 
 		const row3 = lastRow(renders);
 		assert.ok(row3.includes("UI") && row3.includes("CodeFlow"), `labels must render: ${row3}`);
-		assert.ok(!row3.includes("\x1b]8;;"), `no OSC 8 when unsupported: ${row3}`);
+		assert.ok(
+			row3.includes("\x1b]8;;http://127.0.0.1:9600\x1b\\UI"),
+			`UI link must be OSC 8-wrapped regardless of the probe: ${row3}`,
+		);
 
 		await handlers.get("session_shutdown")!();
 	});
