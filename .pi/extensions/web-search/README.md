@@ -12,7 +12,8 @@
   - Includes `promptGuidelines` for LLM context, guiding discovery of URLs before crawling with `web_crawl`
 - **RS-framed output** — the JSON payload is wrapped in ASCII RS (0x1E) bytes. RS is a control character that JSON escaping never emits raw, so a result whose title/snippet contains the literal text `SEARCH_OK`/`SEARCH_DONE` can no longer break parsing (the delimiter is invisible in raw logs — intentional)
 - **Result cache** — Same query+maxResults returns cached result within 5-minute TTL
-- **Error signaling via throw** — Errors (empty query, venv setup failure, search execution failure, parse failure) propagate as thrown exceptions per the extension framework contract, ensuring the LLM receives proper `isError` signaling
+- **Structured output** — Declares an `outputSchema` and returns `structuredContent: { query, returned, results }` on both the fresh-search and cache-hit paths, so programmatic (codemode) callers get a typed payload; the model still receives the `formatResults(...)` text in `content`. Tool `annotations` advertise `openWorldHint: true` only — `readOnlyHint` is deliberately omitted because the first call pip-installs `ddgs` into `.pi/web-search-venv/` (it does write to its environment), and `idempotentHint` only holds inside the 5-minute cache TTL
+- **Error signaling** — Search-execution and parse failures return `{ isError: true, structuredContent: { error, query } }` without throwing, so the model sees the error and callers keep the structured payload. Empty-query validation and venv-setup preconditions still throw (framework `isError` signaling)
 - **SIGTERM handling** — Python subprocess exits cleanly with code 130 on cancellation
 - **Concurrency-safe isolation** — Each `web_search` call uses `fs.mkdtempSync` to create a unique temp directory, eliminating file races under concurrent calls
 
@@ -27,7 +28,7 @@
 7. Results are parsed from the RS-framed stdout (`<RS><json><RS>`)
 8. Results are cached in memory for the session duration (5-minute TTL)
 9. A formatted result string is returned showing ranked results with titles as markdown links and snippets
-10. On failure at any step (venv setup, search execution, result parsing), a thrown error propagates to the framework, which records the failure with `isError: true` on the tool execution event
+10. Search-execution and parse failures return `{ isError: true, structuredContent: { error, query } }` directly; venv-setup and empty-query preconditions still throw, which the framework records as `isError: true`
 
 ## Install
 
