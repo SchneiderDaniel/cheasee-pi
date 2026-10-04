@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"github.com/spf13/cobra"
 )
 
 // TestComposeHarness_ThreeServiceStack is the epic's acceptance evidence:
@@ -54,15 +56,11 @@ func TestComposeHarness_ThreeServiceStack(t *testing.T) {
 		}
 	}
 
-	// ── AC1/AC4: clean enumerates the managed containers by label ───────────
-	managed, err := listManagedContainers(ctx)
-	if err != nil {
-		t.Fatalf("listManagedContainers: %v", err)
-	}
-	for _, want := range started {
-		if !slices.Contains(managed, want) {
-			t.Errorf("AC4: clean must enumerate %s, got %v", want, managed)
-		}
+	// The agent gate in startComposeStack covers cheasee-pi only; the ui
+	// sidecar has its own /health probe, so wait for it before driving its
+	// session API (the store scan the probe reads is not ready until then).
+	if err := waitHealthy(ctx, uiContainerName(root)); err != nil {
+		t.Fatalf("ui not healthy: %v", err)
 	}
 
 	// ── AC2: published ports are loopback-only; the agent publishes none ────
@@ -83,40 +81,200 @@ func TestComposeHarness_ThreeServiceStack(t *testing.T) {
 	// the interactive --approve form is asserted untagged in up_env_test.go).
 	dockerExecOK(t, containerName(root), "/usr/bin/pi", "--version")
 
-	// ── AC5: a terminal session + its live claim are visible to the ui store ─
+	// ── AC5: a terminal session + its live claim are listed by the running ui,
+	//        which then refuses to attach it ─────────────────────────────────
+	// The terminal IS the agent container: pi there writes the `.jsonl` and the
+	// shared `.cheasee-inuse/<id>` claim onto the workspace mount, which the ui
+	// sidecar mounts too. Writing from inside the terminal — not the test host —
+	// keeps the shared-mount contract real on a native daemon and on DinD (whose
+	// daemon cannot see the runner's filesystem). The Go writer's exact
+	// path/body is pinned untagged (TestInUseClaim_writeAndRemove /
+	// TestInUseClaim_crossContainerPathPin).
 	sessionID := "deadbeefcafe"
-	sessionDir := filepath.Join(root, ".pi", "sessions")
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
-		t.Fatal(err)
+	startTerminalSession(t, containerName(root), sessionID)
+
+	// Query the *running* ui over its real session path, not just the mount:
+	// the store scan must list the mounted session as in use, and the attach
+	// must be refused by the guard (the Rust reader contract is pinned untagged
+	// in sessions_store.rs).
+	assertUICoexistence(t, uiContainerName(root), sessionID)
+
+	// ── AC4: `clean` then `prune-images` enumerate (and remove) the ui
+	//        container and image — the operator cleanup journey ──────────────
+	assertCleanupEnumeratesUI(t, ctx, root)
+}
+
+// startTerminalSession writes a terminal-shaped session file plus the live
+// in-use claim onto the shared workspace mount from inside the agent
+// container. These are exactly what Go's `start` writes host-side on a local
+// daemon; doing it in-container keeps the mount real under DinD, where the
+// daemon cannot see the runner's (host-side) workspace path.
+func startTerminalSession(t *testing.T, agentName, sessionID string) {
+	t.Helper()
+	sessionsDir := strings.TrimSuffix(inUseClaimDir, "/.cheasee-inuse")
+	body := fmt.Sprintf(`{"type":"session","id":%q,"cwd":"/workspaces/main"}`, sessionID)
+	claim := fmt.Sprintf(`{"container":%q}`, agentName)
+	script := fmt.Sprintf(
+		"mkdir -p %s/.cheasee-inuse && printf '%%s\\n' %s > %s/%s.jsonl && printf '%%s\\n' %s > %s/.cheasee-inuse/%s",
+		sessionsDir, shellQuote(body), sessionsDir, sessionID,
+		shellQuote(claim), sessionsDir, sessionID,
+	)
+	dockerExecOK(t, agentName, "/bin/bash", "-c", script)
+}
+
+// shellQuote wraps a value in POSIX single quotes for the in-container write.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// uiSessionProbe drives the running ui server's real /ws path from inside the
+// ui container: list the shared sessions, then request an attach. Node ships
+// in the ui image and its global WebSocket needs no published port, so the
+// probe works under DinD where only the daemon — not the published UI port —
+// is reachable from the test process. The placeholder is replaced with the
+// session id (a JSON string literal) by assertUICoexistence.
+const uiSessionProbe = `
+const id = __CHEASEE_COEXIST_SESSION__;
+const ws = new WebSocket("ws://127.0.0.1:3000/ws");
+const finish = (obj, code) => {
+  clearTimeout(timer);
+  process.exitCode = code;
+  console.log(JSON.stringify(obj));
+  try { ws.close(); } catch (_) {}
+  // If the socket close stalls, force the recorded exit code after the flush.
+  setTimeout(() => process.exit(code), 1000).unref();
+};
+const timer = setTimeout(() => finish({ error: "timeout waiting for the ui relay" }, 1), 15000);
+ws.onerror = () => finish({ error: "websocket error" }, 1);
+ws.onopen = () => ws.send(JSON.stringify({ type: "list_sessions", id: "coexist-list" }));
+ws.onmessage = (ev) => {
+  let msg;
+  try { msg = JSON.parse(ev.data); } catch (_) { return; }
+  if (msg.type === "session_list") {
+    const row = (msg.sessions || []).find((s) => s.id === id);
+    if (!row) return finish({ error: "session not listed" }, 1);
+    if (row.inUse !== true) return finish({ error: "session not marked in use" }, 1);
+    ws.send(JSON.stringify({ type: "resume_session", id: "coexist-resume", sessionId: id, mode: "resume" }));
+  } else if (msg.type === "session_action") {
+    finish({ listed: true, inUse: true, refused: msg.success === false, refusal: msg.error || null }, 0);
+  }
+};`
+
+// assertUICoexistence queries the running ui over its real session path: the
+// mounted terminal session must be listed and marked in use, and the attach
+// must be refused by the in-use guard.
+func assertUICoexistence(t *testing.T, uiName, sessionID string) {
+	t.Helper()
+	// The session id is inlined as a JSON string literal rather than passed via
+	// `docker exec -e`: `docker exec` stops parsing flags at the container name
+	// (that is why `docker exec <c> bash -c ...` works), so an `-e` after the
+	// container would be exec'd as the command instead of set as an env var.
+	idLiteral, err := json.Marshal(sessionID)
+	if err != nil {
+		t.Fatalf("AC5: encode session id: %v", err)
 	}
-	body := fmt.Sprintf("{\"type\":\"session\",\"id\":%q,\"cwd\":\"/workspaces/main\"}\n", sessionID)
-	if err := os.WriteFile(filepath.Join(sessionDir, sessionID+".jsonl"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
+	script := strings.Replace(uiSessionProbe, "__CHEASEE_COEXIST_SESSION__", string(idLiteral), 1)
+	out, execErr := dockerExecOutput(t, uiName, "node", "--no-warnings", "-e", script)
+	if execErr != nil {
+		t.Fatalf("AC5: ui session probe failed: %v\n%s", execErr, out)
 	}
-	if err := writeInUseClaim(sessionDir, sessionID, containerName(root)); err != nil {
-		t.Fatalf("writeInUseClaim: %v", err)
+	var probe struct {
+		Listed  bool   `json:"listed"`
+		InUse   bool   `json:"inUse"`
+		Refused bool   `json:"refused"`
+		Refusal string `json:"refusal"`
 	}
-	// The ui sidecar sees both over the shared workspace mount — the store's
-	// scan lists the session and the claim drive its in-use guard (the Rust
-	// reader contract is pinned untagged in sessions_store.rs).
-	for _, path := range []string{
-		"/workspaces/main/.pi/sessions/" + sessionID + ".jsonl",
-		inUseClaimDir + "/" + sessionID,
-	} {
-		dockerExecOK(t, uiContainerName(root), "test", "-f", path)
+	if err := json.Unmarshal([]byte(out), &probe); err != nil {
+		t.Fatalf("AC5: ui session probe output %q is not JSON: %v", out, err)
+	}
+	if !probe.Listed {
+		t.Error("AC5: the running ui did not list the mounted terminal session")
+	}
+	if !probe.InUse {
+		t.Error("AC5: the running ui did not mark the claimed session in use")
+	}
+	if !probe.Refused {
+		t.Errorf("AC5: the running ui attached a live session instead of refusing (refusal=%q)", probe.Refusal)
+	} else if !strings.Contains(strings.ToLower(probe.Refusal), "in use") {
+		t.Errorf("AC5: refusal %q must name the in-use guard", probe.Refusal)
+	}
+}
+
+// assertCleanupEnumeratesUI runs the real `clean` then `prune-images`
+// orchestration (the operator journey) and pins AC4: clean enumerates the ui
+// container by the managed label, prune-images enumerates the ui image, and
+// each command removes what it reported. Destructive by design — both commands
+// are host-wide; this harness is opt-in (`-tags integration`) and intended for
+// a disposable daemon.
+func assertCleanupEnumeratesUI(t *testing.T, ctx context.Context, root string) {
+	t.Helper()
+	uiName := uiContainerName(root)
+	uiImage := composeProjectName(root) + "-ui"
+
+	resetCleanState(t)
+	managed, err := listManagedContainers(ctx)
+	if err != nil {
+		t.Fatalf("listManagedContainers: %v", err)
+	}
+	if !slices.Contains(managed, uiName) {
+		t.Fatalf("AC4: ui container %s not enumerated by the managed label, got %v", uiName, managed)
 	}
 
-	// ── AC4: prune-images enumerates the ui image ───────────────────────────
+	// `clean`: the dry-run mirrors the enumeration (and names the ui container),
+	// then --yes performs the removal.
+	cleanDryRun = true
+	dry := testutil.CaptureStderr(t, func() {
+		if err := runCleanE(newCleanCmd(), nil); err != nil {
+			t.Fatalf("clean --dry-run: %v", err)
+		}
+	})
+	if !strings.Contains(dry, uiName) {
+		t.Errorf("AC4: `cheasee-pi clean` did not enumerate %s:\n%s", uiName, dry)
+	}
+	cleanDryRun = false
+	cleanYes = true
+	if err := runCleanE(newCleanCmd(), nil); err != nil {
+		t.Fatalf("clean --yes: %v", err)
+	}
+	if left, err := listManagedContainers(ctx); err != nil {
+		t.Fatalf("listManagedContainers after clean: %v", err)
+	} else if slices.Contains(left, uiName) {
+		t.Errorf("AC4: clean --yes left %s behind: %v", uiName, left)
+	}
+
+	// `prune-images` refuses while any managed container exists, so it must run
+	// after clean — the fail-closed ordering invariant.
+	resetPruneState(t)
 	images, err := listCheaseePiImages(ctx)
 	if err != nil {
 		t.Fatalf("listCheaseePiImages: %v", err)
 	}
-	uiImage := composeProjectName(root) + "-ui"
-	if !slices.ContainsFunc(images, func(img cheaseePiImage) bool {
-		return strings.HasPrefix(img.Ref, uiImage+":")
-	}) {
-		t.Errorf("AC4: prune-images must enumerate %s:*, got %v", uiImage, images)
+	if !slices.ContainsFunc(images, uiImageMatch(uiImage)) {
+		t.Fatalf("AC4: ui image %s:* not enumerated on the host, got %v", uiImage, images)
 	}
+	pruneImagesDryRun = true
+	pdry := testutil.CaptureStderr(t, func() {
+		if err := runPruneImagesE(&cobra.Command{}, nil); err != nil {
+			t.Fatalf("prune-images --dry-run: %v", err)
+		}
+	})
+	if !strings.Contains(pdry, uiImage+":") {
+		t.Errorf("AC4: `cheasee-pi prune-images` did not enumerate %s:*:\n%s", uiImage, pdry)
+	}
+	pruneImagesDryRun = false
+	pruneImagesYes = true
+	if err := runPruneImagesE(&cobra.Command{}, nil); err != nil {
+		t.Fatalf("prune-images --yes: %v", err)
+	}
+	if left, err := listCheaseePiImages(ctx); err != nil {
+		t.Fatalf("listCheaseePiImages after prune: %v", err)
+	} else if slices.ContainsFunc(left, uiImageMatch(uiImage)) {
+		t.Errorf("AC4: prune-images --yes left %s:* behind: %v", uiImage, left)
+	}
+}
+
+func uiImageMatch(uiImage string) func(cheaseePiImage) bool {
+	return func(img cheaseePiImage) bool { return strings.HasPrefix(img.Ref, uiImage+":") }
 }
 
 // seedComposeHarnessWorkspace builds a real init-shaped workspace: a worktree
@@ -151,11 +309,26 @@ func startComposeStack(t *testing.T, root string) []string {
 	t.Helper()
 	ctx := context.Background()
 
-	if _, err := ensureContainerReady(ctx, root, containerName(root), false); err == nil {
+	// Capture stderr so a failure can be classified rather than guessed: the
+	// production seam writes the daemon's error text to os.Stderr while
+	// returning a bare "exit status 1".
+	var upErr error
+	output := testutil.CaptureStderr(t, func() {
+		_, upErr = ensureContainerReady(ctx, root, containerName(root), false)
+	})
+	if upErr == nil {
 		return []string{containerName(root), codeflowContainerName(root), uiContainerName(root)}
-	} else {
-		t.Logf("full compose up failed (%v) — retrying the agent+ui subset (DinD codeflow bind)", err)
 	}
+	// Fall back ONLY for the one environmental failure this harness may route
+	// around: the codeflow service's ./codeflow/config.json bind cannot resolve
+	// on a remote/DinD daemon (auto-created as a directory -> ENOTDIR on mount),
+	// the limitation documented by docker/test/cli-install-smoke.test.mts
+	// checkpoint 5. Any other failure is real — a codeflow regression must not
+	// pass just because agent+ui happened to start.
+	if !isCodeflowBindUnavailable(output) {
+		t.Fatalf("compose up failed (not the DinD codeflow bind limitation): %v\n%s", upErr, output)
+	}
+	t.Logf("codeflow bind unavailable on this daemon (%v) — starting the agent+ui subset", upErr)
 
 	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
@@ -212,6 +385,27 @@ func downComposeStack(t *testing.T, root string) {
 	}
 }
 
+// isCodeflowBindUnavailable recognizes the remote-daemon bind failure the
+// harness may route around. It requires a mount/bind keyword, the codeflow
+// service path, AND a not-a-directory signature, so an unrelated compose error
+// (bad image, port conflict, build failure) can never be mistaken for the known
+// limitation.
+func isCodeflowBindUnavailable(output string) bool {
+	l := strings.ToLower(output)
+	if !strings.Contains(l, "codeflow") {
+		return false
+	}
+	if !strings.Contains(l, "mount") && !strings.Contains(l, "bind") && !strings.Contains(l, "create_host_path") {
+		return false
+	}
+	for _, sig := range []string{"not a directory", "enotdir", "is a directory", "not a file", "does not exist", "mkdir"} {
+		if strings.Contains(l, sig) {
+			return true
+		}
+	}
+	return false
+}
+
 // assertLoopbackPublishedPort returns the host:port spec for a published
 // port and fails when the host side is not IPv4 loopback (AC2).
 func assertLoopbackPublishedPort(t *testing.T, name, port string) string {
@@ -236,10 +430,19 @@ func assertContainerHealthy(t *testing.T, name string) {
 
 func dockerExecOK(t *testing.T, name string, args ...string) {
 	t.Helper()
-	full := append([]string{"exec", name}, args...)
-	if out, err := runCommandContext(context.Background(), "docker", full...).CombinedOutput(); err != nil {
+	if out, err := dockerExecOutput(t, name, args...); err != nil {
 		t.Fatalf("docker exec %s %v: %v\n%s", name, args, err, out)
 	}
+}
+
+// dockerExecOutput runs a command in a container and returns its combined
+// output plus the exit error — the caller decides whether a non-zero exit is
+// the assertion under test.
+func dockerExecOutput(t *testing.T, name string, args ...string) (string, error) {
+	t.Helper()
+	full := append([]string{"exec", name}, args...)
+	out, err := runCommandContext(context.Background(), "docker", full...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 // dockerOutput runs a docker command through the production seam and returns

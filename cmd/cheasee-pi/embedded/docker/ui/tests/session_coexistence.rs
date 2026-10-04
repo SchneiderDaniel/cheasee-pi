@@ -1,19 +1,85 @@
 //! AC5 coexistence at the boundary that owns it: a session started in the
 //! terminal (a plain `.jsonl` on the shared mount plus a `.cheasee-inuse/<id>`
-//! claim written by Go's `start`) is listed by the UI's `SessionsStore` scan,
-//! and the store refuses to attach it while the claim is live. This crate's
-//! integration tests are plain `#[tokio::test]` (no `#[ignore]` convention),
-//! so they run in the ui image build gate.
+//! claim written by Go's `start`) is listed by the same [`Session::relay`] the
+//! `ssr` server runs, and the relay refuses to attach it while the claim is
+//! live. This drives the UI's real list/attach path — not `SessionsStore`
+//! directly — over the in-process browser sink the control tests share. This
+//! crate's integration tests are plain `#[tokio::test]` (no `#[ignore]`
+//! convention), so they run in the ui image build gate.
 //!
 //! Prefix: `coexist_`.
 #![cfg(feature = "ssr")]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
+use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
 use cheasee_pi_ui::pi_process::PidRegistry;
-use cheasee_pi_ui::protocol::Command;
+use cheasee_pi_ui::rpc::framing::JsonlReader;
+use cheasee_pi_ui::rpc::RpcClient;
+use cheasee_pi_ui::session::{ClientSink, Session};
 use cheasee_pi_ui::sessions_store::SessionsStore;
+use serde_json::Value;
+use tokio::io::{BufReader, DuplexStream};
+use tokio::sync::mpsc;
+
+const BOUND: Duration = Duration::from_secs(2);
+
+type Frames = JsonlReader<BufReader<DuplexStream>>;
+
+/// A fake browser wired to two channels: commands in, frames out.
+struct FakeSink {
+    commands: mpsc::UnboundedReceiver<Result<ClientMessage, String>>,
+    sent: mpsc::UnboundedSender<ServerMessage>,
+}
+
+impl ClientSink for FakeSink {
+    async fn send_text(&mut self, text: String) -> Result<(), ()> {
+        let message: ServerMessage = serde_json::from_str(&text).map_err(|_| ())?;
+        let _ = self.sent.send(message);
+        Ok(())
+    }
+
+    async fn recv(&mut self) -> Option<Result<ClientMessage, String>> {
+        self.commands.recv().await
+    }
+}
+
+fn fake() -> (
+    mpsc::UnboundedSender<Result<ClientMessage, String>>,
+    mpsc::UnboundedReceiver<ServerMessage>,
+    FakeSink,
+) {
+    let (command_tx, commands) = mpsc::unbounded_channel();
+    let (sent, received) = mpsc::unbounded_channel();
+    (command_tx, received, FakeSink { commands, sent })
+}
+
+/// A real [`RpcClient`] over a duplex "pi" child: `_to_child` is the child's
+/// stdout, `frames` is the child's stdin (the frames the relay writes).
+fn harness() -> (Arc<RpcClient>, DuplexStream, Frames) {
+    let (stdout_tx, stdout_rx) = tokio::io::duplex(1 << 20);
+    let (stdin_tx, from_child) = tokio::io::duplex(1 << 20);
+    let client = Arc::new(RpcClient::new(Box::new(stdout_rx), Box::new(stdin_tx)));
+    (client, stdout_tx, JsonlReader::new(BufReader::new(from_child)))
+}
+
+async fn next_command(frames: &mut Frames) -> Value {
+    let raw = tokio::time::timeout(BOUND, frames.next_record_str())
+        .await
+        .expect("pi command written within 2s")
+        .expect("frame read")
+        .expect("frame present");
+    serde_json::from_str(&raw).expect("command frame is JSON")
+}
+
+async fn next_message(received: &mut mpsc::UnboundedReceiver<ServerMessage>) -> ServerMessage {
+    tokio::time::timeout(BOUND, received.recv())
+        .await
+        .expect("a server message within 2s")
+        .expect("browser channel open")
+}
 
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -45,16 +111,16 @@ fn claim_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(".cheasee-inuse").join(id)
 }
 
-fn store(dir: &Path) -> SessionsStore {
-    SessionsStore::new(
+fn store(dir: &Path) -> Arc<SessionsStore> {
+    Arc::new(SessionsStore::new(
         dir,
         dir.join(".cheasee-inuse"),
         Arc::new(PidRegistry::new()),
-    )
+    ))
 }
 
 #[tokio::test]
-async fn coexist_terminal_session_is_listed_and_refused_while_claimed() {
+async fn coexist_running_ui_lists_the_claimed_session_and_refuses_the_attach() {
     let dir = temp_dir("listed");
     write_terminal_session(&dir, "term0001");
 
@@ -62,47 +128,117 @@ async fn coexist_terminal_session_is_listed_and_refused_while_claimed() {
     std::fs::create_dir_all(dir.join(".cheasee-inuse")).unwrap();
     std::fs::write(claim_path(&dir, "term0001"), b"{\"container\":\"cheasee-pi\"}").unwrap();
 
-    let store = store(&dir);
-    let rows = store.list().await.unwrap();
-    assert_eq!(rows.len(), 1, "the terminal session must appear in the scan");
-    assert_eq!(rows[0].id, "term0001");
-    assert_eq!(rows[0].cwd.as_deref(), Some(dir.to_string_lossy().as_ref()));
-    assert!(rows[0].in_use, "a live claim must mark the row in use");
+    // Drive the same relay the `ssr` server runs, over the browser sink —
+    // the UI's real list/attach path, not the store directly.
+    let (client, _to_child, mut frames) = harness();
+    let (command_tx, mut received, sink) = fake();
+    let session = Arc::new(Session::with_store(Arc::clone(&client), Some(store(&dir))));
+    let relay = tokio::spawn(async move { session.relay(sink).await });
 
-    let err = store.guard("term0001").await.unwrap_err();
+    // List: the relay scans the shared dir and marks the claimed session in use.
+    command_tx
+        .send(Ok(ClientMessage::ListSessions {
+            id: Some("coexist-list".into()),
+        }))
+        .unwrap();
+    match next_message(&mut received).await {
+        ServerMessage::SessionList { id, sessions } => {
+            assert_eq!(id.as_deref(), Some("coexist-list"));
+            let row = sessions
+                .iter()
+                .find(|s| s.id == "term0001")
+                .expect("the terminal session must appear in the relay's list");
+            assert!(row.in_use, "a live claim must mark the row in use");
+        }
+        other => panic!("expected a session list, got {other:?}"),
+    }
+
+    // Attach: refused by the in-use guard, and pi never sees a switch_session.
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: Some("coexist-resume".into()),
+            session_id: "term0001".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction { success, error, .. } => {
+            assert!(!success, "the running ui must not attach a live session");
+            assert!(error.unwrap().contains("in use"));
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
     assert!(
-        err.contains("in use"),
-        "the guard must refuse a live session, got {err}"
+        tokio::time::timeout(Duration::from_millis(200), frames.next_record_str())
+            .await
+            .is_err(),
+        "a refused attach must not forward switch_session to pi"
     );
-    assert!(
-        store.resume("term0001").await.is_err(),
-        "resume must refuse while the claim is live"
-    );
+
+    drop(command_tx);
+    let _ = relay.await;
 }
 
 #[tokio::test]
-async fn coexist_terminal_session_becomes_attachable_after_the_claim_clears() {
+async fn coexist_cleared_claim_lets_the_running_ui_attach_again() {
     let dir = temp_dir("cleared");
     write_terminal_session(&dir, "term0002");
 
-    let store = store(&dir);
-    // No claim yet: the UI may attach the (terminal-created) session.
-    assert!(!store.list().await.unwrap()[0].in_use);
-    assert!(store.guard("term0002").await.is_ok());
+    let (client, _to_child, mut frames) = harness();
+    let (command_tx, mut received, sink) = fake();
+    let session = Arc::new(Session::with_store(Arc::clone(&client), Some(store(&dir))));
+    let relay = tokio::spawn(async move { session.relay(sink).await });
 
-    // Claim appears (terminal start), then disappears (session exit) — the
-    // guard tracks the shared mount both ways.
+    // No claim: the running ui attaches the terminal-created session.
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: Some("clear-1".into()),
+            session_id: "term0002".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    let frame = next_command(&mut frames).await;
+    assert_eq!(frame["type"], "switch_session");
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction { success, .. } => assert!(success),
+        other => panic!("expected an attach, got {other:?}"),
+    }
+
+    // The terminal starts a session (claim appears): the same attach is refused.
     std::fs::create_dir_all(dir.join(".cheasee-inuse")).unwrap();
     std::fs::write(claim_path(&dir, "term0002"), b"{}").unwrap();
-    assert!(store.guard("term0002").await.is_err());
-    std::fs::remove_file(claim_path(&dir, "term0002")).unwrap();
-
-    let rows = store.list().await.unwrap();
-    assert!(!rows[0].in_use, "a cleared claim must restore attachability");
-    match store.resume("term0002").await.unwrap() {
-        Command::SwitchSession { session_path, .. } => {
-            assert_eq!(session_path, dir.join("term0002.jsonl").to_string_lossy());
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: Some("clear-2".into()),
+            session_id: "term0002".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    match next_message(&mut received).await {
+        ServerMessage::SessionAction { success, error, .. } => {
+            assert!(!success);
+            assert!(error.unwrap().contains("in use"));
         }
-        other => panic!("expected SwitchSession after the claim cleared, got {other:?}"),
+        other => panic!("expected a refusal, got {other:?}"),
     }
+
+    // The terminal exits (claim clears): attachable again.
+    std::fs::remove_file(claim_path(&dir, "term0002")).unwrap();
+    command_tx
+        .send(Ok(ClientMessage::ResumeSession {
+            id: Some("clear-3".into()),
+            session_id: "term0002".into(),
+            mode: Some("resume".into()),
+            entry_id: None,
+        }))
+        .unwrap();
+    let frame = next_command(&mut frames).await;
+    assert_eq!(frame["type"], "switch_session");
+    let _ = next_message(&mut received).await;
+
+    drop(command_tx);
+    let _ = relay.await;
 }
