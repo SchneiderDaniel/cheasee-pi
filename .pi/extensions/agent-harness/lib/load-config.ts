@@ -49,6 +49,15 @@ export const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"cascadeThreshold",
 ]);
 
+/** ToolMeta fields that must be booleans when present in config. */
+const BOOLEAN_TOOL_META_FIELDS: ReadonlySet<string> = new Set([
+	"passThrough",
+	"trackErrors",
+	"destructive",
+	"openWorld",
+	"idempotent",
+]);
+
 // ── Exports ──
 
 export { loadDefaultRules } from "./harness-rules.ts";
@@ -130,6 +139,19 @@ export function loadProjectConfig(
 		for (const [toolName, meta] of Object.entries(parsed.toolMeta as Record<string, unknown>)) {
 			if (typeof meta !== "object" || meta === null) {
 				throw new Error(`toolMeta.${toolName} must be an object`);
+			}
+			for (const [field, value] of Object.entries(meta as Record<string, unknown>)) {
+				if (BOOLEAN_TOOL_META_FIELDS.has(field) && typeof value !== "boolean") {
+					throw new Error(
+						`toolMeta.${toolName}.${field} must be a boolean (got ${typeof value})`,
+					);
+				}
+				if (
+					field === "cascadeThreshold" &&
+					(typeof value !== "number" || value < 1)
+				) {
+					throw new Error(`toolMeta.${toolName}.cascadeThreshold must be a positive number`);
+				}
 			}
 			defaults.toolMeta[toolName] = {
 				...defaults.toolMeta[toolName],

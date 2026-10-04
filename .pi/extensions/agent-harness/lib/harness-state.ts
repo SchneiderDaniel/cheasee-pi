@@ -78,19 +78,31 @@ export interface HarnessState {
 		 */
 		record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void;
 		/**
+		 * Roll a nested call up under its parent's existing consecutive entry.
+		 * Never changes the model-issued `lastKey` chain, never creates an entry.
+		 * No-op when the parent has no recorded entry (e.g. unmapped parent id).
+		 */
+		recordNested(toolName: string, sessionTurn: number): void;
+		/**
 		 * Get consecutive call info for a composite key.
 		 * Returns count 0 if composite key doesn't match the last recorded key.
 		 */
 		getConsecutive(toolName: string, subKey?: string): ConsecutiveInfo;
-		/** Reset all counters. */
+		/** Reset all counters. Clears the call-id index too. */
 		reset(): void;
 		/**
 		 * Reset consecutive count on turn boundary.
 		 * Clears lastKey so the next record() starts a fresh consecutive chain.
+		 * Also clears the nested-attribution call-id index.
 		 * Does NOT affect toolCallIndex (cache TTL) — only resets cascade state.
 		 */
 		turnBoundaryReset(): void;
 	};
+	/**
+	 * Nested-call attribution index: model-issued (and nested) toolCallId → toolName.
+	 * Bounded by CACHE_TTL_TURNS; cleared on turn boundary and reset.
+	 */
+	callIdIndex: TimedMap<string, string>;
 	/**
 	 * Tool call index for cache TTL and error tracking.
 	 * Incremented on each tool_call event handled by the extension.
@@ -197,6 +209,9 @@ export function createHarnessState(): HarnessState {
 	let lastKey: string | null = null;
 	const callMap = new TimedMap<string, ConsecutiveState>();
 
+	// Nested-call attribution: toolCallId → toolName, turn-bounded.
+	const callIdMap = new TimedMap<string, string>({ ttlTurns: CACHE_TTL_TURNS });
+
 	/** Build composite key from toolName and optional subKey. */
 	function makeKey(toolName: string, subKey?: string): string {
 		return subKey !== undefined ? `${toolName}\x00${subKey}` : toolName;
@@ -232,16 +247,34 @@ export function createHarnessState(): HarnessState {
 			};
 		},
 
+		recordNested(toolName: string, _sessionTurn: number): void {
+			// Roll up under an existing parent entry only — never create one and
+			// never touch lastKey, so the model-issued chain is unaffected.
+			const existing = callMap.get(makeKey(toolName));
+			if (existing) {
+				existing.count++;
+			}
+		},
+
 		reset(): void {
 			callMap.clear();
+			callIdMap.clear();
 			lastKey = null;
 		},
 
 		turnBoundaryReset(): void {
 			callMap.clear();
+			callIdMap.clear();
 			lastKey = null;
 		},
 	} satisfies HarnessState['callCounter'];
 
-	return { readCache, errorTracker, callCounter, toolCallIndex: 0, sessionTurn: 0 };
+	return {
+		readCache,
+		errorTracker,
+		callCounter,
+		callIdIndex: callIdMap,
+		toolCallIndex: 0,
+		sessionTurn: 0,
+	};
 }

@@ -66,3 +66,90 @@ describe("Constants", () => {
 		assert.ok(CACHE_TTL_TURNS >= 6);
 	});
 });
+
+// ── Nested-call attribution (callIdIndex + callCounter.recordNested) ──
+
+describe("HarnessState — nested call attribution", () => {
+	it("callIdIndex resolves a registered tool-call id to its tool name", () => {
+		const s = createHarnessState();
+		s.callIdIndex.set("id1", "read", 0);
+		assert.equal(s.callIdIndex.get("id1", 0), "read");
+	});
+
+	it("callIdIndex entry expires after CACHE_TTL_TURNS", () => {
+		const s = createHarnessState();
+		s.callIdIndex.set("id1", "read", 0);
+		assert.equal(s.callIdIndex.get("id1", CACHE_TTL_TURNS - 1), "read");
+		assert.equal(s.callIdIndex.get("id1", CACHE_TTL_TURNS), null);
+	});
+
+	it("recordNested rolls up under the parent key without resetting the chain", () => {
+		const s = createHarnessState();
+		s.callCounter.record("A", 0, 0);
+		assert.equal(s.callCounter.getConsecutive("A").count, 1);
+
+		s.callCounter.recordNested("A", 0);
+		s.callCounter.record("A", 0, 1);
+
+		assert.equal(s.callCounter.getConsecutive("A").count, 3);
+	});
+
+	it("two parallel sibling nested calls under the same parent both roll up", () => {
+		const s = createHarnessState();
+		s.callCounter.record("A", 0, 0);
+		s.callCounter.recordNested("A", 0);
+		s.callCounter.recordNested("A", 0);
+		assert.equal(s.callCounter.getConsecutive("A").count, 3);
+	});
+
+	it("recordNested never creates an entry under the nested tool name", () => {
+		const s = createHarnessState();
+		s.callCounter.recordNested("nested", 0);
+		assert.equal(s.callCounter.getConsecutive("nested").count, 0);
+	});
+
+	it("recordNested(unmappedParent) is a no-op", () => {
+		const s = createHarnessState();
+		s.callCounter.recordNested("ghost", 0);
+		assert.equal(s.callCounter.getConsecutive("ghost").count, 0);
+	});
+
+	it("nested errors push under the parent key, not the nested tool name", () => {
+		const s = createHarnessState();
+		s.errorTracker.push("parent", { turn: 0, toolName: "nested" });
+		s.errorTracker.push("parent", { turn: 0, toolName: "nested" });
+		assert.equal(s.errorTracker.getLastErrors("parent").length, 2);
+		assert.equal(s.errorTracker.getLastErrors("nested").length, 0);
+	});
+
+	it("rolled-up nested errors respect MAX_ERRORS_PER_TOOL (3)", () => {
+		const s = createHarnessState();
+		for (let i = 0; i < 5; i++) {
+			s.errorTracker.push("parent", { turn: i, toolName: "nested" });
+		}
+		assert.equal(s.errorTracker.getLastErrors("parent").length, 3);
+	});
+
+	it("turnBoundaryReset clears callIdIndex", () => {
+		const s = createHarnessState();
+		s.callIdIndex.set("id1", "read", 0);
+		s.callCounter.turnBoundaryReset();
+		assert.equal(s.callIdIndex.get("id1", 0), null);
+	});
+
+	it("callCounter.reset clears callIdIndex", () => {
+		const s = createHarnessState();
+		s.callIdIndex.set("id1", "read", 0);
+		s.callCounter.reset();
+		assert.equal(s.callIdIndex.get("id1", 0), null);
+	});
+
+	it("two instances keep independent callIdIndex and counters", () => {
+		const s1 = createHarnessState();
+		const s2 = createHarnessState();
+		s1.callIdIndex.set("id1", "read", 0);
+		s1.callCounter.record("A", 0, 0);
+		assert.equal(s2.callIdIndex.get("id1", 0), null);
+		assert.equal(s2.callCounter.getConsecutive("A").count, 0);
+	});
+});

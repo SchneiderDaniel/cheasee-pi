@@ -18,8 +18,9 @@ Plus deterministic read caching across turns — the harness stores an existence
 
 ## How it works
 
-Agent Harness hooks into pi's `tool_call` event and runs every call through an 8-step validation pipeline before execution:
+Agent Harness hooks into pi's `tool_call` event and runs every call through a 9-step validation pipeline before execution:
 
+0. **Nested attribution** — `ctx.executeTool()`-issued calls carry `parentToolCallId`; nested counts and errors roll up to the parent tool (resolved through a call-id index) and nested calls are never blocked
 0. **Force-bypass gate** — Per-call escape hatch: `input._harness.force: true` or `# bypass-harness` comment annotation skips all guards. Requires `hasUI: true` (interactive session).
 1. **Pass-through check** — Tools like `ask_user` pass through immediately (no validation overhead)
 2. **Error tracking** — Failed calls are recorded; after 2+ errors on same tool, further calls are blocked
@@ -42,6 +43,7 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 ## Requirements
 
 - Pi Coding Agent ≥ 0.79.1 (for `isProjectTrusted`)
+- Annotation-derived defaults and nested-call attribution require Pi ≥ 0.99.0 (`pi.getAllTools()` annotations, `parentToolCallId`, `ctx.executeTool()`). Both are **feature-detected**: on older floors the harness silently no-ops them and keeps legacy behavior.
 - No external dependencies
 
 ## Details
@@ -49,11 +51,12 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 ### Architecture
 
 ```
-├── index.ts                  # Entry: session_start/tool_call/turn_start hooks, AgentHarness
-├── agent-harness.ts          # AgentHarness class: handleToolCall, 8-step decision tree (step 0 = force-bypass)
+├── index.ts                  # Entry: session_start/tool_call/turn_start hooks, AgentHarness, pi.getAllTools() port
+├── agent-harness.ts          # AgentHarness class: handleToolCall, 9-step decision tree (step 0 = nested attribution + force-bypass)
 ├── lib/
 │   ├── harness-rules.ts      # Rule definitions: cascade thresholds, pass-through tools, mismatches
-│   ├── harness-state.ts      # Error tracking, cascade counter, read cache, turn tracking
+│   ├── tool-annotations.ts   # Pure MCP-annotation → ToolMeta mapping (readOnly/destructive/openWorld)
+│   ├── harness-state.ts      # Error tracking, cascade counter, read cache, call-id index, turn tracking
 │   ├── load-config.ts        # Load harness config from .pi/harness-config.json
 │   ├── timed-map.ts          # Generic timed map with TTL-based eviction
 │   └── constants.ts          # Default thresholds, tool lists
@@ -65,7 +68,11 @@ Part of Cheasee-Pi monorepo. Activated automatically when the extension director
 
 ```mermaid
 flowchart TD
-    A[tool_call event] --> B{Step 0: Force-bypass?}
+    A[tool_call event] --> N{Step 0.5: Nested call?
+parentToolCallId set}
+    N -- yes --> N2[Roll count/error up to parent — never blocked]
+    N2 --> C
+    N -- no --> B{Step 0: Force-bypass?}
     B -- "_harness.force OR # bypass-harness\n+ hasUI: true" --> C[Allow — record as real call]
     B -- no bypass --> D{Step 1: Pass-through?}
     D -- ask_user, reg commands --> C
@@ -97,6 +104,8 @@ flowchart TD
 ### Key Design Decisions
 
 - **Force-bypass (Escape Hatch)** — Two per-call mechanisms: `input._harness.force: true` on any tool, or `# bypass-harness` comment annotation on bash commands. Both require `hasUI: true` (interactive session) to prevent automated abuse. `_harness` is consumed and stripped by the harness before the tool sees it. Force-bypassed calls count toward the cascade counter (recorded as real calls). Parsing for the bash annotation is token-aware (quoted-string immunity) and best-effort (heredocs/continuations fall through to false; use `_harness.force` for those edge cases).
+- **Annotation-derived defaults** — On `session_start` the harness injects a lazy port over `pi.getAllTools()`. At each `tool_call`, a tool with no explicit config or hardcoded entry has its default `ToolMeta` derived from the tool's MCP `annotations`: `readOnlyHint` tools skip error tracking (`trackErrors: false`), `destructiveHint` tightens the cascade threshold, `openWorldHint` loosens it. Missing hints are **never treated as safe**: `destructiveHint ?? true`, `openWorldHint ?? true`, and read-only only on `readOnlyHint === true`. Annotations are advisory/unverified — explicit config always wins. Precedence: config `toolMeta` > hardcoded `TOOL_META` > annotation-derived > generic default. Resolved lazily per call (no session snapshot), and feature-detected: on Pi < 0.99.0 (no `annotations`) the port yields nothing and legacy behavior holds.
+- **Nested-call attribution** — `ctx.executeTool()`-issued calls flow through the same `tool_call` handler with a pi-assigned `<parent>/<n>` id and `parentToolCallId`. The harness resolves the parent through a turn-bounded call-id index (rather than string-splitting the synthetic id, which is ambiguous at depth ≥2) and rolls the nested count/error up under the parent so per-parent thresholds don't misfire. Nested calls are **never blocked** — a nested block would break the parent tool instead of teaching the model — and they never disturb the model-issued consecutive chain. An unmapped parent id is ignored. Step 2.5 cache invalidation still runs for nested writes.
 - **Configurable per-tool thresholds** — `.pi/harness-config.json` allows per-tool `cascadeThreshold` (default 8) and `passThrough` flags. Top-level `cascadeThreshold` sets the global default; `toolMeta.<tool>.cascadeThreshold` overrides it for that tool.
 - **Read caching with dual TTL (6 turns / 30 s)** — `TimedMap` stores an existence marker (`{ turn, timestamp }`) keyed by `path|offset|limit` for 6 turns or 30 s wall-clock. A hit returns no bytes: in TUI mode it blocks the re-read with a hint (content already in the agent's context); non-TUI passes through. Any `write`/`edit` or file-modifying `bash` clears the entire cache.
 - **Error retry guard caps at 2** — First retry reasonable (transient). Second+ consecutive same-tool same-args blocked. Counter resets on turn_start.
