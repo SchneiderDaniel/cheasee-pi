@@ -45,5 +45,6 @@
     "bellOnComplete": false,
     "enableExperimentalFeatures": false
   },
-  "theme": "cheasee-pi"
+  "theme": "cheasee-pi",
+  "tuiMode": "regular"
 }

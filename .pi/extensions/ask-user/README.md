@@ -47,7 +47,7 @@ The LLM uses `ask_user` automatically when it needs input. You can also browse h
 
 ## Requirements
 
-- Pi Coding Agent ≥ v0.99.0
+- Pi Coding Agent ≥ v1.0.1
 - No external dependencies — all peer deps are pi-provided.
 
 ## Structured results (`structuredContent`)
