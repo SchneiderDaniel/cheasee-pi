@@ -13,9 +13,9 @@
 	"license": "MIT",
 	"type": "commonjs",
 	"dependencies": {
-		"@earendil-works/pi-ai": "^0.79.1",
-		"@earendil-works/pi-coding-agent": "^0.79.1",
-		"@earendil-works/pi-tui": "^0.79.1",
+		"@earendil-works/pi-ai": "^1.0.0",
+		"@earendil-works/pi-coding-agent": "^1.0.0",
+		"@earendil-works/pi-tui": "^1.0.0",
 		"@octokit/graphql": "^8.2.1",
 		"@octokit/rest": "^22.0.1",
 		"proper-lockfile": "^4.1.2",

@@ -55,6 +55,8 @@ export function forwardNormalizedEventToChat(
 ): void {
 	switch (normalized.kind) {
 		case "tool_execution_start": {
+			// Nested calls (ctx.executeTool) stay out of the transcript, matching pi.
+			if (normalized.parentToolCallId) break;
 			pending.toolSeqNum++;
 			pending.pendingToolName = normalized.toolName;
 			pending.pendingToolStartTime = Date.now();
@@ -79,6 +81,7 @@ export function forwardNormalizedEventToChat(
 			break;
 		}
 		case "tool_execution_end": {
+			if (normalized.parentToolCallId) break;
 			pending.pendingToolIsError = !!normalized.isError;
 			break;
 		}
@@ -104,7 +107,7 @@ export function forwardNormalizedEventToChat(
 						toolDurationMs: durationMs,
 						runningTokenCount: state.tokenCount,
 						runningToolCount: state.toolCount,
-						errorCount: state.failedToolCount ?? 0,
+						errorCount: (state.failedToolCount ?? 0) + (state.nestedErrorCount ?? 0),
 						maxToolCalls: state.maxToolCalls,
 						agentTokenBudget: state.agentTokenBudget,
 					},

@@ -13,9 +13,9 @@ export const renderToolComplete: RendererFn = (message, _options, theme) => {
 	const raw = (message as any).details;
 	const icon = raw.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	const paramsPart = raw.params ? ` ${theme.fg("warning", raw.params)}` : "";
-	const headerText = `${icon} ${theme.fg("toolTitle", raw.toolName)}: \`${raw.args}\`${paramsPart}`;
+	const headerText = `${icon} ${theme.style(raw.toolName, { fg: "toolTitle", bold: true })}: \`${raw.args}\`${paramsPart}`;
 	const bgFn = (l: string) =>
-		raw.isError ? theme.bg("toolErrorBg", l) : theme.bg("toolSuccessBg", l);
+		raw.isError ? theme.style(l, { bg: "toolErrorBg" }) : theme.style(l, { bg: "toolSuccessBg" });
 
 	// ponytail: native tool-execution style — one Box with status bg wraps content.
 	const c = new Box(1, 1, bgFn);
@@ -23,7 +23,7 @@ export const renderToolComplete: RendererFn = (message, _options, theme) => {
 
 	const stats = statsLine(raw, theme);
 	if (stats) {
-		c.addChild(new Text(theme.fg("muted", stats), 0, 0));
+		c.addChild(new Text(theme.style(stats, { fg: "muted" }), 0, 0));
 	}
 
 	// Tool result output — Markdown with keyword highlighting
@@ -100,19 +100,23 @@ function highlightResultText(resultText: string, theme: any): string {
 	return resultText
 		.split("\n")
 		.map((l: string) => {
+			// Keep leading whitespace OUTSIDE the ANSI wrap so Markdown still sees
+			// the original indentation — styling must not change visible text.
+			const indent = l.match(/^\s*/)?.[0] ?? "";
+			const body = l.slice(indent.length);
 			// Keyword highlighting for major status words
-			if (/^(error|fail|failed|denied|enoent|not found|blocked)/i.test(l.trim())) {
-				return theme.fg("error", l);
+			if (/^(error|fail|failed|denied|enoent|not found|blocked)/i.test(body)) {
+				return indent + theme.fg("error", body);
 			}
-			if (/^(success|ok|done|completed|approved)/i.test(l.trim())) {
-				return theme.fg("success", l);
+			if (/^(success|ok|done|completed|approved)/i.test(body)) {
+				return indent + theme.fg("success", body);
 			}
-			if (/^(warning|warn|caution)/i.test(l.trim())) {
-				return theme.fg("warning", l);
+			if (/^(warning|warn|caution)/i.test(body)) {
+				return indent + theme.fg("warning", body);
 			}
 			// Match count lines
-			if (/\d+ matches/i.test(l) || /Matches returned: \d+/i.test(l)) {
-				return theme.fg("success", l);
+			if (/\d+ matches/i.test(body) || /Matches returned: \d+/i.test(body)) {
+				return indent + theme.fg("success", body);
 			}
 			// File:line entries from search results
 			if (/^\d+\.\s+\S+:\d+:/.test(l)) {
@@ -123,7 +127,7 @@ function highlightResultText(resultText: string, theme: any): string {
 			}
 			// Omitted long line entries
 			if (/\[omitted long line/i.test(l) || /\[truncated/i.test(l)) {
-				return theme.fg("muted", l);
+				return indent + theme.fg("muted", body);
 			}
 			// Paths with known patterns (.ts, .js, .json, etc.)
 			if (/^\/[\w/.-]+\.[a-z]+:/.test(l)) {

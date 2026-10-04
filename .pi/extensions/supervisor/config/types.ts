@@ -2,6 +2,7 @@
 // All interfaces, types, enums. Zero logic, no functions.
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { NestedCall, NestedCalls } from "../subagent/types.ts";
 
 // Re-export SupervisorConfig type derived from zod schema (single source of truth).
 export type { SupervisorConfig } from "./config.ts";
@@ -108,6 +109,10 @@ export interface AgentRunResult {
 	turnCount?: number;
 	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
 	thinkingLevel?: string;
+	/** Nested calls made by the run's tools (pi's bounded record), if any */
+	nestedCalls?: NestedCalls;
+	/** Count of nested calls that ended in error/unfinished */
+	nestedErrors?: number;
 }
 
 // ─── AgentRunState: mutable state during agent execution ────────────
@@ -152,6 +157,12 @@ export interface AgentRunState {
 	cacheWrite?: number;
 	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
 	thinkingLevel?: string;
+	/** Nested calls accumulated from `parentToolCallId`-bearing tool ends */
+	nestedCalls?: NestedCall[];
+	/** True when more nested calls arrived than MAX_NESTED_CALLS */
+	nestedTruncated?: boolean;
+	/** Count of nested calls that ended in error */
+	nestedErrorCount?: number;
 }
 
 // ─── Dependency gate types ─────────────────────────────────────────
