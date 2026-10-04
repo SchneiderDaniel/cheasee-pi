@@ -411,3 +411,30 @@ func TestScanOrphans_dockerPsFails(t *testing.T) {
 		t.Fatal("expected error when docker ps fails, got nil")
 	}
 }
+
+// TestInUseClaim_crossContainerPathPin (AC5) pins the two literals that join
+// the Go writer and the Rust reader on the shared workspace mount: the claim
+// is <SESSION_DIR>/.cheasee-inuse. A drift on either side silently disables
+// the UI's cross-container in-use guard, so both languages are read here.
+func TestInUseClaim_crossContainerPathPin(t *testing.T) {
+	const sessionDir = "/workspaces/main/.pi/sessions"
+	if inUseClaimDir != sessionDir+"/.cheasee-inuse" {
+		t.Errorf("inUseClaimDir = %q, want %q", inUseClaimDir, sessionDir+"/.cheasee-inuse")
+	}
+
+	rustDir := filepath.Join("embedded", "docker", "ui", "src")
+	piProcess, err := os.ReadFile(filepath.Join(rustDir, "pi_process.rs"))
+	if err != nil {
+		t.Fatalf("read pi_process.rs: %v", err)
+	}
+	if !strings.Contains(string(piProcess), `SESSION_DIR: &str = "`+sessionDir+`"`) {
+		t.Errorf("Rust SESSION_DIR must equal %q (the Go/Rust join key)", sessionDir)
+	}
+	mainRs, err := os.ReadFile(filepath.Join(rustDir, "main.rs"))
+	if err != nil {
+		t.Fatalf("read main.rs: %v", err)
+	}
+	if !strings.Contains(string(mainRs), `".cheasee-inuse"`) {
+		t.Error(`Rust must join the ".cheasee-inuse" claim dir off SESSION_DIR`)
+	}
+}

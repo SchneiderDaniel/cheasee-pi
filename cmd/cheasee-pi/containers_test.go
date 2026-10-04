@@ -182,3 +182,45 @@ func TestProjectContainers_usesProjectLabel(t *testing.T) {
 		t.Errorf("projectContainers must filter by the compose project label, got %q", seenFilter)
 	}
 }
+
+// TestListManagedContainers_uiByLabelNeverName (AC4) pins the documented
+// invariant: clean enumerates by `label=com.cheaseepi.managed=true`, never by
+// `--filter name=` (substring semantics). The ui sidecar must be reachable
+// through the label pass alone.
+func TestListManagedContainers_uiByLabelNeverName(t *testing.T) {
+	var filters []string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" || !slices.Contains(arg, "ps") {
+			return &mockCmd{}
+		}
+		current := ""
+		for i, a := range arg {
+			if a == "--filter" && i+1 < len(arg) {
+				current = arg[i+1]
+				filters = append(filters, current)
+			}
+		}
+		return &mockCmd{outputFn: func() ([]byte, error) {
+			if current == "label="+managedLabel {
+				return []byte("ui-repoA\n"), nil
+			}
+			return []byte(""), nil
+		}}
+	})
+
+	got, err := listManagedContainers(context.Background())
+	if err != nil {
+		t.Fatalf("listManagedContainers: %v", err)
+	}
+	if !slices.Contains(got, "ui-repoA") {
+		t.Errorf("ui container must be enumerated by the managed label, got %v", got)
+	}
+	if !slices.Contains(filters, "label="+managedLabel) {
+		t.Errorf("enumeration must filter by the managed label, got %v", filters)
+	}
+	for _, f := range filters {
+		if strings.Contains(f, "name=ui-") {
+			t.Errorf("ui must never be enumerated by a name substring filter, got %q", f)
+		}
+	}
+}

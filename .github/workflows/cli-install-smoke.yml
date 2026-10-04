@@ -6,9 +6,11 @@
 #   - cheasee-pi init with all non-interactive flags
 #   - docker compose build + up -d
 #   - Health check + pi --version inside container
+#   - Daemon-backed compose integration harness (go test -tags integration)
 #   - Teardown (always runs)
 #
-# Budget: ~5-6 min (cold cache), ~15 min timeout for safety
+# Budget: ~5-6 min smoke (cold cache) + ~5-10 min integration harness;
+# ~30 min timeout for safety
 
 name: CLI Install Smoke Test
 
@@ -39,7 +41,7 @@ env:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     services:
       docker:
@@ -117,6 +119,17 @@ jobs:
       - name: Run CLI install smoke test
         run: |
           node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
+
+      # Daemon-backed acceptance harness for the three-service stack (epic
+      # #1098). Its build tag keeps it out of the default `go test` run; here it
+      # gets the DinD daemon via DOCKER_HOST. requireDockerDaemon t.Skips when no
+      # daemon/compose plugin is reachable, so the step never fails for an
+      # environmental reason. On DinD the codeflow bind cannot resolve, so the
+      # harness falls back to the agent+ui subset (as checkpoint 5 does).
+      - name: Run compose integration harness
+        run: |
+          go test -tags integration ./cmd/cheasee-pi/ \
+            -run 'TestComposeHarness' -count=1 -timeout 15m
 
       - name: Teardown
         if: always()

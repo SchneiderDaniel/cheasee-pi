@@ -621,6 +621,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_marks_a_claimed_session_in_use() {
+        // AC5 reader side: a terminal session's `.jsonl` plus the shared
+        // `.cheasee-inuse/<id>` claim it writes must surface as an in-use row
+        // and refuse an attach; removing the claim clears both.
+        let dir = temp_dir("list-claim");
+        write_session(
+            &dir,
+            "feed_face.jsonl",
+            "{\"type\":\"session\",\"id\":\"feed\",\"cwd\":\"/workspaces/main\"}\n",
+        );
+        let store = store(&dir);
+        let rows = store.list().await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].in_use, "no claim yet -> not in use");
+
+        std::fs::create_dir_all(dir.join(".cheasee-inuse")).unwrap();
+        std::fs::write(dir.join(".cheasee-inuse").join("feed"), b"{}").unwrap();
+        let rows = store.list().await.unwrap();
+        assert!(rows[0].in_use, "a present claim must mark the row in use");
+        assert!(store.guard("feed").await.is_err(), "and refuse an attach");
+
+        std::fs::remove_file(dir.join(".cheasee-inuse").join("feed")).unwrap();
+        let rows = store.list().await.unwrap();
+        assert!(!rows[0].in_use, "a removed claim must clear in_use");
+        assert!(store.guard("feed").await.is_ok());
+    }
+
+    #[tokio::test]
     async fn resume_refuses_when_the_recorded_cwd_is_missing() {
         let dir = temp_dir("missing-cwd");
         write_session(

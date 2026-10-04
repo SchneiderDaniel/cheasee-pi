@@ -19,7 +19,7 @@ export const SAFETY_THRESHOLD_DAYS = 14;
  * org-verified on the registry, so packages inside it cannot be
  * typosquatted the way unverified names can.
  */
-export const TRUSTED_SCOPES = ["@earendil-works"] as const;
+const TRUSTED_SCOPES = ["@earendil-works"] as const;
 
 /** Result of a package age check. */
 export interface PackageAgeResult {
@@ -161,7 +161,7 @@ export function runPackageSafetyCheck(
 // ─── Audit-level types ────────────────────────────────────────────
 
 /** Result of checking a single package during audit. */
-export interface PackageAuditItem {
+interface PackageAuditItem {
 	/** The package name as it appears in package.json */
 	packageName: string;
 	/** Age of the package in whole days (0 if exempt or check failed) */
