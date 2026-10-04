@@ -310,7 +310,8 @@ RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
 # and lib/ sit at the context root — no docker/ prefix.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY lib/ /usr/local/bin/lib/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/lib/worktree-fix.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/lib/worktree-fix.sh \
+    && node /usr/local/bin/lib/patch-pi-session-warning.js
 
 WORKDIR /workspaces/main
 
