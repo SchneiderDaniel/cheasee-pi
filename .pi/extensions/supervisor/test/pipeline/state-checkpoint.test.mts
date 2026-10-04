@@ -641,6 +641,35 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		assert.equal(existsSync(statePath), true);
 	});
 
+	it("stale state file naming a worktree already gone → state file dropped, no error", async () => {
+		// The worktree directory does not exist: cleanup completed but the
+		// state-file unlink never ran (pipeline died between `git worktree
+		// remove` and the unlink, or the worktree was removed out-of-band).
+		// Every later supervisor run must not error on this — the stale JSON is
+		// garbage and is dropped quietly.
+		const wt = join(baseDir, "already-removed-worktree");
+		const statePath = writeStale(wt); // no mkdirSync — the dir is gone
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi([{ code: 0, stdout: wtList(mainWt), stderr: "" }], calls);
+		const { notify, calls: notifyCalls } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1, "allowlist fetch only — nothing destructive");
+		assert.equal(existsSync(statePath), false, "stale state file dropped");
+		assert.equal(
+			notifyCalls.some((c) => c.level === "error"),
+			false,
+			"an already-gone worktree is not an error",
+		);
+		assert.ok(
+			notifyCalls.some((c) => c.level === "info" && c.msg.includes("already cleaned up")),
+			"info notification emitted",
+		);
+	});
+
 	it("main-worktree entry inside the base is never removed even when listed", async () => {
 		const mainWtInBase = join(baseDir, "main-checkout");
 		mkdirSync(mainWtInBase);
