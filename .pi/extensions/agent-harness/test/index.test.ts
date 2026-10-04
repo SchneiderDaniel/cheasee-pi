@@ -1778,6 +1778,22 @@ describe("AgentHarness — nested call attribution", () => {
 		assert.equal(r, null, "nested call never blocked by the parent's cascade state");
 	});
 
+	it("interleaved nested roll-ups count toward the parent's cascade threshold", () => {
+		const h = new AgentHarness({
+			toolMeta: { alpha: { cascadeThreshold: 3 } },
+			cascadeThreshold: 8,
+		});
+		// parent alpha (p1), sibling beta interleaves, then a nested call under p1
+		h.handleToolCall({ toolName: "alpha", input: {}, toolCallId: "p1" }, makeCtx());
+		h.handleToolCall({ toolName: "beta", input: {}, toolCallId: "b1" }, makeCtx());
+		h.handleToolCall(nested("read", "p1/1", "p1"), makeCtx());
+		const r = h.handleToolCall({ toolName: "alpha", input: {} }, makeCtx());
+		assert.ok(
+			r?.block,
+			"parent cascade includes the nested roll-up despite beta interleaving",
+		);
+	});
+
 	it("nested errors roll up and block the parent's next model call", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(
@@ -1789,6 +1805,29 @@ describe("AgentHarness — nested call attribution", () => {
 		const r = h.handleToolCall(makeEvent("write", { path: "b.ts", content: "" }), makeCtx());
 		assert.ok(r?.block, "parent error block applies");
 		assert.ok(r!.reason.includes("errored"));
+	});
+
+	it("nested errors under a read-only parent are not tracked (no error block)", () => {
+		const h = new AgentHarness();
+		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		h.handleToolCall({ toolName: "read", input: { path: "a.ts" }, toolCallId: "p1" }, makeCtx());
+		h.handleToolCall(nested("read", "p1/1", "p1", {}, true), makeCtx());
+		h.handleToolCall(nested("read", "p1/2", "p1", {}, true), makeCtx());
+		const r = h.handleToolCall(makeEvent("read", { path: "b.ts" }), makeCtx());
+		assert.equal(r, null, "read-only parent is never error-blocked by nested errors");
+	});
+
+	it("explicit config trackErrors:true restores nested error attribution for a read-only tool", () => {
+		const h = new AgentHarness({
+			toolMeta: { read: { trackErrors: true } },
+			cascadeThreshold: 8,
+		});
+		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		h.handleToolCall({ toolName: "read", input: { path: "a.ts" }, toolCallId: "p1" }, makeCtx());
+		h.handleToolCall(nested("read", "p1/1", "p1", {}, true), makeCtx());
+		h.handleToolCall(nested("read", "p1/2", "p1", {}, true), makeCtx());
+		const r = h.handleToolCall(makeEvent("read", { path: "b.ts" }), makeCtx());
+		assert.ok(r?.block, "config trackErrors:true restores the nested error block");
 	});
 
 	it("unmapped parentToolCallId nested call passes and is counted nowhere", () => {

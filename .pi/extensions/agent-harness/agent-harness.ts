@@ -243,7 +243,9 @@ export class AgentHarness {
 		if (!parentToolName) return;
 
 		this.state.callCounter.recordNested(parentToolName, sessionTurn);
-		if (event.isError) {
+		// Apply the parent's effective trackErrors setting — a read-only parent
+		// must not be error-blocked by nested failures (config still wins).
+		if (event.isError && this.#getToolMeta(parentToolName).trackErrors !== false) {
 			this.state.errorTracker.push(parentToolName, { turn: sessionTurn, toolName });
 		}
 	}

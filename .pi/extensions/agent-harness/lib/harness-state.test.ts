@@ -102,6 +102,56 @@ describe("HarnessState — nested call attribution", () => {
 		assert.equal(s.callCounter.getConsecutive("A").count, 3);
 	});
 
+	it("interleaved parent roll-up stays visible under the parent key", () => {
+		const s = createHarnessState();
+		s.callCounter.record("A", 0, 0);
+		s.callCounter.record("B", 0, 1);
+		s.callCounter.recordNested("A", 0);
+		assert.equal(
+			s.callCounter.getConsecutive("A").count,
+			2,
+			"nested roll-up under A must not be hidden by B's last-key",
+		);
+	});
+
+	it("nested roll-up survives an interleaved re-record of the parent", () => {
+		const s = createHarnessState();
+		s.callCounter.record("A", 0, 0);
+		s.callCounter.record("B", 0, 1);
+		s.callCounter.recordNested("A", 0);
+		s.callCounter.record("A", 0, 2);
+		assert.equal(
+			s.callCounter.getConsecutive("A").count,
+			3,
+			"nested roll-up is preserved when the parent is re-recorded after B",
+		);
+	});
+
+	it("recordNested resolves the parent's bash sub-key composite identity", () => {
+		const s = createHarnessState();
+		s.callCounter.record("bash", 0, 0, "git commit");
+		s.callCounter.record("bash", 0, 1, "git commit");
+		s.callCounter.recordNested("bash", 0);
+		assert.equal(
+			s.callCounter.getConsecutive("bash", "git commit").count,
+			3,
+			"nested roll-up targets the parent's stored sub-key entry",
+		);
+	});
+
+	it("recordNested does not leak into a different sub-key of the same tool", () => {
+		const s = createHarnessState();
+		s.callCounter.record("bash", 0, 0, "git status");
+		s.callCounter.recordNested("bash", 0);
+		assert.equal(s.callCounter.getConsecutive("bash", "git status").count, 2);
+		s.callCounter.record("bash", 0, 1, "npm test");
+		assert.equal(
+			s.callCounter.getConsecutive("bash", "npm test").count,
+			1,
+			"a fresh sub-key starts its own chain",
+		);
+	});
+
 	it("recordNested never creates an entry under the nested tool name", () => {
 		const s = createHarnessState();
 		s.callCounter.recordNested("nested", 0);
