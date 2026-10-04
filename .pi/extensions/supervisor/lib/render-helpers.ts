@@ -4,7 +4,7 @@
 // formatting with TUI component dependencies (Container, Text, etc.).
 
 import { Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { Container } from "@earendil-works/pi-tui";
+import type { Box, Container } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
@@ -41,7 +41,7 @@ export interface RenderTheme {
  * @param theme     - Theme object with a `fg` method matching TUI conventions
  */
 export function renderThinkingBlock(
-	container: Container,
+	container: Container | Box,
 	text: string,
 	theme: RenderTheme,
 ): void {

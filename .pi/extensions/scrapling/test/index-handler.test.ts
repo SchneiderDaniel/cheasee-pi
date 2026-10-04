@@ -12,6 +12,7 @@ import { setCrawlFactory, resetCrawlFactory } from "../index.ts";
 import webCrawlExtension from "../index.ts";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { crawlOutputSchema } from "../structured-output.ts";
 
 // ── Register tool once ──
 
@@ -35,7 +36,7 @@ interface CrawlCall {
 }
 
 let crawlCalls: CrawlCall[] = [];
-let cannedResult: CrawlResult = { success: true, results: [], totalTokens: 0 };
+let cannedResult: CrawlResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 
 /**
  * Inject a factory that records calls and returns the current cannedResult.
@@ -60,7 +61,7 @@ function injectFactory(result: CrawlResult): void {
 afterEach(() => {
 	resetCrawlFactory();
 	crawlCalls = [];
-	cannedResult = { success: true, results: [], totalTokens: 0 };
+	cannedResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -69,7 +70,7 @@ afterEach(() => {
 
 describe("handler — real execute() path with injected crawl factory", () => {
 	it("(entity) handler calls injected factory exactly once per invocation", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -86,7 +87,7 @@ describe("handler — real execute() path with injected crawl factory", () => {
 	});
 
 	it("(entity) URL validation throws before factory call", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 		let factoryCalledBeforeError = false;
 
 		// Override to detect if factory gets called
@@ -113,7 +114,7 @@ describe("handler — real execute() path with injected crawl factory", () => {
 	});
 
 	it("(entity) concurrency lock wraps the full execute body", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		// Call execute to verify lock pattern — multiple concurrent calls
 		const p1 = tool.execute("id1", { url: "https://example.com/1" }, undefined, undefined, {
@@ -134,7 +135,7 @@ describe("handler — real execute() path with injected crawl factory", () => {
 	});
 
 	it("(entity) onUpdate fires with progress text before factory call", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 		const updates: string[] = [];
 
 		await tool.execute(
@@ -158,8 +159,9 @@ describe("handler — real execute() path with injected crawl factory", () => {
 			markdown: "# Hello World",
 			method: "lightweight",
 			rawLength: 12,
+			truncated: false,
 		};
-		injectFactory({ success: true, results: [page], totalTokens: 3 });
+		injectFactory({ success: true, results: [page], totalTokens: 3, attempted: 1, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -174,20 +176,30 @@ describe("handler — real execute() path with injected crawl factory", () => {
 		assert.ok(text.includes("# Hello World"));
 	});
 
-	it("(entity) error result → handler throws with error string", async () => {
+	it("(entity) error result → handler returns isError with structured error", async () => {
 		injectFactory({ success: false, error: "Connection timeout" });
 
-		await assert.rejects(
-			tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
-				cwd: "/tmp",
-			}),
-			/Connection timeout/,
-			"handler should throw with error string",
+		const result = await tool.execute(
+			"call-id",
+			{ url: "https://example.com" },
+			undefined,
+			undefined,
+			{ cwd: "/tmp" },
+		);
+
+		assert.equal(result.isError, true, "crawl failure should set isError");
+		assert.deepEqual(result.structuredContent, {
+			ok: false,
+			error: { url: "https://example.com", reason: "Connection timeout" },
+		});
+		assert.ok(
+			result.content[0].text.includes("Connection timeout"),
+			"content should include the reason",
 		);
 	});
 
 	it("(entity) invalid URL throws 'Invalid URL' and no factory call", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "" }, undefined, undefined, { cwd: "/tmp" }),
@@ -206,7 +218,7 @@ describe("handler — real execute() path with injected crawl factory", () => {
 	});
 
 	it("(entity) maxPages is clamped between 1 and 10", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute(
 			"call-id",
@@ -244,10 +256,10 @@ describe("handler — real execute() path with injected crawl factory", () => {
 
 	it("(entity) handler formats multiple results with double newline separator", async () => {
 		const pages: CrawledPage[] = [
-			{ url: "https://a.com", markdown: "Page A", method: "lightweight", rawLength: 6 },
-			{ url: "https://b.com", markdown: "Page B", method: "stealth", rawLength: 6 },
+			{ url: "https://a.com", markdown: "Page A", method: "lightweight", rawLength: 6, truncated: false },
+			{ url: "https://b.com", markdown: "Page B", method: "stealth", rawLength: 6, truncated: false },
 		];
-		injectFactory({ success: true, results: pages, totalTokens: 3 });
+		injectFactory({ success: true, results: pages, totalTokens: 3, attempted: 2, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -274,8 +286,9 @@ describe("handler — real execute() path with injected crawl factory", () => {
 			markdown: longContent,
 			method: "lightweight",
 			rawLength: 400,
+			truncated: false,
 		};
-		injectFactory({ success: true, results: [page], totalTokens: 100 });
+		injectFactory({ success: true, results: [page], totalTokens: 100, attempted: 1, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -302,11 +315,11 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	afterEach(() => {
 		resetCrawlFactory();
 		crawlCalls = [];
-		cannedResult = { success: true, results: [], totalTokens: 0 };
+		cannedResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 	});
 
 	it("(entity) handler throws for file:// — factory NOT called", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "file:///etc/passwd" }, undefined, undefined, {
@@ -319,7 +332,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler throws for data:// — factory NOT called", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "data://text/html,Hello" }, undefined, undefined, {
@@ -332,7 +345,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler throws for ftp:// — factory NOT called", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "ftp://ftp.example.com" }, undefined, undefined, {
@@ -345,7 +358,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler throws for javascript: — factory NOT called", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "javascript:alert(1)" }, undefined, undefined, {
@@ -358,7 +371,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler continues normally for http:// — factory called once", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute("call-id", { url: "http://example.com" }, undefined, undefined, {
 			cwd: "/tmp",
@@ -369,7 +382,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler continues normally for https:// — factory called once", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
 			cwd: "/tmp",
@@ -380,7 +393,7 @@ describe("handler — protocol allowlist (defense-in-depth)", () => {
 	});
 
 	it("(entity) handler continues normally for HTTP://EXAMPLE.COM (mixed case) — factory called once", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute("call-id", { url: "HTTP://EXAMPLE.COM" }, undefined, undefined, {
 			cwd: "/tmp",
@@ -504,9 +517,12 @@ describe("user-journey — LLM agent calls web_crawl", () => {
 					markdown: "# Welcome\n\nThis is the content.",
 					method: "lightweight",
 					rawLength: 35,
+					truncated: false,
 				},
 			],
 			totalTokens: 9,
+			attempted: 1,
+			failed: [],
 		};
 		injectFactory(canned);
 
@@ -528,20 +544,30 @@ describe("user-journey — LLM agent calls web_crawl", () => {
 		assert.ok(text.includes("This is the content."), "should include full content");
 	});
 
-	it("(use-case) agent calls web_crawl → handler validates → factory returns error → agent gets error", async () => {
+	it("(use-case) agent calls web_crawl → factory returns error → agent gets isError result", async () => {
 		injectFactory({ success: false, error: "Page could not be accessed" });
 
-		await assert.rejects(
-			tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
-				cwd: "/tmp",
-			}),
-			/Page could not be accessed/,
-			"error result should throw with error message",
+		const result = await tool.execute(
+			"call-id",
+			{ url: "https://example.com" },
+			undefined,
+			undefined,
+			{ cwd: "/tmp" },
+		);
+
+		assert.equal(result.isError, true, "crawl failure should set isError");
+		assert.deepEqual(result.structuredContent, {
+			ok: false,
+			error: { url: "https://example.com", reason: "Page could not be accessed" },
+		});
+		assert.ok(
+			result.content[0].text.includes("Page could not be accessed"),
+			"content should include the reason",
 		);
 	});
 
 	it("(use-case) agent calls web_crawl with invalid URL → handler throws — no factory call", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await assert.rejects(
 			tool.execute("call-id", { url: "invalid-url" }, undefined, undefined, { cwd: "/tmp" }),
@@ -567,9 +593,12 @@ describe("user-journey — LLM agent calls web_crawl", () => {
 					markdown: "Single page",
 					method: "lightweight",
 					rawLength: 11,
+					truncated: false,
 				},
 			],
 			totalTokens: 3,
+			attempted: 1,
+			failed: [],
 		};
 		injectFactory(canned);
 
@@ -594,8 +623,9 @@ describe("user-journey — LLM agent calls web_crawl", () => {
 			markdown: "Test content",
 			method: "lightweight",
 			rawLength: 12,
+			truncated: false,
 		};
-		injectFactory({ success: true, results: [page], totalTokens: 42 });
+		injectFactory({ success: true, results: [page], totalTokens: 42, attempted: 1, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -629,12 +659,12 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 
 		setCrawlFactory(async () => {
 			order.push("first");
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		setCrawlFactory(async () => {
 			order.push("second");
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		await tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
@@ -651,7 +681,7 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 	});
 
 	it("(entity) factory receives CrawlParams with url, maxPages, maxTokens — all fields", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute(
 			"call-id",
@@ -668,7 +698,7 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 	});
 
 	it("(entity) factory receives CrawlParams with defaults when optional fields omitted", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		await tool.execute("call-id", { url: "https://example.com" }, undefined, undefined, {
 			cwd: "/tmp",
@@ -683,7 +713,7 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 	});
 
 	it("(entity) factory receives AbortSignal in params — signal passed through", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 		const controller = new AbortController();
 
 		await tool.execute("call-id", { url: "https://example.com" }, controller.signal, undefined, {
@@ -695,7 +725,7 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 	});
 
 	it("(entity) factory returns success: true, results: [], totalTokens: 0 — handler formats empty result", async () => {
-		injectFactory({ success: true, results: [], totalTokens: 0 });
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -711,10 +741,10 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 
 	it("(entity) factory returns multi-page result with mixed method values — handler formats both", async () => {
 		const pages: CrawledPage[] = [
-			{ url: "https://light.com", markdown: "Light", method: "lightweight", rawLength: 5 },
-			{ url: "https://stealth.com", markdown: "Stealth", method: "stealth", rawLength: 7 },
+			{ url: "https://light.com", markdown: "Light", method: "lightweight", rawLength: 5, truncated: false },
+			{ url: "https://stealth.com", markdown: "Stealth", method: "stealth", rawLength: 7, truncated: false },
 		];
-		injectFactory({ success: true, results: pages, totalTokens: 3 });
+		injectFactory({ success: true, results: pages, totalTokens: 3, attempted: 2, failed: [] });
 
 		const result = await tool.execute(
 			"call-id",
@@ -775,7 +805,7 @@ describe("factory injection — cross-test isolation", () => {
 		const identity: string[] = [];
 		setCrawlFactory(async () => {
 			identity.push("A");
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		// Use factory A
@@ -809,7 +839,7 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 	afterEach(() => {
 		resetCrawlFactory();
 		crawlCalls = [];
-		cannedResult = { success: true, results: [], totalTokens: 0 };
+		cannedResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 	});
 
 	it("(entity) abort signal during semaphore wait — p3 rejects with AbortError", async () => {
@@ -823,7 +853,7 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 			callCount++;
 			if (callCount === 1) await gate1;
 			if (callCount === 2) await gate2;
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		// Fill both semaphore slots — p1, p2 acquire lock then block in factory
@@ -865,7 +895,7 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 			callCount++;
 			if (callCount === 1) await gate1;
 			if (callCount === 2) await gate2;
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		// Fill both slots
@@ -913,7 +943,7 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 			callCount++;
 			if (callCount === 1) await gate1;
 			if (callCount === 2) await gate2;
-			return { success: true, results: [], totalTokens: 0 };
+			return { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
 		});
 
 		// Fill both slots
@@ -940,5 +970,117 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000));
 		await Promise.race([fresh, timeout]);
 		assert.equal(callCount, 3, "fresh call should reach factory");
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  structuredContent + tool contract (entity)
+// ══════════════════════════════════════════════════════════════════════
+
+describe("handler — structuredContent contract", () => {
+	afterEach(() => {
+		resetCrawlFactory();
+		crawlCalls = [];
+		cannedResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
+	});
+
+	it("(entity) success → structuredContent passes crawlOutputSchema", async () => {
+		const pages: CrawledPage[] = [
+			{ url: "https://a.com", markdown: "A", method: "lightweight", rawLength: 1, truncated: false },
+		];
+		injectFactory({ success: true, results: pages, totalTokens: 1, attempted: 1, failed: [] });
+
+		const result = await tool.execute("id", { url: "https://a.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+
+		assert.equal(Value.Check(crawlOutputSchema, result.structuredContent), true);
+		assert.deepEqual(result.structuredContent, {
+			ok: true,
+			pages: [{ url: "https://a.com", markdown: "A", method: "lightweight", truncated: false }],
+			totalPages: 1,
+			attempted: 1,
+			failed: [],
+			truncated: false,
+		});
+	});
+
+	it("(entity) content stays combined markdown; structuredContent not serialized into content", async () => {
+		const pages: CrawledPage[] = [
+			{ url: "https://a.com", markdown: "Page A", method: "lightweight", rawLength: 6, truncated: false },
+			{ url: "https://b.com", markdown: "Page B", method: "stealth", rawLength: 6, truncated: false },
+		];
+		injectFactory({ success: true, results: pages, totalTokens: 3, attempted: 2, failed: [] });
+
+		const result = await tool.execute(
+			"id",
+			{ url: "https://a.com", maxPages: 2 },
+			undefined,
+			undefined,
+			{ cwd: "/tmp" },
+		);
+		const text = result.content[0].text;
+		assert.ok(text.includes("--- https://a.com (via lightweight) ---"));
+		assert.ok(text.includes("--- https://b.com (via stealth) ---"));
+		assert.ok(!text.includes("totalPages"), "structuredContent must not leak into model content");
+	});
+
+	it("(entity) truncated page surfaces in content notice and structuredContent", async () => {
+		const pages: CrawledPage[] = [
+			{
+				url: "https://a.com",
+				markdown: "abc\n\n[... truncated at ~5 tokens (100 total).]",
+				method: "lightweight",
+				rawLength: 400,
+				truncated: true,
+			},
+		];
+		injectFactory({ success: true, results: pages, totalTokens: 100, attempted: 1, failed: [] });
+
+		const result = await tool.execute(
+			"id",
+			{ url: "https://a.com", maxTokens: 5 },
+			undefined,
+			undefined,
+			{ cwd: "/tmp" },
+		);
+		assert.ok(result.content[0].text.includes("[... truncated at"));
+		const sc = result.structuredContent as { ok: boolean; truncated: boolean; pages: Array<{ truncated: boolean }> };
+		assert.equal(sc.truncated, true);
+		assert.equal(sc.pages[0].truncated, true);
+	});
+
+	it("(entity) registered definition exposes outputSchema", () => {
+		assert.ok(tool.outputSchema, "web_crawl should declare an outputSchema");
+		assert.equal(
+			Value.Check(tool.outputSchema, {
+				ok: true,
+				pages: [],
+				totalPages: 0,
+				attempted: 0,
+				failed: [],
+				truncated: false,
+			}),
+			true,
+		);
+	});
+
+	it("(entity) registered definition exposes annotations { readOnlyHint, openWorldHint }", () => {
+		assert.deepEqual(tool.annotations, { readOnlyHint: true, openWorldHint: true });
+	});
+
+	it("(entity) lock is released on the isError return path", async () => {
+		injectFactory({ success: false, error: "boom" });
+		const failed = await tool.execute("id", { url: "https://example.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+		assert.equal(failed.isError, true);
+
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
+		const ok = await tool.execute("id", { url: "https://example.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+		assert.equal(ok.isError, undefined, "subsequent call should not inherit error state");
+		assert.equal(Value.Check(crawlOutputSchema, ok.structuredContent), true);
 	});
 });

@@ -144,11 +144,13 @@ export class PythonAdapter {
 
 				// Apply token truncation with rawLength preservation
 				let content = rawMarkdown;
+				let truncated = false;
 				if (maxTokens > 0) {
 					const estimatedTokens = Math.round(content.length / 4);
 					if (estimatedTokens > maxTokens) {
 						const maxChars = maxTokens * 4;
 						content = content.slice(0, maxChars) + truncationSuffix(maxTokens, estimatedTokens);
+						truncated = true;
 					}
 				}
 
@@ -157,6 +159,7 @@ export class PythonAdapter {
 					markdown: content,
 					method: method as "lightweight" | "stealth",
 					rawLength,
+					truncated,
 				});
 			}
 
@@ -171,7 +174,13 @@ export class PythonAdapter {
 			// 9. Calculate total estimated tokens from raw lengths
 			const totalTokens = pages.reduce((sum, p) => sum + Math.round(p.rawLength / 4), 0);
 
-			return { success: true, results: pages, totalTokens };
+			return {
+				success: true,
+				results: pages,
+				totalTokens,
+				attempted: parsed.results.length,
+				failed: errors,
+			};
 		} catch (err) {
 			// Catch unexpected errors (e.g., ensureScraplingVenv failure)
 			const message = err instanceof Error ? err.message : String(err);

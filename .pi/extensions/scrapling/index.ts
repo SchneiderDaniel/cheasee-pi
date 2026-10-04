@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { PythonAdapter, type CrawlFn } from "./python-adapter.ts";
+import { crawlOutputSchema, toStructuredContent } from "./structured-output.ts";
 import { ensureScraplingVenv } from "./venv-setup.ts";
 
 // Concurrency lock: Max 2 simultaneous web crawls to protect 8GB RAM
@@ -117,6 +118,11 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 				}),
 			),
 		}),
+		// MCP-style hints: no environment mutation (read-only), external egress (open world).
+		// Declarative only — permission extensions may use them to decide which calls to confirm.
+		annotations: { readOnlyHint: true, openWorldHint: true },
+		// JSON Schema of `structuredContent` for programmatic/codemode callers.
+		outputSchema: crawlOutputSchema,
 		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
 			await acquireCrawlLock(signal);
 
@@ -145,9 +151,16 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 					signal,
 				});
 
-				// Handle engine result — throw on error to preserve signaling contract
+				// Split error semantics: crawl-execution failures cross to isError (keeps
+				// details/structuredContent for programmatic callers); preconditions
+				// (validateUrl, abort) stay in the throwing channel above.
 				if (!result.success) {
-					throw new Error(result.error);
+					return {
+						content: [{ type: "text", text: `web_crawl failed: ${result.error}` }],
+						details: {} as Record<string, unknown>,
+						isError: true,
+						structuredContent: toStructuredContent(result, params.url),
+					};
 				}
 
 				// Format successful results for LLM
@@ -160,6 +173,7 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 				return {
 					content: [{ type: "text", text: texts.join("\n\n") }],
 					details: {} as Record<string, unknown>,
+					structuredContent: toStructuredContent(result, params.url),
 				};
 			} finally {
 				releaseCrawlLock();
