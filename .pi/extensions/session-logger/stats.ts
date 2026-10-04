@@ -2,6 +2,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 import { createPerTurnState, flushTurn } from "./per-turn.ts";
 import type { TurnStats, PerTurnState } from "./per-turn.ts";
 import { handleModelChanges } from "./session-utils.ts";
+import { deriveParentToolCallId } from "./nested.ts";
 
 /**
  * @public
@@ -12,6 +13,8 @@ export type { TurnStats } from "./per-turn.ts";
 export interface ToolExecution {
 	toolCallId: string;
 	toolName: string;
+	/** Set when this exec is a nested call (`<parent>/<n>`); nested execs are not top-level tools. */
+	parentToolCallId?: string;
 	startTime: number;
 	endTime: number | null;
 	isError: boolean;
@@ -62,17 +65,23 @@ export interface SessionStats {
 	recordFileModification(action: "read" | "write" | "edit", path: string, size?: number): void;
 }
 
-/** Aggregate tool executions into a summary map with durations. */
+/** Aggregate top-level tool executions into a summary map with durations.
+ *
+ * Nested executions (carrying `parentToolCallId`) are skipped: their names must
+ * not create orphan tool rows, and their duration/errors are attributed to the
+ * parent through the JSONL `nestedCalls` rollup instead. */
 export function computeToolStats(
 	executions: Array<{
 		toolName: string;
 		isError: boolean;
 		startTime: number;
 		endTime: number | null;
+		parentToolCallId?: string;
 	}>,
 ): Record<string, { calls: number; errors: number; totalDurationMs: number }> {
 	const stats: Record<string, { calls: number; errors: number; totalDurationMs: number }> = {};
 	for (const exec of executions) {
+		if (exec.parentToolCallId) continue;
 		if (!stats[exec.toolName]) {
 			stats[exec.toolName] = { calls: 0, errors: 0, totalDurationMs: 0 };
 		}
@@ -205,6 +214,7 @@ export function createSessionStats(): SessionStats {
 			const exec: ToolExecution = {
 				toolCallId,
 				toolName,
+				parentToolCallId: deriveParentToolCallId(toolCallId),
 				startTime: Date.now(),
 				endTime: null,
 				isError: false,
@@ -221,6 +231,9 @@ export function createSessionStats(): SessionStats {
 			exec.isError = isError;
 			exec.resultSize = resultSize;
 			pendingTools.delete(toolCallId);
+			// Nested calls are attributed to their parent (via the JSONL rollup), so
+			// they must not inflate per-turn counts the transcript never shows.
+			if (exec.parentToolCallId) return;
 			turnState.currentTurnToolCount++;
 			if (isError) turnState.currentTurnErrorCount++;
 		},

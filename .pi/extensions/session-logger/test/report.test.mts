@@ -8,8 +8,12 @@
  */
 
 import assert from "node:assert";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { buildMetadata } from "../report.ts";
+import { renderSessionToMarkdown, parseSessionStats } from "../renderer.ts";
 import type { ParsedSessionStats } from "../renderer.ts";
 import type { StatsSnapshot, ToolExecution } from "../stats.ts";
 
@@ -21,13 +25,14 @@ const START_BASE = 1_000_000;
 
 function makeToolExecution(
 	toolName: string,
-	opts: { isError?: boolean; durationMs?: number; hasEndTime?: boolean } = {},
+	opts: { isError?: boolean; durationMs?: number; hasEndTime?: boolean; parentToolCallId?: string } = {},
 ): ToolExecution {
 	const startTime = START_BASE;
 	const endTime = opts.hasEndTime !== false ? startTime + (opts.durationMs ?? 100) : null;
 	return {
 		toolCallId: `call-${toolName}-${Date.now()}`,
 		toolName,
+		parentToolCallId: opts.parentToolCallId,
 		isError: opts.isError ?? false,
 		startTime,
 		endTime,
@@ -73,6 +78,81 @@ function makeSnapshot(execs: ToolExecution[]): StatsSnapshot {
 		fileModifications: [],
 	};
 }
+
+describe("buildMetadata — nested call merge (no double count)", () => {
+	function nestedParsed(): ParsedSessionStats {
+		return makeParsed({
+			toolStats: { codemode: { calls: 3, errors: 1, totalDurationMs: 150 } },
+			nestedCallAnnotations: {
+				codemode: { nestedCalls: 2, nestedErrors: 1, nestedDurationMs: 150 },
+			},
+		});
+	}
+
+	function nestedSnapshot(): StatsSnapshot {
+		return makeSnapshot([
+			{ ...makeToolExecution("codemode", { durationMs: 500 }), toolCallId: "codemode_1" },
+			{
+				...makeToolExecution("read", { durationMs: 120 }),
+				toolCallId: "codemode_1/1",
+				parentToolCallId: "codemode_1",
+			},
+			{
+				...makeToolExecution("grep", { durationMs: 30, isError: true }),
+				toolCallId: "codemode_1/2",
+				parentToolCallId: "codemode_1",
+			},
+		]);
+	}
+
+	it("keeps parsed calls/errors and uses the parent wall clock duration only", () => {
+		const meta = buildMetadata(nestedParsed(), nestedSnapshot());
+		const ts = meta.toolStats!;
+		assert.strictEqual(ts.codemode.calls, 3, "nested-inclusive calls from parsed");
+		assert.strictEqual(ts.codemode.errors, 1, "nested-inclusive errors from parsed");
+		assert.strictEqual(
+			ts.codemode.totalDurationMs,
+			500,
+			"parent wall clock — never parsed + snapshot",
+		);
+	});
+
+	it("without a snapshot, duration is the parsed nested-duration sum", () => {
+		const meta = buildMetadata(nestedParsed());
+		const ts = meta.toolStats!;
+		assert.strictEqual(ts.codemode.calls, 3);
+		assert.strictEqual(ts.codemode.errors, 1);
+		assert.strictEqual(ts.codemode.totalDurationMs, 150);
+	});
+
+	it("does not add nested-only tool names as orphan rows", () => {
+		const meta = buildMetadata(nestedParsed(), nestedSnapshot());
+		const ts = meta.toolStats!;
+		assert.strictEqual(ts.read, undefined, "nested read not added");
+		assert.strictEqual(ts.grep, undefined, "nested grep not added");
+	});
+
+	it("propagates nestedCallAnnotations onto Metadata", () => {
+		const meta = buildMetadata(nestedParsed(), nestedSnapshot());
+		assert.deepStrictEqual(meta.nestedCallAnnotations, {
+			codemode: { nestedCalls: 2, nestedErrors: 1, nestedDurationMs: 150 },
+		});
+	});
+
+	it("omits nestedCallAnnotations for non-nested sessions", () => {
+		const meta = buildMetadata(
+			makeParsed({ toolStats: { read: { calls: 1, errors: 0, totalDurationMs: 50 } } }),
+		);
+		assert.strictEqual(meta.nestedCallAnnotations, undefined);
+	});
+
+	it("non-nested input stays byte-identical through JSON.stringify", () => {
+		const parsed = makeParsed({ toolStats: { read: { calls: 1, errors: 0, totalDurationMs: 0 } } });
+		const snapshot = makeSnapshot([makeToolExecution("read", { durationMs: 150 })]);
+		const meta = buildMetadata(parsed, snapshot);
+		assert.strictEqual(JSON.stringify(meta).includes("nestedCallAnnotations"), false);
+	});
+});
 
 // ---------------------------------------------------------------------------
 // buildMetadata() — entity tests
@@ -406,5 +486,72 @@ describe("buildMetadata() — pure function unit tests", () => {
 			subagentStats,
 			"subagentToolStats unchanged by overrides",
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 — user journey: operator reads a nested session report
+// ---------------------------------------------------------------------------
+
+describe("user journey — operator reads a nested session report", () => {
+	it("md and metadata agree on the parent call/error tallies", () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-logger-journey-"));
+		try {
+			const filepath = path.join(tmpDir, "journey.jsonl");
+			const entries = [
+				{
+					type: "session",
+					id: "journey",
+					timestamp: "2025-06-01T10:00:00Z",
+					cwd: "/tmp",
+					version: 1,
+				},
+				{
+					type: "message",
+					timestamp: "2025-06-01T10:03:00Z",
+					message: {
+						role: "toolResult",
+						toolName: "codemode",
+						isError: false,
+						content: [{ type: "text", text: "done" }],
+						nestedCalls: {
+							calls: [
+								{ id: "codemode_1/1", name: "read", status: "ok", durationMs: 120 },
+								{
+									id: "codemode_1/2",
+									name: "grep",
+									status: "error",
+									durationMs: 30,
+									error: "boom",
+								},
+							],
+							complete: true,
+						},
+					},
+				},
+			];
+			fs.writeFileSync(filepath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+
+			const parsed = parseSessionStats(filepath);
+			assert.ok(parsed, "parse succeeds");
+			const meta = buildMetadata(parsed);
+			const md = renderSessionToMarkdown(filepath);
+
+			// Both surfaces fold the same nested calls/errors into the parent row.
+			assert.deepStrictEqual(meta.toolStats!.codemode, {
+				calls: 3,
+				errors: 1,
+				totalDurationMs: 150,
+			});
+			assert.ok(md.includes("| `codemode` | 3 | 1 |"), "md table agrees with metadata");
+			assert.ok(!md.includes("| `read` |") && !md.includes("| `grep` |"), "no orphan rows");
+			assert.deepStrictEqual(meta.nestedCallAnnotations!.codemode, {
+				nestedCalls: 2,
+				nestedErrors: 1,
+				nestedDurationMs: 150,
+			});
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
