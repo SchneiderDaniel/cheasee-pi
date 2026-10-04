@@ -6,6 +6,9 @@ export interface ThresholdEntry {
 	maxTokens: number | null;
 }
 
+/** Semantic color token for the context-usage bar (a pi ThemeColor subset). */
+export type UsageColorToken = "success" | "warning" | "error";
+
 export interface TpsSample {
 	time: number;
 	cumulativeTokens: number;

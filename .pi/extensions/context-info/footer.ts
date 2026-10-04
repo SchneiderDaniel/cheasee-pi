@@ -12,8 +12,7 @@ import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
 	formatSessionTimer,
 	formatTokens,
-	fgHex,
-	pickThresholdHex,
+	pickThresholdColor,
 	formatTps,
 	formatCacheStats,
 	formatCacheHitRate,
@@ -157,10 +156,10 @@ export function installFooter(
 							? Math.round((tokens / footerConfig.lastContextWindow.value) * 100)
 							: null;
 
-					const usageHex = pickThresholdHex(tokens, config.thresholds);
+					const usageToken = pickThresholdColor(tokens, config.thresholds);
 
 					const tokenText = `${currentFmt}/${maxFmt}`;
-					tokenDisplay = theme.fg("dim", "◉ ") + fgHex(usageHex, tokenText);
+					tokenDisplay = theme.fg("dim", "◉ ") + theme.fg(usageToken, tokenText);
 
 					if (pct !== null) {
 						const pctColor = pct >= 90 ? "error" : pct >= 70 ? "warning" : "dim";

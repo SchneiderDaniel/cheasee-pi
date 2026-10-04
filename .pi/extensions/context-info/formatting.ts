@@ -2,15 +2,11 @@
  * Pure visual helpers for context-info extension
  */
 
-import type { ThresholdEntry, TpsSample } from "./types.js";
+import type { ThresholdEntry, TpsSample, UsageColorToken } from "./types.js";
 
-// ─── Hex colors for threshold levels ─────────────────────────────
+// ─── Semantic tokens for threshold levels ────────────────────────
 
-const THRESHOLD_HEX_COLORS = [
-	"#50fa7b", // green (neonMint)
-	"#ff6d00", // orange (safetyOrange)
-	"#ff5252", // red (coral)
-];
+const THRESHOLD_TOKENS: UsageColorToken[] = ["success", "warning", "error"];
 
 /** Format elapsed ms → "⏱ Xh Ym Zs" */
 export function formatSessionTimer(ms: number): string {
@@ -31,31 +27,21 @@ export function formatTokens(n: number): string {
 	return String(n);
 }
 
-/** Apply hex foreground color via ANSI truecolor */
-export function fgHex(hex: string, text: string): string {
-	const cleaned = hex.replace("#", "");
-	if (cleaned.length !== 6) return text;
-	const r = parseInt(cleaned.substring(0, 2), 16);
-	const g = parseInt(cleaned.substring(2, 4), 16);
-	const b = parseInt(cleaned.substring(4, 6), 16);
-	if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return text;
-	return `\x1b[38;2;${r};${g};${b}m${text}\x1b[39m`;
-}
-
-/** Pick threshold for given token count and return hex color */
-export function pickThresholdHex(tokens: number, thresholds: ThresholdEntry[]): string {
+/** Pick semantic theme token for a token count given thresholds. */
+export function pickThresholdColor(tokens: number, thresholds: ThresholdEntry[]): UsageColorToken {
 	const sorted = [...thresholds].sort((a, b) => {
 		if (a.maxTokens === null) return 1;
 		if (b.maxTokens === null) return -1;
 		return a.maxTokens - b.maxTokens;
 	});
-	const colors = THRESHOLD_HEX_COLORS;
 	for (let i = 0; i < sorted.length; i++) {
-		const entry = sorted[i];
-		if (entry.maxTokens === null) return colors[Math.min(i, colors.length - 1)] ?? "#ff5252";
-		if (tokens <= entry.maxTokens) return colors[Math.min(i, colors.length - 1)] ?? "#ff5252";
+		const entry = sorted[i]!;
+		if (entry.maxTokens === null) return "error";
+		if (tokens <= entry.maxTokens) {
+			return THRESHOLD_TOKENS[Math.min(i, THRESHOLD_TOKENS.length - 1)] ?? "error";
+		}
 	}
-	return colors[colors.length - 1] ?? "#ff5252";
+	return "error";
 }
 
 // ─── TPS helpers ────────────────────────────────────────────────
