@@ -21,6 +21,8 @@ import {
 import type { ConversationTurnState } from "./renderer/details.ts";
 import { parseSessionStats } from "./renderer/session-stats.ts";
 import type { ParsedSessionStats } from "./renderer/session-stats.ts";
+import { annotateNested } from "./nested.ts";
+import type { NestedToolCalls } from "./nested.ts";
 
 export { parseSessionStats };
 export type { ParsedSessionStats };
@@ -124,12 +126,22 @@ function renderTokenTotals(lines: any[]): string[] {
 function renderToolUsage(lines: any[]): string[] {
 	const sections: string[] = [];
 	const toolCounts: Record<string, { calls: number; errors: number }> = {};
+	const incompleteNotes: Array<{ toolName: string; reason: string }> = [];
 	for (const l of lines) {
 		if (l.type === "message" && l.message?.role === "toolResult") {
 			const tn = l.message.toolName ?? "?";
 			if (!toolCounts[tn]) toolCounts[tn] = { calls: 0, errors: 0 };
 			toolCounts[tn].calls++;
 			if (l.message.isError) toolCounts[tn].errors++;
+			// Nested calls only surface in the parent result's `nestedCalls` record.
+			const annotation = annotateNested(l.message.nestedCalls as NestedToolCalls | undefined);
+			if (annotation) {
+				toolCounts[tn].calls += annotation.nestedCalls;
+				toolCounts[tn].errors += annotation.nestedErrors;
+				if (annotation.incomplete) {
+					incompleteNotes.push({ toolName: tn, reason: annotation.incomplete });
+				}
+			}
 		}
 		// Include subagent tool-complete entries
 		if (
@@ -153,6 +165,11 @@ function renderToolUsage(lines: any[]): string[] {
 		for (const [name, stats] of Object.entries(toolCounts).sort()) {
 			const errStr = stats.errors > 0 ? String(stats.errors) : "—";
 			sections.push(`| \`${escMd(name)}\` | ${stats.calls} | ${errStr} |`);
+		}
+		for (const { toolName, reason } of incompleteNotes) {
+			sections.push(
+				`> ⚠️ Nested activity incomplete for \`${escMd(toolName)}\` (${reason}) — nested call counts may be under-reported.`,
+			);
 		}
 		sections.push(``);
 	}

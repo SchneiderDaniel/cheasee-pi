@@ -14,6 +14,8 @@
 import { createPerTurnState, flushTurn } from "../per-turn.ts";
 import type { PerTurnState } from "../per-turn.ts";
 import { handleModelChanges } from "../session-utils.ts";
+import { annotateNested } from "../nested.ts";
+import type { NestedCallAnnotation, NestedToolCalls } from "../nested.ts";
 import { loadSessionEntries } from "./parse.ts";
 
 /** Tool calls that modify files on disk — everything else is filtered out of fileModifications. */
@@ -40,6 +42,8 @@ export interface ParsedSessionStats {
 	thinkingChanges: Array<{ time: string; level: string }>;
 	compactions: number;
 	toolStats: Record<string, { calls: number; errors: number; totalDurationMs: number }>;
+	/** Per-parent rollup of nested activity (from each toolResult's `nestedCalls`). */
+	nestedCallAnnotations?: Record<string, NestedCallAnnotation>;
 	subagentToolStats?: Record<
 		string,
 		Record<string, { calls: number; errors: number; totalDurationMs: number }>
@@ -68,6 +72,7 @@ interface StatsAccumulator {
 	totalCost: number;
 	compactions: number;
 	toolCounts: Record<string, ToolStat>;
+	nestedCallAnnotations: Record<string, NestedCallAnnotation>;
 	subagentToolStats: Record<string, Record<string, ToolStat>>;
 	fileMods: Array<{ action: string; path: string; timestamp: string; size?: number }>;
 	turnState: PerTurnState;
@@ -85,6 +90,7 @@ function createStatsAccumulator(): StatsAccumulator {
 		totalCost: 0,
 		compactions: 0,
 		toolCounts: {},
+		nestedCallAnnotations: {},
 		subagentToolStats: {},
 		fileMods: [],
 		turnState: createPerTurnState(),
@@ -135,6 +141,17 @@ function accumulateMessageStats(acc: StatsAccumulator, entry: any): void {
 		if (msg.isError) acc.toolCounts[tn].errors++;
 		acc.turnState.currentTurnToolCount++;
 		if (msg.isError) acc.turnState.currentTurnErrorCount++;
+
+		// Nested calls live only in the parent result's bounded `nestedCalls`
+		// record (never as their own transcript entries) — roll them up so the
+		// parent's counts and error tally are truthful.
+		const annotation = annotateNested(msg.nestedCalls as NestedToolCalls | undefined);
+		if (annotation) {
+			acc.toolCounts[tn].calls += annotation.nestedCalls;
+			acc.toolCounts[tn].errors += annotation.nestedErrors;
+			acc.toolCounts[tn].totalDurationMs += annotation.nestedDurationMs;
+			acc.nestedCallAnnotations[tn] = annotation;
+		}
 	}
 
 	// Turn boundaries
@@ -205,6 +222,7 @@ export function parseSessionStats(filepath: string): ParsedSessionStats | null {
 
 	const header = loaded.entries[0];
 	const hasSubagentTools = Object.keys(acc.subagentToolStats).length > 0;
+	const hasNestedAnnotations = Object.keys(acc.nestedCallAnnotations).length > 0;
 
 	return {
 		sessionId: header.id ?? "?",
@@ -225,6 +243,7 @@ export function parseSessionStats(filepath: string): ParsedSessionStats | null {
 		thinkingChanges: acc.thinkingChanges,
 		compactions: acc.compactions,
 		toolStats: acc.toolCounts,
+		nestedCallAnnotations: hasNestedAnnotations ? acc.nestedCallAnnotations : undefined,
 		subagentToolStats: hasSubagentTools ? acc.subagentToolStats : undefined,
 		fileModifications: acc.fileMods,
 		perTurnTokens: acc.turnState.perTurnTokens,

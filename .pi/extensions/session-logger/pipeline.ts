@@ -165,8 +165,15 @@ export class LoggerPipeline {
 
 	// ── File modification tracking via tool_call interception ──
 
-	onToolCall(event: { toolName: string; input: Record<string, unknown> }): void {
+	onToolCall(event: {
+		toolName: string;
+		input: Record<string, unknown>;
+		parentToolCallId?: string;
+	}): void {
 		if (!this.gate.sessionEnabled) return;
+		// Nested calls (issued via ctx.executeTool) are attributed to their parent
+		// and never become top-level file rows.
+		if (event.parentToolCallId) return;
 
 		const input = event.input as { path?: string; content?: { length?: number } };
 		const filePath = input.path ?? "";

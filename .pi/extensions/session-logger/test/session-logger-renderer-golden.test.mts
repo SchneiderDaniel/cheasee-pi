@@ -94,7 +94,7 @@ function assistantMsg(opts: {
 function toolResultMsg(
 	toolName: string,
 	text: string,
-	opts: { isError?: boolean; timestamp?: string } = {},
+	opts: { isError?: boolean; timestamp?: string; nestedCalls?: Record<string, unknown> } = {},
 ): Record<string, unknown> {
 	return {
 		type: "message",
@@ -104,6 +104,7 @@ function toolResultMsg(
 			toolName,
 			isError: opts.isError ?? false,
 			content: [{ type: "text", text }],
+			nestedCalls: opts.nestedCalls,
 		},
 	};
 }
@@ -423,6 +424,69 @@ const CASES: GoldenCase[] = [
 	{
 		name: "thinking-preview-long",
 		entries: [sessionHeader(), assistantMsg({ thinking: "x".repeat(150), text: "Long thought" })],
+	},
+
+	// nested tool calls — rolled into the parent row; incomplete reasons surfaced
+	{
+		name: "nested-complete",
+		entries: [
+			sessionHeader(),
+			assistantMsg({
+				text: "Running codemode",
+				toolCalls: [{ name: "codemode", args: { script: "read('a')" } }],
+			}),
+			toolResultMsg("codemode", "done", {
+				nestedCalls: {
+					calls: [
+						{ id: "codemode_1/1", name: "read", status: "ok", durationMs: 120 },
+						{
+							id: "codemode_1/2",
+							name: "grep",
+							status: "error",
+							durationMs: 30,
+							error: "boom",
+						},
+					],
+					complete: true,
+				},
+			}),
+		],
+	},
+	{
+		name: "nested-dropped",
+		entries: [
+			sessionHeader(),
+			toolResultMsg("codemode", "done", {
+				nestedCalls: {
+					calls: [{ id: "codemode_1/1", name: "read", status: "ok", durationMs: 5 }],
+					complete: false,
+				},
+			}),
+		],
+	},
+	{
+		name: "nested-unfinished",
+		entries: [
+			sessionHeader(),
+			toolResultMsg("codemode", "done", {
+				nestedCalls: {
+					calls: [{ id: "codemode_1/1", name: "read", status: "unfinished" }],
+					complete: false,
+				},
+			}),
+		],
+	},
+	{
+		name: "nested-arguments-omitted",
+		entries: [
+			sessionHeader(),
+			toolResultMsg("codemode", "done", {
+				nestedCalls: {
+					calls: [{ id: "codemode_1/1", name: "read", status: "ok", argumentsBytes: 9000 }],
+					complete: false,
+				},
+			}),
+		],
 	},
 ];
 

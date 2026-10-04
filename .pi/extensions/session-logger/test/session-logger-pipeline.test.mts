@@ -671,3 +671,43 @@ describe("LoggerPipeline — full lifecycle", () => {
 		assert.strictEqual(entries.length, 0, "No files should exist when gate is disabled");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// LoggerPipeline — nested call attribution (id-derived) + file-mod guard
+// ---------------------------------------------------------------------------
+
+describe("LoggerPipeline — nested call attribution and file-mod guard", () => {
+	function snapshot(pipeline: LoggerPipeline) {
+		return (pipeline as any).stats.getSnapshot();
+	}
+
+	it("tracks a top-level file read in fileModifications", () => {
+		const pipeline = new LoggerPipeline(createGate(true));
+		pipeline.onToolCall({ toolName: "read", input: { path: "/a" } });
+		const mods = snapshot(pipeline).fileModifications;
+		assert.strictEqual(mods.length, 1);
+		assert.strictEqual(mods[0].action, "read");
+		assert.strictEqual(mods[0].path, "/a");
+	});
+
+	it("skips nested file ops (parentToolCallId set) — no phantom file rows", () => {
+		const pipeline = new LoggerPipeline(createGate(true));
+		pipeline.onToolCall({ toolName: "read", input: { path: "/a" } });
+		pipeline.onToolCall({
+			toolName: "read",
+			input: { path: "/b" },
+			parentToolCallId: "codemode_1",
+		});
+		const mods = snapshot(pipeline).fileModifications;
+		assert.strictEqual(mods.length, 1, "only the top-level read is recorded");
+		assert.strictEqual(mods[0].path, "/a");
+	});
+
+	it("tags a nested exec with its derived parent even though the event carries no parentToolCallId", () => {
+		const pipeline = new LoggerPipeline(createGate(true));
+		pipeline.onToolExecutionStart({ toolCallId: "codemode_1/1", toolName: "read" });
+		const execs = snapshot(pipeline).toolExecutions;
+		assert.strictEqual(execs.length, 1);
+		assert.strictEqual(execs[0].parentToolCallId, "codemode_1");
+	});
+});

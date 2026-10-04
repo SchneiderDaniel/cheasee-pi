@@ -1,3 +1,5 @@
+import type { NestedCallAnnotation } from "./nested.ts";
+
 export interface SessionLoggerGate {
 	enabledForNextSession: boolean;
 	sessionEnabled: boolean;
@@ -36,6 +38,8 @@ export interface Metadata {
 			totalDurationMs: number;
 		}
 	>;
+	/** Per-parent rollup of nested calls another tool made (from the JSONL `nestedCalls` record). */
+	nestedCallAnnotations?: Record<string, NestedCallAnnotation>;
 	/** Per-agent breakdown of subagent tool calls from supervisor pipeline runs */
 	subagentToolStats?: Record<
 		string,

@@ -61,6 +61,7 @@ export function buildMetadata(
 		thinkingChanges: parsed.thinkingChanges,
 		perTurnTokens: parsed.perTurnTokens,
 		toolStats,
+		nestedCallAnnotations: parsed.nestedCallAnnotations,
 		subagentToolStats: parsed.subagentToolStats,
 		fileModifications: parsed.fileModifications,
 	};
