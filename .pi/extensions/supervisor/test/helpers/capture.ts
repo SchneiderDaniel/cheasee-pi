@@ -483,6 +483,7 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		// ══ Markdown / entry renderers ══
 		registerMarkdownTransformer(_transformer: any) {},
 		registerEntryRenderer(_customType: string, _renderer: any) {},
+		registerToolRenderer(_resolver: any) {},
 
 		// ══ Settings ══
 		getSettings(): any {
