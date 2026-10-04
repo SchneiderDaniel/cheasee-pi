@@ -108,7 +108,6 @@
 		},
 		"ignoreDependencies": [
 			"prettier"
-		],
-		"ignoreExportsUsedInFile": true
+		]
 	}
 }

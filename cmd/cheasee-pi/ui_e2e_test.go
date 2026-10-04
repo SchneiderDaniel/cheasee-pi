@@ -204,10 +204,12 @@ func assertUICoexistence(t *testing.T, uiName, sessionID string) {
 // orchestration (the operator journey) and pins AC4: clean enumerates the ui
 // container by the managed label, prune-images enumerates the ui image, and
 // each command removes what it reported. Destructive by design — both commands
-// are host-wide; this harness is opt-in (`-tags integration`) and intended for
-// a disposable daemon.
+// are host-wide; this harness is opt-in (`-tags integration`) and refuses to
+// run them unless the daemon holds only this fixture's resources.
 func assertCleanupEnumeratesUI(t *testing.T, ctx context.Context, root string) {
 	t.Helper()
+	requireDedicatedCleanupScope(t, ctx, root)
+
 	uiName := uiContainerName(root)
 	uiImage := composeProjectName(root) + "-ui"
 
@@ -277,6 +279,54 @@ func uiImageMatch(uiImage string) func(cheaseePiImage) bool {
 	return func(img cheaseePiImage) bool { return strings.HasPrefix(img.Ref, uiImage+":") }
 }
 
+// requireDedicatedCleanupScope fails the test closed before the destructive
+// `clean`/`prune-images` block. Both commands are host-wide by design (clean
+// removes every managed container; prune-images removes every cheasee-pi-*
+// image), so on a shared daemon they would kill unrelated active sessions and
+// delete other repos' images. The harness only runs them when every managed
+// container and cheasee-pi image on the daemon belongs to this fixture; a
+// dedicated daemon passes, a shared one is refused loudly instead of damaged.
+func requireDedicatedCleanupScope(t *testing.T, ctx context.Context, root string) {
+	t.Helper()
+	project := composeProjectName(root)
+
+	mine, err := projectContainers(ctx, project)
+	if err != nil {
+		t.Fatalf("AC4: enumerate this fixture's containers: %v", err)
+	}
+	managed, err := listManagedContainers(ctx)
+	if err != nil {
+		t.Fatalf("AC4: enumerate managed containers: %v", err)
+	}
+	mineSet := make(map[string]bool, len(mine))
+	for _, n := range mine {
+		mineSet[n] = true
+	}
+	var foreign []string
+	for _, n := range managed {
+		if !mineSet[n] {
+			foreign = append(foreign, n)
+		}
+	}
+	if len(foreign) > 0 {
+		t.Fatalf("AC4: refusing the host-wide `clean --yes` — the daemon holds managed containers outside this fixture: %v; run the integration harness against a dedicated daemon", foreign)
+	}
+
+	images, err := listCheaseePiImages(ctx)
+	if err != nil {
+		t.Fatalf("AC4: enumerate cheasee-pi images: %v", err)
+	}
+	var foreignImages []string
+	for _, img := range images {
+		if !strings.HasPrefix(img.Ref, project+"-") {
+			foreignImages = append(foreignImages, img.Ref)
+		}
+	}
+	if len(foreignImages) > 0 {
+		t.Fatalf("AC4: refusing the host-wide `prune-images --yes` — the daemon holds cheasee-pi images outside this fixture: %v; run the integration harness against a dedicated daemon", foreignImages)
+	}
+}
+
 // seedComposeHarnessWorkspace builds a real init-shaped workspace: a worktree
 // at <parent>/<slug> with a sibling <parent>/.bare whose origin is the
 // deterministic GitHub remote the names derive from. HOST_UID/HOST_GID are
@@ -291,9 +341,13 @@ func seedComposeHarnessWorkspace(t *testing.T) string {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "cli-install-smoke")
 	bareDir := cloneWorktreeLayout(t, src, parent, root)
-	// Deterministic GitHub remote so the derived slug is stable across runs.
+	// Owner-less remote so the derived slug equals the workspace basename and
+	// mirrors docker/test/cli-install-smoke.test.mts's fixture (project
+	// cheasee-pi-cli-install-smoke). Running after the smoke test in CI, the
+	// daemon then holds no cheasee-pi image outside this fixture's project
+	// prefix, so the host-wide cleanup block's dedicated-daemon guard holds.
 	runGit(t, "--git-dir", bareDir, "config", "remote.origin.url",
-		"https://github.com/SchneiderDaniel/cli-install-smoke.git")
+		"https://github.com/cli-install-smoke.git")
 	testutil.WriteCheaseeSettingsFile(t, root, "{}")
 	return root
 }
@@ -326,10 +380,14 @@ func startComposeStack(t *testing.T, root string) []string {
 	// checkpoint 5. Any other failure is real — a codeflow regression must not
 	// pass just because agent+ui happened to start.
 	if !isCodeflowBindUnavailable(output) {
-		t.Fatalf("compose up failed (not the DinD codeflow bind limitation): %v\n%s", upErr, output)
+		t.Fatalf("compose up failed (not the known remote-daemon codeflow bind limitation): %v\n%s", upErr, output)
 	}
-	t.Logf("codeflow bind unavailable on this daemon (%v) — starting the agent+ui subset", upErr)
-
+	// The string signature alone must not authorize the fallback: a missing or
+	// non-file embedded codeflow/config.json produces a similarly-shaped mount
+	// error and would wrongly route around a real failure. Verify the two
+	// preconditions that make the fallback legitimate — the daemon is remote (it
+	// genuinely cannot see this host's extracted cache) and the extracted
+	// config exists locally as a regular file.
 	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
 		t.Fatalf("cache dir: %v", err)
@@ -337,6 +395,9 @@ func startComposeStack(t *testing.T, root string) []string {
 	if err := NewExtractor().Extract(ctx, cacheDir); err != nil {
 		t.Fatalf("extract compose files: %v", err)
 	}
+	requireRemoteDaemonCodeflowFallback(t, cacheDir)
+	t.Logf("codeflow bind unavailable on this daemon (%v) — starting the agent+ui subset", upErr)
+
 	if err := composeUpSubset(ctx, cacheDir, root, "cheasee-pi", "ui"); err != nil {
 		t.Fatalf("compose up (agent+ui subset): %v", err)
 	}
@@ -386,20 +447,56 @@ func downComposeStack(t *testing.T, root string) {
 }
 
 // isCodeflowBindUnavailable recognizes the remote-daemon bind failure the
-// harness may route around. It requires a mount/bind keyword, the codeflow
-// service path, AND a not-a-directory signature, so an unrelated compose error
-// (bad image, port conflict, build failure) can never be mistaken for the known
-// limitation.
+// harness may route around: the codeflow service's ./codeflow/config.json bind
+// source cannot resolve on the daemon (Docker auto-creates the path as a
+// directory -> ENOTDIR on mount). It requires the codeflow service AND its
+// config.json path AND a mount keyword, so an unrelated compose error (bad
+// image, port conflict, build failure) can never be mistaken for the known
+// limitation; the caller additionally verifies the remote-daemon and
+// local-config preconditions before trusting this signature.
 func isCodeflowBindUnavailable(output string) bool {
 	l := strings.ToLower(output)
-	if !strings.Contains(l, "codeflow") {
+	if !strings.Contains(l, "codeflow") || !strings.Contains(l, "config.json") {
 		return false
 	}
-	if !strings.Contains(l, "mount") && !strings.Contains(l, "bind") && !strings.Contains(l, "create_host_path") {
-		return false
+	for _, kw := range []string{"mount", "bind", "create_host_path", "not a directory", "enotdir"} {
+		if strings.Contains(l, kw) {
+			return true
+		}
 	}
-	for _, sig := range []string{"not a directory", "enotdir", "is a directory", "not a file", "does not exist", "mkdir"} {
-		if strings.Contains(l, sig) {
+	return false
+}
+
+// requireRemoteDaemonCodeflowFallback fails (never skips) unless the two
+// preconditions that make the codeflow-bind fallback legitimate hold: the
+// Docker daemon is remote — so it genuinely cannot see this host's extracted
+// cache dir — and the extracted codeflow/config.json exists locally as a
+// regular file. Without both, a codeflow bind failure is a real regression
+// (missing embedded config, local path problem) and must fail the test rather
+// than be silently routed around.
+func requireRemoteDaemonCodeflowFallback(t *testing.T, cacheDir string) {
+	t.Helper()
+	if !isRemoteDockerHost(os.Getenv("DOCKER_HOST")) {
+		t.Fatalf("codeflow bind failed but the Docker daemon is local (DOCKER_HOST=%q) — not the known remote-daemon limitation; failing instead of falling back", os.Getenv("DOCKER_HOST"))
+	}
+	config := filepath.Join(cacheDir, codeflowConfigJSON)
+	info, err := os.Stat(config)
+	if err != nil {
+		t.Fatalf("extracted codeflow config %s is unavailable (%v) — the fallback must not mask a missing embedded config", config, err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("extracted codeflow config %s is not a regular file (%s)", config, info.Mode())
+	}
+}
+
+// isRemoteDockerHost reports whether DOCKER_HOST points at a remote daemon (a
+// non-unix scheme). Only then can a codeflow config bind legitimately fail
+// because the daemon cannot see the test host's filesystem — an unset/empty or
+// unix-socket DOCKER_HOST is local, so a bind failure there is a real bug.
+func isRemoteDockerHost(host string) bool {
+	host = strings.TrimSpace(host)
+	for _, scheme := range []string{"tcp://", "ssh://", "http://", "https://"} {
+		if strings.HasPrefix(host, scheme) {
 			return true
 		}
 	}
