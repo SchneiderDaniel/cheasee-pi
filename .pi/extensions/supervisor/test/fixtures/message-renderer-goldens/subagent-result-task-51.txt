@@ -1,61 +1,61 @@
- [38;5;143m✓[39m [38;5;188mdev-agent[39m — [38;5;143mSUCCESS[39m                                                          
- [38;5;241m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[39m           
- [38;5;241mCompleted task[39m                                                                 
+ [38;5;2m✓[39m [39mdev-agent[39m — [38;5;2mSUCCESS[39m                                                          
+ [39m[2m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[22;39m           
+ [39m[2mCompleted task[22;39m                                                                 
 
- [38;5;241m── Task ──[39m                                                                     
- [38;5;241mtask line 1[39m                                                                    
- [38;5;241mtask line 2[39m                                                                    
- [38;5;241mtask line 3[39m                                                                    
- [38;5;241mtask line 4[39m                                                                    
- [38;5;241mtask line 5[39m                                                                    
- [38;5;241mtask line 6[39m                                                                    
- [38;5;241mtask line 7[39m                                                                    
- [38;5;241mtask line 8[39m                                                                    
- [38;5;241mtask line 9[39m                                                                    
- [38;5;241mtask line 10[39m                                                                   
- [38;5;241mtask line 11[39m                                                                   
- [38;5;241mtask line 12[39m                                                                   
- [38;5;241mtask line 13[39m                                                                   
- [38;5;241mtask line 14[39m                                                                   
- [38;5;241mtask line 15[39m                                                                   
- [38;5;241mtask line 16[39m                                                                   
- [38;5;241mtask line 17[39m                                                                   
- [38;5;241mtask line 18[39m                                                                   
- [38;5;241mtask line 19[39m                                                                   
- [38;5;241mtask line 20[39m                                                                   
- [38;5;241mtask line 21[39m                                                                   
- [38;5;241mtask line 22[39m                                                                   
- [38;5;241mtask line 23[39m                                                                   
- [38;5;241mtask line 24[39m                                                                   
- [38;5;241mtask line 25[39m                                                                   
- [38;5;241mtask line 26[39m                                                                   
- [38;5;241mtask line 27[39m                                                                   
- [38;5;241mtask line 28[39m                                                                   
- [38;5;241mtask line 29[39m                                                                   
- [38;5;241mtask line 30[39m                                                                   
- [38;5;241mtask line 31[39m                                                                   
- [38;5;241mtask line 32[39m                                                                   
- [38;5;241mtask line 33[39m                                                                   
- [38;5;241mtask line 34[39m                                                                   
- [38;5;241mtask line 35[39m                                                                   
- [38;5;241mtask line 36[39m                                                                   
- [38;5;241mtask line 37[39m                                                                   
- [38;5;241mtask line 38[39m                                                                   
- [38;5;241mtask line 39[39m                                                                   
- [38;5;241mtask line 40[39m                                                                   
- [38;5;241mtask line 41[39m                                                                   
- [38;5;241mtask line 42[39m                                                                   
- [38;5;241mtask line 43[39m                                                                   
- [38;5;241mtask line 44[39m                                                                   
- [38;5;241mtask line 45[39m                                                                   
- [38;5;241mtask line 46[39m                                                                   
- [38;5;241mtask line 47[39m                                                                   
- [38;5;241mtask line 48[39m                                                                   
- [38;5;241mtask line 49[39m                                                                   
- [38;5;241mtask line 50[39m                                                                   
- [38;5;244m… [1 more line][39m                                                                
+ [39m[2m── Task ──[22;39m                                                                     
+ [39m[2mtask line 1[22;39m                                                                    
+ [39m[2mtask line 2[22;39m                                                                    
+ [39m[2mtask line 3[22;39m                                                                    
+ [39m[2mtask line 4[22;39m                                                                    
+ [39m[2mtask line 5[22;39m                                                                    
+ [39m[2mtask line 6[22;39m                                                                    
+ [39m[2mtask line 7[22;39m                                                                    
+ [39m[2mtask line 8[22;39m                                                                    
+ [39m[2mtask line 9[22;39m                                                                    
+ [39m[2mtask line 10[22;39m                                                                   
+ [39m[2mtask line 11[22;39m                                                                   
+ [39m[2mtask line 12[22;39m                                                                   
+ [39m[2mtask line 13[22;39m                                                                   
+ [39m[2mtask line 14[22;39m                                                                   
+ [39m[2mtask line 15[22;39m                                                                   
+ [39m[2mtask line 16[22;39m                                                                   
+ [39m[2mtask line 17[22;39m                                                                   
+ [39m[2mtask line 18[22;39m                                                                   
+ [39m[2mtask line 19[22;39m                                                                   
+ [39m[2mtask line 20[22;39m                                                                   
+ [39m[2mtask line 21[22;39m                                                                   
+ [39m[2mtask line 22[22;39m                                                                   
+ [39m[2mtask line 23[22;39m                                                                   
+ [39m[2mtask line 24[22;39m                                                                   
+ [39m[2mtask line 25[22;39m                                                                   
+ [39m[2mtask line 26[22;39m                                                                   
+ [39m[2mtask line 27[22;39m                                                                   
+ [39m[2mtask line 28[22;39m                                                                   
+ [39m[2mtask line 29[22;39m                                                                   
+ [39m[2mtask line 30[22;39m                                                                   
+ [39m[2mtask line 31[22;39m                                                                   
+ [39m[2mtask line 32[22;39m                                                                   
+ [39m[2mtask line 33[22;39m                                                                   
+ [39m[2mtask line 34[22;39m                                                                   
+ [39m[2mtask line 35[22;39m                                                                   
+ [39m[2mtask line 36[22;39m                                                                   
+ [39m[2mtask line 37[22;39m                                                                   
+ [39m[2mtask line 38[22;39m                                                                   
+ [39m[2mtask line 39[22;39m                                                                   
+ [39m[2mtask line 40[22;39m                                                                   
+ [39m[2mtask line 41[22;39m                                                                   
+ [39m[2mtask line 42[22;39m                                                                   
+ [39m[2mtask line 43[22;39m                                                                   
+ [39m[2mtask line 44[22;39m                                                                   
+ [39m[2mtask line 45[22;39m                                                                   
+ [39m[2mtask line 46[22;39m                                                                   
+ [39m[2mtask line 47[22;39m                                                                   
+ [39m[2mtask line 48[22;39m                                                                   
+ [39m[2mtask line 49[22;39m                                                                   
+ [39m[2mtask line 50[22;39m                                                                   
+ [39m[2m… [1 more line][22;39m                                                                
 
- [38;5;241m── Output Preview ──[39m                                                           
+ [39m[2m── Output Preview ──[22;39m                                                           
  out                                                                            
 
- [38;5;241m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[39m           
+ [39m[2m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[22;39m           

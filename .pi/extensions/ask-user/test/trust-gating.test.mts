@@ -164,14 +164,16 @@ describe("ask_user_read trust gating", () => {
 			isProjectTrusted: async () => false,
 		});
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.deepStrictEqual(parsed.entries, []);
 		assert.strictEqual(parsed.count, 0);
+		assert.strictEqual(parsed.trustGranted, false, "structured content marks trust denied");
 		assert.ok(
 			parsed.message?.includes("not available") || parsed.message?.includes("not granted"),
 			"Message should indicate Q&A is unavailable",
 		);
 
+		assert.strictEqual(result.isError, true, "trust-denied result is an error");
 		assert.strictEqual(result.details.format, "qna-result-v1");
 		assert.strictEqual(result.details.untrusted, true);
 		assert.deepStrictEqual(result.details.entries, []);
@@ -189,10 +191,11 @@ describe("ask_user_read trust gating", () => {
 			isProjectTrusted: async () => true,
 		});
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.strictEqual(parsed.count, 2);
 		assert.strictEqual(parsed.entries.length, 2);
 		assert.strictEqual(parsed.total, 2, "list payload must carry total history size");
+		assert.ok(!result.isError, "successful read is not an error");
 		assert.deepStrictEqual(
 			parsed.entries.map((e: any) => e.id),
 			[1, 2],
@@ -212,9 +215,11 @@ describe("ask_user_read trust gating", () => {
 			isProjectTrusted: async () => false,
 		});
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.deepStrictEqual(parsed.entries, []);
 		assert.strictEqual(parsed.count, 0);
+		assert.strictEqual(parsed.trustGranted, false);
+		assert.strictEqual(result.isError, true);
 		assert.strictEqual(result.details.untrusted, true);
 	});
 
@@ -225,9 +230,11 @@ describe("ask_user_read trust gating", () => {
 			isProjectTrusted: async () => false,
 		});
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.deepStrictEqual(parsed.entries, []);
 		assert.strictEqual(parsed.count, 0);
+		assert.strictEqual(parsed.trustGranted, false);
+		assert.strictEqual(result.isError, true);
 		assert.strictEqual(result.details.untrusted, true);
 	});
 });
@@ -814,7 +821,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			ctx,
 		);
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.strictEqual(parsed.count, 20);
 		assert.strictEqual(parsed.total, 25, "payload carries full history size");
 		assert.deepStrictEqual(
@@ -842,7 +849,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			null,
 			ctx,
 		);
-		const listed = JSON.parse(listResult.content[0]!.text);
+		const listed = listResult.structuredContent;
 		assert.strictEqual(listed.count, 1, "trunc(1.5) = 1 entry");
 		assert.ok(Number.isInteger(listed.entries[0]!.id), "payload id must be an integer");
 		assert.strictEqual(listed.entries[0]!.id, 30);
@@ -854,7 +861,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			null,
 			ctx,
 		);
-		const got = JSON.parse(getResult.content[0]!.text);
+		const got = getResult.structuredContent;
 		assert.strictEqual(got.entries[0]!.question, "Entry 30");
 		assert.strictEqual(got.entries[0]!.answer, "Answer 30");
 	});
@@ -871,7 +878,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			ctx,
 		);
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent;
 		assert.strictEqual(parsed.count, 2, "count == number of matches");
 		assert.deepStrictEqual(
 			parsed.entries.map((e: any) => e.id),
@@ -891,7 +898,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			null,
 			ctx,
 		);
-		const listed = JSON.parse(listResult.content[0]!.text);
+		const listed = listResult.structuredContent;
 		assert.strictEqual(listed.entries.length, 5);
 		const firstId: number = listed.entries[0]!.id;
 		assert.strictEqual(firstId, 26, "first of last 5 of 30");
@@ -903,7 +910,7 @@ describe("list/get absolute ids (issue #1614)", () => {
 			null,
 			ctx,
 		);
-		const got = JSON.parse(getResult.content[0]!.text);
+		const got = getResult.structuredContent;
 		assert.strictEqual(got.count, 1);
 		assert.strictEqual(got.entries[0]!.datetime, "2026-01-01T00:00:26.000Z");
 		assert.strictEqual(got.entries[0]!.question, "Entry 26");

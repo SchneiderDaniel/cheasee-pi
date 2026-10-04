@@ -1,3 +1,3 @@
- [38;5;143m✓[39m [38;5;188mdev-agent[39m — [38;5;143mSUCCESS[39m                                                          
- [38;5;241m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[39m           
- [38;5;241mCompleted task[39m                                                                 
+ [38;5;72m✓[39m [38;5;254mdev-agent[39m — [38;5;72mSUCCESS[39m                                                          
+ [38;5;102m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[39m           
+ [38;5;102mCompleted task[39m                                                                 

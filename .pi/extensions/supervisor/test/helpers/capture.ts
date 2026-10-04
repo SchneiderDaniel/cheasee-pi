@@ -356,6 +356,13 @@ function createMockSessionManager() {
 		getEntry: () => undefined,
 		getLabel: () => undefined,
 		getBranch: () => [],
+		buildContextEntries: () => [],
+		buildSessionProjection: () => ({
+			entries: [],
+			messages: [],
+			thinkingLevel: "off",
+			model: null,
+		}),
 		getHeader: () => null,
 		getEntries: () => [],
 		getTree: () => [],
@@ -410,7 +417,9 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 
 	const pi: ExtensionAPI = {
 		// ══ Event handlers (all events) ══
-		on(_event: any, _handler: any) {},
+		on(_event: any, _handler: any): () => void {
+			return () => {};
+		},
 
 		// ══ Commands ══
 		registerCommand(_name: string, _options: any) {},
@@ -468,8 +477,28 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		setThinkingLevel(_level: any) {},
 
 		// ══ Providers ══
-		registerProvider(_name: string, _config: any) {},
+		registerProvider(_providerOrName: any, _config?: any) {},
 		unregisterProvider(_name: string) {},
+
+		// ══ Markdown / entry renderers ══
+		registerMarkdownTransformer(_transformer: any) {},
+		registerEntryRenderer(_customType: string, _renderer: any) {},
+
+		// ══ Settings ══
+		getSettings(): any {
+			return {};
+		},
+
+		// ══ MCP servers ══
+		registerMcpServer(_name: string, _config: any) {},
+		unregisterMcpServer(_name: string) {},
+		getMcpServers(): any[] {
+			return [];
+		},
+
+		// ══ Virtual models ══
+		registerVirtualModel(_model: any) {},
+		unregisterVirtualModel(_provider: string, _id: string) {},
 
 		// ══ Command execution ══
 		async exec(command: string, args: string[], _options?: ExecOptions): Promise<ExecResult> {
@@ -554,6 +583,7 @@ export function createMockCtx(
 		sessionManager: createMockSessionManager(),
 		modelRegistry: createMockModelRegistry(),
 		model: undefined,
+		scopedModels: [],
 		isIdle(): boolean {
 			return true;
 		},
