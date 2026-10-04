@@ -18,10 +18,17 @@ RUN apt-get update && \
 # ---------------------------------------------------------------
 # Layer 2: Node.js 22.x via NodeSource
 # ---------------------------------------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+# Curl-to-file (not a pipe): if deb.nodesource.com is unreachable, curl fails
+# and the RUN aborts loudly instead of the pipe silently falling back to
+# Debian's nodejs (which ships without npm). The v22/npm assertions pin the
+# result so a future fallback can never be cached as "successful" again.
+RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x && \
+    bash /tmp/nodesource-setup.sh && \
     apt-get install -y --no-install-recommends \
         nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
+    && node --version | grep -q '^v22\.' \
+    && test -x /usr/bin/npm
 
 # ---------------------------------------------------------------
 # Layer 3: Toolchain packages (Python, ctags, ripgrep, gosu, …)
