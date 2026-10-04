@@ -11,7 +11,11 @@
  */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join as joinPath } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { formatCacheHitRate } from "../formatting.ts";
 import { installFooter } from "../footer.ts";
 import { createDefaultFooterConfig } from "../footer-state.ts";
@@ -978,5 +982,224 @@ describe("footer — trust status display", () => {
 			allRows.includes("❓"),
 			"render output should include question mark when trustStatus undefined",
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Usage color tokens (Phase 2) + fullscreen width matrix (Phase 3)
+// ---------------------------------------------------------------------------
+
+interface CapturedFgCall {
+	color: string;
+	text: string;
+}
+
+interface FooterHarnessOptions {
+	/** Context usage; `null` ⇒ getContextUsage() returns undefined. */
+	usage?: { tokens: number; contextWindow: number } | null;
+	thresholds?: ThresholdEntry[];
+	footerConfig?: FooterConfig;
+	setClearOnShrinkSpy?: () => void;
+}
+
+/** Install the footer against a capture-style theme exposing only `fg`.
+ *  Deliberately omits `style`/`colors`/`appearance` — their absence proves the
+ *  footer renders against a 0.79.10-shaped theme. */
+function createHarness(options: FooterHarnessOptions = {}) {
+	const captured: CapturedFgCall[] = [];
+	const theme = {
+		fg: (color: string, text: string) => {
+			captured.push({ color, text });
+			return text;
+		},
+	};
+	const config: ContextStatusBarConfig = {
+		enabled: true,
+		thresholds: options.thresholds ?? [
+			{ maxTokens: 100_000 },
+			{ maxTokens: 150_000 },
+			{ maxTokens: null },
+		],
+		showTimer: false,
+		showTps: false,
+		showCache: false,
+		welcomeTimeoutMs: 0,
+	};
+	const footerConfig = options.footerConfig ?? createDefaultFooterConfig();
+	const usage =
+		options.usage === undefined ? { tokens: 64_000, contextWindow: 128_000 } : options.usage;
+
+	let component: { render: (w: number) => string[]; dispose: () => void } | undefined;
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setFooter: (fn: unknown) => {
+				if (typeof fn === "function") {
+					component = (fn as any)(
+						{
+							requestRender: () => {},
+							setClearOnShrink: options.setClearOnShrinkSpy ?? (() => {}),
+						},
+						theme,
+						{
+							onBranchChange: () => () => {},
+							getGitBranch: () => "main",
+							getExtensionStatuses: () => new Map(),
+						},
+					);
+				}
+			},
+			setStatus: () => {},
+		},
+		getContextUsage: () => (usage === null ? undefined : usage),
+		model: { id: "test-model" },
+	};
+
+	installFooter(ctx as any, config, footerConfig as any);
+	assert.ok(component, "footer component should be registered");
+	return { component: component!, captured, footerConfig, config };
+}
+
+describe("footer — usage color tokens", () => {
+	it("low tokens emit theme.fg(\"success\", \"64.0K/128.0K\")", () => {
+		const { component, captured } = createHarness({ usage: { tokens: 64_000, contextWindow: 128_000 } });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "success" && c.text === "64.0K/128.0K"),
+			`expected success token segment, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("mid tokens emit warning", () => {
+		const { component, captured } = createHarness({ usage: { tokens: 120_000, contextWindow: 128_000 } });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "warning" && c.text === "120.0K/128.0K"),
+			`expected warning token segment, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("overflow/null-tier tokens emit error", () => {
+		const { component, captured } = createHarness({ usage: { tokens: 200_000, contextWindow: 128_000 } });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "error" && c.text === "200.0K/128.0K"),
+			`expected error token segment, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("rendered rows contain no truecolor SGR escape", () => {
+		const { component } = createHarness();
+		const all = component.render(120).join("");
+		assert.ok(!all.includes("\x1b[38;2;"), "no truecolor SGR should be emitted");
+	});
+
+	it("renders against a theme exposing only fg (0.79.10 compat)", () => {
+		const { component } = createHarness();
+		const rows = component.render(80);
+		assert.ok(rows.length >= 1, "render should succeed without style/colors/appearance");
+	});
+
+	it("percentage bracket: ≥90 → error, 70–89 → warning, <70 → dim", () => {
+		const high = createHarness({ usage: { tokens: 120_000, contextWindow: 128_000 } });
+		high.component.render(120);
+		assert.ok(high.captured.some((c) => c.color === "error" && c.text === "[94%]"));
+
+		const mid = createHarness({ usage: { tokens: 90_000, contextWindow: 128_000 } });
+		mid.component.render(120);
+		assert.ok(mid.captured.some((c) => c.color === "warning" && c.text === "[70%]"));
+
+		const low = createHarness({ usage: { tokens: 64_000, contextWindow: 128_000 } });
+		low.component.render(120);
+		assert.ok(low.captured.some((c) => c.color === "dim" && c.text === "[50%]"));
+	});
+
+	it("tokens=null with a known max emits dim '◉ .../<max>'", () => {
+		const fc = createDefaultFooterConfig();
+		fc.lastContextWindow.value = 128_000;
+		const { component, captured } = createHarness({ usage: null, footerConfig: fc });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "◉ .../128.0K"),
+			`expected dim ellipsis segment, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("no usage and no max emits dim '◉ .../?'", () => {
+		const { component, captured } = createHarness({ usage: null });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "◉ .../?"),
+			`expected dim '◉ .../?', got: ${JSON.stringify(captured)}`,
+		);
+	});
+});
+
+describe("footer — fullscreen width matrix", () => {
+	it("renders ≥1 row fitting 40/80/120 cols without throwing", () => {
+		const { component } = createHarness();
+		for (const width of [40, 80, 120]) {
+			const rows = component.render(width);
+			assert.ok(rows.length >= 1, `width ${width}: at least one row`);
+			for (const row of rows) {
+				assert.ok(
+					visibleWidth(row) <= width,
+					`width ${width}: row exceeds width: ${JSON.stringify(row)}`,
+				);
+			}
+		}
+	});
+
+	it("resize 120 → 40 → 120: each render obeys its own width", () => {
+		const { component } = createHarness();
+		for (const width of [120, 40, 120]) {
+			for (const row of component.render(width)) {
+				assert.ok(
+					visibleWidth(row) <= width,
+					`resized to ${width}: row exceeds width: ${JSON.stringify(row)}`,
+				);
+			}
+		}
+	});
+
+	it("40 cols with UI + CodeFlow links: every OSC 8 link is closed (never mid-link cut)", () => {
+		const fc = createDefaultFooterConfig();
+		fc.uiUrl = "http://127.0.0.1:9600";
+		fc.codeflowUrl = "http://localhost:9100/?repo=local/workspace&run=1";
+		const { component } = createHarness({ footerConfig: fc });
+		const rows = component.render(40);
+		const row3 = rows[rows.length - 1]!;
+		const openers = (row3.match(/\x1b\]8;;http/g) ?? []).length;
+		const closers = (row3.match(/\x1b\]8;;\x1b\\/g) ?? []).length;
+		assert.strictEqual(openers, closers, "every OSC 8 opener must have a matching closer");
+		assert.ok(visibleWidth(row3) <= 40, "link row must fit width");
+	});
+
+	it("install calls tui.setClearOnShrink(true)", () => {
+		let called = false;
+		createHarness({
+			setClearOnShrinkSpy: () => {
+				called = true;
+			},
+		});
+		assert.ok(called, "setClearOnShrink should be called on install");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Static AC guard (Phase 4): no fixed-hex color literals remain
+// ---------------------------------------------------------------------------
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const readSource = (rel: string) => readFileSync(joinPath(TEST_DIR, rel), "utf-8");
+
+describe("footer/formatting — no fixed-hex color literals", () => {
+	it("footer.ts and formatting.ts contain no fgHex/pickThresholdHex or 6-digit hex", () => {
+		for (const rel of ["../footer.ts", "../formatting.ts"]) {
+			const src = readSource(rel);
+			assert.ok(!src.includes("fgHex"), `${rel} must not reference fgHex`);
+			assert.ok(!src.includes("pickThresholdHex"), `${rel} must not reference pickThresholdHex`);
+			assert.ok(!/#[0-9a-fA-F]{6}/.test(src), `${rel} must contain no 6-digit hex literal`);
+		}
 	});
 });
