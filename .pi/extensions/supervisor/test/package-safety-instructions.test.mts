@@ -49,6 +49,13 @@ describe("APPEND_SYSTEM.md — Package Safety section", () => {
 		);
 	});
 
+	it("exempts the trusted vendor scope @earendil-works", () => {
+		assert.ok(
+			content.includes("@earendil-works"),
+			"APPEND_SYSTEM.md must mention the trusted scope",
+		);
+	});
+
 	it("states must verify age before install", () => {
 		assert.ok(
 			content.includes("you MUST manually verify") || content.includes("must manually verify"),
@@ -92,6 +99,10 @@ describe("researcher.md — Package age reference", () => {
 
 	it("references 14-day threshold", () => {
 		assert.ok(content.includes("14-day"));
+	});
+
+	it("exempts the trusted vendor scope @earendil-works", () => {
+		assert.ok(content.includes("@earendil-works"), "researcher.md must mention the trusted scope");
 	});
 
 	it("mentions fail-closed on missing or unparseable date", () => {
