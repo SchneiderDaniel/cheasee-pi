@@ -230,6 +230,15 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			exec(`docker rm -fv ${CONTAINER_NAME} 2>/dev/null || true`, {
 				timeout: 30_000,
 			});
+			// Remove the images this project built. `compose down` keeps images,
+			// and the compose integration harness (run next) refuses its
+			// host-wide `clean`/`prune-images` while the daemon holds cheasee-pi
+			// images outside the harness's own unique project. Removing just the
+			// tags leaves the build cache, so the harness rebuild stays warm.
+			exec(
+				`docker images --filter "reference=${COMPOSE_PROJECT}-*" --format "{{.Repository}}:{{.Tag}}" | xargs -r docker image rm -f 2>/dev/null || true`,
+				{ timeout: 60_000 },
+			);
 			// Remove temp directory
 			rmSync(workdir, { recursive: true, force: true });
 		}

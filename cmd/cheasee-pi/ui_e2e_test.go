@@ -19,6 +19,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -329,27 +331,60 @@ func requireDedicatedCleanupScope(t *testing.T, ctx context.Context, root string
 
 // seedComposeHarnessWorkspace builds a real init-shaped workspace: a worktree
 // at <parent>/<slug> with a sibling <parent>/.bare whose origin is the
-// deterministic GitHub remote the names derive from. HOST_UID/HOST_GID are
-// exported from the test user so the ui sidecar (which runs as that uid/gid)
-// can traverse the host-owned config mount and pass its /health probe.
+// GitHub remote the names derive from. HOST_UID/HOST_GID are exported from the
+// test user so the ui sidecar (which runs as that uid/gid) can traverse the
+// host-owned config mount and pass its /health probe.
+//
+// The slug is unique per run: a fixed fixture name (the smoke test's
+// `cli-install-smoke`) would let this harness adopt, and the destructive
+// host-wide `clean`/`prune-images` block then delete, a concurrent or
+// pre-existing stack that happened to share the name. A unique project name
+// no other run can hold makes the teardown/cleanup scope provably this test's.
 func seedComposeHarnessWorkspace(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOST_UID", fmt.Sprint(os.Getuid()))
 	t.Setenv("HOST_GID", fmt.Sprint(os.Getgid()))
 
+	slug := uniqueHarnessSlug(t)
 	src := gitRemoteFixture(t, "main")
 	parent := t.TempDir()
-	root := filepath.Join(parent, "cli-install-smoke")
+	root := filepath.Join(parent, slug)
 	bareDir := cloneWorktreeLayout(t, src, parent, root)
-	// Owner-less remote so the derived slug equals the workspace basename and
-	// mirrors docker/test/cli-install-smoke.test.mts's fixture (project
-	// cheasee-pi-cli-install-smoke). Running after the smoke test in CI, the
-	// daemon then holds no cheasee-pi image outside this fixture's project
-	// prefix, so the host-wide cleanup block's dedicated-daemon guard holds.
+	// Owner-less remote so the derived slug equals the workspace basename: the
+	// project/container/image names all derive from this one unique identity.
 	runGit(t, "--git-dir", bareDir, "config", "remote.origin.url",
-		"https://github.com/cli-install-smoke.git")
+		"https://github.com/"+slug+".git")
 	testutil.WriteCheaseeSettingsFile(t, root, "{}")
+	// Fail closed if the unique project somehow already holds resources: the
+	// fixture may not adopt (and later tear down) a stack it did not create.
+	requireProjectClean(t, root)
 	return root
+}
+
+// uniqueHarnessSlug returns a per-run project slug that satisfies Compose's
+// name charset (^[a-z0-9][a-z0-9_-]*$) and can never collide with another run.
+func uniqueHarnessSlug(t *testing.T) string {
+	t.Helper()
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		t.Fatalf("generate unique harness slug: %v", err)
+	}
+	return "compose-harness-" + hex.EncodeToString(b[:])
+}
+
+// requireProjectClean fails the test closed when the fixture's unique compose
+// project already has containers: it must never adopt a stack this run did not
+// create (and whose teardown/cleanup would then delete foreign resources).
+func requireProjectClean(t *testing.T, root string) {
+	t.Helper()
+	project := composeProjectName(root)
+	names, err := projectContainers(context.Background(), project)
+	if err != nil {
+		t.Fatalf("pre-flight: enumerate project %s: %v", project, err)
+	}
+	if len(names) > 0 {
+		t.Fatalf("pre-flight: project %s already has containers %v — refusing to run against a pre-existing stack", project, names)
+	}
 }
 
 // startComposeStack brings the stack up through the production start path
@@ -422,10 +457,35 @@ func composeUpSubset(ctx context.Context, cacheDir, root string, services ...str
 }
 
 // downComposeStack tears the project down (containers, volumes, local images)
-// even when an assertion failed — no leaked containers or images.
+// even when an assertion failed — no leaked containers or images. It only
+// touches resources verified as created by this test: a unique project with no
+// containers never came up (nothing to tear down), and every container in the
+// project must be one of the fixture's three service containers.
 func downComposeStack(t *testing.T, root string) {
 	t.Helper()
 	ctx := context.Background()
+	project := composeProjectName(root)
+
+	names, err := projectContainers(ctx, project)
+	if err != nil {
+		t.Logf("teardown skipped (enumerate %s: %v)", project, err)
+		return
+	}
+	if len(names) == 0 {
+		return // the stack never started; nothing this test created
+	}
+	allowed := map[string]bool{
+		containerName(root):         true,
+		codeflowContainerName(root): true,
+		uiContainerName(root):       true,
+	}
+	for _, n := range names {
+		if !allowed[n] {
+			t.Errorf("teardown: project %s holds unexpected container %q — refusing to tear it down", project, n)
+			return
+		}
+	}
+
 	cacheDir, err := ensureCacheDir(ctx)
 	if err != nil {
 		t.Logf("teardown skipped (cache dir: %v)", err)
@@ -436,7 +496,7 @@ func downComposeStack(t *testing.T, root string) {
 		return
 	}
 	cmd := runCommandContext(ctx, "docker", "compose",
-		"-p", composeProjectName(root),
+		"-p", project,
 		"-f", filepath.Join(cacheDir, "docker-compose.yml"),
 		"down", "-v", "--rmi", "local",
 	)

@@ -125,7 +125,9 @@ jobs:
       # gets the DinD daemon via DOCKER_HOST. requireDockerDaemon t.Skips when no
       # daemon/compose plugin is reachable, so the step never fails for an
       # environmental reason. On DinD the codeflow bind cannot resolve, so the
-      # harness falls back to the agent+ui subset (as checkpoint 5 does).
+      # harness falls back to the agent+ui subset (as checkpoint 5 does). It runs
+      # AFTER the smoke test so it reuses that run's warm image build cache (a
+      # cold Leptos build can exceed the harness timeout).
       - name: Run compose integration harness
         run: |
           go test -tags integration ./cmd/cheasee-pi/ \
