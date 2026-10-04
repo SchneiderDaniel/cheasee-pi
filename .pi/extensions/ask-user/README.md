@@ -12,9 +12,10 @@
   - `rpc` — Flat option list via `ctx.ui.select` (compatible with RPC clients)
   - `json` / `print` — Cancel non-essential questions gracefully (no interactive UI)
 - **Trust-gated persistence** — Q&A history is only written when `ctx.isProjectTrusted()` is true. In untrusted contexts, answers are returned in tool content but never persisted to disk.
-- **`ask_user_read` tool** — LLM retrieves past Q&A entries (by id, list, or text search). Returns empty with `untrusted: true` flag when project trust is not granted.
+- **`ask_user_read` tool** — LLM retrieves past Q&A entries (by id, list, or text search). Returns `isError: true` with `structuredContent.trustGranted: false` when project trust is not granted.
 - **`/qna` command** — Browse logged Q&A history. Gated behind project trust.
-- **Structured response format** — All tool responses include `format: "qna-result-v1"` in `details` for typed downstream consumption. Untrusted responses include `untrusted: true`.
+- **Typed structured results** — Both tools declare an `outputSchema` and return matching `structuredContent`, so programmatic callers (codemode scripts) read typed data instead of parsing `content`. The model still receives `content`.
+- **Structured response format** — All tool responses include `format: "qna-result-v1"` in `details` for renderers. Untrusted responses include `untrusted: true` in `details` alongside `trustGranted: false` in `structuredContent`.
 - **Persistent log** — All interactions saved to `.pi/context/qna.jsonl` (legacy `.csv` auto-migrated at session start if project trust is granted).
 
 ## How it works
@@ -46,8 +47,27 @@ The LLM uses `ask_user` automatically when it needs input. You can also browse h
 
 ## Requirements
 
-- Pi Coding Agent ≥ v0.79.1
+- Pi Coding Agent ≥ v1.0.1
 - No external dependencies — all peer deps are pi-provided.
+
+## Structured results (`structuredContent`)
+
+Both tools declare an `outputSchema` and return a matching `structuredContent`:
+
+- **`ask_user`** — `{ question, mode, answer? , selected?, label?, cancelled? }`.
+  Freetext sets `answer`; a predefined choice sets `selected` + `label`; picking
+  "Other" sets `answer` + `selected: "__other__"`; cancellation sets `cancelled: true`.
+- **`ask_user_read`** — `{ entries, count, total?, message?, trustGranted? }`.
+  `list` also carries `total` (full history size); `get`/`query` omit it. Entries
+  carry an absolute `id` except for `get`.
+- **Trust denied** — `ask_user_read` returns `isError: true` with
+  `structuredContent = { entries: [], count: 0, trustGranted: false, message }` so
+  callers distinguish "not trusted" from "empty history" without string-matching.
+  Other failures (unknown id, missing params, I/O errors) still throw.
+
+Redaction obligation: any `tool_result` handler that replaces `content` must
+also replace `structuredContent`, otherwise it is dropped by the runtime and
+secret data could bypass redaction.
 
 ## Details
 

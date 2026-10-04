@@ -33,7 +33,7 @@ import {
 	migrateIfCsvExists,
 } from "../jsonl-logger.ts";
 
-import askUser from "../index.ts";
+import askUser, { successResult } from "../index.ts";
 
 // ============================================================================
 // Unit tests: validateQnaEntry
@@ -1253,35 +1253,10 @@ describe("Empty JSONL file edge cases", () => {
 	});
 });
 
-interface ContentResult {
-	content: Array<{ type: "text"; text: string }>;
-	details: Record<string, unknown>;
-}
-
 // ============================================================================
 // Unit tests: successResult helper (ask_user_read success envelope)
 // ============================================================================
 
-function successResult<T extends { datetime: string; question: string; answer: string }>(
-	entries: T[],
-	count: number,
-	total?: number,
-): ContentResult {
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: JSON.stringify({
-					entries,
-					count,
-					...(total !== undefined ? { total } : {}),
-					...(entries.length === 0 ? { message: "No Q&A history yet" } : {}),
-				}),
-			},
-		],
-		details: { entries, count, ...(total !== undefined ? { total } : {}) },
-	};
-}
 
 describe("successResult (ask_user_read success envelope)", () => {
 	it("returns correct ContentResult shape for non-empty entries", () => {
@@ -1294,10 +1269,14 @@ describe("successResult (ask_user_read success envelope)", () => {
 		assert.strictEqual(result.content.length, 1);
 		assert.strictEqual(result.content[0]!.type, "text");
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.strictEqual(parsed.count, 2);
 		assert.strictEqual(parsed.entries.length, 2);
 		assert.ok(!parsed.message, "Should not have message when entries exist");
+		assert.ok(
+			!result.content[0]!.text.includes("{"),
+			"content is a readable summary, not the JSON payload",
+		);
 
 		assert.strictEqual(result.details.count, 2);
 		assert.strictEqual((result.details.entries as Array<unknown>).length, 2);
@@ -1310,7 +1289,7 @@ describe("successResult (ask_user_read success envelope)", () => {
 		];
 		const result = successResult(entries, entries.length, 35);
 
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.strictEqual(parsed.count, 2);
 		assert.strictEqual(parsed.total, 35, "Payload should carry total history size");
 		assert.strictEqual(parsed.entries[0]!.id, 11, "Entries keep their absolute ids");
@@ -1320,14 +1299,14 @@ describe("successResult (ask_user_read success envelope)", () => {
 	it("omits total field when not provided (get/query action)", () => {
 		const entry = { datetime: "2026-05-15T19:00:00.000Z", question: "Q1", answer: "A1" };
 		const result = successResult([entry], 1);
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.ok(!("total" in parsed), "No total for get/query payloads");
 		assert.ok(!("total" in result.details), "No total in details for get/query");
 	});
 
 	it("returns message field when entries array is empty", () => {
 		const result = successResult([], 0);
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.strictEqual(parsed.count, 0);
 		assert.deepStrictEqual(parsed.entries, []);
 		assert.strictEqual(parsed.message, "No Q&A history yet");
@@ -1339,29 +1318,26 @@ describe("successResult (ask_user_read success envelope)", () => {
 	it("allows alternative count for single-entry display", () => {
 		const entry = { datetime: "2026-05-15T19:00:00.000Z", question: "Q1", answer: "A1" };
 		const result = successResult([entry], 1);
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.strictEqual(parsed.count, 1);
 		assert.strictEqual(parsed.entries.length, 1);
 		assert.strictEqual(parsed.entries[0]!.question, "Q1");
 		assert.ok(!parsed.message, "Should not have message when entry exists");
 	});
 
-	it("details object matches content JSON shape", () => {
+	it("structuredContent mirrors the details payload (minus format)", () => {
 		const entries = [{ datetime: "2026-05-15T19:00:00.000Z", question: "Q1", answer: "A1" }];
 		const result = successResult(entries, 1);
-		const parsed = JSON.parse(result.content[0]!.text);
-		assert.strictEqual(parsed.count, result.details.count);
-		assert.strictEqual(
-			(parsed.entries as Array<unknown>).length,
-			(result.details.entries as Array<unknown>).length,
-		);
+		const { format, ...detailsPayload } = result.details;
+		assert.strictEqual(format, "qna-result-v1");
+		assert.deepStrictEqual(result.structuredContent, detailsPayload);
 	});
 
-	it("content is a single text block", () => {
+	it("content is a single readable text block", () => {
 		const result = successResult([], 0);
 		assert.strictEqual(result.content.length, 1);
 		assert.strictEqual(result.content[0]!.type, "text");
-		assert.ok(typeof result.content[0]!.text === "string");
+		assert.strictEqual(result.content[0]!.text, "No Q&A history yet");
 	});
 });
 
@@ -1514,7 +1490,7 @@ describe("ask_user_read execute — error signaling", () => {
 
 		assert.ok(Array.isArray(result.content));
 		assert.strictEqual(result.content.length, 1);
-		const parsed = JSON.parse(result.content[0]!.text);
+		const parsed = result.structuredContent as any;
 		assert.strictEqual(parsed.count, 2);
 		assert.strictEqual(parsed.entries.length, 2);
 		assert.strictEqual(result.details.count, 2);

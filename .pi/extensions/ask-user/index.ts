@@ -13,7 +13,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { QuestionParams, QnaReadParams } from "./types.ts";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import {
+	QuestionParams,
+	QnaReadParams,
+	QnaReadOutputSchema,
+	AskUserOutputSchema,
+} from "./types.ts";
 import type { QnaEntry, QnaListedEntry } from "./types.ts";
 import {
 	migrateIfCsvExists,
@@ -45,6 +51,82 @@ function formatTable(entries: QnaListedEntry[]): string {
 		rows.push(`| ${e.id} | ${dt} | ${q} | ${a} |`);
 	}
 	return rows.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Result envelope
+// ---------------------------------------------------------------------------
+
+/** Tool result envelope shared by ask_user and ask_user_read. */
+export interface ToolResult {
+	content: Array<{ type: "text"; text: string }>;
+	details: Record<string, unknown>;
+	structuredContent?: JsonValue;
+	isError?: boolean;
+}
+
+/**
+ * Human-readable summary for the model. The machine-readable payload lives in
+ * `structuredContent`; this text is deliberately not JSON so scripts that used
+ * to `JSON.parse(result.text)` migrate to the typed channel instead.
+ */
+function summaryText(entries: QnaEntry[], count: number, total?: number): string {
+	if (entries.length === 0) return "No Q&A history yet";
+	const blocks = entries.map((e) => {
+		const id = (e as QnaListedEntry).id;
+		const prefix = id === undefined ? "" : `#${id} `;
+		return `${prefix}Q: ${e.question}\nA: ${e.answer}`;
+	});
+	const tail = total === undefined ? "" : `\n\n(${count} of ${total} entries)`;
+	return blocks.join("\n\n") + tail;
+}
+
+/**
+ * Build the shared success envelope: readable `content` for the model,
+ * `details` for renderers, and typed `structuredContent` for scripts.
+ */
+export function successResult<T extends QnaEntry>(
+	entries: T[],
+	count: number,
+	total?: number,
+): ToolResult {
+	const payload = {
+		entries,
+		count,
+		...(total !== undefined ? { total } : {}),
+		...(entries.length === 0 ? { message: "No Q&A history yet" } : {}),
+	};
+	return {
+		content: [{ type: "text" as const, text: summaryText(entries, count, total) }],
+		details: { format: "qna-result-v1", ...payload },
+		structuredContent: payload as unknown as JsonValue,
+	};
+}
+
+/**
+ * Derive ask_user's `structuredContent` from the handler's `details` and the
+ * caller-supplied params. Kept here so question-handler.ts stays untouched.
+ */
+function deriveAskUserStructuredContent(
+	params: { question: string; mode?: "choice" | "freetext" },
+	details: Record<string, unknown>,
+): JsonValue {
+	const out: Record<string, JsonValue> = {
+		question: params.question,
+		mode: params.mode ?? "choice",
+	};
+	if (typeof details.customAnswer === "string") {
+		out.answer = details.customAnswer;
+		out.selected = "__other__";
+	} else if (typeof details.answer === "string") {
+		out.answer = details.answer;
+	} else if (typeof details.selected === "string") {
+		out.selected = details.selected;
+		if (typeof details.label === "string") out.label = details.label;
+	} else {
+		out.cancelled = true;
+	}
+	return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,19 +167,21 @@ export default function askUser(pi: ExtensionAPI): void {
 			"For quizzes or multiple-choice tests where only predefined choices are accepted, set disableOther to true.",
 		],
 		parameters: QuestionParams,
+		outputSchema: AskUserOutputSchema,
 		async execute(
 			_toolCallId,
 			params,
 			_signal,
 			_onUpdate,
 			ctx,
-		): Promise<{
-			content: Array<{ type: "text"; text: string }>;
-			details: Record<string, unknown>;
-		}> {
+		): Promise<ToolResult> {
 			const projectDir = ctx.sessionManager.getCwd();
 			const handler = new QuestionHandler(projectDir, ctx);
-			return handler.handle(params);
+			const result = await handler.handle(params);
+			return {
+				...result,
+				structuredContent: deriveAskUserStructuredContent(params, result.details),
+			};
 		},
 	});
 
@@ -248,35 +332,6 @@ export default function askUser(pi: ExtensionAPI): void {
 		},
 	});
 
-	function successResult<T extends QnaEntry>(
-		entries: T[],
-		count: number,
-		total?: number,
-	): {
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	} {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: JSON.stringify({
-						entries,
-						count,
-						...(total !== undefined ? { total } : {}),
-						...(entries.length === 0 ? { message: "No Q&A history yet" } : {}),
-					}),
-				},
-			],
-			details: {
-				format: "qna-result-v1",
-				entries,
-				count,
-				...(total !== undefined ? { total } : {}),
-			},
-		};
-	}
-
 	// ── ask_user_read LLM tool ──────────────────────────────────────
 	pi.registerTool({
 		name: "ask_user_read",
@@ -291,37 +346,34 @@ export default function askUser(pi: ExtensionAPI): void {
 			"total in list responses is the full history size — entries may be a truncated subset (the most recent limit entries) when the log is longer than the limit.",
 		],
 		parameters: QnaReadParams,
+		outputSchema: QnaReadOutputSchema,
 		async execute(
 			_toolCallId,
 			params,
 			_signal,
 			_onUpdate,
 			ctx,
-		): Promise<{
-			content: Array<{ type: "text"; text: string }>;
-			details: Record<string, unknown>;
-		}> {
+		): Promise<ToolResult> {
 			const projectDir = ctx.sessionManager.getCwd();
 
 			// Gate Q&A history access on project trust
 			if (!(await (ctx as any).isProjectTrusted())) {
+				const message = "Q&A history is not available — project trust not granted";
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: JSON.stringify({
-								entries: [],
-								count: 0,
-								message: "Q&A history is not available — project trust not granted",
-							}),
-						},
-					],
+					content: [{ type: "text" as const, text: message }],
 					details: {
 						format: "qna-result-v1",
 						entries: [],
 						count: 0,
 						untrusted: true,
 					},
+					structuredContent: {
+						entries: [],
+						count: 0,
+						trustGranted: false,
+						message,
+					},
+					isError: true,
 				};
 			}
 
