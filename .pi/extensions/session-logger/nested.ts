@@ -116,3 +116,38 @@ export function annotateNested(record: NestedToolCalls | undefined): NestedCallA
 	if (incomplete) annotation.incomplete = incomplete;
 	return annotation;
 }
+
+/** Severity order for merging `incomplete` reasons; higher wins. `dropped` is real data loss. */
+const INCOMPLETE_SEVERITY: Record<IncompleteReason, number> = {
+	"arguments-omitted": 0,
+	unfinished: 1,
+	dropped: 2,
+};
+
+/**
+ * Fold a new annotation for the same parent into the accumulated one.
+ *
+ * A parent tool can have several toolResult messages (one per invocation), each
+ * with its own `nestedCalls`. Counts sum; the `incomplete` flag is kept at the
+ * most severe reason seen so an earlier flag is never lost to a later result.
+ */
+export function mergeNestedAnnotation(
+	accumulated: NestedCallAnnotation | undefined,
+	next: NestedCallAnnotation,
+): NestedCallAnnotation {
+	if (!accumulated) return next;
+	const merged: NestedCallAnnotation = {
+		nestedCalls: accumulated.nestedCalls + next.nestedCalls,
+		nestedErrors: accumulated.nestedErrors + next.nestedErrors,
+		nestedDurationMs: accumulated.nestedDurationMs + next.nestedDurationMs,
+	};
+	const reasons = [accumulated.incomplete, next.incomplete].filter(
+		(r): r is IncompleteReason => r !== undefined,
+	);
+	if (reasons.length > 0) {
+		merged.incomplete = reasons.reduce((a, b) =>
+			INCOMPLETE_SEVERITY[a] >= INCOMPLETE_SEVERITY[b] ? a : b,
+		);
+	}
+	return merged;
+}

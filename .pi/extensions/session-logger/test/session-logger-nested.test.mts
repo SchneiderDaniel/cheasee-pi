@@ -20,6 +20,7 @@ import {
 	deriveParentToolCallId,
 	rollupNestedCalls,
 	classifyIncomplete,
+	mergeNestedAnnotation,
 } from "../nested.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -35,6 +36,9 @@ describe("nested.ts exports", () => {
 	});
 	it("classifyIncomplete is a callable export", () => {
 		assert.strictEqual(typeof classifyIncomplete, "function");
+	});
+	it("mergeNestedAnnotation is a callable export", () => {
+		assert.strictEqual(typeof mergeNestedAnnotation, "function");
 	});
 });
 
@@ -136,5 +140,53 @@ describe("classifyIncomplete", () => {
 
 	it("returns dropped when complete is false and calls is empty", () => {
 		assert.strictEqual(classifyIncomplete({ calls: [], complete: false }), "dropped");
+	});
+});
+
+// ── mergeNestedAnnotation ─────────────────────────────────────────
+
+describe("mergeNestedAnnotation", () => {
+	it("returns the next annotation when nothing is accumulated", () => {
+		const next = { nestedCalls: 2, nestedErrors: 1, nestedDurationMs: 150 };
+		assert.deepStrictEqual(mergeNestedAnnotation(undefined, next), next);
+	});
+
+	it("sums counts across repeated parents", () => {
+		const merged = mergeNestedAnnotation(
+			{ nestedCalls: 2, nestedErrors: 1, nestedDurationMs: 150 },
+			{ nestedCalls: 1, nestedErrors: 0, nestedDurationMs: 50 },
+		);
+		assert.deepStrictEqual(merged, {
+			nestedCalls: 3,
+			nestedErrors: 1,
+			nestedDurationMs: 200,
+		});
+		assert.strictEqual("incomplete" in merged, false);
+	});
+
+	it("keeps the earlier incomplete flag when the next is complete", () => {
+		const merged = mergeNestedAnnotation(
+			{ nestedCalls: 1, nestedErrors: 0, nestedDurationMs: 10, incomplete: "dropped" },
+			{ nestedCalls: 1, nestedErrors: 0, nestedDurationMs: 20 },
+		);
+		assert.strictEqual(merged.incomplete, "dropped");
+	});
+
+	it("keeps the more severe reason (dropped > unfinished > arguments-omitted)", () => {
+		const merged = mergeNestedAnnotation(
+			{
+				nestedCalls: 1,
+				nestedErrors: 0,
+				nestedDurationMs: 0,
+				incomplete: "arguments-omitted",
+			},
+			{
+				nestedCalls: 1,
+				nestedErrors: 0,
+				nestedDurationMs: 0,
+				incomplete: "unfinished",
+			},
+		);
+		assert.strictEqual(merged.incomplete, "unfinished");
 	});
 });

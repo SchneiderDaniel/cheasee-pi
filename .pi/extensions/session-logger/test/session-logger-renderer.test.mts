@@ -1547,6 +1547,61 @@ describe("parseSessionStats — nestedCalls rollup (JSONL authority)", () => {
 		assert.strictEqual(parsed.nestedCallAnnotations, undefined);
 		assert.deepStrictEqual(parsed.toolStats.read, { calls: 1, errors: 0, totalDurationMs: 0 });
 	});
+
+	it("accumulates nested counts across repeated invocations of the same parent", () => {
+		const parsed = parseSessionStats(
+			writeJsonl([
+				nestedToolResult("codemode", COMPLETE_NESTED),
+				nestedToolResult("codemode", {
+					calls: [{ id: "codemode_2/1", name: "read", status: "ok", durationMs: 50 }],
+					complete: true,
+				}),
+			]),
+		);
+		assert.ok(parsed);
+		assert.deepStrictEqual(parsed.nestedCallAnnotations!.codemode, {
+			nestedCalls: 3,
+			nestedErrors: 1,
+			nestedDurationMs: 200,
+		});
+		assert.deepStrictEqual(parsed.toolStats.codemode, {
+			calls: 5,
+			errors: 1,
+			totalDurationMs: 200,
+		});
+	});
+
+	it("keeps the earlier incomplete reason when a later parent result is complete", () => {
+		const parsed = parseSessionStats(
+			writeJsonl([
+				nestedToolResult("codemode", {
+					calls: [{ id: "codemode_1/1", name: "read", status: "ok", durationMs: 10 }],
+					complete: false,
+				}),
+				nestedToolResult("codemode", {
+					calls: [{ id: "codemode_2/1", name: "read", status: "ok", durationMs: 20 }],
+					complete: true,
+				}),
+			]),
+		);
+		assert.ok(parsed);
+		assert.strictEqual(parsed.nestedCallAnnotations!.codemode.incomplete, "dropped");
+		assert.strictEqual(parsed.nestedCallAnnotations!.codemode.nestedCalls, 2);
+	});
+
+	it("keeps the most severe incomplete reason across repeated parent results", () => {
+		const parsed = parseSessionStats(
+			writeJsonl([
+				nestedToolResult("codemode", {
+					calls: [{ id: "codemode_1/1", name: "read", status: "ok", argumentsBytes: 9000 }],
+					complete: false,
+				}),
+				nestedToolResult("codemode", { calls: [], complete: false }),
+			]),
+		);
+		assert.ok(parsed);
+		assert.strictEqual(parsed.nestedCallAnnotations!.codemode.incomplete, "dropped");
+	});
 });
 
 // ---------------------------------------------------------------------------

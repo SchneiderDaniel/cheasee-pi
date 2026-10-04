@@ -14,7 +14,7 @@
 import { createPerTurnState, flushTurn } from "../per-turn.ts";
 import type { PerTurnState } from "../per-turn.ts";
 import { handleModelChanges } from "../session-utils.ts";
-import { annotateNested } from "../nested.ts";
+import { annotateNested, mergeNestedAnnotation } from "../nested.ts";
 import type { NestedCallAnnotation, NestedToolCalls } from "../nested.ts";
 import { loadSessionEntries } from "./parse.ts";
 
@@ -150,7 +150,10 @@ function accumulateMessageStats(acc: StatsAccumulator, entry: any): void {
 			acc.toolCounts[tn].calls += annotation.nestedCalls;
 			acc.toolCounts[tn].errors += annotation.nestedErrors;
 			acc.toolCounts[tn].totalDurationMs += annotation.nestedDurationMs;
-			acc.nestedCallAnnotations[tn] = annotation;
+			acc.nestedCallAnnotations[tn] = mergeNestedAnnotation(
+				acc.nestedCallAnnotations[tn],
+				annotation,
+			);
 		}
 	}
 
