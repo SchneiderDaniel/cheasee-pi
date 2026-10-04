@@ -41,6 +41,19 @@ export interface ConsecutiveInfo {
 	sinceTurn: number;
 }
 
+/**
+ * Composite counter identity of a tool call, captured at `tool_call` time.
+ * Indexed by `toolCallId` so a nested call can roll up to its parent's exact
+ * counter entry — including the parent's bash sub-key — rather than to
+ * whichever sub-key of that tool happened to be recorded last.
+ * @public
+ */
+export interface CallIdEntry {
+	toolName: string;
+	/** Bash sub-command key (e.g. `git commit`); absent for other tools. */
+	subKey?: string;
+}
+
 export interface HarnessState {
 	readCache: {
 		/** Get cached entry. Returns null on miss or TTL expiry. */
@@ -78,13 +91,14 @@ export interface HarnessState {
 		 */
 		record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void;
 		/**
-		 * Roll a nested call up under its parent's existing consecutive entry.
-		 * Resolves the parent's composite identity (incl. bash sub-key) from its
-		 * last recorded call; never creates an entry. Re-asserts the parent as the
-		 * active chain key so the roll-up is visible to `getConsecutive` even when
-		 * a sibling interleaved. No-op when the parent has no recorded entry.
+		 * Roll a nested call up under its parent's composite counter identity.
+		 * The parent identity (incl. bash sub-key) is captured from the call-id
+		 * index at `tool_call` time; this never creates an entry, so an unmapped
+		 * parent (or one cleared at a turn boundary) is a no-op. Re-asserts the
+		 * parent as the active chain key so the roll-up is visible to
+		 * `getConsecutive` even when a sibling interleaved.
 		 */
-		recordNested(toolName: string, sessionTurn: number): void;
+		recordNested(parent: CallIdEntry, sessionTurn: number): void;
 		/**
 		 * Get consecutive call info for a composite key.
 		 * Returns count 0 if composite key doesn't match the last recorded key.
@@ -101,10 +115,10 @@ export interface HarnessState {
 		turnBoundaryReset(): void;
 	};
 	/**
-	 * Nested-call attribution index: model-issued (and nested) toolCallId → toolName.
-	 * Bounded by CACHE_TTL_TURNS; cleared on turn boundary and reset.
+	 * Nested-call attribution index: toolCallId → parent's composite counter
+	 * identity. Bounded by CACHE_TTL_TURNS; cleared on turn boundary and reset.
 	 */
-	callIdIndex: TimedMap<string, string>;
+	callIdIndex: TimedMap<string, CallIdEntry>;
 	/**
 	 * Tool call index for cache TTL and error tracking.
 	 * Incremented on each tool_call event handled by the extension.
@@ -210,15 +224,9 @@ export function createHarnessState(): HarnessState {
 
 	let lastKey: string | null = null;
 	const callMap = new TimedMap<string, ConsecutiveState>();
-	/**
-	 * Last composite key recorded per tool name. Preserves the parent's counter
-	 * identity (e.g. `bash\x00git commit`) independently of the global `lastKey`
-	 * chain, so nested roll-ups reach the right sub-keyed entry.
-	 */
-	const keyByTool = new Map<string, string>();
 
-	// Nested-call attribution: toolCallId → toolName, turn-bounded.
-	const callIdMap = new TimedMap<string, string>({ ttlTurns: CACHE_TTL_TURNS });
+	// Nested-call attribution: toolCallId → parent's composite counter identity.
+	const callIdMap = new TimedMap<string, CallIdEntry>({ ttlTurns: CACHE_TTL_TURNS });
 
 	/** Build composite key from toolName and optional subKey. */
 	function makeKey(toolName: string, subKey?: string): string {
@@ -228,7 +236,6 @@ export function createHarnessState(): HarnessState {
 	const callCounter = {
 		record(toolName: string, sessionTurn: number, _toolCallIndex: number, subKey?: string): void {
 			const key = makeKey(toolName, subKey);
-			keyByTool.set(toolName, key);
 			if (key === lastKey) {
 				// Same composite key — increment consecutive count
 				const existing = callMap.get(key);
@@ -256,12 +263,11 @@ export function createHarnessState(): HarnessState {
 			};
 		},
 
-		recordNested(toolName: string, _sessionTurn: number): void {
-			// Resolve the parent's composite identity (incl. bash sub-key) from its
-			// last recorded call. Never create an entry; a mapped id whose parent
-			// was never recorded (or was cleared) is a no-op.
-			const key = keyByTool.get(toolName);
-			if (key === undefined) return;
+		recordNested(parent: CallIdEntry, _sessionTurn: number): void {
+			// Resolve the parent's exact composite identity (incl. bash sub-key)
+			// captured at call time. Never create an entry; a mapped id whose
+			// parent was never recorded (or was cleared) is a no-op.
+			const key = makeKey(parent.toolName, parent.subKey);
 			const existing = callMap.get(key);
 			if (!existing) return;
 			existing.count++;
@@ -273,14 +279,12 @@ export function createHarnessState(): HarnessState {
 		reset(): void {
 			callMap.clear();
 			callIdMap.clear();
-			keyByTool.clear();
 			lastKey = null;
 		},
 
 		turnBoundaryReset(): void {
 			callMap.clear();
 			callIdMap.clear();
-			keyByTool.clear();
 			lastKey = null;
 		},
 	} satisfies HarnessState['callCounter'];

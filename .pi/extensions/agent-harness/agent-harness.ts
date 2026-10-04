@@ -219,7 +219,8 @@ export class AgentHarness {
 	 * Attribute a nested call (`ctx.executeTool`-issued) to its parent tool.
 	 * Nested calls are never blocked: the parent tool sees the nested result and
 	 * a block here would break the parent rather than teach the model. They only
-	 * roll their count (and errors) up to the parent, and still run cache
+	 * roll their count (and errors) up to the parent's composite counter identity
+	 * (tool + bash sub-key, captured in the call-id index) and still run cache
 	 * invalidation. Unmapped parents (state reset / foreign instance) are ignored.
 	 */
 	#attributeNestedCall(
@@ -239,14 +240,14 @@ export class AgentHarness {
 			}
 		}
 
-		const parentToolName = this.state.callIdIndex.get(parentToolCallId, sessionTurn);
-		if (!parentToolName) return;
+		const parent = this.state.callIdIndex.get(parentToolCallId, sessionTurn);
+		if (!parent) return;
 
-		this.state.callCounter.recordNested(parentToolName, sessionTurn);
+		this.state.callCounter.recordNested(parent, sessionTurn);
 		// Apply the parent's effective trackErrors setting — a read-only parent
 		// must not be error-blocked by nested failures (config still wins).
-		if (event.isError && this.#getToolMeta(parentToolName).trackErrors !== false) {
-			this.state.errorTracker.push(parentToolName, { turn: sessionTurn, toolName });
+		if (event.isError && this.#getToolMeta(parent.toolName).trackErrors !== false) {
+			this.state.errorTracker.push(parent.toolName, { turn: sessionTurn, toolName });
 		}
 	}
 
@@ -288,10 +289,16 @@ export class AgentHarness {
 			return null;
 		}
 
-		// ── Index this call id so nested calls can resolve their parent tool name ──
-		// Also handles depth ≥2: a nested call's own synthetic id may itself be a parent.
+		// Extract bash command string for classification (used by bypass gate and later guards)
+		const bashCommand = (toolName === "bash" ? (args.command ?? "") : "") as string;
+		const bashSubKey =
+			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
+
+		// ── Index this call id → its composite counter identity (tool + bash
+		// sub-key) so nested calls roll up to the exact parent entry. Also handles
+		// depth ≥2: a nested call's own synthetic id may itself be a parent.
 		if (toolCallId) {
-			this.state.callIdIndex.set(toolCallId, toolName, sessionTurn);
+			this.state.callIdIndex.set(toolCallId, { toolName, subKey: bashSubKey }, sessionTurn);
 		}
 
 		// ── Step 0.5: Nested-call attribution ──
@@ -303,11 +310,6 @@ export class AgentHarness {
 			this.state.toolCallIndex++;
 			return null;
 		}
-
-		// Extract bash command string for classification (used by bypass gate and later guards)
-		const bashCommand = (toolName === "bash" ? (args.command ?? "") : "") as string;
-		const bashSubKey =
-			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
 
 		// ── Step 0: Force-bypass gate ──
 		// Per-call escape hatch: _harness.force: true or # bypass-harness comment annotation.

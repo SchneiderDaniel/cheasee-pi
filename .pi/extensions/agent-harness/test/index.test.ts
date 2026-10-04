@@ -1794,6 +1794,32 @@ describe("AgentHarness — nested call attribution", () => {
 		);
 	});
 
+	it("nested roll-up targets the parent's bash sub-key, not a sibling same-tool sub-key", () => {
+		const h = new AgentHarness({
+			toolMeta: { bash: { cascadeThreshold: 3 } },
+			cascadeThreshold: 8,
+		});
+		// Parent A (p1) runs `git commit`; sibling B (p2) runs `npm test`.
+		h.handleToolCall(
+			{ toolName: "bash", input: { command: "git commit -m x" }, toolCallId: "p1" },
+			makeCtx(),
+		);
+		h.handleToolCall(
+			{ toolName: "bash", input: { command: "npm test" }, toolCallId: "p2" },
+			makeCtx(),
+		);
+		// Nested call cites A's id — must roll up to `git commit`, not the latest sub-key.
+		h.handleToolCall(nested("read", "p1/1", "p1"), makeCtx());
+
+		const a = h.handleToolCall(
+			{ toolName: "bash", input: { command: "git commit -m y" } },
+			makeCtx(),
+		);
+		assert.ok(a?.block, "parent sub-key git commit includes its own nested roll-up");
+		const b = h.handleToolCall({ toolName: "bash", input: { command: "npm test" } }, makeCtx());
+		assert.equal(b, null, "sibling sub-key npm test is not inflated by the roll-up");
+	});
+
 	it("nested errors roll up and block the parent's next model call", () => {
 		const h = new AgentHarness();
 		h.handleToolCall(

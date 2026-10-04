@@ -70,16 +70,18 @@ describe("Constants", () => {
 // ── Nested-call attribution (callIdIndex + callCounter.recordNested) ──
 
 describe("HarnessState — nested call attribution", () => {
-	it("callIdIndex resolves a registered tool-call id to its tool name", () => {
+	it("callIdIndex resolves a registered tool-call id to its composite identity", () => {
 		const s = createHarnessState();
-		s.callIdIndex.set("id1", "read", 0);
-		assert.equal(s.callIdIndex.get("id1", 0), "read");
+		s.callIdIndex.set("id1", { toolName: "read" }, 0);
+		assert.equal(s.callIdIndex.get("id1", 0)?.toolName, "read");
+		s.callIdIndex.set("id2", { toolName: "bash", subKey: "git commit" }, 0);
+		assert.deepEqual(s.callIdIndex.get("id2", 0), { toolName: "bash", subKey: "git commit" });
 	});
 
 	it("callIdIndex entry expires after CACHE_TTL_TURNS", () => {
 		const s = createHarnessState();
-		s.callIdIndex.set("id1", "read", 0);
-		assert.equal(s.callIdIndex.get("id1", CACHE_TTL_TURNS - 1), "read");
+		s.callIdIndex.set("id1", { toolName: "read" }, 0);
+		assert.equal(s.callIdIndex.get("id1", CACHE_TTL_TURNS - 1)?.toolName, "read");
 		assert.equal(s.callIdIndex.get("id1", CACHE_TTL_TURNS), null);
 	});
 
@@ -88,7 +90,7 @@ describe("HarnessState — nested call attribution", () => {
 		s.callCounter.record("A", 0, 0);
 		assert.equal(s.callCounter.getConsecutive("A").count, 1);
 
-		s.callCounter.recordNested("A", 0);
+		s.callCounter.recordNested({ toolName: "A" }, 0);
 		s.callCounter.record("A", 0, 1);
 
 		assert.equal(s.callCounter.getConsecutive("A").count, 3);
@@ -97,8 +99,8 @@ describe("HarnessState — nested call attribution", () => {
 	it("two parallel sibling nested calls under the same parent both roll up", () => {
 		const s = createHarnessState();
 		s.callCounter.record("A", 0, 0);
-		s.callCounter.recordNested("A", 0);
-		s.callCounter.recordNested("A", 0);
+		s.callCounter.recordNested({ toolName: "A" }, 0);
+		s.callCounter.recordNested({ toolName: "A" }, 0);
 		assert.equal(s.callCounter.getConsecutive("A").count, 3);
 	});
 
@@ -106,7 +108,7 @@ describe("HarnessState — nested call attribution", () => {
 		const s = createHarnessState();
 		s.callCounter.record("A", 0, 0);
 		s.callCounter.record("B", 0, 1);
-		s.callCounter.recordNested("A", 0);
+		s.callCounter.recordNested({ toolName: "A" }, 0);
 		assert.equal(
 			s.callCounter.getConsecutive("A").count,
 			2,
@@ -118,7 +120,7 @@ describe("HarnessState — nested call attribution", () => {
 		const s = createHarnessState();
 		s.callCounter.record("A", 0, 0);
 		s.callCounter.record("B", 0, 1);
-		s.callCounter.recordNested("A", 0);
+		s.callCounter.recordNested({ toolName: "A" }, 0);
 		s.callCounter.record("A", 0, 2);
 		assert.equal(
 			s.callCounter.getConsecutive("A").count,
@@ -131,7 +133,7 @@ describe("HarnessState — nested call attribution", () => {
 		const s = createHarnessState();
 		s.callCounter.record("bash", 0, 0, "git commit");
 		s.callCounter.record("bash", 0, 1, "git commit");
-		s.callCounter.recordNested("bash", 0);
+		s.callCounter.recordNested({ toolName: "bash", subKey: "git commit" }, 0);
 		assert.equal(
 			s.callCounter.getConsecutive("bash", "git commit").count,
 			3,
@@ -139,10 +141,30 @@ describe("HarnessState — nested call attribution", () => {
 		);
 	});
 
+	it("recordNested uses the parent's own sub-key, not the latest same-tool sub-key", () => {
+		const s = createHarnessState();
+		s.callCounter.record("bash", 0, 0, "git commit");
+		s.callCounter.record("bash", 0, 1, "npm test");
+		// The nested call cites git commit's id — it must roll up to git commit,
+		// not to whichever bash sub-key was recorded last (npm test).
+		s.callCounter.recordNested({ toolName: "bash", subKey: "git commit" }, 0);
+		assert.equal(
+			s.callCounter.getConsecutive("bash", "git commit").count,
+			2,
+			"roll-up lands on the parent's own sub-key",
+		);
+		s.callCounter.record("bash", 0, 2, "npm test");
+		assert.equal(
+			s.callCounter.getConsecutive("bash", "npm test").count,
+			1,
+			"the sibling sub-key is not inflated by the roll-up",
+		);
+	});
+
 	it("recordNested does not leak into a different sub-key of the same tool", () => {
 		const s = createHarnessState();
 		s.callCounter.record("bash", 0, 0, "git status");
-		s.callCounter.recordNested("bash", 0);
+		s.callCounter.recordNested({ toolName: "bash", subKey: "git status" }, 0);
 		assert.equal(s.callCounter.getConsecutive("bash", "git status").count, 2);
 		s.callCounter.record("bash", 0, 1, "npm test");
 		assert.equal(
@@ -154,13 +176,13 @@ describe("HarnessState — nested call attribution", () => {
 
 	it("recordNested never creates an entry under the nested tool name", () => {
 		const s = createHarnessState();
-		s.callCounter.recordNested("nested", 0);
+		s.callCounter.recordNested({ toolName: "nested" }, 0);
 		assert.equal(s.callCounter.getConsecutive("nested").count, 0);
 	});
 
 	it("recordNested(unmappedParent) is a no-op", () => {
 		const s = createHarnessState();
-		s.callCounter.recordNested("ghost", 0);
+		s.callCounter.recordNested({ toolName: "ghost" }, 0);
 		assert.equal(s.callCounter.getConsecutive("ghost").count, 0);
 	});
 
@@ -182,14 +204,14 @@ describe("HarnessState — nested call attribution", () => {
 
 	it("turnBoundaryReset clears callIdIndex", () => {
 		const s = createHarnessState();
-		s.callIdIndex.set("id1", "read", 0);
+		s.callIdIndex.set("id1", { toolName: "read" }, 0);
 		s.callCounter.turnBoundaryReset();
 		assert.equal(s.callIdIndex.get("id1", 0), null);
 	});
 
 	it("callCounter.reset clears callIdIndex", () => {
 		const s = createHarnessState();
-		s.callIdIndex.set("id1", "read", 0);
+		s.callIdIndex.set("id1", { toolName: "read" }, 0);
 		s.callCounter.reset();
 		assert.equal(s.callIdIndex.get("id1", 0), null);
 	});
@@ -197,7 +219,7 @@ describe("HarnessState — nested call attribution", () => {
 	it("two instances keep independent callIdIndex and counters", () => {
 		const s1 = createHarnessState();
 		const s2 = createHarnessState();
-		s1.callIdIndex.set("id1", "read", 0);
+		s1.callIdIndex.set("id1", { toolName: "read" }, 0);
 		s1.callCounter.record("A", 0, 0);
 		assert.equal(s2.callIdIndex.get("id1", 0), null);
 		assert.equal(s2.callCounter.getConsecutive("A").count, 0);
