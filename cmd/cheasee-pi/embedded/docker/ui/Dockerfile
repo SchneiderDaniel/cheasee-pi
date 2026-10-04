@@ -76,9 +76,16 @@ RUN apt-get update \
 # Node.js 22 (NodeSource): the runtime for the pi-coding-agent CLI this server
 # spawns as its RPC child. Same major as the pi image so the spawned `pi`
 # matches the terminal client exactly.
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+# Curl-to-file (not a pipe): if deb.nodesource.com is unreachable, curl fails
+# and the RUN aborts loudly instead of the pipe silently falling back to
+# Debian's nodejs (which ships without npm). The v22/npm assertions pin the
+# result so a future fallback can never be cached as "successful" again.
+RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x \
+ && bash /tmp/nodesource-setup.sh \
  && apt-get install -y --no-install-recommends nodejs \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
+ && node --version | grep -q '^v22\.' \
+ && test -x /usr/bin/npm
 
 # pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
 # PI_VERSION is pinned equal to the pi image's value by
