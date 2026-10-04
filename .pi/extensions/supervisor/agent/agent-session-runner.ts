@@ -7,9 +7,9 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
-import { getModel } from "@earendil-works/pi-ai";
+import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { agentSessionEventToNormalizedEvent, processNormalizedEvent, forwardNormalizedEventToChat, createForwardChatState } from "../event/adapter.ts";
-import { pushLog, createAgentRunState } from "./state-helpers.ts";
+import { pushLog, createAgentRunState, nestedCallsFromState } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
@@ -57,7 +57,7 @@ function resolveModel(modelStr: string | undefined): { id: string; provider: str
 	const provider = parts[0]!;
 	const modelId = parts.slice(1).join("/");
 	try {
-		return getModel(provider as any, modelId);
+		return getBuiltinModel(provider as any, modelId as any);
 	} catch (err: unknown) {
 		throw new Error(
 			`Model "${modelStr}" could not be resolved: ${err instanceof Error ? err.message : String(err)}`,
@@ -465,6 +465,8 @@ export async function runAgentInProcess(
 		agentName,
 		toolCount: state.toolCount,
 		failedToolCount: state.failedToolCount ?? undefined,
+		nestedCalls: nestedCallsFromState(state),
+		nestedErrors: state.nestedErrorCount,
 		tokenCount: state.tokenCount,
 		durationMs,
 		textOutput,

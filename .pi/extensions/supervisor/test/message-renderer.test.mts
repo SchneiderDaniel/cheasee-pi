@@ -65,6 +65,7 @@ const mockTheme = {
 	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 	italic: (text: string) => text,
+	style: (text: string, _options: any) => text,
 };
 
 /** Strip ANSI escape sequences */
@@ -79,7 +80,7 @@ function renderStripped(component: Component, width = 80): string[] {
 }
 
 /** Render a component to an array of stripped lines at given width */
-function renderAndStrip(component: Container | Text | Markdown, width = 80): string[] {
+function renderAndStrip(component: Component, width = 80): string[] {
 	const raw = component.render(width);
 	return raw.map((line: string) => line.replace(/\x1b\[\d+m/g, "").replace(/\x1b\[0m/g, ""));
 }

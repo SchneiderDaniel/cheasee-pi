@@ -6,6 +6,8 @@
 // Split of the unified event/adapter.ts into adapter/{normalize,handlers,forward}.
 
 import type { AgentRunState, AgentPhase } from "../../config/types.ts";
+import type { NestedCall } from "../../subagent/types.ts";
+import { MAX_NESTED_CALLS } from "../../session/message-renderers/constants.ts";
 import { pushLog, pushTextBlock, pushThinkingBlock } from "../../agent/state-helpers.ts";
 import { renderToolCallText } from "../../lib/render-helpers.ts";
 import { extractTextFromContent } from "../../lib/formatting.ts";
@@ -59,6 +61,11 @@ export function handleToolExecutionStart(
 	ev: NormalizedEvent & { kind: "tool_execution_start" },
 	cwd?: string,
 ): HandlerResult {
+	// Nested calls (ctx.executeTool) never enter the top-level tool/phase/log
+	// stream; they are recorded at end as a bounded nestedCalls list.
+	if (ev.parentToolCallId) {
+		return { flush: false, workingChange: false };
+	}
 	const prevPhase = state.phase;
 	state.currentTool = ev.toolName || "tool";
 	state.currentToolArgs = ev.args ? JSON.stringify(truncateArgsForDisplay(ev.args)) : undefined;
@@ -76,6 +83,22 @@ export function handleToolExecutionEnd(
 	state: AgentRunState,
 	ev: NormalizedEvent & { kind: "tool_execution_end" },
 ): HandlerResult {
+	// Nested end: record into the bounded nestedCalls list and count errors.
+	// Top-level toolCount/failedToolCount are intentionally left untouched.
+	if (ev.parentToolCallId) {
+		if (ev.isError) state.nestedErrorCount = (state.nestedErrorCount ?? 0) + 1;
+		const calls = state.nestedCalls ?? (state.nestedCalls = []);
+		if (calls.length < MAX_NESTED_CALLS) {
+			const call: NestedCall = {
+				name: ev.toolName || "tool",
+				status: ev.isError ? "error" : "ok",
+			};
+			calls.push(call);
+		} else {
+			state.nestedTruncated = true;
+		}
+		return { flush: true, workingChange: false };
+	}
 	state.toolCount++;
 	if (ev.isError) {
 		state.failedToolCount = (state.failedToolCount ?? 0) + 1;

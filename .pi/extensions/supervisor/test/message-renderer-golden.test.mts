@@ -441,15 +441,30 @@ function goldenPath(name: string): string {
 	return join(GOLDEN_DIR, `${name}.txt`);
 }
 
-function renderCase(c: GoldenCase): string {
+function renderCase(c: GoldenCase, theme = activeTheme()): string {
 	const renderer = createMessageRenderer({} as never, CWD);
-	const component = renderer(c.message as never, (c.options ?? {}) as never, activeTheme() as never);
+	const component = renderer(c.message as never, (c.options ?? {}) as never, theme as never);
 	const expected = COMPONENT_BY_NAME[c.component];
 	assert.ok(
 		component instanceof expected,
 		`${c.name}: expected ${c.component}, got ${component?.constructor?.name}`,
 	);
 	return component.render(RENDER_WIDTH).join("\n");
+}
+
+/** Identity theme (no ANSI) — renders the same visible text without styling. */
+const identityTheme = {
+	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+	italic: (text: string) => text,
+	underline: (text: string) => text,
+	strikethrough: (text: string) => text,
+	style: (text: string, _options: unknown) => text,
+};
+
+function stripAnsi(s: string): string {
+	return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 describe("message-renderer golden characterization (byte-for-byte)", () => {
@@ -469,6 +484,31 @@ describe("message-renderer golden characterization (byte-for-byte)", () => {
 			}
 			assert.ok(existsSync(file), `missing golden ${file} — run with GOLDEN_UPDATE=1 to create`);
 			assert.equal(output + "\n", readFileSync(file, "utf8"), `golden mismatch for ${c.name}`);
+		});
+	}
+});
+
+// Styling (fg/bg/bold/style) must never alter the visible characters — only
+// the ANSI wrapping around them. Guards against theme.style adoption silently
+// dropping or duplicating text.
+describe("message-renderer styling alters no visible text", () => {
+	before(() => {
+		initTheme("dark");
+		process.stdout.columns = RENDER_WIDTH;
+	});
+
+	for (const c of CASES) {
+		it(`${c.name}: ANSI-stripped output equals identity-theme render`, () => {
+			const styled = renderCase(c);
+			const plain = renderCase(c, identityTheme as never);
+			// Compare per-line trimmed content: ANSI codes ahead of a Markdown
+			// list/continuation marker can shift structural indentation (a
+			// pre-existing quirk), but the visible characters must not change.
+			const visible = (s: string) =>
+				stripAnsi(s)
+					.split("\n")
+					.map((line) => line.trim());
+			assert.deepEqual(visible(styled), visible(plain), `visible text changed for ${c.name}`);
 		});
 	}
 });

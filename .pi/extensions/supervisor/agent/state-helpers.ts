@@ -9,6 +9,7 @@
 // format conversion; state mutation helpers belong here.
 
 import type { AgentRunState } from "../config/types.ts";
+import type { NestedCalls } from "../subagent/types.ts";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -101,4 +102,14 @@ export function createAgentRunState(
 		agentTokenBudget: agentTokenBudget ?? 0,
 		thinkingLevel: thinkingLevel?.trim() || undefined,
 	};
+}
+
+/**
+ * Build the bounded NestedCalls DTO from accumulated state.
+ * Returns `undefined` when no nested calls were recorded — callers rely on
+ * the absent field to keep the renderer on its byte-identical path.
+ */
+export function nestedCallsFromState(state: AgentRunState): NestedCalls | undefined {
+	if (!state.nestedCalls || state.nestedCalls.length === 0) return undefined;
+	return { calls: state.nestedCalls, complete: !state.nestedTruncated };
 }

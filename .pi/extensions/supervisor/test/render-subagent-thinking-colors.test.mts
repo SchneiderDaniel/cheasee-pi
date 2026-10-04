@@ -37,6 +37,7 @@ function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCal
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
+		style: (text: string, _options: any) => text,
 	};
 
 	const message: Record<string, unknown> = {
@@ -65,7 +66,7 @@ function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCal
 		},
 	};
 
-	const component = renderSubagentResult(message as any, { expanded: true }, theme as never, process.cwd());
+	const component = renderSubagentResult(message as any, { expanded: true, outputPad: 0 }, theme as never, process.cwd());
 	component!.render(80);
 	return fgCalls;
 }
