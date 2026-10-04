@@ -1062,3 +1062,149 @@ describe("agentSessionEventToNormalizedEvent — in-process event mapper", () =>
 		}
 	});
 });
+
+// ─── Nested calls (ctx.executeTool / parentToolCallId) ───────────
+
+describe("nested tool calls — normalization carries parentToolCallId", () => {
+	it("normalizeEvent extracts parentToolCallId on tool_execution_start", () => {
+		const ev = normalizeEvent("json", {
+			type: "tool_execution_start",
+			toolName: "read",
+			args: { path: "a.ts" },
+			parentToolCallId: "call-1",
+		});
+		assert.ok(ev);
+		if (ev!.kind === "tool_execution_start") {
+			assert.equal(ev!.parentToolCallId, "call-1");
+		}
+	});
+
+	it("normalizeEvent extracts parentToolCallId on tool_execution_end", () => {
+		const ev = normalizeEvent("json", {
+			type: "tool_execution_end",
+			toolName: "read",
+			isError: true,
+			parentToolCallId: "call-2",
+		});
+		assert.ok(ev);
+		if (ev!.kind === "tool_execution_end") {
+			assert.equal(ev!.parentToolCallId, "call-2");
+			assert.equal(ev!.isError, true);
+		}
+	});
+
+	it("parentToolCallId absent → undefined (top-level)", () => {
+		const ev = normalizeEvent("json", { type: "tool_execution_end", toolName: "bash" });
+		assert.ok(ev);
+		if (ev!.kind === "tool_execution_end") {
+			assert.equal(ev!.parentToolCallId, undefined);
+		}
+	});
+
+	it("jsonLineToNormalizedEvent carries parentToolCallId", () => {
+		const line = JSON.stringify({
+			type: "tool_execution_end",
+			toolName: "grep",
+			parentToolCallId: "p-1",
+		});
+		const ev = jsonLineToNormalizedEvent(line);
+		assert.ok(ev && ev.kind === "tool_execution_end");
+		if (ev!.kind === "tool_execution_end") assert.equal(ev!.parentToolCallId, "p-1");
+	});
+
+	it("agentSessionEventToNormalizedEvent carries parentToolCallId on start/end", () => {
+		const start = agentSessionEventToNormalizedEvent({
+			type: "tool_execution_start",
+			toolName: "edit",
+			args: {},
+			parentToolCallId: "n-1",
+		});
+		assert.ok(start && start.kind === "tool_execution_start");
+		if (start!.kind === "tool_execution_start") assert.equal(start!.parentToolCallId, "n-1");
+
+		const end = agentSessionEventToNormalizedEvent({
+			type: "tool_execution_end",
+			toolName: "edit",
+			isError: false,
+			parentToolCallId: "n-1",
+		});
+		assert.ok(end && end.kind === "tool_execution_end");
+		if (end!.kind === "tool_execution_end") assert.equal(end!.parentToolCallId, "n-1");
+	});
+});
+
+describe("nested tool calls — state capture", () => {
+	it("nested end appends to nestedCalls without touching toolCount/failedToolCount", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "read", isError: false, parentToolCallId: "p" },
+			state,
+		);
+		assert.deepEqual(state.nestedCalls, [{ name: "read", status: "ok" }]);
+		assert.equal(state.toolCount, 0);
+		assert.equal(state.failedToolCount ?? 0, 0);
+	});
+
+	it("nested error increments nestedErrorCount and records status error", () => {
+		const state = createState();
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "bash", isError: true, parentToolCallId: "p" },
+			state,
+		);
+		assert.deepEqual(state.nestedCalls, [{ name: "bash", status: "error" }]);
+		assert.equal(state.nestedErrorCount, 1);
+		assert.equal(state.failedToolCount ?? 0, 0);
+	});
+
+	it("top-level end still counts toward toolCount/failedToolCount", () => {
+		const state = createState();
+		processNormalizedEvent({ kind: "tool_execution_end", toolName: "bash", isError: true }, state);
+		assert.equal(state.toolCount, 1);
+		assert.equal(state.failedToolCount, 1);
+		assert.equal(state.nestedCalls, undefined);
+		assert.equal(state.nestedErrorCount, undefined);
+	});
+
+	it("nested start does not enter the top-level tool/phase stream", () => {
+		const state = createState();
+		const result = processNormalizedEvent(
+			{
+				kind: "tool_execution_start",
+				toolName: "read",
+				args: {},
+				parentToolCallId: "p",
+			},
+			state,
+		);
+		assert.equal(state.phase, "idle");
+		assert.equal(state.currentTool, undefined);
+		assert.equal(state.toolCalls.length, 0);
+		assert.equal(state.fullLog.length, 0);
+		assert.equal(result.flush, false);
+	});
+
+	it("boundary: MAX_NESTED_CALLS stored, the next sets nestedTruncated and is dropped", () => {
+		const state = createState();
+		for (let i = 0; i < 30; i++) {
+			processNormalizedEvent(
+				{ kind: "tool_execution_end", toolName: `t${i}`, isError: false, parentToolCallId: "p" },
+				state,
+			);
+		}
+		assert.equal(state.nestedCalls!.length, 30);
+		assert.ok(!state.nestedTruncated);
+
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "overflow", isError: false, parentToolCallId: "p" },
+			state,
+		);
+		assert.equal(state.nestedCalls!.length, 30);
+		assert.equal(state.nestedTruncated, true);
+	});
+
+	it("zero nested ends → nestedCalls untouched", () => {
+		const state = createState();
+		assert.equal(state.nestedCalls, undefined);
+		assert.equal(state.nestedErrorCount, undefined);
+	});
+});

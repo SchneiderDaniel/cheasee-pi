@@ -37,6 +37,7 @@ function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCal
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
+		style: (text: string, _options: any) => text,
 	};
 
 	const message: Record<string, unknown> = {

@@ -41,6 +41,7 @@ const mockTheme = {
 	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 	italic: (text: string) => text,
+	style: (text: string, _options: any) => text,
 };
 
 function stripAnsi(s: string): string {

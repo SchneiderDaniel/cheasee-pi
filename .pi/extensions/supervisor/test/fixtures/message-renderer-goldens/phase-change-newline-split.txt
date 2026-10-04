@@ -1,4 +1,4 @@
- [38;5;140m⏳ dev — starting phase[39m                                                        
+ [38;2;167;152;215m⏳ dev — starting phase[39m                                                        
                                                                                 
- Model: [38;5;140mclaude-sonnet-4[39m                                                         
+ Model: [38;2;167;152;215mclaude-sonnet-4[39m                                                         
  Task: test                                                                     

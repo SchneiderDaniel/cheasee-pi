@@ -4,7 +4,7 @@
 // formatting with TUI component dependencies (Container, Text, etc.).
 
 import { Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { Box, Container } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
@@ -17,15 +17,29 @@ import {
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { getBuiltinToolLabels } from "./tool-line.ts";
-import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { ThemeColor, ThemeStyle } from "@earendil-works/pi-coding-agent";
 
 /**
  * Minimal theme surface the render helpers need. `fg` takes `ThemeColor`
  * (not `string`) so both pi's real `Theme` and lenient test doubles with a
- * `string`-accepting `fg` remain assignable.
+ * `string`-accepting `fg` remain assignable. `style` applies combined
+ * attributes (fg/bg/bold/italic/…); `appearance` lets light/dark terminals
+ * pick different tokens.
  */
 export interface RenderTheme {
 	fg: (color: ThemeColor, text: string) => string;
+	style: (text: string, options: ThemeStyle) => string;
+	appearance?: "dark" | "light";
+}
+
+/**
+ * Structural container surface the render helpers need: any component that
+ * accepts children (`Container`, `Box`, ...). Pi's `Container` and `Box` are
+ * unrelated classes that both satisfy this, so the helpers stay usable with
+ * either.
+ */
+export interface RenderContainer {
+	addChild(component: Component): void;
 }
 
 /**
@@ -41,14 +55,14 @@ export interface RenderTheme {
  * @param theme     - Theme object with a `fg` method matching TUI conventions
  */
 export function renderThinkingBlock(
-	container: Container | Box,
+	container: RenderContainer,
 	text: string,
 	theme: RenderTheme,
 ): void {
 	const mdTheme = getMarkdownTheme();
 	container.addChild(
 		new Markdown(text, 1, 1, mdTheme, {
-			color: (t: string) => theme.fg("thinkingText", t),
+			color: (t: string) => theme.style(t, { fg: "thinkingText" }),
 			italic: true,
 		}),
 	);
@@ -57,8 +71,9 @@ export function renderThinkingBlock(
 /**
  * Render a list of text lines into a container, skipping empty/whitespace-only lines.
  *
- * Each non-empty line is styled with `theme.fg("dim", line)` and wrapped to `width`
- * columns via `wrapTextWithAnsi`. Every wrapped segment is added as a `Text` child.
+ * Each non-empty line is styled with `theme.style(line, { fg: "dim" })` and
+ * wrapped to `width` columns via `wrapTextWithAnsi`. Every wrapped segment is
+ * added as a `Text` child.
  *
  * @param container - The TUI container to add children to (mutated in place)
  * @param lines     - Pre-split lines of text (caller owns split/truncation decisions)
@@ -66,14 +81,14 @@ export function renderThinkingBlock(
  * @param width     - Maximum column width for text wrapping
  */
 export function renderTextLines(
-	container: Container,
+	container: RenderContainer,
 	lines: string[],
 	theme: RenderTheme,
 	width: number,
 ): void {
 	for (const line of lines) {
 		if (!line.trim()) continue;
-		const styled = theme.fg("dim", line);
+		const styled = theme.style(line, { fg: "dim" });
 		for (const wrapped of wrapTextWithAnsi(styled, width)) {
 			container.addChild(new Text(wrapped, 1, 0));
 		}

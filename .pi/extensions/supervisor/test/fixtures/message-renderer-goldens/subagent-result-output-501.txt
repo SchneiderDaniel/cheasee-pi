@@ -1,9 +1,9 @@
- [38;5;2m✓[39m [39mdev-agent[39m — [38;5;2mSUCCESS[39m                                                          
+ [38;5;2m✓[39m [39m[1mdev-agent[22m[39m — [38;5;2mSUCCESS[39m                                                          
  [39m[2m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[22;39m           
  [39m[2mCompleted task[22;39m                                                                 
 
  [39m[2m── Task ──[22;39m                                                                     
- [39m[2mDo the thing[22;39m                                                                   
+ [39m[2mDo the thing[22m[39m                                                                   
 
  [39m[2m── Output Preview ──[22;39m                                                           
  …[last 500 of 501 chars]                                                       

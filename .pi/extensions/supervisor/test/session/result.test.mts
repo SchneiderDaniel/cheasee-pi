@@ -198,3 +198,71 @@ describe("convertAgentRunToToolResult — edge cases", () => {
 		assert.equal(toolResult.details.thinkingLevel, "");
 	});
 });
+
+// ─── Phase 2: nested calls + error folding ──────────────────────
+
+describe("convertAgentRunToToolResult — nested calls", () => {
+	it("maps AgentRunResult.nestedCalls verbatim into details", () => {
+		const result = makeRunResult({
+			nestedCalls: {
+				calls: [
+					{ name: "read", status: "ok" },
+					{ name: "bash", status: "error", error: "boom", durationMs: 12 },
+				],
+				complete: true,
+			},
+		});
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.deepEqual(toolResult.details.nestedCalls, {
+			calls: [
+				{ name: "read", status: "ok" },
+				{ name: "bash", status: "error", error: "boom", durationMs: 12 },
+			],
+			complete: true,
+		});
+	});
+
+	it("absent nestedCalls → details.nestedCalls undefined", () => {
+		const result = makeRunResult({ nestedCalls: undefined });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.nestedCalls, undefined);
+	});
+
+	it("folds nestedErrors into errorCount", () => {
+		const result = makeRunResult({ failedToolCount: 1, nestedErrors: 2 });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.errorCount, 3);
+	});
+
+	it("nestedErrors only → errorCount equals nestedErrors", () => {
+		const result = makeRunResult({ failedToolCount: undefined, nestedErrors: 2 });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.errorCount, 2);
+	});
+
+	it("neither failed nor nested errors → errorCount undefined (pin preserved)", () => {
+		const result = makeRunResult({ failedToolCount: undefined, nestedErrors: undefined });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.errorCount, undefined);
+	});
+
+	it("native nested shape: arguments → args, unfinished → non-ok", () => {
+		const result = makeRunResult({
+			nestedCalls: {
+				calls: [
+					{ name: "read", arguments: { path: "x.ts" }, status: "unfinished" },
+					{ name: "grep", arguments: { q: "x" }, status: "ok", durationMs: 5 },
+				],
+				complete: false,
+			} as any,
+		});
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.deepEqual(toolResult.details.nestedCalls, {
+			calls: [
+				{ name: "read", status: "error", args: { path: "x.ts" } },
+				{ name: "grep", status: "ok", args: { q: "x" }, durationMs: 5 },
+			],
+			complete: false,
+		});
+	});
+});

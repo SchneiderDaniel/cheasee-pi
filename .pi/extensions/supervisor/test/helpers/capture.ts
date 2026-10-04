@@ -240,6 +240,7 @@ function createMockTheme(): Theme {
 		sourcePath: undefined,
 		fg: (_color: ThemeColor, text: string) => text,
 		bg: (_color: any, text: string) => text,
+		style: (text: string, _options: any) => text,
 		bold: identity,
 		italic: identity,
 		underline: identity,
@@ -417,7 +418,7 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 
 	const pi: ExtensionAPI = {
 		// ══ Event handlers (all events) ══
-		on(_event: any, _handler: any): () => void {
+		on(_event: any, _handler: any) {
 			return () => {};
 		},
 
@@ -439,6 +440,19 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 			return [];
 		},
 		setActiveTools(_toolNames: string[]) {},
+		registerMarkdownTransformer(_transformer: any) {},
+		registerEntryRenderer(_customType: string, _renderer: any) {},
+		registerToolRenderer(_resolver: any) {},
+		getSettings(): any {
+			return {};
+		},
+		registerMcpServer(_name: string, _config: any) {},
+		unregisterMcpServer(_name: string) {},
+		getMcpServers(): any[] {
+			return [];
+		},
+		registerVirtualModel(_model: any) {},
+		unregisterVirtualModel(_provider: string, _id: string) {},
 
 		// ══ Session messaging ══
 		sendMessage<T = unknown>(
@@ -479,27 +493,6 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		// ══ Providers ══
 		registerProvider(_providerOrName: any, _config?: any) {},
 		unregisterProvider(_name: string) {},
-
-		// ══ Markdown / entry renderers ══
-		registerMarkdownTransformer(_transformer: any) {},
-		registerEntryRenderer(_customType: string, _renderer: any) {},
-		registerToolRenderer(_resolver: any) {},
-
-		// ══ Settings ══
-		getSettings(): any {
-			return {};
-		},
-
-		// ══ MCP servers ══
-		registerMcpServer(_name: string, _config: any) {},
-		unregisterMcpServer(_name: string) {},
-		getMcpServers(): any[] {
-			return [];
-		},
-
-		// ══ Virtual models ══
-		registerVirtualModel(_model: any) {},
-		unregisterVirtualModel(_provider: string, _id: string) {},
 
 		// ══ Command execution ══
 		async exec(command: string, args: string[], _options?: ExecOptions): Promise<ExecResult> {

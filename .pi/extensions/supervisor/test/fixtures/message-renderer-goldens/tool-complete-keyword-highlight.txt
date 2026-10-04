@@ -1,11 +1,11 @@
-[48;5;23m                                                                                [49m
-[48;5;23m [38;5;72m✓[39m [38;5;254mbash[39m: `run tests`                                                            [49m
-[48;5;23m [38;5;174merror: something failed[39m                                                        [49m
-[48;5;23m [38;5;72msuccess: all good[39m                                                              [49m
-[48;5;23m [38;5;172mwarning: take care[39m                                                             [49m
-[48;5;23m [38;5;72m3 matches found[39m                                                                [49m
-[48;5;23m [38;5;72mMatches returned: 5[39m                                                            [49m
-[48;5;23m [38;5;102m1. src/main.ts:[39m[38;5;140m12: const x = 1[39m                                                 [49m
-[48;5;23m [38;5;145m[omitted long line 1234 chars][39m                                                 [49m
-[48;5;23m [38;5;140m/workspace/src/app.ts[39m[38;5;102m:23: console.log[39m                                          [49m
-[48;5;23m                                                                                [49m
+[48;2;37;65;49m                                                                                [49m
+[48;2;37;65;49m [38;2;104;183;141m✓[39m [38;2;222;224;225m[1mbash[22m[39m: `run tests`                                                            [49m
+[48;2;37;65;49m [38;2;234;127;129merror: something failed[39m                                                        [49m
+[48;2;37;65;49m [38;2;104;183;141msuccess: all good[39m                                                              [49m
+[48;2;37;65;49m [38;2;205;154;34mwarning: take care[39m                                                             [49m
+[48;2;37;65;49m [38;2;104;183;141m3 matches found[39m                                                                [49m
+[48;2;37;65;49m [38;2;104;183;141mMatches returned: 5[39m                                                            [49m
+[48;2;37;65;49m [38;2;126;136;142m1. src/main.ts:[39m[38;2;167;152;215m12: const x = 1[39m                                                 [49m
+[48;2;37;65;49m [38;2;157;165;169m[omitted long line 1234 chars][39m                                                 [49m
+[48;2;37;65;49m [38;2;167;152;215m/workspace/src/app.ts[39m[38;2;126;136;142m:23: console.log[39m                                          [49m
+[48;2;37;65;49m                                                                                [49m

@@ -4,7 +4,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { checkPackageAge, SAFETY_THRESHOLD_DAYS } from "../checks/package-safety.ts";
+import {
+	checkPackageAge,
+	runPackageSafetyCheck,
+	SAFETY_THRESHOLD_DAYS,
+} from "../checks/package-safety.ts";
 
 // ─── Tests: constants ──────────────────────────────────────────────
 
@@ -188,5 +192,41 @@ describe("checkPackageAge.isExempt", () => {
 
 	it("returns true for file:// protocol", () => {
 		assert.equal(checkPackageAge.isExempt("file:./local.tar.gz"), true);
+	});
+});
+
+// ─── Tests: isTrustedScope ─────────────────────────────────────────
+
+describe("checkPackageAge.isTrustedScope", () => {
+	it("returns true for pi vendor scope packages", () => {
+		assert.equal(checkPackageAge.isTrustedScope("@earendil-works/pi-mcp"), true);
+		assert.equal(checkPackageAge.isTrustedScope("@earendil-works/pi-codemode"), true);
+	});
+
+	it("returns false for other scopes and unscoped names", () => {
+		assert.equal(checkPackageAge.isTrustedScope("@other-scope/pkg"), false);
+		assert.equal(checkPackageAge.isTrustedScope("lodash"), false);
+	});
+
+	it("does not match scope-prefix lookalikes", () => {
+		assert.equal(checkPackageAge.isTrustedScope("@earendil-works-malicious/pkg"), false);
+	});
+});
+
+// ─── Tests: runPackageSafetyCheck — trusted scope ──────────────────
+
+describe("runPackageSafetyCheck — trusted scope", () => {
+	it("is safe for a young pi vendor package", () => {
+		const threeDaysAgo = new Date();
+		threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+		const result = runPackageSafetyCheck("@earendil-works/pi-mcp", threeDaysAgo.toISOString());
+		assert.equal(result.safe, true);
+		assert.equal(result.blocked, false);
+	});
+
+	it("is safe for a trusted package with missing date (no lookup needed)", () => {
+		const result = runPackageSafetyCheck("@earendil-works/pi-codemode", null);
+		assert.equal(result.safe, true);
+		assert.equal(result.blocked, false);
 	});
 });

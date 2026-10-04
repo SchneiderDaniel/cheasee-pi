@@ -39,6 +39,8 @@ export interface SubagentDetails {
 	compacted?: boolean;
 	/** Thinking output from the subagent, separate from result text */
 	thinkingOutput?: string;
+	/** Nested tool calls made by the subagent's tools (pi's bounded record) */
+	nestedCalls?: NestedCalls;
 
 	// ─── Widget rendering fields (populated during execution) ──
 	/** Current phase: "idle" | "thinking" | "tool" | "text" */
@@ -61,6 +63,25 @@ export interface SubagentDetails {
 	startedAt?: number;
 	/** Thinking level used by the agent (e.g. "off", "low", "medium", "high") */
 	thinkingLevel?: string;
+}
+
+/**
+ * A single nested tool call made through pi's `ctx.executeTool()` pipeline.
+ * `status` is `"error"` for both real failures and pi's `"unfinished"`
+ * (still running when the calling tool finished).
+ */
+export interface NestedCall {
+	name: string;
+	args?: Record<string, unknown>;
+	status: "ok" | "error";
+	durationMs?: number;
+	error?: string;
+}
+
+/** Bounded record of nested calls; `complete: false` marks pi's truncation. */
+export interface NestedCalls {
+	calls: NestedCall[];
+	complete: boolean;
 }
 
 /** Text content block for AgentToolResult */
