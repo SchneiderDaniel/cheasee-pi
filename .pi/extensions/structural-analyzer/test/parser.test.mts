@@ -12,6 +12,15 @@ function createMatchJson(file: string, lines: string, text: string): string {
 	return JSON.stringify({ file, lines, text });
 }
 
+function assertConforms(result: { structuredContent?: unknown }): void {
+	assert.ok(
+		Value.Check(StructuralSearchOutputSchema, result.structuredContent),
+		`structuredContent does not conform to StructuralSearchOutputSchema: ${JSON.stringify(
+			result.structuredContent,
+		)}`,
+	);
+}
+
 const TWO_MATCHES = [
 	createMatchJson(
 		"api/auth.py",
@@ -168,6 +177,7 @@ describe("StructuralSearchOutputSchema", () => {
 describe("interpretSgExecResult structuredContent", () => {
 	it("success branch: structuredContent mirrors parsed results", () => {
 		const result = interpretSgExecResult(0, TWO_MATCHES, "", "console.log($A)", "ts");
+		assertConforms(result);
 		const details = result.details as Record<string, unknown>;
 		assert.deepStrictEqual(result.structuredContent, {
 			matches: 2,
@@ -183,12 +193,14 @@ describe("interpretSgExecResult structuredContent", () => {
 
 	it("code 0 empty stdout: structuredContent is the empty shape", () => {
 		const result = interpretSgExecResult(0, "", "", "pat", "ts");
+		assertConforms(result);
 		assert.deepStrictEqual(result.structuredContent, { matches: 0, results: [], language: "ts" });
 		assert.strictEqual(result.isError, undefined);
 	});
 
 	it("code 1 empty stderr (no-match): structuredContent is the empty shape", () => {
 		const result = interpretSgExecResult(1, "", "", "pat", "ts");
+		assertConforms(result);
 		assert.deepStrictEqual(result.structuredContent, { matches: 0, results: [], language: "ts" });
 		assert.strictEqual(result.isError, undefined);
 	});
@@ -198,6 +210,7 @@ describe("interpretSgExecResult structuredContent", () => {
 			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match number ${i}`),
 		).join("\n");
 		const result = interpretSgExecResult(0, manyMatches, "", "pat", "ts");
+		assertConforms(result);
 		const sc = result.structuredContent as {
 			matches: number;
 			results: unknown[];
@@ -215,6 +228,7 @@ describe("interpretSgExecResult structuredContent", () => {
 			createMatchJson(`file${i}.ts`, `${i}`, `m${i}`),
 		).join("\n");
 		const atThreshold = interpretSgExecResult(0, hundred, "", "pat", "ts");
+		assertConforms(atThreshold);
 		assert.strictEqual((atThreshold.structuredContent as { truncated?: boolean }).truncated, undefined);
 		assert.strictEqual(
 			(atThreshold.structuredContent as { results: unknown[] }).results.length,
@@ -228,6 +242,7 @@ describe("interpretSgExecResult structuredContent", () => {
 			"pat",
 			"ts",
 		);
+		assertConforms(overThreshold);
 		assert.strictEqual((overThreshold.structuredContent as { truncated?: boolean }).truncated, true);
 		assert.strictEqual(
 			(overThreshold.structuredContent as { results: unknown[] }).results.length,
@@ -237,6 +252,7 @@ describe("interpretSgExecResult structuredContent", () => {
 
 	it("error branch: structuredContent carries error/stderr/exitCode/pattern", () => {
 		const result = interpretSgExecResult(1, "", "unknown language", "pat", "badlang");
+		assertConforms(result);
 		assert.strictEqual(result.isError, true);
 		assert.strictEqual((result.details as Record<string, unknown>).success, false);
 		assert.deepStrictEqual(result.structuredContent, {
@@ -252,6 +268,7 @@ describe("interpretSgExecResult structuredContent", () => {
 
 	it("exit 126 error branch surfaces exitCode 126 and stderr", () => {
 		const result = interpretSgExecResult(126, "", "Permission denied", "pat", "ts");
+		assertConforms(result);
 		const sc = result.structuredContent as { exitCode?: number; stderr?: string };
 		assert.strictEqual(result.isError, true);
 		assert.strictEqual(sc.exitCode, 126);
@@ -260,6 +277,7 @@ describe("interpretSgExecResult structuredContent", () => {
 
 	it("exit 0 + stderr warning still yields stdout-first success structuredContent", () => {
 		const result = interpretSgExecResult(0, TWO_MATCHES, "warning", "pat", "ts");
+		assertConforms(result);
 		assert.strictEqual(result.isError, undefined);
 		assert.strictEqual((result.structuredContent as { matches: number }).matches, 2);
 	});
