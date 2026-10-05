@@ -203,7 +203,7 @@ export class AgentHarness {
 		try {
 			const info = provider().find((t) => t.name === toolName);
 			if (!info) return undefined;
-			return deriveToolMetaFromAnnotations(info.annotations);
+			return deriveToolMetaFromAnnotations(info.annotations, this.#resolvedRules.cascadeThreshold);
 		} catch (e) {
 			if (!this.#annotationWarningEmitted) {
 				this.#annotationWarningEmitted = true;
