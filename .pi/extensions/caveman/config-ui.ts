@@ -100,7 +100,9 @@ export async function openConfigDialog(
 		];
 
 		const container = new Container();
-		container.addChild(new Text(theme.fg("accent", theme.bold(" Caveman Config")), 0, 0));
+		container.addChild(
+			new Text(theme.style(" Caveman Config", { fg: "accent", bold: true }), 0, 0),
+		);
 		container.addChild(new Text(theme.fg("dim", " Saved to ~/.pi/agent/caveman.json"), 0, 0));
 		container.addChild(
 			new Text(theme.fg("dim", " Default level applies to future sessions."), 0, 0),
