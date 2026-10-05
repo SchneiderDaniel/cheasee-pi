@@ -90,6 +90,10 @@ export class PythonAdapter {
 				maxBuffer: CRAWL_MAX_BUFFER,
 			});
 
+			// Abort during execution stays in the abort channel: a killed subprocess would
+			// otherwise be reported as an ordinary crawl failure (isError), not cancellation.
+			params.signal?.throwIfAborted();
+
 			// 4. Handle subprocess failure — return typed error, don't throw
 			//    Uses isExecFailure to catch both non-zero exit AND signal-killed
 			//    (where upstream may report code: 0 despite SIGTERM/SIGKILL).
@@ -182,6 +186,9 @@ export class PythonAdapter {
 				failed: errors,
 			};
 		} catch (err) {
+			// Never flatten cancellation into a failure result — re-throw the abort so the
+			// caller sees AbortError, matching the precondition/abort contract.
+			if (params.signal?.aborted) throw err;
 			// Catch unexpected errors (e.g., ensureScraplingVenv failure)
 			const message = err instanceof Error ? err.message : String(err);
 			return { success: false, error: message };

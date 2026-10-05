@@ -971,6 +971,41 @@ describe("cancellation — abort signal during acquireCrawlLock wait", () => {
 		await Promise.race([fresh, timeout]);
 		assert.equal(callCount, 3, "fresh call should reach factory");
 	});
+
+	it("(entity) abort during execution → handler throws AbortError, not isError", async () => {
+		const controller = new AbortController();
+		// Simulates the adapter converting an aborted (killed) subprocess into an
+		// ordinary failure result while the signal is already aborted.
+		setCrawlFactory(async () => {
+			controller.abort();
+			return { success: false, error: "Subprocess killed by SIGTERM" };
+		});
+
+		await assert.rejects(
+			tool.execute("id", { url: "https://example.com" }, controller.signal, undefined, { cwd: "/tmp" }),
+			{ name: "AbortError" },
+			"abort during execution must surface as AbortError, not an isError result",
+		);
+	});
+
+	it("(entity) lock released after abort during execution — next call succeeds", async () => {
+		const controller = new AbortController();
+		setCrawlFactory(async () => {
+			controller.abort();
+			return { success: false, error: "Subprocess killed by SIGTERM" };
+		});
+		await assert.rejects(
+			tool.execute("id", { url: "https://example.com" }, controller.signal, undefined, { cwd: "/tmp" }),
+			{ name: "AbortError" },
+		);
+
+		injectFactory({ success: true, results: [], totalTokens: 0, attempted: 0, failed: [] });
+		const ok = await tool.execute("id2", { url: "https://example.com" }, undefined, undefined, {
+			cwd: "/tmp",
+		});
+		assert.equal(ok.isError, undefined, "subsequent call should not inherit abort state");
+		assert.equal(Value.Check(crawlOutputSchema, ok.structuredContent), true);
+	});
 });
 
 // ══════════════════════════════════════════════════════════════════════

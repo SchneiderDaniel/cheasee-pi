@@ -137,6 +137,47 @@ describe("PythonAdapter — subprocess orchestration", () => {
 		);
 	});
 
+	it("(entity) signal aborted during execution → rejects with AbortError (killed subprocess not flattened)", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "python-adapter-abort-"));
+		const controller = new AbortController();
+		const execFn: ExecFn = async () => {
+			// Abort arrives mid-flight; the subprocess is killed and reports a
+			// non-failure-looking result (killed: true, code: 0).
+			controller.abort();
+			return { code: 0, stdout: "", stderr: "", killed: true, signal: "SIGTERM" };
+		};
+		const adapter = new PythonAdapter(
+			mock.fn(execFn) as ReturnType<typeof mock.fn<ExecFn>>,
+			cwd,
+			undefined,
+			mockEnsureVenv,
+		);
+		await assert.rejects(
+			adapter.crawl({ url: "https://example.com", maxPages: 1, signal: controller.signal }),
+			{ name: "AbortError" },
+			"aborted crawl must reject with AbortError, not return a typed failure",
+		);
+	});
+
+	it("(entity) exec AbortError is propagated, not swallowed into a typed failure", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "python-adapter-abort-"));
+		const controller = new AbortController();
+		const execFn: ExecFn = async () => {
+			controller.abort();
+			throw new DOMException("The operation was aborted.", "AbortError");
+		};
+		const adapter = new PythonAdapter(
+			mock.fn(execFn) as ReturnType<typeof mock.fn<ExecFn>>,
+			cwd,
+			undefined,
+			mockEnsureVenv,
+		);
+		await assert.rejects(
+			adapter.crawl({ url: "https://example.com", maxPages: 1, signal: controller.signal }),
+			{ name: "AbortError" },
+		);
+	});
+
 	it("(entity) parses successful JSON output into CrawlResult", async () => {
 		const { adapter } = setupTest();
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });

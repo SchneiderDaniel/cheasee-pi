@@ -13,7 +13,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+	createAgentSession,
 	discoverAndLoadExtensions,
+	SessionManager,
 	type LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent";
 
@@ -57,8 +59,26 @@ describe("web_crawl annotations — real SDK loader round-trip", () => {
 	});
 });
 
+describe("web_crawl annotations — pi.getAllTools() runtime surface", () => {
+	it("(integration) getAllTools() reports readOnlyHint + openWorldHint for web_crawl", async () => {
+		// Feed the real loaded definition into a real AgentSession and read it back
+		// through getAllTools() — the runtime path permission tooling consumes. This
+		// is the behavior absent on 0.79.x, where getAllTools() drops annotations.
+		const { session } = await createAgentSession({
+			cwd: sandbox,
+			agentDir: sandbox,
+			sessionManager: SessionManager.inMemory(),
+			customTools: [webCrawlDefinition()],
+		});
+
+		const info = session.getAllTools().find((t) => t.name === "web_crawl");
+		assert.ok(info, "web_crawl should be reported by getAllTools()");
+		assert.deepEqual(info.annotations, { readOnlyHint: true, openWorldHint: true });
+	});
+});
+
 describe("runtime pin — pi 1.0.2 lockstep", () => {
-	it("(infra) package.json pins all three @earendil-works/pi-* exactly 1.0.2", () => {
+	it("(infra) package.json tracks all three @earendil-works/pi-* at a 1.0.2 floor", () => {
 		const pkgPath = resolve(import.meta.dirname, "../../../../package.json");
 		const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
 			dependencies: Record<string, string>;
@@ -68,7 +88,7 @@ describe("runtime pin — pi 1.0.2 lockstep", () => {
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
 		]) {
-			assert.equal(pkg.dependencies[name], "1.0.2", `${name} must be pinned to 1.0.2`);
+			assert.match(pkg.dependencies[name], /^\^1\.0\.2$/, `${name} must declare a ^1.0.2 floor`);
 		}
 	});
 });

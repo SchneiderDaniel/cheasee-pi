@@ -151,6 +151,11 @@ export default function webCrawlExtension(pi: ExtensionAPI): void {
 					signal,
 				});
 
+				// Abort must stay in the abort channel: a cancelled crawl is not an
+				// ordinary failure. Check after the crawl and before projecting failures
+				// so callers receive AbortError rather than an isError result.
+				signal?.throwIfAborted();
+
 				// Split error semantics: crawl-execution failures cross to isError (keeps
 				// details/structuredContent for programmatic callers); preconditions
 				// (validateUrl, abort) stay in the throwing channel above.
