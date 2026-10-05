@@ -60,19 +60,6 @@ func init() {
 	cleanCmd.Flags().BoolVar(&cleanYes, "yes", false, "Skip the confirmation prompt")
 }
 
-// pruneDanglingImages removes all dangling (<none>:<none>) Docker images.
-// Tagged/in-use images are never affected.
-func pruneDanglingImages() {
-	out, err := runCommandContext(context.Background(), "docker", "images", "--filter", "dangling=true", "-q").Output()
-	if err != nil || len(out) == 0 {
-		return
-	}
-	if _, err := runCommandContext(context.Background(), "docker", "image", "prune", "-f").CombinedOutput(); err != nil {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "  ✓ Pruned dangling Docker images\n")
-}
-
 // printCleanReport lists the sessions a clean pass matched.
 func printCleanReport(candidates []string) {
 	fmt.Fprintf(os.Stderr, "  %d pi session(s) matched the stale/orphan reapers:\n", len(candidates))
@@ -147,8 +134,10 @@ func runCleanE(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	pruneDanglingImages()
-	pruneBuildCache()
+	// Prunes stay best-effort on the clean path: `_ =` swallows their error
+	// (the container removals are the job; a prune hiccup must not fail clean).
+	_ = pruneDanglingImages(ctx, true)
+	_ = pruneBuildCache(ctx, false)
 
 	return nil
 }
@@ -207,24 +196,26 @@ func cleanAndRemove(ctx context.Context, targets []string) error {
 	return nil
 }
 
-// pruneBuildCache removes the Docker buildx build cache.
-// Safe to run unconditionally — fast when empty.
-func pruneBuildCache() {
-	if _, err := runCommandContext(context.Background(), "docker", "buildx", "prune", "-f").CombinedOutput(); err == nil {
-		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+// pruneBuildCache removes the Docker buildx build cache. all=false prunes
+// only records unused by the current project; all=true (`-a`) prunes every
+// cache record host-wide, including foreign projects' on the shared default
+// builder — prune-images uses it after the tagged images that pinned the
+// cache are gone, while clean/build keep the narrower scope. A docker failure
+// is surfaced so the caller can swallow (clean/build) or propagate
+// (prune-images).
+func pruneBuildCache(ctx context.Context, all bool) error {
+	args := []string{"buildx", "prune"}
+	if all {
+		args = append(args, "-a")
 	}
-}
-
-// pruneAllBuildCache removes the Docker buildx build cache host-wide
-// (-a: every cache record, including foreign projects' on the shared default
-// builder). prune-images uses it after the tagged images that pinned the
-// cache are gone; clean keeps the narrower pruneBuildCache.
-// A docker failure surfaces as an error: silence would report success while
-// the cache that the removed images pinned stays on disk.
-func pruneAllBuildCache(ctx context.Context) error {
-	if _, err := runCommandContext(ctx, "docker", "buildx", "prune", "-a", "-f").CombinedOutput(); err != nil {
+	args = append(args, "-f")
+	if _, err := runCommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker buildx prune: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache (all projects)\n")
+	if all {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache (all projects)\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "  ✓ Pruned Docker build cache\n")
+	}
 	return nil
 }

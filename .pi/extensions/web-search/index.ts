@@ -11,7 +11,14 @@ import { Type } from "typebox";
 import { SEARCH_SCRIPT } from "./python-script.ts";
 import { runSearchScript, parseSearchResults } from "./executor.ts";
 import { ensureWebSearchVenv } from "./venv-setup.ts";
-import type { SearchCacheEntry } from "./types.ts";
+import type {
+	SearchResult,
+	SearchParams,
+	SearchCacheEntry,
+	WebSearchPayload,
+	WebSearchErrorPayload,
+} from "./types.ts";
+import { WebSearchOutputSchema } from "./types.ts";
 
 /** In-session cache for search results to avoid redundant lookups */
 const searchCache = new Map<string, SearchCacheEntry>();
@@ -65,7 +72,14 @@ export default function webSearch(pi: ExtensionAPI): void {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+		// openWorldHint: results come from the open web, not a closed domain.
+		// readOnlyHint is deliberately NOT set: the first call pip-installs ddgs into
+		// .pi/web-search-venv, so the tool does modify its environment. idempotentHint is
+		// omitted too — it is only true inside the 5-minute cache TTL (CACHE_TTL_MS).
+		annotations: { openWorldHint: true },
+		// JSON Schema of the successful `structuredContent` for programmatic callers.
+		outputSchema: WebSearchOutputSchema,
+		async execute(_toolCallId, params: SearchParams, signal, onUpdate, _ctx) {
 			const query = params.query.trim();
 			if (!query) {
 				throw new Error("Search query is empty");
@@ -76,16 +90,12 @@ export default function webSearch(pi: ExtensionAPI): void {
 			const cacheKey = `${query}:${maxResults}`;
 			const cached = searchCache.get(cacheKey);
 			if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-				const text = formatResults(cached.results);
-				return {
-					content: [{ type: "text", text }],
-					details: {} as Record<string, unknown>,
-				};
+				return buildSearchResponse(query, cached.results);
 			}
 
 			onUpdate?.({
 				content: [{ type: "text", text: `Searching for "${query}" …` }],
-				details: {} as Record<string, unknown>,
+				details: { query, returned: 0, results: [] },
 			});
 
 			// Acquire concurrency semaphore before starting venv setup/search
@@ -106,14 +116,15 @@ export default function webSearch(pi: ExtensionAPI): void {
 				);
 
 				if (result.code !== 0) {
-					throw new Error(
+					return buildErrorResponse(
 						`Search failed: python3 error (code ${result.code}): ${result.stderr.slice(0, 500)}`,
+						query,
 					);
 				}
 
 				const parsed = parseSearchResults(result.stdout);
 				if (!parsed.ok) {
-					throw new Error(`Search failed: ${parsed.error}`);
+					return buildErrorResponse(`Search failed: ${parsed.error}`, query);
 				}
 
 				// Cache results
@@ -129,16 +140,54 @@ export default function webSearch(pi: ExtensionAPI): void {
 					}
 				}
 
-				const text = formatResults(parsed.results);
-				return {
-					content: [{ type: "text", text }],
-					details: {} as Record<string, unknown>,
-				};
+				return buildSearchResponse(query, parsed.results);
 			} finally {
 				releaseSearchLock();
 			}
 		},
 	});
+}
+
+/**
+ * Single assembler for the tool result on both terminal paths: model-facing
+ * `content` text plus the machine-readable `details`/`structuredContent` payload.
+ * Keeps the cache-hit and fresh-search shapes identical by construction.
+ */
+export function buildSearchResponse(
+	query: string,
+	results: SearchResult[],
+): {
+	content: Array<{ type: "text"; text: string }>;
+	details: WebSearchPayload;
+	structuredContent: WebSearchPayload;
+} {
+	const payload: WebSearchPayload = { query, returned: results.length, results };
+	return {
+		content: [{ type: "text", text: formatResults(results) }],
+		details: payload,
+		structuredContent: payload,
+	};
+}
+
+/**
+ * Assemble a non-throwing failure result. The model sees the error text as the
+ * tool result; programmatic callers get `{ error, query }` in `structuredContent`.
+ */
+function buildErrorResponse(
+	error: string,
+	query: string,
+): {
+	content: Array<{ type: "text"; text: string }>;
+	details: WebSearchPayload;
+	structuredContent: WebSearchErrorPayload;
+	isError: true;
+} {
+	return {
+		content: [{ type: "text", text: error }],
+		details: { query, returned: 0, results: [] },
+		structuredContent: { error, query },
+		isError: true,
+	};
 }
 
 /**

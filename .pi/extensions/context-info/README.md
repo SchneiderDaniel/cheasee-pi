@@ -16,6 +16,7 @@ pi's built-in footer is minimal. Context Info turns it into a mission-control da
 - **Trust status** — project trusted/untrusted indicator
 - **Live timer** — session duration counter
 - **Tool call counter** — running count of tool executions this session
+- **Appearance-aware text** — secondary text (labels, timer, cache stats) adapts to the terminal via the theme's reported `appearance`: `muted` on light backgrounds, `dim` on dark, falling back to `dim` when the theme reports none
 
 Plus `/explain-extensions`, `/explain-prompts`, `/explain-skills` commands listing all active extensions, prompts, and skills with descriptions.
 

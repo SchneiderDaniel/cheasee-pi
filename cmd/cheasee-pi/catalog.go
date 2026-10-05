@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -40,18 +39,17 @@ var newModelCatalog = func() ModelCatalog { return newRemoteModelCatalog() }
 
 // remoteModelCatalog is the ModelCatalog adapter: GETs
 // https://pi.dev/api/models/providers/<provider>, caches per provider in the
-// version-keyed CacheDir with pi's 4h TTL + etag conditional semantics, and
-// sorts ids deterministically (the response is a map). The adapter has only
-// httpClient/baseURL/cacheDir fields — it never sees the prompted API key
-// (the key belongs to the provider, not pi.dev), so a catalog request can
-// never carry provider credentials.
+// version-keyed CacheDir with pi's 4h TTL, and sorts ids deterministically
+// (the response is a map). The adapter has only httpClient/baseURL/cacheDir
+// fields — it never sees the prompted API key (the key belongs to the
+// provider, not pi.dev), so a catalog request can never carry provider
+// credentials.
 type remoteModelCatalog struct {
 	httpClient     *http.Client
 	baseURL        string // seam for tests (https://pi.dev by default)
 	cacheDir       string // empty → resolve via CacheDir() on first use
 	attemptTimeout time.Duration
 	warnf          func(format string, args ...any) // cache-write warnings; nil → silent
-	flights        sync.Map                        // provider → *catalogFlight (singleflight)
 }
 
 func newRemoteModelCatalog() *remoteModelCatalog {
@@ -72,13 +70,12 @@ type catalogModel struct {
 }
 
 // modelCatalogCache is the on-disk cache shape — pi's models-store overlay
-// shape, one file per provider under <CacheDir()>/models/ — so a cached list
-// doubles as the etag-backed body for conditional revalidation.
+// shape, one file per provider under <CacheDir()>/models/. Old cache files
+// may carry legacy etag/lastModified keys; unknown fields are ignored on
+// decode and dropped on rewrite.
 type modelCatalogCache struct {
-	Models       []catalogModel `json:"models"`
-	CheckedAt    time.Time      `json:"checkedAt"`
-	LastModified string         `json:"lastModified"`
-	ETag         string         `json:"etag"`
+	Models    []catalogModel `json:"models"`
+	CheckedAt time.Time      `json:"checkedAt"`
 }
 
 // ids returns the model ids in lexicographic order — the port contract is
@@ -98,16 +95,8 @@ func sortedIDs(models []catalogModel) []string {
 	return ids
 }
 
-// catalogFlight is one in-flight fetch shared by concurrent Models() calls
-// for the same provider (singleflight — the endpoint sees one request).
-type catalogFlight struct {
-	done chan struct{}
-	ids  []string
-	err  error
-}
-
 // Models returns the provider's sorted model ids: served from a fresh cache
-// inside the TTL, else fetched (singleflight, etag-revalidated) and cached.
+// inside the TTL, else fetched (bounded retry, plain GET) and cached.
 func (c *remoteModelCatalog) Models(ctx context.Context, provider string) ([]string, error) {
 	cacheDir, err := c.resolveCacheDir(ctx)
 	if err != nil {
@@ -117,27 +106,7 @@ func (c *remoteModelCatalog) Models(ctx context.Context, provider string) ([]str
 	if ok && len(cached.Models) > 0 && time.Since(cached.CheckedAt) < catalogTTL {
 		return cached.ids(), nil
 	}
-
-	// Singleflight: concurrent callers for the same provider share one fetch
-	// instead of stampeding the endpoint; the shared atomicWrite cache write
-	// stays torn-write safe (last-wins, both valid).
-	if prev, loaded := c.flights.LoadOrStore(provider, &catalogFlight{done: make(chan struct{})}); loaded {
-		f := prev.(*catalogFlight)
-		select {
-		case <-f.done:
-			return f.ids, f.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	owner, _ := c.flights.Load(provider)
-	defer c.flights.Delete(provider)
-
-	ids, err := c.fetchWithRetry(ctx, cacheDir, provider, cached)
-	f := owner.(*catalogFlight)
-	f.ids, f.err = ids, err
-	close(f.done)
-	return ids, err
+	return c.fetchWithRetry(ctx, cacheDir, provider)
 }
 
 // resolveCacheDir returns the version-keyed cache dir, creating it on first
@@ -184,24 +153,21 @@ func (c *remoteModelCatalog) writeCache(cacheDir, provider string, entry modelCa
 }
 
 // fetchWithRetry runs the bounded fetch loop: transient failures (network,
-// 5xx) retry up to catalogAttempts; 404/501 ("catalog gone") and ctx
-// cancellation stop immediately. On 304 the cached body is kept and only
-// freshness advances — a 304 can never leave the overlay empty. A failure
-// leaves any stale cache file untouched (fetched-once semantics preserved).
-func (c *remoteModelCatalog) fetchWithRetry(ctx context.Context, cacheDir, provider string, cached modelCatalogCache) ([]string, error) {
+// 5xx, unexpected statuses) retry up to catalogAttempts; 404/501 ("catalog
+// gone") and ctx cancellation stop immediately. A failure leaves any stale
+// cache file untouched (fetched-once semantics preserved).
+func (c *remoteModelCatalog) fetchWithRetry(ctx context.Context, cacheDir, provider string) ([]string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= catalogAttempts; attempt++ {
-		models, lastModified, etag, err := c.fetch(ctx, provider, cached)
+		models, err := c.fetch(ctx, provider)
 		if err == nil {
 			// Best-effort cache: the live list is already the answer, so a
 			// cache-dir hiccup must not degrade an online fetch to the offline
 			// seed — but it must not be silent either (an unwritable cache
 			// would otherwise refetch every run without the user knowing why).
 			if werr := c.writeCache(cacheDir, provider, modelCatalogCache{
-				Models:       models,
-				CheckedAt:    time.Now(),
-				LastModified: lastModified,
-				ETag:         etag,
+				Models:    models,
+				CheckedAt: time.Now(),
 			}); werr != nil && c.warnf != nil {
 				c.warnf("model catalog cache write failed for %s: %v", provider, werr)
 			}
@@ -220,32 +186,26 @@ func (c *remoteModelCatalog) fetchWithRetry(ctx context.Context, cacheDir, provi
 var errCatalogGone = errors.New("model catalog unavailable for provider")
 
 // fetch performs one HTTP attempt within a per-attempt timeout (pi's
-// REMOTE_CATALOG_ATTEMPT_TIMEOUT_MS). 200 → fresh body; 304 → the cached
-// models stand, only headers refresh; 404/501 → permanent error; anything
-// else → transient error.
-func (c *remoteModelCatalog) fetch(ctx context.Context, provider string, cached modelCatalogCache) ([]catalogModel, string, string, error) {
+// REMOTE_CATALOG_ATTEMPT_TIMEOUT_MS). 200 → fresh body; 404/501 → permanent
+// error; anything else (including a stray 304) → transient error.
+func (c *remoteModelCatalog) fetch(ctx context.Context, provider string) ([]catalogModel, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, c.attemptTimeout)
 	defer cancel()
 
 	u := c.baseURL + "/api/models/providers/" + url.PathEscape(provider)
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 	// The same headers pi's remote-catalog-provider sends — and critically NO
 	// credential header: the prompted API key belongs to the provider, never
 	// to pi.dev.
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "cheasee-pi/"+cliVersionKey)
-	if len(cached.Models) > 0 && cached.ETag != "" {
-		// Conditional only when a cached body backs the validator — a 304
-		// can never empty the list (pi's 304-with-no-body pitfall).
-		req.Header.Set("If-None-Match", cached.ETag)
-	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -253,29 +213,20 @@ func (c *remoteModelCatalog) fetch(ctx context.Context, provider string, cached 
 	case http.StatusOK:
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, "", "", err
+			return nil, err
 		}
 		models, err := parseCatalog(data)
 		if err != nil {
-			return nil, "", "", err
+			return nil, err
 		}
 		if len(models) == 0 {
-			return nil, "", "", errors.New("empty model catalog for provider")
+			return nil, errors.New("empty model catalog for provider")
 		}
-		return models, resp.Header.Get("Last-Modified"), resp.Header.Get("ETag"), nil
-	case http.StatusNotModified:
-		if len(cached.Models) == 0 {
-			return nil, "", "", errors.New("304 without a cached body")
-		}
-		lastModified := resp.Header.Get("Last-Modified")
-		if lastModified == "" {
-			lastModified = cached.LastModified
-		}
-		return cached.Models, lastModified, cached.ETag, nil
+		return models, nil
 	case http.StatusNotFound, http.StatusNotImplemented:
-		return nil, "", "", fmt.Errorf("%w %q: HTTP %d", errCatalogGone, provider, resp.StatusCode)
+		return nil, fmt.Errorf("%w %q: HTTP %d", errCatalogGone, provider, resp.StatusCode)
 	default:
-		return nil, "", "", fmt.Errorf("model catalog request failed for %s: %s", provider, resp.Status)
+		return nil, fmt.Errorf("model catalog request failed for %s: %s", provider, resp.Status)
 	}
 }
 

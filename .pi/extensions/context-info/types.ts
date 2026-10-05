@@ -9,6 +9,9 @@ export interface ThresholdEntry {
 /** Semantic color token for the context-usage bar (a pi ThemeColor subset). */
 export type UsageColorToken = "success" | "warning" | "error";
 
+/** Low-emphasis readable text token; adapts to light/dark terminal appearance. */
+export type SubtleColorToken = "dim" | "muted";
+
 export interface TpsSample {
 	time: number;
 	cumulativeTokens: number;

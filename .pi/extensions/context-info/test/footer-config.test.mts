@@ -1000,19 +1000,23 @@ interface FooterHarnessOptions {
 	thresholds?: ThresholdEntry[];
 	footerConfig?: FooterConfig;
 	setClearOnShrinkSpy?: () => void;
+	/** Reported terminal appearance; omitted ⇒ theme has no `appearance` (0.79.10 shape). */
+	appearance?: "dark" | "light";
 }
 
 /** Install the footer against a capture-style theme exposing only `fg`.
- *  Deliberately omits `style`/`colors`/`appearance` — their absence proves the
- *  footer renders against a 0.79.10-shaped theme. */
+ *  Deliberately omits `style`/`colors` — their absence proves the footer renders
+ *  against a 0.79.10-shaped theme. `appearance` is optional and set only when the
+ *  test asks for it. */
 function createHarness(options: FooterHarnessOptions = {}) {
 	const captured: CapturedFgCall[] = [];
-	const theme = {
+	const theme: { fg: (color: string, text: string) => string; appearance?: "dark" | "light" } = {
 		fg: (color: string, text: string) => {
 			captured.push({ color, text });
 			return text;
 		},
 	};
+	if (options.appearance) theme.appearance = options.appearance;
 	const config: ContextStatusBarConfig = {
 		enabled: true,
 		thresholds: options.thresholds ?? [
@@ -1057,7 +1061,7 @@ function createHarness(options: FooterHarnessOptions = {}) {
 
 	installFooter(ctx as any, config, footerConfig as any);
 	assert.ok(component, "footer component should be registered");
-	return { component: component!, captured, footerConfig, config };
+	return { component: component!, captured, footerConfig, config, theme };
 }
 
 describe("footer — usage color tokens", () => {
@@ -1183,6 +1187,177 @@ describe("footer — fullscreen width matrix", () => {
 			},
 		});
 		assert.ok(called, "setClearOnShrink should be called on install");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Appearance-adaptive secondary text (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe("footer — appearance-adaptive secondary text", () => {
+	const withWorktree = (name: string) => {
+		const fc = createDefaultFooterConfig();
+		fc.worktreeName = name;
+		return fc;
+	};
+
+	it("light: worktree label is muted", () => {
+		const { component, captured } = createHarness({
+			appearance: "light",
+			footerConfig: withWorktree("my-feature"),
+		});
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "muted" && c.text === "[my-feature]"),
+			`expected muted worktree label, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("light: Session: label is muted", () => {
+		const fc = createDefaultFooterConfig();
+		fc.sessionName = "sess";
+		const { component, captured } = createHarness({ appearance: "light", footerConfig: fc });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "muted" && c.text === "Session:"),
+			`expected muted Session: label, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("light: separators/joiners/decorations stay dim", () => {
+		const { component, captured } = createHarness({
+			appearance: "light",
+			footerConfig: withWorktree("my-feature"),
+		});
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "│"),
+			`expected dim separator, got: ${JSON.stringify(captured)}`,
+		);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "·"),
+			`expected dim joiner, got: ${JSON.stringify(captured)}`,
+		);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "🧠 "),
+			`expected dim brain decoration, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("dark: secondary text stays dim (default visuals preserved)", () => {
+		const fc = withWorktree("my-feature");
+		fc.sessionName = "sess";
+		const { component, captured } = createHarness({ appearance: "dark", footerConfig: fc });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "[my-feature]"),
+			`expected dim worktree label, got: ${JSON.stringify(captured)}`,
+		);
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "Session:"),
+			`expected dim Session: label, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("no appearance property: dim fallback, render succeeds (0.79.10 compat)", () => {
+		const { component, captured } = createHarness({ footerConfig: withWorktree("my-feature") });
+		const rows = component.render(120);
+		assert.ok(rows.length >= 1, "render should succeed without appearance");
+		assert.ok(
+			captured.some((c) => c.color === "dim" && c.text === "[my-feature]"),
+			`expected dim fallback, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("resolved once at install: mutating theme.appearance after install has no effect", () => {
+		const fc = createDefaultFooterConfig();
+		fc.sessionName = "sess";
+		const { component, captured, theme } = createHarness({ appearance: "light", footerConfig: fc });
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "muted" && c.text === "Session:"),
+			"first render should use muted (light)",
+		);
+
+		captured.length = 0;
+		theme.appearance = "dark";
+		component.render(120);
+		assert.ok(
+			captured.some((c) => c.color === "muted" && c.text === "Session:"),
+			`token must be resolved in the install closure, got: ${JSON.stringify(captured)}`,
+		);
+	});
+
+	it("light render emits no truecolor SGR and works against an fg-only theme", () => {
+		const { component } = createHarness({ appearance: "light" });
+		const all = component.render(120).join("");
+		assert.ok(!all.includes("\x1b[38;2;"), "no truecolor SGR should be emitted");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Width + fullscreen regression under light appearance (Phase 3)
+// ---------------------------------------------------------------------------
+
+describe("footer — width regression under light appearance", () => {
+	for (const width of [40, 80, 120]) {
+		it(`light appearance renders ≥1 row fitting ${width} cols without throwing`, () => {
+			const { component } = createHarness({
+				appearance: "light",
+				footerConfig: createDefaultFooterConfig(),
+			});
+			const rows = component.render(width);
+			assert.ok(rows.length >= 1, `width ${width}: at least one row`);
+			for (const row of rows) {
+				assert.ok(
+					visibleWidth(row) <= width,
+					`width ${width}: row exceeds width: ${JSON.stringify(row)}`,
+				);
+			}
+		});
+	}
+
+	it("light appearance resize 120 → 40 → 120 obeys each width", () => {
+		const { component } = createHarness({ appearance: "light" });
+		for (const width of [120, 40, 120]) {
+			for (const row of component.render(width)) {
+				assert.ok(
+					visibleWidth(row) <= width,
+					`resized to ${width}: row exceeds width: ${JSON.stringify(row)}`,
+				);
+			}
+		}
+	});
+
+	it("light appearance, 40 cols with UI + CodeFlow links: OSC 8 stays balanced", () => {
+		const fc = createDefaultFooterConfig();
+		fc.uiUrl = "http://127.0.0.1:9600";
+		fc.codeflowUrl = "http://localhost:9100/?repo=local/workspace&run=1";
+		const { component } = createHarness({ appearance: "light", footerConfig: fc });
+		const rows = component.render(40);
+		const row3 = rows[rows.length - 1]!;
+		const openers = (row3.match(/\x1b\]8;;http/g) ?? []).length;
+		const closers = (row3.match(/\x1b\]8;;\x1b\\/g) ?? []).length;
+		assert.strictEqual(openers, closers, "every OSC 8 opener must have a matching closer");
+		assert.ok(visibleWidth(row3) <= 40, "link row must fit width");
+	});
+
+	it("footer.ts stays mode-agnostic (no tuiMode reference)", () => {
+		const src = readSource("../footer.ts");
+		assert.ok(!src.includes("tuiMode"), "footer.ts must not reference tuiMode");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Docs mention appearance-aware secondary text (Phase 5)
+// ---------------------------------------------------------------------------
+
+describe("context-info docs — appearance-awareness", () => {
+	it("README and docs/extensions describe appearance-aware secondary text", () => {
+		for (const rel of ["../README.md", "../../../../docs/extensions/context-info.md"]) {
+			const src = readSource(rel);
+			assert.ok(/appearance/i.test(src), `${rel} should mention appearance`);
+		}
 	});
 });
 

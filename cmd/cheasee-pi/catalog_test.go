@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -90,16 +89,19 @@ func TestRemoteModelCatalog_SecondCallWithinTTLServesCache(t *testing.T) {
 	}
 }
 
-func TestRemoteModelCatalog_StaleCacheRefetchesConditionally(t *testing.T) {
+func TestRemoteModelCatalog_StaleCacheRefetchesPlainGET(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	stale := fmt.Sprintf(`{"models":[{"id":"alpha-model","name":"Alpha"}],"checkedAt":%q,"etag":"v1"}`, time.Now().Add(-5*time.Hour).Format(time.RFC3339Nano))
+	// Legacy cache carrying etag/lastModified keys (written by a prior binary
+	// version) plus a stale checkedAt: the plain-GET fetch must ignore the
+	// validator — no conditional header — and the rewritten cache must drop
+	// the legacy keys.
+	stale := fmt.Sprintf(`{"models":[{"id":"alpha-model","name":"Alpha"}],"checkedAt":%q,"etag":"v1","lastModified":"old"}`, time.Now().Add(-5*time.Hour).Format(time.RFC3339Nano))
 	writeStaleCache(t, "opencode-go", stale)
 
 	srv := newCatalogServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("If-None-Match"); got != "v1" {
-			t.Errorf("stale body must revalidate with If-None-Match, got %q", got)
+		if got := r.Header.Get("If-None-Match"); got != "" {
+			t.Errorf("plain GET must not send If-None-Match, got %q", got)
 		}
-		w.Header().Set("ETag", "v2")
 		fmt.Fprint(w, catalogPlainMap)
 	}))
 
@@ -119,70 +121,54 @@ func TestRemoteModelCatalog_StaleCacheRefetchesConditionally(t *testing.T) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		t.Fatal(err)
 	}
-	if entry.ETag != "v2" || len(entry.Models) != 3 || time.Since(entry.CheckedAt) > time.Minute {
-		t.Errorf("cache must carry the fresh body + etag + checkedAt, got %+v", entry)
+	if len(entry.Models) != 3 || time.Since(entry.CheckedAt) > time.Minute {
+		t.Errorf("cache must carry the fresh body + checkedAt, got %+v", entry)
+	}
+	if strings.Contains(string(data), "etag") || strings.Contains(string(data), "lastModified") {
+		t.Errorf("rewritten cache must not carry etag/lastModified keys, got %s", data)
 	}
 }
 
-func TestRemoteModelCatalog_NotModifiedKeepsListAdvancesFreshness(t *testing.T) {
+func TestRemoteModelCatalog_LegacyEtagCacheStillDecodes(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	checkedAt := time.Now().Add(-5 * time.Hour)
-	stale := fmt.Sprintf(`{"models":[{"id":"alpha-model","name":"Alpha"}],"checkedAt":%q,"etag":"v1"}`, checkedAt.Format(time.RFC3339Nano))
-	writeStaleCache(t, "opencode-go", stale)
+	// Old on-disk cache JSON containing etag/lastModified keys must still
+	// decode (unknown-field tolerance) and its models/checkedAt honored while
+	// fresh — zero HTTP requests.
+	body := fmt.Sprintf(`{"models":[{"id":"alpha-model","name":"Alpha"}],"checkedAt":%q,"etag":"v1","lastModified":"old"}`, time.Now().Format(time.RFC3339Nano))
+	writeStaleCache(t, "opencode-go", body)
 
-	srv := newCatalogServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("If-None-Match"); got != "v1" {
-			t.Errorf("If-None-Match = %q, want v1", got)
-		}
-		w.WriteHeader(http.StatusNotModified)
-	}))
-
+	srv := newCatalogServer(t, nil)
 	cat := newTestCatalog(srv, 5*time.Second)
 	ids, err := cat.Models(context.Background(), "opencode-go")
 	if err != nil {
 		t.Fatalf("Models: %v", err)
 	}
 	if !reflect.DeepEqual(ids, []string{"alpha-model"}) {
-		t.Errorf("304 must keep the last-known list, got %v", ids)
+		t.Errorf("fresh legacy cache must be honored verbatim, got %v", ids)
 	}
-
-	data, _ := os.ReadFile(filepath.Join(cacheModelsDir(t), "opencode-go.json"))
-	var entry modelCatalogCache
-	if err := json.Unmarshal(data, &entry); err != nil {
-		t.Fatal(err)
-	}
-	if len(entry.Models) != 1 || entry.Models[0].ID != "alpha-model" {
-		t.Errorf("304 must not overwrite the cached body, got %+v", entry.Models)
-	}
-	if !entry.CheckedAt.After(checkedAt) {
-		t.Errorf("304 must advance checkedAt, got %v (was %v)", entry.CheckedAt, checkedAt)
-	}
-	if entry.ETag != "v1" {
-		t.Errorf("304 keeps the etag, got %q", entry.ETag)
+	if srv.reqs.Load() != 0 {
+		t.Errorf("fresh legacy cache must short-circuit with zero HTTP requests, got %d", srv.reqs.Load())
 	}
 }
 
-func TestRemoteModelCatalog_IfNoneMatchOnlyWhenBodyExists(t *testing.T) {
+func TestRemoteModelCatalog_NotModifiedRetriesAsTransientError(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	// Metadata-only cache (etag, no models) — the conditional header must not
-	// be sent, or a 304 would empty the list (pi's pitfall).
-	stale := fmt.Sprintf(`{"models":[],"checkedAt":%q,"etag":"v1"}`, time.Now().Add(-5*time.Hour).Format(time.RFC3339Nano))
-	writeStaleCache(t, "opencode-go", stale)
-
+	// A 304 to a plain GET is unexpected (we sent no validator): treated as a
+	// transient failure, retried, and never allowed to empty the list.
 	srv := newCatalogServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("If-None-Match"); got != "" {
-			t.Errorf("If-None-Match = %q, want empty (no cached body)", got)
-		}
-		fmt.Fprint(w, catalogPlainMap)
+		w.WriteHeader(http.StatusNotModified)
 	}))
 
 	cat := newTestCatalog(srv, 5*time.Second)
 	ids, err := cat.Models(context.Background(), "opencode-go")
-	if err != nil {
-		t.Fatalf("Models: %v", err)
+	if err == nil {
+		t.Fatal("304 to a plain GET must error (transient), never yield a list")
 	}
-	if !reflect.DeepEqual(ids, catalogSorted) {
-		t.Errorf("Models = %v, want %v", ids, catalogSorted)
+	if len(ids) != 0 {
+		t.Errorf("304 must never yield a partial list, got %v", ids)
+	}
+	if srv.reqs.Load() != catalogAttempts {
+		t.Errorf("304 must be retried like a transient error (%d attempts), got %d requests", catalogAttempts, srv.reqs.Load())
 	}
 }
 
@@ -426,50 +412,6 @@ func TestRemoteModelCatalog_ProviderEscapedInURLAndCachePath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cacheModelsDir(t), escaped+".json")); err != nil {
 		t.Errorf("cache file must use the escaped provider id: %v", err)
-	}
-}
-
-func TestRemoteModelCatalog_ConcurrentCallsSingleFetch(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	srv := newCatalogServer(t, nil)
-	cat := newTestCatalog(srv, 5*time.Second)
-
-	ctx := context.Background()
-	const n = 2
-	results := make([][]string, n)
-	errs := make([]error, n)
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			results[i], errs[i] = cat.Models(ctx, "opencode-go")
-		}(i)
-	}
-	wg.Wait()
-
-	for i := 0; i < n; i++ {
-		if errs[i] != nil {
-			t.Fatalf("call %d: %v", i, errs[i])
-		}
-		if !reflect.DeepEqual(results[i], catalogSorted) {
-			t.Errorf("call %d = %v, want %v", i, results[i], catalogSorted)
-		}
-	}
-	if srv.reqs.Load() != 1 {
-		t.Errorf("concurrent calls must share one fetch, got %d requests", srv.reqs.Load())
-	}
-	// Cache file must be valid (torn-write guard) — readable as the overlay.
-	data, err := os.ReadFile(filepath.Join(cacheModelsDir(t), "opencode-go.json"))
-	if err != nil {
-		t.Fatalf("cache file missing: %v", err)
-	}
-	var entry modelCatalogCache
-	if err := json.Unmarshal(data, &entry); err != nil {
-		t.Fatalf("cache file malformed after concurrent write: %v", err)
-	}
-	if len(entry.Models) != 3 {
-		t.Errorf("cache must carry the full list, got %d models", len(entry.Models))
 	}
 }
 

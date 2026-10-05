@@ -11,7 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { ExecFn, ExecResult } from "../types.ts";
-import webSearch, { formatResults } from "../index.ts";
+import webSearch, { formatResults, buildSearchResponse } from "../index.ts";
+import { WebSearchOutputSchema } from "../types.ts";
 import { FRAME } from "../protocol.ts";
 import { Value } from "typebox/value";
 
@@ -31,6 +32,26 @@ function mockExecSequence(results: ExecResult[]): ExecFn {
 
 /** Frame a payload the way the Python producer does: <RS><json><RS> */
 const framed = (payload: unknown): string => `${FRAME}${JSON.stringify(payload)}${FRAME}`;
+
+/**
+ * Mock: non-bash calls (venv verify) pass; bash is the search script. Captures the
+ * script config file read at call time.
+ */
+function execReturning(results: Array<{ title: string; url: string; snippet: string }>): {
+	exec: ExecFn;
+	config: () => any;
+} {
+	let captured: any;
+	const exec: ExecFn = async (cmd, args) => {
+		if (cmd === "bash") {
+			const m = args[1].match(/'([^']*config\.json)'/);
+			if (m) captured = JSON.parse(fs.readFileSync(m[1], "utf-8"));
+			return { code: 0, stdout: framed({ ok: true, results }), stderr: "" };
+		}
+		return { code: 0, stdout: "ok", stderr: "" };
+	};
+	return { exec, config: () => captured };
+}
 
 // ── Test helper: register the real webSearch tool with a mock pi.exec ──
 
@@ -175,7 +196,7 @@ describe("web_search.execute — error paths with exec mocking", () => {
 		);
 	});
 
-	it("(D) execute throws on search script non-zero exit", async () => {
+	it("(use-case) search script non-zero exit returns isError with structured error", async () => {
 		// Calls: 1=ensureVenv verify check (passes), 2=bash search script (fail)
 		const tool = registerWebSearch(
 			mockExecSequence([
@@ -183,15 +204,18 @@ describe("web_search.execute — error paths with exec mocking", () => {
 				{ code: 1, stdout: "", stderr: "search error" },
 			]),
 		);
-		await assert.rejects(
-			tool.execute("call1", { query: "search-test" }, undefined, undefined, {
-				cwd: "/test-search-fail",
-			}),
-			{ message: /Search failed: python3 error/ },
-		);
+		const result = await tool.execute("call1", { query: "search-test" }, undefined, undefined, {
+			cwd: "/test-search-fail",
+		});
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /Search failed: python3 error/);
+		assert.deepEqual(result.structuredContent, {
+			error: result.content[0].text,
+			query: "search-test",
+		});
 	});
 
-	it("(D) execute throws on parse failure", async () => {
+	it("(use-case) parse failure returns isError with structured error", async () => {
 		// Calls: 1=ensureVenv verify check (passes), 2=bash search script (unparseable)
 		const tool = registerWebSearch(
 			mockExecSequence([
@@ -199,12 +223,15 @@ describe("web_search.execute — error paths with exec mocking", () => {
 				{ code: 0, stdout: "no delimiters here", stderr: "" },
 			]),
 		);
-		await assert.rejects(
-			tool.execute("call1", { query: "parse-test" }, undefined, undefined, {
-				cwd: "/test-parse-fail",
-			}),
-			{ message: /Search failed/ },
-		);
+		const result = await tool.execute("call1", { query: "parse-test" }, undefined, undefined, {
+			cwd: "/test-parse-fail",
+		});
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /Search failed/);
+		assert.deepEqual(result.structuredContent, {
+			error: result.content[0].text,
+			query: "parse-test",
+		});
 	});
 });
 
@@ -235,25 +262,21 @@ describe("web_search.execute — RS framing", () => {
 		assert.ok(result.content[0].text.includes(snippet), "snippet must survive framing");
 	});
 
-	it("(use-case) unframed stdout rejects with a framing error, not a SyntaxError", async () => {
+	it("(use-case) unframed stdout returns isError with a framing error, not a SyntaxError", async () => {
 		const tool = registerWebSearch(
 			mockExecSequence([
 				{ code: 0, stdout: "ok", stderr: "" },
 				{ code: 0, stdout: 'SEARCH_OK\n{"ok":true,"results":[]}\nSEARCH_DONE', stderr: "" },
 			]),
 		);
-		await assert.rejects(
-			tool.execute("call1", { query: "unframed" }, undefined, undefined, { cwd: tmp("unframed") }),
-			(err: Error) => {
-				assert.ok(err.message.includes("Search failed:"), "should surface as Search failed");
-				assert.ok(
-					err.message.includes("No framed output found"),
-					"should name the framing mismatch",
-				);
-				assert.ok(!err.message.includes("SyntaxError"), "must not blame the JSON parser");
-				return true;
-			},
-		);
+		const result = await tool.execute("call1", { query: "unframed" }, undefined, undefined, {
+			cwd: tmp("unframed"),
+		});
+		assert.equal(result.isError, true);
+		const text = result.content[0].text;
+		assert.ok(text.includes("Search failed:"), "should surface as Search failed");
+		assert.ok(text.includes("No framed output found"), "should name the framing mismatch");
+		assert.ok(!text.includes("SyntaxError"), "must not blame the JSON parser");
 	});
 });
 
@@ -503,13 +526,12 @@ describe("Concurrency semaphore", () => {
 
 		const tool = registerWebSearch(mockExec);
 
-		// First call should fail with search error
-		await assert.rejects(
-			tool.execute("call1", { query: "search-fail" }, undefined, undefined, {
-				cwd: tmp("semaphore-search-fail"),
-			}),
-			{ message: /Search failed/ },
-		);
+		// First call returns an error result (non-throwing)
+		const first = await tool.execute("call1", { query: "search-fail" }, undefined, undefined, {
+			cwd: tmp("semaphore-search-fail"),
+		});
+		assert.equal(first.isError, true);
+		assert.match(first.content[0].text, /Search failed/);
 
 		// Second call should succeed — semaphore was released
 		const result = await tool.execute("call2", { query: "search-fail" }, undefined, undefined, {
@@ -667,5 +689,113 @@ describe("Concurrency semaphore", () => {
 		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000));
 		await Promise.race([fresh, timeout]);
 		assert.ok(bashCallCount >= 6, "fresh call should reach bash after slots freed");
+	});
+});
+
+// ===========================================================================
+// Phase 1 — structured details payload (identical shape on both terminal paths)
+// ===========================================================================
+
+describe("web_search.execute — structured details payload", () => {
+	it("(use-case) fresh search returns details { query, returned, results } with returned === results.length", async () => {
+		const results = [
+			{ title: "One", url: "https://one.example", snippet: "first" },
+			{ title: "Two", url: "https://two.example", snippet: "second" },
+		];
+		const tool = registerWebSearch(execReturning(results).exec);
+		const r = await tool.execute("c1", { query: "fresh-details" }, undefined, undefined, {
+			cwd: tmp("fresh-details"),
+		});
+		assert.deepEqual(r.details, { query: "fresh-details", returned: 2, results });
+	});
+
+	it("(use-case) cache hit returns details identical to the fresh call", async () => {
+		const results = [{ title: "Cached", url: "https://c.example", snippet: "cached" }];
+		const tool = registerWebSearch(execReturning(results).exec);
+		const fresh = await tool.execute("c1", { query: "deep-equal-details" }, undefined, undefined, {
+			cwd: tmp("deep-equal"),
+		});
+		const hit = await tool.execute("c2", { query: "deep-equal-details" }, undefined, undefined, {
+			cwd: tmp("deep-equal"),
+		});
+		assert.deepEqual(hit.details, fresh.details);
+	});
+
+	it("(use-case) details.query is trimmed and maxResults defaults to 10 in script config", async () => {
+		const { exec, config } = execReturning([{ title: "T", url: "https://t.example", snippet: "s" }]);
+		const tool = registerWebSearch(exec);
+		await tool.execute("c1", { query: "  trimmed-query  " }, undefined, undefined, {
+			cwd: tmp("trimmed"),
+		});
+		assert.equal(config().query, "trimmed-query");
+		assert.equal(config().max_results, 10);
+	});
+
+	it("(use-case) empty results → returned 0, results [] and 'No results found.' text", async () => {
+		const tool = registerWebSearch(execReturning([]).exec);
+		const r = await tool.execute("c1", { query: "empty-results" }, undefined, undefined, {
+			cwd: tmp("empty-results"),
+		});
+		assert.deepEqual(r.details, { query: "empty-results", returned: 0, results: [] });
+		assert.equal(r.content[0].text, "No results found.");
+	});
+
+	it("(use-case) onUpdate carries WebSearchPayload-shaped details (query set, results [])", async () => {
+		const updates: any[] = [];
+		const tool = registerWebSearch(execReturning([]).exec);
+		await tool.execute("c1", { query: "onupdate-shape" }, undefined, (u: any) => updates.push(u), {
+			cwd: tmp("onupdate"),
+		});
+		const searchUpdate = updates.find((u) => u.details?.query === "onupdate-shape");
+		assert.ok(searchUpdate, "search onUpdate should carry a query-tagged details payload");
+		assert.equal(searchUpdate.details.returned, 0);
+		assert.deepEqual(searchUpdate.details.results, []);
+	});
+});
+
+describe("buildSearchResponse — single assembler", () => {
+	it("(entity) content[0] is text byte-identical to formatResults(results) and details/structuredContent mirror payload", () => {
+		const results = [
+			{ title: "A (x)", url: "https://a.example/wiki_(x)", snippet: "alpha" },
+			{ title: "B", url: "https://b.example", snippet: "beta" },
+		];
+		const r = buildSearchResponse("q", results);
+		assert.deepEqual(r.content, [{ type: "text", text: formatResults(results) }]);
+		assert.deepEqual(r.details, { query: "q", returned: 2, results });
+		assert.deepEqual(r.structuredContent, r.details);
+	});
+});
+
+// ===========================================================================
+// outputSchema + annotations (native pi 1.0.x fields)
+// ===========================================================================
+
+describe("web_search — outputSchema & annotations", () => {
+	it("(D) registered tool carries annotations { openWorldHint }", () => {
+		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
+		assert.deepEqual(tool.annotations, { openWorldHint: true });
+	});
+
+	it("(D) registered tool carries a JSON-serializable outputSchema", () => {
+		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
+		assert.ok(tool.outputSchema, "outputSchema should be present");
+		const roundTripped = JSON.parse(JSON.stringify(tool.outputSchema));
+		assert.equal(typeof roundTripped, "object");
+	});
+
+	it("(use-case) fresh and cache-hit structuredContent are identical and match outputSchema", async () => {
+		const results = [{ title: "Schema", url: "https://s.example", snippet: "matched" }];
+		const tool = registerWebSearch(execReturning(results).exec);
+		const fresh = await tool.execute("c1", { query: "schema-match" }, undefined, undefined, {
+			cwd: tmp("schema-match"),
+		});
+		const hit = await tool.execute("c2", { query: "schema-match" }, undefined, undefined, {
+			cwd: tmp("schema-match"),
+		});
+		assert.deepEqual(hit.structuredContent, fresh.structuredContent);
+		assert.ok(
+			Value.Check(WebSearchOutputSchema, fresh.structuredContent),
+			"structuredContent must validate against the declared outputSchema",
+		);
 	});
 });

@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { ExecResult, ExecFn } from "./types.ts";
+import type { ExecResult, ExecFn, SearchResult } from "./types.ts";
 import { parseFramedOutput } from "./protocol.ts";
 
 /** Root directory for web-search temp files */
@@ -132,14 +132,28 @@ export function parseSearchOutput(stdout: string): string | null {
 }
 
 /**
+ * Validate a single decoded DDG entry. Returns a normalized SearchResult when
+ * all three fields are present strings, otherwise null (entry is dropped).
+ */
+function toSearchResult(value: unknown): SearchResult | null {
+	if (typeof value !== "object" || value === null) return null;
+	const { title, url, snippet } = value as Record<string, unknown>;
+	if (typeof title !== "string" || typeof url !== "string" || typeof snippet !== "string") {
+		return null;
+	}
+	return { title, url, snippet };
+}
+
+/**
  * Parse search results from the framed output.
  * Returns parsed SearchResult array or error string.
+ *
+ * Malformed entries (missing/non-string fields, non-object values) are dropped
+ * before they can flow `undefined` into formatResults or the result payload.
  */
 export function parseSearchResults(
 	stdout: string,
-):
-	| { ok: true; results: Array<{ title: string; url: string; snippet: string }> }
-	| { ok: false; error: string } {
+): { ok: true; results: SearchResult[] } | { ok: false; error: string } {
 	const jsonText = parseSearchOutput(stdout);
 	if (!jsonText) {
 		return { ok: false, error: "No framed output found" };
@@ -149,7 +163,13 @@ export function parseSearchResults(
 		if (parsed.ok === false) {
 			return { ok: false, error: parsed.error || "Search returned error" };
 		}
-		return { ok: true, results: parsed.results || [] };
+		const raw = parsed.results;
+		const results = Array.isArray(raw)
+			? raw
+					.map(toSearchResult)
+					.filter((r): r is SearchResult => r !== null)
+			: [];
+		return { ok: true, results };
 	} catch (e) {
 		return { ok: false, error: `Failed to parse search results: ${e}` };
 	}
