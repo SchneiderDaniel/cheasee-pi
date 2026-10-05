@@ -64,6 +64,16 @@ Both tools declare an `outputSchema` and return a matching `structuredContent`:
   `structuredContent = { entries: [], count: 0, trustGranted: false, message }` so
   callers distinguish "not trusted" from "empty history" without string-matching.
   Other failures (unknown id, missing params, I/O errors) still throw.
+- **`content` is prose, not JSON** — the model-facing `content[0].text` is a
+  human-readable summary, never the `qna-result-v1` payload. Programmatic callers
+  read `structuredContent`; re-adding `JSON.stringify` to `content` is a regression
+  guarded by tests.
+
+Accepted divergences from a strict MCP-SEP-1624 reading (documented, not bugs):
+`content` is prose rather than serialized JSON (no in-repo text-parsing consumer);
+`details` carries a third `qna-result-v1` rendering for renderers; and the
+`ask_user` output fields are independently optional instead of a discriminated
+union (maps cleanly to codemode declarations).
 
 Redaction obligation: any `tool_result` handler that replaces `content` must
 also replace `structuredContent`, otherwise it is dropped by the runtime and
