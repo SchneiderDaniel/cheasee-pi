@@ -43,6 +43,15 @@ export interface RenderContainer {
 }
 
 /**
+ * Appearance-aware subtle foreground token: `dim` is too faint on light
+ * terminals, so `muted` is used there. Works with any object exposing pi's
+ * `appearance` ("dark" | "light").
+ */
+export function subtleColor(theme: Pick<RenderTheme, "appearance">): ThemeColor {
+	return theme.appearance === "light" ? "muted" : "dim";
+}
+
+/**
  * Render a thinking block (markdown content with thinkingText color + italic styling)
  * to match Pi's native assistant message thinking rendering.
  *

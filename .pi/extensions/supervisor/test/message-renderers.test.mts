@@ -27,6 +27,8 @@ const createMessageRenderer = (...args: Parameters<typeof createMessageRendererT
 const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
 	createSummaryRendererTyped(...args) as LooseRenderer;
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
+import { renderBudgetExceeded } from "../session/message-renderers/render-budget.ts";
+import { makeTestTheme } from "./helpers/theme.mts";
 import {
 	MAX_TASK_PREVIEW_CHARS,
 	MAX_EXPANDED_TOOL_CALLS,
@@ -354,5 +356,53 @@ describe("subagent-result expanded overflow boundaries", () => {
 			lines.some((l) => l.includes("…[last 500 of 501 chars]")),
 			`got: ${JSON.stringify(lines)}`,
 		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 4: appearance-aware subtle token + budget style migration
+// ═══════════════════════════════════════════════════════════════════
+
+describe("createSummaryRenderer subtle token", () => {
+	const content = "| a | b |\n**bold**";
+
+	it("dark theme styles table/bold rows with dim", () => {
+		const { theme, fgCalls } = makeTestTheme({ appearance: "dark" });
+		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
+		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
+		assert.equal(subtle.length, 2);
+		assert.ok(subtle.every((c) => c.color === "dim"), JSON.stringify(subtle));
+	});
+
+	it("light theme styles table/bold rows with muted and never dim", () => {
+		const { theme, fgCalls } = makeTestTheme({ appearance: "light" });
+		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
+		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
+		assert.equal(subtle.length, 2);
+		assert.ok(subtle.every((c) => c.color === "muted"), JSON.stringify(subtle));
+		assert.ok(!fgCalls.some((c) => c.color === "dim"), "light path must not use dim");
+	});
+
+	it("re-evaluates the subtle token per render (no cached ANSI)", () => {
+		const dark = makeTestTheme({ appearance: "dark" });
+		const light = makeTestTheme({ appearance: "light" });
+		const renderer = createSummaryRenderer({} as never);
+		renderer({ content } as never, {} as never, dark.theme as never);
+		renderer({ content } as never, {} as never, light.theme as never);
+		assert.ok(dark.fgCalls.some((c) => c.color === "dim"));
+		assert.ok(light.fgCalls.some((c) => c.color === "muted"));
+	});
+});
+
+describe("renderBudgetExceeded style adoption", () => {
+	it("styles the warning via style() and makes no fg call", () => {
+		const { theme, fgCalls, styleCalls } = makeTestTheme();
+		renderBudgetExceeded(
+			{ details: { agentName: "dev", toolCount: 5, tokenCount: 5000 } } as never,
+			{} as never,
+			theme as never,
+		);
+		assert.ok(styleCalls.some((c) => c.options.fg === "warning"), JSON.stringify(styleCalls));
+		assert.deepEqual(fgCalls, [], JSON.stringify(fgCalls));
 	});
 });

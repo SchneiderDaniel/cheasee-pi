@@ -16,6 +16,7 @@ import type {
 } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
+import { combineErrorCount } from "../../session/nested-stats.ts";
 import {
 	resolveNextStatus,
 	resolveNextStatusFromAgentOutput,
@@ -589,12 +590,6 @@ export async function applyStatusTransition(
 
 // ─── Build Agent Result Entry ─────────────────────────────────────
 
-/** Fold nested errors into the pipeline's failed-tool count (undefined when neither). */
-function combineFailedToolCount(failed?: number, nested?: number): number | undefined {
-	if (failed === undefined && nested === undefined) return undefined;
-	return (failed ?? 0) + (nested ?? 0);
-}
-
 export function buildAgentResultEntry(
 	result: AgentRunResult,
 	usedRetry: boolean,
@@ -608,7 +603,7 @@ export function buildAgentResultEntry(
 		durationMs: result.durationMs,
 		tokenCount: result.tokenCount,
 		toolCount: result.toolCount,
-		failedToolCount: combineFailedToolCount(result.failedToolCount, result.nestedErrors),
+		failedToolCount: combineErrorCount(result.failedToolCount, result.nestedErrors),
 		model,
 		errorOutput: result.errorOutput || undefined,
 		// Wall-clock timeout state flows into the pipeline summary table:

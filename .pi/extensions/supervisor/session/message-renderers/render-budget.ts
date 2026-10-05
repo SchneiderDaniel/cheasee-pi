@@ -8,5 +8,5 @@ export const renderBudgetExceeded: RendererFn = (message, _options, theme) => {
 	const tc = rawDetails.toolCount ?? 0;
 	const tok = rawDetails.tokenCount ?? 0;
 	const warning = `⚠ ${agentName} — budget exceeded (${tc} tools, ${tok} tokens)`;
-	return new Text(theme.fg("warning", warning), 1, 1);
+	return new Text(theme.style(warning, { fg: "warning" }), 1, 1);
 };

@@ -84,6 +84,9 @@ export function handleToolExecutionEnd(
 	ev: NormalizedEvent & { kind: "tool_execution_end" },
 ): HandlerResult {
 	// Nested end: record into the bounded nestedCalls list and count errors.
+	// `nestedErrorCount` is the authoritative error total — it is incremented
+	// BEFORE the cap check, so it can exceed the errors visible in the stored
+	// list (a dropped errored call still counts).
 	// Top-level toolCount/failedToolCount are intentionally left untouched.
 	if (ev.parentToolCallId) {
 		if (ev.isError) state.nestedErrorCount = (state.nestedErrorCount ?? 0) + 1;

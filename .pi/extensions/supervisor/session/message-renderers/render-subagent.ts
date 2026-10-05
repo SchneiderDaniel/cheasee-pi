@@ -4,7 +4,8 @@ import { formatTokens, formatDuration, getTermWidth } from "../../lib/formatting
 import { thinkingLabel, thinkingColor } from "../../../lib/thinking-level.ts";
 import { renderTextLines, renderToolCallText } from "../../lib/render-helpers.ts";
 import { MAX_EXPANDED_TOOL_CALLS } from "./constants.ts";
-import type { SubagentDetails, AgentToolResult, NestedCalls } from "../../subagent/types.ts";
+import { buildNestedStats, formatNestedStats } from "../nested-stats.ts";
+import type { SubagentDetails, AgentToolResult } from "../../subagent/types.ts";
 import type { RendererFn } from "./types.ts";
 
 /**
@@ -47,6 +48,7 @@ function renderSubagentResultInline(
 	const statusColor = isSuccess ? "success" : "error";
 	const statusIcon = isSuccess ? "✓" : "✗";
 	const statusText = isSuccess ? "SUCCESS" : "FAILED";
+	const nestedStats = buildNestedStats(details);
 
 	// ── Stats Parts (shared) ────────────────────────────────────
 	const statsParts: string[] = [];
@@ -80,7 +82,7 @@ function renderSubagentResultInline(
 	if (statsParts.length > 0) {
 		collapsedParts.push(theme.fg("dim", fit(statsParts.join(" · "))));
 	}
-	if (details.nestedCalls !== undefined && (details.errorCount ?? 0) > 0) {
+	if ((details.errorCount ?? 0) > 0) {
 		collapsedParts.push(theme.fg("dim", fit(`${details.errorCount} err`)));
 	}
 	if (details.summaryLine) {
@@ -118,9 +120,8 @@ function renderSubagentResultInline(
 	}
 
 	// Tool calls + nested-call section
-	const nested = details.nestedCalls;
 	const hasTopLevelTools = !!details.toolCalls && details.toolCalls.length > 0;
-	if (hasTopLevelTools || (nested && nested.calls.length > 0)) {
+	if (hasTopLevelTools || nestedStats.recorded > 0) {
 		container.addChild(new Text(fit(theme.fg("dim", "── Tools ──")), 1, 0));
 		if (details.toolCalls && details.toolCalls.length > 0) {
 			const displayCalls = details.toolCalls.slice(0, MAX_EXPANDED_TOOL_CALLS);
@@ -133,8 +134,9 @@ function renderSubagentResultInline(
 				container.addChild(new Text(fit(theme.fg("muted", `  … ${overflow} more tool calls`)), 1, 0));
 			}
 		}
-		if (nested && nested.calls.length > 0) {
-			container.addChild(new Text(fit(theme.fg("muted", formatNestedSummary(nested))), 1, 0));
+		const nestedSummary = formatNestedStats(nestedStats);
+		if (nestedSummary) {
+			container.addChild(new Text(fit(theme.fg("muted", nestedSummary)), 1, 0));
 		}
 		container.addChild(new Spacer(1));
 	}
@@ -177,9 +179,6 @@ function renderSubagentResultInline(
 	if (details.durationMs > 0) {
 		footerParts.push(formatDuration(details.durationMs));
 	}
-	if (details.nestedCalls !== undefined && (details.errorCount ?? 0) > 0) {
-		footerParts.push(`${details.errorCount} err`);
-	}
 	if (footerParts.length > 0) {
 		container.addChild(new Text(fit(theme.fg("dim", footerParts.join(" · "))), 1, 0));
 	}
@@ -187,12 +186,3 @@ function renderSubagentResultInline(
 	return container;
 }
 
-/** Compact nested-call summary: `nested: N calls (X ok, Y err)` + truncation marker. */
-function formatNestedSummary(nested: NestedCalls): string {
-	const total = nested.calls.length;
-	const ok = nested.calls.filter((c) => c.status === "ok").length;
-	const err = total - ok;
-	const noun = total === 1 ? "call" : "calls";
-	const truncated = nested.complete === false ? " (truncated)" : "";
-	return `  nested: ${total} ${noun} (${ok} ok, ${err} err)${truncated}`;
-}

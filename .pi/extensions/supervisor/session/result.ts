@@ -5,6 +5,7 @@
 
 import type { AgentRunResult } from "../config/types.ts";
 import type { AgentToolResult, SubagentDetails, NestedCall, NestedCalls } from "../subagent/types.ts";
+import { combineErrorCount } from "./nested-stats.ts";
 
 // ─── Adapter: AgentRunResult → AgentToolResult<SubagentDetails> ──────
 // Converts the pipeline's AgentRunResult (returned by runAgent) to the subagent
@@ -18,8 +19,8 @@ import type { AgentToolResult, SubagentDetails, NestedCall, NestedCalls } from "
  * - textOutput/output → content[0].text
  * - agentName/success/statusLabel/summaryLine → details.*
  * - thinkingOutput → details.thinkingOutput
- * - failedToolCount → details.errorCount
- * - nestedErrors folded into details.errorCount; nestedCalls → details.nestedCalls
+ * - failedToolCount folded with nestedErrors into details.errorCount (shared combineErrorCount)
+ * - nestedErrors → details.nestedErrorCount; nestedCalls → details.nestedCalls
  * - model/inputTokens/outputTokens/cacheRead/cacheWrite/cost/turnCount → details.*
  * - toolCalls/toolResults → empty arrays (runAgent does not track these)
  * - devTask argument → details.taskPrompt
@@ -49,30 +50,21 @@ export function convertAgentRunToToolResult(
 			taskPrompt: devTask || "",
 			budgetExceeded: result.budgetExceeded,
 			errorCount: combineErrorCount(result.failedToolCount, result.nestedErrors),
+			nestedErrorCount: result.nestedErrors,
 			nestedCalls: normalizeNestedCalls(result.nestedCalls),
 			thinkingOutput: result.thinkingOutput,
 		},
 	};
 }
 
-/**
- * Fold nested errors into the displayed error count without reclassifying
- * success. Undefined when neither source reported errors (preserves the
- * established `errorCount === undefined` pin).
- */
-function combineErrorCount(failed?: number, nested?: number): number | undefined {
-	if (failed === undefined && nested === undefined) return undefined;
-	return (failed ?? 0) + (nested ?? 0);
-}
-
-/** pi records nested status as "ok" | "error" | "unfinished"; only "ok" is ok. */
-function normalizeNestedStatus(status: unknown): "ok" | "error" {
-	return status === "ok" ? "ok" : "error";
+/** pi records nested status as "ok" | "error" | "unfinished"; preserve all three. */
+function normalizeNestedStatus(status: unknown): NestedCall["status"] {
+	return status === "ok" || status === "unfinished" ? status : "error";
 }
 
 /**
  * Map pi's native `NestedToolCalls` (or the supervisor's own DTO) onto the
- * renderer DTO: `arguments` → `args`, "unfinished" → non-ok.
+ * renderer DTO: `arguments` → `args`, unknown statuses → "error".
  */
 function normalizeNestedCalls(raw: unknown): NestedCalls | undefined {
 	if (!raw || typeof raw !== "object") return undefined;

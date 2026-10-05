@@ -359,6 +359,11 @@ const CASES: GoldenCase[] = [
 		message: subagentMessage(subagentDetails()),
 		options: { expanded: true },
 	},
+	{
+		name: "subagent-result-error-no-nested",
+		component: "Text",
+		message: subagentMessage(subagentDetails({ errorCount: 1 })),
+	},
 
 	// thinking × 2
 	{

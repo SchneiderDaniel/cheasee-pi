@@ -5,10 +5,15 @@
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/render-tool-complete-style.test.mts
  */
 
-import { describe, it } from "node:test";
+import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { renderToolComplete } from "../session/message-renderers/render-tool-complete.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
+
+before(() => {
+	initTheme();
+});
 
 function message(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
@@ -30,10 +35,10 @@ function message(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 function render(overrides: Record<string, unknown> = {}) {
-	const { theme, styleCalls } = makeTestTheme();
+	const { theme, fgCalls, styleCalls } = makeTestTheme();
 	const component = renderToolComplete(message(overrides) as never, {} as never, theme as never);
 	component!.render(80); // triggers the Box per-line bg styling
-	return { styleCalls };
+	return { fgCalls, styleCalls };
 }
 
 describe("render-tool-complete theme.style adoption", () => {
@@ -67,5 +72,16 @@ describe("render-tool-complete theme.style adoption", () => {
 			styleCalls.some((c) => c.options.fg === "muted"),
 			`expected a muted style call, got: ${JSON.stringify(styleCalls)}`,
 		);
+	});
+
+	it("makes zero theme.fg calls (all migrated to style)", () => {
+		const { fgCalls } = render({ resultText: "error: boom", thinking: "a thought" });
+		assert.deepEqual(fgCalls, [], `expected no fg calls, got: ${JSON.stringify(fgCalls)}`);
+	});
+
+	it("icon and params use style with the expected tokens", () => {
+		const { styleCalls } = render({ params: "--json", errorReason: "boom", isError: true });
+		assert.ok(styleCalls.some((c) => c.options.fg === "error"));
+		assert.ok(styleCalls.some((c) => c.options.fg === "warning"));
 	});
 });

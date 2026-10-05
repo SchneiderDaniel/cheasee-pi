@@ -41,6 +41,12 @@ export interface SubagentDetails {
 	thinkingOutput?: string;
 	/** Nested tool calls made by the subagent's tools (pi's bounded record) */
 	nestedCalls?: NestedCalls;
+	/**
+	 * True nested-error total from the live recorder. Incremented before the
+	 * bounded-record cap, so it can exceed the errors visible in `nestedCalls`.
+	 * Undefined when no nested call errored.
+	 */
+	nestedErrorCount?: number;
 
 	// ─── Widget rendering fields (populated during execution) ──
 	/** Current phase: "idle" | "thinking" | "tool" | "text" */
@@ -67,13 +73,13 @@ export interface SubagentDetails {
 
 /**
  * A single nested tool call made through pi's `ctx.executeTool()` pipeline.
- * `status` is `"error"` for both real failures and pi's `"unfinished"`
- * (still running when the calling tool finished).
+ * `status` mirrors pi's three-valued recorder: `"unfinished"` means the call
+ * was still running when the snapshot was taken.
  */
 export interface NestedCall {
 	name: string;
 	args?: Record<string, unknown>;
-	status: "ok" | "error";
+	status: "ok" | "error" | "unfinished";
 	durationMs?: number;
 	error?: string;
 }
