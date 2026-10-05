@@ -9,6 +9,8 @@
 
 import type { ExtensionAPI, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { AgentHarness } from "./agent-harness.ts";
+import type { ToolInfoProvider } from "./agent-harness.ts";
+import type { ToolInfoLike } from "./lib/tool-annotations.ts";
 import { loadProjectConfig, loadDefaultRules } from "./lib/load-config.ts";
 import type { ConfigLoaderContext } from "./lib/load-config.ts";
 
@@ -32,6 +34,25 @@ function notifyConfigFailure(pi: ExtensionAPI, ctx: ConfigLoaderContext, message
 	}
 }
 
+/**
+ * Build the tool-info port closure over `pi.getAllTools()`.
+ *
+ * Feature-detects the API: on pi floors without it the provider yields `[]`,
+ * so annotation-derived defaults simply never apply and legacy behavior holds.
+ * `getAllTools()` returns all *registered* tools (including inactive ones) — the
+ * harness only uses the map as a fallback table, so that is harmless.
+ */
+function buildToolInfoProvider(pi: ExtensionAPI): ToolInfoProvider {
+	const getAllTools = (pi as { getAllTools?: unknown }).getAllTools;
+	if (typeof getAllTools !== "function") {
+		return () => [];
+	}
+	return () => {
+		const tools = (getAllTools as () => unknown).call(pi);
+		return Array.isArray(tools) ? (tools as ToolInfoLike[]) : [];
+	};
+}
+
 // ── Extension entry point ──
 
 export default function agentHarness(pi: ExtensionAPI): void {
@@ -40,6 +61,8 @@ export default function agentHarness(pi: ExtensionAPI): void {
 	// Session start: initialize fresh state and load project config
 	pi.on("session_start", async (_data: unknown, ctx: unknown) => {
 		harness.reset();
+		// Annotations are resolved lazily per tool_call — no session snapshot.
+		harness.setToolInfoProvider(buildToolInfoProvider(pi));
 		const configCtx = (ctx ?? {}) as ConfigLoaderContext;
 		// Derive project root from ctx if available (for testability)
 		const projectRoot = configCtx.sessionManager?.getCwd?.();

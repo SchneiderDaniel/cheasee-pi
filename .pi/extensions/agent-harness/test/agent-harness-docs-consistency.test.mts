@@ -409,3 +409,39 @@ describe("Phase 5 (read cache): docs-consistency test wired into npm test", () =
 		);
 	});
 });
+
+// ══════════════════════════════════════════════════════════════════
+// Issue #1799: annotation-derived defaults + nested-call attribution.
+// ══════════════════════════════════════════════════════════════════
+
+describe("Phase 6 (#1799): annotation defaults + nested attribution documented", () => {
+	for (const { label, read } of DOCS) {
+		it(`${label}: documents annotation-derived defaults with explicit-config precedence`, () => {
+			const c = read();
+			assert.match(c, /annotations?/i);
+			assert.match(c, /readOnlyHint/);
+			assert.match(c, /destructiveHint/);
+			assert.match(c, /openWorldHint/);
+			assert.match(c, /explicit config always wins/i);
+		});
+
+		it(`${label}: documents the MCP ?? defaults (missing hint is not safe)`, () => {
+			const c = read();
+			assert.match(c, /destructiveHint \?\? true/);
+			assert.match(c, /openWorldHint \?\? true/);
+			assert.match(c, /never treated as safe/i);
+		});
+
+		it(`${label}: documents nested attribution via parentToolCallId`, () => {
+			const c = read();
+			assert.match(c, /parentToolCallId/);
+			assert.match(c, /never blocked/i);
+		});
+
+		it(`${label}: documents the Pi 0.99.0 floor + feature-detect no-op`, () => {
+			const c = read();
+			assert.match(c, /0\.99\.0/);
+			assert.match(c, /feature-detect/i);
+		});
+	}
+});

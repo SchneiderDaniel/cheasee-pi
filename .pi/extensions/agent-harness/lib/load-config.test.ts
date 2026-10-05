@@ -188,3 +188,51 @@ describe("loadProjectConfig", () => {
 		}
 	});
 });
+
+// ── Annotation-derived ToolMeta booleans (issue #1799) ──
+
+describe("loadProjectConfig — annotation ToolMeta booleans", () => {
+	it("toolMeta.read new booleans round-trip through the real loader", () => {
+		const dir = createTempDir();
+		writeConfig(dir, {
+			toolMeta: {
+				read: { trackErrors: true, openWorld: false, idempotent: true, destructive: false },
+			},
+		});
+		const rules = loadProjectConfig(makeCtx(), dir);
+		assert.equal(rules.toolMeta.read?.trackErrors, true);
+		assert.equal(rules.toolMeta.read?.openWorld, false);
+		assert.equal(rules.toolMeta.read?.idempotent, true);
+		assert.equal(rules.toolMeta.read?.destructive, false);
+	});
+
+	for (const field of ["trackErrors", "openWorld", "idempotent", "destructive"] as const) {
+		it(`non-boolean toolMeta.read.${field} → fail-closed error naming field + tool`, () => {
+			const dir = createTempDir();
+			writeConfig(dir, { toolMeta: { read: { [field]: "nope" } } });
+			assert.throws(
+				() => loadProjectConfig(makeCtx(), dir),
+				new RegExp(`toolMeta\\.read\\.${field}.*boolean`, "i"),
+			);
+		});
+	}
+
+	it("non-boolean passThrough → fail-closed", () => {
+		const dir = createTempDir();
+		writeConfig(dir, { toolMeta: { read: { passThrough: 1 } } });
+		assert.throws(() => loadProjectConfig(makeCtx(), dir), /toolMeta\.read\.passThrough.*boolean/i);
+	});
+
+	it("regression: unknown top-level key still rejected", () => {
+		const dir = createTempDir();
+		writeConfig(dir, { toolMeta: { bash: { cascadeThreshold: 4 } }, nope: true });
+		assert.throws(() => loadProjectConfig(makeCtx(), dir), /Unknown key.*"nope"/);
+	});
+
+	it("regression: bash-threshold-4 fixture still loads", () => {
+		const dir = createTempDir();
+		writeConfig(dir, { toolMeta: { bash: { cascadeThreshold: 4 } } });
+		const rules = loadProjectConfig(makeCtx(), dir);
+		assert.equal(rules.toolMeta.bash?.cascadeThreshold, 4);
+	});
+});
