@@ -169,9 +169,9 @@ graph, blast radius, and health score work fully offline.
 ## UI (web control center)
 
 The stack also includes a local `ui` service: the cheasee-pi web control
-center. In this release it serves a placeholder landing page on `GET /`; RPC
-endpoints arrive in later slices. It starts automatically with
-`cheasee-pi start`, which prints:
+center. It serves the browser control center on `GET /` and a WebSocket RPC
+relay on `/ws` for listing, attaching to, and stopping pi sessions. It starts
+automatically with `cheasee-pi start`, which prints:
 
 ```
 ℹ UI: http://127.0.0.1:9713
@@ -182,10 +182,13 @@ deterministic hash of the repo identity, probed with a next-free fallback),
 disjoint from the CodeFlow band so the two sidecars of one workspace never
 collide.
 
-The host side is **hard-pinned to loopback** (`127.0.0.1`) — there is no
-all-interfaces opt-in, so the control center is never routable off-host. The
-URL is printed with the literal `127.0.0.1` rather than `localhost` so it
-matches the published IPv4 loopback bind on every host.
+The host side is **bound to loopback** (`127.0.0.1`) by configuration — there is
+no all-interfaces opt-in. This is a reachability default, not a hard isolation
+boundary: Docker Engine before 28.0.0 may expose a loopback-published port to
+hosts on the same L2 segment, and this project accepts Engine 24.0.0 and later
+(see [Security](security.md); hardening is tracked under #1527). The URL is
+printed with the literal `127.0.0.1` rather than `localhost` so it matches the
+published IPv4 loopback bind on every host.
 
 To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
 the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
@@ -221,6 +224,38 @@ reaches the sequence, so a hand-edited settings or env payload cannot inject
 terminal control characters. On a terminal too narrow to fit both the left
 session/trust content and the group, the group is kept and the left content is
 truncated first.
+
+### Starting and reconnecting
+
+Start (or restart) the sidecar together with the agent:
+
+```bash
+cheasee-pi start
+```
+
+Open the printed `ℹ UI:` URL in a browser to reach the control center. To
+reconnect after closing the tab, reopen the same URL — the sidecar keeps running
+(compose `restart: unless-stopped`) and the session list is read from the shared
+workspace mount, so a running pi session reappears without a restart. Stopping
+the stack with `cheasee-pi down` stops the sidecar too.
+
+The sidecar binds **all container interfaces** at `0.0.0.0:3000` (required for
+docker-proxy/DNAT to deliver the published port); the *host* side is bound to
+`127.0.0.1:<port>` by the compose mapping.
+
+### Terminal + UI coexistence (in-use guard)
+
+A terminal session and the UI can drive the same workspace at once, but only one
+process may *attach* to a given session. `cheasee-pi start` publishes a
+live-session claim at `.pi/sessions/.cheasee-inuse/<sessionId>` on the shared
+workspace mount; the UI relay reads that claim and refuses a second attach with:
+
+```
+session <id> is in use by another process — fork or clone instead
+```
+
+The claim is dropped when the CLI session exits. To work in parallel, fork or
+clone the session from the UI instead of attaching.
 
 ## Run pi
 

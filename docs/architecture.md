@@ -101,6 +101,36 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 - unzip (archive extraction)
 - GitHub CLI (gh)
 
+## UI service (web control center)
+
+The compose stack runs a third managed service alongside `cheasee-pi` and
+`codeflow`: a local `ui` sidecar — the cheasee-pi web control center (a Leptos
+shell served by Axum). It mounts the workspace at `/workspaces/main` read-write
+so it can list, attach to, and stop pi sessions, and mounts `~/.config/gh` +
+`~/.config/cheasee-pi` **read-only** because those can hold plaintext
+credentials and the server is reachable from the host browser.
+
+**Loopback-bound publish.** The compose mapping is
+`127.0.0.1:${PI_UI_PORT:-9500}:3000`. The explicit `127.0.0.1` host prefix is
+what pins the published port to loopback — Docker otherwise listens on all host
+interfaces (`0.0.0.0` / `::`) for a published port. There is no all-interfaces
+opt-in (unlike CodeFlow's `CODEFLOW_HOST_IP`). The two binds are distinct and
+both required: the container side binds `0.0.0.0:3000` (docker-proxy/DNAT must
+reach it) while the host side is published on `127.0.0.1:<port>` only.
+
+This is loopback-bound configuration, not a hard isolation boundary. Docker
+Engine before 28.0.0 may expose a loopback-published port to hosts on the same
+L2 segment, and this project accepts Engine 24.0.0 and later, so the `ui` port
+inherits that caveat on those engines. Hardening the mapping (and the deferred
+non-localhost opt-in) is tracked under #1527.
+
+**No `docker.sock`.** The `ui` service does not mount `/var/run/docker.sock` and
+never will: the Docker daemon runs as root and trusts any client that can write
+to the socket, so a container holding it is host-root-equivalent — it can
+request privileged containers and host mounts without ever escaping. The sidecar
+therefore never talks to the Docker API; session control goes through the
+shared workspace mount, not the daemon.
+
 ## Shared extension library (`lib/`)
 
 The `.pi/extensions/lib/` directory contains shared TypeScript modules used across multiple extensions, avoiding code duplication:

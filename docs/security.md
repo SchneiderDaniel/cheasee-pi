@@ -71,7 +71,45 @@ The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from 
 - **UID/GID mapping:** Host user's UID/GID is mapped to container user `agentuser` via `gosu` — prevents permission escalation on bind-mounted files
 - **Rootless:** The container runs as `agentuser`, not root
 - **Bind mount only:** The repo root is mounted read-write; no privileged mounts
-- **No exposed ports:** The container has no network-exposed services
+- **Published ports bound to loopback:** The `cheasee-pi` agent container has no network-exposed services. The `ui` sidecar (web control center) publishes one host port, bound to IPv4 loopback (`127.0.0.1:<port>`) by the compose mapping — the explicit `127.0.0.1` prefix pins it, not Docker's default (which listens on all interfaces). This is loopback-bound configuration, not a hard isolation boundary: Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the same L2 segment, and the supported floor is Engine 24.0.0. Loopback is the default and the only supported mode; non-localhost exposure and the pre-28 caveat are tracked for hardening in the compose-harness work (#1527).
+
+## UI sidecar network posture
+
+The `ui` sidecar (web control center) host bind is set to `127.0.0.1` in the
+compose mapping, so it is loopback-bound by configuration; non-localhost UI
+exposure is deliberately deferred to the compose-harness hardening work
+(#1527).
+
+The CodeFlow sidecar publishes its own host port independently, via
+`CODEFLOW_PORT`, and its host-side bind is controlled by `CODEFLOW_HOST_IP`
+(default `127.0.0.1`). Unlike the UI, CodeFlow has an explicit all-interfaces
+opt-in: setting `CODEFLOW_HOST_IP=0.0.0.0` publishes CodeFlow on every host
+interface. See [cli.md](cli.md#environment-variables) for the full port and
+host-IP reference.
+
+Loopback-bound is a configuration guarantee, not a hard isolation boundary.
+Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the
+same L2 segment, and this project accepts Engine 24.0.0 and later, so on those
+engines the port is not guaranteed to be unreachable off-host. Treat the control
+center as if it could be reached from the local network until #1527 hardens the
+mapping.
+
+Loopback is a **reachability pin, not an authorization boundary**. The control
+center performs no authentication, and the loopback pin is the only control on
+its surface, which includes:
+
+- the WebSocket RPC relay on `/ws` — the handshake is not constrained by the
+  browser same-origin policy, so without `Origin` validation a malicious page
+  could open a two-way channel to the loopback server (cross-site WebSocket
+  hijacking);
+- an unauthenticated `GET /debug/child` endpoint returning the child PID,
+  session id, auth source, and provider env-var *names*;
+- the absence of `Host`-header allow-listing, which leaves DNS-rebinding attacks
+  (a page resolving its own origin to `127.0.0.1`) viable against the HTTP
+  surface.
+
+Any other local process or user on the same host can also reach the port. Treat
+the control center as trusted-local-only until #1527 lands.
 
 ## npm package age gate
 
