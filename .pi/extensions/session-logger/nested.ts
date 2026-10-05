@@ -10,35 +10,16 @@
  * carry `parentToolCallId` (the host rebuilds the payload field-by-field and
  * omits it), so attribution is derived from the id suffix, never the event.
  *
- * The `NestedToolCalls` / `NestedToolCallRecord` shapes mirror the host's
- * published types. They are declared locally because the installed
- * `@earendil-works/pi-ai` version predates them; the field names are kept
- * identical so a host upgrade stays structurally compatible.
+ * The `NestedToolCalls` / `NestedToolCallRecord` shapes are host wire data
+ * owned by `@earendil-works/pi-ai`; they are imported and re-exported here so
+ * the logger never redeclares them and cannot drift on a host upgrade.
  */
+
+import type { NestedToolCallRecord, NestedToolCalls } from "@earendil-works/pi-ai";
 
 // ── Types ──
 
-/** A tool call that another tool made while it ran (e.g. from a codemode script). */
-interface NestedToolCallRecord {
-	id: string;
-	name: string;
-	/** Omitted when over the size limits; `argumentsBytes` then gives their size. */
-	arguments?: unknown;
-	/** UTF-8 size of the arguments as JSON, set when `arguments` is omitted. */
-	argumentsBytes?: number;
-	/** `unfinished`: the call was still running when the calling tool finished. */
-	status: "ok" | "error" | "unfinished";
-	durationMs?: number;
-	/** Error text, truncated. */
-	error?: string;
-}
-
-/** Bounded record of the nested calls a tool made. */
-export interface NestedToolCalls {
-	calls: NestedToolCallRecord[];
-	/** False when calls were dropped, arguments omitted, or calls had not finished. */
-	complete: boolean;
-}
+export type { NestedToolCallRecord, NestedToolCalls };
 
 /** Why a `NestedToolCalls` record is incomplete. */
 export type IncompleteReason = "dropped" | "arguments-omitted" | "unfinished";
