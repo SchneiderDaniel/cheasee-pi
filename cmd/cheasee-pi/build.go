@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -82,42 +80,21 @@ func runBuild(ctx context.Context, noCache, pull bool) error {
 		return fmt.Errorf("extract compose files: %w", err)
 	}
 
-	composeFile := filepath.Join(cacheDir, "docker-compose.yml")
-	// Per-build cache-busting stamp so the pi-coding-agent layer always
-	// re-resolves @latest (same as dockerComposeUp): Docker caches RUN
-	// layers on the command text + ARG values, and an unchanging ARG
-	// would serve a stale pi from the layer cache — the "Update
-	// Available" nag pointing at a version the image never carries.
-	// The pi layer sits after the clone/npm-ci layers (Layer 6c), so this
-	// per-build bust re-runs only the pi install — clone + npm ci stay
-	// cached across builds.
-	stamp := fmt.Sprintf("%d", time.Now().Unix())
-	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
+	composeDir := cacheDir
+	spec := composeBuildSpec{
+		label:   "Building container image",
+		wrapErr: func(err error) error { return fmt.Errorf("docker compose build: %w", err) },
+	}
 	if noCache {
-		args = append(args, "--no-cache")
+		spec.extraArgs = append(spec.extraArgs, "--no-cache")
+		spec.label = "Building container image (no cache), full rebuild"
 	}
 	if pull {
-		args = append(args, "--pull")
+		spec.extraArgs = append(spec.extraArgs, "--pull")
 	}
 
-	buildCmd := runCommandContext(ctx, "docker", args...)
-	buildCmd.SetDir(cacheDir)
-
-	// compose validates every volume spec even for `build`, so
-	// WORKSPACE_HOST_PATH must be set (same env application as start/down:
-	// memory/cpus/git identity from settings.json ride along).
-	applyComposeEnv(buildCmd, root, containerName(root), cacheDir)
-
-	buildCmd.SetStdout(os.Stderr)
-	buildCmd.SetStderr(os.Stderr)
-
-	label := "Building container image"
-	if noCache {
-		label += " (no cache), full rebuild"
-	}
-	fmt.Fprintf(os.Stderr, "  ℹ %s...\n", label)
-	if err := buildCmd.Run(); err != nil {
-		return fmt.Errorf("docker compose build: %w", err)
+	if err := composeBuild(ctx, composeDir, root, containerName(root), spec); err != nil {
+		return err
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Image built\n")
 	// A running container keeps the old image: compose up -d is the only
@@ -132,9 +109,10 @@ func runBuild(ctx context.Context, noCache, pull bool) error {
 		// Rebuild reclaims the image it just orphaned: the previous image
 		// turns dangling the moment the new build finishes. Failed builds
 		// skip this — BuildKit self-cleans intermediates and `clean` is the
-		// deep-clean path.
-		pruneDanglingImages()
-		pruneBuildCache()
+		// deep-clean path. Both prunes stay best-effort (`_ =`): a prune
+		// hiccup must not fail the build.
+		_ = pruneDanglingImages(ctx, true)
+		_ = pruneBuildCache(ctx, false)
 	}
 	return nil
 }

@@ -125,10 +125,10 @@ func runPruneImagesE(cmd *cobra.Command, _ []string) error {
 	// the cache become reclaimable. Order matters — prune the images first.
 	// Failures surface: the tagged images may be gone but the disk pressure
 	// they caused is not, and silence would hide that.
-	if err := pruneOrphanedImages(ctx); err != nil {
+	if err := pruneDanglingImages(ctx, false); err != nil {
 		return fmt.Errorf("prune-images: %w", err)
 	}
-	if err := pruneAllBuildCache(ctx); err != nil {
+	if err := pruneBuildCache(ctx, true); err != nil {
 		return fmt.Errorf("prune-images: %w", err)
 	}
 	return nil

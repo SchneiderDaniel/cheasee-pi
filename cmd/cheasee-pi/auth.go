@@ -219,7 +219,7 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintf(os.Stderr, "Configured providers:\n")
 	for name, key := range providers {
-		masked := maskKey(key)
+		masked := redactSecret(key)
 		fmt.Fprintf(os.Stderr, "  %-15s %s\n", name, masked)
 	}
 
@@ -379,12 +379,4 @@ func emitJSONMapping(cmd *cobra.Command, aliases map[string]string) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(ordered)
-}
-
-// maskKey shows first 4 and last 4 chars of a key for display.
-func maskKey(key string) string {
-	if len(key) <= 8 {
-		return "****"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
 }

@@ -8,6 +8,58 @@ import (
 	"time"
 )
 
+// composeBuildSpec parameterizes composeBuild: the caller owns the extra
+// args, the label text, the optional pre-build notice, and the error wrap;
+// composeBuild owns the stamp, argv assembly, env, redirect and ordering.
+type composeBuildSpec struct {
+	extraArgs []string          // appended after the stamp build-arg, e.g. --no-cache --pull
+	label     string            // build label printed as "  ℹ <label>..."
+	notice    string            // optional pre-build notice line (blank-line separated); "" → none
+	wrapErr   func(error) error // nil → return the raw Run() error
+}
+
+// composeBuild runs `docker compose -f <composeDir>/docker-compose.yml build`
+// with a per-build cache-busting PI_BUILD_STAMP, the caller's extra args, the
+// compose env, and the notice-before-label ordering shared by start and build.
+func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerName string, spec composeBuildSpec) error {
+	composeFile := filepath.Join(composeDir, "docker-compose.yml")
+
+	// Per-build cache-busting stamp so the pi-coding-agent layer always
+	// re-resolves @latest: Docker caches RUN layers on the command text +
+	// ARG values, and an unchanging ARG would serve a stale pi from the
+	// layer cache — the "Update Available" nag pointing at a version the
+	// image never carries. Never a constant. The pi layer sits after the
+	// clone/npm-ci layers, so this bust re-runs only the pi install —
+	// clone + npm ci stay cached across builds.
+	stamp := fmt.Sprintf("%d", time.Now().Unix())
+	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
+	args = append(args, spec.extraArgs...)
+
+	build := runCommandContext(ctx, "docker", args...)
+	build.SetDir(composeDir)
+	build.SetStdout(os.Stderr)
+	build.SetStderr(os.Stderr)
+	// compose validates every volume spec even for `build`, so
+	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
+	// cpus/git identity from settings.json ride along).
+	applyComposeEnv(build, workspaceHostPath, containerName, composeDir)
+	if spec.notice != "" {
+		// The notice precedes the build label with blank-line separation so
+		// buildx tty inline rendering (compose build paints over preceding
+		// lines in a terminal) cannot clobber it on exactly the run it
+		// explains.
+		fmt.Fprintf(os.Stderr, "\n  ℹ %s\n\n", spec.notice)
+	}
+	fmt.Fprintf(os.Stderr, "  ℹ %s...\n", spec.label)
+	if err := build.Run(); err != nil {
+		if spec.wrapErr != nil {
+			return spec.wrapErr(err)
+		}
+		return err
+	}
+	return nil
+}
+
 // dockerComposeUp builds and starts the container from the cache dir. The
 // compose file lives at composeDir/docker-compose.yml; the workspace root
 // (workspaceHostPath) is injected as WORKSPACE_HOST_PATH and its sibling bare
@@ -25,31 +77,16 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 		return fmt.Errorf("workspace is corrupt: bare repository %s is missing (cheasee-settings.json present, no .bare sibling) — re-run `cheasee-pi init` in an empty folder and clone again", bareDir)
 	}
 
-	// Build with a per-build cache-busting stamp so the pi-coding-agent
-	// layer always re-resolves @latest (Docker caches RUN layers on the
-	// command text + ARG values; an unchanging ARG means a stale pi).
-	// The pi layer sits after the clone/npm-ci layers, so the bust re-runs
-	// only the pi install — clone + npm ci stay cached across builds.
-	stamp := fmt.Sprintf("%d", time.Now().Unix())
-	build := runCommandContext(ctx, "docker", "compose",
-		"-f", composeFile,
-		"build", "--build-arg", "PI_BUILD_STAMP="+stamp,
-	)
-	build.SetStdout(os.Stderr)
-	build.SetStderr(os.Stderr)
-	// compose validates every volume spec even for `build`, so
-	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
-	// cpus/git identity from settings.json ride along).
-	applyComposeEnv(build, workspaceHostPath, containerName, composeDir)
+	// First-build expectations: the notice rides ahead of the build label (see
+	// composeBuild). Static text — no measured size.
+	notice := ""
 	if firstBuild {
-		// First-build expectations: the notice precedes the build label with
-		// blank-line separation so buildx tty inline rendering (compose build
-		// paints over preceding lines in a terminal) cannot clobber it on
-		// exactly the first run it explains. Static text — no measured size.
-		fmt.Fprintf(os.Stderr, "\n  ℹ First start downloads ~1GB of build-time dependencies (Chromium, Node.js, Python toolchain); this can take several minutes on slower connections.\n\n")
+		notice = "First start downloads ~1GB of build-time dependencies (Chromium, Node.js, Python toolchain); this can take several minutes on slower connections."
 	}
-	fmt.Fprintf(os.Stderr, "  ℹ Building container image...\n")
-	if err := build.Run(); err != nil {
+	if err := composeBuild(ctx, composeDir, workspaceHostPath, containerName, composeBuildSpec{
+		label:  "Building container image",
+		notice: notice,
+	}); err != nil {
 		return err
 	}
 

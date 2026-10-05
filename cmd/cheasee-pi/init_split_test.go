@@ -53,7 +53,6 @@ var wantInitDecls = map[string]string{
 
 	"func:runInitAuth":       "init_auth.go",
 	"func:runInitAPIKeys":    "init_auth.go",
-	"func:runInitLegacy":     "init_auth.go",
 	"func:runInitLegacyAuth": "init_auth.go",
 	"func:runReauth":         "init_auth.go",
 	"func:promptAPIKey":      "init_auth.go",
@@ -454,7 +453,7 @@ var upSplitRules = []prefixRule{
 	{"TestBuildEnvFlags", "up_env_test.go"},
 	{"TestAllEnvVarNames", "up_env_test.go"},
 	{"TestProviderPassthroughNames", "up_env_test.go"},
-	{"TestRedactEnvValue", "up_env_test.go"},
+	{"TestRedactSecret", "up_env_test.go"},
 	{"TestTmpCleanFindArgs", "up_env_test.go"},
 	{"TestOrphanScanBash", "up_orphans_test.go"},
 	{"TestScanOrphans", "up_orphans_test.go"},

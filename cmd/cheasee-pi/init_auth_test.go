@@ -365,22 +365,6 @@ func TestRunInit_ErrUnsupportedFallsBackToLegacy(t *testing.T) {
 	}
 }
 
-func TestRunInitLegacy_ReturnsScalars(t *testing.T) {
-	// runInitLegacy is auth-only: returns (provider, apiKey) scalars, does
-	// NOT save/extract/render — the orchestrator threads them into the
-	// phase-7 SetLegacyAuth raw-map patch.
-	provider, apiKey, err := runInitLegacy(context.Background(), FakeAPIKey, "opencode-go")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if apiKey != FakeAPIKey {
-		t.Errorf("expected API key %q, got %q", FakeAPIKey, apiKey)
-	}
-	if provider != "opencode-go" {
-		t.Errorf("expected provider %q, got %q", "opencode-go", provider)
-	}
-}
-
 func TestRunInitLegacyAuth_ReturnsScalars(t *testing.T) {
 	// The helper is the shared tail of the two Phase-4 legacy branches in
 	// runInit: returns the legacy (provider, apiKey) scalar pair, no
@@ -404,8 +388,8 @@ func TestRunInitLegacyAuth_NoPrintsNoWorkdir(t *testing.T) {
 	// The helper is auth-only: it must neither print (the orchestrator owns
 	// the ℹ/⚠ stderr contract) nor consume the workdir (the orchestrator
 	// stamps repo_path in the phase-7 patch). The error path is a bare
-	// return from runInitLegacy — no seam forces promptAPIKey to fail, so no
-	// error-passthrough test is added for this refactor.
+	// return — no seam forces promptAPIKey to fail, so no error-passthrough
+	// test is added for this refactor.
 	sentinel := t.TempDir()
 	var provider, apiKey string
 	var err error

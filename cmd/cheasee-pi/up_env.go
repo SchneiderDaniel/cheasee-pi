@@ -70,9 +70,10 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 	return envMap, nil
 }
 
-// redactEnvValue shortens a secret for dry-run output: values longer than
-// 8 chars show the first and last 4 chars; shorter values print in full.
-func redactEnvValue(v string) string {
+// redactSecret shortens a secret for display (the dry-run env dump and the
+// `auth list` key preview): values longer than 8 chars show the first and last
+// 4 chars; shorter values print in full.
+func redactSecret(v string) string {
 	if len(v) > 8 {
 		return v[:4] + "..." + v[len(v)-4:]
 	}
