@@ -75,10 +75,17 @@ The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from 
 
 ## UI sidecar network posture
 
-The `ui` sidecar (web control center) is the only component that publishes a
-host port. Its host bind is set to `127.0.0.1` in the compose mapping, so it is
-loopback-bound by configuration; non-localhost exposure is deliberately
-deferred to the compose-harness hardening work (#1527).
+The `ui` sidecar (web control center) host bind is set to `127.0.0.1` in the
+compose mapping, so it is loopback-bound by configuration; non-localhost UI
+exposure is deliberately deferred to the compose-harness hardening work
+(#1527).
+
+The CodeFlow sidecar publishes its own host port independently, via
+`CODEFLOW_PORT`, and its host-side bind is controlled by `CODEFLOW_HOST_IP`
+(default `127.0.0.1`). Unlike the UI, CodeFlow has an explicit all-interfaces
+opt-in: setting `CODEFLOW_HOST_IP=0.0.0.0` publishes CodeFlow on every host
+interface. See [cli.md](cli.md#environment-variables) for the full port and
+host-IP reference.
 
 Loopback-bound is a configuration guarantee, not a hard isolation boundary.
 Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the
