@@ -284,17 +284,24 @@ async function shutdownServer(connection: MessageConnection): Promise<void> {
 }
 
 /**
- * Clean up the child process: detach error listeners (prevents async errors
- * after cleanup), then SIGTERM with a 5s escalation to SIGKILL if still
- * running.
+ * Clean up the child process: replace error listeners with no-op swallowers
+ * (a late pipe error must never be fatal), then SIGTERM with a 5s escalation
+ * to SIGKILL if still running.
  */
 function terminateChild(child: ChildProcess | null): void {
 	if (!child) return;
-	// Remove all error listeners to prevent async errors after cleanup
+	// A late EPIPE from an in-flight write (e.g. the fire-and-forget `exit`
+	// notification) is emitted as an 'error' event on the stdio pipe. If the
+	// listener is merely removed, Node re-throws it as an uncaughtException and
+	// takes the whole agent process down. The pipe is already dead by then, so
+	// swallowing is the correct handling — never bare-remove these listeners.
 	child.removeAllListeners("error");
-	if (child.stdin) child.stdin.removeAllListeners("error");
-	if (child.stdout) child.stdout.removeAllListeners("error");
-	if (child.stderr) child.stderr.removeAllListeners("error");
+	child.on("error", () => {});
+	for (const stream of [child.stdin, child.stdout, child.stderr]) {
+		if (!stream) continue;
+		stream.removeAllListeners("error");
+		stream.on("error", () => {});
+	}
 	if (child.exitCode === null) {
 		child.kill("SIGTERM");
 		const childRef = child;
