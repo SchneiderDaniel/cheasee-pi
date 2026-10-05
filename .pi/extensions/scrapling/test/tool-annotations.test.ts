@@ -78,7 +78,7 @@ describe("web_crawl annotations — pi.getAllTools() runtime surface", () => {
 });
 
 describe("runtime pin — pi 1.0.2 lockstep", () => {
-	it("(infra) package.json tracks all three @earendil-works/pi-* at a 1.0.2 floor", () => {
+	it("(infra) package.json pins all three @earendil-works/pi-* to exactly 1.0.2", () => {
 		const pkgPath = resolve(import.meta.dirname, "../../../../package.json");
 		const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
 			dependencies: Record<string, string>;
@@ -88,7 +88,23 @@ describe("runtime pin — pi 1.0.2 lockstep", () => {
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
 		]) {
-			assert.match(pkg.dependencies[name], /^\^1\.0\.2$/, `${name} must declare a ^1.0.2 floor`);
+			assert.equal(pkg.dependencies[name], "1.0.2", `${name} must be pinned to exactly 1.0.2`);
+		}
+	});
+
+	it("(infra) package-lock.json locks the same exact @earendil-works/pi-* versions", () => {
+		const lockPath = resolve(import.meta.dirname, "../../../../package-lock.json");
+		const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
+			packages: Record<string, { dependencies?: Record<string, string> }>;
+		};
+		const root = lock.packages[""];
+		assert.ok(root?.dependencies, "package-lock root package must declare dependencies");
+		for (const name of [
+			"@earendil-works/pi-ai",
+			"@earendil-works/pi-coding-agent",
+			"@earendil-works/pi-tui",
+		]) {
+			assert.equal(root.dependencies![name], "1.0.2", `${name} must be pinned in package-lock root`);
 		}
 	});
 });
