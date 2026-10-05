@@ -295,10 +295,20 @@ export class AgentHarness {
 			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
 
 		// ── Index this call id → its composite counter identity (tool + bash
-		// sub-key) so nested calls roll up to the exact parent entry. Also handles
-		// depth ≥2: a nested call's own synthetic id may itself be a parent.
+		// sub-key) so nested calls roll up to the exact parent entry. For a nested
+		// call we propagate the parent's already-resolved identity instead, so a
+		// grandchild (depth ≥2) still rolls up to the root parent rather than to a
+		// counter entry under the nested tool (which is never recorded). An unmapped
+		// parent is left unindexed → its descendants stay uncounted.
 		if (toolCallId) {
-			this.state.callIdIndex.set(toolCallId, { toolName, subKey: bashSubKey }, sessionTurn);
+			if (parentToolCallId) {
+				const parentIdentity = this.state.callIdIndex.get(parentToolCallId, sessionTurn);
+				if (parentIdentity) {
+					this.state.callIdIndex.set(toolCallId, parentIdentity, sessionTurn);
+				}
+			} else {
+				this.state.callIdIndex.set(toolCallId, { toolName, subKey: bashSubKey }, sessionTurn);
+			}
 		}
 
 		// ── Step 0.5: Nested-call attribution ──

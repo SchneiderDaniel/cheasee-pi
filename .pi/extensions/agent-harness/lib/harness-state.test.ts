@@ -116,16 +116,41 @@ describe("HarnessState — nested call attribution", () => {
 		);
 	});
 
-	it("nested roll-up survives an interleaved re-record of the parent", () => {
+	it("nested roll-up is consumed by the parent's cascade check; a sibling does not reset the chain", () => {
 		const s = createHarnessState();
 		s.callCounter.record("A", 0, 0);
 		s.callCounter.record("B", 0, 1);
 		s.callCounter.recordNested({ toolName: "A" }, 0);
+		assert.equal(
+			s.callCounter.getConsecutive("A").count,
+			2,
+			"nested roll-up is visible before the parent is re-recorded",
+		);
 		s.callCounter.record("A", 0, 2);
 		assert.equal(
 			s.callCounter.getConsecutive("A").count,
+			1,
+			"re-recording after an interleaved sibling starts a fresh chain",
+		);
+	});
+
+	it("a late nested call under a non-active parent does not rewind the active chain", () => {
+		const s = createHarnessState();
+		s.callCounter.record("A", 0, 0); // A recorded, then B takes over the chain
+		s.callCounter.record("B", 0, 1);
+		s.callCounter.record("B", 0, 2);
+		// A's nested call lands late, after B has advanced the active chain.
+		s.callCounter.recordNested({ toolName: "A" }, 0);
+		s.callCounter.record("B", 0, 3);
+		assert.equal(
+			s.callCounter.getConsecutive("B").count,
 			3,
-			"nested roll-up is preserved when the parent is re-recorded after B",
+			"nested roll-up under A must not reset B's consecutive chain",
+		);
+		assert.equal(
+			s.callCounter.getConsecutive("A").count,
+			2,
+			"A's roll-up remains visible for its own cascade check",
 		);
 	});
 
@@ -156,8 +181,8 @@ describe("HarnessState — nested call attribution", () => {
 		s.callCounter.record("bash", 0, 2, "npm test");
 		assert.equal(
 			s.callCounter.getConsecutive("bash", "npm test").count,
-			1,
-			"the sibling sub-key is not inflated by the roll-up",
+			2,
+			"the sibling sub-key keeps its own active chain — not inflated by the roll-up",
 		);
 	});
 

@@ -1885,6 +1885,41 @@ describe("AgentHarness — nested call attribution", () => {
 			"nested write invalidated the read cache",
 		);
 	});
+
+	it("a late nested call under a non-active parent does not rewind the sibling's chain", () => {
+		const h = new AgentHarness({
+			toolMeta: { alpha: { cascadeThreshold: 3 }, beta: { cascadeThreshold: 3 } },
+			cascadeThreshold: 8,
+		});
+		// alpha executes first (p1), then beta runs twice (b1, b2).
+		h.handleToolCall({ toolName: "alpha", input: {}, toolCallId: "p1" }, makeCtx());
+		h.handleToolCall({ toolName: "beta", input: {}, toolCallId: "b1" }, makeCtx());
+		h.handleToolCall({ toolName: "beta", input: {}, toolCallId: "b2" }, makeCtx());
+		// A's nested call lands late — it must not steal the active chain from beta.
+		h.handleToolCall(nested("read", "p1/1", "p1"), makeCtx());
+		const r = h.handleToolCall({ toolName: "beta", input: {} }, makeCtx());
+		assert.ok(r?.block, "beta's third consecutive call still cascades at its threshold");
+	});
+
+	it("grandchild nested calls (depth ≥2) attribute to the root parent, not a same-named sibling counter", () => {
+		const h = new AgentHarness();
+		// A model-issued 'read' creates a counter entry under that name.
+		h.handleToolCall({ toolName: "read", input: { path: "seed.ts" }, toolCallId: "r0" }, makeCtx());
+		// Model-issued parent 'outer' issues a nested 'read', which issues grandchildren.
+		h.handleToolCall({ toolName: "outer", input: {}, toolCallId: "p1" }, makeCtx());
+		h.handleToolCall(nested("read", "p1/1", "p1", {}, true), makeCtx());
+		h.handleToolCall(nested("leaf", "p1/1/1", "p1/1", {}, true), makeCtx());
+		h.handleToolCall(nested("leaf", "p1/1/2", "p1/1", {}, true), makeCtx());
+
+		const r = h.handleToolCall({ toolName: "outer", input: {} }, makeCtx());
+		assert.ok(r?.block, "depth-2 nested errors roll up to the root parent 'outer'");
+		assert.ok(r!.reason.includes("errored 3x"), "all nested errors counted against outer");
+		assert.equal(
+			h.handleToolCall(makeEvent("read", { path: "other.ts" }), makeCtx()),
+			null,
+			"the same-named 'read' counter is not polluted by foreign nested errors",
+		);
+	});
 });
 
 describe("AgentHarness — tool-info provider wiring", () => {

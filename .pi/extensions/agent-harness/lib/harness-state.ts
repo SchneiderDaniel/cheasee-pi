@@ -94,14 +94,16 @@ export interface HarnessState {
 		 * Roll a nested call up under its parent's composite counter identity.
 		 * The parent identity (incl. bash sub-key) is captured from the call-id
 		 * index at `tool_call` time; this never creates an entry, so an unmapped
-		 * parent (or one cleared at a turn boundary) is a no-op. Re-asserts the
-		 * parent as the active chain key so the roll-up is visible to
-		 * `getConsecutive` even when a sibling interleaved.
+		 * parent (or one cleared at a turn boundary) is a no-op. The roll-up
+		 * increments the parent's stored count but deliberately leaves the
+		 * model-issued active chain key unchanged, so a late nested call cannot
+		 * rewind a sibling's in-flight chain.
 		 */
 		recordNested(parent: CallIdEntry, sessionTurn: number): void;
 		/**
 		 * Get consecutive call info for a composite key.
-		 * Returns count 0 if composite key doesn't match the last recorded key.
+		 * Returns count 0 unless the key is the active model chain or carries a
+		 * nested roll-up (which stays visible without re-anchoring the chain).
 		 */
 		getConsecutive(toolName: string, subKey?: string): ConsecutiveInfo;
 		/** Reset all counters. Clears the call-id index too. */
@@ -220,6 +222,8 @@ export function createHarnessState(): HarnessState {
 		toolName: string;
 		count: number;
 		sinceTurn: number;
+		/** Nested roll-ups rolled into `count` for this key. */
+		nested: number;
 	}
 
 	let lastKey: string | null = null;
@@ -246,14 +250,17 @@ export function createHarnessState(): HarnessState {
 			} else {
 				// Composite key changed — start fresh chain
 				lastKey = key;
-				callMap.set(key, { toolName, count: 1, sinceTurn: sessionTurn });
+				callMap.set(key, { toolName, count: 1, sinceTurn: sessionTurn, nested: 0 });
 			}
 		},
 
 		getConsecutive(toolName: string, subKey?: string): ConsecutiveInfo {
 			const key = makeKey(toolName, subKey);
 			const state = callMap.get(key);
-			if (!state || key !== lastKey) {
+			// A key is visible when it is the model-issued active chain, or when a
+			// nested call rolled into it (nested > 0). The latter keeps the roll-up
+			// visible to the parent's cascade check without re-anchoring lastKey.
+			if (!state || (key !== lastKey && state.nested === 0)) {
 				return { toolName: "", count: 0, sinceTurn: 0 };
 			}
 			return {
@@ -271,9 +278,10 @@ export function createHarnessState(): HarnessState {
 			const existing = callMap.get(key);
 			if (!existing) return;
 			existing.count++;
-			// Re-assert the parent as the active chain key so getConsecutive()
-			// exposes the roll-up even when a sibling interleaved before it.
-			lastKey = key;
+			existing.nested++;
+			// Deliberately do NOT touch lastKey: the roll-up must stay separate from
+			// the model-issued active chain, otherwise a late nested call under A
+			// rewinds B's in-flight chain (B1/B2 → nested-A → B3 would reset B).
 		},
 
 		reset(): void {
