@@ -144,6 +144,14 @@ describe("structural-analyzer wiring guards", () => {
 		);
 	});
 
+	it("root npm test script runs parser.test.mts (schema-drift guard stays in CI)", () => {
+		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+		assert.ok(
+			root.scripts.test.includes("structural-analyzer/test/parser.test.mts"),
+			"package.json test script must include structural-analyzer/test/parser.test.mts",
+		);
+	});
+
 	it("root npm test script runs renderer.test.mts exactly once (render regression suite stays in CI)", () => {
 		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
 		const rendererEntry = ".pi/extensions/structural-analyzer/test/renderer.test.mts";
@@ -160,7 +168,9 @@ describe("structural-analyzer wiring guards", () => {
 	it("this wiring guard file is itself wired into npm test (cannot be silently disabled)", () => {
 		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
 		assert.ok(
-			String(root.scripts.test).includes(".pi/extensions/structural-analyzer/test/structural-analyzer.test.mts"),
+			String(root.scripts.test).includes(
+				".pi/extensions/structural-analyzer/test/structural-analyzer.test.mts",
+			),
 			"scripts.test must include structural-analyzer.test.mts",
 		);
 	});
