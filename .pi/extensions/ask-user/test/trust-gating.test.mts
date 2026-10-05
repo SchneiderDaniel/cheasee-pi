@@ -13,7 +13,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { appendQnaEntry, readQnaEntries, migrateIfCsvExists } from "../jsonl-logger.ts";
+import {
+	appendQnaEntry,
+	readQnaEntries,
+	migrateIfCsvExists,
+	getQnaEntry,
+	listQnaEntries,
+	queryQnaEntries,
+} from "../jsonl-logger.ts";
 import askUser from "../index.ts";
 
 // ---------------------------------------------------------------------------
@@ -997,6 +1004,195 @@ describe("ask_user_read registration guidance (issue #1614)", () => {
 		assert.ok(
 			!guidance.includes("1-based line number"),
 			"guidance must not describe ids as generic 1-based line numbers",
+		);
+	});
+});
+
+// ============================================================================
+// Tests: ask_user_read cancellation + trust ordering (Issue #1777)
+// ============================================================================
+
+describe("ask_user_read cancellation (Issue #1777)", () => {
+	let tmpDir: string;
+	let tools: Record<string, any>;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-cancel-read-"));
+		const { mockPi, tools: t } = makeMockPi();
+		tools = t;
+		askUser(mockPi as any);
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("signal = null: list returns a success envelope without TypeError", async () => {
+		await appendQnaEntry(tmpDir, "2026-05-15T19:00:00.000Z", "Q1", "A1");
+
+		const result: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "list" },
+			null,
+			null,
+			{ sessionManager: { getCwd: () => tmpDir }, isProjectTrusted: async () => true },
+		);
+
+		assert.strictEqual(result.structuredContent.count, 1);
+		assert.ok(!result.isError);
+	});
+
+	it("trusted + pre-aborted signal: rejects AbortError, no success envelope", async () => {
+		await appendQnaEntry(tmpDir, "2026-05-15T19:00:00.000Z", "Q1", "A1");
+		const controller = new AbortController();
+		controller.abort();
+
+		await assert.rejects(
+			tools["ask_user_read"].execute("call1", { action: "list" }, controller.signal, null, {
+				sessionManager: { getCwd: () => tmpDir },
+				isProjectTrusted: async () => true,
+			}),
+			{ name: "AbortError" },
+		);
+	});
+
+	it("untrusted + pre-aborted signal: trust gate precedes abort (fail-closed)", async () => {
+		const controller = new AbortController();
+		controller.abort();
+
+		const result: any = await tools["ask_user_read"].execute(
+			"call1",
+			{ action: "list" },
+			controller.signal,
+			null,
+			{ sessionManager: { getCwd: () => tmpDir }, isProjectTrusted: async () => false },
+		);
+
+		assert.strictEqual(result.isError, true);
+		assert.strictEqual(result.structuredContent.trustGranted, false);
+		assert.ok(!("aborted" in result.structuredContent));
+	});
+});
+
+// ============================================================================
+// Tests: jsonl-logger read-path signal threading (Issue #1777)
+// ============================================================================
+
+describe("jsonl-logger cancellation (Issue #1777)", () => {
+	let tmpDir: string;
+
+	beforeEach(async () => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-cancel-jsonl-"));
+		await appendQnaEntry(tmpDir, "2026-05-15T19:00:00.000Z", "Q1", "A1");
+		await appendQnaEntry(tmpDir, "2026-05-15T20:00:00.000Z", "Q2", "A2");
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	function abortedSignal(): AbortSignal {
+		const controller = new AbortController();
+		controller.abort();
+		return controller.signal;
+	}
+
+	it("readQnaEntries rejects AbortError on a pre-aborted signal", async () => {
+		await assert.rejects(readQnaEntries(tmpDir, abortedSignal()), { name: "AbortError" });
+	});
+
+	it("listQnaEntries rejects AbortError on a pre-aborted signal", async () => {
+		await assert.rejects(listQnaEntries(tmpDir, 20, abortedSignal()), {
+			name: "AbortError",
+		});
+	});
+
+	it("getQnaEntry rejects AbortError on a pre-aborted signal", async () => {
+		await assert.rejects(getQnaEntry(tmpDir, 1, abortedSignal()), { name: "AbortError" });
+	});
+
+	it("queryQnaEntries rejects AbortError on a pre-aborted signal", async () => {
+		await assert.rejects(queryQnaEntries(tmpDir, "Q1", abortedSignal()), {
+			name: "AbortError",
+		});
+	});
+
+	it("in-flight abort rejects AbortError, never resolves partial entries", async () => {
+		const controller = new AbortController();
+		const promise = readQnaEntries(tmpDir, controller.signal);
+		controller.abort();
+		await assert.rejects(promise, { name: "AbortError" });
+	});
+
+	it("non-aborted signal returns the same entries/count/total as signal-less", async () => {
+		const controller = new AbortController();
+		const without = await listQnaEntries(tmpDir, 20);
+		const withSignal = await listQnaEntries(tmpDir, 20, controller.signal);
+		assert.deepStrictEqual(withSignal, without);
+		assert.strictEqual(withSignal.total, 2);
+	});
+});
+
+// ============================================================================
+// Tests: regression — storage errors surface unchanged (Issue #1777)
+// ============================================================================
+
+describe("ask_user_read storage error passthrough (Issue #1777)", () => {
+	let tmpDir: string;
+	let tools: Record<string, any>;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-user-eisdir-"));
+		const { mockPi, tools: t } = makeMockPi();
+		tools = t;
+		askUser(mockPi as any);
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("a directory at qna.jsonl rejects with the original EISDIR error", async () => {
+		// Deliberately create a directory where the JSONL file is expected.
+		fs.mkdirSync(path.join(tmpDir, ".pi", "context", "qna.jsonl"), { recursive: true });
+
+		await assert.rejects(
+			tools["ask_user_read"].execute("call1", { action: "list" }, null, null, {
+				sessionManager: { getCwd: () => tmpDir },
+				isProjectTrusted: async () => true,
+			}),
+			(err: any) => {
+				assert.strictEqual(err.code, "EISDIR", "original fs error code preserved");
+				return true;
+			},
+		);
+	});
+
+	it("cancel contract is unchanged: no aborted marker in ask_user cancel structuredContent", async () => {
+		const execute = tools["ask_user"].execute;
+		const result: any = await execute(
+			"call1",
+			{ mode: "choice", question: "Pick:", options: [{ label: "A", value: "a" }] },
+			null,
+			null,
+			{
+				mode: "json",
+				sessionManager: { getCwd: () => tmpDir },
+				isProjectTrusted: async () => true,
+				ui: {
+					input: async () => undefined,
+					custom: async () => undefined,
+					select: async () => undefined,
+					notify: () => {},
+				},
+			},
+		);
+
+		assert.strictEqual(result.structuredContent.cancelled, true);
+		assert.ok(!("aborted" in result.structuredContent));
+		assert.strictEqual(
+			result.content[0].text,
+			"User cancelled the question. Ask if they want to skip this topic and move on.",
 		);
 	});
 });

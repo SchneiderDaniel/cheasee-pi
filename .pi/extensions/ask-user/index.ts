@@ -171,12 +171,14 @@ export default function askUser(pi: ExtensionAPI): void {
 		async execute(
 			_toolCallId,
 			params,
-			_signal,
+			signal,
 			_onUpdate,
 			ctx,
 		): Promise<ToolResult> {
 			const projectDir = ctx.sessionManager.getCwd();
-			const handler = new QuestionHandler(projectDir, ctx);
+			// Tool signals may arrive as null from some call sites; normalize so the
+			// handler and dialogs see AbortSignal | undefined.
+			const handler = new QuestionHandler(projectDir, ctx, signal ?? undefined);
 			const result = await handler.handle(params);
 			return {
 				...result,
@@ -350,7 +352,7 @@ export default function askUser(pi: ExtensionAPI): void {
 		async execute(
 			_toolCallId,
 			params,
-			_signal,
+			signal,
 			_onUpdate,
 			ctx,
 		): Promise<ToolResult> {
@@ -377,6 +379,11 @@ export default function askUser(pi: ExtensionAPI): void {
 				};
 			}
 
+			// Cancellation check comes after the trust gate so untrusted callers
+			// still receive the fail-closed trust envelope.
+			const abortSignal = signal ?? undefined;
+			abortSignal?.throwIfAborted();
+
 			const {
 				action,
 				limit = 20,
@@ -390,7 +397,7 @@ export default function askUser(pi: ExtensionAPI): void {
 			};
 
 			if (action === "list") {
-				const { entries, total } = await listQnaEntries(projectDir, limit);
+				const { entries, total } = await listQnaEntries(projectDir, limit, abortSignal);
 				return successResult(entries, entries.length, total);
 			}
 
@@ -399,7 +406,7 @@ export default function askUser(pi: ExtensionAPI): void {
 					throw new Error("id parameter is required for get action");
 				}
 
-				const entry = await getQnaEntry(projectDir, id);
+				const entry = await getQnaEntry(projectDir, id, abortSignal);
 				if (entry === undefined) {
 					throw new Error("No Q&A history yet");
 				}
@@ -415,7 +422,7 @@ export default function askUser(pi: ExtensionAPI): void {
 					throw new Error("text parameter is required for query action");
 				}
 
-				const entries = await queryQnaEntries(projectDir, text);
+				const entries = await queryQnaEntries(projectDir, text, abortSignal);
 				return successResult(entries, entries.length);
 			}
 
