@@ -12,11 +12,30 @@
  *
  */
 
-import type { SgMatch, SgResult, ExecResultResponse } from "./types.ts";
+import type { SgMatch, SgResult, ExecResultResponse, StructuralSearchOutput } from "./types.ts";
 import { truncateLine } from "@earendil-works/pi-coding-agent";
 
 /** Maximum results to return inline before truncating for streaming. */
-export const STREAM_THRESHOLD = 100;
+const STREAM_THRESHOLD = 100;
+
+/**
+ * Build the machine-readable payload shared by every success branch.
+ * `truncated`/`totalMatches` are only present when the list is partial, so a
+ * codemode consumer can tell `results.length` is not the full match set.
+ */
+function successStructured(
+	matches: number,
+	results: SgMatch[],
+	language: string,
+	truncation?: { totalMatches: number },
+): StructuralSearchOutput {
+	return {
+		matches,
+		results,
+		language,
+		...(truncation ? { truncated: true, totalMatches: truncation.totalMatches } : {}),
+	};
+}
 
 /**
  * Interpret the result of an ast-grep exec call and return the appropriate
@@ -69,6 +88,9 @@ export function interpretSgExecResult(
 					truncated: true,
 					totalMatches: sgResult.matches,
 				} as Record<string, unknown>,
+				structuredContent: successStructured(sgResult.matches, truncatedResults, language, {
+					totalMatches: sgResult.matches,
+				}),
 			};
 		}
 
@@ -87,6 +109,7 @@ export function interpretSgExecResult(
 				},
 			],
 			details: { success: true, ...sgResult } as Record<string, unknown>,
+			structuredContent: successStructured(sgResult.matches, sgResult.results, language),
 		};
 	}
 
@@ -101,6 +124,7 @@ export function interpretSgExecResult(
 				},
 			],
 			details: { success: true, matches: 0, results: [] } as Record<string, unknown>,
+			structuredContent: successStructured(0, [], language),
 		};
 	}
 
@@ -114,6 +138,7 @@ export function interpretSgExecResult(
 				},
 			],
 			details: { success: true, matches: 0, results: [] } as Record<string, unknown>,
+			structuredContent: successStructured(0, [], language),
 		};
 	}
 
@@ -131,7 +156,18 @@ export function interpretSgExecResult(
 			exitCode: code,
 			stderr: stderr,
 		} as Record<string, unknown>,
+		// `isError` keeps the failure in the result channel (not a throw) so
+		// codemode callers still receive the typed stderr/exitCode payload.
 		isError: true,
+		structuredContent: {
+			matches: 0,
+			results: [],
+			language,
+			error: stderrMsg,
+			stderr,
+			exitCode: code,
+			pattern,
+		},
 	};
 }
 

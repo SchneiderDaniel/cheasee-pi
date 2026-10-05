@@ -4,7 +4,9 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import { Value } from "typebox/value";
 import { parseSgOutput, interpretSgExecResult } from "../parser.ts";
+import { StructuralSearchOutputSchema } from "../types.ts";
 
 function createMatchJson(file: string, lines: string, text: string): string {
 	return JSON.stringify({ file, lines, text });
@@ -117,5 +119,148 @@ describe("interpretSgExecResult", () => {
 		const details = result.details as Record<string, unknown>;
 		assert.strictEqual(details.truncated, true);
 		assert.strictEqual(details.totalMatches, 150);
+	});
+});
+
+describe("StructuralSearchOutputSchema", () => {
+	it("accepts a 2-match success shape", () => {
+		assert.ok(
+			Value.Check(StructuralSearchOutputSchema, {
+				matches: 2,
+				results: [{ file: "a.ts", lines: "1-2", snippet: "x" }],
+				language: "ts",
+			}),
+		);
+	});
+
+	it("accepts a truncated shape", () => {
+		const results = Array.from({ length: 100 }, (_, i) => ({
+			file: `f${i}.ts`,
+			lines: `${i}`,
+			snippet: "x",
+		}));
+		assert.ok(
+			Value.Check(StructuralSearchOutputSchema, {
+				matches: 150,
+				results,
+				language: "ts",
+				truncated: true,
+				totalMatches: 150,
+			}),
+		);
+	});
+
+	it("accepts the error shape (one permissive object covers both)", () => {
+		assert.ok(
+			Value.Check(StructuralSearchOutputSchema, {
+				matches: 0,
+				results: [],
+				language: "badlang",
+				error: "unknown language",
+				stderr: "unknown language",
+				exitCode: 1,
+				pattern: "pat",
+			}),
+		);
+	});
+});
+
+describe("interpretSgExecResult structuredContent", () => {
+	it("success branch: structuredContent mirrors parsed results", () => {
+		const result = interpretSgExecResult(0, TWO_MATCHES, "", "console.log($A)", "ts");
+		const details = result.details as Record<string, unknown>;
+		assert.deepStrictEqual(result.structuredContent, {
+			matches: 2,
+			results: parseSgOutput(TWO_MATCHES).results,
+			language: "ts",
+		});
+		assert.strictEqual(
+			(result.structuredContent as { matches: number }).matches,
+			details.matches,
+		);
+		assert.strictEqual(result.isError, undefined);
+	});
+
+	it("code 0 empty stdout: structuredContent is the empty shape", () => {
+		const result = interpretSgExecResult(0, "", "", "pat", "ts");
+		assert.deepStrictEqual(result.structuredContent, { matches: 0, results: [], language: "ts" });
+		assert.strictEqual(result.isError, undefined);
+	});
+
+	it("code 1 empty stderr (no-match): structuredContent is the empty shape", () => {
+		const result = interpretSgExecResult(1, "", "", "pat", "ts");
+		assert.deepStrictEqual(result.structuredContent, { matches: 0, results: [], language: "ts" });
+		assert.strictEqual(result.isError, undefined);
+	});
+
+	it("truncated: matches is total, results capped, truncation signaled", () => {
+		const manyMatches = Array.from({ length: 150 }, (_, i) =>
+			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match number ${i}`),
+		).join("\n");
+		const result = interpretSgExecResult(0, manyMatches, "", "pat", "ts");
+		const sc = result.structuredContent as {
+			matches: number;
+			results: unknown[];
+			truncated?: boolean;
+			totalMatches?: number;
+		};
+		assert.strictEqual(sc.matches, 150);
+		assert.strictEqual(sc.results.length, 100);
+		assert.strictEqual(sc.truncated, true);
+		assert.strictEqual(sc.totalMatches, 150);
+	});
+
+	it("exactly 100 matches → not truncated; 101 → truncated", () => {
+		const hundred = Array.from({ length: 100 }, (_, i) =>
+			createMatchJson(`file${i}.ts`, `${i}`, `m${i}`),
+		).join("\n");
+		const atThreshold = interpretSgExecResult(0, hundred, "", "pat", "ts");
+		assert.strictEqual((atThreshold.structuredContent as { truncated?: boolean }).truncated, undefined);
+		assert.strictEqual(
+			(atThreshold.structuredContent as { results: unknown[] }).results.length,
+			100,
+		);
+
+		const overThreshold = interpretSgExecResult(
+			0,
+			hundred + "\n" + createMatchJson("extra.ts", "1", "x"),
+			"",
+			"pat",
+			"ts",
+		);
+		assert.strictEqual((overThreshold.structuredContent as { truncated?: boolean }).truncated, true);
+		assert.strictEqual(
+			(overThreshold.structuredContent as { results: unknown[] }).results.length,
+			100,
+		);
+	});
+
+	it("error branch: structuredContent carries error/stderr/exitCode/pattern", () => {
+		const result = interpretSgExecResult(1, "", "unknown language", "pat", "badlang");
+		assert.strictEqual(result.isError, true);
+		assert.strictEqual((result.details as Record<string, unknown>).success, false);
+		assert.deepStrictEqual(result.structuredContent, {
+			matches: 0,
+			results: [],
+			language: "badlang",
+			error: "unknown language",
+			stderr: "unknown language",
+			exitCode: 1,
+			pattern: "pat",
+		});
+	});
+
+	it("exit 126 error branch surfaces exitCode 126 and stderr", () => {
+		const result = interpretSgExecResult(126, "", "Permission denied", "pat", "ts");
+		const sc = result.structuredContent as { exitCode?: number; stderr?: string };
+		assert.strictEqual(result.isError, true);
+		assert.strictEqual(sc.exitCode, 126);
+		assert.strictEqual(sc.stderr, "Permission denied");
+	});
+
+	it("exit 0 + stderr warning still yields stdout-first success structuredContent", () => {
+		const result = interpretSgExecResult(0, TWO_MATCHES, "warning", "pat", "ts");
+		assert.strictEqual(result.isError, undefined);
+		assert.strictEqual((result.structuredContent as { matches: number }).matches, 2);
 	});
 });

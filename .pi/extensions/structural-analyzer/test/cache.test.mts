@@ -78,6 +78,16 @@ describe("cache set/get/clear", () => {
 		assert.strictEqual(got, value);
 	});
 
+	it("round-trips structuredContent by reference (widened ExecResultResponse)", () => {
+		const key = makeCacheKey("pat", "ts", "/p");
+		const structuredContent = { matches: 2, results: [], language: "ts" };
+		const value = makeResponse({ structuredContent });
+		setCache(key, value);
+		const got = getCache(key)!;
+		assert.deepStrictEqual(got.structuredContent, structuredContent);
+		assert.strictEqual(got.structuredContent, structuredContent);
+	});
+
 	it("get returns undefined for missing key", () => {
 		const got = getCache("nonexistent");
 		assert.strictEqual(got, undefined);

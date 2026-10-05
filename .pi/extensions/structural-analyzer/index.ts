@@ -19,6 +19,7 @@ import { resolveWithinRoot } from "../lib/path-containment.ts";
 import { setCache, getCache, makeCacheKey, clearResultCache } from "./cache.ts";
 import { detectLanguage, DEFAULT_LANGUAGE } from "./language.ts";
 import { interpretSgExecResult } from "./parser.ts";
+import { StructuralSearchOutputSchema } from "./types.ts";
 import { validatePattern } from "./validate.ts";
 import { renderStructuralSearchResult } from "./renderer.ts";
 
@@ -137,6 +138,11 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 				}),
 			),
 		}),
+		// MCP-style hints: pure filesystem read, repeat-safe, closed local domain.
+		// Declarative only — permission extensions may use them to decide confirmation.
+		annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+		// JSON Schema of `structuredContent` for programmatic/codemode callers.
+		outputSchema: StructuralSearchOutputSchema,
 		renderResult: renderStructuralSearchResult as any,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const { pattern, directory } = params;
@@ -192,13 +198,12 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 				language,
 			);
 
-			// If the response indicates an error, throw so pi sets the isError flag
-			if (response.isError) {
-				throw new Error(response.content[0].text);
+			// ast-grep execution failures cross to the result channel (`isError: true`)
+			// so scripts receive typed stderr/exitCode. Preconditions (validatePattern,
+			// resolveWithinRoot, getSgBinary) keep throwing — those fail closed.
+			if (!response.isError) {
+				setCache(cacheKey, response);
 			}
-
-			// Cache the result
-			setCache(cacheKey, response);
 
 			return response;
 		},

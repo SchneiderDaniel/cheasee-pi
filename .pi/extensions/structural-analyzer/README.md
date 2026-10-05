@@ -9,6 +9,8 @@
   - `$META_VAR` for single AST node matching (e.g., `console.log($A)`)
   - `$$$MULTI` for zero-or-more AST nodes (e.g., `try { $$$BODY } catch (e) { $A }`)
   - Structured JSON output: `{ matches, results: [{ file, lines, snippet }] }`
+- **Typed `structuredContent`** — each result carries a machine-readable payload matching the tool's `outputSchema`: `{ matches, results, language, truncated?, totalMatches? }` on success and `{ matches: 0, results: [], language, error, stderr, exitCode, pattern }` on failure. `content` stays the model-facing text.
+- **MCP tool annotations** — declares `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false` (pure, repeat-safe, local-filesystem search).
 - **Pattern validation** — Rejects single-word text patterns that belong on ripgrep (collision rule)
 - **Language auto-detect** — Language parameter is optional; auto-detects from project config files (tsconfig.json → typescript, pyproject.toml → python, go.mod → go, Cargo.toml → rust, sgconfig.yml → languageGlobs). Defaults to `ts`.
 - **Result cache** — Results cached by (pattern, language, cwd). Repeated calls return instantly without re-executing ast-grep.
@@ -105,7 +107,7 @@ flowchart LR
     D -- miss --> F[await getSgBinary]
     F --> G[exec ast-grep run --json=stream]
     G --> H[parser.ts: interpret exit code]
-    H -- error --> I[Throw Error with stderr]
+    H -- error --> I[isError result: structuredContent carries stderr/exitCode]
     H -- success --> J[cache.ts: setCache]
     J --> K[renderer.ts: build output]
     K --> L[Return result]
@@ -116,7 +118,7 @@ flowchart LR
 - **Binary detection via lazy promise** — `getSgBinary()` caches the `ast-grep --version` check as a module-level promise. All concurrent callers await the same promise. On failure, the promise resets so next caller retries (transient fault recovery).
 - **FIFO eviction, not LRU** — Cache uses simple FIFO eviction at 200 entries. Hot-spot patterns may evict cold entries first. Revisit LRU when usage data exists.
 - **Null-byte cache key separator** — `${pattern}\x00${language}\x00${cwd}` prevents collision when inputs contain `::`.
-- **Exit-code-based error interpretation** (not keyword heuristics) — code 0 = success, code 1 + empty stderr = no matches, all other non-zero = real errors. Stderr presence overrides success interpretation.
+- **Exit-code-based error interpretation** (not keyword heuristics) — code 0 = success, code 1 + empty stderr = no matches, all other non-zero = real errors. Stderr presence overrides success interpretation. ast-grep execution failures return `isError: true` with typed `structuredContent` (stderr, exitCode) instead of throwing; precondition guards (`validatePattern`, `resolveWithinRoot`, `getSgBinary`) still throw.
 - **Streaming threshold at 100 matches** — results beyond 100 are truncated with a clear notice and `totalMatches` count. Refine pattern to narrow.
 - **Language auto-detection** — checks 5 config files in priority: `sgconfig.yml` > `tsconfig.json` > `pyproject.toml` > `go.mod` > `Cargo.toml`. For `sgconfig.yml`, uses a naive line-based `languageGlobs:` parser (not a full YAML parser).
 - **Naive YAML parser limitations** — Only extracts first key under `languageGlobs:`. Does not handle folded scalars (`>`), literal blocks (`|`), anchors, aliases, or complex keys. Acceptable because project `sgconfig.yml` files never use complex values.
