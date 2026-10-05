@@ -18,6 +18,7 @@ import {
 	formatCacheHitRate,
 	computeTps,
 	formatCpuPct,
+	resolveSubtleColor,
 } from "./formatting.ts";
 import { thinkingIcon, thinkingColor } from "../lib/thinking-level.ts";
 
@@ -71,6 +72,11 @@ export function installFooter(
 		// from 2 rows to 1 row). Without this, TUI leaves blank/stale rows.
 		tui.setClearOnShrink(true);
 
+		// Resolve the low-emphasis text token once per install, off the render-hot
+		// path. Light terminals need `muted`; everything else keeps `dim`. Read
+		// defensively — pre-1.0 themes report no `appearance`.
+		const subtle = resolveSubtleColor(theme.appearance);
+
 		const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
 
 		// Store re-render trigger so external code (supervisor issue data event
@@ -95,10 +101,10 @@ export function installFooter(
 				if (branch) {
 					leftStr = theme.fg("accent", " ") + theme.fg("muted", branch);
 					if (worktreeName) {
-						leftStr += " " + theme.fg("dim", `[${worktreeName}]`);
+						leftStr += " " + theme.fg(subtle, `[${worktreeName}]`);
 					}
 				} else {
-					leftStr = theme.fg("dim", "⋄ no git");
+					leftStr = theme.fg(subtle, "⋄ no git");
 				}
 
 				// ── Separator character ──────────────────────
@@ -141,7 +147,7 @@ export function installFooter(
 				if (showTimer) {
 					const elapsed = Date.now() - processStartTime;
 					const rawTimer = formatSessionTimer(elapsed);
-					timerStr = theme.fg("dim", rawTimer);
+					timerStr = theme.fg(subtle, rawTimer);
 				}
 
 				// Compute token display string
@@ -162,16 +168,16 @@ export function installFooter(
 					tokenDisplay = theme.fg("dim", "◉ ") + theme.fg(usageToken, tokenText);
 
 					if (pct !== null) {
-						const pctColor = pct >= 90 ? "error" : pct >= 70 ? "warning" : "dim";
+						const pctColor = pct >= 90 ? "error" : pct >= 70 ? "warning" : subtle;
 						tokenDisplay += " " + theme.fg(pctColor, `[${pct}%]`);
 					}
 				} else if (footerConfig.lastContextWindow.value) {
 					tokenDisplay = theme.fg(
-						"dim",
+						subtle,
 						`◉ .../${formatTokens(footerConfig.lastContextWindow.value)}`,
 					);
 				} else {
-					tokenDisplay = theme.fg("dim", "◉ .../?");
+					tokenDisplay = theme.fg(subtle, "◉ .../?");
 				}
 
 				// ── Container resource usage from cgroup v2 ──
@@ -229,7 +235,7 @@ export function installFooter(
 
 				// Combine container, timer, and token display
 				if (containerRaw) {
-					const parts = [theme.fg("dim", containerRaw)];
+					const parts = [theme.fg(subtle, containerRaw)];
 					if (timerStr) parts.push(timerStr);
 					if (tokenDisplay) parts.push(tokenDisplay);
 					rightStr = parts.join(" \u00b7 ");
@@ -277,15 +283,15 @@ export function installFooter(
 				const rightParts: string[] = [];
 				if (config.showTps) {
 					const tpsDisplay = formatTps(footerConfig.lastComputedTps.value);
-					rightParts.push(theme.fg("dim", tpsDisplay));
+					rightParts.push(theme.fg(subtle, tpsDisplay));
 				}
 				if (config.showCache) {
 					const cacheStr = formatCacheStats(footerConfig.cacheRead, footerConfig.cacheWrite);
-					rightParts.push(theme.fg("dim", cacheStr));
+					rightParts.push(theme.fg(subtle, cacheStr));
 					// ── CH display (Improvement #1) ────────────
 					const chStr = formatCacheHitRate(footerConfig.cacheHitRate);
 					if (chStr) {
-						rightParts.push(theme.fg("dim", chStr));
+						rightParts.push(theme.fg(subtle, chStr));
 					}
 				}
 				const right2 = rightParts.join(" " + sep + " ");
@@ -296,11 +302,11 @@ export function installFooter(
 				// Session name (Improvement #2) or session ID fallback
 				if (footerConfig.sessionName) {
 					row3Parts.push(
-						theme.fg("dim", "Session:") + " " + theme.fg("muted", footerConfig.sessionName),
+						theme.fg(subtle, "Session:") + " " + theme.fg("muted", footerConfig.sessionName),
 					);
 				} else if (footerConfig.sessionId) {
 					row3Parts.push(
-						theme.fg("dim", "SessionID:") + " " + theme.fg("muted", footerConfig.sessionId),
+						theme.fg(subtle, "SessionID:") + " " + theme.fg("muted", footerConfig.sessionId),
 					);
 				}
 

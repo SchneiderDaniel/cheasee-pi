@@ -2,7 +2,20 @@
  * Pure visual helpers for context-info extension
  */
 
-import type { ThresholdEntry, TpsSample, UsageColorToken } from "./types.js";
+import type { SubtleColorToken, ThresholdEntry, TpsSample, UsageColorToken } from "./types.js";
+
+// ─── Appearance-aware secondary text ────────────────────────────
+
+/**
+ * Pick the low-emphasis token for readable secondary text. Light terminals
+ * render `dim` too faint, so use the higher-contrast `muted` there. Anything
+ * else — including `undefined` from pre-1.0 themes — keeps `dim`.
+ */
+export function resolveSubtleColor(
+	appearance: "dark" | "light" | undefined,
+): SubtleColorToken {
+	return appearance === "light" ? "muted" : "dim";
+}
 
 // ─── Semantic tokens for threshold levels ────────────────────────
 

@@ -15,6 +15,7 @@ import {
 	formatCacheHitRate,
 	formatTps,
 	computeTps,
+	resolveSubtleColor,
 } from "../formatting.ts";
 
 // ─── Phase 1: threshold → semantic token mapping ────────────────────────────
@@ -74,6 +75,41 @@ describe("pickThresholdColor", () => {
 	});
 });
 
+// ─── Phase 1: appearance → subtle secondary-text token ──────────────────────
+
+describe("resolveSubtleColor", () => {
+	it("light appearance → muted (dim is too faint on light terminals)", () => {
+		assert.strictEqual(resolveSubtleColor("light"), "muted");
+	});
+
+	it("dark appearance → dim", () => {
+		assert.strictEqual(resolveSubtleColor("dark"), "dim");
+	});
+
+	it("undefined appearance → dim (pre-1.0 / 0.79.10 compat)", () => {
+		assert.strictEqual(resolveSubtleColor(undefined), "dim");
+	});
+
+	it("every non-light boundary input → dim", () => {
+		const inputs: Array<"dark" | "light" | undefined> = [
+			"dark",
+			undefined,
+			null as unknown as "dark",
+			"sepia" as unknown as "dark",
+		];
+		for (const input of inputs) {
+			assert.strictEqual(resolveSubtleColor(input), "dim", `input ${String(input)}`);
+		}
+	});
+
+	it("always returns a token in {dim, muted} across an input sweep", () => {
+		for (const input of ["dark", "light", undefined, null, "", "DARK"]) {
+			const token = resolveSubtleColor(input as unknown as "dark");
+			assert.ok(["dim", "muted"].includes(token), `unexpected token for ${String(input)}`);
+		}
+	});
+});
+
 // ─── Phase 1: Other formatting exports still work ───────────────────────────
 
 describe("public formatting exports", () => {
@@ -127,5 +163,6 @@ describe("removed color helper export removal", () => {
 		assert.ok(!("THRESHOLD_HEX_COLORS" in mod), "THRESHOLD_HEX_COLORS should not be exported");
 		assert.ok(!("fgHex" in mod), "fgHex should not be exported");
 		assert.ok(!("pickThresholdHex" in mod), "pickThresholdHex should not be exported");
+		assert.ok("resolveSubtleColor" in mod, "resolveSubtleColor should be a public export");
 	});
 });
