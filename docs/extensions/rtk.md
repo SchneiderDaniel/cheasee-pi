@@ -13,7 +13,7 @@ nav_order: 19
 
 **Why.** Intercepts every `bash` tool call and pipes the command through `rtk rewrite` — a Rust CLI that strips noise, groups output, deduplicates, and truncates. **60-90% token savings** on common dev commands (git, cargo, ls, grep, test runners, linters, docker, kubectl). Sub-10ms overhead per rewrite.
 
-**How it works.** Hooks `tool_call`: narrows to `bash` events, calls `pi.exec("rtk", ["rewrite", cmd])`, mutates `event.input.command` in-place if a rewrite exists. RTK binary decides which commands to rewrite and how — all logic lives in the Rust binary, not the extension. Fail-open on errors (never blocks execution). Version guard at load time (requires `rtk >= 0.23.0`). Respects `RTK_DISABLED=1` env var.
+**How it works.** Hooks `tool_call`: narrows to `bash` events, calls `pi.exec("rtk", ["rewrite", cmd])`, mutates `event.input.command` in-place if a rewrite exists. RTK binary decides which commands to rewrite and how — all logic lives in the Rust binary, not the extension. Fail-open on errors (never blocks execution). Version guard at session start (requires `rtk >= 0.23.0`). Respects `RTK_DISABLED=1` env var.
 
 **Location:** `.pi/extensions/rtk/`
 
@@ -77,12 +77,12 @@ See [rtk-ai/rtk#command-registry](https://github.com/rtk-ai/rtk) for full list.
 
 | Scenario | Behavior |
 |----------|----------|
-| rtk binary not in PATH | Console warning at load time, extension disabled |
-| rtk < 0.23.0 | Console warning at load time, extension disabled |
+| rtk binary not in PATH | Console warning at session start, extension disabled |
+| rtk < 0.23.0 | Console warning at session start, extension disabled |
 | `rtk rewrite` returns error | Pass-through — original command unchanged |
 | `rtk rewrite` times out | Pass-through (2s timeout) |
 | Extension throws | Pass-through, console warning |
-| `RTK_DISABLED=1` set | Extension loaded but skips all rewrites |
+| `RTK_DISABLED=1` set | Extension loaded but skips all rewrites; also suppresses the session-start version probe/spawn |
 | Command starts with `rtk ` | Skipped — prevents recursion |
 
 ### No conflict with other extensions
