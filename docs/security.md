@@ -71,7 +71,31 @@ The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from 
 - **UID/GID mapping:** Host user's UID/GID is mapped to container user `agentuser` via `gosu` — prevents permission escalation on bind-mounted files
 - **Rootless:** The container runs as `agentuser`, not root
 - **Bind mount only:** The repo root is mounted read-write; no privileged mounts
-- **No exposed ports:** The container has no network-exposed services
+- **Published ports pinned to loopback:** The `cheasee-pi` agent container has no network-exposed services. The `ui` sidecar (web control center) publishes one host port, hard-pinned to IPv4 loopback (`127.0.0.1:<port>`) in the compose mapping — the explicit `127.0.0.1` prefix pins it, not Docker's default (which listens on all interfaces). Loopback is the default and the only supported mode; non-localhost exposure is deferred behind the compose-harness hardening work (#1527).
+
+## UI sidecar network posture
+
+The `ui` sidecar (web control center) is the only component that publishes a
+host port. Its host bind is pinned to `127.0.0.1` in the compose mapping, so it
+is not routable off-host by default; non-localhost exposure is deliberately
+deferred to the compose-harness hardening work (#1527).
+
+Loopback is a **reachability pin, not an authorization boundary**. The control
+center performs no authentication, and the loopback pin is the only control on
+its surface, which includes:
+
+- the WebSocket RPC relay on `/ws` — the handshake is not constrained by the
+  browser same-origin policy, so without `Origin` validation a malicious page
+  could open a two-way channel to the loopback server (cross-site WebSocket
+  hijacking);
+- an unauthenticated `GET /debug/child` endpoint returning the child PID,
+  session id, auth source, and provider env-var *names*;
+- the absence of `Host`-header allow-listing, which leaves DNS-rebinding attacks
+  (a page resolving its own origin to `127.0.0.1`) viable against the HTTP
+  surface.
+
+Any other local process or user on the same host can also reach the port. Treat
+the control center as trusted-local-only until #1527 lands.
 
 ## npm package age gate
 
