@@ -1,8 +1,8 @@
  [38;5;2m✓[39m [39m[1mdev-agent[22m[39m — [38;5;2mSUCCESS[39m                                                          
- [39m[2m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[22;39m           
- [39m[2mCompleted task[22;39m                                                                 
+ [39m[2m↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 3 turns · 15s[22m[39m           
+ [39m[2mCompleted task[22m[39m                                                                 
 
- [39m[2m── Tools ──[22;39m                                                                    
+ [39m[2m── Tools ──[22m[39m                                                                    
  [39m  ripgrep_search: {"query":"pattern-0","directory":"src"}[39m                      
  [39m  ripgrep_search: {"query":"pattern-1","directory":"src"}[39m                      
  [39m  ripgrep_search: {"query":"pattern-2","directory":"src"}[39m                      
@@ -34,7 +34,7 @@
  [39m  ripgrep_search: {"query":"pattern-28","directory":"src"}[39m                     
  [39m  ripgrep_search: {"query":"pattern-29","directory":"src"}[39m                     
 
- [39m[2m── Output Preview ──[22;39m                                                           
+ [39m[2m── Output Preview ──[22m[39m                                                           
  out                                                                            
 
- [39m[2m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[22;39m           
+ [39m[2m3 turns · ↑500 ↓1.0K · R200 · W100 · $0.0123 · claude-sonnet-4 · 15s[22m[39m           

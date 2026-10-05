@@ -2,7 +2,7 @@ import { Container, Markdown, Spacer, Text, truncateToWidth } from "@earendil-wo
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { formatTokens, formatDuration, getTermWidth } from "../../lib/formatting.ts";
 import { thinkingLabel, thinkingColor } from "../../../lib/thinking-level.ts";
-import { renderTextLines, renderToolCallText } from "../../lib/render-helpers.ts";
+import { subtleColor, renderTextLines, renderToolCallText } from "../../lib/render-helpers.ts";
 import { MAX_EXPANDED_TOOL_CALLS } from "./constants.ts";
 import { buildNestedStats, formatNestedStats } from "../nested-stats.ts";
 import type { SubagentDetails, AgentToolResult } from "../../subagent/types.ts";
@@ -41,7 +41,7 @@ function renderSubagentResultInline(
 	if (!details || details.agentName === undefined) {
 		const content0 = subagentResult.content?.[0];
 		const partialText = content0 && content0.type === "text" ? content0.text : "Running...";
-		return new Text(theme.fg("muted", partialText), 1, 1);
+		return new Text(theme.style(partialText, { fg: subtleColor(theme) }), 1, 1);
 	}
 
 	const isSuccess = details.success;
@@ -49,6 +49,7 @@ function renderSubagentResultInline(
 	const statusIcon = isSuccess ? "✓" : "✗";
 	const statusText = isSuccess ? "SUCCESS" : "FAILED";
 	const nestedStats = buildNestedStats(details);
+	const subtle = subtleColor(theme);
 
 	// ── Stats Parts (shared) ────────────────────────────────────
 	const statsParts: string[] = [];
@@ -76,17 +77,17 @@ function renderSubagentResultInline(
 	const collapsedParts: string[] = [];
 	collapsedParts.push(
 		fit(
-			`${theme.fg(statusColor, statusIcon)} ${theme.style(details.agentName, { fg: "toolTitle", bold: true })} — ${theme.fg(statusColor, statusText)}`,
+			`${theme.style(statusIcon, { fg: statusColor })} ${theme.style(details.agentName, { fg: "toolTitle", bold: true })} — ${theme.style(statusText, { fg: statusColor })}`,
 		),
 	);
 	if (statsParts.length > 0) {
-		collapsedParts.push(theme.fg("dim", fit(statsParts.join(" · "))));
+		collapsedParts.push(theme.style(fit(statsParts.join(" · ")), { fg: subtle }));
 	}
 	if ((details.errorCount ?? 0) > 0) {
-		collapsedParts.push(theme.fg("dim", fit(`${details.errorCount} err`)));
+		collapsedParts.push(theme.style(fit(`${details.errorCount} err`), { fg: subtle }));
 	}
 	if (details.summaryLine) {
-		collapsedParts.push(theme.fg("dim", fit(details.summaryLine)));
+		collapsedParts.push(theme.style(fit(details.summaryLine), { fg: subtle }));
 	}
 
 	// ── Collapsed View ──────────────────────────────────────────
@@ -103,7 +104,7 @@ function renderSubagentResultInline(
 
 	// Task section
 	if (details.taskPrompt) {
-		container.addChild(new Text(fit(theme.fg("dim", "── Task ──")), 1, 0));
+		container.addChild(new Text(fit(theme.style("── Task ──", { fg: subtle })), 1, 0));
 		const taskLines = details.taskPrompt.split("\n");
 		const maxTaskLines = 50;
 		const showLines = taskLines.slice(0, maxTaskLines);
@@ -112,8 +113,8 @@ function renderSubagentResultInline(
 		if (overflowCount > 0) {
 			const notice =
 				overflowCount === 1
-					? theme.fg("muted", "… [1 more line]")
-					: theme.fg("muted", `… [${overflowCount} more lines]`);
+					? theme.style("… [1 more line]", { fg: subtle })
+					: theme.style(`… [${overflowCount} more lines]`, { fg: subtle });
 			container.addChild(new Text(fit(notice), 1, 0));
 		}
 		container.addChild(new Spacer(1));
@@ -122,21 +123,21 @@ function renderSubagentResultInline(
 	// Tool calls + nested-call section
 	const hasTopLevelTools = !!details.toolCalls && details.toolCalls.length > 0;
 	if (hasTopLevelTools || nestedStats.recorded > 0) {
-		container.addChild(new Text(fit(theme.fg("dim", "── Tools ──")), 1, 0));
+		container.addChild(new Text(fit(theme.style("── Tools ──", { fg: subtle })), 1, 0));
 		if (details.toolCalls && details.toolCalls.length > 0) {
 			const displayCalls = details.toolCalls.slice(0, MAX_EXPANDED_TOOL_CALLS);
 			for (const tc of displayCalls) {
 				const formatted = renderToolCallText(tc.name, tc.args, cwd ?? process.cwd());
-				container.addChild(new Text(fit(theme.fg("toolTitle", `  ${formatted}`)), 1, 0));
+				container.addChild(new Text(fit(theme.style(`  ${formatted}`, { fg: "toolTitle" })), 1, 0));
 			}
 			if (details.toolCalls.length > MAX_EXPANDED_TOOL_CALLS) {
 				const overflow = details.toolCalls.length - MAX_EXPANDED_TOOL_CALLS;
-				container.addChild(new Text(fit(theme.fg("muted", `  … ${overflow} more tool calls`)), 1, 0));
+				container.addChild(new Text(fit(theme.style(`  … ${overflow} more tool calls`, { fg: subtle })), 1, 0));
 			}
 		}
 		const nestedSummary = formatNestedStats(nestedStats);
 		if (nestedSummary) {
-			container.addChild(new Text(fit(theme.fg("muted", nestedSummary)), 1, 0));
+			container.addChild(new Text(fit(theme.style(nestedSummary, { fg: subtle })), 1, 0));
 		}
 		container.addChild(new Spacer(1));
 	}
@@ -149,7 +150,7 @@ function renderSubagentResultInline(
 			outputText.length > 500
 				? `…[last 500 of ${outputText.length} chars]\n` + outputText.slice(-500)
 				: outputText;
-		container.addChild(new Text(fit(theme.fg("dim", "── Output Preview ──")), 1, 0));
+		container.addChild(new Text(fit(theme.style("── Output Preview ──", { fg: subtle })), 1, 0));
 		const mdTheme = getMarkdownTheme();
 		container.addChild(new Markdown(preview, 1, 0, mdTheme));
 		container.addChild(new Spacer(1));
@@ -180,7 +181,7 @@ function renderSubagentResultInline(
 		footerParts.push(formatDuration(details.durationMs));
 	}
 	if (footerParts.length > 0) {
-		container.addChild(new Text(fit(theme.fg("dim", footerParts.join(" · "))), 1, 0));
+		container.addChild(new Text(fit(theme.style(footerParts.join(" · "), { fg: subtle })), 1, 0));
 	}
 
 	return container;

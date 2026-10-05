@@ -202,3 +202,52 @@ describe("render-subagent nestedCalls summary", () => {
 		assert.ok(!/^\s*0 err\s*$/m.test(out), "errorCount 0 must not render a standalone err line");
 	});
 });
+
+describe("render-subagent subtle styling is appearance-aware", () => {
+	it("light appearance styles subtle text with muted, never dim", () => {
+		const { theme, fgCalls, styleCalls } = makeTestTheme({ appearance: "light" });
+		render(
+			details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: true } }),
+			true,
+			theme as never,
+		);
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "muted"),
+			`expected a muted style call, got: ${JSON.stringify(styleCalls)}`,
+		);
+		assert.ok(
+			!styleCalls.some((c) => c.options.fg === "dim"),
+			`light appearance must not use dim, got: ${JSON.stringify(styleCalls)}`,
+		);
+		assert.ok(
+			!fgCalls.some((c) => c.color === "dim"),
+			`light appearance must not fg dim: ${JSON.stringify(fgCalls)}`,
+		);
+	});
+
+	it("dark appearance styles subtle text with dim", () => {
+		const { theme, styleCalls } = makeTestTheme({ appearance: "dark" });
+		render(
+			details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: true } }),
+			true,
+			theme as never,
+		);
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "dim"),
+			`expected a dim style call, got: ${JSON.stringify(styleCalls)}`,
+		);
+	});
+
+	it("status icon/text use theme.style with the status token", () => {
+		const { theme, styleCalls } = makeTestTheme();
+		render(details(), true, theme as never);
+		assert.ok(
+			styleCalls.some((c) => c.text === "✓" && c.options.fg === "success"),
+			JSON.stringify(styleCalls),
+		);
+		assert.ok(
+			styleCalls.some((c) => c.text === "SUCCESS" && c.options.fg === "success"),
+			JSON.stringify(styleCalls),
+		);
+	});
+});
