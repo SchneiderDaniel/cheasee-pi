@@ -11,16 +11,18 @@
  *   - `openWorldHint ?? true`    → absent means potentially open-world
  *   - read-only only on `readOnlyHint === true`
  *
- * Threshold escalation keys off explicit declarations. An entirely unannotated
- * object (`{}`) keeps the MCP destructive default and therefore escalates.
+ * Threshold derivation keys off *effective classification*, not explicit
+ * declarations: a tool is `destructive` unless it is read-only or explicitly
+ * non-destructive, and a derived threshold is
+ * `min(effectiveThreshold, DESTRUCTIVE_CASCADE_THRESHOLD)` — it may tighten the
+ * configured policy but never widen it. `openWorldHint` is a classification
+ * flag only; it carries no threshold effect (network egress is a trust-boundary
+ * signal, not a volume signal).
  *
  * @packageDocumentation
  */
 
-import {
-	DESTRUCTIVE_CASCADE_THRESHOLD,
-	OPEN_WORLD_CASCADE_THRESHOLD,
-} from "./harness-rules.ts";
+import { DESTRUCTIVE_CASCADE_THRESHOLD } from "./harness-rules.ts";
 import type { ToolMeta } from "./harness-rules.ts";
 
 // ── Types ──
@@ -54,17 +56,17 @@ function hintOr(value: boolean | undefined, fallback: boolean): boolean {
  * Returns `undefined` when no annotations object exists — the caller keeps its
  * own conservative default. Annotations are advisory and unverified: explicit
  * config always stays authoritative.
+ *
+ * @param annotations — MCP-shaped hints (open-shaped; unknown keys ignored)
+ * @param effectiveThreshold — the configured cascade threshold; a derived
+ *   threshold is `min(effectiveThreshold, DESTRUCTIVE_CASCADE_THRESHOLD)` so a
+ *   derived default can never widen past configured policy.
  */
 export function deriveToolMetaFromAnnotations(
-	annotations?: ToolAnnotations,
+	annotations: ToolAnnotations | undefined,
+	effectiveThreshold: number,
 ): ToolMeta | undefined {
 	if (!annotations) return undefined;
-
-	const hasAnyHint =
-		annotations.readOnlyHint !== undefined ||
-		annotations.destructiveHint !== undefined ||
-		annotations.idempotentHint !== undefined ||
-		annotations.openWorldHint !== undefined;
 
 	const readOnly = annotations.readOnlyHint === true;
 	const destructive = !readOnly && hintOr(annotations.destructiveHint, true);
@@ -80,13 +82,10 @@ export function deriveToolMetaFromAnnotations(
 		meta.idempotent = annotations.idempotentHint === true;
 	}
 
-	// Escalate the cascade threshold only for explicit destructive/open-world
-	// declarations. A fully unannotated object keeps the MCP destructive default.
-	const declaresDestructive = annotations.destructiveHint === true || !hasAnyHint;
-	if (!readOnly && declaresDestructive) {
-		meta.cascadeThreshold = DESTRUCTIVE_CASCADE_THRESHOLD;
-	} else if (!readOnly && annotations.openWorldHint === true) {
-		meta.cascadeThreshold = OPEN_WORLD_CASCADE_THRESHOLD;
+	// Destructive classification tightens the cascade threshold, clamped so a
+	// derived default can never widen past the configured value.
+	if (destructive) {
+		meta.cascadeThreshold = Math.min(effectiveThreshold, DESTRUCTIVE_CASCADE_THRESHOLD);
 	}
 
 	return meta;

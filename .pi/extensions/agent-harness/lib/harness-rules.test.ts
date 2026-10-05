@@ -292,6 +292,28 @@ describe("SEARCH_TOOLS removal", () => {
 	});
 });
 
+// ── OPEN_WORLD_CASCADE_THRESHOLD removal (#1788) ──
+
+describe("OPEN_WORLD_CASCADE_THRESHOLD removal", () => {
+	it("(#1788) OPEN_WORLD_CASCADE_THRESHOLD is undefined (dynamic import)", async () => {
+		const mod = await import("./harness-rules.ts");
+		assert.equal(
+			(mod as Record<string, unknown>).OPEN_WORLD_CASCADE_THRESHOLD,
+			undefined,
+			"OPEN_WORLD_CASCADE_THRESHOLD should be removed — openWorld no longer loosens",
+		);
+	});
+
+	it("(#1788) TOOL_META.web_crawl keeps its explicit loosened threshold", async () => {
+		const mod = await import("./harness-rules.ts");
+		const meta = (mod as Record<string, unknown>).TOOL_META as Record<
+			string,
+			{ cascadeThreshold?: number }
+		>;
+		assert.equal(meta.web_crawl?.cascadeThreshold, 20);
+	});
+});
+
 // ── isCodeFilePath removal (#1279) ──
 
 describe("isCodeFilePath removal", () => {

@@ -432,6 +432,19 @@ describe("Phase 6 (#1799): annotation defaults + nested attribution documented",
 			assert.match(c, /never treated as safe/i);
 		});
 
+		it(`${label}: documents openWorld as classification-only with no threshold effect`, () => {
+			const c = read();
+			assert.match(c, /openWorldHint`? is a classification flag/i);
+			assert.match(c, /no threshold effect/i);
+			assert.doesNotMatch(c, /openWorldHint`? loosens/i);
+		});
+
+		it(`${label}: documents the min-clamp — derived threshold never exceeds configured`, () => {
+			const c = read();
+			assert.match(c, /min\(configured, DESTRUCTIVE_CASCADE_THRESHOLD\)/);
+			assert.match(c, /never exceed the configured/i);
+		});
+
 		it(`${label}: documents nested attribution via parentToolCallId`, () => {
 			const c = read();
 			assert.match(c, /parentToolCallId/);

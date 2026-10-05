@@ -20,7 +20,6 @@ import {
 	CASCADE_THRESHOLD,
 	CACHE_TTL_TURNS,
 	DESTRUCTIVE_CASCADE_THRESHOLD,
-	OPEN_WORLD_CASCADE_THRESHOLD,
 } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hasBypassAnnotation } from "../../lib/bash-query.ts";
@@ -1689,14 +1688,71 @@ describe("AgentHarness — annotation-derived defaults", () => {
 		assert.ok(results[DESTRUCTIVE_CASCADE_THRESHOLD - 1]?.block);
 	});
 
-	it("open-world annotated tool loosens the cascade threshold", () => {
+	it("open-world annotated tool never loosens past the configured threshold", () => {
 		const h = new AgentHarness();
 		h.setToolInfoProvider(() => [{ name: "net", annotations: { openWorldHint: true } }]);
-		const results = callNTimes(h, "net", OPEN_WORLD_CASCADE_THRESHOLD, {});
-		for (let i = 0; i < OPEN_WORLD_CASCADE_THRESHOLD - 1; i++) {
+		const results = callNTimes(h, "net", 8, {});
+		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
 			assert.equal(results[i], null, `call ${i + 1} passes`);
 		}
-		assert.ok(results[OPEN_WORLD_CASCADE_THRESHOLD - 1]?.block);
+		assert.ok(
+			results[DESTRUCTIVE_CASCADE_THRESHOLD - 1]?.block,
+			"blocks at the destructive default (4), never widens to 16",
+		);
+	});
+
+	it("configured threshold stricter than the derived default is preserved", () => {
+		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 2 });
+		h.setToolInfoProvider(() => [{ name: "danger", annotations: { destructiveHint: true } }]);
+		const results = callNTimes(h, "danger", 2, {});
+		assert.equal(results[0], null, "first call passes");
+		assert.ok(results[1]?.block, "blocks at the configured 2, not the derived 4");
+	});
+
+	it("configured threshold looser than the derived default is tightened by min", () => {
+		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 12 });
+		h.setToolInfoProvider(() => [{ name: "danger", annotations: { destructiveHint: true } }]);
+		const results = callNTimes(h, "danger", DESTRUCTIVE_CASCADE_THRESHOLD, {});
+		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
+			assert.equal(results[i], null, `call ${i + 1} passes`);
+		}
+		assert.ok(results[DESTRUCTIVE_CASCADE_THRESHOLD - 1]?.block, "min(12,4)=4");
+	});
+
+	it("explicit config toolMeta wins and the provider is not consulted", () => {
+		const h = new AgentHarness({
+			toolMeta: { net: { cascadeThreshold: 10 } },
+			cascadeThreshold: 8,
+		});
+		let consulted = 0;
+		h.setToolInfoProvider(() => {
+			consulted++;
+			return [{ name: "net", annotations: { destructiveHint: true } }];
+		});
+		const results = callNTimes(h, "net", 10, {});
+		assert.equal(results[8], null, "9th call passes");
+		assert.ok(results[9]?.block, "explicit cascadeThreshold 10 wins");
+		assert.equal(consulted, 0, "explicitly-configured tool skips the provider");
+	});
+
+	it("hardcoded TOOL_META wins over provider annotations (web_crawl)", () => {
+		const h = new AgentHarness();
+		h.setToolInfoProvider(() => [
+			{ name: "web_crawl", annotations: { openWorldHint: true } },
+		]);
+		const results = callNTimes(h, "web_crawl", 20, { url: "https://x" });
+		assert.equal(results[18], null, "19th call passes");
+		assert.ok(results[19]?.block, "hardcoded cascadeThreshold 20 wins");
+	});
+
+	it("empty annotations escalate to the MCP destructive default (min(8,4)=4)", () => {
+		const h = new AgentHarness();
+		h.setToolInfoProvider(() => [{ name: "mystery", annotations: {} }]);
+		const results = callNTimes(h, "mystery", DESTRUCTIVE_CASCADE_THRESHOLD, {});
+		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
+			assert.equal(results[i], null, `call ${i + 1} passes`);
+		}
+		assert.ok(results[DESTRUCTIVE_CASCADE_THRESHOLD - 1]?.block);
 	});
 
 	it("hardcoded passThrough is retained despite destructive annotations", () => {
