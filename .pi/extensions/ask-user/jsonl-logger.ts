@@ -273,10 +273,10 @@ export async function appendQnaEntry(
  * Skips empty/corrupted lines (logs warnings).
  * Returns empty array if file doesn't exist.
  */
-async function readOneJsonlFile(filePath: string): Promise<QnaEntry[]> {
+async function readOneJsonlFile(filePath: string, signal?: AbortSignal): Promise<QnaEntry[]> {
 	let content: string;
 	try {
-		content = await fs.promises.readFile(filePath, "utf-8");
+		content = await fs.promises.readFile(filePath, { encoding: "utf-8", signal });
 	} catch (err: unknown) {
 		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
 			return [];
@@ -306,18 +306,19 @@ async function readOneJsonlFile(filePath: string): Promise<QnaEntry[]> {
  * Merges in chronological order (oldest archive first, active last).
  * Returns empty array if no files exist.
  */
-export async function readQnaEntries(projectDir: string): Promise<QnaEntry[]> {
+export async function readQnaEntries(projectDir: string, signal?: AbortSignal): Promise<QnaEntry[]> {
+	signal?.throwIfAborted();
 	const entries: QnaEntry[] = [];
 
 	// Read rotated archives in index order (oldest first)
 	const indices = listArchiveIndices(projectDir);
 	for (const idx of indices) {
-		const archived = await readOneJsonlFile(rotatedJsonlPath(projectDir, idx));
+		const archived = await readOneJsonlFile(rotatedJsonlPath(projectDir, idx), signal);
 		entries.push(...archived);
 	}
 
 	// Read active file (most recent entries)
-	const active = await readOneJsonlFile(jsonlPath(projectDir));
+	const active = await readOneJsonlFile(jsonlPath(projectDir), signal);
 	entries.push(...active);
 
 	return entries;
@@ -331,8 +332,9 @@ export async function readQnaEntries(projectDir: string): Promise<QnaEntry[]> {
 export async function getQnaEntry(
 	projectDir: string,
 	id: number,
+	signal?: AbortSignal,
 ): Promise<QnaEntry | null | undefined> {
-	const entries = await readQnaEntries(projectDir);
+	const entries = await readQnaEntries(projectDir, signal);
 	if (entries.length === 0) return undefined;
 	if (id < 1 || id > entries.length) return null;
 	return entries[id - 1]!;
@@ -350,8 +352,9 @@ export async function getQnaEntry(
 export async function listQnaEntries(
 	projectDir: string,
 	limit: number = 20,
+	signal?: AbortSignal,
 ): Promise<{ entries: QnaListedEntry[]; total: number }> {
-	const entries = await readQnaEntries(projectDir);
+	const entries = await readQnaEntries(projectDir, signal);
 	const total = entries.length;
 	// Normalize limit to a non-negative integer BEFORE both slicing and id
 	// assignment: Array.prototype.slice truncates its index toward zero, so
@@ -372,8 +375,9 @@ export async function listQnaEntries(
 export async function queryQnaEntries(
 	projectDir: string,
 	text: string,
+	signal?: AbortSignal,
 ): Promise<QnaListedEntry[]> {
-	const entries = await readQnaEntries(projectDir);
+	const entries = await readQnaEntries(projectDir, signal);
 	const lowerText = text.toLowerCase();
 	return entries
 		.map((e, i) => ({ ...e, id: i + 1 }))

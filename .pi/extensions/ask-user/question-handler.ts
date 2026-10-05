@@ -12,6 +12,7 @@
  * No fs coupling. No migration logic — that's the caller's responsibility.
  */
 
+import { addAbortListener } from "node:events";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendQnaEntry } from "./jsonl-logger.ts";
 import { renderScrollableDialog } from "./question-ui.ts";
@@ -46,11 +47,13 @@ export class QuestionHandler {
 	private projectDir: string;
 	private ctx: ExtensionContext;
 	private mode: string;
+	private signal: AbortSignal | undefined;
 
-	constructor(projectDir: string, ctx: ExtensionContext) {
+	constructor(projectDir: string, ctx: ExtensionContext, signal?: AbortSignal) {
 		this.projectDir = projectDir;
 		this.ctx = ctx;
 		this.mode = (ctx as unknown as { mode?: string }).mode ?? "tui";
+		this.signal = signal;
 	}
 
 	/**
@@ -81,7 +84,7 @@ export class QuestionHandler {
 		}
 
 		// TUI and RPC modes both support ctx.ui.input()
-		const answer = await this.ctx.ui.input(question, "");
+		const answer = await this.ctx.ui.input(question, "", { signal: this.signal });
 		if (answer === undefined || answer.trim() === "") {
 			return this.cancelResponse();
 		}
@@ -173,7 +176,7 @@ export class QuestionHandler {
 	// -----------------------------------------------------------------------
 
 	private async handleOtherChoice(question: string): ExecuteResponse {
-		const customAnswer = await this.ctx.ui.input("Type your answer:", "");
+		const customAnswer = await this.ctx.ui.input("Type your answer:", "", { signal: this.signal });
 		if (customAnswer === undefined || customAnswer.trim() === "") {
 			return {
 				content: [
@@ -236,9 +239,35 @@ export class QuestionHandler {
 		question: string,
 		items: Array<{ value: string; label: string }>,
 	): Promise<string | undefined> {
-		return this.ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) =>
-			renderChoiceDialog(tui, theme as any, done, question, items),
-		);
+		const signal = this.signal;
+		// Already aborted before the dialog opens: ctx.ui.custom() has no signal
+		// option, so resolve as cancelled without mounting a doomed dialog.
+		if (signal?.aborted) {
+			return undefined;
+		}
+
+		return this.ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
+			let removeAbortListener: (() => void) | undefined;
+			const complete = (value: string | undefined): void => {
+				removeAbortListener?.();
+				removeAbortListener = undefined;
+				done(value);
+			};
+
+			const component = renderChoiceDialog(tui, theme as any, complete, question, items);
+
+			if (signal) {
+				const listener = addAbortListener(signal, () => {
+					// The platform skips both mount and dispose when the dialog is
+					// already closed, so dispose here to cover the mount race.
+					component.dispose();
+					complete(undefined);
+				});
+				removeAbortListener = () => listener[Symbol.dispose]();
+			}
+
+			return component;
+		});
 	}
 
 	/**
@@ -251,7 +280,7 @@ export class QuestionHandler {
 		items: Array<{ value: string; label: string }>,
 	): Promise<string | undefined> {
 		const labels = items.map((i) => i.label);
-		return this.ctx.ui.select(question, labels);
+		return this.ctx.ui.select(question, labels, { signal: this.signal });
 	}
 
 	/**

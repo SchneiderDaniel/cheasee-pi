@@ -43,8 +43,10 @@ export function renderScrollableDialog(
 	render: (width: number) => string[];
 	invalidate: () => void;
 	handleInput: (data: string) => void;
+	dispose: () => void;
 } {
 	let questionScrollOffset = 0;
+	let disposed = false;
 
 	const selectListTheme: SelectListTheme = {
 		selectedPrefix: (text) => theme.fg("accent", text),
@@ -143,6 +145,16 @@ export function renderScrollableDialog(
 			// Forward everything else to SelectList (arrows, enter, escape, etc.)
 			selectList.handleInput(data);
 			tui.requestRender();
+		},
+
+		/**
+		 * Release the component. Present for the ctx.ui.custom() contract: the
+		 * abort path in QuestionHandler disposes the component itself when the
+		 * platform may close the dialog before mounting it. Idempotent.
+		 */
+		dispose() {
+			if (disposed) return;
+			disposed = true;
 		},
 	};
 }
