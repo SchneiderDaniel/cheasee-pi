@@ -2631,20 +2631,35 @@ describe("execute — structuredContent + annotations (Issue 1791)", () => {
 		(_, i) => `src/a.ts:${i + 1}:match ${i + 1}`,
 	).join("\n");
 
+	// vimgrep output (file:line:column:text) — the rg backend's parse format.
+	const VIMGREP_STDOUT = [
+		"src/a.ts:1:5:match 1",
+		"src/a.ts:2:7:match 2",
+		"src/b.ts:3:1:match 3",
+	].join("\n");
+
 	let tmpCwd: string;
 	let tool: any;
 	let searchExecCount: number;
 	let failCode: number | null;
 	let noMatch: boolean;
+	// Non-null enables the ripgrep backend: `rg --version` reports success and the
+	// rg search exec returns this vimgrep stdout instead of the grep-shaped output.
+	let rgVimgrepStdout: string | null;
 
 	function makeMockPi() {
 		const handlers = new Map<string, Function>();
 		let captured: any;
-		const exec = async (command: string) => {
-			if (command === "rg") return { code: 1, stdout: "", stderr: "" };
+		const exec = async (command: string, args: string[] = []) => {
+			if (command === "rg" && args.includes("--version")) {
+				return rgVimgrepStdout
+					? { code: 0, stdout: "ripgrep 14.0.0\n", stderr: "" }
+					: { code: 1, stdout: "", stderr: "" };
+			}
 			searchExecCount++;
 			if (failCode !== null) return { code: failCode, stdout: "", stderr: "boom" };
 			if (noMatch) return { code: 1, stdout: "", stderr: "" };
+			if (command === "rg") return { code: 0, stdout: rgVimgrepStdout ?? HAPPY_STDOUT, stderr: "" };
 			return { code: 0, stdout: HAPPY_STDOUT, stderr: "" };
 		};
 		const pi = {
@@ -2675,6 +2690,7 @@ describe("execute — structuredContent + annotations (Issue 1791)", () => {
 		searchExecCount = 0;
 		failCode = null;
 		noMatch = false;
+		rgVimgrepStdout = null;
 		tmpCwd = mkdtempSync(join(tmpdir(), "pi-rg-structured-"));
 		mkdirSync(join(tmpCwd, ".pi"));
 		writeSettings(tmpCwd, "grep");
@@ -2700,6 +2716,22 @@ describe("execute — structuredContent + annotations (Issue 1791)", () => {
 
 		const parsed = parseGrepOutput(HAPPY_STDOUT, 500);
 		const expected = buildStructuredSummary(parsed, "grep", "TODO", "src", 10);
+		assert.strictEqual(r.content[0].text, expected.text);
+	});
+
+	it("ripgrep happy path — `rg --version` succeeds, vimgrep output validates, content unchanged", async () => {
+		writeSettings(tmpCwd, "ripgrep");
+		rgVimgrepStdout = VIMGREP_STDOUT;
+		const r = await call();
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, r.structuredContent));
+		assert.strictEqual(r.structuredContent.searcher, "ripgrep");
+		assert.strictEqual(r.structuredContent.total_returned, 3);
+		assert.strictEqual(r.structuredContent.results[1].text, "match 2");
+		assert.strictEqual(r.structuredContent.results[1].column, 7);
+		assert.notStrictEqual(r.isError, true);
+
+		const parsed = parseVimgrepOutput(VIMGREP_STDOUT, 500);
+		const expected = buildStructuredSummary(parsed, "ripgrep", "TODO", "src", 10);
 		assert.strictEqual(r.content[0].text, expected.text);
 	});
 
