@@ -22,6 +22,18 @@ export const CACHE_TTL_TURNS = 6;
 export const CASCADE_THRESHOLD = 8;
 
 /**
+ * Cascade threshold for tools annotated `destructiveHint: true`.
+ * Tightened below the default so destructive tools block sooner.
+ */
+export const DESTRUCTIVE_CASCADE_THRESHOLD = 4;
+
+/**
+ * Cascade threshold for tools annotated `openWorldHint: true`.
+ * Loosened above the default — network egress is expected to be called often.
+ */
+export const OPEN_WORLD_CASCADE_THRESHOLD = 16;
+
+/**
  * Force-bypass annotation for bash commands.
  * When present as a standalone comment token (token-wise parsed, not in quoted strings),
  * the agent-harness bypasses all guards for that call.
@@ -90,6 +102,17 @@ export interface ToolMeta {
 	passThrough?: boolean;
 	/** Consecutive-call threshold before cascade block (default 8). */
 	cascadeThreshold?: number;
+	/**
+	 * If false, errors from this tool are not tracked and cannot trigger the
+	 * error-retry block. Derived `false` for read-only annotated tools.
+	 */
+	trackErrors?: boolean;
+	/** MCP `destructiveHint` classification (derived default, never authoritative). */
+	destructive?: boolean;
+	/** MCP `openWorldHint` classification (derived default, never authoritative). */
+	openWorld?: boolean;
+	/** MCP `idempotentHint` classification, carried through verbatim. */
+	idempotent?: boolean;
 }
 
 /**

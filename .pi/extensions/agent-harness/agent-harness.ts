@@ -27,6 +27,10 @@ import {
 	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
 import {
+	deriveToolMetaFromAnnotations,
+} from "./lib/tool-annotations.ts";
+import type { ToolInfoLike } from "./lib/tool-annotations.ts";
+import {
 	hasBypassAnnotation,
 	isBashSearch,
 	isBashFileRead,
@@ -42,10 +46,19 @@ export interface ToolCallResult {
 	redirectTo?: string;
 }
 
+/**
+ * Port for tool metadata. The pi adapter (index.ts) supplies a closure over
+ * `pi.getAllTools()`; the harness stays pi-free. Resolved lazily on every
+ * `tool_call` so later-registered tools are visible without a session snapshot.
+ */
+export type ToolInfoProvider = () => ReadonlyArray<ToolInfoLike>;
+
 interface ToolCallEvent {
 	toolName?: string;
 	input: Record<string, unknown>;
 	isError?: boolean;
+	toolCallId?: string;
+	parentToolCallId?: string;
 }
 
 interface ToolCallContext {
@@ -133,6 +146,10 @@ export class AgentHarness {
 	#hasUI: boolean = true;
 	/** Resolved harness rules (defaults or merged with project config). */
 	#resolvedRules: ResolvedHarnessRules;
+	/** Lazily-consulted tool-info port (annotations source). */
+	#toolInfoProvider?: ToolInfoProvider;
+	/** True once the fail-open annotation-lookup warning has been surfaced. */
+	#annotationWarningEmitted = false;
 
 	constructor(rules?: ResolvedHarnessRules) {
 		this.state = createHarnessState();
@@ -147,16 +164,91 @@ export class AgentHarness {
 	}
 
 	/**
-	 * Get tool meta from resolved rules with fallback to cascadeThreshold.
-	 * Unlisted tools get { passThrough: false, cascadeThreshold: defaultThreshold }.
+	 * Inject the tool-info port (called on session_start). Resolved lazily —
+	 * no snapshot is taken here.
+	 */
+	setToolInfoProvider(provider?: ToolInfoProvider): void {
+		this.#toolInfoProvider = provider;
+		this.#annotationWarningEmitted = false;
+	}
+
+	/**
+	 * Resolve the effective ToolMeta for a tool.
+	 *
+	 * Precedence: explicit config `toolMeta` > hardcoded `TOOL_META` >
+	 * annotation-derived > generic default.
 	 */
 	#getToolMeta(toolName: string): ToolMeta {
-		return (
-			this.#resolvedRules.toolMeta[toolName] ?? {
-				passThrough: false,
-				cascadeThreshold: this.#resolvedRules.cascadeThreshold,
+		const explicit = this.#resolvedRules.toolMeta[toolName];
+		if (explicit) return explicit;
+
+		const derived = this.#getDerivedToolMeta(toolName);
+		if (derived) return derived;
+
+		return {
+			passThrough: false,
+			trackErrors: true,
+			cascadeThreshold: this.#resolvedRules.cascadeThreshold,
+		};
+	}
+
+	/**
+	 * Look up annotations via the injected port. Fail-open: a throwing provider
+	 * must never convert into a fail-closed block (pi treats a `tool_call`
+	 * handler throw as a block). Surfaced once, then silently ignored.
+	 */
+	#getDerivedToolMeta(toolName: string): ToolMeta | undefined {
+		const provider = this.#toolInfoProvider;
+		if (!provider) return undefined;
+		try {
+			const info = provider().find((t) => t.name === toolName);
+			if (!info) return undefined;
+			return deriveToolMetaFromAnnotations(info.annotations);
+		} catch (e) {
+			if (!this.#annotationWarningEmitted) {
+				this.#annotationWarningEmitted = true;
+				console.error(
+					`agent-harness: tool annotation lookup failed — using default rules (${(e as Error).message})`,
+				);
 			}
-		);
+			return undefined;
+		}
+	}
+
+	/**
+	 * Attribute a nested call (`ctx.executeTool`-issued) to its parent tool.
+	 * Nested calls are never blocked: the parent tool sees the nested result and
+	 * a block here would break the parent rather than teach the model. They only
+	 * roll their count (and errors) up to the parent's composite counter identity
+	 * (tool + bash sub-key, captured in the call-id index) and still run cache
+	 * invalidation. Unmapped parents (state reset / foreign instance) are ignored.
+	 */
+	#attributeNestedCall(
+		event: ToolCallEvent,
+		args: Record<string, unknown>,
+		toolName: string,
+		parentToolCallId: string,
+		sessionTurn: number,
+	): void {
+		// Step 2.5 still applies to nested calls.
+		if (toolName === "write" || toolName === "edit") {
+			this.state.readCache.clear();
+		} else if (toolName === "bash") {
+			const command = (args.command ?? "") as string;
+			if (command && isBashFileModify(command)) {
+				this.state.readCache.clear();
+			}
+		}
+
+		const parent = this.state.callIdIndex.get(parentToolCallId, sessionTurn);
+		if (!parent) return;
+
+		this.state.callCounter.recordNested(parent, sessionTurn);
+		// Apply the parent's effective trackErrors setting — a read-only parent
+		// must not be error-blocked by nested failures (config still wins).
+		if (event.isError && this.#getToolMeta(parent.toolName).trackErrors !== false) {
+			this.state.errorTracker.push(parent.toolName, { turn: sessionTurn, toolName });
+		}
 	}
 
 	/**
@@ -164,8 +256,9 @@ export class AgentHarness {
 	 * Returns null (pass-through) or ToolCallResult (block).
 	 *
 	 * Guard order:
+	 *  0.5 Nested attribution → nested calls roll up to parent, never blocked
 	 *  1. Pass-through tools → always pass, record for cascade reset
-	 *  2. Error tracking → push to tracker, pass through
+	 *  2. Error tracking → push to tracker (unless trackErrors:false), pass through
 	 *  2.5 Cache invalidation → write/file-modifying bash clears read cache
 	 *  3. Error retry blocking → if >=2 errors, block
 	 *  4. Read caching → cache hit blocks with cached info
@@ -178,9 +271,17 @@ export class AgentHarness {
 		const args = event.input ?? {};
 		const toolCallIndex = this.state.toolCallIndex;
 		const sessionTurn = this.state.sessionTurn;
+		const toolCallId = event.toolCallId;
+		const parentToolCallId = event.parentToolCallId;
 
 		// ── Extract hasUI from context (backward-compatible cast) ──
 		this.#hasUI = (_ctx as any).hasUI !== false;
+
+		// ── Reserved `_harness` field is consumed and stripped before any branch ──
+		const forceField = args._harness as { force?: boolean } | undefined;
+		if (args._harness !== undefined) {
+			delete (event.input as Record<string, unknown>)._harness;
+		}
 
 		// ── Guard: undefined/empty toolName → skip recording, pass through ──
 		if (!toolName) {
@@ -193,18 +294,39 @@ export class AgentHarness {
 		const bashSubKey =
 			toolName === "bash" ? getBashSubKey((args.command ?? "") as string) : undefined;
 
+		// ── Index this call id → its composite counter identity (tool + bash
+		// sub-key) so nested calls roll up to the exact parent entry. For a nested
+		// call we propagate the parent's already-resolved identity instead, so a
+		// grandchild (depth ≥2) still rolls up to the root parent rather than to a
+		// counter entry under the nested tool (which is never recorded). An unmapped
+		// parent is left unindexed → its descendants stay uncounted.
+		if (toolCallId) {
+			if (parentToolCallId) {
+				const parentIdentity = this.state.callIdIndex.get(parentToolCallId, sessionTurn);
+				if (parentIdentity) {
+					this.state.callIdIndex.set(toolCallId, parentIdentity, sessionTurn);
+				}
+			} else {
+				this.state.callIdIndex.set(toolCallId, { toolName, subKey: bashSubKey }, sessionTurn);
+			}
+		}
+
+		// ── Step 0.5: Nested-call attribution ──
+		// ctx.executeTool()-issued calls carry parentToolCallId. They never run
+		// Steps 1/3–6: a nested block would break the parent tool, not teach the
+		// model. They only roll up to the parent and still invalidate the cache.
+		if (parentToolCallId) {
+			this.#attributeNestedCall(event, args, toolName, parentToolCallId, sessionTurn);
+			this.state.toolCallIndex++;
+			return null;
+		}
+
 		// ── Step 0: Force-bypass gate ──
 		// Per-call escape hatch: _harness.force: true or # bypass-harness comment annotation.
 		// Requires hasUI: true (deliberate intent — prevents headless/automated abuse).
 		// Force-bypassed calls are recorded as real calls (count toward cascade).
-		const forceField = args._harness as { force?: boolean } | undefined;
 		const forceBypass = forceField?.force === true;
 		const bypassAnnotation = toolName === "bash" && hasBypassAnnotation(bashCommand);
-
-		// Strip _harness from input to prevent leaking to tool layer (always, even if not bypassing)
-		if (args._harness !== undefined) {
-			delete (event.input as Record<string, unknown>)._harness;
-		}
 
 		if (forceBypass || bypassAnnotation) {
 			if (this.#hasUI) {
@@ -226,10 +348,10 @@ export class AgentHarness {
 
 		let result: ToolCallResult | null = null;
 
-		// ── 2. Error tracking ──
+		// ── 2. Error tracking (gated on trackErrors — read-only tools are exempt) ──
 		// Record the session turn (not toolCallIndex) so the block message's
 		// "last turn N" names the same unit the read-cache message uses.
-		if (event.isError) {
+		if (event.isError && meta.trackErrors !== false) {
 			this.state.errorTracker.push(toolName, { turn: sessionTurn, toolName });
 			// result stays null → pass through
 		}
