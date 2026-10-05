@@ -4,7 +4,17 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { renderStructuralSearchResult } from "../renderer.ts";
+
+/**
+ * Canonical link target the renderer must use: pathToFileURL(absPath) + "#L" + start line.
+ * Computed in-test (never hardcoded) so the assertion is exact, not substring-based.
+ */
+function expectedUri(cwd: string, file: string, lines: string): string {
+	return pathToFileURL(path.resolve(cwd, file)).href + "#L" + lines.split("-")[0];
+}
 
 // Mock theme: fg returns text unchanged (identity function)
 const mockTheme = {
@@ -134,14 +144,26 @@ describe("renderStructuralSearchResult", () => {
 		assert.ok(output.includes("api/auth.py"), `expected api/auth.py in output:\n${output}`);
 		assert.ok(output.includes("src/app.ts"), `expected src/app.ts in output:\n${output}`);
 
-		// Should contain hyperlink URIs with absolute paths
+		// POSITIONAL: OSC 8 opening must be followed by the URI, then the RELATIVE path as
+		// visible text. The buggy order emitted the URI as text and the relative path as target.
+		const apiUri = expectedUri("/home/project", "api/auth.py", "22-28");
+		const appUri = expectedUri("/home/project", "src/app.ts", "10-10");
 		assert.ok(
-			output.includes("file://localhost/home/project/api/auth.py:22"),
-			`expected file:// URI in output:\n${output}`,
+			output.includes(`\x1b]8;;${apiUri}\x1b\\api/auth.py\x1b]8;;\x1b\\`),
+			`expected positional OSC 8 hyperlink (uri target, relative display) for api/auth.py:\n${output}`,
 		);
 		assert.ok(
-			output.includes("file://localhost/home/project/src/app.ts:10"),
-			`expected file:// URI in output:\n${output}`,
+			output.includes(`\x1b]8;;${appUri}\x1b\\src/app.ts\x1b]8;;\x1b\\`),
+			`expected positional OSC 8 hyperlink (uri target, relative display) for src/app.ts:\n${output}`,
+		);
+		// Regression sentinels: the relative path must never be a link target.
+		assert.ok(
+			!output.includes("\x1b]8;;api/auth.py"),
+			`relative path must never be a hyperlink target:\n${output}`,
+		);
+		assert.ok(
+			!output.includes("file://localhost"),
+			`must not use the non-canonical file://localhost authority:\n${output}`,
 		);
 
 		// Should contain snippets
@@ -255,7 +277,7 @@ describe("renderStructuralSearchResult", () => {
 		);
 	});
 
-	it("hyperlink URI format: file://localhost/abs/path/to/file.ts:lineStart", () => {
+	it("hyperlink URI format: canonical file:// URI with #L fragment (no localhost)", () => {
 		const results = [{ file: "src/app.ts", lines: "10-10", snippet: "code" }];
 		const details = makeDetails({ matches: 1, results });
 		const result = makeResult(details);
@@ -266,9 +288,11 @@ describe("renderStructuralSearchResult", () => {
 			{ cwd: "/home/project" },
 		);
 		const output = renderToString(comp);
+		const uri = expectedUri("/home/project", "src/app.ts", "10-10");
+		assert.strictEqual(uri, "file:///home/project/src/app.ts#L10");
 		assert.ok(
-			output.includes("file://localhost/home/project/src/app.ts:10"),
-			`expected absolute URI in output:\n${output}`,
+			output.includes(`\x1b]8;;${uri}\x1b\\src/app.ts\x1b]8;;\x1b\\`),
+			`expected canonical positional hyperlink in output:\n${output}`,
 		);
 	});
 
@@ -326,5 +350,81 @@ describe("renderStructuralSearchResult", () => {
 		);
 		const output = renderToString(comp);
 		assert.ok(output.includes("custom error"), `expected custom error text in output: ${output}`);
+	});
+});
+
+describe("renderStructuralSearchResult — OSC 8 argument order & URI canonicalization", () => {
+	function renderSingle(file: string, lines: string, cwd = "/home/project", snippet = "code") {
+		const details = makeDetails({ matches: 1, results: [{ file, lines, snippet }] });
+		return renderToString(
+			renderStructuralSearchResult(
+				makeResult(details),
+				{ expanded: true, isPartial: false },
+				mockTheme as any,
+				{ cwd },
+			),
+		);
+	}
+
+	it("Phase 1: opening OSC 8 is immediately followed by the URI target, then the relative path", () => {
+		const uri = expectedUri("/home/project", "src/app.ts", "10-10");
+		const output = renderSingle("src/app.ts", "10-10");
+		assert.ok(
+			output.includes(`\x1b]8;;${uri}\x1b\\src/app.ts\x1b]8;;\x1b\\`),
+			`expected positional hyperlink \`ESC]8;;<uri>ESC\\src/app.tsESC]8;;ESC\\\`:\n${output}`,
+		);
+	});
+
+	it("Phase 1 sentinel: relative path is never emitted as a hyperlink target", () => {
+		const output = renderSingle("src/app.ts", "10-10");
+		assert.ok(
+			!output.includes("\x1b]8;;src/app.ts"),
+			`relative path must not be the link target:\n${output}`,
+		);
+	});
+
+	it("Phase 1 sentinel: the raw file:// URI appears only as link target, never as visible text", () => {
+		const uri = expectedUri("/home/project", "src/app.ts", "10-10");
+		const output = renderSingle("src/app.ts", "10-10");
+		const occurrences = output.split(uri).length - 1;
+		const linked = output.split(`\x1b]8;;${uri}\x1b\\`).length - 1;
+		assert.strictEqual(occurrences, 1, `expected the URI exactly once:\n${output}`);
+		assert.strictEqual(linked, occurrences, `URI must only appear inside an OSC 8 link:\n${output}`);
+	});
+
+	it("Phase 1: line info suffix is rendered after the closing hyperlink for a range", () => {
+		const output = renderSingle("api/auth.py", "22-28", "/home/project", "verify_token");
+		assert.ok(
+			output.includes("api/auth.py\x1b]8;;\x1b\\:22-28"),
+			`expected ':22-28' immediately after the hyperlink close:\n${output}`,
+		);
+	});
+
+	it("Phase 2: lineStart is derived from the range start (#L22 for 22-28)", () => {
+		const uri = expectedUri("/home/project", "api/auth.py", "22-28");
+		assert.ok(uri.endsWith("#L22"));
+		const output = renderSingle("api/auth.py", "22-28", "/home/project", "verify_token");
+		assert.ok(
+			output.includes(`\x1b]8;;${uri}\x1b\\api/auth.py\x1b]8;;\x1b\\`),
+			`expected '#L22' ranged URI in output:\n${output}`,
+		);
+	});
+
+	it("Phase 2: percent-encodes spaces, '#', and '?' in the URI (pathToFileURL)", () => {
+		const file = "a b#c?.ts";
+		const uri = expectedUri("/home/project", file, "5-5");
+		assert.ok(uri.includes("%20"), `expected %20 in uri: ${uri}`);
+		assert.ok(uri.includes("%23"), `expected %23 in uri: ${uri}`);
+		assert.ok(uri.includes("%3F"), `expected %3F in uri: ${uri}`);
+		const output = renderSingle(file, "5-5");
+		assert.ok(
+			output.includes(`\x1b]8;;${uri}\x1b\\${file}\x1b]8;;\x1b\\`),
+			`expected percent-encoded positional hyperlink:\n${output}`,
+		);
+	});
+
+	it("Phase 2: no 'file://localhost' authority remains", () => {
+		const output = renderSingle("src/app.ts", "10-10");
+		assert.ok(!output.includes("file://localhost"), `must not contain localhost authority:\n${output}`);
 	});
 });

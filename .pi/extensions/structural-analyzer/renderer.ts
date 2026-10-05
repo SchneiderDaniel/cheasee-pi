@@ -9,18 +9,33 @@
  */
 
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Text, hyperlink, type Component } from "@earendil-works/pi-tui";
 import { truncateLine } from "@earendil-works/pi-coding-agent";
 
 /**
  * Maximum number of individual results to display in expanded TUI view.
  */
-export const RENDER_EXPANDED_LIMIT = 20;
+const RENDER_EXPANDED_LIMIT = 20;
 
 /**
  * Maximum number of individual results to display in collapsed TUI view.
  */
-export const RENDER_COLLAPSED_LIMIT = 5;
+const RENDER_COLLAPSED_LIMIT = 5;
+
+/**
+ * Build an OSC 8 hyperlink for a search hit.
+ *
+ * Owns the two non-obvious conventions in one place:
+ *  - `hyperlink(text, url)` is text-first: the link target is the file URI, the
+ *    visible text is the relative display path (the reverse shipped once — see #1778).
+ *  - the URI is canonicalized via `pathToFileURL` (percent-encodes spaces/`#`/`?`,
+ *    normalizes drive letters) with a `#L<line>` fragment, matching ripgrep-search.
+ */
+function fileLink(displayPath: string, absPath: string, lineStart: string): string {
+	const uri = pathToFileURL(absPath).href + "#L" + lineStart;
+	return hyperlink(displayPath, uri);
+}
 
 /**
  * Custom renderResult for structural_search tool.
@@ -78,8 +93,7 @@ export function renderStructuralSearchResult(
 	for (const match of displayedResults) {
 		const absPath = path.resolve(context.cwd, match.file);
 		const lineStart = match.lines.split("-")[0]!;
-		const uri = `file://localhost${absPath}:${lineStart}`;
-		const hyperlinkedPath = hyperlink(uri, match.file);
+		const hyperlinkedPath = fileLink(match.file, absPath, lineStart);
 		const lineInfo = theme.fg("dim", `:${match.lines}`);
 
 		// Truncate long snippets for display
