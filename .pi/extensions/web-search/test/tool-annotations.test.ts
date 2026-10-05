@@ -12,6 +12,7 @@ import { describe, it, before, after } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Value } from "typebox/value";
 import {
 	discoverAndLoadExtensions,
 	type LoadExtensionsResult,
@@ -53,5 +54,31 @@ describe("web_search annotations — real SDK loader round-trip", () => {
 		assert.ok(schema, "outputSchema should be present");
 		const roundTripped = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
 		assert.equal(typeof roundTripped, "object");
+	});
+});
+
+describe("web_search outputSchema — real SDK loader conformance", () => {
+	it("(integration) loaded outputSchema validates representative success and error payloads", () => {
+		const schema = webSearchDefinition().outputSchema;
+		assert.ok(schema, "outputSchema should be present");
+		assert.ok(
+			Value.Check(schema, {
+				ok: true,
+				query: "q",
+				returned: 1,
+				results: [{ title: "T", url: "https://t.example", snippet: "s" }],
+			}),
+		);
+		assert.ok(Value.Check(schema, { ok: false, query: "q", error: "boom" }));
+	});
+
+	it("(integration) serialized outputSchema declares both ok literals", () => {
+		const schema = webSearchDefinition().outputSchema;
+		assert.ok(schema, "outputSchema should be present");
+		const serialized = JSON.stringify(schema);
+		assert.ok(
+			(serialized.match(/"ok"/g) ?? []).length >= 2,
+			"both ok branches declared",
+		);
 	});
 });
