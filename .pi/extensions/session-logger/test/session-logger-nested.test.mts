@@ -15,17 +15,63 @@
  */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import type {
+	NestedToolCallRecord as HostNestedToolCallRecord,
+	NestedToolCalls as HostNestedToolCalls,
+} from "@earendil-works/pi-ai";
 import {
 	deriveParentToolCallId,
 	rollupNestedCalls,
 	classifyIncomplete,
 	mergeNestedAnnotation,
 } from "../nested.ts";
+import type {
+	NestedToolCallRecord as LocalNestedToolCallRecord,
+	NestedToolCalls as LocalNestedToolCalls,
+} from "../nested.ts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const NESTED_SOURCE = readFileSync(join(__dirname, "..", "nested.ts"), "utf8");
+
+// Compile-time drift guard (erased at runtime, enforced by tsc): `nested.ts`
+// re-exports the host DTOs, so the shapes must be bidirectionally assignable.
+// A reintroduced local divergent redeclaration fails compilation.
+type Assert<T extends true> = T;
+type Extends<A, B> = A extends B ? true : false;
+type _NestedToolCallsMatchesHost = Assert<
+	Extends<LocalNestedToolCalls, HostNestedToolCalls> &
+		Extends<HostNestedToolCalls, LocalNestedToolCalls>
+>;
+type _NestedToolCallRecordMatchesHost = Assert<
+	Extends<LocalNestedToolCallRecord, HostNestedToolCallRecord> &
+		Extends<HostNestedToolCallRecord, LocalNestedToolCallRecord>
+>;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Implementation export references (satisfy TDD gate: test-covers-symbols)
 // ═══════════════════════════════════════════════════════════════════════
+
+describe("nested.ts sources DTOs from the host package", () => {
+	it("imports the nested DTOs from @earendil-works/pi-ai", () => {
+		assert.ok(NESTED_SOURCE.includes('from "@earendil-works/pi-ai"'));
+	});
+
+	it("does not redeclare NestedToolCalls locally", () => {
+		assert.ok(!NESTED_SOURCE.includes("interface NestedToolCalls"));
+	});
+
+	it("does not redeclare NestedToolCallRecord locally", () => {
+		assert.ok(!NESTED_SOURCE.includes("interface NestedToolCallRecord"));
+	});
+
+	it("no longer claims the installed pi-ai predates the DTOs", () => {
+		assert.ok(!NESTED_SOURCE.includes("predates"));
+	});
+});
 
 describe("nested.ts exports", () => {
 	it("deriveParentToolCallId is a callable export", () => {
