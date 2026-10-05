@@ -234,19 +234,27 @@ describe("convertAgentRunToToolResult — nested calls", () => {
 		assert.equal(toolResult.details.errorCount, 3);
 	});
 
-	it("nestedErrors only → errorCount equals nestedErrors", () => {
+	it("nestedErrors only → errorCount equals nestedErrors and nestedErrorCount set", () => {
 		const result = makeRunResult({ failedToolCount: undefined, nestedErrors: 2 });
 		const toolResult = convertAgentRunToToolResult(result);
 		assert.equal(toolResult.details.errorCount, 2);
+		assert.equal(toolResult.details.nestedErrorCount, 2);
 	});
 
-	it("neither failed nor nested errors → errorCount undefined (pin preserved)", () => {
+	it("nestedErrors mapped onto nestedErrorCount", () => {
+		const result = makeRunResult({ nestedErrors: 2 });
+		const toolResult = convertAgentRunToToolResult(result);
+		assert.equal(toolResult.details.nestedErrorCount, 2);
+	});
+
+	it("neither failed nor nested errors → errorCount and nestedErrorCount undefined (pin preserved)", () => {
 		const result = makeRunResult({ failedToolCount: undefined, nestedErrors: undefined });
 		const toolResult = convertAgentRunToToolResult(result);
 		assert.equal(toolResult.details.errorCount, undefined);
+		assert.equal(toolResult.details.nestedErrorCount, undefined);
 	});
 
-	it("native nested shape: arguments → args, unfinished → non-ok", () => {
+	it("native nested shape: arguments → args, unfinished preserved", () => {
 		const result = makeRunResult({
 			nestedCalls: {
 				calls: [
@@ -259,7 +267,7 @@ describe("convertAgentRunToToolResult — nested calls", () => {
 		const toolResult = convertAgentRunToToolResult(result);
 		assert.deepEqual(toolResult.details.nestedCalls, {
 			calls: [
-				{ name: "read", status: "error", args: { path: "x.ts" } },
+				{ name: "read", status: "unfinished", args: { path: "x.ts" } },
 				{ name: "grep", status: "ok", args: { q: "x" }, durationMs: 5 },
 			],
 			complete: false,

@@ -9,7 +9,7 @@ import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { Container, Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
+import { renderTextLines, renderThinkingBlock, subtleColor } from "../lib/render-helpers.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
 
 // ─── Fixtures ────────────────────────────────────────────────────
@@ -50,6 +50,22 @@ function renderStripped(container: Container, width = 80): string[] {
 	const raw = container.render(width);
 	return raw.map((line: string) => stripAnsi(line).trim());
 }
+
+// ─── subtleColor ─────────────────────────────────────────────────
+
+describe("subtleColor", () => {
+	it("dark appearance → dim", () => {
+		assert.equal(subtleColor({ appearance: "dark" }), "dim");
+	});
+
+	it("light appearance → muted", () => {
+		assert.equal(subtleColor({ appearance: "light" }), "muted");
+	});
+
+	it("absent appearance → dim", () => {
+		assert.equal(subtleColor({}), "dim");
+	});
+});
 
 // ─── Tests ───────────────────────────────────────────────────────
 

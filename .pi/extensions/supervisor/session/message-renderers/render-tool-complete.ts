@@ -11,8 +11,8 @@ import type { RendererFn } from "./types.ts";
  */
 export const renderToolComplete: RendererFn = (message, _options, theme) => {
 	const raw = (message as any).details;
-	const icon = raw.isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-	const paramsPart = raw.params ? ` ${theme.fg("warning", raw.params)}` : "";
+	const icon = raw.isError ? theme.style("✗", { fg: "error" }) : theme.style("✓", { fg: "success" });
+	const paramsPart = raw.params ? ` ${theme.style(raw.params, { fg: "warning" })}` : "";
 	const headerText = `${icon} ${theme.style(raw.toolName, { fg: "toolTitle", bold: true })}: \`${raw.args}\`${paramsPart}`;
 	const bgFn = (l: string) =>
 		raw.isError ? theme.style(l, { bg: "toolErrorBg" }) : theme.style(l, { bg: "toolSuccessBg" });
@@ -37,21 +37,21 @@ export const renderToolComplete: RendererFn = (message, _options, theme) => {
 		const normalized = raw.thinking.replace(/^ {4,}(```+)/gm, "$1");
 		if (raw.resultText) {
 			c.addChild(new Spacer(1));
-			c.addChild(new Text(theme.fg("muted", "── Thinking ──"), 0, 0));
+			c.addChild(new Text(theme.style("── Thinking ──", { fg: "muted" }), 0, 0));
 		}
 		renderThinkingBlock(c, normalized, theme);
 	}
 
 	// Error reason
 	if (raw.isError && raw.errorReason) {
-		c.addChild(new Text(theme.fg("error", `✗ ${raw.errorReason}`), 0, 0));
+		c.addChild(new Text(theme.style(`✗ ${raw.errorReason}`, { fg: "error" }), 0, 0));
 	}
 
 	// Duration footer (like native pi's "Took Xs" at end)
 	if (raw.toolDurationMs !== undefined) {
 		c.addChild(new Spacer(1));
 		const secs = (raw.toolDurationMs / 1000).toFixed(1);
-		c.addChild(new Text(theme.fg("muted", `Took ${secs}s`), 0, 0));
+		c.addChild(new Text(theme.style(`Took ${secs}s`, { fg: "muted" }), 0, 0));
 	}
 
 	return c;
@@ -106,34 +106,34 @@ function highlightResultText(resultText: string, theme: any): string {
 			const body = l.slice(indent.length);
 			// Keyword highlighting for major status words
 			if (/^(error|fail|failed|denied|enoent|not found|blocked)/i.test(body)) {
-				return indent + theme.fg("error", body);
+				return indent + theme.style(body, { fg: "error" });
 			}
 			if (/^(success|ok|done|completed|approved)/i.test(body)) {
-				return indent + theme.fg("success", body);
+				return indent + theme.style(body, { fg: "success" });
 			}
 			if (/^(warning|warn|caution)/i.test(body)) {
-				return indent + theme.fg("warning", body);
+				return indent + theme.style(body, { fg: "warning" });
 			}
 			// Match count lines
 			if (/\d+ matches/i.test(body) || /Matches returned: \d+/i.test(body)) {
-				return indent + theme.fg("success", body);
+				return indent + theme.style(body, { fg: "success" });
 			}
 			// File:line entries from search results
 			if (/^\d+\.\s+\S+:\d+:/.test(l)) {
 				const sep = l.indexOf(":");
 				if (sep > 0) {
-					return theme.fg("dim", l.slice(0, sep + 1)) + theme.fg("accent", l.slice(sep + 1));
+					return theme.style(l.slice(0, sep + 1), { fg: "dim" }) + theme.style(l.slice(sep + 1), { fg: "accent" });
 				}
 			}
 			// Omitted long line entries
 			if (/\[omitted long line/i.test(l) || /\[truncated/i.test(l)) {
-				return indent + theme.fg("muted", body);
+				return indent + theme.style(body, { fg: "muted" });
 			}
 			// Paths with known patterns (.ts, .js, .json, etc.)
 			if (/^\/[\w/.-]+\.[a-z]+:/.test(l)) {
 				const colonIdx = l.indexOf(":");
 				if (colonIdx > 0) {
-					return theme.fg("accent", l.slice(0, colonIdx)) + theme.fg("dim", l.slice(colonIdx));
+					return theme.style(l.slice(0, colonIdx), { fg: "accent" }) + theme.style(l.slice(colonIdx), { fg: "dim" });
 				}
 			}
 			return l;

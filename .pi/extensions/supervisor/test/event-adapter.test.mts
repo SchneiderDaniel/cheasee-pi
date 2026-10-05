@@ -1202,6 +1202,27 @@ describe("nested tool calls — state capture", () => {
 		assert.equal(state.nestedTruncated, true);
 	});
 
+	it("dropped-error boundary: errored end past the cap counts, records no entry", () => {
+		const state = createState();
+		for (let i = 0; i < 30; i++) {
+			processNormalizedEvent(
+				{ kind: "tool_execution_end", toolName: `t${i}`, isError: false, parentToolCallId: "p" },
+				state,
+			);
+		}
+		processNormalizedEvent(
+			{ kind: "tool_execution_end", toolName: "boom", isError: true, parentToolCallId: "p" },
+			state,
+		);
+		assert.equal(state.nestedCalls!.length, 30);
+		assert.equal(state.nestedTruncated, true);
+		assert.equal(state.nestedErrorCount, 1);
+		assert.ok(
+			state.nestedCalls!.every((c) => c.status === "ok"),
+			"the errored call was dropped, so no recorded entry is an error",
+		);
+	});
+
 	it("zero nested ends → nestedCalls untouched", () => {
 		const state = createState();
 		assert.equal(state.nestedCalls, undefined);

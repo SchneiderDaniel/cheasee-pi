@@ -111,7 +111,7 @@ export interface AgentRunResult {
 	thinkingLevel?: string;
 	/** Nested calls made by the run's tools (pi's bounded record), if any */
 	nestedCalls?: NestedCalls;
-	/** Count of nested calls that ended in error/unfinished */
+	/** True nested-error total from the live recorder (incremented before the bounded-record cap). */
 	nestedErrors?: number;
 }
 
@@ -161,7 +161,7 @@ export interface AgentRunState {
 	nestedCalls?: NestedCall[];
 	/** True when more nested calls arrived than MAX_NESTED_CALLS */
 	nestedTruncated?: boolean;
-	/** Count of nested calls that ended in error */
+	/** True nested-error total; incremented before the MAX_NESTED_CALLS cap, so it can exceed recorded errors. */
 	nestedErrorCount?: number;
 }
 

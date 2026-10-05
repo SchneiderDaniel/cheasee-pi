@@ -15,6 +15,7 @@ import {
 import { RENDERERS, fallbackRenderer } from "./message-renderers/index.ts";
 import type { SupervisorDetails } from "./message-renderers/types.ts";
 import { getTermWidth } from "../lib/formatting.ts";
+import { subtleColor } from "../lib/render-helpers.ts";
 
 export function createMessageRenderer(
 	_pi: ExtensionAPI,
@@ -58,7 +59,7 @@ export function createSummaryRenderer(pi: ExtensionAPI): MessageRenderer {
 
 		const lines = content.split("\n");
 		// Light terminals render `dim` too faint; fall back to `muted` there.
-		const subtle: ThemeColor = theme.appearance === "light" ? "muted" : "dim";
+		const subtle: ThemeColor = subtleColor(theme);
 		for (const line of lines) {
 			if (!line.trim()) continue; // Skip empty lines
 			let styledLine: string;

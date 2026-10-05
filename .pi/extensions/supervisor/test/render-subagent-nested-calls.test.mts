@@ -136,8 +136,118 @@ describe("render-subagent nestedCalls summary", () => {
 		assert.match(out, /2 err/);
 	});
 
-	it("errorCount without nestedCalls does NOT add an err segment (byte-identical path)", () => {
+	it("unfinished call shows an unfinished segment without inflating err", () => {
+		const out = stripAnsi(
+			render(
+				details({
+					nestedCalls: {
+						calls: [
+							{ name: "read", status: "ok" },
+							{ name: "bash", status: "unfinished" },
+						],
+						complete: true,
+					},
+				}),
+			),
+		);
+		assert.match(out, /nested: 2 calls \(1 ok, 0 err, 1 unfinished\)/);
+	});
+
+	it("expanded render shows exactly one standalone error segment", () => {
+		const out = stripAnsi(
+			render(
+				details({
+					errorCount: 2,
+					nestedCalls: {
+						calls: [
+							{ name: "bash", status: "error" },
+							{ name: "grep", status: "error" },
+						],
+						complete: true,
+					},
+				}),
+			),
+		);
+		// Drop the nested summary line; any remaining `N err` is a standalone surface.
+		const withoutNested = out
+			.split("\n")
+			.filter((l) => !l.includes("nested:"))
+			.join("\n");
+		const standalone = withoutNested.match(/\d+ err/g) ?? [];
+		assert.equal(standalone.length, 1, `expected 1 standalone err segment, got: ${JSON.stringify(standalone)}`);
+		assert.match(withoutNested, /2 err/);
+	});
+
+	it("errorCount without nestedCalls yields exactly one err segment (guard dropped)", () => {
 		const out = stripAnsi(render(details({ errorCount: 2 })));
-		assert.ok(!/2 err/.test(out));
+		const standalone = out.split("\n").filter((l) => /\d+ err/.test(l));
+		assert.equal(standalone.length, 1, `expected one err line, got: ${JSON.stringify(standalone)}`);
+		assert.match(out, /2 err/);
+	});
+
+	it("errorCount absent → no err segment in collapsed or expanded", () => {
+		const out = stripAnsi(render(details()));
+		assert.ok(!/\d+ err/.test(out), "no errorCount must not render an err segment");
+	});
+
+	it("errorCount:0 with nestedCalls present → no standalone err segment", () => {
+		const out = stripAnsi(
+			render(
+				details({
+					errorCount: 0,
+					nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: true },
+				}),
+			),
+		);
+		assert.ok(!/^\s*0 err\s*$/m.test(out), "errorCount 0 must not render a standalone err line");
+	});
+});
+
+describe("render-subagent subtle styling is appearance-aware", () => {
+	it("light appearance styles subtle text with muted, never dim", () => {
+		const { theme, fgCalls, styleCalls } = makeTestTheme({ appearance: "light" });
+		render(
+			details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: true } }),
+			true,
+			theme as never,
+		);
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "muted"),
+			`expected a muted style call, got: ${JSON.stringify(styleCalls)}`,
+		);
+		assert.ok(
+			!styleCalls.some((c) => c.options.fg === "dim"),
+			`light appearance must not use dim, got: ${JSON.stringify(styleCalls)}`,
+		);
+		assert.ok(
+			!fgCalls.some((c) => c.color === "dim"),
+			`light appearance must not fg dim: ${JSON.stringify(fgCalls)}`,
+		);
+	});
+
+	it("dark appearance styles subtle text with dim", () => {
+		const { theme, styleCalls } = makeTestTheme({ appearance: "dark" });
+		render(
+			details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: true } }),
+			true,
+			theme as never,
+		);
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "dim"),
+			`expected a dim style call, got: ${JSON.stringify(styleCalls)}`,
+		);
+	});
+
+	it("status icon/text use theme.style with the status token", () => {
+		const { theme, styleCalls } = makeTestTheme();
+		render(details(), true, theme as never);
+		assert.ok(
+			styleCalls.some((c) => c.text === "✓" && c.options.fg === "success"),
+			JSON.stringify(styleCalls),
+		);
+		assert.ok(
+			styleCalls.some((c) => c.text === "SUCCESS" && c.options.fg === "success"),
+			JSON.stringify(styleCalls),
+		);
 	});
 });
