@@ -73,6 +73,29 @@ flowchart TD
 Content extracted as Markdown...
 ```
 
+### Structured Output Contract
+
+Alongside the model-facing markdown in `content`, `web_crawl` declares an `outputSchema` and returns a `structuredContent` payload for programmatic (codemode) callers. `index.ts` registers `outputSchema: crawlOutputSchema` (from `structured-output.ts`, the single source of truth) and projects each result with `toStructuredContent`.
+
+Success branch (`ok: true`):
+
+| key        | type     | meaning                              |
+| ---------- | -------- | ------------------------------------ |
+| ok         | true     | discriminator: success               |
+| pages      | array    | per-page results                     |
+| totalPages | number   | number of successfully crawled pages |
+| attempted  | number   | pages the adapter attempted          |
+| failed     | string[] | URLs that failed                     |
+| truncated  | boolean  | any page hit the `maxTokens` cap     |
+
+Each entry in `pages` carries `url`, `markdown`, `method` (`lightweight` or `stealth`), and its own per-page `truncated` flag.
+
+Error branch (`ok: false`): the tool returns `{ ok: false, error: { url, reason } }` with `isError` signaling, so the model sees the failure while codemode callers still receive a typed payload.
+
+### Tool Annotations
+
+`index.ts` registers `annotations: { readOnlyHint: true, openWorldHint: true }`. Crawling reaches arbitrary network hosts, so `openWorldHint: true` marks the external egress and `readOnlyHint: true` marks the operation as a pure read. This intentionally diverges from `web-search`, which leaves `readOnlyHint` unset for the same first-call pip-install side effect.
+
 ### Troubleshooting
 
 If crawling fails with Chromium errors, delete the venv and retry — it auto-recreates:
