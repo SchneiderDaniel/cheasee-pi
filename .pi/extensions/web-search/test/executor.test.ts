@@ -20,6 +20,7 @@ import {
 	parseSearchResults,
 	cleanupStaleTempDirs,
 } from "../executor.ts";
+import { formatResults } from "../index.ts";
 
 type ExecHandler = ExecFn;
 
@@ -563,6 +564,88 @@ describe("producer↔consumer frame round-trip (stock python3, stdlib only)", ()
 		assert.ok(result.ok === false);
 		if (!result.ok) {
 			assert.equal(result.error, "ddgs not installed");
+		}
+	});
+});
+
+// ===========================================================================
+// Phase 2 — item-level validation (malformed DDG entries are dropped)
+// ===========================================================================
+
+describe("parseSearchResults — item validation", () => {
+	const payload = (results: unknown): string =>
+		framed(JSON.stringify({ ok: true, results }));
+
+	it("(entity) results missing → { ok: true, results: [] }", () => {
+		const result = parseSearchResults(framed('{"ok":true}'));
+		assert.ok(result.ok === true);
+		if (result.ok) assert.deepEqual(result.results, []);
+	});
+
+	it("(entity) results non-array → []", () => {
+		const result = parseSearchResults(payload("not-an-array"));
+		assert.ok(result.ok === true);
+		if (result.ok) assert.deepEqual(result.results, []);
+	});
+
+	it("(entity) entry missing url is dropped; valid siblings retained in order", () => {
+		const result = parseSearchResults(
+			payload([
+				{ title: "A", url: "https://a", snippet: "a" },
+				{ title: "B", snippet: "no url" },
+				{ title: "C", url: "https://c", snippet: "c" },
+			]),
+		);
+		assert.ok(result.ok === true);
+		if (result.ok) assert.deepEqual(result.results.map((r) => r.title), ["A", "C"]);
+	});
+
+	it("(entity) entry with non-string title or snippet is dropped", () => {
+		const result = parseSearchResults(
+			payload([
+				{ title: 7, url: "https://a", snippet: "s" },
+				{ title: "B", url: "https://b", snippet: null },
+				{ title: "C", url: "https://c", snippet: "c" },
+			]),
+		);
+		assert.ok(result.ok === true);
+		if (result.ok) assert.deepEqual(result.results.map((r) => r.title), ["C"]);
+	});
+
+	it("(entity) non-object entries (null, string, number) are dropped, no throw", () => {
+		const result = parseSearchResults(
+			payload([null, "str", 7, { title: "T", url: "https://t", snippet: "s" }]),
+		);
+		assert.ok(result.ok === true);
+		if (result.ok) {
+			assert.equal(result.results.length, 1);
+			assert.equal(result.results[0].title, "T");
+		}
+	});
+
+	it("(entity) all-valid entries pass through unchanged, SEARCH_DONE/SEARCH_OK preserved", () => {
+		const snippet = "a SEARCH_DONE b SEARCH_OK c";
+		const result = parseSearchResults(
+			payload([{ title: "T", url: "https://x.io", snippet }]),
+		);
+		assert.ok(result.ok === true);
+		if (result.ok) {
+			assert.deepEqual(result.results, [{ title: "T", url: "https://x.io", snippet }]);
+		}
+	});
+
+	it("(entity) regression: validated entries yield no 'undefined' literal in formatResults", () => {
+		const result = parseSearchResults(
+			payload([
+				{ title: "A", url: "https://a", snippet: "a" },
+				{ title: "B" },
+				null,
+				{ url: "https://c", snippet: "c" },
+			]),
+		);
+		assert.ok(result.ok === true);
+		if (result.ok) {
+			assert.ok(!formatResults(result.results).includes("undefined"));
 		}
 	});
 });
