@@ -12,6 +12,8 @@ Web crawling for AI agents is notoriously fragile — bot detection, Cloudflare 
 - **Concurrency limit** — 2 concurrent crawls max to protect memory (configurable in `config.json`)
 - **Auto venv setup** — Python venv with dependencies installed on first call, cached thereafter
 - **Graceful fallback** — if `markdownify` fails, raw `html2text` is used as fallback
+- **Structured output** — Declares an `outputSchema` and returns `structuredContent` on both the success and failure paths, so programmatic (codemode) callers get a typed payload; the model still receives the formatted markdown in `content`
+- **Tool annotations** — Advertises `annotations: { readOnlyHint: true, openWorldHint: true }` so permission tooling treats a crawl as an external read
 
 ## How it works
 
@@ -109,6 +111,29 @@ flowchart TD
 # Page Title
 Content extracted as Markdown...
 ```
+
+### Structured Output Contract
+
+Alongside the model-facing markdown in `content`, `web_crawl` declares an `outputSchema` and returns a `structuredContent` payload for programmatic (codemode) callers. `index.ts` registers `outputSchema: crawlOutputSchema` (from `structured-output.ts`, the single source of truth) and projects each result with `toStructuredContent`.
+
+Success branch (`ok: true`):
+
+| key        | type     | meaning                              |
+| ---------- | -------- | ------------------------------------ |
+| ok         | true     | discriminator: success               |
+| pages      | array    | per-page results                     |
+| totalPages | number   | number of successfully crawled pages |
+| attempted  | number   | pages the adapter attempted          |
+| failed     | string[] | URLs that failed                     |
+| truncated  | boolean  | any page hit the `maxTokens` cap     |
+
+Each entry in `pages` carries `url`, `markdown`, `method` (`lightweight` or `stealth`), and its own per-page `truncated` flag.
+
+Error branch (`ok: false`): the tool returns `{ ok: false, error: { url, reason } }` with `isError` signaling, so the model sees the failure while codemode callers still receive a typed payload.
+
+### Tool Annotations
+
+`index.ts` registers `annotations: { readOnlyHint: true, openWorldHint: true }`. Crawling reaches arbitrary network hosts, so `openWorldHint: true` marks the external egress, and `readOnlyHint: true` marks the crawl itself as a non-mutating external read — fetched pages are not modified and crawl results are not persisted. Caveat: the first call is not entirely side-effect-free locally. Environment setup creates `.pi/scrapling-venv/`, `pip`-installs scrapling, and (on stealth escalation) downloads Chromium, so permission tooling should treat the initial invocation as potentially writing local files as well as reaching the network. That setup is idempotent and cached on subsequent calls. This intentionally diverges from `web-search`, which leaves `readOnlyHint` unset for the same first-call pip-install side effect.
 
 ## License
 
