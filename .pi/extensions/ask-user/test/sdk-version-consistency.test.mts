@@ -29,10 +29,12 @@ const SDK_PACKAGES = [
 ] as const;
 
 describe("Pi SDK floor consistency — issue #1795", () => {
-	it("root dependencies declare a 1.x SDK range", () => {
+	it("root dependencies declare a 1.x SDK version", () => {
 		const pkg = readJson<{ dependencies: Record<string, string> }>("package.json");
 		for (const name of SDK_PACKAGES) {
-			assert.match(pkg.dependencies[name], /^\^1\./, `${name} must track the 1.x SDK`);
+			// Accept either a caret range (^1.x) or an exact pin (1.x.y); both
+			// keep the repo on the 1.x SDK. Issue #1794 pins exact 1.0.2.
+			assert.match(pkg.dependencies[name], /^\^?1\./, `${name} must track the 1.x SDK`);
 		}
 	});
 

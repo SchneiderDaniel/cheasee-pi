@@ -292,7 +292,7 @@ RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts 
 # install; the expensive clone/npm-ci layers stay cached. Kept BEFORE
 # Layer 7's entrypoint COPY because that layer changes most frequently:
 # if pi sat absolute-last, every entrypoint/lib change would reinstall it.
-ARG PI_VERSION=1.0.1
+ARG PI_VERSION=1.0.2
 # Cache-busting stamp: any change to this ARG invalidates the npm layer,
 # so @latest is re-resolved on every build instead of reusing a stale layer.
 # Set it to a per-build value (e.g. $(date +%s)) via `docker compose build

@@ -90,6 +90,10 @@ export class PythonAdapter {
 				maxBuffer: CRAWL_MAX_BUFFER,
 			});
 
+			// Abort during execution stays in the abort channel: a killed subprocess would
+			// otherwise be reported as an ordinary crawl failure (isError), not cancellation.
+			params.signal?.throwIfAborted();
+
 			// 4. Handle subprocess failure — return typed error, don't throw
 			//    Uses isExecFailure to catch both non-zero exit AND signal-killed
 			//    (where upstream may report code: 0 despite SIGTERM/SIGKILL).
@@ -144,11 +148,13 @@ export class PythonAdapter {
 
 				// Apply token truncation with rawLength preservation
 				let content = rawMarkdown;
+				let truncated = false;
 				if (maxTokens > 0) {
 					const estimatedTokens = Math.round(content.length / 4);
 					if (estimatedTokens > maxTokens) {
 						const maxChars = maxTokens * 4;
 						content = content.slice(0, maxChars) + truncationSuffix(maxTokens, estimatedTokens);
+						truncated = true;
 					}
 				}
 
@@ -157,6 +163,7 @@ export class PythonAdapter {
 					markdown: content,
 					method: method as "lightweight" | "stealth",
 					rawLength,
+					truncated,
 				});
 			}
 
@@ -171,8 +178,17 @@ export class PythonAdapter {
 			// 9. Calculate total estimated tokens from raw lengths
 			const totalTokens = pages.reduce((sum, p) => sum + Math.round(p.rawLength / 4), 0);
 
-			return { success: true, results: pages, totalTokens };
+			return {
+				success: true,
+				results: pages,
+				totalTokens,
+				attempted: parsed.results.length,
+				failed: errors,
+			};
 		} catch (err) {
+			// Never flatten cancellation into a failure result — re-throw the abort so the
+			// caller sees AbortError, matching the precondition/abort contract.
+			if (params.signal?.aborted) throw err;
 			// Catch unexpected errors (e.g., ensureScraplingVenv failure)
 			const message = err instanceof Error ? err.message : String(err);
 			return { success: false, error: message };

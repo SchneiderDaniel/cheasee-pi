@@ -51,8 +51,17 @@ export interface CrawledPage {
 	markdown: string;
 	method: "lightweight" | "stealth";
 	rawLength: number;
+	truncated: boolean;
 }
 
 export type CrawlResult =
-	| { success: true; results: CrawledPage[]; totalTokens: number }
+	| {
+			success: true;
+			results: CrawledPage[];
+			totalTokens: number;
+			/** Total subprocess result entries (successes + failures) requested for this crawl. */
+			attempted: number;
+			/** Per-URL failure messages for entries the crawler could not fetch. */
+			failed: string[];
+	  }
 	| { success: false; error: string };
