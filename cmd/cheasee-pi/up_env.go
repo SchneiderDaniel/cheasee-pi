@@ -70,13 +70,22 @@ func buildEnvFlags(ctx context.Context) (map[string]string, error) {
 	return envMap, nil
 }
 
-// redactEnvValue shortens a secret for dry-run output: values longer than
-// 8 chars show the first and last 4 chars; shorter values print in full.
-func redactEnvValue(v string) string {
+// redactSecret shortens a secret for the dry-run env dump: values longer than
+// 8 chars show the first and last 4 chars; short values print in full.
+func redactSecret(v string) string {
 	if len(v) > 8 {
 		return v[:4] + "..." + v[len(v)-4:]
 	}
 	return v
+}
+
+// maskKey shares redactSecret's truncation for the `auth list` key preview but
+// never prints a short key in full — 8 chars or fewer are fully masked.
+func maskKey(key string) string {
+	if len(key) > 8 {
+		return redactSecret(key)
+	}
+	return "****"
 }
 
 func extractGHToken() (string, error) {

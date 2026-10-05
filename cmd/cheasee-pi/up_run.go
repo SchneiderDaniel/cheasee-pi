@@ -110,7 +110,7 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	if upDryRun {
 		fmt.Fprintf(os.Stderr, "Env vars to be injected:\n")
 		for _, envVar := range slices.Sorted(maps.Keys(envMap)) {
-			fmt.Fprintf(os.Stderr, "  %s=%s\n", envVar, redactEnvValue(envMap[envVar]))
+			fmt.Fprintf(os.Stderr, "  %s=%s\n", envVar, redactSecret(envMap[envVar]))
 		}
 		// Show full docker command for debugging
 		args := execArgs(envMap, upName, target)
