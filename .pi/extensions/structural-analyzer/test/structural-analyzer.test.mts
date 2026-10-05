@@ -144,6 +144,14 @@ describe("structural-analyzer wiring guards", () => {
 		);
 	});
 
+	it("root npm test script runs parser.test.mts (schema-drift guard stays in CI)", () => {
+		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+		assert.ok(
+			root.scripts.test.includes("structural-analyzer/test/parser.test.mts"),
+			"package.json test script must include structural-analyzer/test/parser.test.mts",
+		);
+	});
+
 	it("README documents the structured channel and annotations", () => {
 		const readme = readFileSync(readmePath, "utf-8");
 		assert.ok(readme.includes("structuredContent"), "README must document structuredContent");
