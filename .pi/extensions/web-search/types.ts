@@ -18,33 +18,38 @@ export interface SearchResult {
 }
 
 /**
- * JSON Schema of `web_search`'s successful `structuredContent`.
- * Declared as the tool's `outputSchema`; programmatic (codemode) callers receive
- * this payload instead of the model-facing text.
+ * JSON Schema of `web_search`'s `structuredContent`, declared as the tool's
+ * `outputSchema`. Discriminated on `ok` so every terminal return path — success
+ * and `isError` — conforms to the declared contract (mirrors scrapling's
+ * `crawlOutputSchema`). Programmatic (codemode) callers receive this payload
+ * instead of the model-facing text.
  */
-export const WebSearchOutputSchema = Type.Object({
-	query: Type.String(),
-	returned: Type.Number(),
-	results: Type.Array(
-		Type.Object({
-			title: Type.String(),
-			url: Type.String(),
-			snippet: Type.String(),
-		}),
-	),
-});
+export const WebSearchOutputSchema = Type.Union([
+	Type.Object({
+		ok: Type.Literal(true),
+		query: Type.String(),
+		returned: Type.Number(),
+		results: Type.Array(
+			Type.Object({
+				title: Type.String(),
+				url: Type.String(),
+				snippet: Type.String(),
+			}),
+		),
+	}),
+	Type.Object({
+		ok: Type.Literal(false),
+		query: Type.String(),
+		error: Type.String(),
+	}),
+]);
 
 /**
  * Structured output payload emitted on every terminal return path. Derived from
- * {@link WebSearchOutputSchema} so the schema and type cannot drift.
+ * {@link WebSearchOutputSchema} so the schema and type cannot drift; the union
+ * covers the success (`ok: true`) and error (`ok: false`) branches.
  */
 export type WebSearchPayload = Static<typeof WebSearchOutputSchema>;
-
-/** Machine-readable error payload returned when the search itself fails. */
-export type WebSearchErrorPayload = {
-	error: string;
-	query: string;
-};
 
 export interface SearchParams {
 	query: string;

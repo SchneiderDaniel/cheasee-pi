@@ -16,7 +16,6 @@ import type {
 	SearchParams,
 	SearchCacheEntry,
 	WebSearchPayload,
-	WebSearchErrorPayload,
 } from "./types.ts";
 import { WebSearchOutputSchema } from "./types.ts";
 
@@ -161,7 +160,7 @@ export function buildSearchResponse(
 	details: WebSearchPayload;
 	structuredContent: WebSearchPayload;
 } {
-	const payload: WebSearchPayload = { query, returned: results.length, results };
+	const payload: WebSearchPayload = { ok: true, query, returned: results.length, results };
 	return {
 		content: [{ type: "text", text: formatResults(results) }],
 		details: payload,
@@ -171,7 +170,8 @@ export function buildSearchResponse(
 
 /**
  * Assemble a non-throwing failure result. The model sees the error text as the
- * tool result; programmatic callers get `{ error, query }` in `structuredContent`.
+ * tool result; programmatic callers get `{ ok: false, query, error }` in
+ * `structuredContent`, conforming to the declared output schema.
  */
 function buildErrorResponse(
 	error: string,
@@ -179,13 +179,14 @@ function buildErrorResponse(
 ): {
 	content: Array<{ type: "text"; text: string }>;
 	details: WebSearchPayload;
-	structuredContent: WebSearchErrorPayload;
+	structuredContent: WebSearchPayload;
 	isError: true;
 } {
+	const payload: WebSearchPayload = { ok: false, query, error };
 	return {
 		content: [{ type: "text", text: error }],
-		details: { query, returned: 0, results: [] },
-		structuredContent: { error, query },
+		details: payload,
+		structuredContent: payload,
 		isError: true,
 	};
 }
