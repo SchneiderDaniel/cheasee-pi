@@ -7,6 +7,7 @@
 - **`ripgrep_search` tool** — Search codebase by literal text or regex pattern
   - Default 10 matches per file, configurable via `max_count`
   - Structured summary output showing top-N results with file counts and truncation indicator
+  - Declares an `outputSchema` and returns a matching `structuredContent` payload on every path (success, cache hit, no-match, error) so codemode scripts get typed data instead of text
   - Respects `.gitignore` natively when ripgrep is available
   - Falls back to `grep` if ripgrep not installed
   - Auto-rejects structural patterns — redirects to `structural_search`
@@ -96,7 +97,7 @@ Dual-backend search engine with unified output format:
 ├── internal.ts  # Query validation, temp directory lifecycle, in-memory result cache (FIFO, 100 entries)
 ├── config.ts    # Load SearchConfig from .pi/settings.json, resolve backend, detect ripgrep on PATH
 ├── backends.ts  # Build + parse for each search backend: ripgrep (--vimgrep) and grep (-rnH)
-├── types.ts     # RgMatch, RgResult, SearchConfig interfaces
+├── types.ts     # RgMatch, RgResult, SearchConfig + RipgrepSearchOutputSchema
 └── test/        # Fixtures + parser tests
 ```
 
@@ -118,7 +119,7 @@ flowchart TD
     K --> M[buildStructuredSummary]
     L --> M
     M --> N[setCachedResult]
-    N --> O[Return {content, details}]
+    N --> O[Return {content, details, structuredContent}]
 ```
 
 ### Backend Resolution
@@ -147,6 +148,27 @@ flowchart TD
 - In-memory FIFO Map, max 100 entries
 - Key: `JSON.stringify({query, normalized directory, max_count})` — `max_count` is part of the key because it caps the CLI search per file, so a wider request can never be served by a narrower cached entry
 - Cleared on `session_shutdown`
+
+### Structured Output & Tool Annotations
+
+`ripgrep_search` declares `outputSchema` (`RipgrepSearchOutputSchema` in `types.ts`) and returns `structuredContent` on **every** exit — normal, cache hit, no-match, and error. The model still receives the same human-readable `content` summary; codemode/script callers receive the structured object instead of text.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `query` | string | request-scoped |
+| `searcher` | string | `"ripgrep"` or `"grep"` |
+| `directory` | string | request-scoped |
+| `total_returned` | number | `0` on no-match and error |
+| `results` | array of `{file, line, column, text}` | `[]` on no-match and error |
+| `truncated` | boolean | `false` when unknown |
+| `error` | string? | stderr, error path only |
+| `code` | number? | exit code, error path only (omitted when null) |
+
+The cache stores only the domain `RgResult`; `query`/`directory`/`searcher` are rebuilt from the request scope at the boundary, so a cache hit yields a payload that conforms to the schema too.
+
+Non-zero `rg`/`grep` exits are reported as `{ isError: true, content, details, structuredContent }` rather than thrown, matching the built-in `bash` tool. Precondition failures (invalid query, bad directory, ripgrep required but missing) still throw.
+
+Tool annotations: `{ readOnlyHint: true, idempotentHint: true, openWorldHint: false }` — declarative hints only; a permission extension may use them to decide which calls to confirm.
 
 ## License
 
