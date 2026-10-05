@@ -13,6 +13,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { ExtensionMode, RgResult, SearchConfig } from "./types.ts";
+import { RipgrepSearchOutputSchema } from "./types.ts";
+import type { RipgrepSearchOutput } from "./types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "./config.ts";
 import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "./backends.ts";
 import {
@@ -165,6 +167,53 @@ export function buildStructuredSummary(
 }
 
 /**
+ * Build the `structuredContent` payload declared by `RipgrepSearchOutputSchema`.
+ *
+ * Rebuilt at the request boundary on every exit (including cache hits): the
+ * cache stores only the domain `RgResult`, so `query`/`directory`/`searcher`
+ * always come from the request scope rather than the cached entry.
+ */
+export function buildStructuredContent(
+	searchResult: RgResult,
+	searcherName: string,
+	query: string,
+	directory: string,
+): RipgrepSearchOutput {
+	return {
+		query,
+		searcher: searcherName,
+		directory,
+		total_returned: searchResult.total_returned,
+		results: searchResult.results.map((r) => ({ ...r })),
+		truncated: searchResult.truncated ?? false,
+	};
+}
+
+/**
+ * Error-path variant of {@link buildStructuredContent}: identical shape with
+ * zeroed result fields, plus `error` (stderr) and `code` (exit code).
+ * `code` is omitted when the exit code is unknown (null).
+ */
+export function buildErrorStructuredContent(
+	searcherName: string,
+	query: string,
+	directory: string,
+	error: string,
+	code: number | null,
+): RipgrepSearchOutput {
+	return {
+		query,
+		searcher: searcherName,
+		directory,
+		total_returned: 0,
+		results: [],
+		truncated: false,
+		error,
+		...(code !== null ? { code } : {}),
+	};
+}
+
+/**
  * Save oversized raw output to a temp file and return the path.
  */
 async function saveOversizedOutput(rawStdout: string | undefined): Promise<string | undefined> {
@@ -228,6 +277,11 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 			directory: Type.Optional(Type.String({ default: "." })),
 			max_count: Type.Optional(Type.Integer({ default: 10 })),
 		}),
+		// Declarative hints for permission tooling: no mutation, repeatable, and
+		// confined to the project directory (closed world).
+		annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+		// JSON Schema of `structuredContent` for programmatic/codemode callers.
+		outputSchema: RipgrepSearchOutputSchema,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const query = params.query;
 			const directory = params.directory ?? ".";
@@ -264,6 +318,12 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 						...summary.details,
 						searchDirectory: resolvedDir,
 					} as Record<string, unknown>,
+					structuredContent: buildStructuredContent(
+						cached.result,
+						searcherName,
+						query,
+						directory,
+					),
 				};
 			}
 
@@ -288,6 +348,12 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 							searcher: searcherName,
 							searchDirectory: resolvedDir,
 						} as Record<string, unknown>,
+						structuredContent: buildStructuredContent(
+							{ total_returned: 0, results: [] },
+							searcherName,
+							query,
+							directory,
+						),
 					};
 				}
 				const stderr = result.stderr || "";
@@ -301,7 +367,24 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 					engineStr,
 					directory,
 				);
-				throw new Error(errorText);
+				// isError (not throw): programmatic callers get typed failure data, while
+				// content keeps the error text visible to the model and the TUI renderer.
+				return {
+					content: [{ type: "text" as const, text: errorText }],
+					details: {
+						success: false,
+						searcher: searcherName,
+						searchDirectory: resolvedDir,
+					} as Record<string, unknown>,
+					structuredContent: buildErrorStructuredContent(
+						searcherName,
+						query,
+						directory,
+						stderr,
+						result.code,
+					),
+					isError: true,
+				};
 			}
 
 			const searchResult = useRipgrep
@@ -344,6 +427,12 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 			return {
 				content: [{ type: "text" as const, text }],
 				details,
+				structuredContent: buildStructuredContent(
+					searchResult,
+					searcherName,
+					query,
+					directory,
+				),
 			};
 		},
 		renderCall: renderCallImpl,

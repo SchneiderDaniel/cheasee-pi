@@ -26,10 +26,13 @@ import { Value } from "typebox/value";
 // ═══════════════════════════════════════════════════════════════════════
 
 import type { RgMatch, RgResult, SearchConfig } from "../types.ts";
+import { RipgrepSearchOutputSchema } from "../types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "../config.ts";
-import { buildRgArgs, buildGrepArgs, parseVimgrepOutput } from "../backends.ts";
+import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "../backends.ts";
 import {
 	buildStructuredSummary,
+	buildStructuredContent,
+	buildErrorStructuredContent,
 	buildSearchErrorText,
 	verifyDirectory,
 	renderCallImpl,
@@ -1419,12 +1422,11 @@ describe("execute — resolved maxCount keyed into cache (Issue 1731)", () => {
 		assert.strictEqual(r2.details.total_returned, 10);
 	});
 
-	it("failed exec throws and does not poison the cache", async () => {
+	it("failed exec resolves with isError and does not poison the cache", async () => {
 		failCode = 2;
-		await assert.rejects(
-			() => call(10),
-			(err: Error) => /grep failed/.test(err.message),
-		);
+		const r = await call(10);
+		assert.strictEqual(r.isError, true);
+		assert.ok(/grep failed/.test(r.content[0].text));
 		assert.strictEqual(resultCache.size, 0);
 	});
 });
@@ -2508,5 +2510,292 @@ describe("session_start sets mode through setTestCtxMode", () => {
 
 		await handler(undefined, { mode: "tui", cwd: process.cwd() });
 		assert.strictEqual(getCtxMode(), "tui");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// structuredContent contract + tool metadata (Issue 1791)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("RipgrepSearchOutputSchema + structured builders (Issue 1791)", () => {
+	it("multi-result shape matches the schema and maps RgMatch verbatim", () => {
+		const out = buildStructuredContent(
+			{
+				total_returned: 2,
+				results: [
+					{ file: "a.ts", line: 1, column: 3, text: "x" },
+					{ file: "b.ts", line: 2, column: 1, text: "y" },
+				],
+			},
+			"ripgrep",
+			"TODO",
+			"src",
+		);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.strictEqual(out.total_returned, 2);
+		assert.strictEqual(out.truncated, false);
+		assert.deepStrictEqual(out.results[0], { file: "a.ts", line: 1, column: 3, text: "x" });
+	});
+
+	it("single-result shape matches the schema", () => {
+		const out = buildStructuredContent(
+			{ total_returned: 1, results: [{ file: "a.ts", line: 9, column: 2, text: "z" }] },
+			"grep",
+			"NEEDLE",
+			".",
+		);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.strictEqual(out.total_returned, 1);
+	});
+
+	it("zero-result shape matches the schema", () => {
+		const out = buildStructuredContent({ total_returned: 0, results: [] }, "grep", "NONE", ".");
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.strictEqual(out.total_returned, 0);
+		assert.deepStrictEqual(out.results, []);
+		assert.strictEqual(out.truncated, false);
+	});
+
+	it("truncated:true carries through from RgResult", () => {
+		const out = buildStructuredContent(
+			{ total_returned: 500, results: [], truncated: true },
+			"ripgrep",
+			"TODO",
+			".",
+		);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.strictEqual(out.truncated, true);
+	});
+
+	it("echoes request-scoped query/directory/searcher over a cache-shaped RgResult", () => {
+		// RgResult carries no query/directory/searcher — the boundary rebuilds them.
+		const out = buildStructuredContent({ total_returned: 0, results: [] }, "grep", "NEEDLE", "lib");
+		assert.strictEqual(out.query, "NEEDLE");
+		assert.strictEqual(out.directory, "lib");
+		assert.strictEqual(out.searcher, "grep");
+	});
+
+	it("error builder matches the schema with zeroed result fields", () => {
+		const out = buildErrorStructuredContent("grep", "TODO", "src", "boom", 2);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.strictEqual(out.error, "boom");
+		assert.strictEqual(out.code, 2);
+		assert.strictEqual(out.total_returned, 0);
+		assert.deepStrictEqual(out.results, []);
+		assert.strictEqual(out.truncated, false);
+		assert.strictEqual(out.query, "TODO");
+		assert.strictEqual(out.searcher, "grep");
+		assert.strictEqual(out.directory, "src");
+	});
+
+	it("error builder omits code when the exit code is unknown (null)", () => {
+		const out = buildErrorStructuredContent("grep", "TODO", "src", "boom", null);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, out));
+		assert.ok(!("code" in out), "code must be absent, not null");
+	});
+
+	it("required fields are required; error/code are optional", () => {
+		const base = buildStructuredContent({ total_returned: 0, results: [] }, "grep", "q", ".");
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, base), "absent error/code must validate");
+
+		const { query: _q, ...withoutQuery } = base;
+		assert.ok(!Value.Check(RipgrepSearchOutputSchema, withoutQuery), "query must be required");
+
+		const { total_returned: _t, ...withoutTotal } = base;
+		assert.ok(
+			!Value.Check(RipgrepSearchOutputSchema, withoutTotal),
+			"total_returned must be required",
+		);
+	});
+
+	it("schema properties carry no description (keeps codemode declaration compact)", () => {
+		const props = (RipgrepSearchOutputSchema as any).properties as Record<string, unknown>;
+		for (const key of Object.keys(props)) {
+			assert.strictEqual(
+				(props[key] as { description?: string }).description,
+				undefined,
+				`${key} must not carry a description`,
+			);
+		}
+	});
+});
+
+describe("execute — structuredContent + annotations (Issue 1791)", () => {
+	const tuiTheme = {
+		fg: (_k: string, s: string) => `<${_k}>${s}</${_k}>`,
+		bold: (s: string) => `*${s}*`,
+	} as any;
+
+	const HAPPY_STDOUT = Array.from(
+		{ length: 3 },
+		(_, i) => `src/a.ts:${i + 1}:match ${i + 1}`,
+	).join("\n");
+
+	let tmpCwd: string;
+	let tool: any;
+	let searchExecCount: number;
+	let failCode: number | null;
+	let noMatch: boolean;
+
+	function makeMockPi() {
+		const handlers = new Map<string, Function>();
+		let captured: any;
+		const exec = async (command: string) => {
+			if (command === "rg") return { code: 1, stdout: "", stderr: "" };
+			searchExecCount++;
+			if (failCode !== null) return { code: failCode, stdout: "", stderr: "boom" };
+			if (noMatch) return { code: 1, stdout: "", stderr: "" };
+			return { code: 0, stdout: HAPPY_STDOUT, stderr: "" };
+		};
+		const pi = {
+			on: (e: string, h: Function) => handlers.set(e, h),
+			registerTool: (t: any) => {
+				captured = t;
+			},
+			exec,
+		};
+		return { pi, getTool: () => captured };
+	}
+
+	function writeSettings(cwd: string, backend: string) {
+		writeFileSync(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ search: { searchBackend: backend } }),
+		);
+	}
+
+	function call(): Promise<any> {
+		return tool.execute("tc", { query: "TODO", directory: "src" }, undefined, undefined, {
+			cwd: tmpCwd,
+		});
+	}
+
+	beforeEach(async () => {
+		clearCache();
+		searchExecCount = 0;
+		failCode = null;
+		noMatch = false;
+		tmpCwd = mkdtempSync(join(tmpdir(), "pi-rg-structured-"));
+		mkdirSync(join(tmpCwd, ".pi"));
+		writeSettings(tmpCwd, "grep");
+		mkdirSync(join(tmpCwd, "src"));
+		const { pi, getTool } = makeMockPi();
+		const { default: ripgrepSearch } = await import("../index.ts");
+		ripgrepSearch(pi as any);
+		tool = getTool();
+	});
+
+	afterEach(() => {
+		clearCache();
+		setTestCtxMode(undefined);
+		rmSync(tmpCwd, { recursive: true, force: true });
+	});
+
+	it("happy path — structuredContent validates and content text is unchanged", async () => {
+		const r = await call();
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, r.structuredContent));
+		assert.strictEqual(r.structuredContent.total_returned, 3);
+		assert.strictEqual(r.structuredContent.results[1].text, "match 2");
+		assert.notStrictEqual(r.isError, true);
+
+		const parsed = parseGrepOutput(HAPPY_STDOUT, 500);
+		const expected = buildStructuredSummary(parsed, "grep", "TODO", "src", 10);
+		assert.strictEqual(r.content[0].text, expected.text);
+	});
+
+	it("no-match (exit 1) — zero result fields, content unchanged, not an error", async () => {
+		noMatch = true;
+		const r = await call();
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, r.structuredContent));
+		assert.strictEqual(r.structuredContent.total_returned, 0);
+		assert.deepStrictEqual(r.structuredContent.results, []);
+		assert.strictEqual(r.structuredContent.truncated, false);
+		assert.ok(r.content[0].text.startsWith("No matches found"));
+		assert.strictEqual(r.details.success, true);
+		assert.notStrictEqual(r.isError, true);
+	});
+
+	it("cache-hit — structuredContent rebuilt from request scope, exec runs once", async () => {
+		await call();
+		const r2 = await call();
+		assert.strictEqual(searchExecCount, 1, "second call must be served from cache");
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, r2.structuredContent));
+		assert.strictEqual(r2.structuredContent.query, "TODO");
+		assert.strictEqual(r2.structuredContent.directory, "src");
+		assert.strictEqual(r2.structuredContent.searcher, "grep");
+		assert.strictEqual(r2.structuredContent.total_returned, 3);
+	});
+
+	it("error path resolves with isError + structured stderr; cache not poisoned", async () => {
+		failCode = 2;
+		const r = await call();
+		assert.strictEqual(r.isError, true);
+		assert.ok(Value.Check(RipgrepSearchOutputSchema, r.structuredContent));
+		assert.ok(r.structuredContent.error.includes("boom"));
+		assert.strictEqual(r.structuredContent.code, 2);
+		assert.strictEqual(r.structuredContent.total_returned, 0);
+		assert.deepStrictEqual(r.structuredContent.results, []);
+		assert.strictEqual(r.structuredContent.truncated, false);
+		assert.strictEqual(
+			r.content[0].text,
+			buildSearchErrorText("grep", 2, undefined, "boom", "grep", "src"),
+		);
+		assert.strictEqual(r.details.success, false);
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it("renderResultImpl on the error result surfaces the error text (TUI)", async () => {
+		failCode = 2;
+		setTestCtxMode("tui");
+		const r = await call();
+		const rendered = renderResultImpl(r, { expanded: false }, tuiTheme, undefined);
+		assert.ok((rendered as any).text.includes("boom"));
+	});
+
+	it("registration declares outputSchema + read-only/idempotent/closed-world hints", () => {
+		assert.strictEqual(tool.outputSchema, RipgrepSearchOutputSchema);
+		assert.deepStrictEqual(tool.annotations, {
+			readOnlyHint: true,
+			idempotentHint: true,
+			openWorldHint: false,
+		});
+	});
+
+	it("parameters unchanged — query required, directory/max_count optional", () => {
+		assert.ok(Value.Check(tool.parameters, { query: "x" }));
+		assert.ok(Value.Check(tool.parameters, { query: "x", directory: "src", max_count: 5 }));
+		assert.ok(!Value.Check(tool.parameters, {}));
+		assert.ok(!Value.Check(tool.parameters, { directory: "src" }));
+	});
+
+	it("precondition failures still throw — validateQuery", async () => {
+		await assert.rejects(
+			() => tool.execute("tc", { query: "class User" }, undefined, undefined, { cwd: tmpCwd }),
+			/structural_search/,
+		);
+	});
+
+	it("precondition failures still throw — verifyDirectory", async () => {
+		await assert.rejects(
+			() =>
+				tool.execute("tc", { query: "TODO", directory: "nope_xyz" }, undefined, undefined, {
+					cwd: tmpCwd,
+				}),
+			/not found/,
+		);
+	});
+
+	it("precondition failures still throw — resolveBackend (ripgrep required, unavailable)", async () => {
+		writeSettings(tmpCwd, "ripgrep");
+		const savedPath = process.env.PATH;
+		const savedHome = process.env.HOME;
+		process.env.PATH = "";
+		process.env.HOME = tmpCwd; // no ~/.pi/agent/bin/rg under this home
+		try {
+			await assert.rejects(() => call(), /ripgrep not found on PATH/);
+		} finally {
+			process.env.PATH = savedPath;
+			process.env.HOME = savedHome;
+		}
 	});
 });
