@@ -171,7 +171,10 @@ function renderSubagentResultInline(
 	if (details.cost > 0) footerParts.push(`$${details.cost.toFixed(4)}`);
 	const thinkingLevelStr = thinkingLabel(details.thinkingLevel);
 	if (thinkingLevelStr) {
-		footerParts.push(theme.fg(thinkingColor(details.thinkingLevel), thinkingLevelStr));
+		const thinkingToken = thinkingColor(details.thinkingLevel);
+		// `dim` is faint on light terminals: fall back to the appearance-aware
+		// subtle token there, while keeping semantic tokens (accent/warning/…).
+		footerParts.push(theme.style(thinkingLevelStr, { fg: thinkingToken === "dim" ? subtle : thinkingToken }));
 	}
 	if (details.model) {
 		const shortModel = details.model.split("/").pop() || details.model;

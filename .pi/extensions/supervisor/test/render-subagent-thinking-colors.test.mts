@@ -6,7 +6,9 @@
  * The old supervisor colors (medium→muted, high→accent, xhigh→accent) had
  * zero test pins; this test pins the #1212-reconciled canonical mapping:
  *   medium→accent, high→warning, xhigh→error
- * and the unchanged dim/dim/muted for off/minimal/low.
+ * and the unchanged dim/dim/muted for off/minimal/low. The footer thinking
+ * fragment is emitted via theme.style; on light terminals the `dim` token is
+ * swapped for the appearance-aware subtle token (`muted`).
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/render-subagent-thinking-colors.test.mts
@@ -16,28 +18,32 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { renderSubagentResult } from "../session/message-renderers/render-subagent.ts";
 
-interface FgCall {
-	color: string;
+interface StyleCall {
+	fg: string | undefined;
 	text: string;
 }
 
 /**
- * Render the expanded subagent-result view through a color-capturing theme.fg.
- * Returns every fg(color, text) call whose text is exactly the thinking
+ * Render the expanded subagent-result view through a style-capturing theme.
+ * Returns every style(text, { fg }) call whose text is exactly the thinking
  * label ("◒ medium" etc.) — only the expanded-footer stat matches exactly:
  * the collapsed stats line wraps the label inside a larger joined string.
  */
-function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCall[] {
-	const fgCalls: FgCall[] = [];
+function renderExpandedThinkingStyleCalls(
+	thinkingLevel: string | undefined,
+	appearance?: "dark" | "light",
+): StyleCall[] {
+	const styleCalls: StyleCall[] = [];
 	const theme = {
-		fg: (color: string, text: string) => {
-			fgCalls.push({ color, text });
-			return text;
-		},
+		fg: (_color: string, text: string) => text,
 		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
-		style: (text: string, _options: any) => text,
+		style: (text: string, options: any) => {
+			styleCalls.push({ fg: options?.fg, text });
+			return text;
+		},
+		...(appearance ? { appearance } : {}),
 	};
 
 	const message: Record<string, unknown> = {
@@ -68,14 +74,14 @@ function renderExpandedThinkingFgCalls(thinkingLevel: string | undefined): FgCal
 
 	const component = renderSubagentResult(message as any, { expanded: true, outputPad: 0 }, theme as never, process.cwd());
 	component!.render(80);
-	return fgCalls;
+	return styleCalls;
 }
 
-function exactThinkingColor(level: string): string | undefined {
+function exactThinkingColor(level: string, appearance?: "dark" | "light"): string | undefined {
 	const label = `${["○", "◐", "◑", "◒", "◓", "●"][["off", "minimal", "low", "medium", "high", "xhigh"].indexOf(level)]} ${level}`;
-	const calls = renderExpandedThinkingFgCalls(level).filter((c) => c.text === label);
-	assert.strictEqual(calls.length, 1, `expected exactly one exact fg call for '${label}'`);
-	return calls[0]!.color;
+	const calls = renderExpandedThinkingStyleCalls(level, appearance).filter((c) => c.text === label);
+	assert.strictEqual(calls.length, 1, `expected exactly one exact style call for '${label}'`);
+	return calls[0]!.fg;
 }
 
 describe("render-subagent expanded footer thinking colors (canonical mapping)", () => {
@@ -104,11 +110,22 @@ describe("render-subagent expanded footer thinking colors (canonical mapping)", 
 	});
 
 	it("undefined level → no thinking stat in footer", () => {
-		const calls = renderExpandedThinkingFgCalls(undefined);
+		const calls = renderExpandedThinkingStyleCalls(undefined);
 		const icons = ["○", "◐", "◑", "◒", "◓", "●"];
 		assert.ok(
 			calls.every((c) => !icons.some((icon) => c.text.includes(icon))),
 			"no thinking icon should be rendered when level is unset",
 		);
+	});
+
+	it("light terminal: off/minimal dim → muted (appearance-aware subtle)", () => {
+		assert.strictEqual(exactThinkingColor("off", "light"), "muted");
+		assert.strictEqual(exactThinkingColor("minimal", "light"), "muted");
+	});
+
+	it("light terminal: semantic tokens unchanged", () => {
+		assert.strictEqual(exactThinkingColor("medium", "light"), "accent");
+		assert.strictEqual(exactThinkingColor("high", "light"), "warning");
+		assert.strictEqual(exactThinkingColor("xhigh", "light"), "error");
 	});
 });
