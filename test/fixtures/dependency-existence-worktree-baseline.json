@@ -45,21 +45,21 @@
     [
       "javascript",
       "@earendil-works/pi-ai",
-      "0.79.10",
+      "1.0.2",
       "package-lock.json",
       12
     ],
     [
       "javascript",
       "@earendil-works/pi-coding-agent",
-      "0.79.10",
+      "1.0.2",
       "package-lock.json",
       13
     ],
     [
       "javascript",
       "@earendil-works/pi-tui",
-      "0.79.10",
+      "1.0.2",
       "package-lock.json",
       14
     ],
@@ -94,7 +94,7 @@
     [
       "javascript",
       "typebox",
-      "1.3.8",
+      "1.3.27",
       "package-lock.json",
       19
     ],
@@ -129,7 +129,7 @@
     [
       "javascript",
       "js-yaml",
-      "5.2.2",
+      "5.4.2",
       "package-lock.json",
       26
     ],
@@ -167,6 +167,132 @@
       null,
       ".pi/extensions/web-search/requirements.txt",
       11
+    ],
+    [
+      "rust",
+      "leptos",
+      "0.8",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      6
+    ],
+    [
+      "rust",
+      "leptos_meta",
+      "0.8",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      14
+    ],
+    [
+      "rust",
+      "serde",
+      "1",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      24
+    ],
+    [
+      "rust",
+      "serde_json",
+      "1",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      25
+    ],
+    [
+      "rust",
+      "axum",
+      "0.8",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      27
+    ],
+    [
+      "rust",
+      "leptos_axum",
+      "0.8",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      30
+    ],
+    [
+      "rust",
+      "any_spawner",
+      "0.3",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      33
+    ],
+    [
+      "rust",
+      "tokio",
+      "1",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      34
+    ],
+    [
+      "rust",
+      "libc",
+      "0.2",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      38
+    ],
+    [
+      "rust",
+      "tower",
+      "0.5",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      39
+    ],
+    [
+      "rust",
+      "tower-http",
+      "0.6",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      40
+    ],
+    [
+      "rust",
+      "wasm-bindgen",
+      "0.2.106",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      46
+    ],
+    [
+      "rust",
+      "console_error_panic_hook",
+      "0.1",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      47
+    ],
+    [
+      "rust",
+      "gloo-timers",
+      "0.3",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      48
+    ],
+    [
+      "rust",
+      "futures",
+      "0.3",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      43
+    ],
+    [
+      "rust",
+      "web-sys",
+      "0.3",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      42
+    ],
+    [
+      "rust",
+      "futures-util",
+      "0.3",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      54
+    ],
+    [
+      "rust",
+      "tokio-tungstenite",
+      "0.24",
+      "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+      55
     ],
     [
       "ruby",

@@ -1,7 +1,10 @@
 /**
- * Tests for misc:writing-voice prompt file
+ * Tests for the voice-trainer skill (.pi/skills/voice-trainer/SKILL.md).
  *
- * Text-analysis tests that read the .md prompt file and assert content patterns.
+ * Text-analysis tests that read the skill file and assert content patterns.
+ * The original `.pi/prompts/misc/misc:writing-voice.md` prompt was migrated to
+ * skills (commit e6f79132); the collection/analysis contract now lives in the
+ * voice-trainer skill, so this test targets that tracked source.
  *
  * Run with:
  *   node --experimental-strip-types --test test/writing-voice.test.mts
@@ -12,7 +15,7 @@ import { describe, it } from "node:test";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const PROMPT_PATH = resolve(import.meta.dirname, "..", ".pi/prompts/misc/misc:writing-voice.md");
+const PROMPT_PATH = resolve(import.meta.dirname, "..", ".pi/skills/voice-trainer/SKILL.md");
 
 /**
  * Parse YAML frontmatter from a markdown file.
@@ -56,7 +59,7 @@ function parseFrontmatter(filePath: string): {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 1: Prompt file existence and structure", () => {
-	it("exists at .pi/prompts/misc/misc:writing-voice.md", () => {
+	it("exists at .pi/skills/voice-trainer/SKILL.md", () => {
 		assert.ok(existsSync(PROMPT_PATH), `File not found: ${PROMPT_PATH}`);
 	});
 
@@ -72,9 +75,9 @@ describe("Phase 1: Prompt file existence and structure", () => {
 		assert.ok(frontmatter.description!.trim().length > 0, "description value is empty");
 	});
 
-	it("frontmatter contains only allowed keys (description)", () => {
+	it("frontmatter contains only allowed skill keys", () => {
 		const { frontmatter } = parseFrontmatter(PROMPT_PATH);
-		const allowedKeys = new Set(["description"]);
+		const allowedKeys = new Set(["name", "description", "disable-model-invocation"]);
 		for (const key of Object.keys(frontmatter)) {
 			assert.ok(allowedKeys.has(key), `Unexpected frontmatter key: ${key}`);
 		}
@@ -114,9 +117,9 @@ describe("Phase 2: Input collection completeness", () => {
 		);
 	});
 
-	it("paste rejection message: 'Please provide at least a paragraph of sample text'", () => {
+	it("paste rejection message: 'Please provide at least a paragraph'", () => {
 		assert.ok(
-			body.includes("Please provide at least a paragraph of sample text"),
+			body.includes("Please provide at least a paragraph"),
 			"Missing exact paste rejection message",
 		);
 	});
@@ -147,18 +150,15 @@ describe("Phase 2: Input collection completeness", () => {
 		assert.ok(hasRetry, "Must provide a way to return to menu or retry after error");
 	});
 
-	it("20K token limit for very long text is specified", () => {
-		const hasTokenLimit =
-			body.includes("20K") ||
-			body.includes("20000") ||
-			body.includes("20,000") ||
-			body.includes("20000 tokens") ||
-			body.includes("20K tokens") ||
-			(body.includes("first") &&
-				(body.includes("20") ||
-					lowerBody.includes("twenty thousand") ||
-					lowerBody.includes("20,000")));
-		assert.ok(hasTokenLimit, "Must specify 20K token limit for long text");
+	it("all four validation failure messages are specified", () => {
+		for (const message of [
+			"Please provide at least a paragraph",
+			"URL unreachable",
+			"File not found",
+			"Input is empty",
+		]) {
+			assert.ok(body.includes(message), `Missing validation message: ${message}`);
+		}
 	});
 });
 
@@ -200,18 +200,10 @@ describe("Phase 3: Style analysis completeness", () => {
 		);
 	});
 
-	it("user's answer to clarification questions is incorporated into final output", () => {
-		const incorporatesAnswer =
-			lowerBody.includes("incorporat") ||
-			(lowerBody.includes("use the") &&
-				(lowerBody.includes("answer") || lowerBody.includes("response"))) ||
-			(lowerBody.includes("include") &&
-				(lowerBody.includes("answer") || lowerBody.includes("clarif"))) ||
-			(lowerBody.includes("user") && lowerBody.includes("answer")) ||
-			(lowerBody.includes("add to") && lowerBody.includes("output"));
+	it("generated voice file is written to .pi/skills/writing-voice/references/", () => {
 		assert.ok(
-			incorporatesAnswer,
-			"Must describe that user answers are incorporated into final output",
+			body.includes(".pi/skills/writing-voice/references"),
+			"Must name .pi/skills/writing-voice/references/ as the voice file location",
 		);
 	});
 
@@ -304,15 +296,12 @@ describe("Phase 5: Edge-case resilience", () => {
 		);
 	});
 
-	it("handles very long text (>20K tokens) - silent truncation (covered in Phase 2)", () => {
-		const hasTruncationGuide =
-			body.includes("20K") ||
-			body.includes("20000") ||
-			body.includes("first 20") ||
-			body.includes("silent") ||
-			body.includes("truncat") ||
-			lowerBody.includes("read only");
-		assert.ok(hasTruncationGuide, "Must handle long text with truncation to first 20K tokens");
+	it("overwrites an existing voice file and modifies no others", () => {
+		assert.ok(lowerBody.includes("overwrite"), "Must state an existing voice file is overwritten");
+		assert.ok(
+			lowerBody.includes("do not modify any other files"),
+			"Must state that no other files are modified",
+		);
 	});
 
 	it("supports non-English languages (voice-{lang}.md naming)", () => {
