@@ -182,10 +182,13 @@ deterministic hash of the repo identity, probed with a next-free fallback),
 disjoint from the CodeFlow band so the two sidecars of one workspace never
 collide.
 
-The host side is **hard-pinned to loopback** (`127.0.0.1`) — there is no
-all-interfaces opt-in, so the control center is never routable off-host. The
-URL is printed with the literal `127.0.0.1` rather than `localhost` so it
-matches the published IPv4 loopback bind on every host.
+The host side is **bound to loopback** (`127.0.0.1`) by configuration — there is
+no all-interfaces opt-in. This is a reachability default, not a hard isolation
+boundary: Docker Engine before 28.0.0 may expose a loopback-published port to
+hosts on the same L2 segment, and this project accepts Engine 24.0.0 and later
+(see [Security](security.md); hardening is tracked under #1527). The URL is
+printed with the literal `127.0.0.1` rather than `localhost` so it matches the
+published IPv4 loopback bind on every host.
 
 To pin a port explicitly, set `docker.uiPort` in `cheasee-settings.json`, or
 the `PI_UI_PORT` env var (env wins over derivation, the settings file wins
@@ -237,8 +240,8 @@ workspace mount, so a running pi session reappears without a restart. Stopping
 the stack with `cheasee-pi down` stops the sidecar too.
 
 The sidecar binds **all container interfaces** at `0.0.0.0:3000` (required for
-docker-proxy/DNAT to deliver the published port); the *host* side stays
-loopback-only at `127.0.0.1:<port>`.
+docker-proxy/DNAT to deliver the published port); the *host* side is bound to
+`127.0.0.1:<port>` by the compose mapping.
 
 ### Terminal + UI coexistence (in-use guard)
 

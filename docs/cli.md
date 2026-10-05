@@ -53,7 +53,7 @@ without a subcommand executes the same handler as `start`.
 
 | | |
 |---|---|
-| **Does** | Mounts the workspace at `/workspaces/main` and its sibling bare clone at `/workspaces/.bare`, starts the container (`docker compose up` if not running), injects provider keys from `~/.config/cheasee-pi/auth.json` as environment variables, launches pi, and prints the CodeFlow URL (`http://localhost:<port>/?repo=local/workspace&run=1`) once the container is healthy. The CodeFlow sidecar is published on loopback only by default (`CODEFLOW_HOST_IP`, default `127.0.0.1` — set `0.0.0.0` to opt in to remote access). It also starts the local `ui` sidecar and prints the control-center URL (`ℹ UI: http://127.0.0.1:<port>`), hard-pinned to loopback (see [UI](#ui-web-control-center) below). |
+| **Does** | Mounts the workspace at `/workspaces/main` and its sibling bare clone at `/workspaces/.bare`, starts the container (`docker compose up` if not running), injects provider keys from `~/.config/cheasee-pi/auth.json` as environment variables, launches pi, and prints the CodeFlow URL (`http://localhost:<port>/?repo=local/workspace&run=1`) once the container is healthy. The CodeFlow sidecar is published on loopback only by default (`CODEFLOW_HOST_IP`, default `127.0.0.1` — set `0.0.0.0` to opt in to remote access). It also starts the local `ui` sidecar and prints the control-center URL (`ℹ UI: http://127.0.0.1:<port>`), bound to loopback by the compose mapping (see [UI](#ui-web-control-center) below). |
 | **Checks** | Workspace gate: empty folder → runs `init` and stops (re-run `start` to launch pi); `cheasee-settings.json` present → run; non-empty folder without it → refused with an empty-folder hint. Docker gate (binary present + `docker info` responds + Engine ≥ 24.0.0, 5 s timeout) unless `--no-docker-check`. |
 | **Inputs** | Flags: `--workdir`, `--name`, `--build`, `--no-docker-check`, `--api-key` (session-only, not saved), `--dry-run` (print injected env vars, then exit). Reads `auth.json` + `cheasee-settings.json`; writes the version-keyed compose/Dockerfile cache. |
 
@@ -82,11 +82,13 @@ port can be resolved (range exhausted) the CLI omits `PI_UI_PORT`, prints
 `⚠ UI port: <reason>`, and sets `CHEASEE_UI_PORT_UNRESOLVED=1`; start still
 succeeds and the footer suppresses the UI link.
 
-The host side is **hard-pinned to loopback** — there is no all-interfaces opt-in
-(unlike CodeFlow's `CODEFLOW_HOST_IP`), so the control center is never routable
-off-host. The container side stays `0.0.0.0:3000` (docker-proxy/DNAT delivery);
-only the published host port is loopback. See [Daily Usage](daily-usage.md) for
-the start/reconnect workflow and [Security](security.md) for the threat model.
+The host side is **bound to loopback** by configuration — there is no
+all-interfaces opt-in (unlike CodeFlow's `CODEFLOW_HOST_IP`). This is not a hard
+isolation boundary: Docker Engine before 28.0.0 may expose a loopback-published
+port to hosts on the same L2 segment, and the supported floor is Engine 24.0.0.
+The container side stays `0.0.0.0:3000` (docker-proxy/DNAT delivery); the
+published host port is loopback-bound. See [Daily Usage](daily-usage.md) for the
+start/reconnect workflow and [Security](security.md) for the threat model.
 
 ## `cheasee-pi init`
 
@@ -231,7 +233,7 @@ Other variables the CLI reads:
 |---|---|
 | `CODEFLOW_PORT` | Host port for the CodeFlow sidecar. Resolution order: `docker.codeflowPort` in `cheasee-settings.json` → env `CODEFLOW_PORT` → derived `8470 + fnv32(repo-slug) % 1024`, probed next-free |
 | `CODEFLOW_HOST_IP` | Host-side bind IP for the CodeFlow sidecar's published port. Default `127.0.0.1` — loopback only, matching the printed `localhost` URL (the sidecar serves the workspace source read-only). `0.0.0.0` is the explicit remote-access opt-in |
-| `PI_UI_PORT` | Host port for the `ui` control-center sidecar. Resolution order: `docker.uiPort` in `cheasee-settings.json` → env `PI_UI_PORT` → derived `9500 + fnv32(repo-slug) % 1024`, probed next-free. The host bind is hard-pinned to `127.0.0.1` (no opt-in). See [UI](#ui-web-control-center) |
+| `PI_UI_PORT` | Host port for the `ui` control-center sidecar. Resolution order: `docker.uiPort` in `cheasee-settings.json` → env `PI_UI_PORT` → derived `9500 + fnv32(repo-slug) % 1024`, probed next-free. The host bind is bound to `127.0.0.1` by configuration (no opt-in). See [UI](#ui-web-control-center) |
 | `CHEASEEPI_MEMORY` | Build arg passed by `build`/`rebuild` from `docker.memory` in `cheasee-settings.json` |
 | `XDG_CACHE_HOME` (Unix) / `LocalAppData` (Windows) | Base for the CLI cache dir via `os.UserCacheDir` |
 

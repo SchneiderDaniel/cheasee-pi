@@ -71,14 +71,21 @@ The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from 
 - **UID/GID mapping:** Host user's UID/GID is mapped to container user `agentuser` via `gosu` — prevents permission escalation on bind-mounted files
 - **Rootless:** The container runs as `agentuser`, not root
 - **Bind mount only:** The repo root is mounted read-write; no privileged mounts
-- **Published ports pinned to loopback:** The `cheasee-pi` agent container has no network-exposed services. The `ui` sidecar (web control center) publishes one host port, hard-pinned to IPv4 loopback (`127.0.0.1:<port>`) in the compose mapping — the explicit `127.0.0.1` prefix pins it, not Docker's default (which listens on all interfaces). Loopback is the default and the only supported mode; non-localhost exposure is deferred behind the compose-harness hardening work (#1527).
+- **Published ports bound to loopback:** The `cheasee-pi` agent container has no network-exposed services. The `ui` sidecar (web control center) publishes one host port, bound to IPv4 loopback (`127.0.0.1:<port>`) by the compose mapping — the explicit `127.0.0.1` prefix pins it, not Docker's default (which listens on all interfaces). This is loopback-bound configuration, not a hard isolation boundary: Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the same L2 segment, and the supported floor is Engine 24.0.0. Loopback is the default and the only supported mode; non-localhost exposure and the pre-28 caveat are tracked for hardening in the compose-harness work (#1527).
 
 ## UI sidecar network posture
 
 The `ui` sidecar (web control center) is the only component that publishes a
-host port. Its host bind is pinned to `127.0.0.1` in the compose mapping, so it
-is not routable off-host by default; non-localhost exposure is deliberately
+host port. Its host bind is set to `127.0.0.1` in the compose mapping, so it is
+loopback-bound by configuration; non-localhost exposure is deliberately
 deferred to the compose-harness hardening work (#1527).
+
+Loopback-bound is a configuration guarantee, not a hard isolation boundary.
+Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the
+same L2 segment, and this project accepts Engine 24.0.0 and later, so on those
+engines the port is not guaranteed to be unreachable off-host. Treat the control
+center as if it could be reached from the local network until #1527 hardens the
+mapping.
 
 Loopback is a **reachability pin, not an authorization boundary**. The control
 center performs no authentication, and the loopback pin is the only control on
