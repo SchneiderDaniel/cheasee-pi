@@ -506,6 +506,18 @@ func TestRedactSecret(t *testing.T) {
 	}
 }
 
+func TestMaskKey(t *testing.T) {
+	if got := maskKey("0123456789abc"); got != "0123...9abc" {
+		t.Errorf("long key should be first4...last4, got %q", got)
+	}
+	if got := maskKey("12345678"); got != "****" {
+		t.Errorf("8-char key must be fully masked, got %q", got)
+	}
+	if got := maskKey(""); got != "****" {
+		t.Errorf("empty key must be fully masked, got %q", got)
+	}
+}
+
 func TestTmpCleanFindArgs_whitelistOnlyMaxdepthOne(t *testing.T) {
 	args := tmpCleanFindArgs()
 	// maxdepth 1 + whitelist: the cleanup never recurses or sweeps mounts

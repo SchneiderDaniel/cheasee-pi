@@ -219,7 +219,7 @@ func runAuthListE(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintf(os.Stderr, "Configured providers:\n")
 	for name, key := range providers {
-		masked := redactSecret(key)
+		masked := maskKey(key)
 		fmt.Fprintf(os.Stderr, "  %-15s %s\n", name, masked)
 	}
 

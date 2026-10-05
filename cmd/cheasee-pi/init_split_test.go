@@ -454,6 +454,7 @@ var upSplitRules = []prefixRule{
 	{"TestAllEnvVarNames", "up_env_test.go"},
 	{"TestProviderPassthroughNames", "up_env_test.go"},
 	{"TestRedactSecret", "up_env_test.go"},
+	{"TestMaskKey", "up_env_test.go"},
 	{"TestTmpCleanFindArgs", "up_env_test.go"},
 	{"TestOrphanScanBash", "up_orphans_test.go"},
 	{"TestScanOrphans", "up_orphans_test.go"},
