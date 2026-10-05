@@ -389,42 +389,38 @@ export default function askUser(pi: ExtensionAPI): void {
 				text?: string;
 			};
 
-			try {
-				if (action === "list") {
-					const { entries, total } = await listQnaEntries(projectDir, limit);
-					return successResult(entries, entries.length, total);
-				}
-
-				if (action === "get") {
-					if (id === undefined || id === null) {
-						throw new Error("id parameter is required for get action");
-					}
-
-					const entry = await getQnaEntry(projectDir, id);
-					if (entry === undefined) {
-						throw new Error("No Q&A history yet");
-					}
-					if (entry === null) {
-						throw new Error(`Entry #${id} not found`);
-					}
-
-					return successResult([entry], 1);
-				}
-
-				if (action === "query") {
-					if (!text) {
-						throw new Error("text parameter is required for query action");
-					}
-
-					const entries = await queryQnaEntries(projectDir, text);
-					return successResult(entries, entries.length);
-				}
-
-				// Unknown action
-				throw new Error(`Unknown action: ${action}`);
-			} catch (err) {
-				throw err;
+			if (action === "list") {
+				const { entries, total } = await listQnaEntries(projectDir, limit);
+				return successResult(entries, entries.length, total);
 			}
+
+			if (action === "get") {
+				if (id === undefined || id === null) {
+					throw new Error("id parameter is required for get action");
+				}
+
+				const entry = await getQnaEntry(projectDir, id);
+				if (entry === undefined) {
+					throw new Error("No Q&A history yet");
+				}
+				if (entry === null) {
+					throw new Error(`Entry #${id} not found`);
+				}
+
+				return successResult([entry], 1);
+			}
+
+			if (action === "query") {
+				if (!text) {
+					throw new Error("text parameter is required for query action");
+				}
+
+				const entries = await queryQnaEntries(projectDir, text);
+				return successResult(entries, entries.length);
+			}
+
+			// Unknown action
+			throw new Error(`Unknown action: ${action}`);
 		},
 	});
 }
