@@ -256,7 +256,10 @@ describe("audit-one.ts — openFileForAudit fail-closed (extension-less file)", 
 		);
 		assert.strictEqual(didOpenCalls.length, 0, "no didOpen sent for extension-less file");
 		assert.strictEqual(openedUris.size, 0);
-		assert.ok(errors.some((e) => e.includes("Makefile")), "per-file error recorded");
+		assert.ok(
+			errors.some((e) => e.includes("Makefile")),
+			"per-file error recorded",
+		);
 	});
 
 	it("control: src/a.ts still sends didOpen with languageId 'typescript'", async () => {
@@ -624,6 +627,25 @@ describe("audit-group.ts — teardown (terminateChild)", () => {
 		} finally {
 			mock.timers.reset();
 		}
+	});
+
+	it("late stdin stdout stderr 'error' after teardown is swallowed (EPIPE guard)", async () => {
+		const rt = createMockRuntime();
+		setLspRuntime(rt);
+
+		// EMPTY_FILES → poll breaks immediately, no sleeps needed.
+		const result = await auditFileGroup(TS_MAPPING, EMPTY_FILES, "/worktree");
+		assert.strictEqual(result.errors.length, 0);
+
+		const child = (rt.spawn as any).mock.calls[0].result;
+		// A late EPIPE from an in-flight write arrives as an 'error' event on the
+		// stdio pipe after teardown. With no listener Node re-throws it as an
+		// uncaughtException and crashes the whole agent — it must be swallowed.
+		assert.doesNotThrow(() => {
+			child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+			child.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+			child.stderr.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+		});
 	});
 
 	it("already-exited child → no kill call", async () => {
