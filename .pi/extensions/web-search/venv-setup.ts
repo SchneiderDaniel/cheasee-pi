@@ -7,7 +7,7 @@
  */
 
 import { join } from "node:path";
-import type { ExecFn } from "./types.ts";
+import type { ExecFn, OnUpdateCallback } from "./types.ts";
 import { ensureVenv } from "../lib/ensureVenv.ts";
 
 // ── ensureWebSearchVenv ──
@@ -25,7 +25,7 @@ import { ensureVenv } from "../lib/ensureVenv.ts";
 export async function ensureWebSearchVenv(
 	exec: ExecFn,
 	cwd: string,
-	onUpdate?: (u: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void,
+	onUpdate?: OnUpdateCallback,
 ): Promise<string> {
 	const result = await ensureVenv({
 		exec,

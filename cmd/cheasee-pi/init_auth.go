@@ -206,21 +206,6 @@ func runReauth(ctx context.Context, deps InitDeps) error {
 	return nil
 }
 
-// runInitLegacy is an auth-only helper that returns the provider and API key
-// as scalars. It does NOT save, extract, or render — the orchestrator
-// threads them into the phase-7 SetLegacyAuth raw-map patch.
-func runInitLegacy(ctx context.Context, apiKey string, provider string) (string, string, error) {
-	if apiKey == "" {
-		key, err := promptAPIKey(provider)
-		if err != nil {
-			return "", "", fmt.Errorf("API key prompt failed: %w", err)
-		}
-		apiKey = key
-	}
-
-	return provider, apiKey, nil
-}
-
 // runInitLegacyAuth runs the API-key-only auth path and returns the legacy
 // (provider, apiKey) scalar pair. It is the shared tail of the two Phase-4
 // legacy fallback branches in runInit (--no-github and the ErrUnsupported
@@ -229,7 +214,15 @@ func runInitLegacy(ctx context.Context, apiKey string, provider string) (string,
 // Errors propagate bare (no %w re-wrap) so identity and messages stay
 // byte-identical.
 func runInitLegacyAuth(ctx context.Context, deps InitDeps) (string, string, error) {
-	return runInitLegacy(ctx, deps.APIKey, deps.Provider)
+	apiKey := deps.APIKey
+	if apiKey == "" {
+		key, err := promptAPIKey(deps.Provider)
+		if err != nil {
+			return "", "", fmt.Errorf("API key prompt failed: %w", err)
+		}
+		apiKey = key
+	}
+	return deps.Provider, apiKey, nil
 }
 
 // promptAPIKey prompts the user for an API key (legacy).

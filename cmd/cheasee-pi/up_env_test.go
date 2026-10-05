@@ -494,15 +494,27 @@ func TestProviderPassthroughNames_nonProviderOnly(t *testing.T) {
 	}
 }
 
-func TestRedactEnvValue(t *testing.T) {
-	if got := redactEnvValue("0123456789abc"); got != "0123...9abc" {
+func TestRedactSecret(t *testing.T) {
+	if got := redactSecret("0123456789abc"); got != "0123...9abc" {
 		t.Errorf("long value should be first4...last4, got %q", got)
 	}
-	if got := redactEnvValue("12345678"); got != "12345678" {
+	if got := redactSecret("12345678"); got != "12345678" {
 		t.Errorf("8-char value should print in full, got %q", got)
 	}
-	if got := redactEnvValue(""); got != "" {
+	if got := redactSecret(""); got != "" {
 		t.Errorf("empty value should print in full, got %q", got)
+	}
+}
+
+func TestMaskKey(t *testing.T) {
+	if got := maskKey("0123456789abc"); got != "0123...9abc" {
+		t.Errorf("long key should be first4...last4, got %q", got)
+	}
+	if got := maskKey("12345678"); got != "****" {
+		t.Errorf("8-char key must be fully masked, got %q", got)
+	}
+	if got := maskKey(""); got != "****" {
+		t.Errorf("empty key must be fully masked, got %q", got)
 	}
 }
 

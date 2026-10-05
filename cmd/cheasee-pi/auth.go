@@ -380,11 +380,3 @@ func emitJSONMapping(cmd *cobra.Command, aliases map[string]string) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(ordered)
 }
-
-// maskKey shows first 4 and last 4 chars of a key for display.
-func maskKey(key string) string {
-	if len(key) <= 8 {
-		return "****"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
-}

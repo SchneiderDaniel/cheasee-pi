@@ -304,7 +304,7 @@ func TestRemoveImages_FailureAborts(t *testing.T) {
 	}
 }
 
-func TestPruneAllBuildCache_InvokesWithA(t *testing.T) {
+func TestPruneBuildCache_AllInvokesWithA(t *testing.T) {
 	var recorded [][]string
 	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name != "docker" {
@@ -313,13 +313,15 @@ func TestPruneAllBuildCache_InvokesWithA(t *testing.T) {
 		recorded = append(recorded, append([]string(nil), arg...))
 		return &mockCmd{}
 	})
-	testutil.CaptureStderr(t, func() { pruneAllBuildCache(context.Background()) })
+	if err := pruneBuildCache(context.Background(), true); err != nil {
+		t.Fatalf("pruneBuildCache(all): %v", err)
+	}
 	if len(recorded) != 1 || !slices.Equal(recorded[0], []string{"buildx", "prune", "-a", "-f"}) {
-		t.Errorf("pruneAllBuildCache must invoke docker buildx prune -a -f, got %v", recorded)
+		t.Errorf("pruneBuildCache(all=true) must invoke docker buildx prune -a -f, got %v", recorded)
 	}
 }
 
-func TestPruneAllBuildCache_FailureSurfaces(t *testing.T) {
+func TestPruneBuildCache_AllFailureSurfaces(t *testing.T) {
 	// A docker failure must surface as an error — never silent success while
 	// the cache the removed images pinned stays on disk.
 	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
@@ -328,9 +330,59 @@ func TestPruneAllBuildCache_FailureSurfaces(t *testing.T) {
 		}
 		return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("daemon down") }}
 	})
-	err := pruneAllBuildCache(context.Background())
+	err := pruneBuildCache(context.Background(), true)
 	if err == nil || !strings.Contains(err.Error(), "docker buildx prune") || !strings.Contains(err.Error(), "daemon down") {
 		t.Fatalf("buildx prune failure must surface wrapped, got %v", err)
+	}
+}
+
+func TestPruneDanglingImages_GatedSkipsWhenEmpty(t *testing.T) {
+	// Empty dangling list → the prune must not run (build/clean avoid a daemon
+	// round-trip on every cached build).
+	var recorded [][]string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		recorded = append(recorded, append([]string(nil), arg...))
+		return &mockCmd{} // docker images -q → empty
+	})
+	if err := pruneDanglingImages(context.Background(), true); err != nil {
+		t.Fatalf("gated prune must swallow: %v", err)
+	}
+	if len(recorded) != 1 || !slices.Equal(recorded[0], []string{"images", "--filter", "dangling=true", "-q"}) {
+		t.Errorf("gated prune with no dangling images must issue only the list query, got %v", recorded)
+	}
+}
+
+func TestPruneDanglingImages_UngatedRunsUnconditionally(t *testing.T) {
+	// Ungated (prune-images) must run the prune even with a raced/empty list.
+	var recorded [][]string
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		recorded = append(recorded, append([]string(nil), arg...))
+		return &mockCmd{}
+	})
+	if err := pruneDanglingImages(context.Background(), false); err != nil {
+		t.Fatalf("ungated prune: %v", err)
+	}
+	if len(recorded) != 1 || !slices.Equal(recorded[0], []string{"image", "prune", "-f"}) {
+		t.Errorf("ungated prune must invoke docker image prune -f directly, got %v", recorded)
+	}
+}
+
+func TestPruneDanglingImages_UngatedFailureSurfaces(t *testing.T) {
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name != "docker" {
+			return &mockCmd{}
+		}
+		return &mockCmd{combinedFn: func() ([]byte, error) { return nil, fmt.Errorf("cannot prune") }}
+	})
+	err := pruneDanglingImages(context.Background(), false)
+	if err == nil || !strings.Contains(err.Error(), "docker image prune") || !strings.Contains(err.Error(), "cannot prune") {
+		t.Fatalf("ungated prune failure must surface wrapped, got %v", err)
 	}
 }
 
@@ -431,7 +483,9 @@ func TestPruneBuildCache_InvokesWithoutA(t *testing.T) {
 		recorded = append(recorded, append([]string(nil), arg...))
 		return &mockCmd{}
 	})
-	testutil.CaptureStderr(t, func() { pruneBuildCache() })
+	if err := pruneBuildCache(context.Background(), false); err != nil {
+		t.Fatalf("pruneBuildCache: %v", err)
+	}
 	if len(recorded) != 1 || !slices.Equal(recorded[0], []string{"buildx", "prune", "-f"}) {
 		t.Errorf("pruneBuildCache must invoke docker buildx prune -f (no -a), got %v", recorded)
 	}

@@ -92,11 +92,19 @@ func removeImages(ctx context.Context, images []cheaseePiImage) error {
 	return nil
 }
 
-// pruneOrphanedImages runs `docker image prune -f` so images left dangling by
-// the removals are reclaimed. Safe to run unconditionally — fast when empty.
-// A docker failure surfaces as an error: silence would report success while
-// the unsafe/untagged artifacts stay on disk.
-func pruneOrphanedImages(ctx context.Context) error {
+// pruneDanglingImages reclaims dangling (<none>:<none>) images. gated: first
+// list dangling image ids and skip the prune entirely when none exist
+// (build/clean — avoids a daemon round-trip on every cached build); ungated:
+// prune unconditionally (prune-images — the just-removed tags leave dangling
+// parents regardless of a raced list). A prune failure is surfaced so each
+// call site can choose to swallow (build/clean) or propagate (prune-images).
+func pruneDanglingImages(ctx context.Context, gated bool) error {
+	if gated {
+		out, err := runCommandContext(ctx, "docker", "images", "--filter", "dangling=true", "-q").Output()
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+	}
 	if _, err := runCommandContext(ctx, "docker", "image", "prune", "-f").CombinedOutput(); err != nil {
 		return fmt.Errorf("docker image prune: %w", err)
 	}

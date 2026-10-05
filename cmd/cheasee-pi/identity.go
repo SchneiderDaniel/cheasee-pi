@@ -241,7 +241,7 @@ func sanitizeSlug(s string) string {
 }
 
 // ──────────────────────────────────────────────
-// CodeFlow host port
+// Sidecar host ports (CodeFlow + UI)
 // ──────────────────────────────────────────────
 
 // codeflowPortBase is the low end of the derived per-repo CodeFlow port
@@ -255,82 +255,6 @@ const (
 	codeflowPortRange = 1024
 )
 
-// portProbe checks whether a host TCP port on loopback is free to bind; a
-// package-var seam so tests can simulate occupancy/exhaustion without binding
-// sockets.
-var portProbe = func(port int) error {
-	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return err
-	}
-	return l.Close()
-}
-
-// codeflowHostPort resolves the CodeFlow host port for a workspace:
-// cheasee-settings.json docker.codeflowPort (explicit per-repo config) >
-// process env CODEFLOW_PORT (the existing escape hatch, passed through
-// untouched) > derived base+fnv32(repoSlug)%range, probed with next-free
-// fallback. Range exhaustion fails closed with an actionable error.
-func codeflowHostPort(workspaceRoot string) (string, error) {
-	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil && s.Docker.CodeflowPort != "" {
-		return s.Docker.CodeflowPort, nil
-	}
-	if env := os.Getenv("CODEFLOW_PORT"); env != "" {
-		return env, nil
-	}
-	start := codeflowPortBase + int(fnv32(repoSlug(workspaceRoot))%codeflowPortRange)
-	for p := start; p < codeflowPortBase+codeflowPortRange; p++ {
-		if portProbe(p) == nil {
-			return strconv.Itoa(p), nil
-		}
-	}
-	return "", fmt.Errorf("no free host port in [%d, %d] for the CodeFlow service — stop another workspace or set CODEFLOW_PORT explicitly", codeflowPortBase, codeflowPortBase+codeflowPortRange-1)
-}
-
-// explicitCodeflowPort resolves ONLY the explicit CodeFlow host port for a
-// workspace — cheasee-settings.json docker.codeflowPort > process env
-// CODEFLOW_PORT — returning "" when the port would be derived+probed. The
-// sidecar drift check compares only explicit ports: a derived port is
-// runtime allocation (probe occupancy shifts with no config change), so
-// comparing it against the live bind would false-positive.
-func explicitCodeflowPort(workspaceRoot string) string {
-	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil && s.Docker.CodeflowPort != "" {
-		return s.Docker.CodeflowPort
-	}
-	if env := os.Getenv("CODEFLOW_PORT"); env != "" {
-		return env
-	}
-	return ""
-}
-
-// codeflowBoundPort resolves the host port the running codeflow sidecar
-// actually published, via `docker port`. Authoritative over the probe in
-// codeflowHostPort: on a re-up the sidecar already holds its bind, and the
-// probe treats that live bind as occupancy and shifts to the next free
-// port — printing a CodeFlow URL that points at nothing. Falls back to
-// derive+probe in the caller on any docker error (first up, stopped
-// sidecar).
-func codeflowBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
-	out, err := runCommandContext(ctx, "docker", "port", codeflowContainerName(workspaceRoot), "8470/tcp").Output()
-	if err != nil {
-		return "", err
-	}
-	// "0.0.0.0:8938" | "127.0.0.1:8938" | "[::]:8938" — the host port is
-	// the last colon segment.
-	host := strings.TrimSpace(string(out))
-	if i := strings.LastIndex(host, ":"); i >= 0 {
-		host = host[i+1:]
-	}
-	if host == "" {
-		return "", fmt.Errorf("docker port: no published host port for %s", codeflowContainerName(workspaceRoot))
-	}
-	return host, nil
-}
-
-// ──────────────────────────────────────────────
-// UI host port
-// ──────────────────────────────────────────────
-
 // uiPortBase is the low end of the derived per-repo UI host port range. The
 // 1024-wide band sits disjoint from (and above) CodeFlow's [8470, 9493], so
 // the two sidecars of one workspace can never resolve to the same port. Width
@@ -342,40 +266,95 @@ const (
 	uiPortRange = 1024
 )
 
-// uiContainerName follows the repo-slug scheme for the UI sidecar service.
-func uiContainerName(workspaceRoot string) string {
-	return "ui-" + truncateSlug(repoSlug(workspaceRoot), 54)
+// portProbe checks whether a host TCP port on loopback is free to bind; a
+// package-var seam so tests can simulate occupancy/exhaustion without binding
+// sockets.
+var portProbe = func(port int) error {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return err
+	}
+	return l.Close()
 }
 
-// uiHostPort resolves the UI host port for a workspace, mirroring
-// codeflowHostPort: cheasee-settings.json docker.uiPort (explicit per-repo
-// config) > process env PI_UI_PORT (passed through untouched) > derived
-// uiPortBase+fnv32(repoSlug)%uiPortRange, probed with next-free fallback.
-// Range exhaustion fails closed with an actionable error naming PI_UI_PORT.
-func uiHostPort(workspaceRoot string) (string, error) {
-	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil && s.Docker.UIPort != "" {
-		return s.Docker.UIPort, nil
+// portSpec is the shared resolver for a sidecar's host port. Both sidecars
+// follow one precedence — cheasee-settings.json field > process env var >
+// derived base+fnv32(repoSlug)%span, probed with next-free fallback — and one
+// `docker port <container> <containerPort>/tcp` bound-port read; only the
+// constants and the service label differ.
+type portSpec struct {
+	base, span    int
+	envVar        string                        // process env escape hatch (e.g. CODEFLOW_PORT)
+	service       string                        // error-text label (e.g. "CodeFlow")
+	containerPort string                        // in-container port probed via `docker port`
+	settingsPort  func(*CheaseeSettings) string // per-repo settings field
+	containerName func(string) string           // container name for `docker port`
+}
+
+// codeflowPort is the CodeFlow sidecar's port spec. Its band sits below the
+// UI band, so the two sidecars of one workspace can never resolve to the same
+// port.
+var codeflowPort = portSpec{
+	base:          codeflowPortBase,
+	span:          codeflowPortRange,
+	envVar:        "CODEFLOW_PORT",
+	service:       "CodeFlow",
+	containerPort: "8470",
+	settingsPort:  func(s *CheaseeSettings) string { return s.Docker.CodeflowPort },
+	containerName: codeflowContainerName,
+}
+
+// uiPort is the UI sidecar's port spec.
+var uiPort = portSpec{
+	base:          uiPortBase,
+	span:          uiPortRange,
+	envVar:        "PI_UI_PORT",
+	service:       "UI",
+	containerPort: "3000",
+	settingsPort:  func(s *CheaseeSettings) string { return s.Docker.UIPort },
+	containerName: uiContainerName,
+}
+
+// hostPort resolves the host port for a workspace: the settings field
+// (explicit per-repo config) > the process env var (passed through untouched)
+// > derived base+fnv32(repoSlug)%span, probed with next-free fallback. Range
+// exhaustion fails closed with an actionable error naming the env var.
+func (p portSpec) hostPort(workspaceRoot string) (string, error) {
+	if port := p.explicitPort(workspaceRoot); port != "" {
+		return port, nil
 	}
-	if env := os.Getenv("PI_UI_PORT"); env != "" {
-		return env, nil
-	}
-	start := uiPortBase + int(fnv32(repoSlug(workspaceRoot))%uiPortRange)
-	for p := start; p < uiPortBase+uiPortRange; p++ {
-		if portProbe(p) == nil {
-			return strconv.Itoa(p), nil
+	start := p.base + int(fnv32(repoSlug(workspaceRoot))%uint32(p.span))
+	for port := start; port < p.base+p.span; port++ {
+		if portProbe(port) == nil {
+			return strconv.Itoa(port), nil
 		}
 	}
-	return "", fmt.Errorf("no free host port in [%d, %d] for the UI service — stop another workspace or set PI_UI_PORT explicitly", uiPortBase, uiPortBase+uiPortRange-1)
+	return "", fmt.Errorf("no free host port in [%d, %d] for the %s service — stop another workspace or set %s explicitly", p.base, p.base+p.span-1, p.service, p.envVar)
 }
 
-// uiBoundPort resolves the host port the running UI sidecar actually
-// published, via `docker port ui-<slug> 3000/tcp`. Authoritative over the
-// probe in uiHostPort: on a re-up the sidecar already holds its bind, and the
-// probe treats that live bind as occupancy and shifts to the next free port —
-// printing a UI URL that points at nothing. Falls back to derive+probe in the
-// caller on any docker error (first up, stopped sidecar).
-func uiBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
-	out, err := runCommandContext(ctx, "docker", "port", uiContainerName(workspaceRoot), "3000/tcp").Output()
+// explicitPort resolves ONLY the explicit host port for a workspace — settings
+// field > process env var — returning "" when the port would be
+// derived+probed. The codeflow drift check compares only explicit ports: a
+// derived port is runtime allocation (probe occupancy shifts with no config
+// change), so comparing it against the live bind would false-positive.
+func (p portSpec) explicitPort(workspaceRoot string) string {
+	if s, err := LoadCheaseeSettings(workspaceRoot); err == nil {
+		if port := p.settingsPort(s); port != "" {
+			return port
+		}
+	}
+	return os.Getenv(p.envVar)
+}
+
+// boundPort resolves the host port the running sidecar actually published,
+// via `docker port`. Authoritative over the probe in hostPort: on a re-up the
+// sidecar already holds its bind, and the probe treats that live bind as
+// occupancy and shifts to the next free port — printing a URL that points at
+// nothing. Falls back to derive+probe in the caller on any docker error
+// (first up, stopped sidecar).
+func (p portSpec) boundPort(ctx context.Context, workspaceRoot string) (string, error) {
+	name := p.containerName(workspaceRoot)
+	out, err := runCommandContext(ctx, "docker", "port", name, p.containerPort+"/tcp").Output()
 	if err != nil {
 		return "", err
 	}
@@ -386,9 +365,42 @@ func uiBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
 		host = host[i+1:]
 	}
 	if host == "" {
-		return "", fmt.Errorf("docker port: no published host port for %s", uiContainerName(workspaceRoot))
+		return "", fmt.Errorf("docker port: no published host port for %s", name)
 	}
 	return host, nil
+}
+
+// codeflowHostPort is a thin delegation to the CodeFlow spec (test seam
+// name preserved).
+func codeflowHostPort(workspaceRoot string) (string, error) {
+	return codeflowPort.hostPort(workspaceRoot)
+}
+
+// explicitCodeflowPort is a thin delegation to the CodeFlow spec (test seam
+// name preserved); it never probes.
+func explicitCodeflowPort(workspaceRoot string) string {
+	return codeflowPort.explicitPort(workspaceRoot)
+}
+
+// codeflowBoundPort is a thin delegation to the CodeFlow spec (test seam
+// name preserved).
+func codeflowBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
+	return codeflowPort.boundPort(ctx, workspaceRoot)
+}
+
+// uiContainerName follows the repo-slug scheme for the UI sidecar service.
+func uiContainerName(workspaceRoot string) string {
+	return "ui-" + truncateSlug(repoSlug(workspaceRoot), 54)
+}
+
+// uiHostPort is a thin delegation to the UI spec (test seam name
+// preserved).
+func uiHostPort(workspaceRoot string) (string, error) { return uiPort.hostPort(workspaceRoot) }
+
+// uiBoundPort is a thin delegation to the UI spec (test seam name
+// preserved).
+func uiBoundPort(ctx context.Context, workspaceRoot string) (string, error) {
+	return uiPort.boundPort(ctx, workspaceRoot)
 }
 
 // resolveUIHostPort resolves the UI host port for the start path, bound-first
