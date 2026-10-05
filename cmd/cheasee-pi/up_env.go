@@ -133,14 +133,20 @@ var execPIContainer = func(name string, env map[string]string, target string) er
 // tmpCleanPatterns lists stale scratch names reclaimed from the container's
 // /tmp before each pi launch. The supervisor leaves them behind across runs in
 // a long-lived container (go-build* from Go builds terminated mid-compile,
-// zig-* extracted toolchains, pi-session-*/agent-loop-reject-cwd-* from
-// subagent loops, plus small caches); on a nearly-full overlay they fill the
-// write layer until pi's own session mkdtemp fails with ENOSPC. Whitelist
-// only — /tmp is never wholesale-wiped.
+// zig-* extracted toolchains, agent-loop-reject-cwd-* from subagent loops,
+// plus small caches); on a nearly-full overlay they fill the write layer until
+// pi's own session mkdtemp fails with ENOSPC. Whitelist only — /tmp is never
+// wholesale-wiped.
+//
+// `pi-session-*` is deliberately NOT swept: the supervisor creates each
+// subagent's session dir with mkdtempSync(join(tmpdir(), "pi-session-"))
+// (pipeline/execute-agent.ts) and hands the file to a live nested pi. A sweep
+// on a second `cheasee-pi start` deletes those dirs mid-run, so the nested pi's
+// next session append throws ENOENT and the agent is recorded FAILED. The dirs
+// are small; the ENOSPC pressure this cleanup relieves comes from go-build*/zig*.
 var tmpCleanPatterns = []string{
 	"go-build*",
 	"zig-*",
-	"pi-session-*",
 	"agent-loop-reject-cwd-*",
 	"node-compile-cache",
 	"sysroot",

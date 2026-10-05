@@ -525,4 +525,13 @@ func TestTmpCleanFindArgs_whitelistOnlyMaxdepthOne(t *testing.T) {
 	if strings.Contains(joined, "-name *") {
 		t.Errorf("find args contain unanchored glob")
 	}
+	// `pi-session-*` holds LIVE supervisor subagent session dirs (created by
+	// execute-agent.ts and passed to a running nested pi). Sweeping them on a
+	// concurrent `cheasee-pi start` deletes the session file mid-run and the
+	// agent dies with ENOENT. Guard the prefix explicitly, not just via the loop.
+	for _, p := range tmpCleanPatterns {
+		if strings.HasPrefix(p, "pi-session") {
+			t.Errorf("tmpCleanPatterns must not include %q — it sweeps live subagent session dirs", p)
+		}
+	}
 }
