@@ -94,7 +94,7 @@ Error branch (`ok: false`): the tool returns `{ ok: false, error: { url, reason 
 
 ### Tool Annotations
 
-`index.ts` registers `annotations: { readOnlyHint: true, openWorldHint: true }`. Crawling reaches arbitrary network hosts, so `openWorldHint: true` marks the external egress and `readOnlyHint: true` marks the operation as a pure read. This intentionally diverges from `web-search`, which leaves `readOnlyHint` unset for the same first-call pip-install side effect.
+`index.ts` registers `annotations: { readOnlyHint: true, openWorldHint: true }`. Crawling reaches arbitrary network hosts, so `openWorldHint: true` marks the external egress, and `readOnlyHint: true` marks the crawl itself as a non-mutating external read — fetched pages are not modified and crawl results are not persisted. Caveat: the first call is not entirely side-effect-free locally. Environment setup creates `.pi/scrapling-venv/`, `pip`-installs scrapling, and (on stealth escalation) downloads Chromium, so permission tooling should treat the initial invocation as potentially writing local files as well as reaching the network. That setup is idempotent and cached on subsequent calls. This intentionally diverges from `web-search`, which leaves `readOnlyHint` unset for the same first-call pip-install side effect.
 
 ### Troubleshooting
 
