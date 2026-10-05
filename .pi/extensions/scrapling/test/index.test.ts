@@ -455,23 +455,6 @@ describe("handler delegation — CrawlerEngine integration", () => {
 		assert.deepEqual(callOrder, ["acquire", "engine", "release"]);
 	});
 
-	it("(entity) lock releases in finally even when engine throws", async () => {
-		const callOrder: string[] = [];
-
-		async function execute() {
-			callOrder.push("acquire");
-			try {
-				callOrder.push("engine");
-				throw new Error("crawl failed");
-			} finally {
-				callOrder.push("release");
-			}
-		}
-
-		await assert.rejects(execute(), /crawl failed/);
-		assert.deepEqual(callOrder, ["acquire", "engine", "release"]);
-	});
-
 	it("(entity) onUpdate called before delegating to engine", async () => {
 		const callOrder: string[] = [];
 
@@ -550,19 +533,10 @@ describe("handler — result formatting", () => {
 	});
 });
 
-describe("error signaling — throws for error results", () => {
-	it("(entity) when engine returns error CrawlResult, handler throws with error string", async () => {
-		async function execute() {
-			const result = { success: false as const, error: "Connection timeout" };
-			if (!result.success) {
-				throw new Error(result.error);
-			}
-			return { content: [{ type: "text" as const, text: "ok" }], details: {} };
-		}
-
-		await assert.rejects(execute(), /Connection timeout/);
-	});
-
+// Crawl-execution failures now return an isError result instead of throwing;
+// that contract is exercised against the real handler in index-handler.test.ts.
+// Precondition failures (invalid URL, protocol scheme, abort) stay in the throwing channel.
+describe("error signaling — precondition throws", () => {
 	it("(entity) invalid URL throws 'Invalid URL'", async () => {
 		async function execute() {
 			try {
