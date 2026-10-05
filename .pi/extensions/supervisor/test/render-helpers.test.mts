@@ -10,23 +10,16 @@ import assert from "node:assert/strict";
 import { Container, Text, Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { renderTextLines, renderThinkingBlock } from "../lib/render-helpers.ts";
+import { makeTestTheme } from "./helpers/theme.mts";
 
 // ─── Fixtures ────────────────────────────────────────────────────
 
-const mockTheme = {
-	fg: (_color: string, text: string) => text,
-};
+const mockTheme = makeTestTheme().theme;
 
-/** Tracking theme that records fg() calls */
+/** Tracking theme that records fg()/style() calls (identity output). */
 function makeTrackingTheme() {
-	const calls: Array<{ color: string; text: string }> = [];
-	const theme = {
-		fg: (color: string, text: string) => {
-			calls.push({ color, text });
-			return text;
-		},
-	};
-	return { theme, calls };
+	const { theme, fgCalls, styleCalls } = makeTestTheme();
+	return { theme, calls: fgCalls, styleCalls };
 }
 
 /**
@@ -116,19 +109,20 @@ describe("renderTextLines", () => {
 		}
 	});
 
-	it("theme.fg('dim', ...) is applied to each non-empty line", () => {
-		const trackTheme = {
-			fg: (color: string, text: string) => {
-				assert.equal(color, "dim", `expected "dim" color, got "${color}"`);
+	it("theme.style(line, { fg: 'dim' }) is applied to each non-empty line", () => {
+		const { theme, styleCalls } = makeTestTheme({
+			styleWrap: (text, options) => {
+				assert.equal(options.fg, "dim", `expected "dim" fg, got "${options.fg}"`);
 				return `styled:${text}`;
 			},
-		};
+		});
 		const c = new Container();
-		renderTextLines(c, ["alpha", "beta"], trackTheme, 80);
+		renderTextLines(c, ["alpha", "beta"], theme, 80);
 		const lines = renderStripped(c);
 		assert.equal(lines.length, 2);
 		assert.ok(lines[0].includes("styled:alpha"), `expected styled:alpha, got: ${lines[0]}`);
 		assert.ok(lines[1].includes("styled:beta"), `expected styled:beta, got: ${lines[1]}`);
+		assert.equal(styleCalls.length, 2, "expected one style() call per non-empty line");
 	});
 
 	it("container mutability: appends to existing children", () => {
@@ -168,15 +162,15 @@ describe("renderThinkingBlock", () => {
 		);
 	});
 
-	it("uses theme.fg('thinkingText', …) via DefaultTextStyle", () => {
-		const { theme, calls } = makeTrackingTheme();
+	it("uses theme.style(…, { fg: 'thinkingText' }) via DefaultTextStyle", () => {
+		const { theme, styleCalls } = makeTrackingTheme();
 		const c = new Container();
 		renderThinkingBlock(c, "test text", theme);
 		// DefaultTextStyle.color function is called per-text-element during render
-		const raw = renderRaw(c);
+		renderRaw(c);
 		assert.ok(
-			calls.some((call) => call.color === "thinkingText"),
-			`expected "thinkingText" call, got: ${JSON.stringify(calls)}`,
+			styleCalls.some((call) => call.options.fg === "thinkingText"),
+			`expected "thinkingText" style call, got: ${JSON.stringify(styleCalls)}`,
 		);
 	});
 
@@ -232,8 +226,7 @@ describe("renderThinkingBlock", () => {
 	});
 
 	it("does not mutate theme object", () => {
-		const originalTheme = { fg: (_c: string, t: string) => t };
-		const frozen = Object.freeze({ ...originalTheme });
+		const frozen = Object.freeze(makeTestTheme().theme);
 		const c = new Container();
 		renderThinkingBlock(c, "test", frozen);
 		const children = (c as any).children || [];

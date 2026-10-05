@@ -124,3 +124,37 @@ export const QuestionParams = Type.Object({
 		}),
 	),
 });
+
+// ---------------------------------------------------------------------------
+// Output schemas (structuredContent)
+// ---------------------------------------------------------------------------
+
+/**
+ * Output schema for ask_user_read. One permissive schema covers list, get,
+ * query, empty-history, and trust-denied shapes; `id` and `total` are
+ * optional because get/query payloads omit them.
+ */
+export const QnaReadOutputSchema = Type.Object({
+	entries: Type.Array(
+		Type.Object({
+			id: Type.Optional(Type.Number()),
+			datetime: Type.String(),
+			question: Type.String(),
+			answer: Type.String(),
+		}),
+	),
+	count: Type.Number(),
+	total: Type.Optional(Type.Number()),
+	message: Type.Optional(Type.String()),
+	trustGranted: Type.Optional(Type.Boolean()),
+});
+
+/** Output schema for ask_user — covers freetext, choice, other, and cancel. */
+export const AskUserOutputSchema = Type.Object({
+	question: Type.String(),
+	mode: StringEnum(["choice", "freetext"] as const),
+	answer: Type.Optional(Type.String()),
+	selected: Type.Optional(Type.String()),
+	label: Type.Optional(Type.String()),
+	cancelled: Type.Optional(Type.Boolean()),
+});

@@ -13,6 +13,14 @@ import type { ExecFn } from "../../lib/port-types.ts";
 /** Safety threshold in days — packages younger than this are blocked. */
 export const SAFETY_THRESHOLD_DAYS = 14;
 
+/**
+ * npm scopes exempt from age checking.
+ * First-party toolchain (the pi vendor namespace). The scope is
+ * org-verified on the registry, so packages inside it cannot be
+ * typosquatted the way unverified names can.
+ */
+export const TRUSTED_SCOPES = ["@earendil-works"] as const;
+
 /** Result of a package age check. */
 export interface PackageAgeResult {
 	/** Whether the package is safe to install. */
@@ -80,6 +88,14 @@ function isExempt(packageSpecifier: string): boolean {
 }
 
 /**
+ * Whether a package name belongs to a trusted (first-party) npm scope,
+ * exempt from age checking.
+ */
+function isTrustedScope(packageName: string): boolean {
+	return TRUSTED_SCOPES.some((scope) => packageName.startsWith(`${scope}/`));
+}
+
+/**
  * Build a blocked message for a package that failed the age check.
  */
 function buildBlockedMessage(packageName: string, ageDays: number): string {
@@ -112,6 +128,7 @@ export const checkPackageAge = {
 	parseDate,
 	daysSince,
 	isExempt,
+	isTrustedScope,
 	calculate,
 	buildBlockedMessage,
 };
@@ -134,7 +151,7 @@ export function runPackageSafetyCheck(
 	createdDate: string | null | undefined,
 ): PackageAgeResult {
 	// Exempt packages bypass the age check
-	if (isExempt(packageName)) {
+	if (isExempt(packageName) || isTrustedScope(packageName)) {
 		return { safe: true, ageDays: 0, blocked: false };
 	}
 
@@ -259,6 +276,18 @@ export async function runPackageSafetyAudit(
 				safe: true,
 				blocked: false,
 				message: "Exempt from age check (git URL, tarball, or local path)",
+			});
+			continue;
+		}
+
+		// Trusted first-party scope (pi toolchain) — no age check needed
+		if (isTrustedScope(packageName)) {
+			results.push({
+				packageName,
+				ageDays: 0,
+				safe: true,
+				blocked: false,
+				message: `Trusted vendor scope (${TRUSTED_SCOPES.join(", ")}): exempt from age check`,
 			});
 			continue;
 		}

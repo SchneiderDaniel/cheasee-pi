@@ -5,7 +5,7 @@
 // ponytail: temp file cleanup deferred to OS (/tmp cleanup on reboot).
 
 import type { AgentRunResult, AgentRunState } from "../../config/types.ts";
-import { pushLog } from "../state-helpers.ts";
+import { pushLog, nestedCallsFromState } from "../state-helpers.ts";
 import { formatDuration, extractSummaryLine } from "../../lib/formatting.ts";
 import { filterStderr } from "../../event/adapter.ts";
 
@@ -102,6 +102,8 @@ export function assembleResult(opts: {
 		toolCount: opts.state.toolCount,
 		thinkingLevel: opts.state.thinkingLevel,
 		failedToolCount: opts.state.failedToolCount ?? undefined,
+		nestedCalls: nestedCallsFromState(opts.state),
+		nestedErrors: opts.state.nestedErrorCount,
 		tokenCount: opts.state.tokenCount,
 		durationMs,
 		textOutput,

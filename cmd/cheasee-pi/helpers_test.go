@@ -746,3 +746,50 @@ func cloneWorktreeLayout(t *testing.T, src, parent, workdir string) string {
 	runGit(t, "--git-dir", bareDir, "branch", "--set-upstream-to", "origin/"+branch, branch)
 	return bareDir
 }
+
+// ──────────────────────────────────────────────
+// Docker-backed e2e harness seams (AC1/AC2/AC3/AC4)
+// ──────────────────────────────────────────────
+
+// requireDockerDaemon skips (never fails) when the host has no usable Docker
+// daemon or compose plugin — the repo's established probe-then-t.Skip shape
+// (`t.Skipf("git binary not available")` et al.). The probe lives in exactly
+// one helper so a daemon-less runner skips every daemon-backed test with the
+// same reason instead of failing each one on a different command.
+func requireDockerDaemon(t *testing.T) {
+	t.Helper()
+	if _, err := lookPath("docker"); err != nil {
+		t.Skipf("docker binary not available: %v", err)
+	}
+	if err := runCommandContext(context.Background(), "docker", "info").Run(); err != nil {
+		t.Skipf("docker daemon not available: %v", err)
+	}
+	if err := runCommandContext(context.Background(), "docker", "compose", "version").Run(); err != nil {
+		t.Skipf("docker compose plugin not available: %v", err)
+	}
+}
+
+// composeEnvForTest installs the process env `applyComposeEnv` injects before
+// a compose up — the env contract the harness must reproduce verbatim so a
+// rendered compose file matches what `cheasee-pi start` would hand Compose.
+// Names come from the same identity.go functions the production path uses, so
+// a naming change fails loudly here rather than silently diverging. Ports are
+// pinned to the compose defaults (the call sites that care set their own).
+func composeEnvForTest(t *testing.T, root string) []string {
+	t.Helper()
+	env := []string{
+		"WORKSPACE_HOST_PATH=" + root,
+		"WORKSPACE_BARE_PATH=" + filepath.Join(filepath.Dir(root), ".bare"),
+		"CHEASEEPI_CONTAINER=" + containerName(root),
+		"CODEFLOW_CONTAINER=" + codeflowContainerName(root),
+		"PI_UI_CONTAINER=" + uiContainerName(root),
+		"COMPOSE_PROJECT_NAME=" + composeProjectName(root),
+		"PI_UI_PORT=9500",
+		"CODEFLOW_PORT=8470",
+	}
+	for _, kv := range env {
+		key, value, _ := strings.Cut(kv, "=")
+		t.Setenv(key, value)
+	}
+	return env
+}

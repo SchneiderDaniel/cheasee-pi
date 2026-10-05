@@ -276,6 +276,44 @@ describe("forwardNormalizedEventToChat — chat rendering", () => {
 		assert.equal(sent.length, 0);
 	});
 
+	it("nested tool events (parentToolCallId) stay out of the transcript", () => {
+		const state = createState();
+		const pending = createForwardChatState();
+		const { sent, pi } = createPi();
+		forwardNormalizedEventToChat(
+			{ kind: "tool_execution_start", toolName: "read", args: {}, parentToolCallId: "p" },
+			state,
+			pi,
+			"test-agent",
+			pending,
+		);
+		forwardNormalizedEventToChat(
+			{ kind: "tool_execution_end", toolName: "read", isError: true, parentToolCallId: "p" },
+			state,
+			pi,
+			"test-agent",
+			pending,
+		);
+		assert.equal(sent.length, 0);
+		assert.equal(pending.toolSeqNum, 0);
+		assert.equal(pending.pendingToolIsError, false);
+	});
+
+	it("live tool-complete errorCount folds in nestedErrorCount", () => {
+		const state = createState({ failedToolCount: 1, nestedErrorCount: 2 });
+		const pending = { ...createForwardChatState(), toolSeqNum: 1, pendingToolName: "read" };
+		const { sent, pi } = createPi();
+		forwardNormalizedEventToChat(
+			{ kind: "message_end", message: { role: "toolResult", toolName: "read", content: [] } },
+			state,
+			pi,
+			"test-agent",
+			pending,
+		);
+		assert.equal(sent.length, 1);
+		assert.equal(sent[0]!.details.errorCount, 3);
+	});
+
 	it("message_end role toolResult → one sendMessage (tool-complete), pending reset", () => {
 		const state = createState({
 			tokenCount: 42,

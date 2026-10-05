@@ -1,1 +1,1 @@
- [38;5;109m⏳ dev — bash ls -la[39m                                                           
+ [38;2;167;152;215m⏳ dev — bash ls -la[39m                                                           

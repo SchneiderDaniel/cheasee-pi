@@ -33,8 +33,8 @@ export type NormalizedUsage = {
 };
 
 export type NormalizedEvent =
-	| { kind: "tool_execution_start"; toolName: string; args?: unknown }
-	| { kind: "tool_execution_end"; toolName: string; isError?: boolean }
+	| { kind: "tool_execution_start"; toolName: string; args?: unknown; parentToolCallId?: string }
+	| { kind: "tool_execution_end"; toolName: string; isError?: boolean; parentToolCallId?: string }
 	| { kind: "thinking_start" }
 	| { kind: "thinking_end" }
 	| { kind: "thinking_delta"; delta: string }
@@ -106,6 +106,7 @@ const kindTable: Record<string, KindEntry> = {
 			kind: "tool_execution_start",
 			toolName: (ev.toolName as string) || "tool",
 			args: ev.args,
+			parentToolCallId: (ev.parentToolCallId as string) || undefined,
 		}),
 	},
 
@@ -114,6 +115,7 @@ const kindTable: Record<string, KindEntry> = {
 			kind: "tool_execution_end",
 			toolName: (ev.toolName as string) || "tool",
 			isError: !!ev.isError,
+			parentToolCallId: (ev.parentToolCallId as string) || undefined,
 		}),
 	},
 
@@ -268,12 +270,14 @@ export function agentSessionEventToNormalizedEvent(
 				kind: "tool_execution_start",
 				toolName: (ev.toolName as string) || "tool",
 				args: ev.args,
+				parentToolCallId: (ev.parentToolCallId as string) || undefined,
 			};
 		case "tool_execution_end":
 			return {
 				kind: "tool_execution_end",
 				toolName: (ev.toolName as string) || "tool",
 				isError: !!ev.isError,
+				parentToolCallId: (ev.parentToolCallId as string) || undefined,
 			};
 		case "message_end":
 			return { kind: "message_end", message: ev.message as any };

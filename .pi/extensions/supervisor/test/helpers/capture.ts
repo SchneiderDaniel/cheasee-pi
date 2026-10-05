@@ -240,6 +240,7 @@ function createMockTheme(): Theme {
 		sourcePath: undefined,
 		fg: (_color: ThemeColor, text: string) => text,
 		bg: (_color: any, text: string) => text,
+		style: (text: string, _options: any) => text,
 		bold: identity,
 		italic: identity,
 		underline: identity,
@@ -357,7 +358,12 @@ function createMockSessionManager() {
 		getLabel: () => undefined,
 		getBranch: () => [],
 		buildContextEntries: () => [],
-		buildSessionProjection: () => ({ entries: [], messages: [], thinkingLevel: "off", model: null }),
+		buildSessionProjection: () => ({
+			entries: [],
+			messages: [],
+			thinkingLevel: "off",
+			model: null,
+		}),
 		getHeader: () => null,
 		getEntries: () => [],
 		getTree: () => [],
@@ -427,19 +433,26 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		// ══ Tools ══
 		registerTool(_tool: any) {},
 		registerMessageRenderer(_customType: string, _renderer: any) {},
-		registerMarkdownTransformer(_transformer: any) {},
-		registerEntryRenderer(_customType: string, _renderer: any) {},
-		registerToolRenderer(_resolver: any) {},
 		getActiveTools(): string[] {
 			return [];
 		},
 		getAllTools(): any[] {
 			return [];
 		},
+		setActiveTools(_toolNames: string[]) {},
+		registerMarkdownTransformer(_transformer: any) {},
+		registerEntryRenderer(_customType: string, _renderer: any) {},
+		registerToolRenderer(_resolver: any) {},
 		getSettings(): any {
 			return {};
 		},
-		setActiveTools(_toolNames: string[]) {},
+		registerMcpServer(_name: string, _config: any) {},
+		unregisterMcpServer(_name: string) {},
+		getMcpServers(): any[] {
+			return [];
+		},
+		registerVirtualModel(_model: any) {},
+		unregisterVirtualModel(_provider: string, _id: string) {},
 
 		// ══ Session messaging ══
 		sendMessage<T = unknown>(
@@ -478,15 +491,8 @@ export function createMockPi(captured: CapturedOutput): ExtensionAPI {
 		setThinkingLevel(_level: any) {},
 
 		// ══ Providers ══
-		registerProvider(_name: any, _config?: any) {},
+		registerProvider(_providerOrName: any, _config?: any) {},
 		unregisterProvider(_name: string) {},
-		registerMcpServer(_name: string, _config: any) {},
-		unregisterMcpServer(_name: string) {},
-		getMcpServers(): any[] {
-			return [];
-		},
-		registerVirtualModel(_model: any) {},
-		unregisterVirtualModel(_provider: string, _id: string) {},
 
 		// ══ Command execution ══
 		async exec(command: string, args: string[], _options?: ExecOptions): Promise<ExecResult> {

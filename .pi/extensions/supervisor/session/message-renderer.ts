@@ -57,6 +57,8 @@ export function createSummaryRenderer(pi: ExtensionAPI): MessageRenderer {
 		}
 
 		const lines = content.split("\n");
+		// Light terminals render `dim` too faint; fall back to `muted` there.
+		const subtle: ThemeColor = theme.appearance === "light" ? "muted" : "dim";
 		for (const line of lines) {
 			if (!line.trim()) continue; // Skip empty lines
 			let styledLine: string;
@@ -65,10 +67,10 @@ export function createSummaryRenderer(pi: ExtensionAPI): MessageRenderer {
 				styledLine = theme.fg(statusColor, line);
 			} else if (line.startsWith("| ")) {
 				// Table rows — dim but readable
-				styledLine = theme.fg("dim", line);
+				styledLine = theme.fg(subtle, line);
 			} else if (line.startsWith("**")) {
 				// Bold lines — subtle highlight
-				styledLine = theme.fg("dim", line);
+				styledLine = theme.fg(subtle, line);
 			} else {
 				styledLine = line;
 			}
