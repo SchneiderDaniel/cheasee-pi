@@ -210,9 +210,15 @@ describe("web_search.execute — error paths with exec mocking", () => {
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /Search failed: python3 error/);
 		assert.deepEqual(result.structuredContent, {
+			ok: false,
 			error: result.content[0].text,
 			query: "search-test",
 		});
+		assert.deepEqual(result.details, result.structuredContent);
+		assert.ok(
+			Value.Check(WebSearchOutputSchema, result.structuredContent),
+			"error structuredContent must validate against the declared outputSchema",
+		);
 	});
 
 	it("(use-case) parse failure returns isError with structured error", async () => {
@@ -229,9 +235,15 @@ describe("web_search.execute — error paths with exec mocking", () => {
 		assert.equal(result.isError, true);
 		assert.match(result.content[0].text, /Search failed/);
 		assert.deepEqual(result.structuredContent, {
+			ok: false,
 			error: result.content[0].text,
 			query: "parse-test",
 		});
+		assert.deepEqual(result.details, result.structuredContent);
+		assert.ok(
+			Value.Check(WebSearchOutputSchema, result.structuredContent),
+			"error structuredContent must validate against the declared outputSchema",
+		);
 	});
 });
 
@@ -706,7 +718,7 @@ describe("web_search.execute — structured details payload", () => {
 		const r = await tool.execute("c1", { query: "fresh-details" }, undefined, undefined, {
 			cwd: tmp("fresh-details"),
 		});
-		assert.deepEqual(r.details, { query: "fresh-details", returned: 2, results });
+		assert.deepEqual(r.details, { ok: true, query: "fresh-details", returned: 2, results });
 	});
 
 	it("(use-case) cache hit returns details identical to the fresh call", async () => {
@@ -736,7 +748,7 @@ describe("web_search.execute — structured details payload", () => {
 		const r = await tool.execute("c1", { query: "empty-results" }, undefined, undefined, {
 			cwd: tmp("empty-results"),
 		});
-		assert.deepEqual(r.details, { query: "empty-results", returned: 0, results: [] });
+		assert.deepEqual(r.details, { ok: true, query: "empty-results", returned: 0, results: [] });
 		assert.equal(r.content[0].text, "No results found.");
 	});
 
@@ -761,7 +773,7 @@ describe("buildSearchResponse — single assembler", () => {
 		];
 		const r = buildSearchResponse("q", results);
 		assert.deepEqual(r.content, [{ type: "text", text: formatResults(results) }]);
-		assert.deepEqual(r.details, { query: "q", returned: 2, results });
+		assert.deepEqual(r.details, { ok: true, query: "q", returned: 2, results });
 		assert.deepEqual(r.structuredContent, r.details);
 	});
 });
@@ -783,6 +795,17 @@ describe("web_search — outputSchema & annotations", () => {
 		assert.equal(typeof roundTripped, "object");
 	});
 
+	it("(D) registered outputSchema is the ok-discriminated union", () => {
+		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
+		const serialized = JSON.stringify(tool.outputSchema);
+		assert.ok(
+			(serialized.match(/"ok"/g) ?? []).length >= 2,
+			"both ok branches declared",
+		);
+		assert.ok(Value.Check(tool.outputSchema, { ok: true, query: "q", returned: 0, results: [] }));
+		assert.ok(Value.Check(tool.outputSchema, { ok: false, query: "q", error: "boom" }));
+	});
+
 	it("(use-case) fresh and cache-hit structuredContent are identical and match outputSchema", async () => {
 		const results = [{ title: "Schema", url: "https://s.example", snippet: "matched" }];
 		const tool = registerWebSearch(execReturning(results).exec);
@@ -797,5 +820,6 @@ describe("web_search — outputSchema & annotations", () => {
 			Value.Check(WebSearchOutputSchema, fresh.structuredContent),
 			"structuredContent must validate against the declared outputSchema",
 		);
+		assert.equal(fresh.structuredContent.ok, true, "success payload carries ok: true");
 	});
 });
