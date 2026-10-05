@@ -13,6 +13,10 @@ import type { CavemanConfig } from "../types.ts";
 import type { ConfigStore } from "../config.ts";
 import { LEVELS } from "../types.ts";
 import { registerCavemanCommand } from "../command.ts";
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // We import the pure functions inline via dynamic import after module mock
 // Since Node 22 doesn't support mock.module(), we test behavioral contracts
@@ -199,6 +203,8 @@ describe("registerCavemanCommand handler dispatch", () => {
 		return {
 			ui: {
 				notify: () => {},
+				// The config arg opens the dialog; capture the factory without invoking it.
+				custom: () => undefined,
 			},
 		};
 	}
@@ -207,13 +213,8 @@ describe("registerCavemanCommand handler dispatch", () => {
 		assert.notEqual(capturedHandler, null);
 		const ctx = makeCtx();
 
-		// openConfigDialog calls ensureConfigLoaded first
-		try {
-			await capturedHandler!("config", ctx);
-		} catch {
-			// The TUI dialog can't fully render outside a real terminal,
-			// but ensureConfigLoaded should be called before any TUI code
-		}
+		// openConfigDialog calls ensureConfigLoaded first (no swallowed errors).
+		await capturedHandler!("config", ctx);
 
 		// At minimum, ensureConfigLoaded was invoked (first thing openConfigDialog does)
 		assert.ok(
@@ -296,5 +297,159 @@ describe("registerCavemanCommand handler dispatch", () => {
 
 		assert.equal(mockConfigStore.setLevelCalls.length, 0, "no level change for unknown arg");
 		assert.ok(notifications.length > 0, "user should be notified of unknown arg");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2/3: openConfigDialog renders the header via theme.style()
+// ---------------------------------------------------------------------------
+
+/** The real Theme singleton installed by initTheme() (not re-exported from the index). */
+function activeThemeSingleton(): any {
+	const theme = (globalThis as Record<symbol, unknown>)[
+		Symbol.for("@earendil-works/pi-coding-agent:theme")
+	];
+	assert.ok(theme, "initTheme() must run before reading the theme singleton");
+	return theme;
+}
+
+/** A spy Theme that records style/fg/bold calls made by the dialog. */
+function makeSentinelTheme() {
+	const styleCalls: Array<{ text: string; options: { fg?: string; bold?: boolean } }> = [];
+	const fgCalls: string[] = [];
+	const boldCalls: string[] = [];
+	const theme: any = {
+		name: "sentinel",
+		sourcePath: undefined,
+		style: (text: string, options: { fg?: string; bold?: boolean }) => {
+			styleCalls.push({ text, options });
+			return `[S:${options.fg ?? ""}${options.bold ? ":bold" : ""}]${text}`;
+		},
+		fg: (_color: string, text: string) => {
+			fgCalls.push(text);
+			return text;
+		},
+		bg: (_color: string, text: string) => text,
+		bold: (text: string) => {
+			boldCalls.push(text);
+			return text;
+		},
+		italic: (text: string) => text,
+		underline: (text: string) => text,
+		inverse: (text: string) => text,
+		strikethrough: (text: string) => text,
+		getFgAnsi: () => "",
+		getBgAnsi: () => "",
+		getColorMode: () => "truecolor" as const,
+		getThinkingBorderColor: () => (text: string) => text,
+		getBashModeBorderColor: () => (text: string) => text,
+	};
+	return { theme, styleCalls, fgCalls, boldCalls };
+}
+
+/** Invoke openConfigDialog, capture `ctx.ui.custom`'s factory, and render the component. */
+async function renderConfigDialog(theme: any): Promise<any> {
+	const store: any = {
+		ensureConfigLoaded: async () => {},
+		getConfig: () => ({ defaultLevel: "lite", showStatus: true }),
+		saveConfig: async () => {},
+	};
+	let factory: any = null;
+	const ctx: any = {
+		ui: {
+			notify: () => {},
+			custom: (f: any) => {
+				factory = f;
+			},
+		},
+	};
+	const { openConfigDialog } = await import("../config-ui.ts");
+	await openConfigDialog(ctx, store, () => {});
+	assert.ok(factory, "ctx.ui.custom factory must be captured");
+	return factory({ requestRender: () => {} }, theme, {}, () => {});
+}
+
+describe("openConfigDialog header styling", () => {
+	beforeEach(() => {
+		initTheme(); // system theme, no file watcher
+	});
+
+	it("styles the header with theme.style (AC 1) and keeps no nested fg/bold (AC 2)", async () => {
+		const sentinel = makeSentinelTheme();
+		const component = await renderConfigDialog(sentinel.theme);
+
+		const headerStyles = sentinel.styleCalls.filter((c) => c.text === " Caveman Config");
+		assert.equal(headerStyles.length, 1, "header must be styled exactly once via theme.style");
+		assert.deepEqual(headerStyles[0]!.options, { fg: "accent", bold: true });
+		assert.equal(sentinel.boldCalls.length, 0, "theme.bold() must not be called");
+		assert.ok(
+			!sentinel.fgCalls.includes(" Caveman Config"),
+			"header must not be composed with theme.fg",
+		);
+
+		const wide = component.render(120);
+		assert.ok(
+			String(wide[0]).includes("[S:accent:bold] Caveman Config"),
+			`header line should reflect the style marker, got: ${wide[0]}`,
+		);
+	});
+
+	it("renders without throwing at narrow and wide widths", async () => {
+		const sentinel = makeSentinelTheme();
+		const component = await renderConfigDialog(sentinel.theme);
+		assert.ok(component.render(20).join("\n").includes("Caveman"), "header present at width 20");
+		assert.ok(
+			component.render(120).join("\n").includes("Caveman"),
+			"header present at width 120",
+		);
+	});
+
+	it("renders under the real system theme in both appearances (AC 3)", async () => {
+		assert.equal(
+			typeof activeThemeSingleton().style,
+			"function",
+			"Theme.style must exist (pi >= 0.99.0)",
+		);
+		const previous = process.env.COLORFGBG;
+		try {
+			for (const [fgbg, appearance] of [
+				["15;0", "dark"],
+				["0;15", "light"],
+			] as const) {
+				process.env.COLORFGBG = fgbg;
+				initTheme("system");
+				const real = activeThemeSingleton();
+				assert.equal(
+					real.appearance,
+					appearance,
+					`COLORFGBG=${fgbg} should resolve ${appearance}`,
+				);
+				const component = await renderConfigDialog(real);
+				const lines = component.render(80);
+				assert.ok(
+					String(lines[0]).includes("Caveman Config"),
+					`${appearance} system-theme header: ${lines[0]}`,
+				);
+				assert.ok(
+					String(real.style(" Caveman Config", { fg: "accent", bold: true })).includes(
+						"Caveman Config",
+					),
+				);
+			}
+		} finally {
+			if (previous === undefined) delete process.env.COLORFGBG;
+			else process.env.COLORFGBG = previous;
+		}
+	});
+
+	it("caveman production sources contain no nested theme calls (AC 2)", () => {
+		const dir = join(dirname(fileURLToPath(import.meta.url)), "..");
+		for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+			const source = readFileSync(join(dir, file), "utf8");
+			assert.ok(
+				!/theme\.\w+\([^)]*theme\.\w+\(/.test(source),
+				`${file} contains a nested theme call`,
+			);
+		}
 	});
 });
