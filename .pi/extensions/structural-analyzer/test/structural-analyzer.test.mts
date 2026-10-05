@@ -131,3 +131,23 @@ describe("ast-grep binary prerequisite", () => {
 		}
 	});
 });
+
+describe("structural-analyzer wiring guards", () => {
+	const repoRoot = resolve(__dirname, "..", "..", "..", "..");
+	const readmePath = resolve(__dirname, "..", "README.md");
+
+	it("root npm test script runs index.test.mts (changed contract stays in CI)", () => {
+		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+		assert.ok(
+			root.scripts.test.includes("structural-analyzer/test/index.test.mts"),
+			"package.json test script must include structural-analyzer/test/index.test.mts",
+		);
+	});
+
+	it("README documents the structured channel and annotations", () => {
+		const readme = readFileSync(readmePath, "utf-8");
+		assert.ok(readme.includes("structuredContent"), "README must document structuredContent");
+		assert.ok(readme.includes("readOnlyHint"), "README must document readOnlyHint");
+		assert.ok(readme.includes("idempotentHint"), "README must document idempotentHint");
+	});
+});

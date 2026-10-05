@@ -75,6 +75,27 @@ describe("renderStructuralSearchResult", () => {
 		);
 	});
 
+	it("isError result with structuredContent still renders the error text (renderer reads details only)", () => {
+		const result = {
+			content: [{ type: "text", text: "ast-grep failed (exit code 1): unknown language" }],
+			details: { success: false, exitCode: 1, stderr: "unknown language" },
+			structuredContent: { matches: 0, results: [], language: "badlang", error: "unknown" },
+			isError: true,
+		};
+		const comp = renderStructuralSearchResult(
+			result as any,
+			{ expanded: true, isPartial: false },
+			mockTheme as any,
+			{ cwd: defaultCwd },
+		);
+		const output = renderToString(comp);
+		assert.ok(
+			output.includes("ast-grep failed (exit code 1): unknown language"),
+			`expected error text in output: ${output}`,
+		);
+		assert.ok(!output.includes("badlang"), "structuredContent must not leak into the renderer");
+	});
+
 	it("details.matches=0 returns Text with 'No matches found'", () => {
 		const result = makeResult(makeDetails({ matches: 0, results: [] }));
 		const comp = renderStructuralSearchResult(
