@@ -137,6 +137,47 @@ describe("PythonAdapter — subprocess orchestration", () => {
 		);
 	});
 
+	it("(entity) signal aborted during execution → rejects with AbortError (killed subprocess not flattened)", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "python-adapter-abort-"));
+		const controller = new AbortController();
+		const execFn: ExecFn = async () => {
+			// Abort arrives mid-flight; the subprocess is killed and reports a
+			// non-failure-looking result (killed: true, code: 0).
+			controller.abort();
+			return { code: 0, stdout: "", stderr: "", killed: true, signal: "SIGTERM" };
+		};
+		const adapter = new PythonAdapter(
+			mock.fn(execFn) as ReturnType<typeof mock.fn<ExecFn>>,
+			cwd,
+			undefined,
+			mockEnsureVenv,
+		);
+		await assert.rejects(
+			adapter.crawl({ url: "https://example.com", maxPages: 1, signal: controller.signal }),
+			{ name: "AbortError" },
+			"aborted crawl must reject with AbortError, not return a typed failure",
+		);
+	});
+
+	it("(entity) exec AbortError is propagated, not swallowed into a typed failure", async () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "python-adapter-abort-"));
+		const controller = new AbortController();
+		const execFn: ExecFn = async () => {
+			controller.abort();
+			throw new DOMException("The operation was aborted.", "AbortError");
+		};
+		const adapter = new PythonAdapter(
+			mock.fn(execFn) as ReturnType<typeof mock.fn<ExecFn>>,
+			cwd,
+			undefined,
+			mockEnsureVenv,
+		);
+		await assert.rejects(
+			adapter.crawl({ url: "https://example.com", maxPages: 1, signal: controller.signal }),
+			{ name: "AbortError" },
+		);
+	});
+
 	it("(entity) parses successful JSON output into CrawlResult", async () => {
 		const { adapter } = setupTest();
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
@@ -464,5 +505,79 @@ describe("PythonAdapter — separation of concerns", () => {
 		const adapter = new PythonAdapter(exec, "/tmp", undefined, customEnsure);
 		await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.ok(ensureCalled, "custom ensureVenv should be called");
+	});
+});
+
+describe("PythonAdapter — truncation flag + attempt counts", () => {
+	const LONG = "a".repeat(400); // ~100 tokens at 4 chars/token
+
+	function stdout(results: unknown[]): string {
+		return JSON.stringify({ ok: true, results });
+	}
+
+	it("(entity) maxTokens undefined → truncated false", async () => {
+		const { adapter } = setupTest(
+			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+		);
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1 });
+		assert.ok(result.success);
+		if (result.success) assert.equal(result.results[0].truncated, false);
+	});
+
+	it("(entity) maxTokens: 0 → truncated false (passthrough)", async () => {
+		const { adapter } = setupTest(
+			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+		);
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 0 });
+		assert.ok(result.success);
+		if (result.success) assert.equal(result.results[0].truncated, false);
+	});
+
+	it("(entity) small maxTokens + long markdown → truncated true with suffix and preserved rawLength", async () => {
+		const { adapter } = setupTest(
+			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+		);
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 5 });
+		assert.ok(result.success);
+		if (result.success) {
+			assert.equal(result.results[0].truncated, true);
+			assert.ok(result.results[0].markdown.includes("[... truncated at"));
+			assert.equal(result.results[0].rawLength, LONG.length);
+		}
+	});
+
+	it("(entity) maxTokens ≥ content estimate → truncated false", async () => {
+		const { adapter } = setupTest(
+			stdout([{ url: "https://a.com", markdown: "short", method: "lightweight", success: true }]),
+		);
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 1000 });
+		assert.ok(result.success);
+		if (result.success) assert.equal(result.results[0].truncated, false);
+	});
+
+	it("(entity) attempted counts successes + failures; failed carries per-URL errors", async () => {
+		const { adapter } = setupTest(
+			stdout([
+				{ url: "https://a.com", markdown: "A", method: "lightweight", success: true },
+				{ url: "https://b.com", error: "Timeout", success: false },
+			]),
+		);
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 2 });
+		assert.ok(result.success);
+		if (result.success) {
+			assert.equal(result.results.length, 1);
+			assert.equal(result.attempted, 2);
+			assert.deepEqual(result.failed, ["Timeout"]);
+		}
+	});
+
+	it("(entity) absent per-result fields → truncated defaults false, no throw", async () => {
+		const { adapter } = setupTest(stdout([{ url: "https://a.com", markdown: "x" }]));
+		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1 });
+		assert.ok(result.success);
+		if (result.success) {
+			assert.equal(result.results[0].truncated, false);
+			assert.equal(result.attempted, 1);
+		}
 	});
 });

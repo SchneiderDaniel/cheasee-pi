@@ -217,6 +217,10 @@ describe("types.ts — CrawlResult and CrawledPage types", () => {
 		assert.ok(/rawLength/.test(source), "CrawledPage should have rawLength");
 	});
 
+	it("(D) CrawledPage has truncated: boolean", () => {
+		assert.ok(/\btruncated:\s*boolean;/.test(source), "CrawledPage should have truncated: boolean");
+	});
+
 	it("(D) types.ts exports CrawlResult type", () => {
 		assert.ok(
 			/export\s+type\s+CrawlResult/.test(source),
@@ -237,6 +241,14 @@ describe("types.ts — CrawlResult and CrawledPage types", () => {
 			/CrawledPage\[\]/.test(source),
 			"CrawlResult success branch should have CrawledPage[]",
 		);
+	});
+
+	it("(D) CrawlResult success branch has attempted: number", () => {
+		assert.ok(/\battempted:\s*number;/.test(source), "CrawlResult success branch needs attempted: number");
+	});
+
+	it("(D) CrawlResult success branch has failed: string[]", () => {
+		assert.ok(/\bfailed:\s*string\[\];/.test(source), "CrawlResult success branch needs failed: string[]");
 	});
 
 	it("(D) CrawlParams extended with maxTokens field", () => {

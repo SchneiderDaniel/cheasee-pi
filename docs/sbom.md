@@ -20,9 +20,9 @@ nav_order: 10
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| `@earendil-works/pi-coding-agent` | ^1.0.1 | MIT | Pi agent runtime |
-| `@earendil-works/pi-ai` | ^1.0.1 | MIT | Pi API client |
-| `@earendil-works/pi-tui` | ^1.0.1 | MIT | Pi TUI runtime |
+| `@earendil-works/pi-coding-agent` | 1.0.2 | MIT | Pi agent runtime |
+| `@earendil-works/pi-ai` | 1.0.2 | MIT | Pi API client |
+| `@earendil-works/pi-tui` | 1.0.2 | MIT | Pi TUI runtime |
 | `@ast-grep/cli` | — | MIT | AST-aware code search |
 | `typescript` | ^6.0.3 | Apache-2.0 | TypeScript compiler |
 | `prettier` | ^3.8.3 | MIT | Code formatting |
