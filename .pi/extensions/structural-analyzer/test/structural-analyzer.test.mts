@@ -152,6 +152,29 @@ describe("structural-analyzer wiring guards", () => {
 		);
 	});
 
+	it("root npm test script runs renderer.test.mts exactly once (render regression suite stays in CI)", () => {
+		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+		const rendererEntry = ".pi/extensions/structural-analyzer/test/renderer.test.mts";
+		const occurrences = String(root.scripts.test)
+			.split(/\s+/)
+			.filter((t) => t === rendererEntry).length;
+		assert.strictEqual(
+			occurrences,
+			1,
+			`expected ${rendererEntry} exactly once in scripts.test, found ${occurrences}`,
+		);
+	});
+
+	it("this wiring guard file is itself wired into npm test (cannot be silently disabled)", () => {
+		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+		assert.ok(
+			String(root.scripts.test).includes(
+				".pi/extensions/structural-analyzer/test/structural-analyzer.test.mts",
+			),
+			"scripts.test must include structural-analyzer.test.mts",
+		);
+	});
+
 	it("README documents the structured channel and annotations", () => {
 		const readme = readFileSync(readmePath, "utf-8");
 		assert.ok(readme.includes("structuredContent"), "README must document structuredContent");
