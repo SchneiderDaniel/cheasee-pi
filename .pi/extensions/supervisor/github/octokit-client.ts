@@ -201,6 +201,13 @@ export function mapRestPrToConflictInfo(
 	};
 }
 
+// Octokit throws RequestError ({ status: 404 }) for a missing issue or a
+// missing sub-resource. Adapter-local: this shape knowledge never leaves the
+// GitHub client. Duck-typed because @octokit/request-error is a transitive dep.
+function isNotFound(err: unknown): boolean {
+	return err instanceof Object && "status" in err && (err as { status: number }).status === 404;
+}
+
 // ─── OctokitClient ──────────────────────────────────────────────
 
 export class OctokitClient implements GitHubPort {
@@ -244,13 +251,7 @@ export class OctokitClient implements GitHubPort {
 				author: issue.user ? { login: issue.user.login } : undefined,
 			};
 		} catch (err: unknown) {
-			if (
-				err instanceof Object &&
-				"status" in (err as object) &&
-				(err as { status: number }).status === 404
-			) {
-				return null;
-			}
+			if (isNotFound(err)) return null;
 			throw err;
 		}
 	}
@@ -282,13 +283,7 @@ export class OctokitClient implements GitHubPort {
 				})),
 			};
 		} catch (err: unknown) {
-			if (
-				err instanceof Object &&
-				"status" in (err as object) &&
-				(err as { status: number }).status === 404
-			) {
-				return null;
-			}
+			if (isNotFound(err)) return null;
 			throw err;
 		}
 	}
