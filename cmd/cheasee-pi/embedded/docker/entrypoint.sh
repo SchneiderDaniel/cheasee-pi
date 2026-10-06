@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Informational logging goes to stderr so stdout stays reserved for the
+# command this entrypoint execs. Callers that capture `docker run ... <cmd>`
+# stdout must not have setup logs interleaved with the command's output.
+exec 3>&1
+exec 1>&2
+
 # ------------------------------------------------------------------
 # Cheasee-Pi entrypoint
 #
@@ -115,12 +121,16 @@ unbreak_worktrees
 
 # --- Pre-install Python venvs for web tools -------------------------
 # Copy pre-built venvs from /opt/venvs/ to .pi/ if missing (saves first-call
-# latency in web_search / web_crawl).
+# latency in web_search / web_crawl). Re-own the copy to agentuser: the baked
+# venvs are root-owned, and a root-owned tree inside the bind-mounted workspace
+# is read-only for agentuser and unremovable by the host user (breaks cleanup).
 for v in web-search-venv scrapling-venv; do
     [ -d "/opt/venvs/$v" ] && [ ! -d "/workspaces/main/.pi/$v" ] || continue
     echo "Pre-installing $v…"
     mkdir -p /workspaces/main/.pi
     cp -a "/opt/venvs/$v" "/workspaces/main/.pi/$v"
+    chown -R agentuser:agentuser "/workspaces/main/.pi/$v" 2>/dev/null \
+        || echo "Warning: could not re-own $v to agentuser (non-fatal)"
 done
 # Symlink Playwright browser cache so agentuser finds Chromium
 if [ -d /opt/playwright-browsers ]; then
@@ -347,6 +357,9 @@ fi
 touch /tmp/.cheasee-pi-ready
 
 # --- Drop privileges and exec -------------------------------------
+# Restore the caller's stdout (saved on fd 3) before handing off, so the
+# exec'd command owns stdout; close the saved descriptor.
+exec 1>&3 3>&-
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)
     exec gosu agentuser /bin/bash

@@ -2,9 +2,9 @@
  * Marker extension for the APPEND_SYSTEM.md global-availability test (#1517).
  *
  * In before_agent_start (fires BEFORE the LLM call — the container run passes
- * no API key, so the model call fails only AFTER this hook; pi's exit code is
- * tolerated, the hook is what the test counts), asserts that the assembled
- * prompt carries the global cheasee-pi operating instructions:
+ * a dummy provider key, so the model call fails only AFTER this hook; pi's
+ * exit code is tolerated, the hook is what the test counts), asserts that the
+ * assembled prompt carries the global cheasee-pi operating instructions:
  *   - systemPromptOptions.appendSystemPrompt is non-empty and contains
  *     <tool_routing_matrix> + execution rule 5 (INVESTIGATION EFFICIENCY) —
  *     the instructions are present even in a non-cheasee-pi repo (bug fix:

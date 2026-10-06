@@ -1,6 +1,12 @@
 /**
  * Verify docs/installation.md matches the repo-mount restructure (#1493).
  *
+ * Assertions track the current doc after the later install-guide rewrites
+ * (a9dafdfd single canonical binary location, #1700/#1701/#1702) which moved
+ * the "own repository / no clone-fork" statement into Prerequisites and
+ * replaced the inline `uname` snippet with the install.sh one-liner plus
+ * arch-aware Windows guidance.
+ *
  * Covers:
  *   - Phase 1: Document existence and Jekyll frontmatter
  *   - Phase 2: Single install path (CLI binary; no fork/clone, no legacy bash)
@@ -116,23 +122,23 @@ describe("docs/installation.md", () => {
 			);
 		});
 
-		it("Setup section states no fork/clone (user's own repo is used)", () => {
+		it("Prerequisites states no fork/clone (user's own repo is used)", () => {
 			const content = readDoc();
-			const setupSection = sectionContent(content, "Setup", "Run");
-			assert.ok(setupSection, "Setup section not found");
+			const prereqSection = sectionContent(content, "Prerequisites", "Install");
+			assert.ok(prereqSection, "Prerequisites section not found");
 			assert.ok(
-				/no\s+fork|no\s+clone|not.*clone/im.test(setupSection),
-				"Setup section must state no fork/clone happens",
+				/does not clone\/fork|no\s+fork|no\s+clone|not.*clone/im.test(prereqSection),
+				"Prerequisites must state no fork/clone happens",
 			);
 		});
 
-		it("Run section requires the user's own git repository", () => {
+		it("Prerequisites requires the user's own git repository", () => {
 			const content = readDoc();
-			const runSection = sectionContent(content, "Run", "After setup");
-			assert.ok(runSection, "Run section not found");
+			const prereqSection = sectionContent(content, "Prerequisites", "Install");
+			assert.ok(prereqSection, "Prerequisites section not found");
 			assert.ok(
-				/git\s+repositor|git\s+repo/im.test(runSection),
-				"Run section missing git repository requirement",
+				/git\s+repositor|git\s+repo/im.test(prereqSection),
+				"Prerequisites missing git repository requirement",
 			);
 		});
 
@@ -166,9 +172,13 @@ describe("docs/installation.md", () => {
 			return section;
 		};
 
-		it("includes architecture/OS detection snippet (uname)", () => {
+		it("includes OS/architecture-specific install guidance", () => {
 			const section = getInstallSection();
-			assert.ok(/uname/im.test(section), "Install section missing uname architecture detection");
+			assert.ok(/Linux|macOS/im.test(section), "Install section missing Linux/macOS guidance");
+			assert.ok(
+				/arm64|amd64|x86_64|aarch64/im.test(section),
+				"Install section missing architecture selection (arm64/amd64)",
+			);
 		});
 
 		it("includes macOS-specific xattr -d com.apple.quarantine instruction", () => {
@@ -271,11 +281,12 @@ describe("docs/installation.md", () => {
 			);
 		});
 
-		it("README quick-start still references docker compose workflow", () => {
+		it("README quick-start references the CLI workflow (init + start)", () => {
 			const readme = readReadme();
+			assert.ok(/cheasee-pi\s+init/im.test(readme), "README quick-start missing cheasee-pi init");
 			assert.ok(
-				/docker compose/im.test(readme),
-				"README missing docker compose workflow reference",
+				/cheasee-pi\s+start|cheasee-pi`/im.test(readme),
+				"README quick-start missing cheasee-pi start",
 			);
 		});
 

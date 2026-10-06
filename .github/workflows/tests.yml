@@ -1,0 +1,275 @@
+# Full Test Suite
+# ===============
+# Runs the repository's complete test suite on every pull request to main and
+# on every push to main:
+#   - `npm test` (the node:test suite enumerated in package.json)
+#   - `go test ./cmd/cheasee-pi/ -count=1`
+#   - the extensions type-check (`tsc --noEmit --project .pi/tsconfig.json`)
+#   - every standalone test under test/ and docker/test/ that no other workflow
+#     covers (.mts via node --experimental-strip-types, .sh via bash,
+#     .py via python3, plus the Docker image dogfooding test)
+#
+# Six parallel jobs so total wall time ≈ the slowest job. The two expensive
+# path-filtered workflows (`cli-install-smoke.yml`, `dependency-existence.yml`)
+# stay as-is; their unique tests (cli-install-smoke.test.mts, the live registry
+# scan) are not duplicated here.
+#
+# Budget: target under 15 minutes with warm caches — node-suite ~5-8 min ·
+# go ~1 min · docker ~3-6 min · shell-python <1 min · hygiene ~2-5 min ·
+# scrapling-e2e ~3-5 min.
+# Cold caches exceed the target for the docker job only (its image build is
+# 15-30 min cold, 2-5 min warm) — `workflow_dispatch` re-runs warm the cache.
+
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PI_BIN: ${{ github.workspace }}/node_modules/.bin/pi
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up git identity
+        run: |
+          git config --global user.name "Test"
+          git config --global user.email "test@test.com"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Runtime prerequisites the suite assumes on a developer machine but that
+      # a fresh runner lacks: ripgrep (spawned by dead-code guards), ast-grep
+      # (structural-analyzer prerequisite test), and the pi package clone the
+      # ponytail adapter imports its hooks from.
+      - name: Install test prerequisites
+        run: |
+          command -v rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+          npm install -g @ast-grep/cli
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
+
+      - name: Run npm test (full node:test suite)
+        run: npm test
+
+      - name: Run standalone node test files
+        run: |
+          node --experimental-strip-types --test \
+            test/docs-installation.test.mts \
+            test/external-issue-skill.test.mts \
+            test/goreleaser-config.test.mts \
+            test/release-workflow.test.mts \
+            test/writing-voice.test.mts \
+            test/dependency-existence-workflow.test.mts \
+            test/tests-workflow.test.mts \
+            test/workflow-coverage.test.mts \
+            docker/test/unbreak-worktrees.test.mts
+
+      - name: Type-check extensions
+        run: npx tsc --noEmit --project .pi/tsconfig.json
+
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache-dependency-path: go.sum
+
+      - name: Run Go tests
+        run: go test ./cmd/cheasee-pi/ -count=1
+
+  shell-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run shell test scripts
+        run: |
+          bash test/no-submodules.test.sh
+          bash test/uninstall-script.test.sh
+
+      - name: Run Python test scripts
+        run: |
+          python3 test/dependency-existence-check.test.py
+          python3 test/dependency-existence-check-refactor.test.py
+
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PI_BIN: ${{ github.workspace }}/node_modules/.bin/pi
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache-dependency-path: go.sum
+
+      - name: Ensure ripgrep is available
+        run: command -v rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # repo-hygiene runs `npm test`, so it needs the same prerequisites as the
+      # node-suite job (ast-grep + the ponytail hook clone; ripgrep is above).
+      - name: Install test prerequisites
+        run: |
+          npm install -g @ast-grep/cli
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
+
+      - name: Run repo hygiene acceptance test
+        run: bash test/repo-hygiene-dead-artifacts.test.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PI_BIN: ${{ github.workspace }}/node_modules/.bin/pi
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      # dogfooding-dedup bind-mounts the checkout into the container, so it must
+      # run against the runner's own daemon — a DinD service daemon sees the
+      # runner paths as empty directories, breaking the mount (and detection).
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # The mounted checkout is the container's project, so it must carry the
+      # pi package clone the ponytail adapter imports its hooks from; pi 1.0.2
+      # aborts startup on a project extension load failure. (private-pi needs
+      # auth and is skipped by PI_OFFLINE inside the test.)
+      - name: Install test prerequisites
+        run: |
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
+
+      - name: Verify Docker daemon is reachable
+        run: |
+          docker info > /dev/null 2>&1 || {
+            echo "Waiting for Docker daemon..."
+            for i in $(seq 1 30); do
+              if docker info > /dev/null 2>&1; then
+                echo "Docker daemon ready after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+            docker info > /dev/null 2>&1 || {
+              echo "Docker daemon not reachable after 30s"
+              exit 1
+            }
+          }
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Prime the image the dogfooding script expects so its `docker image
+      # inspect` warm path is taken instead of its own 15-30 min cold build.
+      - name: Prime dogfooding test image
+        uses: docker/build-push-action@v6
+        with:
+          context: cmd/cheasee-pi/embedded/docker
+          tags: cheasee-pi:test-1497
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run dogfooding dedup test
+        run: bash test/dogfooding-dedup.test.sh
+
+  scrapling-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Cache scrapling venv and patchright chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            .pi/scrapling-venv
+            ~/.cache/ms-playwright
+          key: scrapling-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            scrapling-${{ runner.os }}-
+
+      - name: Provision scrapling venv and patchright chromium
+        run: |
+          set -euo pipefail
+          if [ ! -x .pi/scrapling-venv/bin/python3 ]; then
+            python3 -m venv .pi/scrapling-venv
+            .pi/scrapling-venv/bin/pip install --upgrade pip
+            .pi/scrapling-venv/bin/pip install "scrapling[fetchers]" markdownify beautifulsoup4
+          fi
+          .pi/scrapling-venv/bin/python3 -m patchright install chromium
+
+      - name: Run scrapling stealth e2e tests
+        run: |
+          set -o pipefail
+          node --experimental-strip-types --test .pi/extensions/scrapling/test/stealth-e2e.test.ts 2>&1 | tee /tmp/scrapling-e2e.log
+
+      # node:test exits 0 on skipped suites, so assert the e2e tier ran: the
+      # skip messages emitted by stealth-e2e.test.ts (NO_VENV_MSG /
+      # NO_CHROMIUM_MSG) must not appear in the run output.
+      - name: Gate scrapling e2e tier (no silent skip)
+        run: |
+          if grep -qE "scrapling venv missing|patchright chromium .* not installed" /tmp/scrapling-e2e.log; then
+            echo "::error::NO_VENV_MSG/NO_CHROMIUM_MSG: scrapling e2e tier was skipped — venv/chromium not provisioned"
+            exit 1
+          fi
+          echo "scrapling e2e tier executed (no skip markers found)"

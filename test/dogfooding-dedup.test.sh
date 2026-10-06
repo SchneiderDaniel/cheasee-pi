@@ -110,9 +110,11 @@ inject_marker() {
 
 # run_pi <outfile> [extra docker args...] — runs a fresh container with the
 # repo mounted at /workspaces/main AND /opt/cheasee-pi (baked copy shadowed so
-# the marker exists on both load paths). pi's exit code is tolerated: without
-# an API key the model call fails after startup, but before_agent_start (the
-# marker hook) fires before that and is what the tests count.
+# the marker exists on both load paths). PI_OFFLINE skips package cloning (a
+# fresh checkout has no .pi/git and the private-pi source needs auth); a dummy
+# provider key lets pi reach before_agent_start — the hook is what the tests
+# count, and the model call that follows fails on the fake key. pi's exit code
+# is tolerated.
 run_pi() {
     local outfile="$1"
     shift
@@ -123,6 +125,8 @@ run_pi() {
         -e MARKER_LOG=/tmp/marker.log \
         -e APPEND_MARKER_LOG=/tmp/append-marker.log \
         -e PI_TELEMETRY=0 \
+        -e PI_OFFLINE=1 \
+        -e OPENCODE_API_KEY=dummy-key \
         -v "$ROOT:/workspaces/main" \
         -v "$ROOT:/opt/cheasee-pi" \
         -v "$MARKER_LOG_HOST:/tmp/marker.log" \
@@ -200,10 +204,10 @@ run_pi "$OUT_DIR/pi-idem1.log" -v "$AGENT_STATE:/home/agentuser"
 c1=$(wc -l < "$MARKER_LOG_HOST")
 run_pi "$OUT_DIR/pi-idem2.log" -v "$AGENT_STATE:/home/agentuser"
 c2=$(wc -l < "$MARKER_LOG_HOST")
-if [ "$c1" -eq 1 ] && [ "$c2" -eq 2 ]; then
-    pass "exactly one load per restart (run1=$c1, run2=$c2 total lines)"
+if [ "$c1" -eq 1 ] && [ "$c2" -eq 1 ]; then
+    pass "exactly one load per restart (run1=$c1, run2=$c2)"
 else
-    fail "load counts across restarts: run1=$c1, run2=$c2 (expected 1 then 2)"
+    fail "load counts across restarts: run1=$c1, run2=$c2 (expected 1 then 1)"
 fi
 l1="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
 l2="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
@@ -286,6 +290,8 @@ set +e
 timeout 300 docker run --rm \
     -e APPEND_MARKER_LOG=/tmp/append-marker.log \
     -e PI_TELEMETRY=0 \
+    -e PI_OFFLINE=1 \
+    -e OPENCODE_API_KEY=dummy-key \
     -v "$UNRELATED:/workspaces/main" \
     -v "$APPEND_MARKER_LOG_HOST:/tmp/append-marker.log" \
     "$IMAGE" pi -a -p "hello" >"$OUT_DIR/pi-unrelated.log" 2>&1

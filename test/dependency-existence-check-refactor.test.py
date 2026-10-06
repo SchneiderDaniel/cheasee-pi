@@ -10,6 +10,22 @@ __path__) so the exact CLI/test import path is exercised, plus its
 FakeFetcher/make_response so no network is touched.
 
 Run: python3 test/dependency-existence-check-refactor.test.py
+
+Regenerating the baseline fixture (test/fixtures/dependency-existence-worktree-baseline.json)
+after intentional dependency-manifest changes:
+
+    python3 -c "
+import importlib.util, json, sys
+from pathlib import Path
+root = Path('.').resolve()
+spec = importlib.util.spec_from_file_location('refactor_suite', root/'test/dependency-existence-check-refactor.test.py')
+m = importlib.util.module_from_spec(spec); sys.modules['refactor_suite'] = m
+spec.loader.exec_module(m)
+for c in m.dec.REGISTRIES.values(): c.interval = 0
+report = m.dec.run_check(m._ROOT, m.helper.FakeFetcher(default=m.helper.make_response), m.dec.SAFETY_THRESHOLD_DAYS, False, False)
+got = [[c['language'], c['name'], c['version'], c['source_file'], c['line']] for c in report['checked']]
+Path(m._BASELINE).write_text(json.dumps({'checked': got}, indent=2) + chr(10), encoding='utf-8')
+"
 """
 
 import importlib.util
@@ -32,6 +48,7 @@ _BASELINE = _HERE / "fixtures" / "dependency-existence-worktree-baseline.json"
 # loads the CLI shim exactly like production and exposes dec/FakeFetcher.
 _spec = importlib.util.spec_from_file_location(
     "dec_existing_suite", _HERE / "dependency-existence-check.test.py")
+assert _spec is not None
 helper = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 sys.modules["dec_existing_suite"] = helper
@@ -152,6 +169,11 @@ class BaselineParityTests(unittest.TestCase):
             dec.REGISTRIES[n].interval = iv
 
     def test_worktree_baseline_parity(self):
+        # Snapshot parity: the baseline is the discovery output recorded in
+        # test/fixtures/dependency-existence-worktree-baseline.json. Regenerate it
+        # (with the snippet in the module docstring below) whenever the repo's
+        # dependency manifests change intentionally, otherwise this test
+        # reports a false regression.
         baseline = json.loads(_BASELINE.read_text(encoding="utf-8"))
         fetcher = helper.FakeFetcher(default=helper.make_response)
         report = dec.run_check(_ROOT, fetcher, dec.SAFETY_THRESHOLD_DAYS, False, False)
