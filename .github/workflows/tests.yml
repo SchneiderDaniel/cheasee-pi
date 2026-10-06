@@ -164,6 +164,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      PI_BIN: ${{ github.workspace }}/node_modules/.bin/pi
     steps:
       - uses: actions/checkout@v5
 
@@ -178,6 +180,14 @@ jobs:
       # runner paths as empty directories, breaking the mount (and detection).
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      # The mounted checkout is the container's project, so it must carry the
+      # pi package clone the ponytail adapter imports its hooks from; pi 1.0.2
+      # aborts startup on a project extension load failure. (private-pi needs
+      # auth and is skipped by PI_OFFLINE inside the test.)
+      - name: Install test prerequisites
+        run: |
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
 
       - name: Verify Docker daemon is reachable
         run: |

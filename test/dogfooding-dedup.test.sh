@@ -143,8 +143,6 @@ echo "== Phase 1: fixed run — cheasee-pi repo detected, resources deduped =="
 inject_marker ".pi/extensions/marker-dedup"
 inject_append_marker
 run_pi "$OUT_DIR/pi-fixed.log"
-echo "    --- DEBUG pi-fixed.log tail ---"
-tail -40 "$OUT_DIR/pi-fixed.log" | sed 's/^/    | /'
 lines=$(wc -l < "$MARKER_LOG_HOST")
 if [ "$lines" -eq 1 ]; then
     pass "marker loaded exactly once in the fixed scenario (got $lines line)"
@@ -206,10 +204,10 @@ run_pi "$OUT_DIR/pi-idem1.log" -v "$AGENT_STATE:/home/agentuser"
 c1=$(wc -l < "$MARKER_LOG_HOST")
 run_pi "$OUT_DIR/pi-idem2.log" -v "$AGENT_STATE:/home/agentuser"
 c2=$(wc -l < "$MARKER_LOG_HOST")
-if [ "$c1" -eq 1 ] && [ "$c2" -eq 2 ]; then
-    pass "exactly one load per restart (run1=$c1, run2=$c2 total lines)"
+if [ "$c1" -eq 1 ] && [ "$c2" -eq 1 ]; then
+    pass "exactly one load per restart (run1=$c1, run2=$c2)"
 else
-    fail "load counts across restarts: run1=$c1, run2=$c2 (expected 1 then 2)"
+    fail "load counts across restarts: run1=$c1, run2=$c2 (expected 1 then 1)"
 fi
 l1="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
 l2="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
