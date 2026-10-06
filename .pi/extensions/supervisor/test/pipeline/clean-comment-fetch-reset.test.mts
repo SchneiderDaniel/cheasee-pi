@@ -9,19 +9,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const WORKTREE_TS = resolve(__dirname, "../../pipeline/worktree.ts");
-const REL_WORKTREE = ".pi/extensions/supervisor/pipeline/worktree.ts";
 
 const COMMENT_FETCH = "// Fetch latest from remote for this branch";
 const COMMENT_RESET = "// Reset worktree to match remote tracking branch";
-const WHY_COMMENT = "// Check if remote tracking branch exists. The old try/catch-only guard";
+// #1680 replaced the local rev-parse probe with an authoritative ls-remote
+// one, so the old rev-parse why-comment is gone; the new why-comment stands in.
+const WHY_COMMENT = "// Probe the SERVER, not the local tracking ref.";
 
 // Expected call blocks verbatim (1-tab statement, 2-tab args).
 const EXPECTED_FETCH = [
@@ -76,31 +76,5 @@ describe("clean-code #1538 — redundant what-comments removed", () => {
 			src.includes("git reset --hard ${remote}/${worktreeBranch} failed:"),
 			"reset error string changed",
 		);
-	});
-});
-
-describe("clean-code #1538 — git diff scope vs origin/main", () => {
-	it("diff is exactly 0 insertions and 2 deletions, the sole removed lines being the comments", () => {
-		const numstat = execFileSync("git", ["diff", "--numstat", "origin/main", "--", REL_WORKTREE], {
-			encoding: "utf-8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const m = numstat.trim().match(/^(\d+)\s+(\d+)\s+.+$/);
-		assert.ok(m, `unexpected numstat output: ${numstat}`);
-		assert.equal(m[1], "0", `expected 0 insertions, got ${m[1]}`);
-		assert.equal(m[2], "2", `expected 2 deletions, got ${m[2]}`);
-
-		const u0 = execFileSync("git", ["diff", "-U0", "origin/main", "--", REL_WORKTREE], {
-			encoding: "utf-8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const removed = u0
-			.split("\n")
-			.filter((l) => l.startsWith("-") && !l.startsWith("---"))
-			.map((l) => l.slice(1));
-		assert.equal(removed.length, 2, `expected exactly 2 removed lines, got ${removed.length}`);
-		const trimmed = removed.map((l) => l.trim());
-		assert.ok(trimmed.includes(COMMENT_FETCH), `fetch comment not removed: ${trimmed}`);
-		assert.ok(trimmed.includes(COMMENT_RESET), `reset comment not removed: ${trimmed}`);
 	});
 });
