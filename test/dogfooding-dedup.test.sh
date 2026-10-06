@@ -143,6 +143,8 @@ echo "== Phase 1: fixed run — cheasee-pi repo detected, resources deduped =="
 inject_marker ".pi/extensions/marker-dedup"
 inject_append_marker
 run_pi "$OUT_DIR/pi-fixed.log"
+echo "    --- DEBUG pi-fixed.log tail ---"
+tail -40 "$OUT_DIR/pi-fixed.log" | sed 's/^/    | /'
 lines=$(wc -l < "$MARKER_LOG_HOST")
 if [ "$lines" -eq 1 ]; then
     pass "marker loaded exactly once in the fixed scenario (got $lines line)"
