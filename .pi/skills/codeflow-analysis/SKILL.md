@@ -35,7 +35,7 @@ Load this skill when the user asks to:
 - `ask_user` tool available (the `ask-user` extension).
 - `.pi/settings.json` has `supervisor.repo` set to `owner/repo`.
 - The CodeFlow UI has been run at least once in this session (the browser
-  bridge POSTs the markdown export to the shim).
+  bridge POSTs the report exports to the shim).
 
 ## Workflow
 
@@ -47,31 +47,53 @@ Call the tool:
 codeflow_analysis_report
 ```
 
-It writes the report to `ignore/codeflow-report.md` and returns
-`{ path, bytes, analyzedAt }`. If it reports **"No CodeFlow report yet — run
-analysis in CodeFlow"**, stop and ask the user to run an analysis in the
+It writes the report to `ignore/codeflow-report.md` (markdown) and, when the
+browser posted it, `ignore/codeflow-report.json` (structured), returning
+`{ path, jsonPath, bytes, analyzedAt }`. If it reports **"No CodeFlow report yet
+— run analysis in CodeFlow"**, stop and ask the user to run an analysis in the
 CodeFlow UI, then retry with `refresh: true`.
 
-Read `ignore/codeflow-report.md` in full before proceeding.
+Read `ignore/codeflow-report.md` in full before proceeding, and
+`ignore/codeflow-report.json` when `jsonPath` is non-null.
 
 ### Step 2 — Extract issue candidates
 
 The pure parser in `.pi/extensions/codeflow-analysis/report.ts` is the
-machine-verifiable spec for this step (`parseReport`, `groupIssues`); mirror its
-rules when reading the markdown. It recognizes these sections:
+machine-verifiable spec for this step (`parseReport` for markdown,
+`parseReportJson` for the structured export, `parseBestReport` to pick the
+richer source, and `groupIssues`); mirror its rules when reading the artifacts.
+
+Prefer the structured JSON export: it is authoritative and carries categories the
+markdown exporter omits. Use markdown only as a fallback.
+
+Structured JSON sources (authoritative):
+
+| Field | Kind | File source |
+|-------|------|-------------|
+| `architectureIssues[]` | architecture | `affectedFiles[]` |
+| `duplicates[]` | duplicate | `files[].file` |
+| `layerViolations[]` | layer-violation | `from`, `to` |
+| `suggestions[]` | suggestion | (none — derived from other signals) |
+| `unusedFunctions[]` | dead-code | `file` |
+| `securityIssues[]` | security | `path` |
+
+Markdown fallback sections:
 
 | Section | Kind | File source |
 |---------|------|-------------|
 | `## Architecture Issues` | architecture | `**Affected:**` paths |
 | `## Security Issues` | security | `- **File:**` |
 | `## Unused Functions (N)` | dead-code | `- **File:**` |
-| `## Duplicates` | duplicate | `**Files:**` |
-| `## Layer Violations` | layer-violation | `**Affected files:**` |
-| `## Suggestions` | suggestion | `**Affected:**` |
+| `## Design Patterns` | pattern | `**Files:**` |
+| `## Anti-Patterns` | anti-pattern | `**Affected files:**` |
+
+The markdown exporter does **not** emit duplicates, layer violations, or
+suggestions — those come from the JSON export only. When `jsonPath` is null, say
+so and proceed with the markdown categories rather than silently omitting them.
 
 Only keep tokens that name a file path (contain `/` or an extension); drop bare
-function names. Unknown, absent, or truncated sections yield no candidates and
-must never abort the run.
+function names and layer labels. Unknown, absent, or truncated sections yield no
+candidates and must never abort the run.
 
 ### Step 3 — Group by file conflict (best-effort isolation)
 
@@ -85,7 +107,7 @@ Build a file-conflict graph: issues that share **any** file are merged
   the issue body must state the shared files and that isolation is best-effort.
 
 State best-effort isolation explicitly in every issue body that could not be
-fully split: list the files, and say which are shared.
+fully split: list the files, and say which are shared (disclose the overlap).
 
 ### Step 4 — Draft the issues
 
@@ -93,7 +115,7 @@ For each group, draft an issue using the `create-internal-issue` skill (load it
 for the repo's issue template, duplicate check, and project-board wiring). Use
 the group's affected files as the scope and include:
 
-- the CodeFlow signal (kind, section, title, description),
+- the CodeFlow signal (kind, section/field, title, description),
 - the file list (marking shared files when the group is not isolated),
 - the best-effort isolation note.
 
@@ -120,6 +142,9 @@ commits, no branches, no PRs. Report the created issue URLs back to the user.
 ## Verification
 
 - `ignore/codeflow-report.md` exists and is non-empty before parsing.
-- Every proposed issue names at least one file.
+- When `jsonPath` is null, the run discloses that the JSON-only categories
+  (duplicates, layer violations, suggestions) were unavailable.
+- Every proposed issue names at least one file (except file-less suggestions,
+  which must reference the signal that produced them).
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.

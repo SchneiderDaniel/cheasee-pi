@@ -364,6 +364,88 @@ func TestCodeFlowServer_ReportStore(t *testing.T) {
 	})
 }
 
+// TestCodeFlowServer_JsonReportStore pins the /api/analysis/report.json route:
+// its own single slot with the JSON content type, independent of the markdown
+// slot (the structured report carries the duplicates / layer-violation /
+// suggestion categories the markdown exporter omits).
+func TestCodeFlowServer_JsonReportStore(t *testing.T) {
+	s := startReportShim(t, t.TempDir(), t.TempDir())
+	defer s.stop(t)
+
+	mdPayload := "# CodeFlow Analysis Report\n\n**Repository:** o/r\n"
+	jsonPayload := `{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"]}]}`
+
+	t.Run("json get before post is 404", func(t *testing.T) {
+		if status, _, _ := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, ""); status != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", status)
+		}
+	})
+
+	t.Run("json post stores and get returns it byte-identical with the json content type", func(t *testing.T) {
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", []byte(jsonPayload), "text/plain; charset=utf-8"); status != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", status)
+		}
+		status, hdr, body := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+		if string(body) != jsonPayload {
+			t.Errorf("body = %q, want %q", body, jsonPayload)
+		}
+		if ct := hdr.Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Errorf("Content-Type = %q", ct)
+		}
+		if cl := hdr.Get("Content-Length"); cl != strconv.Itoa(len(jsonPayload)) {
+			t.Errorf("Content-Length = %q, want %d", cl, len(jsonPayload))
+		}
+	})
+
+	t.Run("markdown slot is independent of the json slot", func(t *testing.T) {
+		// JSON is stored; markdown is still absent.
+		if status, _, _ := s.do(t, http.MethodGet, "/api/analysis/report", nil, ""); status != http.StatusNotFound {
+			t.Fatalf("markdown status = %d, want 404 while only JSON was posted", status)
+		}
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report", []byte(mdPayload), "text/markdown"); status != http.StatusNoContent {
+			t.Fatalf("markdown status = %d, want 204", status)
+		}
+		_, _, jsonBody := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if string(jsonBody) != jsonPayload {
+			t.Errorf("json slot changed after markdown post: %q", jsonBody)
+		}
+		_, _, mdBody := s.do(t, http.MethodGet, "/api/analysis/report", nil, "")
+		if string(mdBody) != mdPayload {
+			t.Errorf("markdown body = %q, want %q", mdBody, mdPayload)
+		}
+	})
+
+	t.Run("json oversize declared length is 413 and store unchanged", func(t *testing.T) {
+		_, _, current := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		addr := strings.TrimPrefix(s.base, "http://")
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer conn.Close()
+		req := "POST /api/analysis/report.json HTTP/1.0\r\nHost: shim\r\nContent-Length: " + strconv.Itoa(maxReportBytes+1) + "\r\n\r\n"
+		if _, err := io.WriteString(conn, req); err != nil {
+			t.Fatalf("write request: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want 413", resp.StatusCode)
+		}
+		_, _, body := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if !bytes.Equal(body, current) {
+			t.Errorf("store mutated after 413")
+		}
+	})
+}
+
 // TestCodeFlowServer_Bridge pins the browser-bridge injection: the served
 // index.html gains exactly one script tag, the bridge JS is served from a
 // constant (independent of UI_DIR), and rewrites stay scoped to index.html.
@@ -406,7 +488,7 @@ func TestCodeFlowServer_Bridge(t *testing.T) {
 		if ct := hdr.Get("Content-Type"); !strings.Contains(ct, "javascript") {
 			t.Errorf("Content-Type = %q, want javascript", ct)
 		}
-		for _, want := range []string{"/api/analysis/report", "createObjectURL"} {
+		for _, want := range []string{"/api/analysis/report", "/api/analysis/report.json", "createObjectURL", "aria-label", "export-option"} {
 			if !strings.Contains(string(body), want) {
 				t.Errorf("bridge js missing %q", want)
 			}

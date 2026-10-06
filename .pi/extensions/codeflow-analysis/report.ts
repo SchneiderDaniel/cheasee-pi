@@ -1,27 +1,33 @@
 /**
- * CodeFlow markdown report — parser and file-conflict grouping (pure).
+ * CodeFlow report — parsing and file-conflict grouping (pure).
  *
- * The Codeflow UI's markdown export (`generateReport('md')`) is human-readable
- * text, not JSON, so the skill needs these pure helpers to turn it back into
- * issue facts and to decide which issues can be filed in isolation.
+ * CodeFlow exports two browser-side formats. Both are captured by the shim's
+ * browser bridge and parsed here:
  *
- * The parser is deliberately defensive: the markdown format is owned by the
- * vendored UI and may change, so unknown/absent sections yield no facts and
- * truncated input never throws. Only facts with at least one file path are
- * emitted — a file-less issue cannot participate in file-isolation grouping.
+ *   - Markdown (`generateReport('md')`) — human-readable, carries security
+ *     issues, unused functions, design/anti-patterns and architecture issues.
+ *     The upstream exporter omits duplicates, layer violations and suggestions,
+ *     so those categories are only available from the JSON export below.
+ *   - JSON (`generateReport('json')`) — the authoritative structured report;
+ *     `architectureIssues[].affectedFiles`, `duplicates[].files`,
+ *     `layerViolations[]`, `suggestions[]`, `unusedFunctions[]` and
+ *     `securityIssues[]`.
  *
- * Formats parsed (from the bundled generator):
- *   ### <title>
- *   **Affected:** `path/a.ts`, `path/b.ts`      (architecture / suggestions)
- *   **Files:** `path/a.ts`                       (patterns / duplicates)
- *   **Affected files:** `path/a.ts`              (anti-patterns / layer violations)
- *   - **File:** `path/a.ts` (line N)             (security / unused functions)
+ * Both parsers are defensive: the format is owned by the vendored UI and may
+ * change, so unknown/absent sections yield no facts and truncated input never
+ * throws. Only facts with at least one file path participate in file-isolation
+ * grouping; file-less facts (e.g. suggestions) are still surfaced as isolated
+ * groups.
+ *
+ * Formats verified against CodeFlow b0e82d1
+ * (`test/fixtures/generate-report-fixtures.mjs` regenerates the fixtures from
+ * the real generator).
  */
 
 export interface IssueFact {
 	/** Stable id, unique within one parse (kind + per-kind index). */
 	id: string;
-	/** architecture | security | dead-code | duplicate | layer-violation | suggestion */
+	/** architecture | security | dead-code | duplicate | layer-violation | suggestion | pattern | anti-pattern */
 	kind: string;
 	title: string;
 	files: string[];
@@ -42,6 +48,10 @@ function sectionKind(heading: string): string | null {
 	if (/^architecture issues/.test(h)) return "architecture";
 	if (/^security issues/.test(h)) return "security";
 	if (/^unused functions/.test(h)) return "dead-code";
+	if (/^anti-patterns/.test(h)) return "anti-pattern";
+	if (/^design patterns/.test(h)) return "pattern";
+	// Not emitted by the markdown exporter today, but recognised defensively in
+	// case upstream adds the sections; JSON is the source for these categories.
 	if (/^duplicate code/.test(h) || /^duplicates?\b/.test(h)) return "duplicate";
 	if (/^layer violations?\b/.test(h)) return "layer-violation";
 	if (/^suggestions?\b/.test(h) || /^recommendations?\b/.test(h)) return "suggestion";
@@ -114,6 +124,91 @@ export function parseReport(markdown: string): IssueFact[] {
 	}
 	flush();
 	return facts;
+}
+
+/** Append unique, non-empty strings (whitespace trimmed). */
+function addFiles(target: string[], values: unknown): void {
+	for (const v of Array.isArray(values) ? values : []) {
+		if (typeof v !== "string") continue;
+		const t = v.trim();
+		if (t !== "" && !target.includes(t)) target.push(t);
+	}
+}
+
+/** Build a fact list from the structured JSON report. Defensive per array. */
+export function parseReportJson(text: string): IssueFact[] {
+	let root: unknown;
+	try {
+		root = JSON.parse(text ?? "");
+	} catch {
+		return [];
+	}
+	if (root === null || typeof root !== "object" || Array.isArray(root)) return [];
+	const r = root as Record<string, unknown>;
+
+	const facts: IssueFact[] = [];
+	const counters = new Map<string, number>();
+	const push = (kind: string, title: string, files: string[]): void => {
+		const n = counters.get(kind) ?? 0;
+		counters.set(kind, n + 1);
+		facts.push({ id: `${kind}:${n}`, kind, title, files });
+	};
+
+	for (const issue of Array.isArray(r.architectureIssues) ? r.architectureIssues : []) {
+		const i = issue as Record<string, unknown>;
+		const files: string[] = [];
+		// affectedFiles is the generator's flattened `x.file || x.name`.
+		addFiles(files, i.affectedFiles);
+		push("architecture", String(i.title ?? "").trim(), files);
+	}
+	for (const dup of Array.isArray(r.duplicates) ? r.duplicates : []) {
+		const d = dup as Record<string, unknown>;
+		const files: string[] = [];
+		for (const f of Array.isArray(d.files) ? d.files : []) {
+			addFiles(files, [(f as Record<string, unknown>)?.file]);
+		}
+		const label = d.type === "code" ? "Similar Code" : "Same Name";
+		push("duplicate", `${label}: ${String(d.name ?? "").trim()}`, files);
+	}
+	for (const v of Array.isArray(r.layerViolations) ? r.layerViolations : []) {
+		const lv = v as Record<string, unknown>;
+		const files: string[] = [];
+		addFiles(files, [lv.from, lv.to]);
+		const edge = `${String(lv.fromLayer ?? "")} → ${String(lv.toLayer ?? "")}`.trim();
+		push("layer-violation", edge, files);
+	}
+	for (const s of Array.isArray(r.suggestions) ? r.suggestions : []) {
+		// Suggestions are derived targets with no file of their own; kept so the
+		// skill can still surface them, grouped in isolation.
+		push("suggestion", String((s as Record<string, unknown>)?.title ?? "").trim(), []);
+	}
+	for (const fn of Array.isArray(r.unusedFunctions) ? r.unusedFunctions : []) {
+		const f = fn as Record<string, unknown>;
+		const files: string[] = [];
+		addFiles(files, [f.file]);
+		push("dead-code", `${String(f.name ?? "").trim()}()`, files);
+	}
+	for (const s of Array.isArray(r.securityIssues) ? r.securityIssues : []) {
+		const sec = s as Record<string, unknown>;
+		const files: string[] = [];
+		addFiles(files, [sec.path]);
+		const sev = String(sec.severity ?? "").toUpperCase();
+		push("security", `${sev}: ${String(sec.title ?? "").trim()}`.trim(), files);
+	}
+	return facts;
+}
+
+/**
+ * Pick the richest available source: the structured JSON report when it yields
+ * facts, otherwise the markdown report. Keeps the skill from having to know
+ * which artifact the browser produced.
+ */
+export function parseBestReport(markdown: string, json?: string | null): IssueFact[] {
+	if (json) {
+		const fromJson = parseReportJson(json);
+		if (fromJson.length > 0) return fromJson;
+	}
+	return parseReport(markdown);
 }
 
 /**

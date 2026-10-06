@@ -1,6 +1,6 @@
 /**
  * Tests for .pi/extensions/codeflow-analysis/index.ts — HTTP transport and the
- * `ignore/codeflow-report.md` artifact.
+ * `ignore/codeflow-report.{md,json}` artifacts.
  *
  * A real `node:http` shim stands in for the codeflow container; the fetch
  * factory is pointed at it so request counting and status handling are
@@ -21,25 +21,48 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import codeflowAnalysis, {
 	fetchAndStoreReport,
 	parseAnalyzedAt,
+	REPORT_JSON_REL_PATH,
 	REPORT_REL_PATH,
 	resetReportCache,
 	setFetchFactory,
 	setWriteFileFactory,
 } from "../index.ts";
-import { groupIssues, parseReport } from "../report.ts";
+import { groupIssues, parseBestReport, parseReport } from "../report.ts";
 
 // ── Mock shim ───────────────────────────────────
 
 interface Shim {
 	base: string;
-	count(): number;
+	mdCount(): number;
+	jsonCount(): number;
 	close(): Promise<void>;
 }
 
-async function startShim(opts: { status?: number; body?: string; analyzedAt?: string | null }): Promise<Shim> {
-	let count = 0;
-	const server: Server = createServer((_req, res) => {
-		count++;
+interface ShimOpts {
+	status?: number;
+	body?: string;
+	analyzedAt?: string | null;
+	jsonStatus?: number;
+	jsonBody?: string;
+}
+
+async function startShim(opts: ShimOpts): Promise<Shim> {
+	let md = 0;
+	let json = 0;
+	const server: Server = createServer((req, res) => {
+		if ((req.url ?? "").endsWith("/api/analysis/report.json")) {
+			json++;
+			const status = opts.jsonStatus ?? 404;
+			res.statusCode = status;
+			if (status === 200) {
+				res.setHeader("Content-Type", "application/json; charset=utf-8");
+				res.end(opts.jsonBody ?? "{}");
+			} else {
+				res.end("err");
+			}
+			return;
+		}
+		md++;
 		const status = opts.status ?? 200;
 		res.statusCode = status;
 		if (status === 200) {
@@ -56,7 +79,8 @@ async function startShim(opts: { status?: number; body?: string; analyzedAt?: st
 	const port = (server.address() as AddressInfo).port;
 	return {
 		base: `http://127.0.0.1:${port}`,
-		count: () => count,
+		mdCount: () => md,
+		jsonCount: () => json,
 		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
 	};
 }
@@ -103,18 +127,21 @@ afterEach(async () => {
 	shims = [];
 });
 
-async function shim(opts: Parameters<typeof startShim>[0]): Promise<Shim> {
+async function shim(opts: ShimOpts): Promise<Shim> {
 	const s = await startShim(opts);
 	shims.push(s);
 	return s;
 }
 
 const REPORT_PATH = () => join(cwd, REPORT_REL_PATH);
+const REPORT_JSON_PATH = () => join(cwd, REPORT_JSON_REL_PATH);
 const tmpFiles = () => {
 	const dir = join(cwd, "ignore");
 	if (!existsSync(dir)) return [];
 	return readdirSync(dir).filter((f) => f.endsWith(".tmp"));
 };
+
+const JSON_BODY = '{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"]}]}';
 
 // ── Tool registration ───────────────────────────
 
@@ -130,9 +157,9 @@ describe("codeflowAnalysis extension wiring", () => {
 });
 
 describe("transport + artifact", () => {
-	it("writes the report and returns path/bytes/analyzedAt", async () => {
+	it("writes both artifacts and returns path/jsonPath/bytes/analyzedAt", async () => {
 		const body = "# CodeFlow Analysis Report\n\n## Architecture Issues\n";
-		const s = await shim({ status: 200, body, analyzedAt: "1767225600000" });
+		const s = await shim({ status: 200, body, analyzedAt: "1767225600000", jsonStatus: 200, jsonBody: JSON_BODY });
 		routeTo(s);
 
 		const pi = makePi();
@@ -140,12 +167,38 @@ describe("transport + artifact", () => {
 		const res = await execTool(pi, {}, { cwd });
 
 		const target = REPORT_PATH();
+		const jsonTarget = REPORT_JSON_PATH();
 		assert.ok(existsSync(target), "report file should exist");
+		assert.ok(existsSync(jsonTarget), "json report file should exist");
 		assert.strictEqual(readFileSync(target, "utf-8"), body);
+		assert.strictEqual(readFileSync(jsonTarget, "utf-8"), JSON_BODY);
 		assert.strictEqual(res.details.path, target);
+		assert.strictEqual(res.details.jsonPath, jsonTarget);
 		assert.strictEqual(res.details.bytes, Buffer.byteLength(body));
 		assert.strictEqual(res.details.analyzedAt, 1767225600000);
 		assert.ok(res.details.path.startsWith(cwd), "path must resolve inside cwd");
+		assert.ok(res.details.jsonPath.startsWith(cwd), "jsonPath must resolve inside cwd");
+	});
+
+	it("still succeeds without JSON (404) and reports no jsonPath", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 404 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(outcome.ok && outcome.result.jsonPath, null);
+		assert.deepStrictEqual(outcome.ok && outcome.result.warnings, []);
+		assert.ok(existsSync(REPORT_PATH()));
+		assert.ok(!existsSync(REPORT_JSON_PATH()));
+	});
+
+	it("surfaces a non-404 JSON failure as a warning but keeps the markdown report", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 500 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(outcome.ok && outcome.result.jsonPath, null);
+		assert.match(outcome.ok ? outcome.result.warnings.join(" ") : "", /HTTP 500/);
+		assert.ok(existsSync(REPORT_PATH()));
 	});
 
 	it("returns an actionable error and leaves a pre-existing report intact on 404", async () => {
@@ -238,9 +291,10 @@ describe("session cache", () => {
 		routeTo(s);
 		await fetchAndStoreReport({ cwd });
 		await fetchAndStoreReport({ cwd });
-		assert.strictEqual(s.count(), 1, "second call must hit the cache");
+		assert.strictEqual(s.mdCount(), 1, "second call must hit the cache");
+		assert.strictEqual(s.jsonCount(), 1, "json fetch must also be cached");
 		await fetchAndStoreReport({ cwd, refresh: true });
-		assert.strictEqual(s.count(), 2, "refresh must bypass the cache");
+		assert.strictEqual(s.mdCount(), 2, "refresh must bypass the cache");
 	});
 });
 
@@ -263,7 +317,7 @@ function waitForExit(proc: ChildProcess): Promise<void> {
 }
 
 describe("e2e: real codeflow shim subprocess", () => {
-	it("404s before analysis, then round-trips the fixture into a grouped plan", async (t) => {
+	it("404s before analysis, then round-trips both fixtures into a grouped plan", async (t) => {
 		if (!PYTHON) return t.skip("python3 not available");
 
 		const publicDir = mkdtempSync(join(tmpdir(), "codeflow-e2e-"));
@@ -299,7 +353,7 @@ describe("e2e: real codeflow shim subprocess", () => {
 		proc.stdout?.on("data", (d) => (log += d.toString()));
 		proc.stderr?.on("data", (d) => (log += d.toString()));
 		const base = `http://127.0.0.1:${port}`;
-		routeTo({ base, count: () => 0, close: async () => {} });
+		routeTo({ base, mdCount: () => 0, jsonCount: () => 0, close: async () => {} });
 
 		const deadline = Date.now() + 15_000;
 		for (;;) {
@@ -313,27 +367,39 @@ describe("e2e: real codeflow shim subprocess", () => {
 			await new Promise((r) => setTimeout(r, 100));
 		}
 
+		const fixtureDir = join(import.meta.dirname, "fixtures");
+		const mdFixture = readFileSync(join(fixtureDir, "codeflow-report.md"), "utf-8");
+		const jsonFixture = readFileSync(join(fixtureDir, "codeflow-report.json"), "utf-8");
+
 		try {
 			// Before the browser bridge POSTs, the tool must report the actionable 404.
 			const miss = await fetchAndStoreReport({ cwd, refresh: true });
 			assert.strictEqual(miss.ok, false);
 			assert.match(miss.ok === false ? miss.message : "", /run analysis in CodeFlow/);
 
-			// Simulate the browser bridge: POST the captured fixture markdown.
-			const fixture = readFileSync(join(import.meta.dirname, "fixtures", "codeflow-report.md"), "utf-8");
-			const posted = await fetch(base + "/api/analysis/report", {
+			// Simulate the browser bridge: POST both captured fixtures.
+			const postedMd = await fetch(base + "/api/analysis/report", {
 				method: "POST",
-				headers: { "Content-Type": "text/markdown; charset=utf-8" },
-				body: fixture,
+				headers: { "Content-Type": "text/plain; charset=utf-8" },
+				body: mdFixture,
 			});
-			assert.strictEqual(posted.status, 204);
+			assert.strictEqual(postedMd.status, 204);
+			const postedJson = await fetch(base + "/api/analysis/report.json", {
+				method: "POST",
+				headers: { "Content-Type": "text/plain; charset=utf-8" },
+				body: jsonFixture,
+			});
+			assert.strictEqual(postedJson.status, 204);
 
 			const outcome = await fetchAndStoreReport({ cwd, refresh: true });
 			assert.strictEqual(outcome.ok, true);
-			assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), fixture);
+			assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), mdFixture);
+			assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), jsonFixture);
 
-			// The fixture groups into groups whose file sets are pairwise disjoint.
-			const groups = groupIssues(parseReport(fixture));
+			// Grouping over the richer JSON source yields the JSON-only categories.
+			const facts = parseBestReport(mdFixture, jsonFixture);
+			assert.ok(facts.some((f) => f.kind === "duplicate"), "JSON source must expose duplicates");
+			const groups = groupIssues(facts);
 			assert.ok(groups.length >= 1, "fixture must yield at least one group");
 			const groupFiles = groups.map((g) => new Set(g.issues.flatMap((i) => i.files)));
 			for (let a = 0; a < groupFiles.length; a++) {
@@ -343,6 +409,8 @@ describe("e2e: real codeflow shim subprocess", () => {
 					}
 				}
 			}
+			// Markdown alone still parses (fallback path).
+			assert.ok(parseReport(mdFixture).length > 0);
 		} finally {
 			proc.kill("SIGKILL");
 			await waitForExit(proc);

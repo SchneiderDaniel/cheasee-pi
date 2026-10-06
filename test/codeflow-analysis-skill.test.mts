@@ -57,7 +57,15 @@ describe("codeflow-analysis SKILL.md", () => {
 
 	it("references the report artifact and the fetch tool", () => {
 		assert.match(body, /ignore\/codeflow-report\.md/);
+		assert.match(body, /ignore\/codeflow-report\.json/);
 		assert.match(body, /codeflow_analysis_report/);
+	});
+
+	it("documents the JSON-only categories and their markdown fallback", () => {
+		assert.match(body, /duplicates/i);
+		assert.match(body, /layer violation/i);
+		assert.match(body, /suggestions?/i);
+		assert.match(body, /parseReportJson|structured JSON/i);
 	});
 
 	it("mandates ask_user before any issue creation", () => {
@@ -89,6 +97,7 @@ describe("package.json test wiring", () => {
 			".pi/extensions/lib/test/codeflow-endpoint.test.mts",
 			".pi/extensions/codeflow-analysis/test/codeflow-analysis.test.mts",
 			".pi/extensions/codeflow-analysis/test/report.test.mts",
+			".pi/extensions/codeflow-analysis/test/bridge.test.mts",
 		]) {
 			assert.ok(testScript.includes(file), `test script must list ${file}`);
 		}
