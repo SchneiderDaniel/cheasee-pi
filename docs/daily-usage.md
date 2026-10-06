@@ -166,7 +166,9 @@ default `127.0.0.1`).
 
 GitHub-specific features (ownership attribution, pull-request impact analysis)
 require the real GitHub API and are unavailable in local mode; the structure
-graph, blast radius, and health score work fully offline.
+graph, blast radius, and health score work fully offline. The local shim treats
+`.mts` and `.cts` files as TypeScript, so the NodeNext ESM/CJS extensions
+appear in the file tree, language breakdown, and dependency graph like `.ts`.
 
 ## UI (web control center)
 
