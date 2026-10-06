@@ -16,17 +16,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import type {
-	TscDiagnostic,
-	DiagnosticTrend,
-} from "./types.ts";
-import {
-	diagnosticToTscDiagnostic,
-	resolveDiagnosticFilePath,
-} from "./adapter.ts";
 import { DiagnosticsWatcher } from "./watcher.ts";
 import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./format.ts";
-import { runTscCheckpoint } from "./checkpoint.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Backward-Compatible Re-exports
