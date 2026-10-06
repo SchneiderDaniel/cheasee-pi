@@ -190,8 +190,7 @@ def _scan():
     installed package artifacts).
     """
     global _scan_cache
-    now = time.monotonic()
-    if _scan_cache is not None and now < _scan_cache[0]:
+    if _scan_cache is not None and time.monotonic() < _scan_cache[0]:
         return _scan_cache[1]
     entries = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
@@ -210,7 +209,10 @@ def _scan():
     # otherwise surface as dead code. One batch call, no per-file cost.
     ignored = _gitignored([e["path"] for e in entries])
     entries = [e for e in entries if e["path"] not in ignored]
-    _scan_cache = (now + _FP_TTL, entries)
+    # Expiry is measured after scanning: a slow traversal must not store an
+    # already-expired entry (that would stop the entrypoint and tree request
+    # from sharing the scan), so the cache always lives a full TTL.
+    _scan_cache = (time.monotonic() + _FP_TTL, entries)
     return entries
 
 

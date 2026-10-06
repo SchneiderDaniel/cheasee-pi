@@ -448,6 +448,70 @@ print("OK")
 	}
 }
 
+// TestCodeFlowServer_ScanCacheSlowWorkspace guards the cache-expiry fix: when
+// traversal plus ignore filtering takes longer than the TTL, the stored expiry
+// must be measured after the scan so a slow workspace still shares one scan
+// between the entrypoint redirect and the subsequent tree request.
+func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	dir := t.TempDir()
+	serverPath := filepath.Join(dir, "server.py")
+	if err := os.WriteFile(serverPath, src, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+
+	// A scan slower than the TTL must still be reused by the next call. Note
+	// runpy.run_path returns a globals copy; functions keep the original dict,
+	// so patch the module globals the helper actually reads.
+	script := `import runpy, sys, time
+
+m = runpy.run_path(sys.argv[1])
+g = m["_scan"].__globals__
+g["REPO_ROOT"] = sys.argv[2]
+g["_FP_TTL"] = 0.3
+g["_scan_cache"] = None
+
+real = g["_gitignored"]
+calls = {"n": 0}
+
+
+def slow(paths):
+    calls["n"] += 1
+    time.sleep(0.5)  # scan exceeds the TTL
+    return real(paths)
+
+
+g["_gitignored"] = slow
+scan = m["_scan"]
+
+first = scan()
+second = scan()
+assert calls["n"] == 1, "scan not shared across calls: %d traversals" % calls["n"]
+assert first == second, "cached entries differ"
+print("OK")
+`
+	scriptPath := filepath.Join(dir, "check_slow.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write check_slow.py: %v", err)
+	}
+	out, err := exec.Command(python, scriptPath, serverPath, repoRoot).CombinedOutput()
+	if err != nil {
+		t.Fatalf("slow-scan cache check failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "OK") {
+		t.Fatalf("unexpected helper output: %s", out)
+	}
+}
+
 // TestCodeFlowServer_EntrypointRedirect pins the redirect contract: only the
 // entrypoint with a repo param redirects, and every other param survives.
 func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
