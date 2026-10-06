@@ -555,16 +555,15 @@ func TestRunAuthAddE_StalledCatalogBoundsOneConsultation(t *testing.T) {
 	stubPromptAPIKey(t, func(string) (string, error) { return "key", nil })
 	stubPromptModel(t, func(string, []string) (string, error) { return "", nil })
 
-	start := time.Now()
 	if err := runAuthAddE(&cobra.Command{}, []string{"openai"}); err != nil {
 		t.Fatalf("auth add: %v", err)
 	}
-	elapsed := time.Since(start)
+	// The consultation count is the real invariant: the pre-fix code consulted
+	// the catalog twice, doubling the stall. A wall-clock bound here was
+	// redundant and flaked on loaded CI runners (400ms sleep + scheduler
+	// jitter), so assert the count only.
 	if cc.calls != 1 {
 		t.Errorf("catalog consulted %d times, want 1", cc.calls)
-	}
-	if elapsed >= 700*time.Millisecond {
-		t.Errorf("stalled catalog delayed auth add by %v — want one consultation (~400ms), not two (~800ms)", elapsed)
 	}
 }
 
