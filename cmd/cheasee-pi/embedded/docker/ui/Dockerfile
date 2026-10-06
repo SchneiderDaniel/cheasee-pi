@@ -12,13 +12,30 @@ FROM rust:1.99-bookworm AS builder
 WORKDIR /build
 
 # wasm target plus the tools cargo-leptos's `no_downloads` build expects on
-# PATH: `wasm-opt` (binaryen) and a `wasm-bindgen` CLI. binaryen comes from
-# Debian apt; the cargo-leptos prebuilt binary below is the one deliberate
-# GitHub-release download in this image, pinned to v0.3.10 and arch-matched.
+# PATH: `wasm-opt` (binaryen) and a `wasm-bindgen` CLI.
+#
+# wasm-opt must NOT come from Debian bookworm's apt repo: that package is
+# binaryen 108, whose wasm-opt reindexes wasm-bindgen's `__wbindgen_externrefs`
+# export onto the wrong table (WebAssembly/binaryen#4736, fixed in >=110). The
+# funcref table it points at has max == min, so the `table.grow(4)` in
+# `__wbindgen_init_externref_table` throws and the wasm never hydrates — dead
+# buttons, empty session list. Pin a prebuilt release instead (statically
+# linked, so only `bin/wasm-opt` needs extracting).
 RUN rustup target add wasm32-unknown-unknown \
  && apt-get update \
- && apt-get install -y --no-install-recommends binaryen \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && ARCH="$(uname -m)" \
+ && case "$ARCH" in \
+      x86_64) BE_TRIPLE="x86_64-linux" ;; \
+      aarch64) BE_TRIPLE="aarch64-linux" ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL --retry 5 --retry-all-errors \
+      "https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-${BE_TRIPLE}.tar.gz" -o /tmp/binaryen.tar.gz \
+ && tar -xzf /tmp/binaryen.tar.gz -C /tmp \
+ && install -m 755 "/tmp/binaryen-version_133/bin/wasm-opt" /usr/local/bin/wasm-opt \
+ && rm -rf /tmp/binaryen.tar.gz "/tmp/binaryen-version_133"
 
 # Pin cargo-leptos via its prebuilt release binary — a `cargo install` of it
 # compiles swc/git2 etc. (≈8 min cold). The download happens once, at image
