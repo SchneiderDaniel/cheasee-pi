@@ -73,25 +73,26 @@ export async function reconcileToRemoteBranch(
 	notify: NotifyFn,
 ): Promise<Result<void>> {
 	const log = getDebugLogger();
-	const remoteRef = `refs/remotes/${remote}/${worktreeBranch}`;
 
-	// Check if remote tracking branch exists. The old try/catch-only guard
-	// never fired (pi.exec doesn't reject on non-zero exit) — a missing ref
-	// was treated as "exists" and fetch/reset ran against a possibly
-	// nonexistent worktree.
-	const revParse = await execChecked(pi, "git", ["rev-parse", "--verify", remoteRef], {
-		cwd,
-		timeout: 10000,
-	});
-	if (revParse.code !== 0) {
-		log.info(
-			"worktree",
-			`No remote tracking branch ${remote}/${worktreeBranch} — skipping reconciliation`,
-		);
+	// Probe the SERVER, not the local tracking ref. A branch deleted on origin
+	// leaves a stale refs/remotes/<remote>/<branch> behind (fetch.prune unset),
+	// so `rev-parse --verify` said "exists" and the following fetch then died
+	// with "couldn't find remote ref" — aborting worktree creation. ls-remote
+	// advertises server heads with no pack transfer; empty output = branch gone.
+	const lsRemote = await execChecked(
+		pi,
+		"git",
+		["ls-remote", "--heads", remote, `refs/heads/${worktreeBranch}`],
+		{ cwd, timeout: 30000 },
+	);
+	// Best-effort: an unreachable server or an absent branch keeps the local
+	// worktree as-is instead of aborting the pipeline on ref-resolution doubt.
+	if (lsRemote.code !== 0 || !lsRemote.stdout.trim()) {
+		log.info("worktree", `No remote branch ${remote}/${worktreeBranch} — skipping reconciliation`);
 		return { ok: true, value: undefined };
 	}
 
-	log.info("worktree", `Remote tracking branch ${remote}/${worktreeBranch} exists — reconciling`);
+	log.info("worktree", `Remote branch ${remote}/${worktreeBranch} exists — reconciling`);
 
 	const fetchRes = await execChecked(pi, "git", ["fetch", remote, worktreeBranch], {
 		cwd,

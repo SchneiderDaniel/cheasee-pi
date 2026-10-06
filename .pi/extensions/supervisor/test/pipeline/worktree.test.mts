@@ -166,12 +166,13 @@ describe("createWorktree()", () => {
 			result.ok ? result.value : "",
 			"main",
 		]);
-		// Recovery probe (rev-parse common dir) + add + reconciliation rev-parse
-		assert.equal(calls.length, 3, "should have 3 exec calls (rev-parse, add, rev-parse)");
+		// recovery probe (rev-parse common dir) + add + reconciliation ls-remote
+		assert.equal(calls.length, 3, "should have 3 exec calls (rev-parse, add, ls-remote)");
 		assert.deepEqual(calls[2].args, [
-			"rev-parse",
-			"--verify",
-			"refs/remotes/origin/feature-branch",
+			"ls-remote",
+			"--heads",
+			"origin",
+			"refs/heads/feature-branch",
 		]);
 	});
 
@@ -199,7 +200,7 @@ describe("createWorktree()", () => {
 		assert.equal(
 			calls.length,
 			4,
-			"should have 4 exec calls (rev-parse, add -b fail, add, rev-parse)",
+			"should have 4 exec calls (rev-parse, add -b fail, add, ls-remote)",
 		);
 		assert.deepEqual(calls[2].args, ["worktree", "add", calls[2].args[2], "feature-branch"]);
 	});
@@ -210,7 +211,7 @@ describe("createWorktree()", () => {
 			{ code: 1, stdout: "", stderr: "error" },
 			{ code: 1, stdout: "", stderr: "already exists" },
 			{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
-			{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }, // rev-parse: no remote
+			{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }, // ls-remote: unreachable → skip
 		]);
 		const { notify } = createMockNotify();
 		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
@@ -239,7 +240,7 @@ describe("createWorktree()", () => {
 	});
 
 	it("does not call notify.error when create succeeds", async () => {
-		// recovery probe (no stale reg) → add succeeds → rev-parse: no remote (128)
+		// recovery probe (no stale reg) → add succeeds → ls-remote: no remote (128)
 		const pi = createMockPi([
 			{ code: 0, stdout: "/repo/.bare", stderr: "" },
 			{ code: 0, stdout: "", stderr: "" },
@@ -484,10 +485,10 @@ describe("cleanupWorktree()", () => {
 describe("reconcileToRemoteBranch()", () => {
 	it("remote ref exists — fetches and resets worktree, returns { ok: true }", async () => {
 		const calls: ExecCall[] = [];
-		// rev-parse succeeds → fetch succeeds → reset succeeds
+		// ls-remote lists the server branch → fetch succeeds → reset succeeds
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" }, // rev-parse
+				{ code: 0, stdout: "abc123\trefs/heads/feature\n", stderr: "" }, // ls-remote
 				{ code: 0, stdout: "", stderr: "" }, // fetch
 				{ code: 0, stdout: "", stderr: "" }, // reset
 			],
@@ -497,29 +498,26 @@ describe("reconcileToRemoteBranch()", () => {
 		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
 		assert.equal(result.ok, true, "should succeed when remote ref exists");
 		assert.equal(calls.length, 3);
-		assert.deepEqual(calls[0].args, ["rev-parse", "--verify", "refs/remotes/origin/feature"]);
+		assert.deepEqual(calls[0].args, ["ls-remote", "--heads", "origin", "refs/heads/feature"]);
 		assert.deepEqual(calls[1].args, ["fetch", "origin", "feature"]);
 		assert.deepEqual(calls[2].args, ["reset", "--hard", "origin/feature"]);
 	});
 
 	it("no remote ref — no fetch, no reset, returns { ok: true }", async () => {
 		const calls: ExecCall[] = [];
-		// rev-parse exits 128 (no remote ref)
-		const pi = createMockPi(
-			[{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }],
-			calls,
-		);
+		// ls-remote exits 0 with empty stdout (branch gone from origin)
+		const pi = createMockPi([{ code: 0, stdout: "", stderr: "" }], calls);
 		const { notify } = createMockNotify();
 		const result = await reconcileToRemoteBranch(pi, "/repo", "/wt", "feature", "origin", notify);
 		assert.equal(result.ok, true, "should succeed (no-op) when no remote ref");
-		assert.equal(calls.length, 1, "only rev-parse call");
+		assert.equal(calls.length, 1, "only ls-remote call");
 	});
 
 	it("fetch fails — returns { ok: false, error }", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" }, // rev-parse succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/feature\n", stderr: "" }, // ls-remote succeeds
 				{ code: 1, stdout: "", stderr: "fetch failed: network error" }, // fetch fails
 			],
 			calls,
@@ -539,7 +537,7 @@ describe("reconcileToRemoteBranch()", () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
 			[
-				{ code: 0, stdout: "", stderr: "" }, // rev-parse succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/feature\n", stderr: "" }, // ls-remote succeeds
 				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
 				{ code: 1, stdout: "", stderr: "reset failed: dirty index" }, // reset fails
 			],
@@ -556,7 +554,7 @@ describe("reconcileToRemoteBranch()", () => {
 
 	it("calls notify.info on successful reconciliation", async () => {
 		const pi = createMockPi([
-			{ code: 0, stdout: "", stderr: "" }, // rev-parse
+			{ code: 0, stdout: "abc123\trefs/heads/feature\n", stderr: "" }, // ls-remote
 			{ code: 0, stdout: "", stderr: "" }, // fetch
 			{ code: 0, stdout: "", stderr: "" }, // reset
 		]);
@@ -574,18 +572,18 @@ describe("reconcileToRemoteBranch()", () => {
 			[
 				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe: no stale reg
 				{ code: 0, stdout: "", stderr: "" }, // worktree add -b succeeds
-				{ code: 128, stdout: "", stderr: "fatal: Needed a single revision" }, // rev-parse: no remote
+				{ code: 0, stdout: "", stderr: "" }, // ls-remote: no remote branch
 			],
 			calls,
 		);
 		const { notify } = createMockNotify();
 		const result = await createWorktree(pi, "/repo", "../worktrees", "feature", "main", notify);
 		assert.equal(result.ok, true);
-		// 3 calls: recovery probe rev-parse + worktree add + reconciliation rev-parse (no fetch/reset)
+		// 3 calls: recovery probe rev-parse + worktree add + reconciliation ls-remote (no fetch/reset)
 		assert.equal(
 			calls.length,
 			3,
-			"should have 3 exec calls on first run (probe + add + no-op rev-parse)",
+			"should have 3 exec calls on first run (probe + add + no-op ls-remote)",
 		);
 	});
 });
