@@ -65,6 +65,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # Runtime prerequisites the suite assumes on a developer machine but that
+      # a fresh runner lacks: ripgrep (spawned by dead-code guards), ast-grep
+      # (structural-analyzer prerequisite test), and the pi package clone the
+      # ponytail adapter imports its hooks from.
+      - name: Install test prerequisites
+        run: |
+          command -v rg >/dev/null 2>&1 || sudo apt-get install -y ripgrep
+          npm install -g @ast-grep/cli
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
+
       - name: Run npm test (full node:test suite)
         run: npm test
 
@@ -141,24 +151,19 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # repo-hygiene runs `npm test`, so it needs the same prerequisites as the
+      # node-suite job (ast-grep + the ponytail hook clone; ripgrep is above).
+      - name: Install test prerequisites
+        run: |
+          npm install -g @ast-grep/cli
+          "$PI_BIN" install -l -a https://github.com/DietrichGebert/ponytail
+
       - name: Run repo hygiene acceptance test
         run: bash test/repo-hygiene-dead-artifacts.test.sh
 
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    env:
-      DOCKER_HOST: tcp://localhost:2375
-      DOCKER_TLS_VERIFY: ""
-      DOCKER_CERT_PATH: ""
-    services:
-      docker:
-        image: docker:dind
-        options: --privileged
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        ports:
-          - 2375:2375
     steps:
       - uses: actions/checkout@v5
 
@@ -167,6 +172,12 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+
+      # dogfooding-dedup bind-mounts the checkout into the container, so it must
+      # run against the runner's own daemon — a DinD service daemon sees the
+      # runner paths as empty directories, breaking the mount (and detection).
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
 
       - name: Verify Docker daemon is reachable
         run: |

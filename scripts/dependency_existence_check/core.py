@@ -48,7 +48,7 @@ def run_check(root: Path, fetcher, threshold_days: int,
                 continue
             kept.append(d)
         dirnames[:] = kept
-        for fn in filenames:
+        for fn in sorted(filenames):
             rel_f = rel_dir / fn
             if matcher.matches(rel_f, is_dir=False):
                 continue
