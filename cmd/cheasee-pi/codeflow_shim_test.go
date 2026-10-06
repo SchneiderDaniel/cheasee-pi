@@ -8,10 +8,13 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -221,5 +224,517 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 	// Error path.
 	if status, _ := get("/api/nope"); status != http.StatusNotFound {
 		t.Errorf("/api/nope status = %d, want 404", status)
+	}
+}
+
+// --- Shared harness for the fingerprint / redirect tests ------------------
+
+var fpRepoRE = regexp.MustCompile(`^local/workspace-([0-9a-f]{8})$`)
+
+func writeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
+}
+
+// writeUIDir creates the dummy UI checkout the shim serves (index.html plus a
+// static asset) so entrypoint and static paths are both exercisable.
+func writeUIDir(t *testing.T) string {
+	t.Helper()
+	uiDir := t.TempDir()
+	writeFile(t, uiDir, "index.html", "<script>'https://api.github.com/'</script>")
+	writeFile(t, uiDir, filepath.Join("assets", "app.js"), "console.log(1)\n")
+	return uiDir
+}
+
+// startShim boots the embedded server.py against repoRoot/uiDir on a free port
+// and returns its base URL. The process is killed and its log checked for a
+// traceback at cleanup. extraEnv overrides/extends the server environment.
+func startShim(t *testing.T, repoRoot, uiDir string, extraEnv ...string) string {
+	t.Helper()
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	serverPath := filepath.Join(t.TempDir(), "server.py")
+	if err := os.WriteFile(serverPath, src, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	cmd := exec.Command(python, serverPath)
+	cmd.Env = append(os.Environ(),
+		"REPO_ROOT="+repoRoot,
+		"UI_DIR="+uiDir,
+		"CONFIG_FILE="+filepath.Join(t.TempDir(), "missing-config.json"),
+		fmt.Sprintf("PORT=%d", port),
+		"HOST=127.0.0.1",
+		"PYTHONUNBUFFERED=1",
+	)
+	cmd.Env = append(cmd.Env, extraEnv...)
+	var log bytes.Buffer
+	cmd.Stdout = &log
+	cmd.Stderr = &log
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		select {
+		case <-done: // SIGKILL is the expected shutdown path (serve_forever)
+		case <-time.After(5 * time.Second):
+			t.Error("server process did not exit after Kill")
+		}
+		if strings.Contains(log.String(), "Traceback") {
+			t.Errorf("server log contains a traceback:\n%s", log.String())
+		}
+	})
+
+	base := fmt.Sprintf("http://127.0.0.1:%d", port)
+	client := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		select {
+		case <-done:
+			t.Fatalf("server exited early:\n%s", log.String())
+		default:
+		}
+		r, err := client.Get(base + "/api/repos/o/r")
+		if err == nil {
+			r.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server did not come up: %v\nlog:\n%s", err, log.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return base
+}
+
+// newNoRedirectClient returns a client that surfaces 3xx responses verbatim
+// instead of following them, so redirect contracts are directly assertable.
+func newNoRedirectClient() *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func getStatus(t *testing.T, client *http.Client, rawURL string) (*http.Response, []byte) {
+	t.Helper()
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		t.Fatalf("GET %s: %v", rawURL, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read GET %s body: %v", rawURL, err)
+	}
+	return resp, body
+}
+
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse url %q: %v", raw, err)
+	}
+	return u
+}
+
+// freshFingerprint opens the stable entrypoint and returns the fingerprint the
+// shim appends to the repo segment (always a redirect: no suffix is sent).
+func freshFingerprint(t *testing.T, base string) string {
+	t.Helper()
+	resp, body := getStatus(t, newNoRedirectClient(), base+"/?repo=local/workspace&run=1")
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("entrypoint status = %d, want 302\nbody: %s", resp.StatusCode, body)
+	}
+	m := fpRepoRE.FindStringSubmatch(mustURL(t, resp.Header.Get("Location")).Query().Get("repo"))
+	if m == nil {
+		t.Fatalf("repo %q is not fingerprinted", resp.Header.Get("Location"))
+	}
+	return m[1]
+}
+
+// waitPastTTL sleeps past the FP_TTL=0.05 override so the next request rescans.
+func waitPastTTL() { time.Sleep(300 * time.Millisecond) }
+
+// TestCodeFlowServer_FingerprintPure drives the hashing helper directly (no
+// HTTP) to pin its identity semantics: deterministic, order-independent, and
+// sensitive to path, size, and mtime changes.
+func TestCodeFlowServer_FingerprintPure(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	dir := t.TempDir()
+	serverPath := filepath.Join(dir, "server.py")
+	if err := os.WriteFile(serverPath, src, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+	script := `import re, runpy, sys
+
+m = runpy.run_path(sys.argv[1])
+fp = m["_fingerprint"]
+n = m["_FP_LEN"]
+
+base = [
+    {"path": "a.txt", "type": "blob", "size": 6, "mtime_ns": 111},
+    {"path": "sub/b.txt", "type": "blob", "size": 9, "mtime_ns": 222},
+]
+d = fp(base)
+assert d == fp(base), "unstable across identical calls"
+assert d == fp(list(reversed(base))), "order-dependent"
+assert re.fullmatch(r"[0-9a-f]{%d}" % n, d), "bad shape/len: %r" % d
+
+
+def variant(fn):
+    e = [dict(x) for x in base]
+    fn(e)
+    return e
+
+
+for label, fn in [
+    ("size", lambda e: e[0].__setitem__("size", 7)),
+    ("mtime", lambda e: e[0].__setitem__("mtime_ns", 999)),
+    ("rename", lambda e: e[0].__setitem__("path", "a2.txt")),
+    ("add", lambda e: e.append({"path": "c.txt", "type": "blob", "size": 1, "mtime_ns": 1})),
+    ("drop", lambda e: e.pop(0)),
+]:
+    assert fp(variant(fn)) != d, "digest unchanged for %s" % label
+
+assert fp([]) == fp([]), "empty digest unstable"
+assert re.fullmatch(r"[0-9a-f]{%d}" % n, fp([])), "empty digest shape"
+print("OK")
+`
+	scriptPath := filepath.Join(dir, "check.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write check.py: %v", err)
+	}
+	out, err := exec.Command(python, scriptPath, serverPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("pure fingerprint checks failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "OK") {
+		t.Fatalf("unexpected helper output: %s", out)
+	}
+}
+
+// TestCodeFlowServer_ScanCacheSlowWorkspace guards the cache-expiry fix: when
+// traversal plus ignore filtering takes longer than the TTL, the stored expiry
+// must be measured after the scan so a slow workspace still shares one scan
+// between the entrypoint redirect and the subsequent tree request.
+func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	dir := t.TempDir()
+	serverPath := filepath.Join(dir, "server.py")
+	if err := os.WriteFile(serverPath, src, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+
+	// A scan slower than the TTL must still be reused by the next call. Note
+	// runpy.run_path returns a globals copy; functions keep the original dict,
+	// so patch the module globals the helper actually reads.
+	script := `import runpy, sys, time
+
+m = runpy.run_path(sys.argv[1])
+g = m["_scan"].__globals__
+g["REPO_ROOT"] = sys.argv[2]
+g["_FP_TTL"] = 0.3
+g["_scan_cache"] = None
+
+real = g["_gitignored"]
+calls = {"n": 0}
+
+
+def slow(paths):
+    calls["n"] += 1
+    time.sleep(0.5)  # scan exceeds the TTL
+    return real(paths)
+
+
+g["_gitignored"] = slow
+scan = m["_scan"]
+
+first = scan()
+second = scan()
+assert calls["n"] == 1, "scan not shared across calls: %d traversals" % calls["n"]
+assert first == second, "cached entries differ"
+print("OK")
+`
+	scriptPath := filepath.Join(dir, "check_slow.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write check_slow.py: %v", err)
+	}
+	out, err := exec.Command(python, scriptPath, serverPath, repoRoot).CombinedOutput()
+	if err != nil {
+		t.Fatalf("slow-scan cache check failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "OK") {
+		t.Fatalf("unexpected helper output: %s", out)
+	}
+}
+
+// TestCodeFlowServer_EntrypointRedirect pins the redirect contract: only the
+// entrypoint with a repo param redirects, and every other param survives.
+func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	base := startShim(t, repoRoot, writeUIDir(t))
+	client := newNoRedirectClient()
+
+	resp, body := getStatus(t, client, base+"/?repo=local/workspace&run=1")
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("entrypoint status = %d, want 302\nbody: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/") || strings.Contains(loc, "://") {
+		t.Errorf("Location %q must be relative and start with /", loc)
+	}
+	u := mustURL(t, loc)
+	if u.Path != "/" {
+		t.Errorf("Location path = %q, want /", u.Path)
+	}
+	if !fpRepoRE.MatchString(u.Query().Get("repo")) {
+		t.Errorf("repo = %q, want ^local/workspace-[0-9a-f]{8}$", u.Query().Get("repo"))
+	}
+	if u.Query().Get("run") != "1" {
+		t.Errorf("run = %q, want 1", u.Query().Get("run"))
+	}
+
+	resp, _ = getStatus(t, client, base+"/index.html?repo=local/workspace")
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("/index.html status = %d, want 302", resp.StatusCode)
+	}
+	if p := mustURL(t, resp.Header.Get("Location")).Path; p != "/index.html" {
+		t.Errorf("/index.html Location path = %q, want /index.html", p)
+	}
+
+	resp, _ = getStatus(t, client, base+"/?repo=local/workspace&theme=dark&run=1")
+	q := mustURL(t, resp.Header.Get("Location")).Query()
+	if q.Get("theme") != "dark" || q.Get("run") != "1" {
+		t.Errorf("redirect dropped params: %v", q)
+	}
+
+	// URL-encoded repo decodes to the base and gains exactly one suffix.
+	resp, _ = getStatus(t, client, base+"/?repo=local%2Fworkspace")
+	if repo := mustURL(t, resp.Header.Get("Location")).Query().Get("repo"); !fpRepoRE.MatchString(repo) {
+		t.Errorf("encoded repo = %q, want fingerprinted", repo)
+	}
+
+	// CRLF in repo must not reach the header raw.
+	resp, _ = getStatus(t, client, base+"/index.html?repo=local%0d%0aworkspace")
+	if loc := resp.Header.Get("Location"); strings.ContainsAny(loc, "\r\n") {
+		t.Errorf("Location contains raw CRLF: %q", loc)
+	}
+
+	// No repo → plain 200 entrypoint.
+	if resp, _ := getStatus(t, client, base+"/"); resp.StatusCode != http.StatusOK {
+		t.Errorf("no-repo entrypoint status = %d, want 200", resp.StatusCode)
+	}
+
+	// Static assets and API paths never redirect.
+	if resp, _ := getStatus(t, client, base+"/assets/app.js?repo=local/workspace"); resp.StatusCode != http.StatusOK {
+		t.Errorf("/assets status = %d, want 200", resp.StatusCode)
+	}
+	if resp, _ := getStatus(t, client, base+"/api/repos/o/r?repo=local/workspace"); resp.StatusCode != http.StatusOK {
+		t.Errorf("repo API status = %d, want 200", resp.StatusCode)
+	}
+	resp, body = getStatus(t, client, base+"/api/repos/o/r/git/trees/main?repo=local/workspace")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("tree API status = %d, want 200", resp.StatusCode)
+	}
+	var tree struct {
+		Tree []map[string]json.RawMessage `json:"tree"`
+	}
+	if err := json.Unmarshal(body, &tree); err != nil {
+		t.Fatalf("tree JSON: %v\n%s", err, body)
+	}
+	for _, e := range tree.Tree {
+		for k := range e {
+			if k != "path" && k != "type" && k != "size" {
+				t.Errorf("tree blob has unexpected key %q: %v", k, e)
+			}
+		}
+	}
+}
+
+// TestCodeFlowServer_EntrypointRedirectIdempotent pins loop-freedom: the
+// redirected URL serves, and a stale/extra suffix resolves to a single current
+// fingerprint without double-suffixing.
+func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+	base := startShim(t, repoRoot, writeUIDir(t))
+	client := newNoRedirectClient()
+
+	resp, _ := getStatus(t, client, base+"/?repo=local/workspace&run=1")
+	loc := resp.Header.Get("Location")
+	fp := fpRepoRE.FindStringSubmatch(mustURL(t, loc).Query().Get("repo"))[1]
+
+	if r, _ := getStatus(t, client, base+loc); r.StatusCode != http.StatusOK {
+		t.Errorf("followed redirect status = %d, want 200", r.StatusCode)
+	}
+	if r, _ := getStatus(t, client, base+"/?repo=local/workspace-"+fp); r.StatusCode != http.StatusOK {
+		t.Errorf("current-fingerprint status = %d, want 200", r.StatusCode)
+	}
+
+	resp, _ = getStatus(t, client, base+"/?repo=local/workspace-deadbeef")
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("stale-fingerprint status = %d, want 302", resp.StatusCode)
+	}
+	if got := mustURL(t, resp.Header.Get("Location")).Query().Get("repo"); got != "local/workspace-"+fp {
+		t.Errorf("stale-fingerprint repo = %q, want local/workspace-%s", got, fp)
+	}
+
+	// Only the trailing -hex suffix is stripped from a longer base.
+	resp, _ = getStatus(t, client, base+"/?repo=local/my-repo-12345678")
+	got := mustURL(t, resp.Header.Get("Location")).Query().Get("repo")
+	if resp.StatusCode != http.StatusFound || got != "local/my-repo-"+fp {
+		t.Errorf("long-base repo = %q (status %d), want local/my-repo-%s", got, resp.StatusCode, fp)
+	}
+}
+
+// TestCodeFlowServer_FingerprintChange is the cache-identity behaviour: the
+// fingerprint tracks tracked blob content/mtime and ignores untracked edits.
+func TestCodeFlowServer_FingerprintChange(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v\n%s", err, out)
+	}
+	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
+	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
+	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
+	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
+
+	before := freshFingerprint(t, base)
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Fatalf("fingerprint changed with no edits: %s -> %s", before, after)
+	}
+
+	// Tracked file whose size changes.
+	before = freshFingerprint(t, base)
+	writeFile(t, repoRoot, "a.txt", "hello world\n")
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after == before {
+		t.Error("fingerprint unchanged after tracked size change")
+	}
+
+	// Tracked file rewritten same size, new mtime.
+	before = freshFingerprint(t, base)
+	writeFile(t, repoRoot, "a.txt", "HELLO WORLD\n") // same length as "hello world\n"
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(repoRoot, "a.txt"), future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after == before {
+		t.Error("fingerprint unchanged after same-size mtime change")
+	}
+
+	// Add then delete a tracked file.
+	before = freshFingerprint(t, base)
+	writeFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
+	waitPastTTL()
+	added := freshFingerprint(t, base)
+	if added == before {
+		t.Error("fingerprint unchanged after adding a tracked file")
+	}
+	if err := os.Remove(filepath.Join(repoRoot, "sub", "c.txt")); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint did not return to baseline after deleting the added file")
+	}
+
+	// Gitignored and EXCLUDE_DIRS edits are invisible.
+	before = freshFingerprint(t, base)
+	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "two\n")
+	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "two\n")
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint changed after editing ignored paths")
+	}
+}
+
+// TestCodeFlowServer_ConcurrentEntrypoints exercises the shared module-level
+// scan cache under ThreadingHTTPServer: every response is a valid 302/200 and
+// the captured log stays traceback-free.
+func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
+
+	var wg sync.WaitGroup
+	errs := make(chan string, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := newNoRedirectClient().Get(base + "/?repo=local/workspace&run=1")
+			if err != nil {
+				errs <- err.Error()
+				return
+			}
+			defer resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusOK {
+				errs <- fmt.Sprintf("status %d", resp.StatusCode)
+				return
+			}
+			if resp.StatusCode == http.StatusFound && resp.Header.Get("Location") == "" {
+				errs <- "302 without Location"
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
 	}
 }

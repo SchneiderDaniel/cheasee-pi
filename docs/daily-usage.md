@@ -126,8 +126,10 @@ CodeFlow:  http://localhost:8891/?repo=local/workspace&run=1
 
 Open the printed URL in the browser (the `repo` and `run` parameters trigger
 analysis of the mounted workspace `/workspaces/main` without further
-interaction; the `repo` value is arbitrary — the local shim ignores it and
-maps every API request to the mounted repository).
+interaction; the shim ignores the `repo` name and maps every API request to
+the mounted repository, but appends a short workspace-content fingerprint to
+it on the entrypoint redirect, so the browser re-analyzes when the workspace
+changes and reuses the cached result when it does not).
 
 To pin a port explicitly, set `docker.codeflowPort` in
 `cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
