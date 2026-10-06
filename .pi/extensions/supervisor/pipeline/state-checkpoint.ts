@@ -444,6 +444,12 @@ export function isAnyOtherPipelineLive(cwd: string, excludeIssueNum: number): bo
  *   JSON file, so it is only removed when `verifyRemovableWorktree` proves it
  *   is inside the worktree base *and* a registered linked worktree. A refused
  *   path logs a warning and leaves its state file for manual cleanup.
+ * - Already-gone worktree: when `state.worktreePath` no longer exists on disk,
+ *   the stale state file is dropped without an error and without running the
+ *   removal steps — this is checked *before* the removal guard because a locked
+ *   registration survives a missing directory (`git worktree prune` skips
+ *   locked entries), so the guard would otherwise pass and `git worktree remove`
+ *   would fail with "is not a working tree" on every run.
  * - Liveness guard: never cleans a checkpoint whose per-issue run lock is held
  *   by a DIFFERENT live process — with per-issue parallelism, run B's preflight
  *   must not prune run A's live worktree just because A's last checkpoint is
@@ -582,41 +588,49 @@ export async function cleanupStalePipelineState(
 			state.worktreePath,
 			config.defaultBranch,
 		);
+		// The worktree this stale state file names is already gone — cleanup
+		// finished but the state-file unlink never ran (the owning pipeline died
+		// between `git worktree remove` and the unlink, or the worktree was
+		// removed out-of-band). Nothing is left to clean, so this is not an
+		// error: the stale JSON is garbage and can be deleted instead of erroring
+		// on every later run. Safe — the liveness guard above already proved the
+		// owning pipeline dead, and the success path deletes this exact file
+		// anyway.
+		//
+		// Checked BEFORE the verification verdict, not inside its failure branch:
+		// a registration whose directory is gone still survives when it is locked
+		// (entrypoint.sh locks every worktree and `git worktree prune` skips locked
+		// entries), so the allowlist still lists the path, the guard passes, and
+		// `git worktree remove` then fails with "is not a working tree" — leaving
+		// the state file in place and erroring on every later run. A directory
+		// that still exists (unverifiable path, outside base, bare repo, ...)
+		// stays fail-closed: error + keep the file below.
+		if (!existsSync(state.worktreePath)) {
+			log.info("state-checkpoint", "Stale state file dropped — worktree already gone", {
+				issueNum: state.issueNum,
+				worktreePath: state.worktreePath,
+			});
+			notify.info(
+				`Stale state file for issue #${state.issueNum} removed — its worktree was already cleaned up`,
+			);
+			try {
+				if (existsSync(stateFile)) {
+					unlinkSync(stateFile);
+				}
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				log.warn("state-checkpoint", `Failed to delete stale state file: ${msg}`);
+				warnings.push(`state file delete failed: ${msg}`);
+			}
+			continue;
+		}
+
 		if (!verdict.ok) {
 			log.warn("state-checkpoint", "Skipping cleanup — unverified worktree path", {
 				issueNum: state.issueNum,
 				worktreePath: state.worktreePath,
 				reason: verdict.error,
 			});
-			// The worktree this stale state file names is already gone — cleanup
-			// finished but the state-file unlink never ran (the owning pipeline
-			// died between `git worktree remove` and the unlink, or the worktree
-			// was removed out-of-band). Nothing is left to clean, so this is not
-			// an error: the stale JSON is garbage and can be deleted instead of
-			// erroring on every later run. Safe — the liveness guard above
-			// already proved the owning pipeline dead, and the success path
-			// deletes this exact file anyway. A directory that still exists
-			// (unverifiable path, outside base, bare repo, ...) stays fail-closed:
-			// error + keep the file below.
-			if (!existsSync(state.worktreePath)) {
-				log.info("state-checkpoint", "Stale state file dropped — worktree already gone", {
-					issueNum: state.issueNum,
-					worktreePath: state.worktreePath,
-				});
-				notify.info(
-					`Stale state file for issue #${state.issueNum} removed — its worktree was already cleaned up`,
-				);
-				try {
-					if (existsSync(stateFile)) {
-						unlinkSync(stateFile);
-					}
-				} catch (err: unknown) {
-					const msg = err instanceof Error ? err.message : String(err);
-					log.warn("state-checkpoint", `Failed to delete stale state file: ${msg}`);
-					warnings.push(`state file delete failed: ${msg}`);
-				}
-				continue;
-			}
 			notify.error(
 				`Skipping stale worktree cleanup for issue #${state.issueNum}: ${verdict.error}. Remove ${stateFile} manually if it is stale.`,
 			);
