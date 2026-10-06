@@ -121,12 +121,16 @@ unbreak_worktrees
 
 # --- Pre-install Python venvs for web tools -------------------------
 # Copy pre-built venvs from /opt/venvs/ to .pi/ if missing (saves first-call
-# latency in web_search / web_crawl).
+# latency in web_search / web_crawl). Re-own the copy to agentuser: the baked
+# venvs are root-owned, and a root-owned tree inside the bind-mounted workspace
+# is read-only for agentuser and unremovable by the host user (breaks cleanup).
 for v in web-search-venv scrapling-venv; do
     [ -d "/opt/venvs/$v" ] && [ ! -d "/workspaces/main/.pi/$v" ] || continue
     echo "Pre-installing $v…"
     mkdir -p /workspaces/main/.pi
     cp -a "/opt/venvs/$v" "/workspaces/main/.pi/$v"
+    chown -R agentuser:agentuser "/workspaces/main/.pi/$v" 2>/dev/null \
+        || echo "Warning: could not re-own $v to agentuser (non-fatal)"
 done
 # Symlink Playwright browser cache so agentuser finds Chromium
 if [ -d /opt/playwright-browsers ]; then
