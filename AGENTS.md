@@ -13,5 +13,5 @@
 </system_directives>
 
 <CRITICAL_OVERRIDES>
-- THE MAIN BRANCH IS LOCKED. You are strictly forbidden from committing directly to main. Create a worktree, push and create PR. Merge only by user. Agent never merge.
+- THE MAIN BRANCH IS LOCKED. You are strictly forbidden from committing directly to main worktree. Also do not edit the main worktree. ALWAYS: Create a worktree, change, push and create PR. Merge only by user. Agent never merge.
 </CRITICAL_OVERRIDES>
