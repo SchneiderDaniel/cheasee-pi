@@ -11,10 +11,10 @@ Anything else returns 404 and CodeFlow degrades gracefully.
 
 The served index.html has its hardcoded 'https://api.github.com/' base rewritten
 to the relative './api/' at serve time, plus a set of byte rewrites (_UI_REWRITES)
-that raise the analysis size limits and reword the GitHub-specific dialogs, so the
-vendored checkout stays pristine and the UI speaks about local files instead of
-the GitHub API it only emulates. Both patches are silent no-ops if upstream
-renames the matched strings.
+that raise the analysis size limits, reword the GitHub-specific dialogs, and
+register .mts/.cts as TypeScript, so the vendored checkout stays pristine and
+the UI speaks about local files instead of the GitHub API it only emulates.
+Every patch is a silent no-op if upstream renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
   exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore"])
@@ -93,6 +93,26 @@ def _msg_re(*parts):
     return re.compile(r"\s*\+\s*".join(pat).encode())
 
 
+# TypeScript under NodeNext ESM/CJS resolution: the vendored analyzer lists only
+# .ts/.tsx in its three file-classification tables, so .mts/.cts files are
+# silently dropped before analysis. Declared once and spliced into all three.
+_TS_EXTS = (b"'.mts'", b"'.cts'")
+_TS_INS = b"," + b",".join(_TS_EXTS)
+
+
+def _ts_rewrite(anchor, tail=b""):
+    """(regex, replacement) inserting _TS_EXTS between `anchor` and `tail`.
+
+    `anchor` ends at a classification list's last known extension; the
+    extensions are spliced in directly after it. The negative lookahead keeps
+    the rule idempotent: once applied the anchor is followed by _TS_INS, so a
+    second pass cannot duplicate the extensions."""
+    return (
+        re.compile(re.escape(anchor + tail) + b"(?!" + re.escape(_TS_INS) + b")"),
+        anchor + _TS_INS + tail,
+    )
+
+
 _UI_REWRITES = (
     (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
     # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a
@@ -125,6 +145,14 @@ _UI_REWRITES = (
     ), b"'This workspace has '+files.length+' files.\\n\\n'+'Analyzing larger workspaces can take longer and use significant browser memory.\\n\\n'+'Tip: add exclude patterns to shrink the scan.'"),
     # Startup progress text: shown on every analysis; rate limits are fiction locally.
     (re.compile(re.escape(b"setProgress('Checking rate limit...')")), b"setProgress('Checking workspace...')"),
+    # File classification: .mts/.cts are TypeScript (NodeNext ESM/CJS), but the
+    # vendored analyzer knows only .ts/.tsx and drops them before analysis.
+    # Spliced in after the last known extension of each hardcoded list; the
+    # codeExts and TypeScript-grammar rules run before the acorn/babel one so
+    # its full-literal anchor cannot re-match the already-extended codeExts.
+    _ts_rewrite(b"codeExts:['.js','.jsx','.ts','.tsx'"),
+    _ts_rewrite(b"typescript:{grammar:'typescript',exts:['.ts'"),
+    _ts_rewrite(b"['.js','.jsx','.ts','.tsx'", b",'.mjs','.cjs','.vue','.svelte']"),
 )
 
 # .git appears both as a directory and (inside linked worktrees) as a pointer
