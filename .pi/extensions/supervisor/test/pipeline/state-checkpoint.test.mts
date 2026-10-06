@@ -670,6 +670,41 @@ describe("cleanupStalePipelineState — mock pi.exec (Phase 4)", () => {
 		);
 	});
 
+	it("stale state file naming a gone worktree that is still registered (locked phantom) → dropped, no error", async () => {
+		// Regression: entrypoint.sh locks every worktree registration and
+		// `git worktree prune` skips locked entries, so the admin state of a
+		// deleted worktree survives and `git worktree list` keeps listing it.
+		// The removal guard therefore still passes, `git worktree remove` then
+		// fails with "is not a working tree", and the state file was retained —
+		// erroring on every later supervisor run for an unrelated issue.
+		const wt = join(baseDir, "locked-phantom-worktree");
+		const statePath = writeStale(wt); // no mkdirSync — the dir is gone
+
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{
+					code: 0,
+					stdout: wtList(mainWt, { path: wt, branch: "refs/heads/stale-branch" }),
+					stderr: "",
+				}, // git worktree list --porcelain -z — still registered
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+
+		const result = await cleanupStalePipelineState(pi, cwd, mockConfig, notify);
+
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 1, "no worktree remove attempt for a missing directory");
+		assert.equal(existsSync(statePath), false, "stale state file dropped");
+		assert.equal(
+			notifyCalls.some((c) => c.level === "error"),
+			false,
+			"a gone worktree is not an error even while still registered",
+		);
+	});
+
 	it("main-worktree entry inside the base is never removed even when listed", async () => {
 		const mainWtInBase = join(baseDir, "main-checkout");
 		mkdirSync(mainWtInBase);
