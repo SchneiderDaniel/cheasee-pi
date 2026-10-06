@@ -37,6 +37,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -70,6 +71,88 @@ HOST = _CONFIG.get("host") or os.environ.get("HOST") or "0.0.0.0"
 
 # The single hardcoded API base inside index.html, rewritten to a same-origin path.
 _API_BASE = re.compile(rb"'https://api\.github\.com/'")
+
+# --- Browser report bridge -------------------------------------------------
+# CodeFlow's markdown export is built in the browser (generateReport('md')) and
+# triggers a Blob download; there is no server route. The bridge below hooks
+# URL.createObjectURL, captures the markdown Blob, and POSTs it back to
+# /api/analysis/report so pi can read the analysis over HTTP. It is injected
+# into the served index.html by a _UI_REWRITES entry (silent no-op if upstream
+# drops the </body> tag) and served from this in-process constant, so the
+# vendored checkout stays pristine.
+_BRIDGE_SCRIPT = b'<script src="codeflow-bridge.js" defer></script>'
+_BRIDGE_JS = b"""(function () {
+  "use strict";
+  if (window.__codeflowBridge) return;
+  window.__codeflowBridge = true;
+  var ENDPOINT = "/api/analysis/report";
+  var MARKER = "# CodeFlow Analysis Report";
+
+  function postReport(text) {
+    if (typeof text !== "string" || text.indexOf(MARKER) === -1) return;
+    try {
+      fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+        body: text,
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // Capture seam: every markdown export becomes a Blob and goes through
+  // URL.createObjectURL before download. Hook the browser global (not
+  // bundle-scoped symbols, which are minified and unreachable by name).
+  var originalCreateObjectURL = URL.createObjectURL;
+  URL.createObjectURL = function (obj) {
+    var url = originalCreateObjectURL.apply(this, arguments);
+    try {
+      if (obj && obj.type && obj.type.indexOf("markdown") !== -1 && typeof obj.text === "function") {
+        obj.text().then(postReport).catch(function () {});
+      }
+    } catch (e) {}
+    return url;
+  };
+
+  // Best-effort auto-trigger: the export control only exists once an analysis
+  // has completed. Click it, then its Markdown item; the createObjectURL hook
+  // captures the resulting Blob. Silent no-op when the DOM strings differ.
+  var fired = false;
+  function findByText(re) {
+    var nodes = document.querySelectorAll("button,a,li,[role=menuitem],[role=button]");
+    for (var i = 0; i < nodes.length; i++) {
+      var t = (nodes[i].textContent || "").trim();
+      if (re.test(t)) return nodes[i];
+    }
+    return null;
+  }
+  function autoTrigger() {
+    if (fired || !document.body) return;
+    var exportBtn = findByText(/^export/i);
+    if (!exportBtn) return;
+    fired = true;
+    try {
+      exportBtn.click();
+      setTimeout(function () {
+        var mdItem = findByText(/markdown/i);
+        if (mdItem) mdItem.click();
+        else fired = false;
+      }, 50);
+    } catch (e) {
+      fired = false;
+    }
+  }
+  setInterval(autoTrigger, 3000);
+})();
+"""
+
+# Single-slot store for the latest browser report. The handler runs under a
+# ThreadingHTTPServer, so both fields are guarded by one lock; readers copy the
+# pair atomically to avoid a torn (body, timestamp) read. No history: the
+# browser re-runs the analysis after a container restart.
+_MAX_REPORT_BYTES = 16 * 1024 * 1024
+_REPORT_LOCK = threading.Lock()
+_REPORT = None
+_REPORT_AT = 0
 
 # Rewrites applied to the served index.html. The vendored UI only knows the
 # GitHub API; these raise its analysis size limits (upstream guards exist
@@ -145,6 +228,9 @@ _UI_REWRITES = (
     ), b"'This workspace has '+files.length+' files.\\n\\n'+'Analyzing larger workspaces can take longer and use significant browser memory.\\n\\n'+'Tip: add exclude patterns to shrink the scan.'"),
     # Startup progress text: shown on every analysis; rate limits are fiction locally.
     (re.compile(re.escape(b"setProgress('Checking rate limit...')")), b"setProgress('Checking workspace...')"),
+    # Browser report bridge — injected just before the closing body tag. The
+    # real index.html has exactly one </body>. Silent no-op if upstream drops it.
+    (re.compile(re.escape(b"</body>")), _BRIDGE_SCRIPT + b"</body>"),
     # File classification: .mts/.cts are TypeScript (NodeNext ESM/CJS), but the
     # vendored analyzer knows only .ts/.tsx and drops them before analysis.
     # Spliced in after the last known extension of each hardcoded list; the
@@ -308,6 +394,14 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
+        # --- Browser bridge + report store --------------------------------
+        if path == "/codeflow-bridge.js":
+            self._serve_bytes(_BRIDGE_JS, "text/javascript; charset=utf-8")
+            return
+        if path == "/api/analysis/report":
+            self._serve_report()
+            return
+
         # --- Static UI -----------------------------------------------------
         if path in ("/", "/index.html"):
             if self._redirect_entrypoint(parsed):
@@ -318,6 +412,78 @@ class Handler(BaseHTTPRequestHandler):
             self._api(path)
             return
         self._serve_ui_file(path.lstrip("/"), patch_api_base=False)
+
+    def do_POST(self):  # noqa: N802
+        path = urllib.parse.urlparse(self.path).path
+        if path != "/api/analysis/report":
+            # Any body on an unknown path is left unread — close so keep-alive
+            # clients do not reuse a desynchronized connection.
+            self.close_connection = True
+            self._not_found()
+            return
+
+        raw_len = self.headers.get("Content-Length") or ""
+        try:
+            length = int(raw_len)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            self._error(411, "Length Required")
+            return
+        if length < 0:
+            self.close_connection = True
+            self._error(411, "Length Required")
+            return
+        if length == 0:
+            self._error(400, "Empty report body")
+            return
+        if length > _MAX_REPORT_BYTES:
+            # Do not read the body — reject on the declared length alone.
+            self.close_connection = True
+            self._error(413, "Report too large")
+            return
+
+        body = self.rfile.read(length)
+        if len(body) != length:
+            self.close_connection = True
+            self._error(400, "Incomplete report body")
+            return
+
+        global _REPORT, _REPORT_AT
+        with _REPORT_LOCK:
+            _REPORT = body
+            _REPORT_AT = int(time.time() * 1000)
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _serve_bytes(self, body, content_type):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_report(self):
+        with _REPORT_LOCK:
+            body = _REPORT
+            at = _REPORT_AT
+        if body is None:
+            self._not_found()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/markdown; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Codeflow-Analysis-At", str(at))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _error(self, status, message):
+        body = json.dumps({"message": message}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_ui_file(self, rel, patch_api_base):
         target = os.path.realpath(os.path.join(UI_DIR, rel))
