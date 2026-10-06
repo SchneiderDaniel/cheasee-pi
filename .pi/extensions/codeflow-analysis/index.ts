@@ -19,12 +19,13 @@
  *   resetReportCache     — clear the session cache
  */
 
-import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { closeSync, constants, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { codeflowServiceUrl } from "../lib/codeflow-endpoint.ts";
-import { resolveWithinRoot } from "../lib/path-containment.ts";
+import { isPathWithinBase, resolveWithinRoot } from "../lib/path-containment.ts";
 
 /** Markdown artifact path, relative to the session cwd (gitignored). */
 export const REPORT_REL_PATH = "ignore/codeflow-report.md";
@@ -45,7 +46,27 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 type WriteFileFn = (path: string, data: Uint8Array) => void;
 
 const defaultFetch: FetchFn = (url, init) => fetch(url, init);
-const defaultWriteFile: WriteFileFn = (path, data) => writeFileSync(path, data);
+
+/**
+ * `O_CREAT|O_EXCL`: fail rather than open an existing path (so a pre-planted
+ * symlink at the temp path can never be followed). `O_NOFOLLOW` is belt and
+ * braces for the same component.
+ */
+const EXCLUSIVE_WRITE_FLAGS =
+	constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW;
+
+const defaultWriteFile: WriteFileFn = (path, data) => {
+	const fd = openSync(path, EXCLUSIVE_WRITE_FLAGS, 0o600);
+	try {
+		for (let offset = 0; offset < data.length; ) {
+			const n = writeSync(fd, data, offset, data.length - offset);
+			if (n <= 0) throw new Error(`Short write to ${path} (${offset}/${data.length} bytes)`);
+			offset += n;
+		}
+	} finally {
+		closeSync(fd);
+	}
+};
 
 let fetchFn: FetchFn = defaultFetch;
 let writeFileFn: WriteFileFn = defaultWriteFile;
@@ -76,11 +97,31 @@ export function parseAnalyzedAt(raw: string | null | undefined): number | null {
 }
 
 /**
- * Write bytes via a temp file + rename, removing the temp on failure so a
- * crashed write never leaves `*.tmp` next to the report.
+ * Fail closed when the on-disk parent directory resolves (through symlinks)
+ * outside `cwd`. The lexical `resolveWithinRoot` check runs first, but a
+ * symlinked `ignore` directory defeats it — this resolves the real path after
+ * the directory exists on disk.
  */
-function writeAtomically(target: string, data: Uint8Array): void {
-	const tmp = `${target}.tmp`;
+function assertRealDirWithinRoot(cwd: string, dir: string): void {
+	if (!isPathWithinBase(realpathSync(dir), realpathSync(cwd))) {
+		throw new Error(
+			`Refusing to write report: "${dir}" resolves outside the project root (symlink escape).`,
+		);
+	}
+}
+
+/**
+ * Write bytes via a uniquely-named temp file + rename. The temp name is
+ * randomized so it can never be pre-planted, and it is created exclusively with
+ * no-follow semantics (see `EXCLUSIVE_WRITE_FLAGS`); the parent directory is
+ * verified against the real workspace path after creation. The temp is removed
+ * on failure so a crashed write never leaves `*.tmp` next to the report.
+ */
+function writeAtomically(cwd: string, target: string, data: Uint8Array): void {
+	const dir = dirname(target);
+	mkdirSync(dir, { recursive: true });
+	assertRealDirWithinRoot(cwd, dir);
+	const tmp = `${target}.${randomUUID()}.tmp`;
 	try {
 		writeFileFn(tmp, data);
 		renameSync(tmp, target);
@@ -142,8 +183,7 @@ export async function fetchAndStoreReport(opts: {
 	const analyzedAt = parseAnalyzedAt(resp.headers.get("X-Codeflow-Analysis-At"));
 
 	const target = resolveWithinRoot(opts.cwd, REPORT_REL_PATH);
-	mkdirSync(dirname(target), { recursive: true });
-	writeAtomically(target, bytes);
+	writeAtomically(opts.cwd, target, bytes);
 
 	const warnings: string[] = [];
 	let jsonPath: string | null = null;
@@ -152,7 +192,7 @@ export async function fetchAndStoreReport(opts: {
 		if (jsonResp.ok) {
 			const jsonBytes = new Uint8Array(await jsonResp.arrayBuffer());
 			const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
-			writeAtomically(jsonTarget, jsonBytes);
+			writeAtomically(opts.cwd, jsonTarget, jsonBytes);
 			jsonPath = jsonTarget;
 		} else if (jsonResp.status !== 404) {
 			warnings.push(

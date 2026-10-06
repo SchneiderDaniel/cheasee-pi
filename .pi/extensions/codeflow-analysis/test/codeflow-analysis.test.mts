@@ -14,7 +14,7 @@ import assert from "node:assert";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -262,6 +262,44 @@ describe("transport + artifact", () => {
 		await assert.rejects(() => fetchAndStoreReport({ cwd }), /disk full/);
 		assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), "OLD");
 		assert.deepStrictEqual(tmpFiles(), []);
+	});
+
+	it("refuses to write when ignore/ is a symlink escaping the workspace", async (t) => {
+		const s = await shim({ status: 200, body: "EVIL" });
+		routeTo(s);
+		const outside = mkdtempSync(join(tmpdir(), "codeflow-outside-"));
+		try {
+			symlinkSync(outside, join(cwd, "ignore"), "dir");
+		} catch {
+			return t.skip("symlinks not supported on this platform");
+		}
+		await assert.rejects(
+			() => fetchAndStoreReport({ cwd, refresh: true }),
+			/symlink escape/,
+		);
+		assert.ok(
+			!existsSync(join(outside, "codeflow-report.md")),
+			"must not write through the symlinked ignore directory",
+		);
+	});
+
+	it("replaces a symlinked report path instead of following it", async (t) => {
+		const s = await shim({ status: 200, body: "SAFE" });
+		routeTo(s);
+		const outside = mkdtempSync(join(tmpdir(), "codeflow-target-"));
+		const victim = join(outside, "victim.txt");
+		writeFileSync(victim, "UNTOUCHED");
+		mkdirSync(join(cwd, "ignore"), { recursive: true });
+		try {
+			symlinkSync(victim, REPORT_PATH(), "file");
+		} catch {
+			return t.skip("symlinks not supported on this platform");
+		}
+		const outcome = await fetchAndStoreReport({ cwd, refresh: true });
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(readFileSync(victim, "utf-8"), "UNTOUCHED");
+		assert.ok(!lstatSync(REPORT_PATH()).isSymbolicLink(), "symlink must be replaced by a regular file");
+		assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), "SAFE");
 	});
 
 	it("reports analyzedAt null for a missing or malformed header", async () => {
