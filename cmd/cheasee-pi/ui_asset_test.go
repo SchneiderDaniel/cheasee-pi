@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -236,6 +237,33 @@ func TestUI_DockerfileBuildWiring(t *testing.T) {
 	}
 	if strings.Contains(df, "wget") {
 		t.Error("ui/Dockerfile must not mention wget (curl is the probe binary)")
+	}
+}
+
+// TestUI_DockerfileWasmOptNotDistroBinaryen guards the hydration blocker:
+// Debian bookworm's apt binaryen is version 108, whose wasm-opt rewrites
+// wasm-bindgen's `__wbindgen_externrefs` export onto the wrong table
+// (WebAssembly/binaryen#4736). The funcref table it points at has max == min,
+// so `table.grow(4)` at startup throws and the wasm never hydrates — the page
+// renders but every button is dead and the session list stays empty. The
+// builder must pin a binaryen release >= 110 instead of the distro package.
+var binaryenReleasePattern = regexp.MustCompile(`binaryen-version_(\d+)`)
+
+func TestUI_DockerfileWasmOptNotDistroBinaryen(t *testing.T) {
+	df := uiAsset(t, "Dockerfile")
+	if strings.Contains(df, "install -y --no-install-recommends binaryen") {
+		t.Error("ui/Dockerfile must not apt-install binaryen (bookworm ships 108, which breaks wasm-bindgen hydration)")
+	}
+	m := binaryenReleasePattern.FindStringSubmatch(df)
+	if m == nil {
+		t.Fatal("ui/Dockerfile must download a pinned binaryen release for wasm-opt")
+	}
+	version, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("binaryen release version %q is not an integer", m[1])
+	}
+	if version < 110 {
+		t.Errorf("ui/Dockerfile pins binaryen %d; wasm-opt >= 110 is required (WebAssembly/binaryen#4736)", version)
 	}
 }
 
