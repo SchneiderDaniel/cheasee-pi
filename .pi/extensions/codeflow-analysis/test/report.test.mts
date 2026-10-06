@@ -118,6 +118,20 @@ describe("parseReportJson (captured JSON fixture)", () => {
 		assert.deepStrictEqual(sec[0].files, ["src/config.ts"]);
 	});
 
+	it("extracts design patterns and anti-patterns from the structured patterns field", () => {
+		// The markdown parser reads the Design Patterns / Anti-Patterns headings;
+		// the JSON parser must carry the same categories or they vanish whenever
+		// the structured artifact is present (parseBestReport prefers JSON).
+		assert.deepStrictEqual(
+			byKind(facts, "pattern").map((p) => [p.title, p.files]),
+			[["Singleton", ["src/registry.ts"]]],
+		);
+		assert.deepStrictEqual(
+			byKind(facts, "anti-pattern").map((p) => [p.title, p.files]),
+			[["God Object", ["src/god.ts"]]],
+		);
+	});
+
 	it("returns empty for empty, malformed, or non-object JSON without throwing", () => {
 		assert.deepStrictEqual(parseReportJson(""), []);
 		assert.deepStrictEqual(parseReportJson("not json"), []);
@@ -132,6 +146,10 @@ describe("parseBestReport", () => {
 		const best = parseBestReport(FIXTURE, FIXTURE_JSON);
 		assert.ok(best.some((f) => f.kind === "duplicate"), "JSON-only duplicate category missing");
 		assert.ok(best.some((f) => f.kind === "layer-violation"));
+		// Pattern categories live in both formats; the JSON branch must not drop
+		// them when it wins.
+		assert.ok(best.some((f) => f.kind === "pattern"), "JSON design patterns missing");
+		assert.ok(best.some((f) => f.kind === "anti-pattern"), "JSON anti-patterns missing");
 	});
 
 	it("falls back to markdown when JSON is absent or unusable", () => {

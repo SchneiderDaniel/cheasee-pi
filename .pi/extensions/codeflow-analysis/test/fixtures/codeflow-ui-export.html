@@ -1,0 +1,19 @@
+<!--
+  CodeFlow export-control DOM contract - generated, do not hand-edit.
+
+  Captured from the real served UI by generate-ui-fixture.mjs:
+    CODEFLOW_UI=/tmp/cf_index.html
+    at 2026-10-06T21:53:04.849Z
+
+  bridge.test.mts drives the bridge against exactly this markup, so a
+  relabelled export button or menu item fails the suite instead of leaving
+  the report endpoints empty after analysis.
+-->
+<div class="topbar-actions">
+  <button class="top-btn" aria-label="Export analysis" title="Export analysis">Export</button>
+</div>
+<div class="export-options">
+  <div class="export-option" data-report-format="json"><div class="export-option-icon"></div><div class="export-option-label">JSON Report</div></div>
+  <div class="export-option" data-report-format="md"><div class="export-option-icon"></div><div class="export-option-label">Markdown</div></div>
+  <div class="export-option" data-report-format="txt"><div class="export-option-icon"></div><div class="export-option-label">Plain Text</div></div>
+</div>

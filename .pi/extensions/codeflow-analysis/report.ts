@@ -10,8 +10,8 @@
  *     so those categories are only available from the JSON export below.
  *   - JSON (`generateReport('json')`) — the authoritative structured report;
  *     `architectureIssues[].affectedFiles`, `duplicates[].files`,
- *     `layerViolations[]`, `suggestions[]`, `unusedFunctions[]` and
- *     `securityIssues[]`.
+ *     `layerViolations[]`, `suggestions[]`, `unusedFunctions[]`,
+ *     `securityIssues[]` and `patterns[]` (design vs anti-pattern).
  *
  * Both parsers are defensive: the format is owned by the vendored UI and may
  * change, so unknown/absent sections yield no facts and truncated input never
@@ -194,6 +194,18 @@ export function parseReportJson(text: string): IssueFact[] {
 		addFiles(files, [sec.path]);
 		const sev = String(sec.severity ?? "").toUpperCase();
 		push("security", `${sev}: ${String(sec.title ?? "").trim()}`.trim(), files);
+	}
+	// Design patterns and anti-patterns. The markdown exporter emits these too,
+	// so the JSON source must carry them as well or they are dropped whenever the
+	// structured artifact is present (parseBestReport prefers JSON).
+	for (const pat of Array.isArray(r.patterns) ? r.patterns : []) {
+		const p = pat as Record<string, unknown>;
+		const files: string[] = [];
+		addFiles(files, p.files);
+		for (const f of Array.isArray(p.fileDetails) ? p.fileDetails : []) {
+			addFiles(files, [(f as Record<string, unknown>)?.path]);
+		}
+		push(p.isAntiPattern === true ? "anti-pattern" : "pattern", String(p.name ?? "").trim(), files);
 	}
 	return facts;
 }
