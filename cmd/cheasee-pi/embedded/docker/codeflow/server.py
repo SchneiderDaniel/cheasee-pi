@@ -99,14 +99,49 @@ _BRIDGE_JS = br"""(function () {
   var MD_MARKER = "# CodeFlow Analysis Report";
   var JSON_MARKER = '"architectureIssues"';
 
+  // Surface upload failures (413 oversize, 5xx, network) instead of swallowing
+  // them: a failed POST leaves the endpoint empty, and pi would then only say
+  // "no analysis yet" as if the browser had never run one. The banner stays
+  // until a later upload succeeds.
+  function reportError(message) {
+    try { console.error("[codeflow-bridge] " + message); } catch (e) {}
+    try { window.__codeflowBridgeError = message; } catch (e) {}
+    try {
+      if (!document.body) return;
+      var el = document.getElementById("codeflow-bridge-error");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "codeflow-bridge-error";
+        el.style.cssText =
+          "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#7f1d1d;" +
+          "color:#fff;font:12px/1.5 monospace;padding:8px 12px;white-space:pre-wrap";
+        document.body.appendChild(el);
+      }
+      el.textContent = "CodeFlow report upload failed: " + message;
+    } catch (e) {}
+  }
+
   function post(url, text) {
     try {
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: text,
-      }).catch(function () {});
-    } catch (e) {}
+      }).then(function (res) {
+        if (!res.ok) {
+          reportError(
+            url + " -> HTTP " + res.status +
+            (res.status === 413 ? " (report exceeds the 16 MiB limit)" : "")
+          );
+        } else {
+          try { window.__codeflowBridgeError = null; } catch (e) {}
+        }
+      }).catch(function (err) {
+        reportError(url + " unreachable: " + ((err && err.message) || err));
+      });
+    } catch (e) {
+      reportError(url + " failed: " + ((e && e.message) || e));
+    }
   }
 
   function capture(text) {

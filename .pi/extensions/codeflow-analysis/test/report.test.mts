@@ -150,6 +150,33 @@ describe("parseReportJson (captured JSON fixture)", () => {
 		assert.deepStrictEqual(parseReportJson("null"), []);
 		assert.deepStrictEqual(parseReportJson('{"architectureIssues": "nope"}'), []);
 	});
+
+	it("skips null and non-object array entries without aborting the parse", () => {
+		// A malformed/changed report must not throw: one bad entry previously
+		// aborted the whole extraction (`affectedFiles` read off null).
+		assert.deepStrictEqual(parseReportJson('{"architectureIssues":[null]}'), []);
+		const json = JSON.stringify({
+			architectureIssues: [
+				null,
+				42,
+				{ title: "ok", affectedFiles: ["a.ts"], affectedItems: [null, "x", { file: "b.ts" }] },
+			],
+			duplicates: [null, { name: "d", files: [null, { file: "d.ts" }] }],
+			layerViolations: [null],
+			suggestions: [null],
+			unusedFunctions: [null],
+			securityIssues: [null],
+			patterns: [null, { name: "p", files: ["p.ts"], fileDetails: [null, { path: "pd.ts" }] }],
+		});
+		const facts = parseReportJson(json);
+		assert.deepStrictEqual(byKind(facts, "architecture").map((f) => f.files), [["a.ts", "b.ts"]]);
+		assert.deepStrictEqual(byKind(facts, "duplicate").map((f) => f.files), [["d.ts"]]);
+		assert.deepStrictEqual(byKind(facts, "pattern")[0].files, ["p.ts", "pd.ts"]);
+		assert.deepStrictEqual(byKind(facts, "layer-violation"), []);
+		assert.deepStrictEqual(byKind(facts, "suggestion"), []);
+		assert.deepStrictEqual(byKind(facts, "dead-code"), []);
+		assert.deepStrictEqual(byKind(facts, "security"), []);
+	});
 });
 
 describe("parseBestReport", () => {

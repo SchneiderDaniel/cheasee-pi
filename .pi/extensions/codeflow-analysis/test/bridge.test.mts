@@ -110,6 +110,9 @@ class FakeNode {
 	attrs: Record<string, string>;
 	classes: Set<string>;
 	onclick: (() => void) | null;
+	id = "";
+	style: { cssText: string } = { cssText: "" };
+	children: FakeNode[] = [];
 
 	constructor(
 		tag: string,
@@ -126,6 +129,9 @@ class FakeNode {
 	}
 	click(): void {
 		this.onclick?.();
+	}
+	appendChild(child: FakeNode): void {
+		this.children.push(child);
 	}
 }
 
@@ -145,6 +151,8 @@ interface Post {
 interface Harness {
 	posts: Post[];
 	sandbox: any;
+	/** The bridge's visible error banner, or null when no failure was shown. */
+	errorBanner(): FakeNode | null;
 	/** Run one poll tick of the bridge's auto-trigger interval. */
 	tick(): void;
 	/** Flush queued setTimeouts and settle the async capture microtasks. */
@@ -162,6 +170,7 @@ async function runAutoTrigger(h: Harness, ticks = 4): Promise<void> {
 function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Harness {
 	const posts: Post[] = [];
 	const timeouts: Array<() => void> = [];
+	const byId = new Map<string, FakeNode>();
 	let intervalCb: (() => void) | null = null;
 	let menuOpen = false;
 
@@ -189,7 +198,13 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 	const sandbox: any = {
 		window: {},
 		document: {
-			body: {},
+			body: {
+				appendChild: (node: FakeNode) => {
+					if (node.id) byId.set(node.id, node);
+				},
+			},
+			createElement: (tag: string) => new FakeNode(tag),
+			getElementById: (id: string) => byId.get(id) ?? null,
 			querySelectorAll: (selector: string) => {
 				const nodes: FakeNode[] = [];
 				if (opts.withExportButton !== false && selector.includes("button")) nodes.push(exportButton);
@@ -219,6 +234,7 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 	return {
 		posts,
 		sandbox,
+		errorBanner: () => byId.get("codeflow-bridge-error") ?? null,
 		tick: () => intervalCb?.(),
 		flushTimeouts: async () => {
 			for (const cb of timeouts.splice(0)) cb();
@@ -237,7 +253,7 @@ interface Sink {
 	close(): Promise<void>;
 }
 
-function startSink(): Promise<Sink> {
+function startSink(opts: { postStatus?: number } = {}): Promise<Sink> {
 	const store = new Map<string, { body: string; at: number }>();
 	const server = createServer((req, res) => {
 		const route = (req.url ?? "").split("?")[0];
@@ -251,6 +267,11 @@ function startSink(): Promise<Sink> {
 			const chunks: Buffer[] = [];
 			req.on("data", (c) => chunks.push(c));
 			req.on("end", () => {
+				if (opts.postStatus) {
+					res.statusCode = opts.postStatus;
+					res.end();
+					return;
+				}
 				store.set(route, { body: Buffer.concat(chunks).toString("utf-8"), at: Date.now() });
 				res.statusCode = 204;
 				res.end();
@@ -365,7 +386,41 @@ describe("codeflow bridge capture", () => {
 		await runAutoTrigger(h);
 		assert.deepStrictEqual(h.posts, []);
 	});
+
+	it("surfaces a non-2xx POST (413 oversize) instead of swallowing it", async () => {
+		// Without this the endpoint stays empty and pi only reports "no analysis
+		// yet", so the operator re-runs an analysis that keeps failing.
+		const failing = await startSink({ postStatus: 413 });
+		try {
+			const h = runBridge(failing.base);
+			await runAutoTrigger(h);
+			await waitFor(() => h.errorBanner() !== null, "error banner");
+			const text = String(h.errorBanner()?.textContent ?? "");
+			assert.match(text, /HTTP 413/);
+			assert.match(text, /16 MiB/, "413 must name the size cap");
+			assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /HTTP 413/);
+		} finally {
+			await failing.close();
+		}
+	});
+
+	it("surfaces a network failure (unreachable endpoint)", async () => {
+		// Port 1 is unbound: fetch rejects with a connection error.
+		const h = runBridge("http://127.0.0.1:1");
+		await runAutoTrigger(h);
+		await waitFor(() => h.errorBanner() !== null, "error banner");
+		assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /unreachable/);
+	});
 });
+
+/** Poll until `pred()` is truthy, or throw after a timeout (host-realm timer). */
+async function waitFor(pred: () => boolean, what: string): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (!pred()) {
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((r) => setTimeout(r, 20));
+	}
+}
 
 /** Poll the sink until both report routes have received a POST (the network
  * delivery lags the synchronous in-sandbox fetch call). */

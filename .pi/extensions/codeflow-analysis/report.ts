@@ -135,6 +135,17 @@ function addFiles(target: string[], values: unknown): void {
 	}
 }
 
+/**
+ * Narrow an unknown value to a plain object, or null for primitives, arrays and
+ * null. Report arrays are attacker/format-controlled, so every entry must pass
+ * this before its fields are read (`[null]` must not abort the whole parse).
+ */
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
 /** Build a fact list from the structured JSON report. Defensive per array. */
 export function parseReportJson(text: string): IssueFact[] {
 	let root: unknown;
@@ -155,7 +166,8 @@ export function parseReportJson(text: string): IssueFact[] {
 	};
 
 	for (const issue of Array.isArray(r.architectureIssues) ? r.architectureIssues : []) {
-		const i = issue as Record<string, unknown>;
+		const i = asRecord(issue);
+		if (!i) continue;
 		const files: string[] = [];
 		// affectedFiles is the generator's flattened `x.file || x.name`.
 		addFiles(files, i.affectedFiles);
@@ -164,40 +176,47 @@ export function parseReportJson(text: string): IssueFact[] {
 		// endpoints of every affected item or the target file is missing from
 		// the file-conflict graph (an issue touching it would group separately).
 		for (const item of Array.isArray(i.affectedItems) ? i.affectedItems : []) {
-			const a = item as Record<string, unknown>;
+			const a = asRecord(item);
+			if (!a) continue;
 			addFiles(files, [a.file, a.toFile]);
 		}
 		push("architecture", String(i.title ?? "").trim(), files);
 	}
 	for (const dup of Array.isArray(r.duplicates) ? r.duplicates : []) {
-		const d = dup as Record<string, unknown>;
+		const d = asRecord(dup);
+		if (!d) continue;
 		const files: string[] = [];
 		for (const f of Array.isArray(d.files) ? d.files : []) {
-			addFiles(files, [(f as Record<string, unknown>)?.file]);
+			addFiles(files, [asRecord(f)?.file]);
 		}
 		const label = d.type === "code" ? "Similar Code" : "Same Name";
 		push("duplicate", `${label}: ${String(d.name ?? "").trim()}`, files);
 	}
 	for (const v of Array.isArray(r.layerViolations) ? r.layerViolations : []) {
-		const lv = v as Record<string, unknown>;
+		const lv = asRecord(v);
+		if (!lv) continue;
 		const files: string[] = [];
 		addFiles(files, [lv.from, lv.to]);
 		const edge = `${String(lv.fromLayer ?? "")} → ${String(lv.toLayer ?? "")}`.trim();
 		push("layer-violation", edge, files);
 	}
 	for (const s of Array.isArray(r.suggestions) ? r.suggestions : []) {
+		const suggestion = asRecord(s);
+		if (!suggestion) continue;
 		// Suggestions are derived targets with no file of their own; kept so the
 		// skill can still surface them, grouped in isolation.
-		push("suggestion", String((s as Record<string, unknown>)?.title ?? "").trim(), []);
+		push("suggestion", String(suggestion.title ?? "").trim(), []);
 	}
 	for (const fn of Array.isArray(r.unusedFunctions) ? r.unusedFunctions : []) {
-		const f = fn as Record<string, unknown>;
+		const f = asRecord(fn);
+		if (!f) continue;
 		const files: string[] = [];
 		addFiles(files, [f.file]);
 		push("dead-code", `${String(f.name ?? "").trim()}()`, files);
 	}
 	for (const s of Array.isArray(r.securityIssues) ? r.securityIssues : []) {
-		const sec = s as Record<string, unknown>;
+		const sec = asRecord(s);
+		if (!sec) continue;
 		const files: string[] = [];
 		addFiles(files, [sec.path]);
 		const sev = String(sec.severity ?? "").toUpperCase();
@@ -207,11 +226,12 @@ export function parseReportJson(text: string): IssueFact[] {
 	// so the JSON source must carry them as well or they are dropped whenever the
 	// structured artifact is present (parseBestReport prefers JSON).
 	for (const pat of Array.isArray(r.patterns) ? r.patterns : []) {
-		const p = pat as Record<string, unknown>;
+		const p = asRecord(pat);
+		if (!p) continue;
 		const files: string[] = [];
 		addFiles(files, p.files);
 		for (const f of Array.isArray(p.fileDetails) ? p.fileDetails : []) {
-			addFiles(files, [(f as Record<string, unknown>)?.path]);
+			addFiles(files, [asRecord(f)?.path]);
 		}
 		push(p.isAntiPattern === true ? "anti-pattern" : "pattern", String(p.name ?? "").trim(), files);
 	}

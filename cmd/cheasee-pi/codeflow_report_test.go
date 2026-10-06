@@ -488,7 +488,7 @@ func TestCodeFlowServer_Bridge(t *testing.T) {
 		if ct := hdr.Get("Content-Type"); !strings.Contains(ct, "javascript") {
 			t.Errorf("Content-Type = %q, want javascript", ct)
 		}
-		for _, want := range []string{"/api/analysis/report", "/api/analysis/report.json", "createObjectURL", "aria-label", "export-option"} {
+		for _, want := range []string{"/api/analysis/report", "/api/analysis/report.json", "createObjectURL", "aria-label", "export-option", "reportError", "unreachable", "codeflow-bridge-error"} {
 			if !strings.Contains(string(body), want) {
 				t.Errorf("bridge js missing %q", want)
 			}
