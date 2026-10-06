@@ -12,8 +12,10 @@
  *   CODEFLOW_UI=/path/to/codeflow/index.html node generate-report-fixtures.mjs
  *
  * Source captured from https://github.com/braedonsaunders/codeflow at
- * commit b0e82d127fc4990f571ebc6da6c5d9af2591aaa1 (the Dockerfile clones HEAD,
- * un-pinned; re-run this script when the fixture drifts from the served UI).
+ * commit b0e82d127fc4990f571ebc6da6c5d9af2591aaa1 — the revision pinned by
+ * `ARG CODEFLOW_REF` in the Dockerfile. Re-run this script from that checkout
+ * when the pin moves; bridge.test.mts asserts the pin matches the captured
+ * fixture revision.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

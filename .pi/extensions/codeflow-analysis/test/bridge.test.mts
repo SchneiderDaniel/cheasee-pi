@@ -38,6 +38,22 @@ const MD_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf
 const JSON_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.json"), "utf-8");
 const UI_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-ui-export.html"), "utf-8");
 
+// The served-UI revision the fixture was captured from and the revision the
+// Dockerfile actually builds. They must match: the bridge finds the export
+// control by DOM contract only, so a floating upstream checkout would let the
+// served UI drift from the fixture (and these tests) silently.
+const DOCKERFILE = resolve(
+	import.meta.dirname,
+	"..",
+	"..",
+	"..",
+	"..",
+	"cmd/cheasee-pi/embedded/docker/codeflow/Dockerfile",
+);
+const FIXTURE_REVISION = /CodeFlow revision:\s*([0-9a-f]{40})/.exec(UI_FIXTURE)?.[1] ?? null;
+const DOCKERFILE_REVISION =
+	/CODEFLOW_REF=([0-9a-f]{40})/.exec(readFileSync(DOCKERFILE, "utf-8"))?.[1] ?? null;
+
 /** The report routes the bridge POSTs to (mirrors server.py). */
 const REPORT_ROUTES: Record<string, string> = {
 	"/api/analysis/report": "text/markdown; charset=utf-8",
@@ -276,6 +292,23 @@ describe("codeflow bridge capture", () => {
 
 	it("is valid JavaScript", () => {
 		assert.doesNotThrow(() => new vm.Script(BRIDGE_JS));
+	});
+
+	it("Dockerfile pins CodeFlow to the revision the UI fixture was captured from", () => {
+		// The served UI (Dockerfile ARG CODEFLOW_REF) and the fixture must never
+		// drift apart. Moving the pin means regenerating the fixture from that
+		// checkout (generate-ui-fixture.mjs), or the bridge tests below would
+		// assert against markup the container no longer serves.
+		assert.match(
+			DOCKERFILE_REVISION ?? "",
+			/^[0-9a-f]{40}$/,
+			"Dockerfile must pin the served UI with `ARG CODEFLOW_REF=<40-hex sha>`",
+		);
+		assert.strictEqual(
+			DOCKERFILE_REVISION,
+			FIXTURE_REVISION,
+			"the served revision (Dockerfile ARG CODEFLOW_REF) must equal the revision codeflow-ui-export.html was captured from; regenerate the fixture when moving the pin",
+		);
 	});
 
 	it("served-UI fixture still matches the contract the bridge relies on", () => {

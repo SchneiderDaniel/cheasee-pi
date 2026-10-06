@@ -159,6 +159,14 @@ export function parseReportJson(text: string): IssueFact[] {
 		const files: string[] = [];
 		// affectedFiles is the generator's flattened `x.file || x.name`.
 		addFiles(files, i.affectedFiles);
+		// The generator drops `toFile` when flattening affectedFiles, but a
+		// layer-violation item carries the imported target there. Include both
+		// endpoints of every affected item or the target file is missing from
+		// the file-conflict graph (an issue touching it would group separately).
+		for (const item of Array.isArray(i.affectedItems) ? i.affectedItems : []) {
+			const a = item as Record<string, unknown>;
+			addFiles(files, [a.file, a.toFile]);
+		}
 		push("architecture", String(i.title ?? "").trim(), files);
 	}
 	for (const dup of Array.isArray(r.duplicates) ? r.duplicates : []) {

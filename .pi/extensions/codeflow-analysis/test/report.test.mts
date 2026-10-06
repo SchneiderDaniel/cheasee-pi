@@ -77,16 +77,27 @@ describe("parseReport (captured markdown fixture)", () => {
 describe("parseReportJson (captured JSON fixture)", () => {
 	const facts = parseReportJson(FIXTURE_JSON);
 
-	it("extracts architecture issues from affectedFiles, including the layer-violation issue", () => {
+	it("extracts architecture issues from affectedFiles and affectedItems, including the layer-violation target", () => {
 		const arch = byKind(facts, "architecture");
 		assert.deepStrictEqual(
 			arch.map((a) => a.files),
 			[
 				["src/parser/ast.ts", "src/ui/render.ts"],
-				["src/domain/b.ts"],
+				// `src/ui/c.ts` is only reachable via affectedItems[].toFile — the
+				// generator omits it from the flattened affectedFiles.
+				["src/domain/b.ts", "src/ui/c.ts"],
 				["src/cycle/a.ts", "src/cycle/b.ts"],
 			],
 		);
+	});
+
+	it("includes affectedItems[].toFile so layer-violation targets join the conflict graph", () => {
+		const json = JSON.stringify({
+			architectureIssues: [
+				{ title: "Target only", affectedFiles: ["src/a.ts"], affectedItems: [{ file: "src/a.ts", toFile: "src/target.ts" }] },
+			],
+		});
+		assert.deepStrictEqual(parseReportJson(json)[0].files, ["src/a.ts", "src/target.ts"]);
 	});
 
 	it("extracts duplicates with their file list", () => {

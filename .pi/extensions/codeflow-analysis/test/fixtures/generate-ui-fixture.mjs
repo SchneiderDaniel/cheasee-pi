@@ -16,12 +16,17 @@
  * Usage:
  *   CODEFLOW_UI=/path/to/codeflow/index.html node generate-ui-fixture.mjs
  *
- * Source captured from https://github.com/braedonsaunders/codeflow at
- * b0e82d127fc4990f571ebc6da6c5d9af2591aaa1 (the Dockerfile clones HEAD,
- * un-pinned; re-run this script when the fixture drifts from the served UI).
+ * Source captured from https://github.com/braedonsaunders/codeflow at the
+ * revision pinned by the Dockerfile (`ARG CODEFLOW_REF`); re-run this script
+ * from that checkout and keep the emitted `CodeFlow revision:` line in sync —
+ * bridge.test.mts asserts the two match.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
+// The exact revision the Dockerfile pins and the fixtures describe. Keep in
+// sync with `ARG CODEFLOW_REF` in Dockerfile; the bridge test enforces it.
+const REVISION = process.env.CODEFLOW_REVISION ?? "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
 
 const uiPath = process.env.CODEFLOW_UI;
 if (!uiPath) {
@@ -67,6 +72,7 @@ const lines = [
 	"  Captured from the real served UI by generate-ui-fixture.mjs:",
 	"    CODEFLOW_UI=" + uiPath,
 	"    at " + new Date().toISOString(),
+	"  CodeFlow revision: " + REVISION,
 	"",
 	"  bridge.test.mts drives the bridge against exactly this markup, so a",
 	"  relabelled export button or menu item fails the suite instead of leaving",
