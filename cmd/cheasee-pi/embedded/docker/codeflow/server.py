@@ -28,13 +28,16 @@ Env (deployment overrides, used when config.json is absent):
   EXCLUDE_DIRS  comma-separated dir names          (fallback for exclude_dirs)
   PORT          listen port                        (fallback for port)
   HOST          bind address                       (fallback for host)
+  FP_TTL        workspace fingerprint memo window, seconds (default: 2.0)
 """
 import base64
+import hashlib
 import json
 import mimetypes
 import os
 import re
 import subprocess
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -165,12 +168,31 @@ def _check_ignore(root, paths):
     return {p for p in proc.stdout.split("\0") if p}
 
 
-def _walk():
-    """Yield {path,type,size} for every blob under REPO_ROOT.
+# Workspace-content identity for the UI's content-addressed analysis cache:
+# the entrypoint redirect appends this fingerprint to the repo segment so the
+# browser misses (fresh analysis) when the workspace changed and hits when it
+# did not. Git-free on purpose — the running sidecar mounts no .git, so any
+# `git rev-parse`/`git diff` identity would be unusable there.
+_FP_LEN = 8
+try:
+    _FP_TTL = float(os.environ.get("FP_TTL") or 2.0)
+except (TypeError, ValueError):
+    _FP_TTL = 2.0
+_scan_cache = None  # (expiry_monotonic, entries)
 
-    Prunes EXCLUDE_DIRS by directory name and any path matched by .gitignore
-    (e.g. installed package artifacts).
+
+def _scan():
+    """Return the scanned blob set, memoized for _FP_TTL seconds.
+
+    One traversal shared by the tree API and the fingerprint, so both always
+    see the same blobs (consistent cache key <-> served content). Prunes
+    EXCLUDE_DIRS by directory name and any path matched by .gitignore (e.g.
+    installed package artifacts).
     """
+    global _scan_cache
+    now = time.monotonic()
+    if _scan_cache is not None and now < _scan_cache[0]:
+        return _scan_cache[1]
     entries = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
         rel_dir = os.path.relpath(dirpath, REPO_ROOT)
@@ -180,14 +202,38 @@ def _walk():
                 continue
             rel = name if rel_dir == "." else os.path.join(rel_dir, name)
             try:
-                size = os.path.getsize(os.path.join(dirpath, name))
+                st = os.stat(os.path.join(dirpath, name))
             except OSError:
                 continue
-            entries.append({"path": rel, "type": "blob", "size": size})
+            entries.append({"path": rel, "type": "blob", "size": st.st_size, "mtime_ns": st.st_mtime_ns})
     # Analysis is tree-driven; gitignored installs (e.g. .pi/git) would
     # otherwise surface as dead code. One batch call, no per-file cost.
     ignored = _gitignored([e["path"] for e in entries])
-    return [e for e in entries if e["path"] not in ignored]
+    entries = [e for e in entries if e["path"] not in ignored]
+    _scan_cache = (now + _FP_TTL, entries)
+    return entries
+
+
+def _walk():
+    """Return {path,type,size} for every scanned blob (GitHub tree shape)."""
+    return [{"path": e["path"], "type": e["type"], "size": e["size"]} for e in _scan()]
+
+
+def _fingerprint(entries):
+    """Short hex digest over sorted path + size + mtime_ns of the blob set."""
+    h = hashlib.sha256()
+    for e in sorted(entries, key=lambda e: e["path"]):
+        h.update(("%s\0%d\0%d\0" % (e["path"], e["size"], e.get("mtime_ns", 0))).encode())
+    return h.hexdigest()[:_FP_LEN]
+
+
+_FP_SUFFIX = re.compile(r"^(.*)-([0-9a-f]{%d})$" % _FP_LEN)
+
+
+def _split_fingerprint(repo):
+    """Split a trailing '-<hex>' fingerprint off repo; (base, fp_or_None)."""
+    m = _FP_SUFFIX.match(repo)
+    return (m.group(1), m.group(2)) if m else (repo, None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -205,11 +251,37 @@ class Handler(BaseHTTPRequestHandler):
     def _not_found(self):
         self._json({"message": "Not Found", "documentation_url": ""}, 404)
 
+    def _redirect_entrypoint(self, parsed):
+        """302 the UI entrypoint to a fingerprinted repo id when one is present.
+
+        Returns True when a redirect was emitted, False to serve normally.
+        Preserves all query params (including run=1). Idempotent: an already
+        current fingerprint is served, and only one suffix is ever applied.
+        """
+        params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        repo = next((v for k, v in params if k == "repo"), None)
+        if not repo:
+            return False
+        base, suffix = _split_fingerprint(repo)
+        fp = _fingerprint(_scan())
+        if suffix == fp:
+            return False
+        query = urllib.parse.urlencode([(k, base + "-" + fp if k == "repo" else v) for k, v in params])
+        self.send_response(302)
+        self.send_header("Location", parsed.path + "?" + query)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return True
+
     def do_GET(self):  # noqa: N802
-        path = urllib.parse.urlparse(self.path).path
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
 
         # --- Static UI -----------------------------------------------------
         if path in ("/", "/index.html"):
+            if self._redirect_entrypoint(parsed):
+                return
             self._serve_ui_file("index.html", patch_api_base=True)
             return
         if path.startswith("/api/"):
