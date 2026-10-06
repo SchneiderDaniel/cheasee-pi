@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Informational logging goes to stderr so stdout stays reserved for the
+# command this entrypoint execs. Callers that capture `docker run ... <cmd>`
+# stdout must not have setup logs interleaved with the command's output.
+exec 3>&1
+exec 1>&2
+
 # ------------------------------------------------------------------
 # Cheasee-Pi entrypoint
 #
@@ -347,6 +353,9 @@ fi
 touch /tmp/.cheasee-pi-ready
 
 # --- Drop privileges and exec -------------------------------------
+# Restore the caller's stdout (saved on fd 3) before handing off, so the
+# exec'd command owns stdout; close the saved descriptor.
+exec 1>&3 3>&-
 if [ $# -eq 0 ]; then
     # No command → fall through to interactive shell (debug mode)
     exec gosu agentuser /bin/bash
