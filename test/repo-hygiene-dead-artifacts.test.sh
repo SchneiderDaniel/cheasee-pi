@@ -11,8 +11,6 @@ git check-ignore -q report/ || { echo "FAIL: /report/ ignore rule missing"; exit
 if rg -n "initremove|benchmark-tools" --hidden -g '!node_modules' -g '!.git' -g '!test/repo-hygiene-dead-artifacts.test.sh' .; then echo "FAIL: dangling reference found"; exit 1; fi
 # Phase 3b: Go suite (acceptance gate)
 go test ./... -count=1
-# Phase 3c: targeted rebase regression guard (not in default npm test)
-node --experimental-strip-types --test .pi/extensions/supervisor/test/pipeline/rebase.test.mts
-# Phase 3d: full extension suite
+# Phase 3c: full extension suite (now glob-based, so it includes rebase.test.mts)
 npm test
 echo "PASS: repo-hygiene deletion verified"

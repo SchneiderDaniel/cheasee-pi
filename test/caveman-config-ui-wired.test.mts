@@ -13,37 +13,29 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve, matchesGlob } from "node:path";
+
+import { isRegistered, parseTokens, testScript } from "./lib/test-discovery.mts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const GUARD_PATH = ".pi/extensions/caveman/test/config-ui.test.ts";
 
-function testScriptTokens(): string[] {
-	const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8")) as {
-		scripts?: { test?: string };
-	};
-	return String(pkg.scripts?.test ?? "")
-		.split(/\s+/)
-		.filter(Boolean);
-}
-
 describe("caveman config-ui guard is wired into npm test (#1789)", () => {
-	it("package.json scripts.test includes the config-ui guard exactly once", () => {
+	it("npm test globs register the config-ui guard", () => {
 		assert.ok(existsSync(resolve(REPO_ROOT, GUARD_PATH)), "config-ui guard file must exist");
-		const occurrences = testScriptTokens().filter((t) => t === GUARD_PATH).length;
-		assert.strictEqual(
-			occurrences,
-			1,
-			`config-ui guard not wired into npm test (found ${occurrences} occurrences of ${GUARD_PATH})`,
+		assert.ok(
+			isRegistered(GUARD_PATH),
+			`config-ui guard not registered by npm test globs: ${GUARD_PATH}`,
 		);
 	});
 
-	it("fails on a simulated regression where the guard entry is removed (TDD gate)", () => {
-		const simulated = testScriptTokens().filter((t) => t !== GUARD_PATH);
-		assert.ok(
-			!simulated.includes(GUARD_PATH),
-			"removing the token must make the wiring check fail",
+	it("fails on a simulated regression where the guard glob is dropped (TDD gate)", () => {
+		const withoutTsGlob = parseTokens(testScript()).filter((g) => !g.endsWith(".test.ts"));
+		assert.strictEqual(
+			withoutTsGlob.some((g) => matchesGlob(GUARD_PATH, g)),
+			false,
+			"removing the .test.ts glob must uncover the guard",
 		);
 	});
 });

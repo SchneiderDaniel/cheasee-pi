@@ -78,17 +78,11 @@ jobs:
       - name: Run npm test (full node:test suite)
         run: npm test
 
+      # `npm test` above already covers every test/**/*.test.mts file; only
+      # node tests outside that glob (docker/test/) remain here.
       - name: Run standalone node test files
         run: |
           node --experimental-strip-types --test \
-            test/docs-installation.test.mts \
-            test/external-issue-skill.test.mts \
-            test/goreleaser-config.test.mts \
-            test/release-workflow.test.mts \
-            test/writing-voice.test.mts \
-            test/dependency-existence-workflow.test.mts \
-            test/tests-workflow.test.mts \
-            test/workflow-coverage.test.mts \
             docker/test/unbreak-worktrees.test.mts
 
       - name: Type-check extensions

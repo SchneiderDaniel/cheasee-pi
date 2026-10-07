@@ -122,9 +122,14 @@ describe("isStaleCheckpoint() — pure function (Phase 1)", () => {
 		assert.equal(isStaleCheckpoint(state), false);
 	});
 
-	it("returns false when startedAt is exactly 1h ago (boundary — not strictly older)", () => {
+	it("returns false when startedAt is exactly 1h ago (boundary — not strictly older)", (t) => {
+		// Freeze the clock so the test's `Date.now()` and the function's
+		// `Date.now()` are the same instant. A real clock advances between the
+		// two calls, flipping the exact boundary to stale under load (flake).
+		const now = Date.now();
+		t.mock.timers.enable({ apis: ["Date"], now });
 		const state = createState({
-			startedAt: new Date(Date.now() - 3_600_000).toISOString(), // exactly 1h ago
+			startedAt: new Date(now - 3_600_000).toISOString(), // exactly 1h ago
 		});
 		assert.equal(isStaleCheckpoint(state), false);
 	});

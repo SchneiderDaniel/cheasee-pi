@@ -24,10 +24,10 @@ import { spawnSync } from "node:child_process";
 
 import factory from "../index.ts";
 import type { ExecOptions, ExecResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isRegistered } from "../../../../test/lib/test-discovery.mts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const DOC_PATH = join(ROOT, "docs", "extensions", "rtk.md");
-const PACKAGE_JSON_PATH = join(ROOT, "package.json");
 const TEST_PATH_WIRING = ".pi/extensions/rtk/test/version-gate.test.ts";
 
 // ---------------------------------------------------------------------------
@@ -569,9 +569,7 @@ describe("Phase 6: Docs + wiring consistency", () => {
 		assert.match(text, /times out.*Pass-through/i);
 	});
 
-	it("package.json test script lists the new test file exactly once", () => {
-		const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8"));
-		const occurrences = String(pkg.scripts.test).split(TEST_PATH_WIRING).length - 1;
-		assert.equal(occurrences, 1);
+	it("npm test globs register this version-gate test", () => {
+		assert.equal(isRegistered(TEST_PATH_WIRING), true);
 	});
 });
