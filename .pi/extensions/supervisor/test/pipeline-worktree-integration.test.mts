@@ -153,7 +153,7 @@ describe("pipeline-worktree integration — error handling", () => {
 		);
 		// Lease refresh: --force-with-lease compares against the local
 		// remote-tracking ref — a stale lease fails identically every retry.
-		const pruneIdx = prSrc.indexOf("\"fetch\", \"--prune\"");
+		const pruneIdx = prSrc.indexOf('"fetch", "--prune"');
 		assert.ok(pruneIdx >= 0, "git fetch --prune present in pr-creation.ts");
 		const pushGateStart = prSrc.indexOf("const pushResult = await pi.exec(");
 		assert.ok(
@@ -190,14 +190,20 @@ describe("pipeline-worktree real git operations", { skip: !isCI, concurrency: fa
 
 		// Create bare repo
 		bareDir = join(tmpDir, "bare.git");
-		run(`git init --bare "${bareDir}"`, tmpDir);
+		// Pin the initial branch: `git init` may default to master (GitHub runners
+		// still do), and every later step here assumes `main`.
+		run(`git init --bare -b main "${bareDir}"`, tmpDir);
 
 		// Clone main worktree
 		mainDir = join(tmpDir, "main");
 		run(`git clone "${bareDir}" "${mainDir}"`, tmpDir);
 
-		// Make an initial commit on main
-		run("git commit --allow-empty -m 'initial'", mainDir);
+		// Make an initial commit on main. Set the identity inline so the test is
+		// hermetic (the hygiene CI job sets no global git identity).
+		run(
+			"git -c user.name=Test -c user.email=test@test.com commit --allow-empty -m 'initial'",
+			mainDir,
+		);
 		run("git push origin main", mainDir);
 
 		// Create branch for worktree
@@ -206,7 +212,7 @@ describe("pipeline-worktree real git operations", { skip: !isCI, concurrency: fa
 
 		// Create worktree for branch
 		wtDir = join(tmpDir, "worktree");
-		run(`git worktree add -b "${branchName}" "${wtDir}" main`, mainDir);
+		run(`git worktree add "${wtDir}" "${branchName}"`, mainDir);
 
 		// Verify pwd returns worktree path
 		const pwd = run("pwd", wtDir);

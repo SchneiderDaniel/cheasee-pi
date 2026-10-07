@@ -15,9 +15,10 @@ import { describe, it } from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { isRegistered } from "./lib/test-discovery.mts";
+
 const ROOT = resolve(import.meta.dirname, "..");
 const SKILL_PATH = resolve(ROOT, ".pi/skills/codeflow-analysis/SKILL.md");
-const PACKAGE_PATH = resolve(ROOT, "package.json");
 
 function parseFrontmatter(content: string): { frontmatter: Record<string, string>; body: string } {
 	const lines = content.split("\n");
@@ -90,16 +91,14 @@ describe("codeflow-analysis SKILL.md", () => {
 });
 
 describe("package.json test wiring", () => {
-	it("lists the new codeflow test files in the test script", () => {
-		const pkg = JSON.parse(readFileSync(PACKAGE_PATH, "utf-8"));
-		const testScript: string = pkg.scripts?.test ?? "";
+	it("npm test globs register the new codeflow test files", () => {
 		for (const file of [
 			".pi/extensions/lib/test/codeflow-endpoint.test.mts",
 			".pi/extensions/codeflow-analysis/test/codeflow-analysis.test.mts",
 			".pi/extensions/codeflow-analysis/test/report.test.mts",
 			".pi/extensions/codeflow-analysis/test/bridge.test.mts",
 		]) {
-			assert.ok(testScript.includes(file), `test script must list ${file}`);
+			assert.ok(isRegistered(file), `npm test globs must register ${file}`);
 		}
 	});
 });

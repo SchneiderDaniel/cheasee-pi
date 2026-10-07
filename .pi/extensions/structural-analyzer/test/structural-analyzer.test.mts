@@ -12,6 +12,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
+import { isRegistered } from "../../../../test/lib/test-discovery.mts";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageJsonPath = resolve(__dirname, "..", "package.json");
 
@@ -133,45 +135,33 @@ describe("ast-grep binary prerequisite", () => {
 });
 
 describe("structural-analyzer wiring guards", () => {
-	const repoRoot = resolve(__dirname, "..", "..", "..", "..");
 	const readmePath = resolve(__dirname, "..", "README.md");
 
-	it("root npm test script runs index.test.mts (changed contract stays in CI)", () => {
-		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+	it("npm test globs register index.test.mts (changed contract stays in CI)", () => {
 		assert.ok(
-			root.scripts.test.includes("structural-analyzer/test/index.test.mts"),
-			"package.json test script must include structural-analyzer/test/index.test.mts",
+			isRegistered(".pi/extensions/structural-analyzer/test/index.test.mts"),
+			"npm test globs must register structural-analyzer/test/index.test.mts",
 		);
 	});
 
-	it("root npm test script runs parser.test.mts (schema-drift guard stays in CI)", () => {
-		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+	it("npm test globs register parser.test.mts (schema-drift guard stays in CI)", () => {
 		assert.ok(
-			root.scripts.test.includes("structural-analyzer/test/parser.test.mts"),
-			"package.json test script must include structural-analyzer/test/parser.test.mts",
+			isRegistered(".pi/extensions/structural-analyzer/test/parser.test.mts"),
+			"npm test globs must register structural-analyzer/test/parser.test.mts",
 		);
 	});
 
-	it("root npm test script runs renderer.test.mts exactly once (render regression suite stays in CI)", () => {
-		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
-		const rendererEntry = ".pi/extensions/structural-analyzer/test/renderer.test.mts";
-		const occurrences = String(root.scripts.test)
-			.split(/\s+/)
-			.filter((t) => t === rendererEntry).length;
-		assert.strictEqual(
-			occurrences,
-			1,
-			`expected ${rendererEntry} exactly once in scripts.test, found ${occurrences}`,
+	it("npm test globs register renderer.test.mts (render regression suite stays in CI)", () => {
+		assert.ok(
+			isRegistered(".pi/extensions/structural-analyzer/test/renderer.test.mts"),
+			"npm test globs must register renderer.test.mts",
 		);
 	});
 
-	it("this wiring guard file is itself wired into npm test (cannot be silently disabled)", () => {
-		const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+	it("this wiring guard file is itself registered (cannot be silently disabled)", () => {
 		assert.ok(
-			String(root.scripts.test).includes(
-				".pi/extensions/structural-analyzer/test/structural-analyzer.test.mts",
-			),
-			"scripts.test must include structural-analyzer.test.mts",
+			isRegistered(".pi/extensions/structural-analyzer/test/structural-analyzer.test.mts"),
+			"npm test globs must register structural-analyzer.test.mts",
 		);
 	});
 
