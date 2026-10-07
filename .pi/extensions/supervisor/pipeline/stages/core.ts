@@ -6,16 +6,12 @@
 // auditor-output, post-agent-success).
 // Reconstructed from the pre-split stages.ts (commit f6e2b10^).
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type {
 	SupervisorConfig,
 	ProjectField,
 	PipelineAgentResult,
 	AgentRunResult,
-	FilteredIssueData,
 } from "../../config/types.ts";
-import type { ErrorCollector } from "../error-collector.ts";
-import type { NotifyFn } from "../helpers.ts";
 import { combineErrorCount } from "../../session/nested-stats.ts";
 import {
 	resolveNextStatus,
@@ -28,10 +24,8 @@ import {
 	type WorkflowStep,
 	WORKFLOW,
 } from "../../config/workflow.ts";
-import { commitAndPush } from "../../github/git.ts";
 import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
 import { extractStructuredAuditMarkers } from "../../agent/structured-audit.ts";
-import { extractAgentCommentBody, extractStructuredAuditOutput } from "../../agent/output.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
 import {
@@ -48,35 +42,6 @@ import type { OsvScanResult } from "../../checks/osv-scanner.ts";
 // ─── Constants ────────────────────────────────────────────────────
 
 export const MAX_PIPELINE_LOOPS = 20;
-
-// Bare-text fallback rules: maps agent names to the heading and regexes
-// used when the agent output contains no JSON or structured heading.
-type BareTextRule = {
-	agent: string;
-	heading: string;
-	prefix: RegExp;
-	word: RegExp;
-};
-const BARE_TEXT_RULES: readonly BareTextRule[] = [
-	{
-		agent: "architect",
-		heading: "## Architecture",
-		prefix: /^Architecture[^a-zA-Z]/,
-		word: /\bArchitecture\b/i,
-	},
-	{
-		agent: "test-designer",
-		heading: "## Test Plan",
-		prefix: /^Test\s*Plan[^a-zA-Z]/,
-		word: /\bTest\s*Plan\b/i,
-	},
-	{
-		agent: "researcher",
-		heading: "## Research Findings",
-		prefix: /^Research[^a-zA-Z]/,
-		word: /\bResearch\b/i,
-	},
-];
 
 // ─── Stage State ──────────────────────────────────────────────────
 
