@@ -161,7 +161,14 @@ export function setCachedResult(
 	resultCache.set(key, entry);
 }
 
-/** Clear all cached results (called on session_shutdown). */
+/**
+ * Clear all cached results.
+ *
+ * Called on `session_shutdown` and on every `tool_result` from a tool that may
+ * have mutated the corpus (see `lib/tool-mutation.ts`) — the cached value
+ * depends on on-disk content that this key does not capture, so a mutation
+ * must drop the whole cache rather than serve a pre-edit result set.
+ */
 export function clearCache(): void {
 	resultCache.clear();
 }

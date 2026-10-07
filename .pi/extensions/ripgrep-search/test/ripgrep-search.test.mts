@@ -14,7 +14,7 @@
 import assert from "node:assert";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -2831,3 +2831,273 @@ describe("execute — structuredContent + annotations (Issue 1791)", () => {
 		}
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Cache invalidation on tool_result (Issue 1900)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("cache invalidation on tool_result (Issue 1900)", () => {
+	let tmpCwd: string;
+	let handlers: Map<string, Function>;
+	let tool: any;
+	let searchExecCount: number;
+	let execStdout: string;
+
+	function seed(query = "needle", directory = ".", maxCount = 10): void {
+		setCachedResult(query, directory, maxCount, {
+			result: { total_returned: 1, results: [{ file: "a.txt", line: 1, column: 1, text: query }] },
+			rawStdout: `a.txt:1:${query}`,
+		});
+	}
+
+	async function fireToolResult(event: unknown): Promise<void> {
+		const handler = handlers.get("tool_result");
+		assert.ok(handler, "tool_result handler must be registered");
+		await handler!(event);
+	}
+
+	function makeMockPi() {
+		handlers = new Map();
+		searchExecCount = 0;
+		const pi = {
+			on: (e: string, h: Function) => handlers.set(e, h),
+			registerTool: (t: any) => {
+				tool = t;
+			},
+			exec: async (command: string, _args: string[]) => {
+				if (command === "rg") return { code: 1, stdout: "", stderr: "" };
+				searchExecCount++;
+				return { code: execStdout ? 0 : 1, stdout: execStdout, stderr: "" };
+			},
+		};
+		return pi;
+	}
+
+	async function call(query = "needle", directory = ".", maxCount?: number): Promise<any> {
+		const params: Record<string, unknown> = { query, directory };
+		if (maxCount !== undefined) params.max_count = maxCount;
+		return tool.execute("tc", params, undefined, undefined, { cwd: tmpCwd });
+	}
+
+	beforeEach(async () => {
+		clearCache();
+		execStdout = "a.txt:1:needle";
+		tmpCwd = mkdtempSync(join(tmpdir(), "pi-rg-inval-"));
+		mkdirSync(join(tmpCwd, ".pi"));
+		writeFileSync(
+			join(tmpCwd, ".pi", "settings.json"),
+			JSON.stringify({ search: { searchBackend: "grep" } }),
+		);
+		writeFileSync(join(tmpCwd, "a.txt"), "needle\n");
+		const { default: ripgrepSearch } = await import("../index.ts");
+		ripgrepSearch(makeMockPi() as any);
+	});
+
+	afterEach(() => {
+		clearCache();
+		rmSync(tmpCwd, { recursive: true, force: true });
+	});
+
+	// ── Phase 2: handler wiring ──
+
+	it("registers a tool_result handler alongside session_shutdown", () => {
+		assert.ok(handlers.has("tool_result"), "tool_result handler should be registered");
+		assert.ok(handlers.has("session_shutdown"), "session_shutdown handler should remain");
+	});
+
+	it('{toolName:"write"} empties resultCache', async () => {
+		seed();
+		assert.strictEqual(resultCache.size, 1);
+		await fireToolResult({ toolName: "write" });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it('{toolName:"edit"} empties resultCache', async () => {
+		seed();
+		await fireToolResult({ toolName: "edit" });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it('{toolName:"bash"} empties resultCache', async () => {
+		seed();
+		await fireToolResult({ toolName: "bash", input: { command: "git status" } });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it('{toolName:"unknown_new_tool"} empties resultCache (fail-closed)', async () => {
+		seed();
+		await fireToolResult({ toolName: "unknown_new_tool" });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it('read-only tools leave seeded entries intact', async () => {
+		seed("a", ".");
+		seed("b", ".");
+		await fireToolResult({ toolName: "read" });
+		await fireToolResult({ toolName: "ripgrep_search" });
+		assert.strictEqual(resultCache.size, 2);
+	});
+
+	it('{toolName:"write", isError:true} still empties (fail-closed)', async () => {
+		seed();
+		await fireToolResult({ toolName: "write", isError: true });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it("malformed event {} does not throw and empties (unknown ⇒ invalidate)", async () => {
+		seed();
+		await fireToolResult({});
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it("event with input undefined does not throw", async () => {
+		seed();
+		await fireToolResult({ toolName: "write", input: undefined });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it("invalidation is whole-cache across directories and widths", async () => {
+		seed("a", "src", 10);
+		seed("a", "src", 500);
+		seed("b", "lib", 10);
+		assert.strictEqual(resultCache.size, 3);
+		await fireToolResult({ toolName: "edit", input: { path: "src/a.ts" } });
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	it("regression: session_shutdown handler still empties resultCache", async () => {
+		seed();
+		const handler = handlers.get("session_shutdown");
+		assert.ok(handler, "session_shutdown handler must remain registered");
+		await handler!();
+		assert.strictEqual(resultCache.size, 0);
+	});
+
+	// ── Phase 3: staleness reproduction + preserved dedup ──
+
+	it("seed + write tool_result → getCachedResult returns undefined", async () => {
+		seed();
+		await fireToolResult({ toolName: "write" });
+		assert.strictEqual(getCachedResult("needle", ".", 10), undefined);
+	});
+
+	it("two identical searches with no mutation → one exec (dedup preserved)", async () => {
+		await call();
+		await call();
+		assert.strictEqual(searchExecCount, 1);
+	});
+
+	it("search → write tool_result → identical search re-execs and reflects new output", async () => {
+		const r1 = await call();
+		assert.strictEqual(r1.structuredContent.total_returned, 1);
+		await fireToolResult({ toolName: "write", input: { path: "a.txt" } });
+		execStdout = ""; // rg actually reports 0 after the edit
+		const r2 = await call();
+		assert.strictEqual(searchExecCount, 2, "post-edit search must re-run");
+		assert.strictEqual(r2.structuredContent.total_returned, 0);
+	});
+
+	it("a mutation invalidates every cached key, not only the edited path", async () => {
+		seed("a", "src", 10);
+		seed("b", "lib", 500);
+		await fireToolResult({ toolName: "bash" });
+		assert.strictEqual(getCachedResult("a", "src", 10), undefined);
+		assert.strictEqual(getCachedResult("b", "lib", 500), undefined);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Cache invalidation — real rg staleness proof (Issue 1900)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("cache invalidation — real rg staleness (Issue 1900)", () => {
+	const hasRg = (() => {
+		try {
+			execSync("rg --version", { encoding: "utf-8", stdio: "pipe" });
+			return true;
+		} catch {
+			return false;
+		}
+	})();
+	const skipMsg = "rg binary not installed — skip integration test";
+
+	it(
+		"post-edit identical search reflects current on-disk content",
+		{ skip: !hasRg ? skipMsg : false, timeout: 20_000 },
+		async () => {
+			const dir = mkdtempSync(join(tmpdir(), "pi-rg-real-"));
+			try {
+				mkdirSync(join(dir, ".pi"), { recursive: true });
+				writeFileSync(
+					join(dir, ".pi", "settings.json"),
+					JSON.stringify({ search: { searchBackend: "auto" } }),
+				);
+				const file = join(dir, "a.txt");
+				writeFileSync(file, "needle\n");
+
+				const handlers = new Map<string, Function>();
+				let tool: any;
+				const exec = async (command: string, args: string[]) => {
+					try {
+						const stdout = execFileSync(command, args, {
+							cwd: dir,
+							encoding: "utf-8",
+							stdio: ["ignore", "pipe", "pipe"],
+						});
+						return { code: 0, stdout, stderr: "" };
+					} catch (e: unknown) {
+						const err = e as { status?: number; stdout?: unknown; stderr?: unknown };
+						return {
+							code: typeof err.status === "number" ? err.status : 1,
+							stdout: err.stdout != null ? String(err.stdout) : "",
+							stderr: err.stderr != null ? String(err.stderr) : "",
+						};
+					}
+				};
+				const pi = {
+					on: (e: string, h: Function) => handlers.set(e, h),
+					registerTool: (t: any) => {
+						tool = t;
+					},
+					exec,
+				};
+				clearCache();
+				const { default: ripgrepSearch } = await import("../index.ts");
+				ripgrepSearch(pi as any);
+
+				const first = await tool.execute(
+					"tc",
+					{ query: "needle", directory: "." },
+					undefined,
+					undefined,
+					{ cwd: dir },
+				);
+				assert.strictEqual(
+					first.structuredContent.total_returned,
+					1,
+					"pre-edit search finds the needle",
+				);
+
+				writeFileSync(file, "nothing to see\n");
+				await handlers.get("tool_result")!({ toolName: "edit", input: { path: "a.txt" } });
+
+				const second = await tool.execute(
+					"tc",
+					{ query: "needle", directory: "." },
+					undefined,
+					undefined,
+					{ cwd: dir },
+				);
+				assert.strictEqual(
+					second.structuredContent.total_returned,
+					0,
+					"post-edit search must reflect on-disk state, not the cached pre-edit set",
+				);
+			} finally {
+				clearCache();
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+	);
+});
+

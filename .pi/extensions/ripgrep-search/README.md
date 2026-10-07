@@ -11,7 +11,7 @@
   - Respects `.gitignore` natively when ripgrep is available
   - Falls back to `grep` if ripgrep not installed
   - Auto-rejects structural patterns — redirects to `structural_search`
-- **Result cache** — Same query+directory+max_count returns cached result without re-running the CLI
+- **Result cache** — Same query+directory+max_count returns cached result without re-running the CLI, until a file-mutating tool completes
 - **Configurable backend** — Set `searchBackend` to `"auto"` (default), `"ripgrep"`, or `"grep"` in `.pi/settings.json`
 - **Backend indicator** — Injects current search backend into system prompt so LLM knows which tool is active
 - **Temp file handling** — Large outputs saved to temp files, cleaned up at session shutdown
@@ -24,9 +24,9 @@
 2. The extension validates the query (rejects structural patterns), resolves the directory, and selects the backend (ripgrep or grep)
 3. **Cache check** — If the same query+directory+max_count was already searched, the cached result is returned without re-running the CLI
 4. The backend runs — ripgrep with `--vimgrep` for structured output, or grep with `-rnH` as fallback
-5. Results are parsed and cached in memory for the session duration
+5. Results are parsed and cached in memory until a file-mutating tool completes (write/edit/bash/unknown) or the session shuts down
 6. A human-readable summary is returned showing top-N results (tunable via `max_count`), unique file count, and truncation status
-7. Large outputs are saved to temp files with a path reference in the response; temp files and cache are cleaned up at session shutdown
+7. Large outputs are saved to temp files with a path reference in the response; temp files are cleaned up and the cache cleared at session shutdown
 
 ## Install
 
@@ -147,7 +147,7 @@ flowchart TD
 
 - In-memory FIFO Map, max 100 entries
 - Key: `JSON.stringify({query, normalized directory, max_count})` — `max_count` is part of the key because it caps the CLI search per file, so a wider request can never be served by a narrower cached entry
-- Cleared on `session_shutdown`
+- Cleared on `session_shutdown` **and** whenever a completed `tool_result` comes from a tool that may have mutated the corpus. The read-only allowlist lives in `../lib/tool-mutation.ts`; the policy is fail-closed, so `write`/`edit`/`bash` and any unknown tool invalidate the whole cache while read-only tools (`read`, `grep`, `ripgrep_search`, …) preserve intra-turn dedup. External mutations (user editor, background process) remain undetected by design.
 
 ### Structured Output & Tool Annotations
 
