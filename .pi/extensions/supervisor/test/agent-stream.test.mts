@@ -48,6 +48,69 @@ function processViaNormalized(
 	return processNormalizedEvent(normalized, state);
 }
 
+// ─── Stream drivers ────────────────────────────────────────────────
+// Shared event-stream preludes. Pure drivers (no assertions inside) so each
+// test still owns its distinguishing checks and the `message_update` envelope
+// lives in exactly one place.
+
+const THINKING_STREAM = { type: "thinking_delta", thinking_delta: "t1\nt2\n" };
+const TEXT_STREAM = { type: "text_delta", text_delta: "r1\nr2\n" };
+
+/** Drive a thinking_start → thinking_delta → thinking_end envelope sequence. */
+function streamThinking(state: AgentRunState, text = THINKING_STREAM.thinking_delta): void {
+	processViaNormalized(
+		JSON.stringify({ type: "message_update", delta: { type: "thinking_start" } }),
+		state,
+	);
+	processViaNormalized(
+		JSON.stringify({
+			type: "message_update",
+			delta: { ...THINKING_STREAM, thinking_delta: text },
+		}),
+		state,
+	);
+	processViaNormalized(
+		JSON.stringify({ type: "message_update", delta: { type: "thinking_end" } }),
+		state,
+	);
+}
+
+/** Drive a text_start → text_delta → text_end envelope sequence. */
+function streamText(state: AgentRunState, text = TEXT_STREAM.text_delta): void {
+	processViaNormalized(
+		JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
+		state,
+	);
+	processViaNormalized(
+		JSON.stringify({ type: "message_update", delta: { ...TEXT_STREAM, text_delta: text } }),
+		state,
+	);
+	processViaNormalized(
+		JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
+		state,
+	);
+}
+
+/** Invariants shared by the done / message_end "thinking content fallback" tests. */
+function assertThinkingFallback(state: AgentRunState): void {
+	assert.equal(
+		state.thinkingOutputLines.length,
+		1,
+		"thinking output populated (fallback preserved)",
+	);
+	assert.equal(
+		state.textOutputLines.length,
+		1,
+		"text output has thinking content (fallback for textOnly)",
+	);
+	assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
+	assert.equal(
+		state.fullLog.filter((l) => l.includes("💭 t1")).length,
+		1,
+		"thinking in fullLog",
+	);
+}
+
 // ─── Phase 1: Budget check via message_end ──────────────────────────
 
 describe("processNormalizedEvent — budget check at message_end (Phase 1)", () => {
@@ -318,52 +381,10 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 	it("mixed text + thinking via JSON — both blocked by dedup flags", () => {
 		const state = createState();
 
-		// Thinking phase: start → delta → end
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_start" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_end" },
-			}),
-			state,
-		);
+		streamThinking(state);
 		assert.equal(state.thinkingPushedThisTurn, true);
 
-		// Text phase: start → delta → end
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_start" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_delta", text_delta: "r1\nr2\n" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_end" },
-			}),
-			state,
-		);
+		streamText(state);
 		assert.equal(state.textPushedThisTurn, true);
 
 		// message_end — both flags are set, so neither thinking nor text is re-pushed
@@ -551,52 +572,10 @@ describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
 	it("thinking + text delta streaming → done with both flags set — no re-push", () => {
 		const state = createState();
 
-		// Thinking phase: start → delta → end
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_start" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_end" },
-			}),
-			state,
-		);
+		streamThinking(state);
 		assert.equal(state.thinkingPushedThisTurn, true);
 
-		// Text phase: start → delta → end
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_start" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_delta", text_delta: "r1\nr2\n" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "text_end" },
-			}),
-			state,
-		);
+		streamText(state);
 		assert.equal(state.textPushedThisTurn, true);
 
 		// Done event — both flags are set, so neither thinking nor text is re-pushed
@@ -647,27 +626,7 @@ describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
 		const state = createState();
 
 		// Thinking streaming only — no text streaming
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_start" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_delta", thinking_delta: "t1\nt2\n" },
-			}),
-			state,
-		);
-		processViaNormalized(
-			JSON.stringify({
-				type: "message_update",
-				delta: { type: "thinking_end" },
-			}),
-			state,
-		);
+		streamThinking(state);
 		assert.equal(state.thinkingPushedThisTurn, true);
 		assert.equal(state.textPushedThisTurn, false);
 
@@ -727,22 +686,7 @@ describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
 		);
 
 		// Fallback: thinking pushed to both textOutputLines and thinkingOutputLines
-		assert.equal(
-			state.thinkingOutputLines.length,
-			1,
-			"thinking output populated (fallback preserved)",
-		);
-		assert.equal(
-			state.textOutputLines.length,
-			1,
-			"text output has thinking content (fallback for textOnly)",
-		);
-		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
-		assert.equal(
-			state.fullLog.filter((l) => l.includes("💭 t1")).length,
-			1,
-			"thinking in fullLog",
-		);
+		assertThinkingFallback(state);
 	});
 });
 
@@ -765,22 +709,7 @@ describe("processNormalizedEvent — non-streamed fallback preserved (Phase 3)",
 		);
 
 		// Fallback preserved: thinking pushed to textOutputLines and thinkingOutputLines
-		assert.equal(
-			state.thinkingOutputLines.length,
-			1,
-			"thinking output populated (fallback preserved)",
-		);
-		assert.equal(
-			state.textOutputLines.length,
-			1,
-			"text output has thinking content (fallback for textOnly)",
-		);
-		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
-		assert.equal(
-			state.fullLog.filter((l) => l.includes("💭 t1")).length,
-			1,
-			"thinking in fullLog",
-		);
+		assertThinkingFallback(state);
 	});
 
 	it("done event with thinking content, no prior thinking deltas — fallback works", () => {
@@ -798,21 +727,70 @@ describe("processNormalizedEvent — non-streamed fallback preserved (Phase 3)",
 		);
 
 		// Fallback preserved: thinking pushed to textOutputLines and thinkingOutputLines
-		assert.equal(
-			state.thinkingOutputLines.length,
-			1,
-			"thinking output populated (fallback preserved)",
+		assertThinkingFallback(state);
+	});
+});
+
+// ─── Stream helper behavior (extraction guard) ─────────────────────
+
+describe("stream helpers", () => {
+	it("streamThinking drives start → delta → end and logs thinking lines once", () => {
+		const state = createState();
+		streamThinking(state);
+		assert.equal(state.thinkingPushedThisTurn, true);
+		assert.equal(state.fullLog.filter((l) => l.includes("💭 t1")).length, 1);
+		assert.equal(state.fullLog.filter((l) => l.includes("💭 t2")).length, 1);
+		assert.equal(state.liveThinking, "");
+	});
+
+	it("streamText drives start → delta → end and populates text output lines", () => {
+		const state = createState();
+		streamText(state);
+		assert.equal(state.textPushedThisTurn, true);
+		assert.deepEqual(state.textOutputLines, ["r1", "r2"]);
+		assert.equal(state.liveText, "");
+	});
+
+	it("custom thinking text threads through the driver", () => {
+		const state = createState();
+		streamThinking(state, "z\n");
+		assert.equal(state.thinkingPushedThisTurn, true);
+		assert.equal(state.fullLog.filter((l) => l.includes("💭 z")).length, 1);
+		assert.equal(state.fullLog.filter((l) => l.includes("💭 t1")).length, 0);
+	});
+
+	it("custom text threads through the driver", () => {
+		const state = createState();
+		streamText(state, "only\n");
+		assert.equal(state.textPushedThisTurn, true);
+		assert.deepEqual(state.textOutputLines, ["only"]);
+	});
+
+	it("drivers do not cross phases", () => {
+		const thinkingOnly = createState();
+		streamThinking(thinkingOnly);
+		assert.equal(thinkingOnly.textPushedThisTurn, false);
+		assert.deepEqual(thinkingOnly.textOutputLines, []);
+
+		const textOnly = createState();
+		streamText(textOnly);
+		assert.equal(textOnly.thinkingPushedThisTurn, false);
+		assert.equal(textOnly.fullLog.filter((l) => l.includes("💭")).length, 0);
+	});
+
+	it("assertThinkingFallback accepts the done-with-thinking fallback state", () => {
+		const state = createState();
+		processViaNormalized(
+			JSON.stringify({
+				type: "done",
+				message: { content: [{ type: "thinking", thinking: "t1\nt2" }] },
+			}),
+			state,
 		);
-		assert.equal(
-			state.textOutputLines.length,
-			1,
-			"text output has thinking content (fallback for textOnly)",
-		);
-		assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
-		assert.equal(
-			state.fullLog.filter((l) => l.includes("💭 t1")).length,
-			1,
-			"thinking in fullLog",
-		);
+		assertThinkingFallback(state);
+	});
+
+	it("assertThinkingFallback rejects a state missing the fallback invariants", () => {
+		assert.throws(() => assertThinkingFallback(createState()), assert.AssertionError);
 	});
 });
