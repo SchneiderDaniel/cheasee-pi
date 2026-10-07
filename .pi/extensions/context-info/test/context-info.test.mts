@@ -14,8 +14,8 @@ import {
 	formatCacheHitRate,
 	formatSessionTimer,
 	formatCacheStats,
-	formatTokens,
 } from "../formatting.ts";
+import { formatTokens } from "../../lib/format-tokens.ts";
 
 // Runtime import from index.ts — verified through the test assertion below.
 // All local imports in index.ts use .ts extensions (changed from .js)

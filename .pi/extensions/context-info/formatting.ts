@@ -3,6 +3,7 @@
  */
 
 import type { SubtleColorToken, ThresholdEntry, TpsSample, UsageColorToken } from "./types.js";
+import { formatTokens } from "../lib/format-tokens.ts";
 
 // ─── Appearance-aware secondary text ────────────────────────────
 
@@ -31,13 +32,6 @@ export function formatSessionTimer(ms: number): string {
 	if (hours > 0) return `\u23f1 ${hours}h ${minutes}m ${seconds}s`;
 	if (minutes > 0) return `\u23f1 ${minutes}m ${seconds}s`;
 	return `\u23f1 ${seconds}s`;
-}
-
-/** Format token count: 1200 → "1.2K", 1200000 → "1.2M" */
-export function formatTokens(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
 }
 
 /** Pick semantic theme token for a token count given thresholds. */

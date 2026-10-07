@@ -16,16 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultFooterConfig } from "../footer-state.ts";
 import { installFooter } from "../footer.ts";
-
-// ---------------------------------------------------------------------------
-// Duplicated helpers from .pi/extensions/context-info.ts
-// ---------------------------------------------------------------------------
-
-function formatTokens(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
-}
+import { formatTokens } from "../../lib/format-tokens.ts";
 
 interface ThresholdEntry {
 	maxTokens: number | null;

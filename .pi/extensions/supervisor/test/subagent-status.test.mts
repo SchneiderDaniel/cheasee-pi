@@ -7,14 +7,15 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { formatDuration, formatTokens } from "../lib/formatting.ts";
+import { formatDuration } from "../lib/formatting.ts";
+import { formatTokens } from "../../lib/format-tokens.ts";
 
 // ---------------------------------------------------------------------------
-// Tests — formatTokens and formatDuration re-exports work
+// Tests — formatTokens (shared) and formatDuration re-export work
 // ---------------------------------------------------------------------------
 
 describe("formatting.ts re-exports", () => {
-	it("formatTokens exports from formatting.ts", () => {
+	it("formatTokens imports from shared lib", () => {
 		assert.strictEqual(formatTokens(500), "500");
 		assert.strictEqual(formatTokens(1500), "1.5K");
 		assert.strictEqual(formatTokens(1_500_000), "1.5M");
