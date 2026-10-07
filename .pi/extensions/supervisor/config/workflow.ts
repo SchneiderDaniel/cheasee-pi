@@ -121,6 +121,21 @@ export function resolveNextStatus(step: WorkflowStep, agentOutput: string): stri
 }
 
 /**
+ * Resolve the audit verdict marker for a step.
+ *
+ * `AUDIT_DECISION: <verdict>` (structured output) wins over the legacy
+ * standalone `<AUDIT_VERDICT>` short form. `||` (not `??`) preserves the
+ * original truthiness check: an empty long-form value falls through to the
+ * short form instead of suppressing it.
+ */
+function auditMarker(
+	step: WorkflowStep,
+	verdict: "APPROVED" | "REJECTED",
+): string | undefined {
+	return step.markerMap?.[`AUDIT_DECISION: ${verdict}`] || step.markerMap?.[`AUDIT_${verdict}`];
+}
+
+/**
  * Resolve next status from parsed AgentOutput.
  * Uses deterministic JSON parsing instead of text marker lookups.
  * Falls back to marker-based resolution if AgentOutput can't be parsed.
@@ -158,16 +173,14 @@ export function resolveNextStatusFromAgentOutput(
 		// Map action to appropriate marker key in the step's markerMap
 		if (action === "APPROVED") {
 			// Look for approval markers
-			if (step.markerMap["AUDIT_DECISION: APPROVED"])
-				return step.markerMap["AUDIT_DECISION: APPROVED"];
-			if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+			const approved = auditMarker(step, "APPROVED");
+			if (approved) return approved;
 		}
 
 		if (action === "REJECTED") {
 			// Look for rejection markers
-			if (step.markerMap["AUDIT_DECISION: REJECTED"])
-				return step.markerMap["AUDIT_DECISION: REJECTED"];
-			if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+			const rejected = auditMarker(step, "REJECTED");
+			if (rejected) return rejected;
 		}
 
 		if (action === "COMPLETE") {
@@ -192,13 +205,11 @@ export function resolveNextStatusFromAgentOutput(
 					(f) => f.severity === "critical" || f.severity === "warning",
 				);
 				if (hasBlockers) {
-					if (step.markerMap["AUDIT_DECISION: REJECTED"])
-						return step.markerMap["AUDIT_DECISION: REJECTED"];
-					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+					const rejected = auditMarker(step, "REJECTED");
+					if (rejected) return rejected;
 				} else {
-					if (step.markerMap["AUDIT_DECISION: APPROVED"])
-						return step.markerMap["AUDIT_DECISION: APPROVED"];
-					if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+					const approved = auditMarker(step, "APPROVED");
+					if (approved) return approved;
 				}
 			}
 
@@ -207,14 +218,12 @@ export function resolveNextStatusFromAgentOutput(
 			// contracts/summaries are not verdicts, issue #1668).
 			if (output.commentBody) {
 				if (isAuditApprovedComment(output.commentBody)) {
-					if (step.markerMap["AUDIT_DECISION: APPROVED"])
-						return step.markerMap["AUDIT_DECISION: APPROVED"];
-					if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+					const approved = auditMarker(step, "APPROVED");
+					if (approved) return approved;
 				}
 				if (isAuditRejectedComment(output.commentBody)) {
-					if (step.markerMap["AUDIT_DECISION: REJECTED"])
-						return step.markerMap["AUDIT_DECISION: REJECTED"];
-					if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+					const rejected = auditMarker(step, "REJECTED");
+					if (rejected) return rejected;
 				}
 			}
 
@@ -260,14 +269,12 @@ export function resolveNextStatusFromAgentOutput(
 	if (approvedHeadingIdx !== -1 || rejectedHeadingIdx !== -1) {
 		if (approvedHeadingIdx > rejectedHeadingIdx) {
 			// Most recent heading is approval
-			if (step.markerMap["AUDIT_DECISION: APPROVED"])
-				return step.markerMap["AUDIT_DECISION: APPROVED"];
-			if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+			const approved = auditMarker(step, "APPROVED");
+			if (approved) return approved;
 		} else {
 			// Most recent heading is rejection
-			if (step.markerMap["AUDIT_DECISION: REJECTED"])
-				return step.markerMap["AUDIT_DECISION: REJECTED"];
-			if (step.markerMap["AUDIT_REJECTED"]) return step.markerMap["AUDIT_REJECTED"];
+			const rejected = auditMarker(step, "REJECTED");
+			if (rejected) return rejected;
 		}
 	}
 
@@ -280,9 +287,8 @@ export function resolveNextStatusFromAgentOutput(
 	// Since structured JSON was emitted with no rejection signal, default APPROVED
 	// to prevent pipeline deadlock. Only  for JSON cases, not unstructured output.
 	if (hadBareComplete) {
-		if (step.markerMap["AUDIT_DECISION: APPROVED"])
-			return step.markerMap["AUDIT_DECISION: APPROVED"];
-		if (step.markerMap["AUDIT_APPROVED"]) return step.markerMap["AUDIT_APPROVED"];
+		const approved = auditMarker(step, "APPROVED");
+		if (approved) return approved;
 	}
 
 	return null;

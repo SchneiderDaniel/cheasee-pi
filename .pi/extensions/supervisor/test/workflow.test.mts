@@ -292,6 +292,168 @@ describe("resolveNextStatusFromAgentOutput", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// auditMarker precedence — AUDIT_DECISION long form wins over short form
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("auditMarker precedence — long form wins over short form", () => {
+	const bothMarkers: WorkflowStep = {
+		status: "Audit",
+		agentName: "auditor",
+		markerMap: {
+			"AUDIT_DECISION: APPROVED": "Done",
+			"AUDIT_DECISION: REJECTED": "Implementation",
+			AUDIT_APPROVED: "ShortApprove",
+			AUDIT_REJECTED: "ShortReject",
+		},
+	};
+	const shortOnly: WorkflowStep = {
+		status: "Audit",
+		agentName: "auditor",
+		markerMap: { AUDIT_APPROVED: "ShortApprove", AUDIT_REJECTED: "ShortReject" },
+	};
+	const output = (obj: Record<string, unknown>) => JSON.stringify({ agentName: "auditor", ...obj });
+	const finding = (severity: string) => ({
+		severity,
+		dimension: "code-quality",
+		symptom: "s",
+		consequence: "c",
+		remedy: "r",
+	});
+
+	// Phase 1: lock the precedence rule (divergent values make the winner observable).
+	it("action APPROVED → long key wins over divergent short key", () => {
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(bothMarkers, output({ action: "APPROVED" })),
+			"Done",
+		);
+	});
+	it("action REJECTED → long key wins over divergent short key", () => {
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(bothMarkers, output({ action: "REJECTED" })),
+			"Implementation",
+		);
+	});
+	it("only long key present → its value", () => {
+		const longOnly: WorkflowStep = {
+			status: "Audit",
+			agentName: "auditor",
+			markerMap: { "AUDIT_DECISION: APPROVED": "Done" },
+		};
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(longOnly, output({ action: "APPROVED" })),
+			"Done",
+		);
+	});
+	it("only short key present → its value", () => {
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(shortOnly, output({ action: "APPROVED" })),
+			"ShortApprove",
+		);
+	});
+	it("both keys map to the same status → that status", () => {
+		const same: WorkflowStep = {
+			status: "Audit",
+			agentName: "auditor",
+			markerMap: { "AUDIT_DECISION: APPROVED": "Done", AUDIT_APPROVED: "Done" },
+		};
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(same, output({ action: "APPROVED" })),
+			"Done",
+		);
+	});
+	it("empty long key + short key present → falls through to short (locks ||, not ??)", () => {
+		const emptyLong: WorkflowStep = {
+			status: "Audit",
+			agentName: "auditor",
+			markerMap: { "AUDIT_DECISION: APPROVED": "", AUDIT_APPROVED: "Done" },
+		};
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(emptyLong, output({ action: "APPROVED" })),
+			"Done",
+		);
+	});
+	it("empty long REJECTED key + short key present → falls through to short", () => {
+		const emptyLongReject: WorkflowStep = {
+			status: "Audit",
+			agentName: "auditor",
+			markerMap: { "AUDIT_DECISION: REJECTED": "", AUDIT_REJECTED: "Implementation" },
+		};
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(emptyLongReject, output({ action: "REJECTED" })),
+			"Implementation",
+		);
+	});
+	it("empty long key, no short key, matching action → null (falls through all branches)", () => {
+		const emptyNoShort: WorkflowStep = {
+			status: "Audit",
+			agentName: "auditor",
+			markerMap: { "AUDIT_DECISION: APPROVED": "" },
+		};
+		assert.strictEqual(
+			resolveNextStatusFromAgentOutput(emptyNoShort, output({ action: "APPROVED" })),
+			null,
+		);
+	});
+
+	// Phase 2: branch-parity net — every one of the nine collapsed decision sites.
+	const approvalTriggers: Array<[string, string]> = [
+		["action APPROVED", output({ action: "APPROVED" })],
+		["COMPLETE + empty findings", output({ action: "COMPLETE", findings: [] })],
+		[
+			"COMPLETE + suggestion finding",
+			output({ action: "COMPLETE", findings: [finding("suggestion")] }),
+		],
+		[
+			"COMPLETE + approved commentBody",
+			output({ action: "COMPLETE", commentBody: "## Audit Approved\nok" }),
+		],
+		["raw approved heading", "## Audit Approved"],
+		["bare COMPLETE", output({ action: "COMPLETE" })],
+	];
+	for (const [name, text] of approvalTriggers) {
+		it(`approval site — ${name} → long Done / short ShortApprove`, () => {
+			assert.strictEqual(resolveNextStatusFromAgentOutput(bothMarkers, text), "Done", name);
+			assert.strictEqual(
+				resolveNextStatusFromAgentOutput(shortOnly, text),
+				"ShortApprove",
+				name,
+			);
+		});
+	}
+
+	const rejectionTriggers: Array<[string, string]> = [
+		["action REJECTED", output({ action: "REJECTED" })],
+		[
+			"COMPLETE + critical finding",
+			output({ action: "COMPLETE", findings: [finding("critical")] }),
+		],
+		[
+			"COMPLETE + warning finding",
+			output({ action: "COMPLETE", findings: [finding("warning")] }),
+		],
+		[
+			"COMPLETE + rejected commentBody",
+			output({ action: "COMPLETE", commentBody: "## Audit Rejected\nbad" }),
+		],
+		["raw rejected heading", "## Audit Rejected"],
+	];
+	for (const [name, text] of rejectionTriggers) {
+		it(`rejection site — ${name} → long Implementation / short ShortReject`, () => {
+			assert.strictEqual(
+				resolveNextStatusFromAgentOutput(bothMarkers, text),
+				"Implementation",
+				name,
+			);
+			assert.strictEqual(
+				resolveNextStatusFromAgentOutput(shortOnly, text),
+				"ShortReject",
+				name,
+			);
+		});
+	}
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // Heading fallbacks — anchored verdict detection (issue #1668)
 // ═══════════════════════════════════════════════════════════════════════
 
