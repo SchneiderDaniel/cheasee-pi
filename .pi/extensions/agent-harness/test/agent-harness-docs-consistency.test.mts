@@ -16,12 +16,12 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { AgentHarness } from "../index.ts";
 import { ALLOWED_CONFIG_KEYS, loadProjectConfig } from "../lib/load-config.ts";
+import { isRegistered } from "../../../../test/lib/test-discovery.mts";
 
 const DOC_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "extensions", "agent-harness.md");
 const README_PATH = resolve(import.meta.dirname, "..", "README.md");
 const SECURITY_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "security.md");
 const ROOT_README_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "README.md");
-const PACKAGE_JSON_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "package.json");
 
 function readDoc(): string {
 	return readFileSync(DOC_PATH, "utf-8");
@@ -401,11 +401,10 @@ describe("Phase 4 (read cache): behavior characterization lock", () => {
 // ── Phase 5: Enforcement wiring ──
 
 describe("Phase 5 (read cache): docs-consistency test wired into npm test", () => {
-	it("package.json test script registers the agent-harness docs-consistency test", () => {
-		const pkg = readFileSync(PACKAGE_JSON_PATH, "utf-8");
+	it("npm test globs register the agent-harness docs-consistency test", () => {
 		assert.ok(
-			pkg.includes(".pi/extensions/agent-harness/test/agent-harness-docs-consistency.test.mts"),
-			"npm test must register the agent-harness docs-consistency test",
+			isRegistered(".pi/extensions/agent-harness/test/agent-harness-docs-consistency.test.mts"),
+			"npm test globs must register the agent-harness docs-consistency test",
 		);
 	});
 });
