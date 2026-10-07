@@ -895,7 +895,7 @@ function makeHarnessRunnerResult(overrides: Partial<AgentRunResult>): AgentRunRe
 function createHarnessRunner(devSuccess: boolean) {
 	return mock.fn(
 		async (...args: any[]) => {
-			const agent = args[0] as { config: { name: string } };
+			const agent = args[0]?.agent as { config: { name: string } };
 			if (agent?.config?.name === "developer") {
 				return makeHarnessRunnerResult({
 					agentName: "developer",
@@ -1108,7 +1108,7 @@ describe("runAgentLoop — pre-Done PR readiness gate (issue #1472)", () => {
 			"createPrOnApproval retried exactly once after resolution",
 		);
 		const devCalls = runner.mock.calls.filter(
-			(c) => c.arguments[0]?.config?.name === "developer",
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
 		);
 		assert.equal(devCalls.length, 1, "exactly one developer dispatch for conflict resolution");
 		rmSync(tmpCwd, { recursive: true, force: true });
