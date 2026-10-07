@@ -3,7 +3,7 @@
  * Business logic extracted to submodules (config, args, parse) and internal.ts.
  */
 
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { truncateLine } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -27,6 +27,7 @@ import {
 	setTestCtxMode,
 	getCtxMode,
 } from "./internal.ts";
+import { shouldInvalidateSearchCache } from "../lib/tool-mutation.ts";
 
 const MAX_TOTAL_RESULTS = 500;
 const DEFAULT_DISPLAY_RESULTS = 10;
@@ -241,6 +242,15 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async () => {
 		await cleanupTrackedTempDirs(rm);
 		clearCache();
+	});
+
+	// In-session invalidation: a completed tool that may have mutated the corpus
+	// (write/edit/bash/any unknown tool) makes cached matches stale, so drop the
+	// whole cache. Read-only tools preserve intra-turn dedup. Fail-closed: an
+	// unrecognized name invalidates. Never throws — a malformed event still clears.
+	pi.on("tool_result", async (event: ToolResultEvent) => {
+		const toolName = event?.toolName as string;
+		if (shouldInvalidateSearchCache(toolName, event?.input)) clearCache();
 	});
 
 	pi.on("before_agent_start", async (event, _ctx) => {
