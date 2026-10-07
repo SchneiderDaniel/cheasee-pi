@@ -274,11 +274,13 @@ describe("runAgent() thinking flag construction", () => {
 // ---------------------------------------------------------------------------
 
 describe("production agent files — thinking field", () => {
+	// All production agents now run at "high" (commit fe27b35e raised
+	// researcher/developer/test-designer from "medium").
 	const agents = [
 		{ name: "architect", expected: "high" },
-		{ name: "researcher", expected: "medium" },
-		{ name: "developer", expected: "medium" },
-		{ name: "test-designer", expected: "medium" },
+		{ name: "researcher", expected: "high" },
+		{ name: "developer", expected: "high" },
+		{ name: "test-designer", expected: "high" },
 		{ name: "auditor", expected: "high" },
 	];
 

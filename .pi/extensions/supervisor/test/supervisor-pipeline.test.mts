@@ -151,11 +151,13 @@ describe("pipeline handler — worktree cleanup", () => {
 describe("pipeline handler — agent retry logic", () => {
 	it("validateAgentResult called after both initial and retry runAgent", () => {
 		const src = readAgentLoopSource();
-		const matches = src.match(/validateAgentResult\(result\)/g);
+		// The retry result is bound to `retryResult` (no shadowing of the initial
+		// `result`), so count all calls rather than a single variable name.
+		const matches = src.match(/validateAgentResult\(/g);
 		assert.strictEqual(
 			matches ? matches.length : 0,
 			2,
-			"validateAgentResult(result) called exactly twice (initial + retry)",
+			"validateAgentResult called exactly twice (initial + retry)",
 		);
 	});
 

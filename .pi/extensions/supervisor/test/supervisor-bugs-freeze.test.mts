@@ -100,21 +100,23 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 		assert.strictEqual(subprocessCalled, false);
 	});
 
-	it("1.4: agent-runner.ts source uses 'return await runAgentSubprocess(' (not bare return)", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
-		// Bug 2 fix: prepend await before runAgentSubprocess
+	it("1.4: runner source dispatches the subprocess fallback via runAgentSubprocess", () => {
+		// Implementation lives in runner/index.ts; runner.ts is a re-export stub.
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner/index.ts", "utf-8");
 		assert.ok(
-			source.includes("return await runAgentSubprocess("),
-			"agent-runner.ts must use 'return await runAgentSubprocess(' for proper error propagation",
+			source.includes("return runAgentSubprocess("),
+			"runAgent must dispatch the subprocess fallback",
 		);
 	});
 
-	it("1.5: agent-runner.ts does not have bare 'return runAgentSubprocess('", () => {
-		const source = readFileSync(".pi/extensions/supervisor/agent/runner.ts", "utf-8");
-		// Check there's no bare return without await
+	it("1.5: runAgentSubprocess contains synchronous setup-throw containment", () => {
+		// Bug 2 fix (commit 4dd9298a): containment moved INTO runAgentSubprocess,
+		// so a synchronous throw from arg assembly is converted to a structured
+		// failure instead of escaping the caller.
+		const source = readFileSync(".pi/extensions/supervisor/agent/runner/index.ts", "utf-8");
 		assert.ok(
-			!source.includes("return runAgentSubprocess("),
-			"agent-runner.ts must not have bare 'return runAgentSubprocess(' without await",
+			source.includes("Subprocess setup failed"),
+			"runAgentSubprocess must catch synchronous setup throws and return a failure result",
 		);
 	});
 });

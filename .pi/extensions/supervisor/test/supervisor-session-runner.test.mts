@@ -33,14 +33,14 @@ describe("agent-session-runner.ts — fix verification", () => {
 		);
 	});
 
-	it("A.2: getModel call uses type assertion for provider arg", () => {
+	it("A.2: model resolution call uses type assertion for provider arg", () => {
 		const lines = source.split("\n");
 		const getModelIndices = lines
-			.map((l, i) => (l.includes("getModel(") && !l.trim().startsWith("//") ? i : -1))
+			.map((l, i) => (/get(?:Builtin)?Model\(/.test(l) && !l.trim().startsWith("//") ? i : -1))
 			.filter((i) => i >= 0);
-		// Check the getModel line AND the next few lines for type assertion
+		// Check the call line AND the next few lines for type assertion
 		const hasTypeAssertion = getModelIndices.some((idx) => {
-			// Look at up to 5 lines starting from the getModel call
+			// Look at up to 5 lines starting from the call
 			for (let i = idx; i < Math.min(idx + 5, lines.length); i++) {
 				if (
 					lines[i]!.includes("as any") ||
@@ -52,7 +52,7 @@ describe("agent-session-runner.ts — fix verification", () => {
 			}
 			return false;
 		});
-		assert.ok(hasTypeAssertion, "getModel call must use type assertion for provider arg");
+		assert.ok(hasTypeAssertion, "model resolution call must use type assertion for provider arg");
 	});
 
 	it("A.3: no signal property in prompt options arg", () => {

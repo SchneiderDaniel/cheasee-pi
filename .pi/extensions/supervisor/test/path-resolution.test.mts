@@ -1,10 +1,12 @@
 /**
- * Tests for Fix 1-2 of Issue #933:
+ * Tests for Fix 1 of Issue #933:
  * - Fix 1: Remove worktree-sandbox from researcher.md extensions
- * - Fix 2: Normalize absolute paths to repo-relative in skill files
  *
  * Phase 1: researcher.md — worktree-sandbox removed, other extensions preserved
- * Phase 2: Skill files — zero /home/miria/git/main/ occurrences, paths start with .pi/
+ *
+ * Fix 2 (absolute-path normalization of the extension-*-code-hunter skills) was
+ * dropped: those skill files left the repo in commit 190394b8 ("moved"), so
+ * there is no longer an asset to assert against.
  */
 
 import assert from "node:assert";
@@ -63,58 +65,3 @@ describe("Fix 1 — researcher.md extensions (Issue #933)", () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Phase 2: Fix 2 — Absolute path removal from skill files
-// ---------------------------------------------------------------------------
-
-describe("Fix 2 — Skill files: zero /home/miria/git/main/ occurrences (Issue #933)", () => {
-	const skillFiles = [
-		".pi/skills/extension-dead-code-hunter/SKILL.md",
-		".pi/skills/extension-dead-code-hunter/references/dead-code-detection.md",
-		".pi/skills/extension-duplicate-code-hunter/SKILL.md",
-		".pi/skills/extension-duplicate-code-hunter/references/duplicate-code-detection.md",
-	];
-
-	for (const file of skillFiles) {
-		it(`${file}: zero occurrences of /home/miria/git/main/`, () => {
-			const fullPath = resolve(REPO_ROOT, file);
-			const content = readFileSync(fullPath, "utf-8");
-			const matches = content.match(/\/home\/miria\/git\/main\//g);
-			assert.strictEqual(
-				matches === null ? 0 : matches.length,
-				0,
-				`Found ${matches ? matches.length : 0} occurrences of /home/miria/git/main/ in ${file}`,
-			);
-		});
-	}
-});
-
-describe("Fix 2 — Skill files: paths start with .pi/ not /home/miria/git/main/.pi/ (Issue #933)", () => {
-	const skillFiles = [
-		".pi/skills/extension-dead-code-hunter/SKILL.md",
-		".pi/skills/extension-dead-code-hunter/references/dead-code-detection.md",
-		".pi/skills/extension-duplicate-code-hunter/SKILL.md",
-		".pi/skills/extension-duplicate-code-hunter/references/duplicate-code-detection.md",
-	];
-
-	for (const file of skillFiles) {
-		it(`${file}: bash command paths use .pi/ prefix (first character check)`, () => {
-			const fullPath = resolve(REPO_ROOT, file);
-			const content = readFileSync(fullPath, "utf-8");
-			// Find lines with `.pi/` that are bash code blocks or file references
-			// and ensure none start with /home/miria/git/main/.pi/
-			const badLines: string[] = [];
-			const lines = content.split("\n");
-			for (let i = 0; i < lines.length; i++) {
-				if (lines[i].includes(".pi/") && lines[i].includes("/home/miria/git/main/")) {
-					badLines.push(`Line ${i + 1}: ${lines[i].trim()}`);
-				}
-			}
-			assert.strictEqual(
-				badLines.length,
-				0,
-				`Found ${badLines.length} lines with absolute paths:\n${badLines.join("\n")}`,
-			);
-		});
-	}
-});

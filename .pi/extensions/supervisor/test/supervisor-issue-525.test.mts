@@ -27,54 +27,30 @@ describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
 
 	// ── 1.1: Catch block is non-empty (no silent empty catch) ──
 
-	it("1.1: catch block around getModel() contains throw or error log + throw", () => {
-		// Find the try block with getModel
-		const tryIdx = lines.findIndex(
-			(l) => l.includes("try {") && source.indexOf("getModel(", source.indexOf(l)) > 0,
-		);
-		// Search more broadly: find lines with "} catch {" near getModel
-		const catchLine = lines.findIndex(
-			(l, i) =>
-				l.includes("} catch") &&
-				i > 0 &&
-				lines.slice(Math.max(0, i - 5), i).some((pl) => pl.includes("getModel(")),
-		);
-		// If exact match fails, find any } catch { in getModel context
-		const catchIdx =
-			catchLine >= 0
-				? catchLine
-				: lines.findIndex(
-						(l, i) =>
-							l.trim().startsWith("}") &&
-							l.includes("catch") &&
-							!l.includes("//") &&
-							i > 0 &&
-							lines[i - 1]?.includes("getModel("),
-					);
+	it("1.1: resolveModel wraps resolution in a catch that throws (no silent fallback)", () => {
+		// Model resolution was extracted into a `resolveModel` helper
+		// (getModel → getBuiltinModel). The guard contract is unchanged: a
+		// resolution failure throws instead of silently falling back.
+		const start = lines.findIndex((l) => l.includes("function resolveModel("));
+		assert.ok(start >= 0, "resolveModel helper must exist");
 
-		assert.ok(catchIdx >= 0, "Must have a catch block after getModel() try");
+		const block = lines.slice(start, start + 30);
+		const catchIdx = block.findIndex((l) => l.includes("} catch"));
+		assert.ok(catchIdx >= 0, "resolveModel must wrap model resolution in try/catch");
 
-		// Look at the next line(s) after the catch to check it's non-empty
-		const afterCatchLines: string[] = [];
-		for (let i = catchIdx + 1; i < Math.min(catchIdx + 10, lines.length); i++) {
-			const trimmed = lines[i].trim();
-			if (trimmed.startsWith("}")) break;
-			if (trimmed && !trimmed.startsWith("//")) {
-				afterCatchLines.push(trimmed);
-			}
-		}
+		const afterCatchLines = block
+			.slice(catchIdx + 1, catchIdx + 10)
+			.map((l) => l.trim())
+			.filter((l) => l && !l.startsWith("//") && !l.startsWith("}"));
 
-		// Must have at least one non-comment statement
 		assert.ok(
 			afterCatchLines.length > 0,
 			"Catch block must not be empty. Found lines after catch: " + JSON.stringify(afterCatchLines),
 		);
-
-		// Must contain a throw or log.error + throw
-		const hasThrow = afterCatchLines.some(
-			(l) => l.includes("throw") || l.includes("throw new Error") || l.includes("Error("),
+		assert.ok(
+			afterCatchLines.some((l) => l.includes("throw")),
+			"Catch block must throw an error (not just log.warn)",
 		);
-		assert.ok(hasThrow, "Catch block must throw an error (not just log.warn)");
 	});
 
 	// ── 1.2: Explicit guard before createAgentSession ──
