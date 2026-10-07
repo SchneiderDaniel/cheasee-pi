@@ -557,29 +557,6 @@ describe("checkProjectTrust", () => {
 	});
 });
 
-describe("args splitting pattern (for parseArgs integration)", () => {
-	it("empty args string split → array with empty string", () => {
-		const args = "";
-		const split = args.split(/\s+/);
-		assert.deepStrictEqual(split, [""]);
-	});
-
-	it("simple flags split correctly", () => {
-		const result = "--files src/".split(/\s+/);
-		assert.deepStrictEqual(result, ["--files", "src/"]);
-	});
-
-	it("multiple flags and positionals split correctly", () => {
-		const result = "--files src/ --verbose src/main.ts".split(/\s+/);
-		assert.deepStrictEqual(result, ["--files", "src/", "--verbose", "src/main.ts"]);
-	});
-
-	it("whitespace normalization via split", () => {
-		const result = "   --files   src/   ".trim().split(/\s+/);
-		assert.deepStrictEqual(result, ["--files", "src/"]);
-	});
-});
-
 describe("formatForMode function selection per mode", () => {
 	it("formatForMode is an exported function", () => {
 		assert.strictEqual(typeof formatForMode, "function");
