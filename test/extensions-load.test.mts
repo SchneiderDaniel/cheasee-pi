@@ -640,6 +640,44 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			assert.deepStrictEqual(violations, []);
 		});
 
+		it("does not runtime-resolve a type-only namespace import", async () => {
+			// Regression (audit finding): `parseBindings` returned no bindings for
+			// `* as ns`, so a type-only namespace import looked like a side-effect
+			// import and was resolved — failing CI on a declaration-only subpath.
+			const imports = extractSdkStaticImports(
+				`import type * as SDK from "@earendil-works/pi-ai/types-only";`,
+			);
+			assert.strictEqual(imports.length, 1);
+			assert.deepStrictEqual(imports[0]!.bindings, [
+				{ name: "*", typeOnly: true, namespace: true },
+			]);
+			assert.strictEqual(
+				isRuntimeRelevant(imports[0]!),
+				false,
+				"type-only namespace import must be treated as erased, not side-effecting",
+			);
+
+			let resolveCalls = 0;
+			const violations = await findSdkImportViolations(imports, () => {
+				resolveCalls += 1;
+				throw new Error("ERR_PACKAGE_PATH_NOT_EXPORTED: declaration-only subpath");
+			});
+			assert.strictEqual(resolveCalls, 0, "type-only namespace specifier must not be resolved");
+			assert.deepStrictEqual(violations, []);
+		});
+
+		it("resolves a value namespace import without inventing a missing export", async () => {
+			const imports = extractSdkStaticImports(`import * as SDK from "@earendil-works/pi-ai";`);
+			assert.strictEqual(isRuntimeRelevant(imports[0]!), true);
+			let resolveCalls = 0;
+			const violations = await findSdkImportViolations(imports, () => {
+				resolveCalls += 1;
+				return { getModels: () => {} };
+			});
+			assert.strictEqual(resolveCalls, 1, "value namespace import must be resolved");
+			assert.deepStrictEqual(violations, []);
+		});
+
 		it("still resolves a specifier used by a value import alongside a type import", async () => {
 			const imports = extractSdkStaticImports(
 				[

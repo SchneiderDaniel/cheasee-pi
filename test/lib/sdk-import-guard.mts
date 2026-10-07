@@ -26,6 +26,12 @@ export interface SdkImportBinding {
 	name: string;
 	/** `import type { X }` or `import { type X }` — erased at runtime. */
 	typeOnly: boolean;
+	/**
+	 * Namespace clause (`* as ns`). The forged object always exists once the
+	 * specifier resolves, so it has no named export to check — but it still
+	 * pins whether the import is runtime-relevant.
+	 */
+	namespace?: boolean;
 }
 
 /** A static import of an `@earendil-works/*` specifier. */
@@ -71,8 +77,13 @@ function parseBindings(clause: ts.ImportClause | undefined): SdkImportBinding[] 
 	}
 
 	const named = clause.namedBindings;
-	// `* as ns` forges a namespace object; it always exists once the specifier
-	// resolves, so there is nothing to check.
+	if (named !== undefined && ts.isNamespaceImport(named)) {
+		// `* as ns` forges a namespace object; it always exists once the specifier
+		// resolves, so there is no named export to check. Recorded anyway so a
+		// type-only namespace import is not mistaken for a side-effect import.
+		bindings.push({ name: "*", typeOnly: statementTypeOnly, namespace: true });
+	}
+
 	if (named !== undefined && ts.isNamedImports(named)) {
 		for (const element of named.elements) {
 			bindings.push({
@@ -150,7 +161,7 @@ export async function findSdkImportViolations(
 		}
 
 		const missing = imp.bindings
-			.filter((binding) => !binding.typeOnly)
+			.filter((binding) => !binding.typeOnly && binding.namespace !== true)
 			.map((binding) => binding.name)
 			.filter((name) => !(name in namespace));
 
