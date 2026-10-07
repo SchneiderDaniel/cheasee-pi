@@ -366,10 +366,19 @@ def _gitignored(paths):
 
 
 def _check_ignore(root, paths):
-    """Run `git check-ignore --stdin` under root; return the ignored paths."""
+    """Run `git check-ignore --stdin` under root; return the ignored paths.
+
+    `-c safe.directory=*` is load-bearing, not cosmetic. The sidecar runs as
+    root while the bind-mounted workspace — and the sibling bare repo its
+    worktree `.git` pointer resolves into — are owned by the host user. Git
+    then refuses with "fatal: detected dubious ownership" (CVE-2022-24765),
+    the filter fails open, and every gitignored install (virtualenvs,
+    .pi/git) leaks into the analysis. Trust is scoped to this read-only
+    analyzer container, never the host.
+    """
     try:
         proc = subprocess.run(
-            ["git", "-C", root, "check-ignore", "--stdin", "-z"],
+            ["git", "-c", "safe.directory=*", "-C", root, "check-ignore", "--stdin", "-z"],
             input="\0".join(paths) + "\0",
             capture_output=True,
             text=True,

@@ -50,6 +50,9 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 		"typescript:{grammar:'typescript',exts:['.ts'",
 		"['.js','.jsx','.ts','.tsx'",
 		",'.mjs','.cjs','.vue','.svelte']",
+		// #1935 follow-up: the sidecar runs as root over a host-owned mount, so
+		// git needs the safe.directory opt-in or check-ignore fails open.
+		"safe.directory=*",
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("preserved surface missing %q", want)
