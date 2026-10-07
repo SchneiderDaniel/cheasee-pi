@@ -31,7 +31,6 @@ function phasePriority(phase: AgentPhase): number {
 	}
 }
 
-const MAX_FULL_LOG = 500;
 const MAX_ARGS_STRING_LEN = 100;
 
 function truncateArgsForDisplay(args: unknown): Record<string, unknown> {
