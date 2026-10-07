@@ -26,7 +26,6 @@ import {
 	listQnaEntries,
 	getQnaEntry,
 	queryQnaEntries,
-	readQnaEntries,
 } from "./jsonl-logger.ts";
 import { QuestionHandler } from "./question-handler.ts";
 
