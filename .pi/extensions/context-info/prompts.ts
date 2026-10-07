@@ -13,7 +13,6 @@ import {
 	type Locator,
 	type NameOf,
 } from "./markdown-resources.ts";
-import type { Dirent } from "node:fs";
 
 // ─── Types ────────────────────────────────────────────────────────
 
