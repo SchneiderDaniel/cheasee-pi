@@ -49,8 +49,8 @@ interface MockSessionConfig {
 
 let currentSessionConfig: MockSessionConfig = {};
 /**
- * Synchronous busy-wait (ms) inside the mocked getModel — models slow model
- * resolution, i.e. setup that runs BEFORE any await and must still count
+ * Synchronous busy-wait (ms) inside the mocked getBuiltinModel — models slow
+ * model resolution, i.e. setup that runs BEFORE any await and must still count
  * against the wall-clock deadline (audit finding #1).
  */
 let slowSyncSetupMs = 0;
@@ -137,11 +137,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 if (hasMockModule) {
 	// Mock the model resolver so a test can inject a SYNCHRONOUS setup delay.
-	// Only agent-session-runner.ts imports this module (getModel), so the mock
-	// cannot leak into another dependency.
-	mock.module("@earendil-works/pi-ai", {
+	// agent-session-runner.ts imports getBuiltinModel from this subpath, so the
+	// mock must target "@earendil-works/pi-ai/providers/all" (the bare package
+	// export is not what the runner consumes).
+	mock.module("@earendil-works/pi-ai/providers/all", {
 		namedExports: {
-			getModel: (provider: string, id: string) => {
+			getBuiltinModel: (provider: string, id: string) => {
 				if (slowSyncSetupMs > 0) {
 					const end = Date.now() + slowSyncSetupMs;
 					while (Date.now() < end) {
@@ -395,7 +396,7 @@ describe("runAgentInProcess — orchestration", () => {
 			hangUntilAbort: true,
 			abortError: new Error("This operation was aborted"),
 		};
-		// 200ms of SYNCHRONOUS setup (a getModel busy-wait) with a 100ms bound.
+		// 200ms of SYNCHRONOUS setup (a getBuiltinModel busy-wait) with a 100ms bound.
 		// The deadline is computed at ENTRY, so the total stays ≈200ms — it must
 		// never become setup + timeout (≈300ms).
 		slowSyncSetupMs = 200;
