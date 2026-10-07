@@ -27,17 +27,17 @@ describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
 
 	// ── 1.1: Catch block is non-empty (no silent empty catch) ──
 
-	it("1.1: catch block around getModel() contains throw or error log + throw", () => {
-		// Find the try block with getModel
+	it("1.1: catch block around getBuiltinModel() contains throw or error log + throw", () => {
+		// Find the try block with getBuiltinModel
 		const tryIdx = lines.findIndex(
-			(l) => l.includes("try {") && source.indexOf("getModel(", source.indexOf(l)) > 0,
+			(l) => l.includes("try {") && source.indexOf("getBuiltinModel(", source.indexOf(l)) > 0,
 		);
 		// Search more broadly: find lines with "} catch {" near getModel
 		const catchLine = lines.findIndex(
 			(l, i) =>
 				l.includes("} catch") &&
 				i > 0 &&
-				lines.slice(Math.max(0, i - 5), i).some((pl) => pl.includes("getModel(")),
+				lines.slice(Math.max(0, i - 5), i).some((pl) => pl.includes("getBuiltinModel(")),
 		);
 		// If exact match fails, find any } catch { in getModel context
 		const catchIdx =
@@ -49,10 +49,10 @@ describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
 							l.includes("catch") &&
 							!l.includes("//") &&
 							i > 0 &&
-							lines[i - 1]?.includes("getModel("),
+							lines[i - 1]?.includes("getBuiltinModel("),
 					);
 
-		assert.ok(catchIdx >= 0, "Must have a catch block after getModel() try");
+		assert.ok(catchIdx >= 0, "Must have a catch block after getBuiltinModel() try");
 
 		// Look at the next line(s) after the catch to check it's non-empty
 		const afterCatchLines: string[] = [];
