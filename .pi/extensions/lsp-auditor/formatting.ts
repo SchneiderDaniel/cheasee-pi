@@ -5,7 +5,7 @@
  * Testable without any setup.
  */
 
-import type { LspDiagnostic, AuditResult } from "./types.ts";
+import type { LspDiagnostic } from "./types.ts";
 
 // ─── Severity Mapping ────────────────────────────────────────────────
 
