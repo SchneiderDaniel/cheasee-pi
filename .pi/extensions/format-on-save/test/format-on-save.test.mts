@@ -1602,6 +1602,40 @@ describe("looksLikeFilePath", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// matchesAnyExtension — shared matcher (dedup of adapter canHandle)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("matchesAnyExtension", () => {
+	it("matches a supported extension", async () => {
+		const { matchesAnyExtension } = await import("../file-match.mts");
+		assert.strictEqual(matchesAnyExtension("/path/file.ts", [".ts", ".js"]), true);
+	});
+
+	it("is case-insensitive on the extension", async () => {
+		const { matchesAnyExtension } = await import("../file-match.mts");
+		assert.strictEqual(matchesAnyExtension("/path/FILE.TSX", [".tsx"]), true);
+	});
+
+	it("returns false when no extension matches", async () => {
+		const { matchesAnyExtension } = await import("../file-match.mts");
+		assert.strictEqual(matchesAnyExtension("/path/file.py", [".ts", ".js"]), false);
+	});
+
+	it("honours each adapter's own list (eslint list excludes .json)", async () => {
+		const { matchesAnyExtension } = await import("../file-match.mts");
+		const eslintExts = [".ts", ".tsx", ".js", ".jsx"] as const;
+		const prettierExts = [...eslintExts, ".json", ".mjs"] as const;
+		assert.strictEqual(matchesAnyExtension("/path/file.json", eslintExts), false);
+		assert.strictEqual(matchesAnyExtension("/path/file.json", prettierExts), true);
+	});
+
+	it("returns false for an empty extension list", async () => {
+		const { matchesAnyExtension } = await import("../file-match.mts");
+		assert.strictEqual(matchesAnyExtension("/path/file.ts", []), false);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // PrettierFormatter — unit tests (Phase 3)
 // ═══════════════════════════════════════════════════════════════════════
 
