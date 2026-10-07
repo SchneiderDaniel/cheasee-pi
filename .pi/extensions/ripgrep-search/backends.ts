@@ -13,6 +13,66 @@
 import type { RgMatch, RgResult } from "./types.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
+// shared output parser (backends differ only in regex + capture adapter)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Backend-specific capture adapter: turn one regex match into the fields that
+ * both backends share. `file` (capture group 1) is assembled by `parseMatches`.
+ * Return null to skip the line without counting it (malformed/non-numeric).
+ */
+type MatchAdapter = (m: RegExpMatchArray) => Omit<RgMatch, "file"> | null;
+
+/** Parse captured digits to an integer, or null when not numeric. */
+function toIntOrNull(s: string): number | null {
+	const n = parseInt(s, 10);
+	return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Single authority for both backends' line parsing: empty guard, line split,
+ * blank/regex skip, uncapped `total_returned` counting, `maxResults` cap and
+ * the `RgResult` shape. A backend supplies only its regex and capture adapter,
+ * so truncation accounting cannot drift between the primary and fallback path.
+ */
+function parseMatches(
+	raw: string | null | undefined,
+	maxResults: number,
+	regex: RegExp,
+	adapt: MatchAdapter,
+): RgResult {
+	if (!raw) {
+		return { total_returned: 0, results: [] };
+	}
+
+	const lines = raw.split("\n");
+	const results: RgMatch[] = [];
+	let totalMatches = 0;
+
+	for (const line of lines) {
+		if (!line.trim()) continue;
+
+		const match = line.match(regex);
+		if (!match) continue;
+
+		const rest = adapt(match);
+		if (!rest) continue;
+
+		totalMatches++;
+
+		if (results.length < maxResults) {
+			results.push({ file: match[1]!, ...rest });
+		}
+	}
+
+	return {
+		total_returned: totalMatches,
+		results,
+		truncated: totalMatches > maxResults,
+	};
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // ripgrep backend
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -64,45 +124,12 @@ export function parseVimgrepOutput(
 	raw: string | null | undefined,
 	maxResults: number = Infinity,
 ): RgResult {
-	if (!raw) {
-		return { total_returned: 0, results: [] };
-	}
-
-	const lines = raw.split("\n");
-	const results: RgMatch[] = [];
-	let totalMatches = 0;
-
-	const vimgrepRegex = /^(.+?):(\d+):(\d+):(.*)$/;
-
-	for (const line of lines) {
-		if (!line.trim()) continue;
-
-		const match = line.match(vimgrepRegex);
-		if (!match) continue;
-
-		const lineNum = parseInt(match[2]!, 10);
-		const column = parseInt(match[3]!, 10);
-		if (isNaN(lineNum) || isNaN(column)) continue;
-
-		totalMatches++;
-
-		if (results.length < maxResults) {
-			const file = match[1]!;
-			const text = match[4]!;
-			results.push({
-				file,
-				line: lineNum,
-				column,
-				text,
-			});
-		}
-	}
-
-	return {
-		total_returned: totalMatches,
-		results,
-		truncated: totalMatches > maxResults,
-	};
+	return parseMatches(raw, maxResults, /^(.+?):(\d+):(\d+):(.*)$/, (m) => {
+		const line = toIntOrNull(m[2]!);
+		const column = toIntOrNull(m[3]!);
+		if (line === null || column === null) return null;
+		return { line, column, text: m[4]! };
+	});
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -152,49 +179,18 @@ export function buildGrepArgs(
  * grep -rnH produces: file:line:text
  * Since grep lacks column info,
  * column defaults to 1.
+ *
+ * Thin wrapper over `parseMatches`; the shared loop owns the truncation
+ * accounting and result shape, so any new RgMatch field must be set there (or
+ * in the adapter below) to reach both backends.
  */
 export function parseGrepOutput(
 	raw: string | null | undefined,
 	maxResults: number = Infinity,
 ): RgResult {
-	if (!raw) {
-		return { total_returned: 0, results: [] };
-	}
-
-	const lines = raw.split("\n");
-	const results: RgMatch[] = [];
-	let totalMatches = 0;
-
-	// grep -rnH: file:line:text
-	// Text may contain colons, so match greedily from start
-	const grepRegex = /^(.+?):(\d+):(.*)$/;
-
-	for (const line of lines) {
-		if (!line.trim()) continue;
-
-		const match = line.match(grepRegex);
-		if (!match) continue;
-
-		const lineNum = parseInt(match[2]!, 10);
-		if (isNaN(lineNum)) continue;
-
-		totalMatches++;
-
-		if (results.length < maxResults) {
-			const file = match[1]!;
-			const text = match[3]!;
-			results.push({
-				file,
-				line: lineNum,
-				column: 1,
-				text,
-			});
-		}
-	}
-
-	return {
-		total_returned: totalMatches,
-		results,
-		truncated: totalMatches > maxResults,
-	};
+	return parseMatches(raw, maxResults, /^(.+?):(\d+):(.*)$/, (m) => {
+		const line = toIntOrNull(m[2]!);
+		if (line === null) return null;
+		return { line, column: 1, text: m[3]! };
+	});
 }
