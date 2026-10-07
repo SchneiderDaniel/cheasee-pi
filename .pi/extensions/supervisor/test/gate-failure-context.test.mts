@@ -9,17 +9,27 @@
 
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { AgentRunResult, SupervisorConfig } from "../config/types.ts";
+import type { RunContext } from "../pipeline/handler/shared.ts";
 import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
 import type { StageState } from "../pipeline/stages/index.ts";
+import { ErrorCollector } from "../pipeline/error-collector.ts";
 import { readGraph } from "../../lib/test/source-graph.ts";
-import { runPreTransitionHooks } from "../pipeline/handler/agent-loop.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+
+// runAgentLoop with the audit module mocked needs --experimental-test-module-mocks.
+// Without it the Phase 4 integration suite is skipped; the pure-function and
+// module-graph suites below still run.
+const hasMockModule = typeof mock.module === "function";
 
 // ---------------------------------------------------------------------------
 // Phase 1: StageState gateFailureContext field — interface contract
@@ -111,141 +121,295 @@ describe("applyGateFailureContext (Phase 2, Issue #787)", () => {
 // ---------------------------------------------------------------------------
 // Phase 4: Handler gate-failure capture — behavior (Issue #787)
 // ---------------------------------------------------------------------------
-// The wire-in is exercised through the exported runPreTransitionHooks with an
-// injected audit runner. Every assertion observes runtime effects (stageState,
-// pi.sendMessage, ctx.ui.notify), never source text.
+// The wire-in is exercised through the real runAgentLoop with the audit module
+// mocked. Every assertion observes runtime effects (stageState, pi.sendMessage,
+// ctx.ui.notify), never source text. The suite is guarded by hasMockModule, so
+// the pure-function and module-graph suites still run without the flag.
 
-function makeHookHarness() {
-	const notify = mock.fn();
-	const sendMessage = mock.fn();
-	const setStatus = mock.fn();
-	const pi = { sendMessage, sendUserMessage: mock.fn() } as any;
-	const ctx = { cwd: "/repo", ui: { notify, setStatus } } as any;
-	return { pi, ctx, notify, sendMessage };
+const WT = mkdtempSync(join(tmpdir(), "gate-failure-wt-"));
+
+const HOOK_CONFIG: SupervisorConfig = {
+	repo: "owner/repo",
+	projectNumber: 1,
+	statusField: "Status",
+	statusMapping: {
+		Backlog: "",
+		Architecture: "architect",
+		Research: "researcher",
+		TestDesign: "test-designer",
+		Implementation: "developer",
+		Audit: "auditor",
+		Done: "",
+	},
+	maxRejections: 3,
+	codeowners: ["user1"],
+	defaultBranch: "main",
+	remote: "origin",
+	worktreeBase: "../worktrees/",
+	branchPrefix: "worktree-git-issue-",
+	ciGatingTimeoutSec: 0,
+	bellOnComplete: false,
+	enableExperimentalFeatures: false,
+	auditScoreThreshold: 0.75,
+	vulnGateBlocking: false,
+	vulnGateTimeoutSec: 60,
+	agentTimeoutsMin: {},
+};
+
+const HOOK_FIELDS: Array<{ id: string; name: string; type: string; options: Array<{ id: string; name: string }> }> =
+	[
+		{
+			id: "status-field-id",
+			name: "Status",
+			type: "single_select",
+			options: [
+				{ id: "opt-research", name: "Research" },
+				{ id: "opt-architecture", name: "Architecture" },
+				{ id: "opt-test-design", name: "TestDesign" },
+				{ id: "opt-implementation", name: "Implementation" },
+				{ id: "opt-audit", name: "Audit" },
+				{ id: "opt-done", name: "Done" },
+			],
+		},
+	];
+
+// The mocked audit runner's next result; set per test, read at call time.
+let nextAuditResult: Record<string, unknown> = { nextStatus: "Audit", note: "ok" };
+const auditSpy = mock.fn(async (..._args: unknown[]) => nextAuditResult);
+
+if (hasMockModule) {
+	mock.module("../pipeline/audit/index.ts", {
+		namedExports: { runTscAndLspAudit: auditSpy as unknown },
+	});
+}
+
+function makeAgentResult(agentName: string, overrides: Partial<AgentRunResult>): AgentRunResult {
+	return {
+		output: "raw output",
+		success: true,
+		agentName,
+		toolCount: 5,
+		tokenCount: 1000,
+		durationMs: 10000,
+		textOutput: "",
+		textOnly: "",
+		summaryLine: "did work",
+		errorOutput: "",
+		...overrides,
+	};
+}
+
+function developerSuccess(): AgentRunResult {
+	return makeAgentResult("developer", {
+		textOutput: "Implemented\nIMPLEMENTATION_COMPLETE",
+		textOnly: "IMPLEMENTATION_COMPLETE",
+	});
+}
+
+function failure(): AgentRunResult {
+	return makeAgentResult("developer", { success: false, textOutput: "stop", textOnly: "stop" });
+}
+
+function scriptedRunner(results: AgentRunResult[]): ReturnType<typeof mock.fn> {
+	return mock.fn(async () => results.shift() ?? failure());
+}
+
+function buildHookRunContext(opts: {
+	runner: ReturnType<typeof mock.fn>;
+	notify: ReturnType<typeof mock.fn>;
+	stageState: StageState;
+	pi: ExtensionAPI;
+	loopStatus: string;
+}): RunContext {
+	return {
+		args: undefined,
+		ctx: {
+			cwd: WT,
+			ui: { notify: opts.notify, setStatus: () => {} },
+		} as unknown as ExtensionCommandContext,
+		pi: opts.pi,
+		issueNum: 787,
+		isDebug: false,
+		systemPromptOptions: undefined,
+		exec: (async (cmd: string) => {
+			if (cmd === "gh") {
+				return {
+					code: 0,
+					stdout: JSON.stringify({
+						number: 787,
+						title: "Gate failure context",
+						body: "body",
+						author: { login: "user1" },
+						comments: [],
+					}),
+					stderr: "",
+				};
+			}
+			return { code: 0, stdout: "", stderr: "" };
+		}) as unknown as RunContext["exec"],
+		notify: { info: () => {}, error: () => {} },
+		collector: new ErrorCollector(),
+		config: HOOK_CONFIG,
+		port: {
+			getClosingPrsForIssue: async () => [],
+			postIssueComment: async () => {},
+			closeIssue: async () => {},
+			setItemStatusField: async () => {},
+		} as any,
+		issueTitle: "Gate failure context",
+		filteredData: { body: "body", comments: [] },
+		issueData: {
+			number: 787,
+			title: "Gate failure context",
+			body: "body",
+			author: { login: "user1" },
+			comments: [],
+		},
+		stageState: opts.stageState,
+		loopStatus: opts.loopStatus,
+		loopItem: { id: "item-1" },
+		fields: HOOK_FIELDS as any,
+		statusField: HOOK_FIELDS[0] as any,
+		projectId: "project-1",
+		worktreePath: WT,
+		worktreeBranch: "worktree-git-issue-787-test",
+		prCreationResult: undefined,
+		crashCleanup: undefined,
+		stopReason: undefined,
+		agentResults: [],
+		_runner: opts.runner,
+	} as unknown as RunContext;
 }
 
 async function runHooks(
 	auditResult: Record<string, unknown>,
-	stageState = createStageState("Implementation"),
-	iteration = 1,
+	opts: { stageState?: StageState; results?: AgentRunResult[]; loopStatus?: string } = {},
 ) {
-	const { pi, ctx, notify, sendMessage } = makeHookHarness();
-	const auditFn = (async () => auditResult) as any;
-	const result = await runPreTransitionHooks(
-		{ hooks: ["ci"] } as any,
-		"Audit",
-		787,
-		"Gate failure context",
-		{} as any,
-		"developer",
-		{ body: "", comments: [] },
-		"/wt/issue-787",
-		pi,
-		ctx,
-		undefined,
+	nextAuditResult = auditResult;
+	auditSpy.mock.resetCalls();
+	const notify = mock.fn();
+	const sendMessage = mock.fn();
+	const pi = {
+		exec: (async (cmd: string, args: string[]) => {
+			// Report branch commits so the empty-worktree guard lets the
+			// Implementation→Audit transition (and its gate hooks) run.
+			if (cmd === "git" && args[0] === "rev-list") {
+				return { code: 0, stdout: "1", stderr: "" };
+			}
+			return { code: 0, stdout: "", stderr: "" };
+		}) as any,
+		sendMessage,
+		registerCommand: () => {},
+	} as unknown as ExtensionAPI;
+	const stageState = opts.stageState ?? createStageState("Implementation");
+	const runCtx = buildHookRunContext({
+		runner: scriptedRunner(opts.results ?? [developerSuccess()]),
+		notify,
 		stageState,
-		iteration,
-		auditFn,
-	);
-	return { result, stageState, notify, sendMessage };
+		pi,
+		loopStatus: opts.loopStatus ?? "Implementation",
+	});
+	const { runAgentLoop } = await import("../pipeline/handler/agent-loop.ts");
+	await runAgentLoop(runCtx);
+	return { stageState, notify, sendMessage, runCtx };
 }
 
-describe("pre-transition hooks — gate failure capture (Phase 4, Issue #787)", () => {
-	it("stores the blocking note and records the failure in stage state", async () => {
-		const { result, stageState } = await runHooks({
-			nextStatus: "Implementation",
-			note: "--- CI Gate ---\nCI_FAILED: build check",
+if (hasMockModule) {
+	describe("pre-transition hooks — gate failure capture (Phase 4, Issue #787)", () => {
+		it("stores the blocking note and records the failure in stage state", async () => {
+			const { stageState } = await runHooks({
+				nextStatus: "Implementation",
+				note: "--- CI Gate ---\nCI_FAILED: build check",
+			});
+			assert.ok(
+				stageState.gateFailureContext?.includes("CI_FAILED: build check"),
+				"failure context stored on stage state",
+			);
+			assert.equal(stageState.gateFailureHistory.length, 1, "history records the failed run");
+			assert.equal(
+				auditSpy.mock.calls[0]!.arguments[5],
+				WT,
+				"worktreePath forwarded to the audit runner (6th argument)",
+			);
 		});
-		assert.equal(result, "Implementation");
-		assert.ok(
-			stageState.gateFailureContext?.includes("CI_FAILED: build check"),
-			"failure context stored on stage state",
-		);
-		assert.equal(stageState.gateFailureHistory.length, 1, "history records the failed run");
-	});
 
-	it("sends exactly one gate-failure message and a warning notification", async () => {
-		const { notify, sendMessage } = await runHooks({
-			nextStatus: "Implementation",
-			note: "CI_FAILED: build check",
+		it("sends exactly one gate-failure message and a warning notification", async () => {
+			const { notify, sendMessage } = await runHooks({
+				nextStatus: "Implementation",
+				note: "CI_FAILED: build check",
+			});
+			const blockedMessages = sendMessage.mock.calls.filter((c: any) =>
+				String(c.arguments[0]?.content ?? "").includes("Pre-Transition Gates Blocked"),
+			);
+			assert.equal(blockedMessages.length, 1, "one gate-failure message");
+			assert.ok(
+				String(blockedMessages[0]!.arguments[0].content).includes("CI_FAILED: build check"),
+				"message carries the failure note",
+			);
+			const blocked = notify.mock.calls.find(
+				(c: any) =>
+					c.arguments[1] === "warning" &&
+					String(c.arguments[0]).includes("Pre-transition gates blocked"),
+			);
+			assert.ok(blocked, "one warning notification for the blocked transition");
 		});
-		assert.equal(sendMessage.mock.callCount(), 1, "one gate-failure message");
-		assert.ok(
-			String(sendMessage.mock.calls[0]!.arguments[0].content).includes("CI_FAILED: build check"),
-			"message carries the failure note",
-		);
-		assert.equal(notify.mock.callCount(), 1, "one gate-failure notification");
-		assert.equal(
-			notify.mock.calls[0]!.arguments[1],
-			"warning",
-			"notification uses warning level",
-		);
-	});
 
-	it("clears the stored context and stays silent when the gate passes", async () => {
-		const stageState = createStageState("Implementation");
-		stageState.gateFailureContext = "stale failure";
-		const { result, notify, sendMessage } = await runHooks(
-			{ nextStatus: "Audit", note: "all gates passed" },
-			stageState,
-		);
-		assert.equal(result, "Audit");
-		assert.equal(stageState.gateFailureContext, undefined, "context cleared on pass");
-		assert.equal(sendMessage.mock.callCount(), 0, "no message on a pass");
-		assert.equal(notify.mock.callCount(), 0, "no warning on a pass");
-	});
-
-	it("stores dead-code, duplicate-code and vuln results on the stage state", async () => {
-		const deadCodeResult = { status: "clean", findings: [], totalDeadLines: 0 };
-		const duplicateCodeResult = {
-			status: "clean",
-			clones: [],
-			totalDuplicateLines: 0,
-			changedFilesScanned: [],
-		};
-		const vulnResult = {
-			status: "clean",
-			findings: [],
-			counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
-		};
-		const { result, stageState } = await runHooks({
-			nextStatus: "Audit",
-			note: "ok",
-			deadCodeResult,
-			duplicateCodeResult,
-			vulnResult,
+		it("clears the stored context and stays silent when the gate passes", async () => {
+			const stageState = createStageState("Implementation");
+			stageState.gateFailureContext = "stale failure";
+			const { notify, sendMessage } = await runHooks(
+				{ nextStatus: "Audit", note: "all gates passed" },
+				{ stageState },
+			);
+			assert.equal(stageState.gateFailureContext, undefined, "context cleared on pass");
+			const blockedMessages = sendMessage.mock.calls.filter((c: any) =>
+				String(c.arguments[0]?.content ?? "").includes("Pre-Transition Gates Blocked"),
+			);
+			assert.equal(blockedMessages.length, 0, "no gate-failure message on a pass");
+			const blocked = notify.mock.calls.find(
+				(c: any) => c.arguments[1] === "warning" && String(c.arguments[0]).includes("Pre-transition"),
+			);
+			assert.equal(blocked, undefined, "no blocked-transition warning on a pass");
 		});
-		assert.equal(result, "Audit");
-		assert.equal(stageState.deadCodeResult, deadCodeResult);
-		assert.equal(stageState.duplicateCodeResult, duplicateCodeResult);
-		assert.equal(stageState.vulnResult, vulnResult);
-	});
 
-	it("skips the audit runner when the step declares no gate hook", async () => {
-		const { pi, ctx, sendMessage } = makeHookHarness();
-		const auditFn = (async () => {
-			throw new Error("audit runner must not run without a gate hook");
-		}) as any;
-		const result = await runPreTransitionHooks(
-			{ hooks: [] } as any,
-			"Audit",
-			787,
-			"Gate failure context",
-			{} as any,
-			"developer",
-			{ body: "", comments: [] },
-			"/wt/issue-787",
-			pi,
-			ctx,
-			undefined,
-			createStageState("Implementation"),
-			1,
-			auditFn,
-		);
-		assert.equal(result, "Audit");
-		assert.equal(sendMessage.mock.callCount(), 0);
+		it("stores dead-code, duplicate-code and vuln results on the stage state", async () => {
+			const deadCodeResult = { status: "clean", findings: [], totalDeadLines: 0 };
+			const duplicateCodeResult = {
+				status: "clean",
+				clones: [],
+				totalDuplicateLines: 0,
+				changedFilesScanned: [],
+			};
+			const vulnResult = {
+				status: "clean",
+				findings: [],
+				counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+			};
+			const { stageState } = await runHooks({
+				nextStatus: "Audit",
+				note: "ok",
+				deadCodeResult,
+				duplicateCodeResult,
+				vulnResult,
+			});
+			assert.equal(stageState.deadCodeResult, deadCodeResult);
+			assert.equal(stageState.duplicateCodeResult, duplicateCodeResult);
+			assert.equal(stageState.vulnResult, vulnResult);
+		});
+
+		it("skips the audit runner when the step declares no gate hook", async () => {
+			const testDesigner = makeAgentResult("test-designer", {
+				textOutput: "Plan\nTEST_PLAN_COMPLETE",
+				textOnly: "TEST_PLAN_COMPLETE",
+			});
+			await runHooks(
+				{ nextStatus: "Implementation", note: "CI_FAILED" },
+				{ loopStatus: "TestDesign", results: [testDesigner] },
+			);
+			assert.equal(auditSpy.mock.callCount(), 0, "audit runner not invoked without a gate hook");
+		});
 	});
-});
+}
 
 // ---------------------------------------------------------------------------
 // Phase 5: Regression — module-graph edges (Issue #787/#1668)

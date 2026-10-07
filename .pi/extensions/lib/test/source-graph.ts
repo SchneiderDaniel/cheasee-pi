@@ -77,7 +77,14 @@ export function readGraph(file: string): ModuleGraph {
 		specifiers.push(m[1]!);
 	}
 
-	const starReExports = [...code.matchAll(STAR_REEXPORT_RE)].map((m) => m[1]!);
+	const starReExports: string[] = [];
+	for (const m of code.matchAll(STAR_REEXPORT_RE)) {
+		const target = m[1]!;
+		starReExports.push(target);
+		// A barrel re-export is also an import edge — record it so importersOf
+		// sees the barrel as an importer of the re-exported module.
+		specifiers.push(target);
+	}
 	const namedReExports: string[] = [];
 	for (const m of code.matchAll(NAMED_REEXPORT_RE)) {
 		namedReExports.push(...parseNames(`{${m[1]}}`));

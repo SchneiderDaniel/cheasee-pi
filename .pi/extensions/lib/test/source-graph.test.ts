@@ -105,6 +105,11 @@ describe("readGraph — re-exports", () => {
 		assert.ok(graph.namedReExports.includes("d"));
 		assert.ok(graph.specifiers.includes("./x.ts"));
 	});
+
+	it("star re-export targets are also recorded as import edges", () => {
+		const file = fixture("a.ts", 'export * from "./m.ts";\n');
+		assert.ok(readGraph(file).specifiers.includes("./m.ts"));
+	});
 });
 
 describe("readGraph — declarations", () => {
@@ -164,6 +169,13 @@ describe("importersOf / declarersOf", () => {
 	it("returns [] when nothing imports the specifier", () => {
 		fixture("a.ts", 'import { x } from "./x.ts";\n');
 		assert.deepEqual(importersOf(dir, "config/diagnostics"), []);
+	});
+
+	it("counts a star-re-export barrel as an importer of the re-exported module", () => {
+		fixture("barrel.ts", 'export * from "./leaf.ts";\n');
+		fixture("leaf.ts", "export const x = 1;\n");
+		fixture("unrelated.ts", "export const y = 2;\n");
+		assert.deepEqual(importersOf(dir, "./leaf.ts"), ["barrel.ts"]);
 	});
 
 	it("declarersOf returns sorted declaring modules, [] when undeclared", () => {

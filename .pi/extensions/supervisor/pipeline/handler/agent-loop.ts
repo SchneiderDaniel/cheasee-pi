@@ -895,11 +895,8 @@ async function handleBudgetExceeded(
  * agent-loop.ts as the dispatch site for the gate hooks declared in
  * config/workflow.ts (GATE_HOOKS). Fail-open: hook exception → warn +
  * collector, proceed with the unmodified next status.
- *
- * Exported so behavior tests can drive the wire-in with an injected audit
- * runner (default: the real runTscAndLspAudit).
  */
-export async function runPreTransitionHooks(
+async function runPreTransitionHooks(
 	step: WorkflowStep,
 	nextStatus: string,
 	issueNum: number,
@@ -913,7 +910,6 @@ export async function runPreTransitionHooks(
 	collector: ErrorCollector | undefined,
 	stageState: StageState,
 	iteration: number,
-	auditFn: typeof runTscAndLspAudit = runTscAndLspAudit,
 ): Promise<string> {
 	let effectiveNextStatus = nextStatus;
 	if (step.hooks?.some((h) => GATE_HOOKS.includes(h))) {
@@ -921,7 +917,7 @@ export async function runPreTransitionHooks(
 			getDebugLogger().info("handler", "Running pre-transition hooks", {
 				hooks: step.hooks,
 			});
-			const auditResult = await auditFn(
+			const auditResult = await runTscAndLspAudit(
 				issueNum,
 				issueTitle,
 				config,
