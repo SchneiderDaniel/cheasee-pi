@@ -1,6 +1,6 @@
 import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { formatTokensInt } from "../../lib/formatting.ts";
+import { formatTokensInt } from "../../../lib/format-tokens.ts";
 import { renderThinkingBlock } from "../../lib/render-helpers.ts";
 import type { RendererFn } from "./types.ts";
 

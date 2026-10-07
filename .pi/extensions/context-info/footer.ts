@@ -11,7 +11,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
 	formatSessionTimer,
-	formatTokens,
 	pickThresholdColor,
 	formatTps,
 	formatCacheStats,
@@ -20,6 +19,7 @@ import {
 	formatCpuPct,
 	resolveSubtleColor,
 } from "./formatting.ts";
+import { formatTokens } from "../lib/format-tokens.ts";
 import { thinkingIcon, thinkingColor } from "../lib/thinking-level.ts";
 
 /** Module-scope process start time — captures true pi process launch time */

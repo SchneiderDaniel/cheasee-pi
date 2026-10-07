@@ -9,7 +9,6 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
 	formatSessionTimer,
-	formatTokens,
 	pickThresholdColor,
 	formatCacheStats,
 	formatCacheHitRate,
@@ -17,6 +16,7 @@ import {
 	computeTps,
 	resolveSubtleColor,
 } from "../formatting.ts";
+import { formatTokens } from "../../lib/format-tokens.ts";
 
 // ─── Phase 1: threshold → semantic token mapping ────────────────────────────
 
