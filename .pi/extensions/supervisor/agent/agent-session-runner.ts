@@ -9,14 +9,14 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import { agentSessionEventToNormalizedEvent, processNormalizedEvent, forwardNormalizedEventToChat, createForwardChatState } from "../event/adapter.ts";
-import { pushLog, createAgentRunState, nestedCallsFromState } from "./state-helpers.ts";
+import { pushLog, createAgentRunState } from "./state-helpers.ts";
 import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { extractTextFromContent, extractSummaryLine, formatDuration } from "../lib/formatting.ts";
+import { extractTextFromContent, formatDuration } from "../lib/formatting.ts";
 import { resolveTools } from "../lib/extensions.ts";
-import { buildTimeoutNote } from "./runner/cleanup.ts";
+import { buildTimeoutNote, stateResultFields } from "./runner/cleanup.ts";
 
 // DEFAULT_AGENT_TIMEOUT_MS is imported above from config.ts
 
@@ -239,247 +239,232 @@ export async function runAgentInProcess(
 
 		const widgetId = `agent-${agentName}`;
 
-	const flushWidget = () => {
+		const flushWidget = () => {
+			if (flushTimer) {
+				clearTimeout(flushTimer);
+				flushTimer = null;
+			}
+			try {
+				ctx.ui.setWidget(widgetId, buildWidgetLines(state, agentName, modelStr));
+			} catch (renderErr: unknown) {
+				const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+				log.error("agent-runner", `Widget render error for ${agentName}: ${msg}`);
+				getErrorCollector().push("runner", "warn", `Widget render error for ${agentName}: ${msg}`);
+			}
+		};
+
+		const scheduleFlush = () => {
+			if (!flushTimer) {
+				flushTimer = setTimeout(flushWidget, 300);
+			}
+		};
+
+		// Setup + prompt run as ONE cancellable body: the SDK load, session
+		// creation AND the prompt share the single absolute bound armed above.
+		// `timedOut` is re-checked after every await so a slow setup that resolves
+		// after the deadline can never start provider work (audit finding #2);
+		// there is no await between the final check and `session.prompt()`, so the
+		// ref'd timer cannot interleave a window there.
+		const runBody = async (): Promise<void> => {
+			// The deadline may already be spent at entry (e.g. an absolute dispatch
+			// deadline in the past): never start setup, never prompt (audit #1).
+			if (expired()) return;
+			// Load SDK dynamically — raced against the deadline so a never-settling
+			// import cannot hold the body open (audit #2).
+			if (!(await awaitSetup(ensureSDK())).ok) return;
+			// Sync setup (model/tool resolution) ran before this body; re-check so a
+			// budget exhausted during it cannot roll into session creation.
+			if (expired()) return;
+
+			// Build session manager (file-backed for session persistence)
+			// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
+			// not a file path. The SDK writes the session file to a default location.
+			// execute-agent.ts uses result.output for replay instead of replaySessionFile.
+			const sessionManager = _SessionManager ? _SessionManager.create(effectiveCwd) : undefined;
+
+			// Create in-process agent session
+			const createAgentSession = _createAgentSession!;
+
+			// Guard: verify model resolved before creating session
+			if (!resolvedModel) {
+				throw new Error(
+					`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
+				);
+			}
+
+			const sessionPromise: Promise<any> = createAgentSession({
+				model: resolvedModel,
+				tools,
+				sessionManager,
+				thinkingLevel: thinkingLevel || undefined,
+				cwd: effectiveCwd,
+			});
+			// A session that materialises AFTER the deadline must still be
+			// terminated: the body may already have returned on the deadline race,
+			// so no later disposeSession() would ever see it (audit #2).
+			sessionPromise
+				.then((late: any) => {
+					if (timedOut && session !== late) disposeSessionValue(late);
+					return late;
+				})
+				.catch((lateErr: unknown) => {
+					// Rejection is surfaced by the awaited setup below, or intentionally
+					// dropped once the deadline won; log so it is never silent.
+					const msg = lateErr instanceof Error ? lateErr.message : String(lateErr);
+					log.warn("agent-runner", `Session setup failed for ${agentName}: ${msg}`);
+				});
+
+			const created = await awaitSetup(sessionPromise);
+			if (!created.ok) return; // deadline fired during session creation
+			session = created.value;
+
+			// Session materialized after the deadline → dispose it here and never
+			// prompt; provider work must not start post-timeout.
+			if (expired()) {
+				disposeSession();
+				return;
+			}
+
+			// Set up subscription BEFORE calling session.prompt()
+			const pending = createForwardChatState();
+			// SUBSCRIBING MATERIALISES PROVIDER WORK: re-check the absolute deadline
+			// immediately before the side-effecting subscribe (audit #1).
+			if (expired()) {
+				disposeSession();
+				return;
+			}
+			unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
+				try {
+					const normalized = agentSessionEventToNormalizedEvent(event);
+					if (!normalized) return;
+
+					const preThinkingText =
+						normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
+
+					const result = processNormalizedEvent(normalized, state, effectiveCwd);
+					if (result.workingChange) {
+						scheduleFlush();
+						const wm = getWorkingMessage(state, agentName);
+						ctx.ui.setWorkingMessage(wm ?? undefined);
+					}
+
+					// Forward key events as supervisor chat messages
+					if (pi) {
+						forwardNormalizedEventToChat(
+							normalized,
+							state,
+							pi,
+							agentName,
+							pending,
+							preThinkingText,
+							effectiveCwd,
+						);
+					}
+				} catch (parseErr: unknown) {
+					const errMsg = String(parseErr).slice(0, 200);
+					log.warn("agent-stream", `Event processing error: ${errMsg}`);
+					getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
+				}
+			});
+
+			// No await between this guard and prompt(): a timed-out run never starts
+			// a prompt even if the subscription setup above had already begun.
+			if (expired()) {
+				if (unsubRef.current) {
+					unsubRef.current();
+					unsubRef.current = null;
+				}
+				disposeSession();
+				return;
+			}
+
+			// Await the prompt — its rejection (provider error OR the abort()
+			// from the deadline firing) settles the body race.
+			await session.prompt(task);
+		};
+
+		// The body's rejection is captured (never raced raw), so an abandoned
+		// setup cannot surface an unhandled rejection while the deadline wins.
+		const body = runBody().catch((err: unknown) => {
+			bodyErrorRef.current = err instanceof Error ? err : new Error(String(err));
+		});
+		if (deadlineFired) {
+			await Promise.race([body, deadlineFired]);
+		} else {
+			await body;
+		}
+
+		// ── Build result ────────────────────────────────────────
 		if (flushTimer) {
 			clearTimeout(flushTimer);
 			flushTimer = null;
 		}
-		try {
-			ctx.ui.setWidget(widgetId, buildWidgetLines(state, agentName, modelStr));
-		} catch (renderErr: unknown) {
-			const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
-			log.error("agent-runner", `Widget render error for ${agentName}: ${msg}`);
-			getErrorCollector().push("runner", "warn", `Widget render error for ${agentName}: ${msg}`);
+		if (state.liveText.trim()) {
+			state.textOutputLines.push(state.liveText.trim());
 		}
-	};
-
-	const scheduleFlush = () => {
-		if (!flushTimer) {
-			flushTimer = setTimeout(flushWidget, 300);
-		}
-	};
-
-	// Setup + prompt run as ONE cancellable body: the SDK load, session
-	// creation AND the prompt share the single absolute bound armed above.
-	// `timedOut` is re-checked after every await so a slow setup that resolves
-	// after the deadline can never start provider work (audit finding #2);
-	// there is no await between the final check and `session.prompt()`, so the
-	// ref'd timer cannot interleave a window there.
-	const runBody = async (): Promise<void> => {
-		// The deadline may already be spent at entry (e.g. an absolute dispatch
-		// deadline in the past): never start setup, never prompt (audit #1).
-		if (expired()) return;
-		// Load SDK dynamically — raced against the deadline so a never-settling
-		// import cannot hold the body open (audit #2).
-		if (!(await awaitSetup(ensureSDK())).ok) return;
-		// Sync setup (model/tool resolution) ran before this body; re-check so a
-		// budget exhausted during it cannot roll into session creation.
-		if (expired()) return;
-
-		// Build session manager (file-backed for session persistence)
-		// Use effectiveCwd (not sessionPath) — SessionManager.create expects a cwd,
-		// not a file path. The SDK writes the session file to a default location.
-		// execute-agent.ts uses result.output for replay instead of replaySessionFile.
-		const sessionManager = _SessionManager ? _SessionManager.create(effectiveCwd) : undefined;
-
-		// Create in-process agent session
-		const createAgentSession = _createAgentSession!;
-
-		// Guard: verify model resolved before creating session
-		if (!resolvedModel) {
-			throw new Error(
-				`Model "${agent.config.model}" could not be resolved for agent "${agent.config.name}"`,
-			);
+		if (state.liveThinking.trim()) {
+			state.thinkingOutputLines.push(state.liveThinking.trim());
 		}
 
-		const sessionPromise: Promise<any> = createAgentSession({
-			model: resolvedModel,
-			tools,
-			sessionManager,
-			thinkingLevel: thinkingLevel || undefined,
-			cwd: effectiveCwd,
-		});
-		// A session that materialises AFTER the deadline must still be
-		// terminated: the body may already have returned on the deadline race,
-		// so no later disposeSession() would ever see it (audit #2).
-		sessionPromise
-			.then((late: any) => {
-				if (timedOut && session !== late) disposeSessionValue(late);
-				return late;
-			})
-			.catch((lateErr: unknown) => {
-				// Rejection is surfaced by the awaited setup below, or intentionally
-				// dropped once the deadline won; log so it is never silent.
-				const msg = lateErr instanceof Error ? lateErr.message : String(lateErr);
-				log.warn("agent-runner", `Session setup failed for ${agentName}: ${msg}`);
-			});
+		const durationMs = Date.now() - startedAt;
+		const textOutput = state.fullLog.join("\n").trim();
+		const rawOutput = textOutput; // No separate raw IO for in-process
+		const bodyError = bodyErrorRef.current;
+		const success = !bodyError && !timedOut && !state.budgetExceeded;
 
-		const created = await awaitSetup(sessionPromise);
-		if (!created.ok) return; // deadline fired during session creation
-		session = created.value;
-
-		// Session materialized after the deadline → dispose it here and never
-		// prompt; provider work must not start post-timeout.
-		if (expired()) {
-			disposeSession();
-			return;
+		if (timedOut) {
+			pushLog(state, `[Timeout: ${agentName} timed out after ${formatDuration(durationMs)}]`);
 		}
 
-		// Set up subscription BEFORE calling session.prompt()
-		const pending = createForwardChatState();
-		// SUBSCRIBING MATERIALISES PROVIDER WORK: re-check the absolute deadline
-		// immediately before the side-effecting subscribe (audit #1).
-		if (expired()) {
-			disposeSession();
-			return;
-		}
-		unsubRef.current = session.subscribe((event: Record<string, unknown>) => {
+		ctx.ui.setWidget(widgetId, undefined);
+		ctx.ui.setWorkingMessage(undefined);
+		ctx.ui.setStatus("supervisor", undefined);
+
+		// If session was created and completed, extract messages for output
+		let output = rawOutput;
+		if (session && session.agent && session.agent.state && session.agent.state.messages) {
 			try {
-				const normalized = agentSessionEventToNormalizedEvent(event);
-				if (!normalized) return;
-
-				const preThinkingText =
-					normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
-
-				const result = processNormalizedEvent(normalized, state, effectiveCwd);
-				if (result.workingChange) {
-					scheduleFlush();
-					const wm = getWorkingMessage(state, agentName);
-					ctx.ui.setWorkingMessage(wm ?? undefined);
-				}
-
-				// Forward key events as supervisor chat messages
-				if (pi) {
-					forwardNormalizedEventToChat(
-						normalized,
-						state,
-						pi,
-						agentName,
-						pending,
-						preThinkingText,
-						effectiveCwd,
-					);
-				}
-			} catch (parseErr: unknown) {
-				const errMsg = String(parseErr).slice(0, 200);
-				log.warn("agent-stream", `Event processing error: ${errMsg}`);
-				getErrorCollector().push("stream", "warn", `Event processing error: ${errMsg}`);
+				output = JSON.stringify(session.agent.state.messages);
+			} catch {
+				// Fall back to rawOutput
 			}
-		});
-
-		// No await between this guard and prompt(): a timed-out run never starts
-		// a prompt even if the subscription setup above had already begun.
-		if (expired()) {
-			if (unsubRef.current) {
-				unsubRef.current();
-				unsubRef.current = null;
-			}
-			disposeSession();
-			return;
 		}
 
-		// Await the prompt — its rejection (provider error OR the abort()
-		// from the deadline firing) settles the body race.
-		await session.prompt(task);
-	};
-
-	// The body's rejection is captured (never raced raw), so an abandoned
-	// setup cannot surface an unhandled rejection while the deadline wins.
-	const body = runBody().catch((err: unknown) => {
-		bodyErrorRef.current = err instanceof Error ? err : new Error(String(err));
-	});
-	if (deadlineFired) {
-		await Promise.race([body, deadlineFired]);
-	} else {
-		await body;
-	}
-
-	// ── Build result ────────────────────────────────────────
-	if (flushTimer) {
-		clearTimeout(flushTimer);
-		flushTimer = null;
-	}
-	if (state.liveText.trim()) {
-		state.textOutputLines.push(state.liveText.trim());
-	}
-	if (state.liveThinking.trim()) {
-		state.thinkingOutputLines.push(state.liveThinking.trim());
-	}
-
-	const durationMs = Date.now() - startedAt;
-	const textOutput = state.fullLog.join("\n").trim();
-	const textOnly = state.textOutputLines.join("\n").trim();
-	const rawOutput = textOutput; // No separate raw IO for in-process
-	const bodyError = bodyErrorRef.current;
-	const success = !bodyError && !timedOut && !state.budgetExceeded;
-
-	if (timedOut) {
-		pushLog(
-			state,
-			`[Timeout: ${agentName} timed out after ${formatDuration(durationMs)}]`,
-		);
-	}
-
-	const thinkingOutput =
-		state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined;
-
-	const summaryLine = extractSummaryLine(textOutput, success, agentName, new Set(state.toolCalls));
-
-	ctx.ui.setWidget(widgetId, undefined);
-	ctx.ui.setWorkingMessage(undefined);
-	ctx.ui.setStatus("supervisor", undefined);
-
-	// If session was created and completed, extract messages for output
-	let output = rawOutput;
-	if (session && session.agent && session.agent.state && session.agent.state.messages) {
-		try {
-			output = JSON.stringify(session.agent.state.messages);
-		} catch {
-			// Fall back to rawOutput
+		// If in-process failed with a NON-timeout error, propagate to caller for
+		// subprocess fallback. Timeout failures return success=false instead.
+		if (bodyError && !timedOut) {
+			throw bodyError;
 		}
-	}
 
-	// If in-process failed with a NON-timeout error, propagate to caller for
-	// subprocess fallback. Timeout failures return success=false instead.
-	if (bodyError && !timedOut) {
-		throw bodyError;
-	}
+		// Timeout failures are authored into errorOutput (not just textOutput)
+		// so buildAgentResultEntry / the pipeline summary table retain them.
+		// `timeoutMs` is the CONFIGURED timeout (never the remaining budget), so
+		// the note and structured state report the configured duration (audit #3).
+		let errorOutput = bodyError ? bodyError.message : "";
+		if (timedOut) {
+			const note = buildTimeoutNote({
+				agentName,
+				configuredTimeoutMs: timeoutMs ?? undefined,
+				durationMs,
+			});
+			errorOutput = errorOutput ? `${errorOutput}\n${note}` : note;
+		}
 
-	// Timeout failures are authored into errorOutput (not just textOutput)
-	// so buildAgentResultEntry / the pipeline summary table retain them.
-	// `timeoutMs` is the CONFIGURED timeout (never the remaining budget), so
-	// the note and structured state report the configured duration (audit #3).
-	let errorOutput = bodyError ? bodyError.message : "";
-	if (timedOut) {
-		const note = buildTimeoutNote({
-			agentName,
-			configuredTimeoutMs: timeoutMs ?? undefined,
-			durationMs,
-		});
-		errorOutput = errorOutput ? `${errorOutput}\n${note}` : note;
-	}
-
-	return {
-		output,
-		success,
-		agentName,
-		toolCount: state.toolCount,
-		failedToolCount: state.failedToolCount ?? undefined,
-		nestedCalls: nestedCallsFromState(state),
-		nestedErrors: state.nestedErrorCount,
-		tokenCount: state.tokenCount,
-		durationMs,
-		textOutput,
-		textOnly,
-		summaryLine,
-		errorOutput,
-		thinkingOutput,
-		toolCalls: state.toolCalls,
-		budgetExceeded: state.budgetExceeded || undefined,
-		killReason: timedOut ? "timeout" : state.budgetExceeded ? "budget" : undefined,
-		timedOut: timedOut || undefined,
-		configuredTimeoutMs: timedOut ? (timeoutMs ?? undefined) : undefined,
-	};
+		return {
+			...stateResultFields({
+				state,
+				agentName,
+				durationMs,
+				textOutput,
+				success,
+				timedOut,
+				configuredTimeoutMs: timeoutMs ?? undefined,
+			}),
+			output,
+			success,
+			textOutput,
+			errorOutput,
+		};
 	} finally {
 		// Single teardown for every exit (success, timeout, or a synchronous
 		// setup throw): unsubscribe, dispose the session, and clear every timer
@@ -496,5 +481,3 @@ export async function runAgentInProcess(
 		}
 	}
 }
-
-
