@@ -8,7 +8,6 @@
  */
 
 import { readdirSync, readFileSync } from "node:fs";
-import { join as joinPath } from "node:path";
 import type { Dirent } from "node:fs";
 
 // ── Inlined from frontmatter.ts (single consumer: this module) ──
