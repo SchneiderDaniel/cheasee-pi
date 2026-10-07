@@ -57,11 +57,58 @@ export type SdkModuleResolver = (specifier: string) => SdkNamespace | Promise<Sd
 const STATIC_IMPORT_RE =
 	/(?:^|[\n;])[ \t]*import\s+(type\s+)?(?:([\s\S]*?)\s+from\s+)?(["'])([^"']+)\3/g;
 
-/** Full-line comments and block comments would otherwise yield phantom imports. */
+/**
+ * Remove `//` line and block comments without touching comment markers
+ * inside string literals. A full-line-only stripper is not enough: an inline
+ * comment in a multi-line import (`getBuiltinModel, // note`) would leave the
+ * comment text in the clause, and the binding that follows it on the next
+ * line was then discarded as "not a binding" — silently hiding SDK drift.
+ * Newlines are preserved so statement-start anchoring still holds.
+ */
 function stripComments(source: string): string {
-	return source
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.replace(/^[ \t]*\/\/[^\n]*$/gm, "");
+	let out = "";
+	let i = 0;
+	let quote: string | null = null;
+	const n = source.length;
+
+	while (i < n) {
+		const ch = source[i]!;
+		const next = i + 1 < n ? source[i + 1] : "";
+
+		if (quote !== null) {
+			out += ch;
+			i++;
+			if (ch === "\\" && i < n) {
+				out += source[i]!;
+				i++;
+				continue;
+			}
+			if (ch === quote) quote = null;
+			continue;
+		}
+
+		if (ch === "/" && next === "/") {
+			i += 2;
+			while (i < n && source[i] !== "\n") i++;
+			continue;
+		}
+		if (ch === "/" && next === "*") {
+			i += 2;
+			while (i < n && !(source[i] === "*" && source[i + 1] === "/")) {
+				if (source[i] === "\n") out += "\n";
+				i++;
+			}
+			i += 2;
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") {
+			quote = ch;
+		}
+		out += ch;
+		i++;
+	}
+
+	return out;
 }
 
 function parseBindings(clause: string, statementTypeOnly: boolean): SdkImportBinding[] {

@@ -519,6 +519,43 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			]);
 		});
 
+		it("keeps bindings that follow an inline comment in a multi-line import", async () => {
+			// Regression (audit finding): a full-line-only comment stripper swallowed
+			// the binding after `// primary resolver`, so a missing `getModel` drift
+			// passed CI silently.
+			const src = [
+				`import {`,
+				`  getBuiltinModel, // primary resolver`,
+				`  getModel,`,
+				`} from "@earendil-works/pi-ai/providers/all";`,
+			].join("\n");
+			const imports = extractSdkStaticImports(src);
+			assert.deepStrictEqual(imports[0]!.bindings, [
+				{ name: "getBuiltinModel", typeOnly: false },
+				{ name: "getModel", typeOnly: false },
+			]);
+
+			const violations = await findSdkImportViolations(imports, () => ({
+				getBuiltinModel: () => {},
+			}));
+			assert.strictEqual(violations.length, 1);
+			assert.deepStrictEqual(violations[0]!.missingBindings, ["getModel"]);
+		});
+
+		it("does not treat comment text as a binding", () => {
+			const imports = extractSdkStaticImports(
+				[
+					`import {`,
+					`  getBuiltinModel, // fakeComment, notARealExport`,
+					`  /* getModel */`,
+					`} from "@earendil-works/pi-ai/providers/all";`,
+				].join("\n"),
+			);
+			assert.deepStrictEqual(imports[0]!.bindings, [
+				{ name: "getBuiltinModel", typeOnly: false },
+			]);
+		});
+
 		it("reports no violations when the resolver resolves every specifier", async () => {
 			const imports = extractSdkStaticImports(
 				`import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";`,
