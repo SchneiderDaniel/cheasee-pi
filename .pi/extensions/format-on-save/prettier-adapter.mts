@@ -18,6 +18,8 @@ import { resolve } from "node:path";
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
+import { matchesAnyExtension } from "./file-match.mts";
+
 import type { FileMutationQueue, Formatter, FormatResult } from "./ports.mts";
 
 // ─── Supported File Extensions ────────────────────────────────────────
@@ -117,8 +119,7 @@ export class PrettierFormatter implements Formatter {
 
 	/** @inheritdoc */
 	canHandle(path: string): boolean {
-		const lower = path.toLowerCase();
-		return (SUPPORTED_EXTENSIONS as readonly string[]).some((ext) => lower.endsWith(ext));
+		return matchesAnyExtension(path, SUPPORTED_EXTENSIONS);
 	}
 
 	/** @inheritdoc */

@@ -17,6 +17,8 @@
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
+import { matchesAnyExtension } from "./file-match.mts";
+
 import type {
 	Diagnostic,
 	FileMutationQueue,
@@ -115,8 +117,7 @@ export class EslintLinter implements Linter {
 
 	/** @inheritdoc */
 	canHandle(path: string): boolean {
-		const lower = path.toLowerCase();
-		return (SUPPORTED_EXTENSIONS as readonly string[]).some((ext) => lower.endsWith(ext));
+		return matchesAnyExtension(path, SUPPORTED_EXTENSIONS);
 	}
 
 	/** @inheritdoc */
@@ -133,21 +134,14 @@ export class EslintLinter implements Linter {
 				// Primary attempt: lint with fix
 				const results = await eslint.lintText(source, { filePath: path });
 
-				// Check if we got results
-				if (!results || results.length === 0) {
-					return { diagnostics: [], fixesApplied: false };
-				}
-
-				const fileResult = results[0]!;
-				const diagnostics = this.mapMessages(fileResult);
-				const fixesApplied = this.hasFixes(fileResult);
+				const o = this.toOutcome(results);
 
 				// Write fixes if any were applied
-				if (fixesApplied && fileResult.output) {
-					await this.writeFile(path, fileResult.output);
+				if (o.fixesApplied && o.output) {
+					await this.writeFile(path, o.output);
 				}
 
-				return { diagnostics, fixesApplied };
+				return { diagnostics: o.diagnostics, fixesApplied: o.fixesApplied };
 			});
 		} catch (err) {
 			const message = this.getErrorMessage(err);
@@ -184,14 +178,29 @@ export class EslintLinter implements Linter {
 			filePath: path,
 		});
 
-		if (!results || results.length === 0) {
+		const o = this.toOutcome(results);
+
+		return { diagnostics: o.diagnostics, fixesApplied: false };
+	}
+
+	/**
+	 * Map the first ESLint file result to a lint outcome.
+	 * Pure mapper — no side effects; the caller owns the fix-write.
+	 */
+	private toOutcome(results: ESLintFileResult[] | undefined): {
+		diagnostics: Diagnostic[];
+		fixesApplied: boolean;
+		output?: string;
+	} {
+		const fileResult = results?.[0];
+		if (!fileResult) {
 			return { diagnostics: [], fixesApplied: false };
 		}
-
-		const fileResult = results[0]!;
-		const diagnostics = this.mapMessages(fileResult);
-
-		return { diagnostics, fixesApplied: false };
+		return {
+			diagnostics: this.mapMessages(fileResult),
+			fixesApplied: this.hasFixes(fileResult),
+			output: fileResult.output,
+		};
 	}
 
 	/**
