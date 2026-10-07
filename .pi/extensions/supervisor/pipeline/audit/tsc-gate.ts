@@ -19,8 +19,9 @@ export async function runTscGate(
 	worktreePath: string,
 	ctx: ExtensionCommandContext,
 	collector?: ErrorCollector,
+	getRunGateFn: typeof getRunGate = getRunGate,
 ): Promise<string | null> {
-	const runTscCheckpointFn = await getRunGate("tsc");
+	const runTscCheckpointFn = await getRunGateFn("tsc");
 	if (!runTscCheckpointFn) return null;
 
 	getDebugLogger().info("pipeline-audit", "Running TSC checkpoint", { worktreePath });

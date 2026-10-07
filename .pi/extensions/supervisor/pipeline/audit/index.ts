@@ -81,6 +81,23 @@ async function runPreGates(
 }
 
 /**
+ * Optional dependency overrides for tests. Production callers omit this and
+ * get the real gate runners / checkpoint writer; tests inject fakes so the
+ * orchestrator's sequencing (checkpoint writes, gate dispatch, notify
+ * effects) can be observed without running the heavy gates.
+ */
+export interface AuditRunOverrides {
+	/** Pre-gate check runners (see PreGateDeps) — merged over the real defaults. */
+	preGateOverrides?: Partial<PreGateDeps>;
+	/** TSC gate runner — defaults to runTscGate. */
+	runTscGateFn?: typeof runTscGate;
+	/** LSP pre-audit runner — defaults to runLspPreAudit. */
+	runLspPreAuditFn?: typeof runLspPreAudit;
+	/** Checkpoint writer — defaults to writeCheckpointFile. */
+	writeCheckpointFn?: typeof writeCheckpointFile;
+}
+
+/**
  * Write a checkpoint file before a heavy gate (TSC/LSP) for crash recovery.
  * Notifies (warning) when the write fails.
  */
@@ -91,8 +108,9 @@ function writeAuditCheckpoint(
 	displayName: string,
 	branch: string,
 	worktreePath: string,
+	writeFn: typeof writeCheckpointFile,
 ): void {
-	const checkpointResult = writeCheckpointFile(ctx.cwd, {
+	const checkpointResult = writeFn(ctx.cwd, {
 		issueNum,
 		checkpoint,
 		worktreePath: worktreePath,
@@ -128,6 +146,7 @@ export async function runTscAndLspAudit(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	collector?: ErrorCollector,
+	overrides: AuditRunOverrides = {},
 ): Promise<{
 	nextStatus: string;
 	note: string;
@@ -153,7 +172,11 @@ export async function runTscAndLspAudit(
 		branch,
 		filteredData,
 		issueTitle,
+		...overrides.preGateOverrides,
 	};
+	const writeCheckpointFn = overrides.writeCheckpointFn ?? writeCheckpointFile;
+	const runTscGateFn = overrides.runTscGateFn ?? runTscGate;
+	const runLspPreAuditFn = overrides.runLspPreAuditFn ?? runLspPreAudit;
 
 	try {
 		const { dupGate, deadGate, osvGate } = await runPreGates(
@@ -166,16 +189,16 @@ export async function runTscAndLspAudit(
 
 		// Step 5: TSC checkpoint (Tier 2)
 		// Write checkpoint before TSC (heavy/long-running operation)
-		writeAuditCheckpoint(ctx, issueNum, "pre-tsc", "TSC", branch, worktreePath);
+		writeAuditCheckpoint(ctx, issueNum, "pre-tsc", "TSC", branch, worktreePath, writeCheckpointFn);
 		ctx.ui.setStatus("supervisor", "Running TSC checkpoint...");
-		const tscFailure = await runTscGate(worktreePath, ctx, collector);
+		const tscFailure = await runTscGateFn(worktreePath, ctx, collector);
 		if (tscFailure) gateFailures.push(tscFailure);
 
 		// Step 5: LSP pre-audit (Tier 3)
 		// Write checkpoint before LSP (heavy/long-running operation)
-		writeAuditCheckpoint(ctx, issueNum, "pre-lsp", "LSP", branch, worktreePath);
+		writeAuditCheckpoint(ctx, issueNum, "pre-lsp", "LSP", branch, worktreePath, writeCheckpointFn);
 		ctx.ui.setStatus("supervisor", "Running LSP pre-audit diagnostics...");
-		const lspResult = await runLspPreAudit(issueNum, issueTitle, config, pi, ctx, worktreePath);
+		const lspResult = await runLspPreAuditFn(issueNum, issueTitle, config, pi, ctx, worktreePath);
 		getDebugLogger().info("pipeline-audit", "LSP pre-audit result", {
 			nextStatus: lspResult.nextStatus,
 			note: lspResult.note,

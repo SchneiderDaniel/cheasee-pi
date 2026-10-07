@@ -1,29 +1,25 @@
 // ─── Tests: Gate Failure Context (Issue #787) ─────────────────────
 // Phase 1: StageState gateFailureContext field — interface contract
 // Phase 2: applyGateFailureContext pure function
-// Phase 4: handler.ts adapter integration (code analysis)
-// Phase 5: Regression — existing paths unchanged
+// Phase 4: handler gate-failure wire-in (behavior via runPreTransitionHooks)
+// Phase 5: Regression — module-graph edges
 //
 // Run with:
 //   node --experimental-strip-types --test .pi/extensions/supervisor/test/gate-failure-context.test.mts
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
 import type { StageState } from "../pipeline/stages/index.ts";
 import { readGraph } from "../../lib/test/source-graph.ts";
+import { runPreTransitionHooks } from "../pipeline/handler/agent-loop.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
-
-function readHandlerSource(): string {
-	return readFileSync(HANDLER_TS, "utf-8");
-}
 
 // ---------------------------------------------------------------------------
 // Phase 1: StageState gateFailureContext field — interface contract
@@ -113,107 +109,162 @@ describe("applyGateFailureContext (Phase 2, Issue #787)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 4: Handler capture integration — code analysis
+// Phase 4: Handler gate-failure capture — behavior (Issue #787)
 // ---------------------------------------------------------------------------
+// The wire-in is exercised through the exported runPreTransitionHooks with an
+// injected audit runner. Every assertion observes runtime effects (stageState,
+// pi.sendMessage, ctx.ui.notify), never source text.
 
-describe("pipeline handler — gate failure context capture (Phase 4, Issue #787)", () => {
-	it("handler source contains applyGateFailureContext import from stages/index.ts", () => {
-		const src = readHandlerSource();
-		// Issue #1395 split: agent-loop.ts lives in the handler/ subdirectory;
-		// issue #1397 split turned stages.ts into the stages/ directory, so the
-		// import is "../stages/index.ts" (barrel) instead of "../stages.ts".
-		const stagesImport = '} from "../stages/index.ts"';
-		const importSection = src.substring(0, src.indexOf(stagesImport) + stagesImport.length + 1);
+function makeHookHarness() {
+	const notify = mock.fn();
+	const sendMessage = mock.fn();
+	const setStatus = mock.fn();
+	const pi = { sendMessage, sendUserMessage: mock.fn() } as any;
+	const ctx = { cwd: "/repo", ui: { notify, setStatus } } as any;
+	return { pi, ctx, notify, sendMessage };
+}
+
+async function runHooks(
+	auditResult: Record<string, unknown>,
+	stageState = createStageState("Implementation"),
+	iteration = 1,
+) {
+	const { pi, ctx, notify, sendMessage } = makeHookHarness();
+	const auditFn = (async () => auditResult) as any;
+	const result = await runPreTransitionHooks(
+		{ hooks: ["ci"] } as any,
+		"Audit",
+		787,
+		"Gate failure context",
+		{} as any,
+		"developer",
+		{ body: "", comments: [] },
+		"/wt/issue-787",
+		pi,
+		ctx,
+		undefined,
+		stageState,
+		iteration,
+		auditFn,
+	);
+	return { result, stageState, notify, sendMessage };
+}
+
+describe("pre-transition hooks — gate failure capture (Phase 4, Issue #787)", () => {
+	it("stores the blocking note and records the failure in stage state", async () => {
+		const { result, stageState } = await runHooks({
+			nextStatus: "Implementation",
+			note: "--- CI Gate ---\nCI_FAILED: build check",
+		});
+		assert.equal(result, "Implementation");
 		assert.ok(
-			importSection.includes("applyGateFailureContext"),
-			"applyGateFailureContext imported from stages/index.ts",
+			stageState.gateFailureContext?.includes("CI_FAILED: build check"),
+			"failure context stored on stage state",
+		);
+		assert.equal(stageState.gateFailureHistory.length, 1, "history records the failed run");
+	});
+
+	it("sends exactly one gate-failure message and a warning notification", async () => {
+		const { notify, sendMessage } = await runHooks({
+			nextStatus: "Implementation",
+			note: "CI_FAILED: build check",
+		});
+		assert.equal(sendMessage.mock.callCount(), 1, "one gate-failure message");
+		assert.ok(
+			String(sendMessage.mock.calls[0]!.arguments[0].content).includes("CI_FAILED: build check"),
+			"message carries the failure note",
+		);
+		assert.equal(notify.mock.callCount(), 1, "one gate-failure notification");
+		assert.equal(
+			notify.mock.calls[0]!.arguments[1],
+			"warning",
+			"notification uses warning level",
 		);
 	});
 
-	it("handler source captures auditResult.note into stageState via applyGateFailureContext", () => {
-		const src = readHandlerSource();
-		const idx = src.indexOf("effectiveNextStatus = auditResult.nextStatus");
-		const hookSection = src.substring(idx, idx + 800);
-		assert.ok(
-			hookSection.includes("applyGateFailureContext"),
-			"applyGateFailureContext called after effectiveNextStatus assignment",
+	it("clears the stored context and stays silent when the gate passes", async () => {
+		const stageState = createStageState("Implementation");
+		stageState.gateFailureContext = "stale failure";
+		const { result, notify, sendMessage } = await runHooks(
+			{ nextStatus: "Audit", note: "all gates passed" },
+			stageState,
 		);
-		assert.ok(
-			hookSection.includes("stageState") &&
-				hookSection.includes("effectiveNextStatus") &&
-				hookSection.includes("auditResult.note"),
-			"applyGateFailureContext receives stageState, effectiveNextStatus, auditResult.note",
-		);
+		assert.equal(result, "Audit");
+		assert.equal(stageState.gateFailureContext, undefined, "context cleared on pass");
+		assert.equal(sendMessage.mock.callCount(), 0, "no message on a pass");
+		assert.equal(notify.mock.callCount(), 0, "no warning on a pass");
 	});
 
-	it("handler source passes stageState.gateFailureContext to buildAgentTask", () => {
-		const src = readHandlerSource();
-		const btIdx = src.indexOf("const task = buildAgentTask(");
-		const btSection = src.substring(btIdx, src.indexOf(");", btIdx) + 10);
-		assert.ok(
-			btSection.includes("stageState.gateFailureContext,") ||
-				btSection.includes("stageState.gateFailureContext\n"),
-			"stageState.gateFailureContext passed to buildAgentTask",
-		);
+	it("stores dead-code, duplicate-code and vuln results on the stage state", async () => {
+		const deadCodeResult = { status: "clean", findings: [], totalDeadLines: 0 };
+		const duplicateCodeResult = {
+			status: "clean",
+			clones: [],
+			totalDuplicateLines: 0,
+			changedFilesScanned: [],
+		};
+		const vulnResult = {
+			status: "clean",
+			findings: [],
+			counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+		};
+		const { result, stageState } = await runHooks({
+			nextStatus: "Audit",
+			note: "ok",
+			deadCodeResult,
+			duplicateCodeResult,
+			vulnResult,
+		});
+		assert.equal(result, "Audit");
+		assert.equal(stageState.deadCodeResult, deadCodeResult);
+		assert.equal(stageState.duplicateCodeResult, duplicateCodeResult);
+		assert.equal(stageState.vulnResult, vulnResult);
 	});
 
-	it("gateFailureContext passed before systemPromptOptions (parameter ordering)", () => {
-		const src = readHandlerSource();
-		const btIdx = src.indexOf("const task = buildAgentTask(");
-		const btSection = src.substring(btIdx, src.indexOf(");", btIdx) + 10);
-		const gfcIdx = btSection.indexOf("stageState.gateFailureContext");
-		const spoIdx = btSection.indexOf("systemPromptOptions");
-		assert.ok(
-			gfcIdx >= 0 && spoIdx >= 0 && gfcIdx < spoIdx,
-			"gateFailureContext argument appears before systemPromptOptions",
+	it("skips the audit runner when the step declares no gate hook", async () => {
+		const { pi, ctx, sendMessage } = makeHookHarness();
+		const auditFn = (async () => {
+			throw new Error("audit runner must not run without a gate hook");
+		}) as any;
+		const result = await runPreTransitionHooks(
+			{ hooks: [] } as any,
+			"Audit",
+			787,
+			"Gate failure context",
+			{} as any,
+			"developer",
+			{ body: "", comments: [] },
+			"/wt/issue-787",
+			pi,
+			ctx,
+			undefined,
+			createStageState("Implementation"),
+			1,
+			auditFn,
 		);
+		assert.equal(result, "Audit");
+		assert.equal(sendMessage.mock.callCount(), 0);
 	});
 });
 
 // ---------------------------------------------------------------------------
-// Phase 5: Regression — existing pre-transition hooks and paths unchanged
+// Phase 5: Regression — module-graph edges (Issue #787/#1668)
 // ---------------------------------------------------------------------------
-// Issue #1407: audit.ts split into pipeline/audit/*. Section strings live in
-// pre-gates.ts, gate decisions in tsc-gate.ts/lsp-gate.ts, and the
-// Implementation/Audit rule in aggregate.ts (orchestrator pushes failures).
+// Gate-failure behavior is owned by the Phase 4 tests above. What remains here
+// is the import edge a type checker cannot express: the handler must reach
+// applyGateFailureContext through the stages barrel, and the audit-feedback
+// scan must use the shared anchored matcher.
 
-describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue #787)", () => {
-	const PRE_GATES = resolve(__dirname, "../pipeline/audit/pre-gates.ts");
-	const AGGREGATE = resolve(__dirname, "../pipeline/audit/aggregate.ts");
-	const INDEX = resolve(__dirname, "../pipeline/audit/index.ts");
-
-	// TSC/LSP gate decision passthrough is owned by determineAuditGate and
-	// asserted through the gate runner; tsc-gate/lsp-gate only format sections.
-
-	it("CI gating still returns nextStatus Implementation on failure and adds to gateFailures", async () => {
-		const preGatesSrc = readFileSync(PRE_GATES, "utf-8");
-		const aggregateSrc = readFileSync(AGGREGATE, "utf-8");
-		const indexSrc = readFileSync(INDEX, "utf-8");
-		assert.ok(preGatesSrc.includes("--- CI Gate ---"), "CI Gate section in pre-gates.ts");
+describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", () => {
+	it("agent-loop.ts imports applyGateFailureContext through the stages barrel", () => {
+		const graph = readGraph(HANDLER_TS);
 		assert.ok(
-			aggregateSrc.includes('nextStatus: "Implementation"'),
-			"Implementation decision in aggregate.ts",
-		);
-		assert.ok(indexSrc.includes("gateFailures.push"), "orchestrator pushes gate failures");
-	});
-
-	it("Dead code gate appends failure to gateFailures (no issue comment)", () => {
-		const preGatesSrc = readFileSync(PRE_GATES, "utf-8");
-		const aggregateSrc = readFileSync(AGGREGATE, "utf-8");
-		const indexSrc = readFileSync(INDEX, "utf-8");
-		assert.ok(
-			preGatesSrc.includes("--- Dead Code Gate ---"),
-			"Dead code gate section in pre-gates.ts",
-		);
-		assert.ok(indexSrc.includes("gateFailures.push"), "orchestrator pushes gate failures");
-		assert.ok(
-			!preGatesSrc.includes("## 🔴 Dead Code Gate — Implementation Rejected") &&
-				!aggregateSrc.includes("## 🔴 Dead Code Gate — Implementation Rejected"),
-			"Dead code gate no longer posts a separate issue comment",
+			graph.importedNames.includes("applyGateFailureContext"),
+			"applyGateFailureContext imported from the stages barrel",
 		);
 		assert.ok(
-			aggregateSrc.includes('nextStatus: "Implementation"') && aggregateSrc.includes("note: `"),
-			"Dead code gate still returns Implementation with note for developer context",
+			graph.specifiers.includes("../stages/index.ts"),
+			"wired through ../stages/index.ts",
 		);
 	});
 
@@ -228,14 +279,4 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 			"matched via lib/audit-headings.ts (no unanchored substring regex)",
 		);
 	});
-
-	it("pre-transition hooks step.hooks check covers every gate hook", async () => {
-		const { GATE_HOOKS } = await import("../config/workflow.ts");
-		assert.deepEqual(
-			new Set(GATE_HOOKS),
-			new Set(["ci", "tsc", "lsp", "dup", "trace"]),
-			"gate hook set unchanged",
-		);
-	});
 });
-

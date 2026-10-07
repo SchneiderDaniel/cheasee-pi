@@ -93,7 +93,7 @@ RUN npm install -g --force \
         jscpd \
         prettier \
         pyright \
-        shell-quote \
+        shell-quote@1.11.0 \
         typescript \
         typescript-language-server \
     && npm cache clean --force \
