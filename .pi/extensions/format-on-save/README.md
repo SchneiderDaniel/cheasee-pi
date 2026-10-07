@@ -67,7 +67,7 @@ Adapter pattern with pluggable Formatter/Linter ports:
 ├── eslint.mts             # formatEslintDiagnostics: diagnostic message formatting
 ├── eslint-adapter.mts     # EslintLinter: ESLint adapter (dynamic import)
 ├── prettier-adapter.mts   # PrettierFormatter: Prettier adapter (dynamic import)
-├── ports.mts              # Formatter, Linter interfaces
+├── ports.mts              # Formatter, Linter, FileMutationQueue interfaces
 └── test/                  # Tests
 ```
 
@@ -104,6 +104,7 @@ flowchart TD
 ### Key Design Decisions
 
 - **Non-blocking advisory** — Format/lint errors never crash session. The write/edit already succeeded.
+- **Serialised file mutation** — `PrettierFormatter.format()` and `EslintLinter.lint()` run their read-modify-write inside pi's `withFileMutationQueue` (read and write both taken under the lock). A concurrent agent `write`/`edit` to the same path is serialised behind them, so a stale formatter snapshot can never clobber newer content.
 - **Dynamic imports for adapters** — Missing prettier/eslint handled gracefully inside adapters.
 - **Trust gate** — Untrusted projects skip entirely. Prevents arbitrary formatter commands from project-local config.
 - **Mode-adaptive notifications** — TUI: `ctx.ui.notify()`. RPC: `pi.sendUserMessage(followUp)`. JSON/print: console.error only.

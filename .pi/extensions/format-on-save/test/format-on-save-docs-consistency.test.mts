@@ -83,6 +83,19 @@ describe("Phase 2: Neither doc restates a stale threshold", () => {
 	}
 });
 
+// ── Phase 4: Mutation-queue serialisation is documented ───────────
+
+describe("Phase 4: Docs state format/lint writes are serialised", () => {
+	for (const [name, path] of files) {
+		it(`${name} mentions serialised writes via the file-mutation queue`, () => {
+			assert.ok(
+				/seriali[sz]/i.test(read(path)),
+				`${name} should state writes are serialised through the file-mutation queue`,
+			);
+		});
+	}
+});
+
 // ── Phase 3: No other MB token near a size-gate phrase ───────────
 
 describe("Phase 3: Only the derived MB label appears near size-gate phrases", () => {
