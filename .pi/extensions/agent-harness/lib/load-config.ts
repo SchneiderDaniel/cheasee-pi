@@ -17,12 +17,6 @@ import type { ResolvedHarnessRules, ToolMeta } from "./harness-rules.ts";
 
 // ── Types ──
 
-/** Expected shape of `.pi/harness-config.json`. */
-interface ProjectHarnessConfig {
-	toolMeta?: Record<string, ToolMeta>;
-	cascadeThreshold?: number;
-}
-
 /** Minimal context for config loading — a subset of ToolCallContext. */
 export interface ConfigLoaderContext {
 	isProjectTrusted?: () => boolean;
