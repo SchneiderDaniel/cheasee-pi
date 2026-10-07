@@ -9,6 +9,7 @@
  */
 
 import type { Diagnostic } from "./ports.mts";
+import { renderDiagnostics } from "../lib/diagnostics-format.ts";
 
 /**
  * Format ESLint diagnostics into developer-readable follow-up message.
@@ -22,38 +23,17 @@ import type { Diagnostic } from "./ports.mts";
  * Sorting: errors before warnings, then by line, then by column.
  * Grouping: by file, files sorted alphabetically, blank line between files.
  * Truncation: messages over 500 chars are truncated to 497 + "...".
+ *
+ * Mechanics live in the shared renderer (lib/diagnostics-format.ts); this
+ * module owns only the eslint-specific severity comparator and ruleId suffix.
  */
 export function formatEslintDiagnostics(diagnostics: Diagnostic[]): string {
-	if (!diagnostics || diagnostics.length === 0) return "";
-
-	const byFile = new Map<string, Diagnostic[]>();
-	for (const d of diagnostics) {
-		const list = byFile.get(d.file) || [];
-		list.push(d);
-		byFile.set(d.file, list);
-	}
-
-	const blocks: string[] = [];
-	const files = [...byFile.keys()].sort();
-	for (const file of files) {
-		const diags = byFile.get(file)!;
-		// Sort: errors first, then by line
-		diags.sort((a, b) => {
+	return renderDiagnostics(diagnostics, {
+		compare: (a, b) => {
 			if (a.severity !== b.severity) return a.severity === "Error" ? -1 : 1;
 			if (a.line !== b.line) return a.line - b.line;
 			return a.column - b.column;
-		});
-
-		const lines: string[] = [];
-		for (const d of diags) {
-			let msg = d.message;
-			if (msg.length > 500) msg = msg.slice(0, 497) + "...";
-			const rulePart = d.ruleId ? ` (${d.ruleId})` : "";
-			lines.push(`${d.file}, Line ${d.line}: [${d.severity}] ${msg}${rulePart}`);
-		}
-		if (blocks.length > 0) blocks.push("");
-		blocks.push(lines.join("\n"));
-	}
-
-	return blocks.join("\n");
+		},
+		suffix: (d) => (d.ruleId ? ` (${d.ruleId})` : ""),
+	});
 }
