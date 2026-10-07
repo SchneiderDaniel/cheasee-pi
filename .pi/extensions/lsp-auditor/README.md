@@ -14,7 +14,6 @@
 - **Git-aware** — Only audits files modified since the default branch
 - **Project trust gate** — Skips LSP audit when project is not trusted, preventing untrusted workspace config from weaponizing LSP servers
 - **Mode-adaptive output** — `/lsp-auditor` command output adapts per `ctx.mode`: TUI gets clickable `file://` URIs, RPC/JSON gets structured JSON, Print gets plain text
-- **Args parsing support** — `/lsp-auditor` command handler uses `parseArgs` for future subcommand support (e.g., `/lsp-auditor --files src/`)
 
 ## How it works
 
@@ -131,7 +130,6 @@ interface StructuredDiagnostics {
 
 ## Requirements
 
-- Pi Coding Agent v0.78.0+ (for `parseArgs` export)
 - Pi Coding Agent v0.78.1+ (for `ctx.mode`)
 - Pi Coding Agent v0.79.1+ (for `ctx.isProjectTrusted()`)
 - LSP servers installed on PATH for the languages you audit (e.g., `typescript-language-server`, `pylsp`, `rust-analyzer`, `gopls`)

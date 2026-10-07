@@ -5,8 +5,7 @@
  * as an audit step before code is committed or merged.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { parseArgs } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runPreAudit } from "./run-pre-audit.ts";
 import { readSettings } from "./settings.ts";
 import { formatForMode } from "./output-adapter.ts";
@@ -24,9 +23,6 @@ export default function lspAuditor(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => {
 			const sm = ctx.sessionManager;
 			const cwd = sm.getCwd();
-
-			// Parse args for future subcommand support (e.g., /lsp-auditor --files src/)
-			const parsedArgs = parseArgs(_args.split(/\s+/));
 
 			// Read defaultBranch from supervisor config if available
 			let defaultBranch = "main";
