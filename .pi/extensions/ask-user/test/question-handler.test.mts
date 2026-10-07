@@ -10,7 +10,9 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { QuestionHandler, type QuestionHandlerContext } from "../question-handler.ts";
 
@@ -485,27 +487,41 @@ describe("QuestionHandler — error resilience", () => {
 // ============================================================================
 
 describe("QuestionHandler — trust gate", () => {
-	it("does not attempt persistence when isProjectTrusted() is false", async () => {
-		const notifications: string[] = [];
-		const ctx = makeMockCtx({
-			input: async () => "answer",
-			notify: (message: string) => {
-				notifications.push(message);
-			},
-		});
-		const handler = new QuestionHandler("/test", ctx);
-		const result = await handler.handle({
-			mode: "freetext",
-			question: "Say something:",
-		});
+	it("does not persist when isProjectTrusted() is false", async () => {
+		// Real, controlled project dir: with the gate removed this test would
+		// write here (and the assertion below fails), rather than leaking a
+		// file to a hardcoded path that a root run might silently write.
+		const projectDir = mkdtempSync(join(tmpdir(), "ask-user-trust-gate-"));
+		try {
+			const notifications: string[] = [];
+			const ctx = makeMockCtx({
+				input: async () => "answer",
+				notify: (message: string) => {
+					notifications.push(message);
+				},
+			});
+			const handler = new QuestionHandler(projectDir, ctx);
+			const result = await handler.handle({
+				mode: "freetext",
+				question: "Say something:",
+			});
 
-		assert.strictEqual(result.details.answer, "answer");
-		// A trusted run would call appendQnaEntry("/test", ...) → EACCES on mkdir,
-		// surfaced via ui.notify. The untrusted path must never get there.
-		assert.strictEqual(
-			notifications.some((m) => m.includes("Failed to save Q&A entry")),
-			false,
-		);
+			assert.strictEqual(result.details.answer, "answer");
+			// Untrusted → logAnswer returns before appendQnaEntry, so no Q&A file
+			// may exist. This is the direct persistence assertion the notification
+			// check could not make.
+			assert.strictEqual(
+				existsSync(join(projectDir, ".pi", "context", "qna.jsonl")),
+				false,
+				"untrusted project must not have a qna.jsonl written",
+			);
+			assert.strictEqual(
+				notifications.some((m) => m.includes("Failed to save Q&A entry")),
+				false,
+			);
+		} finally {
+			rmSync(projectDir, { recursive: true, force: true });
+		}
 	});
 });
 
