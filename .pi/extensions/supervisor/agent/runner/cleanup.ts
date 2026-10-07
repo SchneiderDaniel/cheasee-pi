@@ -32,6 +32,51 @@ export function buildTimeoutNote(opts: {
 	return `[Timeout: ${opts.agentName} exceeded ${sec}s (actual ${opts.durationMs}ms)]`;
 }
 
+/**
+ * State-derived fields of an AgentRunResult, shared by the subprocess
+ * (assembleResult) and in-process (runAgentInProcess) runners. Callers inject
+ * the four genuinely divergent fields: output, success, errorOutput, textOutput.
+ *
+ * `textOutput` is an input (not recomputed from state.fullLog) because
+ * assembleResult captures it before its kill-label pushLog mutates fullLog.
+ */
+export function stateResultFields(opts: {
+	state: AgentRunState;
+	agentName: string;
+	durationMs: number;
+	textOutput: string;
+	success: boolean;
+	timedOut?: boolean;
+	configuredTimeoutMs?: number;
+}): Omit<AgentRunResult, "output" | "success" | "errorOutput" | "textOutput"> {
+	const { state } = opts;
+	const timedOut = opts.timedOut === true;
+	return {
+		agentName: opts.agentName,
+		toolCount: state.toolCount,
+		thinkingLevel: state.thinkingLevel,
+		failedToolCount: state.failedToolCount ?? undefined,
+		nestedCalls: nestedCallsFromState(state),
+		nestedErrors: state.nestedErrorCount,
+		tokenCount: state.tokenCount,
+		durationMs: opts.durationMs,
+		textOnly: state.textOutputLines.join("\n").trim(),
+		summaryLine: extractSummaryLine(
+			opts.textOutput,
+			opts.success,
+			opts.agentName,
+			new Set(state.toolCalls),
+		),
+		thinkingOutput:
+			state.thinkingOutputLines.length > 0 ? state.thinkingOutputLines.join("\n\n") : undefined,
+		toolCalls: state.toolCalls,
+		budgetExceeded: state.budgetExceeded || undefined,
+		killReason: timedOut ? "timeout" : state.budgetExceeded ? "budget" : undefined,
+		timedOut: timedOut || undefined,
+		configuredTimeoutMs: timedOut ? opts.configuredTimeoutMs : undefined,
+	};
+}
+
 export function assembleResult(opts: {
 	state: AgentRunState;
 	agentName: string;
@@ -53,7 +98,6 @@ export function assembleResult(opts: {
 }): AgentRunResult {
 	const durationMs = Date.now() - opts.startedAt;
 	const textOutput = opts.state.fullLog.join("\n").trim();
-	const textOnly = opts.state.textOutputLines.join("\n").trim();
 	const rawOutput = opts.rawStdout + (opts.stderr ? "\n[STDERR]\n" + opts.stderr : "");
 	const killed = opts.signal !== null;
 	const timedOut = opts.timedOut === true;
@@ -83,39 +127,20 @@ export function assembleResult(opts: {
 		errorOutput = errorOutput ? `${errorOutput}\n${killNote}` : killNote;
 	}
 
-	const thinkingOutput =
-		opts.state.thinkingOutputLines.length > 0
-			? opts.state.thinkingOutputLines.join("\n\n")
-			: undefined;
-
-	const summaryLine = extractSummaryLine(
-		textOutput,
-		success,
-		opts.agentName,
-		new Set(opts.state.toolCalls),
-	);
-
 	return {
+		...stateResultFields({
+			state: opts.state,
+			agentName: opts.agentName,
+			durationMs,
+			textOutput,
+			success,
+			timedOut,
+			configuredTimeoutMs: opts.configuredTimeoutMs,
+		}),
 		output: rawOutput,
 		success,
-		agentName: opts.agentName,
-		toolCount: opts.state.toolCount,
-		thinkingLevel: opts.state.thinkingLevel,
-		failedToolCount: opts.state.failedToolCount ?? undefined,
-		nestedCalls: nestedCallsFromState(opts.state),
-		nestedErrors: opts.state.nestedErrorCount,
-		tokenCount: opts.state.tokenCount,
-		durationMs,
 		textOutput,
-		textOnly,
-		summaryLine,
 		errorOutput,
-		thinkingOutput,
-		toolCalls: opts.state.toolCalls,
-		budgetExceeded: opts.state.budgetExceeded || undefined,
-		killReason: timedOut ? "timeout" : opts.state.budgetExceeded ? "budget" : undefined,
-		timedOut: timedOut || undefined,
-		configuredTimeoutMs: timedOut ? opts.configuredTimeoutMs : undefined,
 	};
 }
 

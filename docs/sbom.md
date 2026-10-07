@@ -27,7 +27,7 @@ nav_order: 10
 | `typescript` | ^6.0.3 | Apache-2.0 | TypeScript compiler |
 | `prettier` | ^3.8.3 | MIT | Code formatting |
 | `proper-lockfile` | ^4.1.2 | MIT | File-based locking for session logs |
-| `shell-quote` | ^1.9.0 | MIT | Shell command parsing for worktree sandbox |
+| `shell-quote` | ^1.11.0 | MIT | Shell command parsing for worktree sandbox |
 | `typebox` | ^1.2.8 | MIT | Runtime type validation |
 | `js-yaml` | ^5.2.2 | MIT | YAML parsing (dev, release tests) |
 | `vscode-jsonrpc` | ^8.2.1 | MIT | LSP communication |
