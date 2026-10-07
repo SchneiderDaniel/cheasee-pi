@@ -405,11 +405,13 @@ describe("openConfigDialog header styling", () => {
 	});
 
 	it("renders under the real system theme in both appearances (AC 3)", async () => {
-		assert.equal(
-			typeof activeThemeSingleton().style,
-			"function",
-			"Theme.style must exist (pi >= 0.99.0)",
-		);
+		for (const helper of ["style", "fg"] as const) {
+			assert.equal(
+				typeof activeThemeSingleton()[helper],
+				"function",
+				`Theme.${helper} must exist on the real singleton`,
+			);
+		}
 		const previous = process.env.COLORFGBG;
 		try {
 			for (const [fgbg, appearance] of [
@@ -440,6 +442,28 @@ describe("openConfigDialog header styling", () => {
 			if (previous === undefined) delete process.env.COLORFGBG;
 			else process.env.COLORFGBG = previous;
 		}
+	});
+
+	it("makeSentinelTheme mirrors the real Theme surface — no fictional API", () => {
+		const sentinel = makeSentinelTheme();
+		const real = activeThemeSingleton();
+		for (const [key, value] of Object.entries(sentinel.theme)) {
+			if (key === "name" || key === "sourcePath") continue;
+			assert.equal(
+				typeof real[key],
+				typeof value,
+				`sentinel exposes ${key} (${typeof value}) but the real Theme does not match`,
+			);
+		}
+	});
+
+	it("a theme lacking style throws TypeError — documents the reported mechanism", async () => {
+		const themeWithoutStyle = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+		await assert.rejects(
+			() => renderConfigDialog(themeWithoutStyle),
+			TypeError,
+			"a theme without style must fail loudly, proving the injected real theme does not",
+		);
 	});
 
 	it("caveman production sources contain no nested theme calls (AC 2)", () => {
