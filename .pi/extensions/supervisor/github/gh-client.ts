@@ -11,35 +11,37 @@ import { join } from "node:path";
 
 // ─── gh() — raw CLI wrapper ───────────────────────────────────────
 
-// Cache GH_TOKEN from env or ~/.config/gh/hosts.yml to work around
-// WSL auth context mismatch where pi.exec("gh", ...) can return 401
-// even though the gh binary itself is properly authenticated.
-// On WSL, pi.exec passes environment correctly but gh sometimes
-// fails to find its credentials. Injecting GH_TOKEN explicitly
-// ensures consistent auth across shell and pi.exec contexts.
-const getGhToken = (() => {
-	let token: string | null = null;
-	return (): string | null => {
-		if (token !== null) return token;
-		if (process.env.GH_TOKEN && process.env.GH_TOKEN.length > 0) {
-			token = process.env.GH_TOKEN;
-			return token;
-		}
-		try {
-			const configPath = join(homedir(), ".config", "gh", "hosts.yml");
-			const yml = readFileSync(configPath, "utf8");
-			const match = yml.match(/oauth_token:\s+(\S+)/);
-			token = match ? match[1] : null;
-		} catch {
-			token = null;
-		}
-		return token;
-	};
-})();
+// ─── Token Resolution ────────────────────────────────────────────
 
-/** Public accessor for the resolved GitHub token (env or gh credential store). */
-export function getGitHubToken(): string | null {
-	return getGhToken();
+/** Injection seam for {@link resolveGitHubToken}: override the home directory
+ * and environment so the lookup is pure and testable. */
+export interface TokenResolutionOptions {
+	home?: string;
+	env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Resolve the GitHub token from GH_TOKEN or ~/.config/gh/hosts.yml.
+ *
+ * Env wins (trimmed, whitespace-only treated as unset), else the
+ * `oauth_token:` line in the gh credential store, else null. Intentionally
+ * uncached: a memoised null would poison later calls once `gh auth login`
+ * or an exported GH_TOKEN lands mid-session. GH_TOKEN is injected into
+ * `gh`/`ghRaw` to work around WSL auth context mismatch where pi.exec
+ * can return 401 even though the gh binary itself is authenticated.
+ */
+export function resolveGitHubToken(opts?: TokenResolutionOptions): string | null {
+	const env = opts?.env ?? process.env;
+	const envToken = env.GH_TOKEN?.trim();
+	if (envToken) return envToken;
+	try {
+		const configPath = join(opts?.home ?? homedir(), ".config", "gh", "hosts.yml");
+		const yml = readFileSync(configPath, "utf8");
+		const match = yml.match(/oauth_token:\s+(\S+)/);
+		return match ? match[1]!.trim() : null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -89,7 +91,7 @@ export async function gh(
 
 	// Call gh via bash to inject GH_TOKEN, working around exec auth
 	// context issues on WSL.  Uses "$@" passthrough to avoid shell escaping.
-	const ghToken = getGhToken();
+	const ghToken = resolveGitHubToken();
 	const shellArgs = ghToken
 		? ["-c", `GH_TOKEN='${ghToken.replace(/'/g, "'\\''")}' gh "$@"`, "_", ...args]
 		: args;
@@ -123,7 +125,7 @@ export async function ghRaw(
 	// Same GH_TOKEN injection as gh(), but returns the raw ExecResult — no
 	// stdout trim, no throw on non-zero exit — so HTTP headers (`gh api -i`,
 	// e.g. X-OAuth-Scopes) survive for caller-side parsing.
-	const ghToken = getGhToken();
+	const ghToken = resolveGitHubToken();
 	const shellArgs = ghToken
 		? ["-c", `GH_TOKEN='${ghToken.replace(/'/g, "'\\''")}' gh "$@"`, "_", ...args]
 		: args;
