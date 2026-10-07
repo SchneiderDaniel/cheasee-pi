@@ -305,19 +305,19 @@ describe("QuestionHandler — choice mode", () => {
 		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
-	it("does not append 'Other' option when disableOther is true", async () => {
-		let capturedItems: Array<{ value: string; label: string }> | undefined;
-		const ctx = makeMockCtx({
-			custom: async <T,>(
-				factory: (_tui: any, _theme: any, _keybindings: any, done: (result: T) => void) => any,
-			) => {
-				// The factory wouldn't normally be called synchronously like this,
-				// but for the test we can't inspect what's passed to renderScrollableDialog
-				// So we'll just resolve
-				return undefined as T;
-			},
-		});
-		void capturedItems;
+	it("omits the 'Other' option when disableOther is true", async () => {
+		let capturedLabels: string[] | undefined;
+		const ctx: MockCtx = {
+			...makeMockCtx({
+				select: async (_title: string, labels: string[]) => {
+					capturedLabels = labels;
+					return undefined;
+				},
+			}),
+			// RPC mode routes choice dispatch through ui.select(), whose options are
+			// plain labels — the only mode where the option list is observable.
+			mode: "rpc",
+		};
 
 		const handler = new QuestionHandler("/test", ctx);
 		const result = await handler.handle({
@@ -330,8 +330,11 @@ describe("QuestionHandler — choice mode", () => {
 			disableOther: true,
 		});
 
-		// With disableOther: true and no "Other" option, if user cancels (undefined from custom)
-		// we get the cancellation response
+		assert.deepStrictEqual(
+			capturedLabels,
+			["1. Red", "2. Blue"],
+			"disableOther: true must not append an 'Other' entry",
+		);
 		assert.strictEqual(
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
@@ -423,9 +426,13 @@ describe("QuestionHandler — choice mode", () => {
 // ============================================================================
 
 describe("QuestionHandler — mode defaults", () => {
-	it("treats undefined mode as choice", async () => {
+	it("treats undefined mode as choice (TUI dispatch)", async () => {
+		let customCalled = false;
 		const ctx = makeMockCtx({
-			custom: async <T,>() => undefined as T,
+			custom: async <T,>() => {
+				customCalled = true;
+				return undefined as T;
+			},
 		});
 		const handler = new QuestionHandler("/test", ctx);
 		const result = await handler.handle({
@@ -433,7 +440,12 @@ describe("QuestionHandler — mode defaults", () => {
 			options: [{ label: "A", value: "a" }],
 		});
 
-		// If treated as choice, cancel should give this message
+		// The cancel text alone is identical for TUI choice and JSON cancel, so
+		// assert the default "tui" dispatch actually reached ctx.ui.custom().
+		assert.ok(
+			customCalled,
+			"undefined ctx.mode must default to the TUI choice path (ctx.ui.custom)",
+		);
 		assert.strictEqual(
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
