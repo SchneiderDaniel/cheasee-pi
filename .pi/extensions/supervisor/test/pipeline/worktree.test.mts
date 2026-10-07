@@ -259,6 +259,76 @@ describe("createWorktree()", () => {
 		assert.equal(calls.filter((c) => c.level === "error").length, 0);
 	});
 
+	it("attempt 1 add succeeds + remote exists — reconciles in place, 5 calls in order", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe
+				{ code: 0, stdout: "", stderr: "" }, // add -b succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
+				{ code: 0, stdout: "", stderr: "" }, // reset succeeds
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, true);
+		if (result.ok) assert.ok(result.value.endsWith("branch"));
+		assert.equal(calls.length, 5);
+		assert.deepEqual(calls[0].args, ["rev-parse", "--git-common-dir"]);
+		assert.deepEqual(calls[1].args.slice(0, 3), ["worktree", "add", "-b"]);
+		assert.deepEqual(calls[2].args, ["ls-remote", "--heads", "origin", "refs/heads/branch"]);
+		assert.deepEqual(calls[3].args, ["fetch", "origin", "branch"]);
+		assert.deepEqual(calls[4].args, ["reset", "--hard", "origin/branch"]);
+		assert.ok(
+			notifyCalls.some(
+				(c) => c.level === "info" && c.msg.includes("Reconciled worktree to remote"),
+			),
+		);
+	});
+
+	it("attempt 2 add succeeds + remote exists — reconciles in place, 6 calls", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe
+				{ code: 1, stdout: "", stderr: "already exists" }, // add -b fails
+				{ code: 0, stdout: "", stderr: "" }, // add succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
+				{ code: 0, stdout: "", stderr: "" }, // reset succeeds
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 6);
+		assert.deepEqual(calls[2].args, ["worktree", "add", calls[2].args[2], "branch"]);
+	});
+
+	it("dir-exists fallback + remote exists — reconciles in place, 7 calls", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe
+				{ code: 1, stdout: "", stderr: "error" }, // add -b fails
+				{ code: 1, stdout: "", stderr: "already exists" }, // add fails
+				{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
+				{ code: 0, stdout: "", stderr: "" }, // reset succeeds
+			],
+			calls,
+		);
+		const { notify } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 7);
+		assert.equal(calls[3].cmd, "test");
+	});
+
 	it("fatal reconcile on dir-exists fallback — returns { ok: false, Reconciliation failed }, notify.error once, no reset", async () => {
 		const calls: ExecCall[] = [];
 		const pi = createMockPi(
