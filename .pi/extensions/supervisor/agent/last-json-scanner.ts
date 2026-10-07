@@ -78,6 +78,43 @@ function isStructuralClose(text: string, i: number): boolean {
 	return true;
 }
 
+// ─── String/Escape Tracking ───────────────────────────────────────
+
+/**
+ * Outcome of one character for the string/escape tracker.
+ * - `escaped`: the character was consumed by a preceding backslash
+ * - `escapeStart`: a backslash inside a string starts an escape
+ * - `quote`: an unescaped `"` toggled string state (quote *policy* is the
+ *   caller's: extraction ignores it, sanitizers route it through
+ *   `isStructuralClose`)
+ * - `plain`: ordinary character
+ */
+type StringStepRole = "escaped" | "escapeStart" | "quote" | "plain";
+
+/**
+ * Advance the string/escape tracker by one character. Sole owner of the
+ * JSON escape rule in this module — the fence scan, the brace scan, and
+ * `walkJsonChars` all delegate here.
+ *
+ * Simple toggle — content quotes inside string values almost always come
+ * in pairs, so the net effect on string boundary tracking is correct.
+ * Using simple toggle avoids a false-positive structural close when a
+ * content quote is followed by `,`, `}`, `]`, or `:`.
+ */
+function stepStringState(
+	ch: string | undefined,
+	state: { inString: boolean; escaped: boolean },
+): { state: { inString: boolean; escaped: boolean }; role: StringStepRole } {
+	if (ch === undefined) return { state, role: "plain" };
+	if (state.escaped)
+		return { state: { inString: state.inString, escaped: false }, role: "escaped" };
+	if (state.inString && ch === "\\") {
+		return { state: { inString: state.inString, escaped: true }, role: "escapeStart" };
+	}
+	if (ch === '"') return { state: { inString: !state.inString, escaped: false }, role: "quote" };
+	return { state, role: "plain" };
+}
+
 // ─── JSON Sanitization ────────────────────────────────────────────
 
 /**
@@ -93,37 +130,34 @@ type QuoteHandler = (
 
 /**
  * Walk JSON text character by character, tracking escape state and
- * string boundaries. Delegates `"` handling to the provided callback.
- * The shared escape preamble (backslash tracking, literal newline
- * replacement) lives here — both sanitizer variants call this.
+ * string boundaries via `stepStringState`. Delegates `"` handling to the
+ * provided callback. Literal newline replacement inside strings lives
+ * here — both sanitizer variants call this.
  */
 function walkJsonChars(jsonText: string, onQuote: QuoteHandler): string {
 	let result = "";
-	let inString = false;
-	let escaped = false;
+	let stringState = { inString: false, escaped: false };
 
 	for (let i = 0; i < jsonText.length; i++) {
 		const ch = jsonText[i];
-		if (escaped) {
+		const inStringBefore = stringState.inString;
+		const step = stepStringState(ch, stringState);
+		const role = step.role;
+		stringState = step.state;
+
+		if (role === "escaped" || role === "escapeStart") {
 			result += ch;
-			escaped = false;
 			continue;
 		}
 
-		if (inString && ch === "\\") {
-			result += ch;
-			escaped = true;
-			continue;
-		}
-
-		if (ch === '"') {
-			const next = onQuote(jsonText, i, inString, result);
+		if (role === "quote") {
+			const next = onQuote(jsonText, i, inStringBefore, result);
 			result = next.result;
-			inString = next.inString;
+			stringState = { inString: next.inString, escaped: false };
 			continue;
 		}
 
-		if (inString && (ch === "\n" || ch === "\r")) {
+		if (stringState.inString && (ch === "\n" || ch === "\r")) {
 			result += ch === "\n" ? "\\n" : "\\r";
 			continue;
 		}
@@ -291,29 +325,14 @@ function extractLastJson(raw: string, toolNames?: Set<string>): string {
 
 		// Scan for closing ``` — string-boundary aware
 		// We look for ``` that is NOT inside a JSON string value.
-		let inString = false;
-		let escaped = false;
+		let stringState = { inString: false, escaped: false };
 		let fenceEnd = -1;
 		for (let i = afterOpen; i < fenceSearchText.length; i++) {
 			const ch = fenceSearchText[i];
-			if (escaped) {
-				escaped = false;
-				continue;
-			}
-			if (inString && ch === "\\") {
-				escaped = true;
-				continue;
-			}
-			if (ch === '"') {
-				// Simple toggle — content quotes inside string values
-				// almost always come in pairs, so the net effect on
-				// string boundary tracking is correct. Using simple
-				// toggle avoids false-positive structural close when
-				// a content quote is followed by `,`, `}`, `]`, or `:`.
-				inString = !inString;
-				continue;
-			}
-			if (!inString && ch === "`" && fenceSearchText.startsWith("```", i)) {
+			const step = stepStringState(ch, stringState);
+			stringState = step.state;
+			if (step.role !== "plain" || stringState.inString) continue;
+			if (ch === "`" && fenceSearchText.startsWith("```", i)) {
 				fenceEnd = i;
 				break;
 			}
@@ -333,15 +352,16 @@ function extractLastJson(raw: string, toolNames?: Set<string>): string {
 		return fenceContents[fenceContents.length - 1];
 	}
 
-	// Step 2: No code fences — filter metadata lines then simple brace counting.
+	// Step 2: No code fences — filter metadata lines, then brace counting.
 	// Lines starting with 🔧, ✓, ✗, 📋, 📊 are tool execution/debug markers pushed
 	// to fullLog by event handlers. Their content may contain `{`, `}` from tool
 	// args/results, which would corrupt simple brace counting.
 	// These lines are never part of the agent's structured JSON output.
 	//
 	// Use fenceSearchText (💭 prefix already stripped) so JSON inside thinking
-	// blocks is valid. Use SIMPLE brace counting (no string tracking) so
-	// double-quotes in thinking content do NOT corrupt brace matching.
+	// blocks is valid. Brace counting below IS string-boundary aware (shared
+	// `stepStringState`), so quotes and escapes inside string values do NOT
+	// corrupt the depth tracking.
 	const metadataLineRe = /^[\u{1F527}\u{2713}\u{2717}\u{1F4CB}\u{1F4CA}]/u;
 	let braceCandidateRaw = fenceSearchText;
 	// Check if any filtering is needed (either old-format metadata lines or new-format tool call lines)
@@ -362,35 +382,19 @@ function extractLastJson(raw: string, toolNames?: Set<string>): string {
 	}
 
 	// Step 3: String-boundary-aware brace counting — find all complete outermost {} pairs.
-	// Uses the same inString/escaped tracking as Step 2's fence scanner and
+	// Uses the same `stepStringState` tracker as Step 2's fence scanner and
 	// sanitizeJsonStrings to ignore { and } inside JSON string values.
 	// Metadata tool lines (🔧 ✓ ✗ 📋 📊) with {}/quotes are already filtered.
 	// Returns the LAST complete outermost pair (agent's JSON is final output).
 	let depth = 0;
 	let lastStart = -1;
 	let lastEnd = -1;
-	let inString = false;
-	let escaped = false;
+	let stringState = { inString: false, escaped: false };
 	for (let i = 0; i < braceCandidateRaw.length; i++) {
 		const ch = braceCandidateRaw[i];
-		if (escaped) {
-			escaped = false;
-			continue;
-		}
-		if (inString && ch === "\\") {
-			escaped = true;
-			continue;
-		}
-		if (ch === '"') {
-			// Simple toggle — content quotes inside string values
-			// almost always come in pairs, so the net effect on
-			// string boundary tracking is correct. Using simple
-			// toggle avoids false-positive structural close when
-			// a content quote is followed by `,`, `}`, `]`, or `:`.
-			inString = !inString;
-			continue;
-		}
-		if (inString) continue;
+		const step = stepStringState(ch, stringState);
+		stringState = step.state;
+		if (step.role !== "plain" || stringState.inString) continue;
 		if (ch === "{") {
 			if (depth === 0) lastStart = i;
 			depth++;

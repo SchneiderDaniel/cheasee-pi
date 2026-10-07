@@ -76,8 +76,8 @@ export function parseAgentOutput(output: string, toolNames?: Set<string>): Parse
 
 	// Step 2: Extract JSON from text
 	// 💭 prefix stripping occurs inside extractLastJson for code fence
-	// detection. Brace matching uses simple brace counting (no string
-	// tracking) so double-quotes in thinking content don't corrupt it.
+	// detection. Brace matching is string-boundary aware, so double-quotes
+	// and escapes inside string values don't corrupt it.
 	const jsonStr = extractLastJson(clean, toolNames);
 	if (!jsonStr) {
 		getDebugLogger().warn("agent-output", "No JSON structure found in agent output", {
