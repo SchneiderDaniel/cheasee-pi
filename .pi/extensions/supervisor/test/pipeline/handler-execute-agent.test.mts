@@ -123,12 +123,12 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		);
 
 		assert.equal(runner.mock.callCount(), 1, "runAgentSubprocess called exactly once");
-		const call = runner.mock.calls[0]?.arguments;
+		const call = runner.mock.calls[0]?.arguments[0];
 		assert.ok(call, "should have call arguments");
-		assert.equal(call[0]?.config?.name, "developer");
-		assert.equal(call[1], "test task");
-		assert.equal(call[3], 30000);
-		assert.equal(call[4], "/worktree");
+		assert.equal(call?.agent?.config?.name, "developer");
+		assert.equal(call?.task, "test task");
+		assert.equal(call?.timeoutMs, 30000);
+		assert.equal(call?.cwd, "/worktree");
 	});
 
 	it("sends start message before subprocess", async () => {
@@ -293,9 +293,9 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		);
 
 		assert.equal(runner.mock.callCount(), 1);
-		const args = runner.mock.calls[0]?.arguments;
+		const args = runner.mock.calls[0]?.arguments[0];
 		assert.ok(args, "should have arguments");
-		const sessionPath = args[7]; // 8th arg is sessionPath
+		const sessionPath = args.sessionPath;
 		assert.ok(
 			typeof sessionPath === "string" && sessionPath.length > 0,
 			"sessionPath should be a non-empty string",

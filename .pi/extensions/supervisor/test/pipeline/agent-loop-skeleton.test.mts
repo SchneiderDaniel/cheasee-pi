@@ -210,7 +210,7 @@ describe("runAgentLoop skeleton — empty-worktree dispatch (issue #1533)", () =
 		const notify = mock.fn();
 		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name !== "developer") {
 				return makeDevResult({
 					success: false,
@@ -324,7 +324,7 @@ describe("runAgentLoop skeleton — researcher budget degradation (issue #1533)"
 		const notify = mock.fn();
 		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "researcher") {
 				return makeDevResult({
 					agentName: "researcher",
@@ -394,7 +394,7 @@ describe("runAgentLoop skeleton — researcher budget degradation (issue #1533)"
 		const notify = mock.fn();
 		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "architect") {
 				return makeDevResult({
 					agentName: "architect",
@@ -444,7 +444,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		const notify = mock.fn();
 		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "architect") {
 				return makeDevResult({
 					agentName: "architect",
@@ -560,7 +560,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		const pi = emptyWorktreePi({});
 		const refusalJson = JSON.stringify({ refusal: "cannot continue", agentName: "architect" });
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "architect") {
 				return makeDevResult({
 					agentName: "architect",
@@ -619,7 +619,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			refusal: "cannot review this task",
 		});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "auditor") {
 				return makeDevResult({
 					agentName: "auditor",
@@ -679,7 +679,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			agentName: "researcher",
 		});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "researcher") {
 				return makeDevResult({
 					agentName: "researcher",
@@ -746,7 +746,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			refusal: "cannot implement this safely",
 		});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "developer") {
 				return makeDevResult({
 					agentName: "developer",
@@ -800,7 +800,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		const pi = emptyWorktreePi({});
 		const refusalJson = JSON.stringify({ refusal: "cannot continue" });
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			if (agent?.config?.name === "architect") {
 				return makeDevResult({
 					agentName: "architect",
@@ -855,7 +855,7 @@ describe("runAgentLoop skeleton — full transition sequence + explicit-marker s
 		const notify = mock.fn();
 		const pi = emptyWorktreePi({});
 		const runner = mock.fn(async (...args: any[]) => {
-			const agent = args[0] as { config?: { name?: string } };
+			const agent = args[0]?.agent as { config?: { name?: string } };
 			switch (agent?.config?.name) {
 				case "researcher":
 					return makeDevResult({

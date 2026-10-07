@@ -42,6 +42,7 @@ const MODULES = [
 	"deadline.ts",
 	"cleanup.ts",
 	"ui.ts",
+	"event-loop.ts",
 	"index.ts",
 ];
 
@@ -329,6 +330,30 @@ if (hasMockModule) {
 			);
 		});
 
+		it("exports the shared event-loop handler from the shim", async () => {
+			const mod = await import("../agent/runner.ts");
+			assert.equal(
+				typeof mod.handleNormalizedEvent,
+				"function",
+				"handleNormalizedEvent exported through the barrel",
+			);
+		});
+
+		it("dedup guard: neither runner inlines the preThinkingText capture", () => {
+			const files = [
+				join(__dirname, "../agent/agent-session-runner.ts"),
+				join(RUNNER_DIR, "index.ts"),
+			];
+			for (const f of files) {
+				const src = readFileSync(f, "utf-8");
+				assert.ok(
+					!src.includes('normalized.kind === "thinking_end" ? state.liveThinking.trim()'),
+					`${f} must not inline the preThinkingText capture`,
+				);
+				assert.ok(src.includes("handleNormalizedEvent("), `${f} must call handleNormalizedEvent`);
+			}
+		});
+
 		it("size guards: every runner/*.ts ≤ 500 nbnc; max function span ≤ 100; orchestrator < 100", () => {
 			for (const mod of MODULES) {
 				const src = readFileSync(join(RUNNER_DIR, mod), "utf-8");
@@ -356,7 +381,12 @@ if (hasMockModule) {
 		it("'exit' reaps but does not resolve; 'close' resolves after trailing stdio", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			// chunk 1: text with newline → fullLog entry
 			emitStdoutLines([
@@ -394,7 +424,12 @@ if (hasMockModule) {
 		it("unterminated final JSON line is flushed at child 'close'", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitStdoutLines([
 				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
@@ -461,17 +496,13 @@ if (hasMockModule) {
 					throw new Error("sendMessage boom");
 				},
 			} as any;
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				throwingPi,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: throwingPi,
+			});
 
 			emitMockEvents({
 				stdoutLines: [
@@ -509,14 +540,13 @@ if (hasMockModule) {
 		it("multiple budget-exceeding events → exactly one SIGTERM", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1, // maxToolCalls = 1
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			emitMockEvents({
 				stdoutLines: [
@@ -544,14 +574,13 @@ if (hasMockModule) {
 		it("budgetExceeded event after 'exit' → NO kill (childExited guard)", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			emitStdoutLines([
 				JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
@@ -606,7 +635,12 @@ if (hasMockModule) {
 			const stderrLines = ["Warning: some diagnostic info"];
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents({ stdoutLines, stderrLines, exitCode: 0, exitSignal: null });
 
 			const result = await resultPromise;
@@ -626,14 +660,13 @@ if (hasMockModule) {
 		it("budget-kill corpus: label bytes preserved, textOutput unchanged", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			emitMockEvents({
 				stdoutLines: [
@@ -695,13 +728,13 @@ if (hasMockModule) {
 
 			// existsSync guard path through the orchestrator (identical shape)
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const badCwd = await runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				"/nonexistent-path-xyz",
-			);
+			const badCwd = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				cwd: "/nonexistent-path-xyz",
+			});
 			assert.equal(badCwd.success, false);
 			assert.ok(badCwd.summaryLine.includes("Worktree missing"));
 			assert.equal(badCwd.budgetExceeded, undefined);
@@ -709,7 +742,12 @@ if (hasMockModule) {
 
 			// spawn-error path through the orchestrator (identical shape)
 			resetMock();
-			const errPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const errPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			for (const h of currentMockChild!._ref.errorHandlers) {
 				h(new Error("ENOENT: spawn pi ENOENT"));
 			}
@@ -878,7 +916,12 @@ if (hasMockModule) {
 			// completion path
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const okPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const okPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents({
 				stdoutLines: [
 					JSON.stringify({
@@ -899,7 +942,12 @@ if (hasMockModule) {
 
 			// spawn-error path
 			resetMock();
-			const errPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const errPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			for (const h of currentMockChild!._ref.errorHandlers) {
 				h(new Error("ENOENT"));
 			}

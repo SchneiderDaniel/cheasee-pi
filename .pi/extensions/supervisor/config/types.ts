@@ -45,21 +45,31 @@ export interface FilteredIssueData {
 	comments: Array<{ author: string; body: string }>;
 }
 
-/** Common signature for agent runners (in-process and subprocess) */
-export type AgentRunner = (
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number | null,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	sessionPath?: string,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-	killGraceSec?: number,
+/**
+ * Single input contract for every agent runner (in-process, subprocess, and the
+ * AgentRunner port). Named fields replace the ten-positional-argument wall so
+ * adding/omitting an optional can never silently shift meaning at a call site.
+ */
+export interface AgentRunOptions {
+	agent: ParsedAgent;
+	task: string;
+	ctx: ExtensionCommandContext;
+	/** Configured per-agent timeout. Omitted → DEFAULT_AGENT_TIMEOUT_MS; null → no timeout. */
+	timeoutMs?: number | null;
+	/** Working directory. Omitted → ctx.cwd ?? process.cwd(). */
+	cwd?: string;
+	maxToolCalls?: number;
+	agentTokenBudget?: number;
+	sessionPath?: string;
+	pi?: Pick<ExtensionAPI, "sendMessage">;
 	/** Absolute dispatch deadline (epoch ms); enforcement budget when set. */
-	deadlineMs?: number | null,
-) => Promise<AgentRunResult>;
+	deadlineMs?: number | null;
+	/** Subprocess-only kill grace; accepted but ignored by the in-process runner. */
+	killGraceSec?: number;
+}
+
+/** Common signature for agent runners (in-process and subprocess) */
+export type AgentRunner = (opts: AgentRunOptions) => Promise<AgentRunResult>;
 
 /** Structured result returned by runAgent for rendering */
 export interface AgentRunResult {

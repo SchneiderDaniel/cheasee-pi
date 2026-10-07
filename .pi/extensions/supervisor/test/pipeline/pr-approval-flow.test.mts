@@ -203,7 +203,7 @@ function makeRunnerResult(overrides: Partial<AgentRunResult>): AgentRunResult {
 
 function createGateRunner(devSuccess: boolean) {
 	return mock.fn(async (...args: any[]) => {
-		const agent = args[0] as { config?: { name?: string } };
+		const agent = args[0]?.agent as { config?: { name?: string } };
 		if (agent?.config?.name === "developer") {
 			return makeRunnerResult({
 				success: devSuccess,

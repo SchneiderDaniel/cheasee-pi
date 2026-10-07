@@ -11,22 +11,18 @@ export * from "./budget.ts";
 export * from "./deadline.ts";
 export * from "./cleanup.ts";
 export * from "./ui.ts";
+export * from "./event-loop.ts";
 
 import { existsSync } from "node:fs";
-import type { AgentRunResult, AgentRunState, ParsedAgent } from "../../config/types.ts";
+import type { AgentRunOptions, AgentRunResult, AgentRunState, ParsedAgent } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../../config/config.ts";
-import {
-	jsonLineToNormalizedEvent,
-	processNormalizedEvent,
-	forwardNormalizedEventToChat,
-	createForwardChatState,
-} from "../../event/adapter.ts";
+import { jsonLineToNormalizedEvent, createForwardChatState } from "../../event/adapter.ts";
 import { createAgentRunState } from "../state-helpers.ts";
-import { getWorkingMessage } from "../../session/widget.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { getErrorCollector } from "../../pipeline/error-collector.ts";
 import { runAgentInProcess } from "../agent-session-runner.ts";
+import { handleNormalizedEvent } from "./event-loop.ts";
 import { buildSubprocessArgs, warnIfArgsLarge } from "./args.ts";
 import { spawnAgentChild, type ChildHandle } from "./spawn.ts";
 import { createLineStream, type StreamProcessor } from "./stream.ts";
@@ -41,43 +37,24 @@ import { createWidgetFlusher, type WidgetFlusher } from "./ui.ts";
 // when the wall-clock deadline already fired, so the configured bound is
 // never silently doubled by the fallback (hard 1× rule).
 
-export async function runAgent(
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number | null = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	sessionPath?: string,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-	killGraceSec?: number,
-	deadlineMs?: number | null,
-): Promise<AgentRunResult> {
+export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 	const startedAt = Date.now();
+	const timeoutMs = opts.timeoutMs === undefined ? DEFAULT_AGENT_TIMEOUT_MS : opts.timeoutMs;
 	// Hard 1× bound: both the in-process attempt and the subprocess fallback
 	// share ONE absolute deadline. `timeoutMs` is the CONFIGURED timeout (kept
 	// for reporting); the deadline is the enforcement budget, so the fallback
 	// can never restart the clock (that was the 2× stall).
-	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
+	const absoluteDeadlineMs = timeoutMs === null ? null : (opts.deadlineMs ?? startedAt + timeoutMs);
+	// Both runners receive the SAME options object (with the resolved absolute
+	// deadline) — no positional re-listing, so no silent argument drift.
+	const dispatchOpts: AgentRunOptions = { ...opts, deadlineMs: absoluteDeadlineMs };
 
 	try {
 		// The in-process runner derives its watchdog from this ABSOLUTE deadline
 		// and arms it before setup, so model resolution / tool resolution / SDK
 		// load / session creation all count against the configured window, and a
 		// deadline already expired before entry fails immediately.
-		const result = await runAgentInProcess(
-			agent,
-			task,
-			ctx,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-			sessionPath,
-			pi,
-			absoluteDeadlineMs,
-		);
+		const result = await runAgentInProcess(dispatchOpts);
 		// Timeout is terminal: the wall-clock bound already fired in-process.
 		// Returning the timeout result WITHOUT falling back keeps the bound at 1×.
 		if (result.timedOut) {
@@ -88,19 +65,7 @@ export async function runAgent(
 			console.warn(
 				"[supervisor] In-process runner failed (result.success=false), falling back to subprocess",
 			);
-			return runAgentSubprocess(
-				agent,
-				task,
-				ctx,
-				timeoutMs,
-				cwd,
-				maxToolCalls,
-				agentTokenBudget,
-				sessionPath,
-				pi,
-				killGraceSec,
-				absoluteDeadlineMs,
-			);
+			return runAgentSubprocess(dispatchOpts);
 		}
 		return result;
 	} catch (err: unknown) {
@@ -108,37 +73,18 @@ export async function runAgent(
 		// The deadline can legitimately be exhausted here (throw at/after the
 		// bound): runAgentSubprocess returns the structured timeout failure
 		// instead of arming a fresh window — still a single dispatch.
-		return runAgentSubprocess(
-			agent,
-			task,
-			ctx,
-			timeoutMs,
-			cwd,
-			maxToolCalls,
-			agentTokenBudget,
-			sessionPath,
-			pi,
-			killGraceSec,
-			absoluteDeadlineMs,
-		);
+		return runAgentSubprocess(dispatchOpts);
 	}
 }
 
 // ─── runAgentSubprocess (Fallback) ─────────────────────────────────
 
-export async function runAgentSubprocess(
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number | null = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	sessionPath?: string,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-	killGraceSec?: number,
-	deadlineMs?: number | null,
-): Promise<AgentRunResult> {
+export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRunResult> {
+	const { agent, task, ctx, cwd, maxToolCalls, agentTokenBudget, sessionPath, pi, killGraceSec } =
+		opts;
+	// timeoutMs: omitted → configured default; null → no deadline.
+	const timeoutMs = opts.timeoutMs === undefined ? DEFAULT_AGENT_TIMEOUT_MS : opts.timeoutMs;
+	const deadlineMs = opts.deadlineMs;
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
 	// Pass worktree path to worktree-sandbox extension for path confinement
@@ -477,28 +423,15 @@ function createLineHandler(deps: LineHandlerDeps): (line: string) => void {
 			if (!line.trim()) return;
 			const normalized = jsonLineToNormalizedEvent(line);
 			if (!normalized) return;
-			// ponytail: capture pre-processing state for events that mutate it.
-			// processNormalizedEvent clears state.liveThinking on thinking_end,
-			// so we save it before forwarding below.
-			const preThinkingText = normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
-			const result = processNormalizedEvent(normalized, state, effectiveCwd);
-			if (result.workingChange) {
-				widget.scheduleFlush();
-				const wm = getWorkingMessage(state, agentName);
-				ctx.ui.setWorkingMessage(wm ?? undefined);
-			}
-			// Forward key events as supervisor chat messages
-			if (pi) {
-				forwardNormalizedEventToChat(
-					normalized,
-					state,
-					pi,
-					agentName,
-					pending,
-					preThinkingText,
-					effectiveCwd,
-				);
-			}
+			handleNormalizedEvent(normalized, {
+				state,
+				effectiveCwd,
+				agentName,
+				pi,
+				pending,
+				scheduleFlush: widget.scheduleFlush,
+				ctx,
+			});
 			// Budget exceeded — kill subprocess to prevent further turns
 			maybeKillOnBudgetExceeded(state, handle);
 		} catch (parseErr: unknown) {
