@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExecFn } from "../../pipeline/helpers.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
-import { gh, ghJson, ghRaw, detectTokenClass, getGitHubToken } from "../../github/gh-client.ts";
+import { gh, ghJson, ghRaw, detectTokenClass, resolveGitHubToken } from "../../github/gh-client.ts";
+import { createGitHubPort } from "../../github/ports.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -154,13 +155,216 @@ describe("detectTokenClass() — remediation hint keying", () => {
 	});
 });
 
-// ─── Tests: getGitHubToken() — exported accessor ─────────────────
+// ─── Tests: resolveGitHubToken() — one resolution policy ──────────
 
-describe("getGitHubToken() — exported token accessor", () => {
-	it("is exported and returns a string or null (cached)", () => {
-		assert.equal(typeof getGitHubToken, "function");
-		const token = getGitHubToken();
-		assert.ok(token === null || typeof token === "string");
+/** Write a gh hosts.yml holding `oauth_token: <token>` under `home`. */
+function writeHosts(home: string, token: string): void {
+	mkdirSync(join(home, ".config", "gh"), { recursive: true });
+	writeFileSync(join(home, ".config", "gh", "hosts.yml"), `github.com:\n    oauth_token: ${token}\n`);
+}
+
+describe("resolveGitHubToken() — single resolution policy", () => {
+	it("prefers GH_TOKEN over hosts.yml", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-pref-"));
+		try {
+			writeHosts(home, "gho_file");
+			assert.equal(resolveGitHubToken({ home, env: { GH_TOKEN: "gho_env" } }), "gho_env");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("falls back to hosts.yml oauth_token when GH_TOKEN is unset", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-file-"));
+		try {
+			writeHosts(home, "gho_file");
+			assert.equal(resolveGitHubToken({ home, env: {} }), "gho_file");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("trims leading/trailing whitespace from GH_TOKEN", () => {
+		assert.equal(resolveGitHubToken({ env: { GH_TOKEN: "  gho_pad  " } }), "gho_pad");
+	});
+
+	it("returns null when neither source exists", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-none-"));
+		try {
+			assert.equal(resolveGitHubToken({ home, env: {} }), null);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("returns null when home has no .config/gh/hosts.yml", () => {
+		assert.equal(resolveGitHubToken({ home: tmpdir(), env: {} }), null);
+	});
+
+	it("returns null when hosts.yml has no oauth_token line", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-noline-"));
+		try {
+			mkdirSync(join(home, ".config", "gh"), { recursive: true });
+			writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com:\n    users:\n        octocat: {}\n");
+			assert.equal(resolveGitHubToken({ home, env: {} }), null);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("treats whitespace-only GH_TOKEN as unset and falls through to hosts.yml", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-blank-"));
+		try {
+			writeHosts(home, "gho_file");
+			assert.equal(resolveGitHubToken({ home, env: { GH_TOKEN: "   " } }), "gho_file");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("does not poison a later successful call (no module cache of null)", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-poison-"));
+		try {
+			assert.equal(resolveGitHubToken({ home, env: {} }), null, "first call: no credential");
+			writeHosts(home, "gho_file");
+			assert.equal(
+				resolveGitHubToken({ home, env: {} }),
+				"gho_file",
+				"second call sees the newly written credential — null was not cached",
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── Tests: gh()/ghRaw() consume the shared resolver ──────────────
+
+/**
+ * Run `fn` with HOME/GH_TOKEN overridden (node:os homedir() honours $HOME on
+ * POSIX). Restores both in finally so global env mutation is contained.
+ */
+async function withEnv(
+	home: string,
+	ghToken: string | undefined,
+	fn: () => Promise<void>,
+): Promise<void> {
+	const savedHome = process.env.HOME;
+	const savedToken = process.env.GH_TOKEN;
+	process.env.HOME = home;
+	if (ghToken === undefined) delete process.env.GH_TOKEN;
+	else process.env.GH_TOKEN = ghToken;
+	try {
+		await fn();
+	} finally {
+		if (savedHome === undefined) delete process.env.HOME;
+		else process.env.HOME = savedHome;
+		if (savedToken === undefined) delete process.env.GH_TOKEN;
+		else process.env.GH_TOKEN = savedToken;
+	}
+}
+
+describe("gh()/ghRaw() — per-call resolution (no stale cache)", () => {
+	it("gh(): mid-session credential appearing is picked up on the next call", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-midsession-gh-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				const calls: ExecCall[] = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls);
+
+				await gh(exec, ["status"]);
+				assert.equal(calls[0].cmd, "gh", "no credential → exec gh directly");
+
+				writeHosts(home, "gho_file");
+				await gh(exec, ["status"]);
+				assert.equal(calls[1].cmd, "bash", "new credential → inject via bash");
+				assert.ok(
+					calls[1].args[1].includes("GH_TOKEN='gho_file'"),
+					`expected injected token, got: ${calls[1].args[1]}`,
+				);
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("ghRaw(): mid-session credential appearing is picked up on the next call", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-midsession-raw-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				const calls: ExecCall[] = [];
+				const exec = createMockExec({ code: 0, stdout: "HTTP/2 200\n", stderr: "" }, calls);
+
+				await ghRaw(exec, ["api", "-i", "/user"]);
+				assert.equal(calls[0].cmd, "gh", "raw semantics: no credential → exec gh directly");
+
+				writeHosts(home, "gho_file");
+				await ghRaw(exec, ["api", "-i", "/user"]);
+				assert.equal(calls[1].cmd, "bash", "raw semantics preserved when injecting");
+				assert.ok(calls[1].args[1].includes("GH_TOKEN='gho_file'"));
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("both gh() and ghRaw() inject the same escaped GH_TOKEN", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-escape-"));
+		try {
+			await withEnv(home, "gho_it's", async () => {
+				const calls: ExecCall[] = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls);
+				await gh(exec, ["status"]);
+				await ghRaw(exec, ["api", "/user"]);
+				for (const call of calls) {
+					assert.equal(call.cmd, "bash");
+					assert.ok(
+						call.args[1].includes("GH_TOKEN='gho_it'\\''s'"),
+						`quote escaped identically, got: ${call.args[1]}`,
+					);
+				}
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── Tests: createGitHubPort() — composition + fail-closed throw ─
+
+describe("createGitHubPort()", () => {
+	it("injected literal token → returns a port without touching the filesystem", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-port-literal-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				const port = createGitHubPort("gho_literal");
+				assert.equal(typeof port.setToken, "function");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("throws 'GitHub token not found' when no token resolves (fail-closed)", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-port-throw-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				assert.throws(() => createGitHubPort(), /GitHub token not found/);
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves via GH_TOKEN when no literal is injected", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-port-env-"));
+		try {
+			await withEnv(home, "gho_env", async () => {
+				assert.equal(typeof createGitHubPort().setToken, "function");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });
 

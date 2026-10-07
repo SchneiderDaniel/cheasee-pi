@@ -5,10 +5,8 @@
 import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../config/types.ts";
 import type { RawIssueData } from "../lib/issue-filter.ts";
 export type { RawIssueData };
-import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { OctokitClient } from "./octokit-client.ts";
+import { resolveGitHubToken } from "./gh-client.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Closing PR Reference ───────────────────────────────────────
@@ -95,36 +93,21 @@ export interface GitHubPort {
 	setToken(token: string): void;
 }
 
-// ─── Token Resolution ────────────────────────────────────────────
-
-function resolveToken(): string | null {
-	if (process.env.GH_TOKEN && process.env.GH_TOKEN.trim().length > 0) {
-		return process.env.GH_TOKEN.trim();
-	}
-	try {
-		const configPath = join(homedir(), ".config", "gh", "hosts.yml");
-		const yml = readFileSync(configPath, "utf8");
-		const match = yml.match(/oauth_token:\s+(\S+)/);
-		return match ? match[1]!.trim() : null;
-	} catch {
-		return null;
-	}
-}
-
 // ─── Factory ────────────────────────────────────────────────────
 
 /**
- * Create a GitHubPort instance by resolving auth from environment or
- * ~/.config/gh/hosts.yml fallback. Throws if no token is found.
+ * Create a GitHubPort instance. Auth resolves from the injected literal when
+ * provided, else from `resolveGitHubToken()` (env or hosts.yml). Throws if
+ * no token is found.
  */
-export function createGitHubPort(): GitHubPort {
-	const token = resolveToken();
-	if (!token) {
+export function createGitHubPort(token?: string): GitHubPort {
+	const resolved = token ?? resolveGitHubToken();
+	if (!resolved) {
 		throw new Error(
 			"GitHub token not found. Set GH_TOKEN environment variable or " +
 				"ensure ~/.config/gh/hosts.yml contains a valid oauth_token for github.com.",
 		);
 	}
 	const log = getDebugLogger();
-	return new OctokitClient(token, log.child("github"));
+	return new OctokitClient(resolved, log.child("github"));
 }
