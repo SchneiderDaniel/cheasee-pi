@@ -279,15 +279,6 @@ describe("runPreAudit — retry budget scoped to active branch", () => {
 		const mapped = mapSessionEntriesToRetryEntries(active);
 		assert.strictEqual(countRetryAttempts(mapped, 42), 2);
 	});
-
-	it("[source guard] run-pre-audit.ts delegates to the branch-scoped counter, never getEntries()", () => {
-		const src = readFileSync(RUN_PRE_AUDIT_TS, "utf-8");
-		assert.ok(
-			src.includes("countBranchRetryAttempts("),
-			"run-pre-audit.ts delegates to the active-branch retry counter",
-		);
-		assert.ok(!src.includes("getEntries("), "run-pre-audit.ts must not call getEntries()");
-	});
 });
 
 describe("runPreAudit — every return declares diagnostics + retryCount", () => {

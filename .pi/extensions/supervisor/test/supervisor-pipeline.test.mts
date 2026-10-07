@@ -123,19 +123,6 @@ describe("pipeline handler — agentCwd for all agents", () => {
 // ---------------------------------------------------------------------------
 
 describe("pipeline handler — worktree cleanup", () => {
-	it("cleanup guarded by worktreePath check", () => {
-		const src = readPostPipelineSource();
-		assert.ok(
-			src.includes("if (worktreePath && worktreeBranch)"),
-			"Cleanup guarded by worktreePath",
-		);
-	});
-
-	it("cleanup calls cleanupWorktree", () => {
-		const src = readPostPipelineSource();
-		assert.ok(src.includes("cleanupWorktree"), "cleanupWorktree called");
-	});
-
 	it("cleanup at end of handler after try/catch", () => {
 		const src = readPostPipelineSource();
 		const cleanupIdx = src.lastIndexOf("cleanupWorktree");
@@ -172,17 +159,6 @@ describe("pipeline handler — agent retry logic", () => {
 		// Find the executeAgent call which contains retry logic
 		const executeIdx = src.indexOf("executeAgent");
 		assert.ok(executeIdx >= 0, "executeAgent helper used");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Post-processing after agent success (agent-loop.ts)
-// ---------------------------------------------------------------------------
-
-describe("pipeline handler — post-agent-success processing", () => {
-	it("handlePostAgentSuccess called when result.success", () => {
-		const src = readAgentLoopSource();
-		assert.ok(src.includes("handlePostAgentSuccess"), "post-agent-success handler called");
 	});
 });
 

@@ -14,6 +14,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
 import type { StageState } from "../pipeline/stages/index.ts";
+import { readGraph } from "../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -167,31 +168,6 @@ describe("pipeline handler — gate failure context capture (Phase 4, Issue #787
 			"gateFailureContext argument appears before systemPromptOptions",
 		);
 	});
-
-	it("all gate failure context blocks exist in pre-transition hook section", () => {
-		const src = readHandlerSource();
-		assert.ok(
-			src.includes("applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note"),
-			"applyGateFailureContext call in pre-transition hook section",
-		);
-		assert.ok(
-			src.includes("auditResult.deadCodeResult"),
-			"deadCodeResult block in pre-transition hook section",
-		);
-		assert.ok(
-			src.includes("auditResult.duplicateCodeResult"),
-			"duplicateCodeResult block in pre-transition hook section",
-		);
-	});
-
-	it("no change to existing deadCodeResult/duplicateCodeResult blocks (no regression)", () => {
-		const src = readHandlerSource();
-		assert.ok(src.includes("if (auditResult.deadCodeResult)"), "deadCodeResult block still exists");
-		assert.ok(
-			src.includes("if (auditResult.duplicateCodeResult)"),
-			"duplicateCodeResult block still exists",
-		);
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -204,9 +180,10 @@ describe("pipeline handler — gate failure context capture (Phase 4, Issue #787
 describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue #787)", () => {
 	const PRE_GATES = resolve(__dirname, "../pipeline/audit/pre-gates.ts");
 	const AGGREGATE = resolve(__dirname, "../pipeline/audit/aggregate.ts");
-	const TSC_GATE = resolve(__dirname, "../pipeline/audit/tsc-gate.ts");
-	const LSP_GATE = resolve(__dirname, "../pipeline/audit/lsp-gate.ts");
 	const INDEX = resolve(__dirname, "../pipeline/audit/index.ts");
+
+	// TSC/LSP gate decision passthrough is owned by determineAuditGate and
+	// asserted through the gate runner; tsc-gate/lsp-gate only format sections.
 
 	it("CI gating still returns nextStatus Implementation on failure and adds to gateFailures", async () => {
 		const preGatesSrc = readFileSync(PRE_GATES, "utf-8");
@@ -240,36 +217,25 @@ describe("Regression — existing pre-transition hooks unchanged (Phase 5, Issue
 		);
 	});
 
-	it("TSC checkpoint still returns { nextStatus, note } on failure", () => {
-		const src = readFileSync(TSC_GATE, "utf-8");
+	it("auditor rejection path consumes the shared anchored matcher — issue #1668", () => {
+		const graph = readGraph(HANDLER_TS);
 		assert.ok(
-			src.includes("nextStatus: tscDecision.nextStatus") && src.includes("note: tscDecision.note"),
-			"TSC checkpoint returns nextStatus and note",
+			graph.importedNames.includes("isAuditRejectedComment"),
+			"auditFeedback scan imports the shared anchored matcher",
+		);
+		assert.ok(
+			graph.specifiers.includes("../../lib/audit-headings.ts"),
+			"matched via lib/audit-headings.ts (no unanchored substring regex)",
 		);
 	});
 
-	it("LSP pre-audit still returns { nextStatus, note } on failure", () => {
-		const src = readFileSync(LSP_GATE, "utf-8");
-		assert.ok(
-			src.includes("return { nextStatus: decision.nextStatus, note: decision.note }"),
-			"LSP pre-audit returns nextStatus and note",
+	it("pre-transition hooks step.hooks check covers every gate hook", async () => {
+		const { GATE_HOOKS } = await import("../config/workflow.ts");
+		assert.deepEqual(
+			new Set(GATE_HOOKS),
+			new Set(["ci", "tsc", "lsp", "dup", "trace"]),
+			"gate hook set unchanged",
 		);
-	});
-
-	it("auditor rejection path (auditFeedback via anchored comment scan) intact — issue #1668", () => {
-		const src = readHandlerSource();
-		assert.ok(
-			src.includes("isAuditRejectedComment(body)"),
-			"auditFeedback scan uses the shared anchored matcher",
-		);
-		assert.ok(
-			!src.includes("/##\\s*Audit\\s*Rejected/i"),
-			"unanchored substring regex removed (quoted headings must not count)",
-		);
-	});
-
-	it("pre-transition hooks step.hooks check still includes all hook types", () => {
-		const src = readHandlerSource();
-		assert.ok(src.includes(`["ci", "tsc", "lsp", "dup", "trace"]`), "step.hooks check unchanged");
 	});
 });
+

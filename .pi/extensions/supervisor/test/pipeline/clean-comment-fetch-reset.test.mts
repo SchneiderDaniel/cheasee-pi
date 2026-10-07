@@ -1,80 +1,55 @@
-// ─── Tests: clean-code comment deletion (issue #1538) ─────────────
-// Rule 2 (self-documenting code): the what-comments "Fetch latest from
-// remote for this branch" / "Reset worktree to match remote tracking
-// branch" restate the execChecked args verbatim, so they are deleted.
-// Diff-scope static guards: the comments are gone, both call blocks are
-// byte-identical, the rev-parse why-comment and error strings remain,
-// and git diff against origin/main shows exactly two deleted lines.
+// ─── Tests: worktree remote reconciliation (issue #1866) ───────────
+// Replaces the former comment-presence / byte-identical / git-diff source
+// guards with behavior: reconcileToRemoteBranch surfaces fetch/reset
+// failures through its Result instead of swallowing them.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { reconcileToRemoteBranch } from "../../pipeline/worktree.ts";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+function makePi(
+	handle: (cmd: string, args: string[]) => { code: number; stdout?: string; stderr?: string },
+): { pi: any; calls: Array<{ cmd: string; args: string[] }> } {
+	const calls: Array<{ cmd: string; args: string[] }> = [];
+	const pi = {
+		exec: async (cmd: string, args: string[]) => {
+			calls.push({ cmd, args });
+			const r = handle(cmd, args);
+			return { code: r.code, stdout: r.stdout ?? "", stderr: r.stderr ?? "", killed: false };
+		},
+	};
+	return { pi, calls };
+}
 
-const WORKTREE_TS = resolve(__dirname, "../../pipeline/worktree.ts");
+const notify = { info: () => {}, error: () => {}, warn: () => {} } as any;
 
-const COMMENT_FETCH = "// Fetch latest from remote for this branch";
-const COMMENT_RESET = "// Reset worktree to match remote tracking branch";
-// #1680 replaced the local rev-parse probe with an authoritative ls-remote
-// one, so the old rev-parse why-comment is gone; the new why-comment stands in.
-const WHY_COMMENT = "// Probe the SERVER, not the local tracking ref.";
-
-// Expected call blocks verbatim (1-tab statement, 2-tab args).
-const EXPECTED_FETCH = [
-	'\tconst fetchRes = await execChecked(pi, "git", ["fetch", remote, worktreeBranch], {',
-	"\t\tcwd,",
-	"\t\ttimeout: 30000,",
-	"\t});",
-].join("\n");
-
-const EXPECTED_RESET = [
-	"\tconst resetRes = await execChecked(",
-	"\t\tpi,",
-	'\t\t"git",',
-	'\t\t["reset", "--hard", `${remote}/${worktreeBranch}`],',
-	"\t\t{ cwd: wtPath, timeout: 15000 },",
-	"\t);",
-].join("\n");
-
-describe("clean-code #1538 — redundant what-comments removed", () => {
-	it("worktree.ts contains neither comment nor its text", () => {
-		const src = readFileSync(WORKTREE_TS, "utf-8");
-		assert.ok(!src.includes(COMMENT_FETCH), "fetch comment still present in worktree.ts");
-		assert.ok(!src.includes(COMMENT_RESET), "reset comment still present in worktree.ts");
-		assert.ok(
-			!src.includes("Fetch latest from remote for this branch"),
-			"fetch comment text still present in worktree.ts",
-		);
-		assert.ok(
-			!src.includes("Reset worktree to match remote tracking branch"),
-			"reset comment text still present in worktree.ts",
-		);
+describe("reconcileToRemoteBranch — failures surface through Result", () => {
+	it("empty ls-remote (branch gone) → ok, fetch never attempted", async () => {
+		const { pi, calls } = makePi(() => ({ code: 0, stdout: "" }));
+		const result = await reconcileToRemoteBranch(pi, "/cwd", "/wt", "b", "origin", notify);
+		assert.equal(result.ok, true);
+		assert.ok(!calls.some((c) => c.args[0] === "fetch"), "no fetch when the branch is gone");
 	});
 
-	it("fetch call block is byte-identical (error behavior preserved)", () => {
-		const src = readFileSync(WORKTREE_TS, "utf-8");
-		assert.ok(src.includes(EXPECTED_FETCH), "expected fetch call block not found verbatim");
+	it("fetch failure → Result error names the failing command", async () => {
+		const { pi } = makePi((_cmd, args) =>
+			args[0] === "ls-remote"
+				? { code: 0, stdout: "abc\trefs/heads/b\n" }
+				: { code: 1, stderr: "boom" },
+		);
+		const result = await reconcileToRemoteBranch(pi, "/cwd", "/wt", "b", "origin", notify);
+		assert.equal(result.ok, false);
+		assert.match((result as any).error, /git fetch origin b failed: boom/);
 	});
 
-	it("reset call block is byte-identical (error behavior preserved)", () => {
-		const src = readFileSync(WORKTREE_TS, "utf-8");
-		assert.ok(src.includes(EXPECTED_RESET), "expected reset call block not found verbatim");
-	});
-
-	it("rev-parse why-comment and error strings are preserved", () => {
-		const src = readFileSync(WORKTREE_TS, "utf-8");
-		assert.ok(src.includes(WHY_COMMENT), "rev-parse why-comment removed");
-		assert.ok(
-			src.includes("git fetch ${remote} ${worktreeBranch} failed:"),
-			"fetch error string changed",
-		);
-		assert.ok(
-			src.includes("git reset --hard ${remote}/${worktreeBranch} failed:"),
-			"reset error string changed",
-		);
+	it("reset failure → Result error names the failing command", async () => {
+		const { pi } = makePi((_cmd, args) => {
+			if (args[0] === "ls-remote") return { code: 0, stdout: "abc\trefs/heads/b\n" };
+			if (args[0] === "fetch") return { code: 0 };
+			return { code: 1, stderr: "bad" };
+		});
+		const result = await reconcileToRemoteBranch(pi, "/cwd", "/wt", "b", "origin", notify);
+		assert.equal(result.ok, false);
+		assert.match((result as any).error, /git reset --hard origin\/b failed: bad/);
 	});
 });

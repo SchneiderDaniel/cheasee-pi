@@ -17,6 +17,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { readGraph } from "../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -103,9 +104,13 @@ describe("pipeline-worktree integration — lifecycle order", () => {
 
 describe("pipeline-worktree integration — error handling", () => {
 	it("worktree creation has error handling", () => {
-		const src = readPreflightSource();
-		// The worktree creation section wraps createWorktree (which has its own error handling)
-		assert.ok(src.includes("await createWorktree"), "createWorktree called");
+		// createWorktree owns its own error handling; the structural invariant is
+		// that preflight consumes it (not a local exec).
+		const graph = readGraph(PREFLIGHT_TS);
+		assert.ok(
+			graph.importedNames.includes("createWorktree"),
+			"preflight imports createWorktree from ../worktree.ts",
+		);
 	});
 
 	it("commitAndPush failure is warned not thrown", () => {

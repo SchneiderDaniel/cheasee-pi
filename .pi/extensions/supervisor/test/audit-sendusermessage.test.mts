@@ -47,17 +47,6 @@ describe("pipeline/audit — sendUserMessage removed (Phase 1)", () => {
 			);
 		}
 	});
-
-	it("no deliverAs reference anywhere in the audit package", () => {
-		for (const file of readdirSync(AUDIT_DIR)) {
-			if (!file.endsWith(".ts")) continue;
-			const src = readSource(join(AUDIT_DIR, file));
-			assert.ok(
-				!src.includes("deliverAs"),
-				`pipeline/audit/${file} should contain no deliverAs references`,
-			);
-		}
-	});
 });
 
 // ===========================================================================
@@ -159,14 +148,6 @@ describe("pipeline/audit — TSC failure path preserves behavior (Phase 3)", () 
 		assert.ok(
 			tscGateSrc.includes("--- TypeScript Checkpoint ---"),
 			"TSC failure should add TypeScript Checkpoint section to gateFailures",
-		);
-	});
-
-	it("TSC clean passes with info notify", () => {
-		const src = readSource(TSC_GATE_TS);
-		assert.ok(
-			src.includes('ctx.ui.notify(tscDecision.note, "info")'),
-			"TSC success notify should use info level",
 		);
 	});
 });

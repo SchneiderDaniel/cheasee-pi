@@ -12,6 +12,12 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StageState } from "../../pipeline/stages/core.ts";
 import { createStageState, applyGateFailureContext } from "../../pipeline/stages/index.ts";
+import {
+	buildDeadCodeContext,
+	buildVulnContext,
+	buildDuplicateCodeContext,
+} from "../../pipeline/stages/index.ts";
+import { readGraph } from "../../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -99,10 +105,14 @@ describe("StageState — rebaseConflictFiles field (Phase 3, Issue #1473)", () =
 
 describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #1473)", () => {
 	it("tryRebaseOntoBase imported from ../rebase.ts", () => {
-		const src = agentLoopSource();
+		const graph = readGraph(AGENT_LOOP_TS);
 		assert.ok(
-			src.includes('import { tryRebaseOntoBase } from "../rebase.ts"'),
-			"tryRebaseOntoBase imported from pipeline/rebase.ts",
+			graph.importedNames.includes("tryRebaseOntoBase"),
+			"tryRebaseOntoBase imported by agent-loop.ts",
+		);
+		assert.ok(
+			graph.specifiers.includes("../rebase.ts"),
+			"imported from pipeline/rebase.ts",
 		);
 	});
 
@@ -159,10 +169,6 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 			conflictBlock.includes("rebaseConflictContext = rebaseResult.conflictFiles.join"),
 			"task context derived from conflict files",
 		);
-		assert.ok(
-			src.includes("rebaseConflictContext,"),
-			"context passed to buildAgentTask (appended arg)",
-		);
 		// Developer dispatched normally regardless of conflict state: the loop
 		// builds the task unconditionally, feeding it the helper's context.
 		const taskIdx = src.indexOf("const task = buildAgentTask(");
@@ -212,31 +218,24 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 		assert.ok(helperBlock.includes("} catch (rebaseErr"), "catch block present");
 	});
 
-	it("regression — auditFeedback/gateFailureContext/deadCodeResult/vulnResult injection paths unchanged", () => {
+	it("regression — context builders are consumed by the developer dispatch", () => {
+		const graph = readGraph(AGENT_LOOP_TS);
+		for (const name of [
+			"buildDeadCodeContext",
+			"buildVulnContext",
+			"buildDuplicateCodeContext",
+		]) {
+			assert.ok(graph.importedNames.includes(name), `${name} imported by agent-loop.ts`);
+		}
+
 		const src = agentLoopSource();
-		assert.ok(
-			src.includes('agentName === "developer"\n\t\t\t\t? (() => {'),
-			"auditFeedback extraction intact",
-		);
-		assert.ok(
-			src.includes("stageState.gateFailureContext,"),
-			"gateFailureContext still passed to buildAgentTask",
-		);
-		assert.ok(
-			src.includes("buildDeadCodeContext(stageState.deadCodeResult)"),
-			"deadCodeContext injection intact",
-		);
-		assert.ok(
-			src.includes("buildVulnContext(stageState.vulnResult)"),
-			"vulnContext injection intact",
-		);
-		assert.ok(
-			src.includes("buildDuplicateCodeContext(stageState.duplicateCodeResult)"),
-			"duplicateCodeContext injection intact",
-		);
 		// New param appended AFTER systemPromptOptions — prior arg ordering preserved
 		const taskCallStart = src.indexOf("const task = buildAgentTask(");
 		const taskCall = src.slice(taskCallStart, taskCallStart + 1600);
+		assert.ok(
+			taskCall.includes("stageState.gateFailureContext,"),
+			"gateFailureContext still passed to buildAgentTask",
+		);
 		const gfcIdx = taskCall.indexOf("stageState.gateFailureContext,");
 		const spoIdx = taskCall.indexOf("systemPromptOptions,");
 		const rccIdx = taskCall.indexOf("rebaseConflictContext,");
@@ -245,5 +244,31 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 			gfcIdx < spoIdx && spoIdx < rccIdx,
 			"param order preserved: gateFailureContext → systemPromptOptions → rebaseConflictContext",
 		);
+	});
+
+	it("regression — context builders guard null results (no injection)", () => {
+		assert.equal(buildDeadCodeContext(null), null);
+		assert.equal(buildVulnContext(null), null);
+		assert.equal(buildDuplicateCodeContext(null), null);
+	});
+
+	it("regression — duplicate context carries the clone payload", () => {
+		const context = buildDuplicateCodeContext({
+			status: "duplicates_found",
+			totalDuplicateLines: 4,
+			clones: [
+				{
+					type: "identical",
+					lines: 4,
+					similarity: 100,
+					locations: [
+						{ file: "a.ts", startLine: 1, endLine: 4 },
+						{ file: "b.ts", startLine: 1, endLine: 4 },
+					],
+				},
+			],
+		} as any);
+		assert.ok(context && context.includes("1 clone(s)"), "clone count in context");
+		assert.ok(context.includes("a.ts"), "clone location in context");
 	});
 });

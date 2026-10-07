@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { DEFAULT_AGENT_TIMEOUT_MS as CONFIG_TIMEOUT } from "../config/config.ts";
 import type { AgentRunState } from "../config/types.ts";
+import { readGraph, importersOf } from "../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -272,6 +273,40 @@ if (!hasMockModule) {
 	});
 }
 
+// Structural invariants are parse/behavior-level and need no module mocks —
+// they run in the default suite so a reformat can't hide a regression.
+describe("runner/ split — module-graph invariants", () => {
+	it("runner/index.ts uses star re-exports only (no TS1205-fragile named re-export)", () => {
+		const graph = readGraph(join(RUNNER_DIR, "index.ts"));
+		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
+		const expected = MODULES.filter((m) => m !== "index.ts")
+			.map((m) => `./${m}`)
+			.sort();
+		assert.deepEqual(
+			[...graph.starReExports].sort(),
+			expected,
+			"index.ts star-re-exports every runner module",
+		);
+	});
+
+	it("SAFE_TASK_CHARS co-located with buildSubprocessArgs in args.ts", async () => {
+		const { SAFE_TASK_CHARS, buildSubprocessArgs, warnIfArgsLarge } = await import(
+			"../agent/runner/args.ts"
+		);
+		assert.equal(SAFE_TASK_CHARS, 1_200_000, "SAFE_TASK_CHARS = 1_200_000");
+		assert.equal(typeof buildSubprocessArgs, "function", "buildSubprocessArgs exported");
+		assert.equal(typeof warnIfArgsLarge, "function", "warnIfArgsLarge exported");
+	});
+
+	it("only spawn.ts imports node:child_process in runner/", () => {
+		assert.deepEqual(
+			importersOf(RUNNER_DIR, "node:child_process"),
+			["spawn.ts"],
+			"node:child_process must have a single owner in runner/",
+		);
+	});
+});
+
 if (hasMockModule) {
 	// ── Phase 1: shim + export surface + size guards ──────────────
 
@@ -294,22 +329,6 @@ if (hasMockModule) {
 			);
 		});
 
-		it("runner/index.ts uses star re-exports only (no TS1205-fragile named re-export)", () => {
-			const src = readFileSync(join(RUNNER_DIR, "index.ts"), "utf-8");
-			assert.ok(!src.includes("export {"), "index.ts must not use named re-exports");
-			for (const mod of MODULES) {
-				if (mod === "index.ts") continue;
-				assert.ok(src.includes(`export * from "./${mod}";`), `index.ts star-re-exports ${mod}`);
-			}
-		});
-
-		it("SAFE_TASK_CHARS co-located with buildSubprocessArgs in args.ts", () => {
-			const src = readFileSync(join(RUNNER_DIR, "args.ts"), "utf-8");
-			assert.ok(src.includes("SAFE_TASK_CHARS = 1_200_000"), "SAFE_TASK_CHARS = 1_200_000");
-			assert.ok(src.includes("export function buildSubprocessArgs"));
-			assert.ok(src.includes("export function warnIfArgsLarge"));
-		});
-
 		it("size guards: every runner/*.ts ≤ 500 nbnc; max function span ≤ 100; orchestrator < 100", () => {
 			for (const mod of MODULES) {
 				const src = readFileSync(join(RUNNER_DIR, mod), "utf-8");
@@ -328,23 +347,6 @@ if (hasMockModule) {
 	// ── Phase 2: spawn.ts exit/close wiring ───────────────────────
 
 	describe("runner/spawn.ts — exit/close wiring", () => {
-		it("only spawn.ts imports node:child_process in runner/", () => {
-			for (const mod of MODULES) {
-				const src = readFileSync(join(RUNNER_DIR, mod), "utf-8");
-				if (mod === "spawn.ts") {
-					assert.ok(
-						src.includes('from "node:child_process"'),
-						"spawn.ts imports node:child_process",
-					);
-				} else {
-					assert.ok(
-						!src.includes("node:child_process"),
-						`${mod} must not import node:child_process (mock intercept)`,
-					);
-				}
-			}
-		});
-
 		it("sub-module is standalone-importable with no top-level I/O or spawn", async () => {
 			const mod = await import("../agent/runner/spawn.ts");
 			assert.equal(typeof mod.spawnAgentChild, "function");

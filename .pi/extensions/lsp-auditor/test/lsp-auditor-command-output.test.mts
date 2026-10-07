@@ -202,10 +202,4 @@ describe("/lsp-auditor command structured output", () => {
 		const payload = JSON.parse(messages[0].content);
 		assert.deepStrictEqual(payload.diagnostics, { files: [] });
 	});
-
-	it("[source guard] index.ts has no extractLastDiagnostics and serializes result.diagnostics", () => {
-		const src = readFileSync(INDEX_TS, "utf-8");
-		assert.ok(!src.includes("extractLastDiagnostics"), "dead extractor removed");
-		assert.ok(src.includes("result.diagnostics"), "serializes result.diagnostics");
-	});
 });

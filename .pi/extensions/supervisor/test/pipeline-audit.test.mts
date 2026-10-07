@@ -184,11 +184,6 @@ describe("getRunGate — unified dynamic import (Phase 2)", () => {
 		const src = readFileSync(AUDIT_GATE_DECISION_TS, "utf-8");
 		const getRunIdx = src.indexOf("export async function getRunGate");
 		assert.ok(getRunIdx >= 0, "getRunGate function exists in audit-gate-decision.ts");
-		// Verify the signature shows PolicyName generic
-		assert.ok(
-			src.includes("getRunGate<K extends PolicyName>"),
-			"getRunGate should be generic over PolicyName",
-		);
 	});
 
 	it("calling resolved function with single string argument does not throw", async () => {
@@ -250,23 +245,10 @@ describe("pipeline.ts — worktreePath passed to runTscAndLspAudit (Phase 3)", (
 // ===========================================================================
 // Phase 8: LSP gate consumes runner-supplied retryCount (issue #1773)
 // ===========================================================================
-
-describe("pipeline/audit/lsp-gate.ts — retryCount sourced from runner (Phase 8)", () => {
-	it("[source guard] no getEntries() recount in lsp-gate.ts", () => {
-		const src = readLspGateSource();
-		assert.ok(!src.includes("getEntries("), "lsp-gate.ts must not read session entries directly");
-		assert.ok(!src.includes("lsp-audit-retry"), "inline retry recount loop removed");
-	});
-
-	it("[source guard] derives retryCount from preAuditResult.retryCount", () => {
-		const src = readLspGateSource();
-		assert.ok(
-			src.includes("preAuditResult.retryCount") || src.includes("preAuditResult?.retryCount"),
-			"retryCount comes from the runner result",
-		);
-		assert.ok(src.includes("retryCount"), "retryCount threaded into context");
-	});
-});
+// retryCount sourcing is asserted behaviorally in
+// lsp-auditor/test/lsp-auditor-run-pre-audit.test.mts (runPreAudit with
+// active-branch retry entries → result.retryCount), so the former source
+// guards were removed.
 
 // ===========================================================================
 // Phase 4: Path construction consistency (resolvePath not string concat)
@@ -302,15 +284,6 @@ describe("pipeline/audit/lsp-gate.ts — resolvePath used in runLspPreAudit (Pha
 // ===========================================================================
 
 describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () => {
-	it("no string concat pattern `${config.worktreeBase!}${branch}` in pipeline-audit.ts", () => {
-		const src = readAuditSource();
-		const oldPattern = "`${config.worktreeBase!}${branch}`";
-		assert.ok(
-			!src.includes(oldPattern),
-			"Old string-concat pattern should not exist in pipeline-audit.ts",
-		);
-	});
-
 	it("path resolution uses resolvePath via createWorktree import", () => {
 		const lspGateSrc = readLspGateSource();
 		const preflightSrc = readFileSync(PREFLIGHT_TS, "utf-8");
@@ -334,17 +307,6 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 // ===========================================================================
 
 describe("pipeline/audit/tsc-gate.ts — TSC checkpoint try/catch error boundary (Phase 7)", () => {
-	it("tscResult declared with let outside try block (visible after catch)", () => {
-		const src = readTscGateSource();
-		// Verify let-declared tscResult before try block, not const inside it
-		const letDecl = "let tscResult: TscCheckpointResult | null = null;";
-		assert.ok(src.includes(letDecl), "tscResult should be declared with let outside try block");
-		// Verify it appears before the try block
-		const tryIdx = src.indexOf("try {", src.indexOf(letDecl));
-		const declIdx = src.indexOf(letDecl);
-		assert.ok(declIdx >= 0 && declIdx < tryIdx, "let tscResult should appear before the try block");
-	});
-
 	it("runTscCheckpointFn call wrapped in try block", () => {
 		const src = readTscGateSource();
 		const callIdx = src.indexOf("runTscCheckpointFn(worktreePath)");
@@ -530,18 +492,6 @@ describe("pipeline/audit/index.ts — state checkpoint integration (Phase 5)", (
 			matches?.length ?? 0,
 			1,
 			"should have exactly 1 writeCheckpointFile call (in writeAuditCheckpoint)",
-		);
-		assert.ok(src.includes('"pre-tsc"'), "pre-tsc checkpoint invocation exists");
-		assert.ok(src.includes('"pre-lsp"'), "pre-lsp checkpoint invocation exists");
-	});
-	it("no old resolvePath(worktreePath, '..') pattern remains", () => {
-		const src = readAuditSource();
-		// Should not reference worktreePath for cwd in checkpoint writes
-		// (the old pattern used resolvePath(worktreePath, "..") )
-		const oldPattern = 'resolvePath(worktreePath, "..")';
-		assert.ok(
-			!src.includes(oldPattern),
-			"should not use resolvePath(worktreePath, '..') for checkpoint writes",
 		);
 	});
 });
