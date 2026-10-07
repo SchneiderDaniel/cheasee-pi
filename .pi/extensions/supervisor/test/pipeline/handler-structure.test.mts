@@ -154,35 +154,9 @@ describe("handler.ts shim — re-export contract", () => {
 		);
 	});
 
-	it("orchestration: index.ts runs preflight → agent loop → post-pipeline in order", () => {
-		const src = pkgSource("index.ts");
-		const preflightIdx = src.indexOf("runPreflight(runCtx)");
-		const loopIdx = src.indexOf("runAgentLoop(runCtx)");
-		const postIdx = src.indexOf("runPostPipelinePhase(runCtx)");
-		assert.ok(preflightIdx >= 0, "runPreflight called");
-		assert.ok(loopIdx >= 0, "runAgentLoop called");
-		assert.ok(postIdx >= 0, "runPostPipelinePhase called");
-		assert.ok(preflightIdx < loopIdx && loopIdx < postIdx, "phase call order preserved");
-	});
-
-	it("single top-level try/catch/finally in runSupervisorPipeline", () => {
-		const { start, end } = functionLineSpan("index.ts", "runSupervisorPipeline");
-		const body = pkgSource("index.ts")
-			.split("\n")
-			.slice(start - 1, end);
-		assert.ok(
-			body.some((l) => l.includes("try {")),
-			"try block present",
-		);
-		assert.ok(
-			body.some((l) => l.includes("} catch (err: unknown) {")),
-			"catch block present",
-		);
-		assert.ok(
-			body.some((l) => l.includes("} finally {")),
-			"finally block present",
-		);
-	});
+	// Orchestration order and the single top-level try/catch/finally are
+	// covered behaviorally by handler-entry.test.mts (end-to-end dispatch
+	// through the shim), not by slicing index.ts source text.
 });
 
 // ---------------------------------------------------------------------------
