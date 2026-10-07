@@ -198,8 +198,12 @@ describe("pipeline-worktree real git operations", { skip: !isCI, concurrency: fa
 		mainDir = join(tmpDir, "main");
 		run(`git clone "${bareDir}" "${mainDir}"`, tmpDir);
 
-		// Make an initial commit on main
-		run("git commit --allow-empty -m 'initial'", mainDir);
+		// Make an initial commit on main. Set the identity inline so the test is
+		// hermetic (the hygiene CI job sets no global git identity).
+		run(
+			"git -c user.name=Test -c user.email=test@test.com commit --allow-empty -m 'initial'",
+			mainDir,
+		);
 		run("git push origin main", mainDir);
 
 		// Create branch for worktree
