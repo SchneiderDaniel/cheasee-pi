@@ -542,6 +542,33 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			assert.deepStrictEqual(violations[0]!.missingBindings, ["getModel"]);
 		});
 
+		it("ignores import-like text inside template and string literals", () => {
+			// Regression (audit finding): a scanner that only strips comments
+			// still sees template-literal contents, so a documentation example
+			// such as this one was collected as a real import and failed CI on a
+			// nonexistent named export.
+			const template = [
+				"const doc = `",
+				`import { getModel } from "@earendil-works/pi-ai";`,
+				"`;",
+			].join("\n");
+			assert.deepStrictEqual(extractSdkStaticImports(template), []);
+
+			const stringLiteral = `const doc = 'import { getModel } from "@earendil-works/pi-ai";';`;
+			assert.deepStrictEqual(extractSdkStaticImports(stringLiteral), []);
+
+			// A template literal with an executable expression must not hide a
+			// real import that follows it.
+			const mixed = [
+				"const doc = `v${1}`;",
+				`import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";`,
+			].join("\n");
+			assert.deepStrictEqual(
+				extractSdkStaticImports(mixed).map((imp) => imp.specifier),
+				["@earendil-works/pi-ai/providers/all"],
+			);
+		});
+
 		it("does not treat comment text as a binding", () => {
 			const imports = extractSdkStaticImports(
 				[

@@ -15,6 +15,8 @@
  * list, so the guard cannot itself go stale.
  */
 
+import ts from "typescript";
+
 /** Scope that a drift guard owns. */
 const SDK_SCOPE = "@earendil-works/";
 
@@ -48,96 +50,26 @@ export type SdkNamespace = Record<string, unknown>;
 /** Injected resolver: the impure boundary. May be sync or async. */
 export type SdkModuleResolver = (specifier: string) => SdkNamespace | Promise<SdkNamespace>;
 
-/**
- * Static `import` statements only. `import(`/`import.meta` do not match
- * (a literal `import` keyword must be followed by whitespace/bindings), and
- * `import` only matches at statement start (after newline or `;`) so text in
- * ordinary string literals is not mistaken for an import.
- */
-const STATIC_IMPORT_RE =
-	/(?:^|[\n;])[ \t]*import\s+(type\s+)?(?:([\s\S]*?)\s+from\s+)?(["'])([^"']+)\3/g;
+function parseBindings(clause: ts.ImportClause | undefined): SdkImportBinding[] {
+	if (clause === undefined) return []; // side-effect import: no bindings
 
-/**
- * Remove `//` line and block comments without touching comment markers
- * inside string literals. A full-line-only stripper is not enough: an inline
- * comment in a multi-line import (`getBuiltinModel, // note`) would leave the
- * comment text in the clause, and the binding that follows it on the next
- * line was then discarded as "not a binding" — silently hiding SDK drift.
- * Newlines are preserved so statement-start anchoring still holds.
- */
-function stripComments(source: string): string {
-	let out = "";
-	let i = 0;
-	let quote: string | null = null;
-	const n = source.length;
-
-	while (i < n) {
-		const ch = source[i]!;
-		const next = i + 1 < n ? source[i + 1] : "";
-
-		if (quote !== null) {
-			out += ch;
-			i++;
-			if (ch === "\\" && i < n) {
-				out += source[i]!;
-				i++;
-				continue;
-			}
-			if (ch === quote) quote = null;
-			continue;
-		}
-
-		if (ch === "/" && next === "/") {
-			i += 2;
-			while (i < n && source[i] !== "\n") i++;
-			continue;
-		}
-		if (ch === "/" && next === "*") {
-			i += 2;
-			while (i < n && !(source[i] === "*" && source[i + 1] === "/")) {
-				if (source[i] === "\n") out += "\n";
-				i++;
-			}
-			i += 2;
-			continue;
-		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			quote = ch;
-		}
-		out += ch;
-		i++;
-	}
-
-	return out;
-}
-
-function parseBindings(clause: string, statementTypeOnly: boolean): SdkImportBinding[] {
+	const statementTypeOnly = clause.isTypeOnly;
 	const bindings: SdkImportBinding[] = [];
-	const rest = clause.trim();
-	if (rest === "") return bindings;
 
-	// `* as ns` forges a namespace object; it always exists once the specifier
-	// resolves, so there is nothing to check.
-	if (/^\*\s+as\s+/.test(rest)) return bindings;
-
-	const braceIdx = rest.indexOf("{");
-	const head = (braceIdx === -1 ? rest : rest.slice(0, braceIdx)).replace(/,\s*$/, "").trim();
-	const named = braceIdx === -1 ? "" : rest.slice(braceIdx);
-
-	if (head !== "" && !/^\*\s+as\s+/.test(head)) {
+	if (clause.name !== undefined) {
 		bindings.push({ name: "default", typeOnly: statementTypeOnly });
 	}
 
-	const inner = named.replace(/^\{/, "").replace(/\}$/, "");
-	for (const raw of inner.split(",")) {
-		const entry = raw.trim();
-		if (entry === "") continue;
-		const match = entry.match(/^(type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+[A-Za-z_$][\w$]*)?$/);
-		if (!match) continue;
-		bindings.push({
-			name: match[2]!,
-			typeOnly: statementTypeOnly || match[1] !== undefined,
-		});
+	const named = clause.namedBindings;
+	// `* as ns` forges a namespace object; it always exists once the specifier
+	// resolves, so there is nothing to check.
+	if (named !== undefined && ts.isNamedImports(named)) {
+		for (const element of named.elements) {
+			bindings.push({
+				name: element.propertyName?.text ?? element.name.text,
+				typeOnly: statementTypeOnly || element.isTypeOnly,
+			});
+		}
 	}
 
 	return bindings;
@@ -146,22 +78,35 @@ function parseBindings(clause: string, statementTypeOnly: boolean): SdkImportBin
 /**
  * Pure: every static import of an `@earendil-works/*` specifier in `source`.
  * Non-SDK, relative, `node:` and bare non-SDK specifiers are ignored.
+ *
+ * Parses with the TypeScript compiler instead of a regex + hand-rolled lexer:
+ * only a real parser can tell an `import` statement from the same text
+ * embedded in a comment, string literal, or template literal. An earlier
+ * regex version flagged documentation examples and dropped bindings that
+ * followed an inline comment — both hid or invented SDK drift.
  */
 export function extractSdkStaticImports(source: string): SdkStaticImport[] {
 	if (typeof source !== "string" || source.trim() === "") return [];
 
-	const imports: SdkStaticImport[] = [];
-	const cleaned = stripComments(source);
-	const re = new RegExp(STATIC_IMPORT_RE.source, STATIC_IMPORT_RE.flags);
+	const file = ts.createSourceFile(
+		"extension.mts",
+		source,
+		ts.ScriptTarget.Latest,
+		false,
+		ts.ScriptKind.TS,
+	);
 
-	let match: RegExpExecArray | null;
-	while ((match = re.exec(cleaned)) !== null) {
-		const specifier = match[4]!;
-		if (!specifier.startsWith(SDK_SCOPE)) continue;
-		const statementTypeOnly = match[1] !== undefined;
-		const clause = match[2] ?? "";
-		imports.push({ specifier, bindings: parseBindings(clause, statementTypeOnly) });
-	}
+	const imports: SdkStaticImport[] = [];
+	const visit = (node: ts.Node): void => {
+		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+			const specifier = node.moduleSpecifier.text;
+			if (specifier.startsWith(SDK_SCOPE)) {
+				imports.push({ specifier, bindings: parseBindings(node.importClause) });
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(file);
 
 	return imports;
 }
