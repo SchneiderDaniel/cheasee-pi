@@ -9,6 +9,13 @@ Emulated endpoints (the only ones CodeFlow's analysis path uses):
   GET /api/repos/{owner}/{repo}/contents/{path}      -> dir listing or base64 file
 Anything else returns 404 and CodeFlow degrades gracefully.
 
+Browser report bridge (Option A): because CodeFlow's exports are built
+client-side, the served index.html is injected with `codeflow-bridge.js`, which
+hooks `URL.createObjectURL` and POSTs the captured exports back here:
+  GET|POST /api/analysis/report       -> markdown report (single slot, 404 before first POST)
+  GET|POST /api/analysis/report.json  -> structured JSON report (single slot)
+  GET /codeflow-bridge.js             -> the injected bridge script
+
 The served index.html has its hardcoded 'https://api.github.com/' base rewritten
 to the relative './api/' at serve time, plus a set of byte rewrites (_UI_REWRITES)
 that raise the analysis size limits, reword the GitHub-specific dialogs, and
@@ -37,6 +44,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -70,6 +78,157 @@ HOST = _CONFIG.get("host") or os.environ.get("HOST") or "0.0.0.0"
 
 # The single hardcoded API base inside index.html, rewritten to a same-origin path.
 _API_BASE = re.compile(rb"'https://api\.github\.com/'")
+
+# --- Browser report bridge -------------------------------------------------
+# CodeFlow builds its report exports in the browser (generateReport('md'|
+# 'json')) and triggers Blob downloads; there is no server route. The bridge
+# below hooks URL.createObjectURL, captures the report Blobs and POSTs them back
+# to /api/analysis/report (markdown) and /api/analysis/report.json (structured),
+# so pi can read the analysis over HTTP. Markdown alone omits duplicates, layer
+# violations and suggestions — hence the JSON route. The bridge is injected into
+# the served index.html by a _UI_REWRITES entry (silent no-op if upstream drops
+# the </body> tag) and served from this in-process constant, so the vendored
+# checkout stays pristine.
+_BRIDGE_SCRIPT = b'<script src="codeflow-bridge.js" defer></script>'
+_BRIDGE_JS = br"""(function () {
+  "use strict";
+  if (window.__codeflowBridge) return;
+  window.__codeflowBridge = true;
+  var MD_ENDPOINT = "/api/analysis/report";
+  var JSON_ENDPOINT = "/api/analysis/report.json";
+  var MD_MARKER = "# CodeFlow Analysis Report";
+  var JSON_MARKER = '"architectureIssues"';
+
+  // Surface upload failures (413 oversize, 5xx, network) instead of swallowing
+  // them: a failed POST leaves the endpoint empty, and pi would then only say
+  // "no analysis yet" as if the browser had never run one. The banner stays
+  // until a later upload succeeds.
+  function reportError(message) {
+    try { console.error("[codeflow-bridge] " + message); } catch (e) {}
+    try { window.__codeflowBridgeError = message; } catch (e) {}
+    try {
+      if (!document.body) return;
+      var el = document.getElementById("codeflow-bridge-error");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "codeflow-bridge-error";
+        el.style.cssText =
+          "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#7f1d1d;" +
+          "color:#fff;font:12px/1.5 monospace;padding:8px 12px;white-space:pre-wrap";
+        document.body.appendChild(el);
+      }
+      el.textContent = "CodeFlow report upload failed: " + message;
+    } catch (e) {}
+  }
+
+  function post(url, text) {
+    try {
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: text,
+      }).then(function (res) {
+        if (!res.ok) {
+          reportError(
+            url + " -> HTTP " + res.status +
+            (res.status === 413 ? " (report exceeds the 16 MiB limit)" : "")
+          );
+        } else {
+          try { window.__codeflowBridgeError = null; } catch (e) {}
+        }
+      }).catch(function (err) {
+        reportError(url + " unreachable: " + ((err && err.message) || err));
+      });
+    } catch (e) {
+      reportError(url + " failed: " + ((e && e.message) || e));
+    }
+  }
+
+  function capture(text) {
+    if (typeof text !== "string" || text.length === 0) return;
+    if (text.indexOf(MD_MARKER) !== -1) post(MD_ENDPOINT, text);
+    else if (text.indexOf(JSON_MARKER) !== -1) post(JSON_ENDPOINT, text);
+  }
+
+  // Capture seam: every export becomes a Blob and goes through
+  // URL.createObjectURL before download. Hook the browser global (not the
+  // bundle-scoped generateReport, which is minified and unreachable by name).
+  var originalCreateObjectURL = URL.createObjectURL;
+  URL.createObjectURL = function (obj) {
+    var url = originalCreateObjectURL.apply(this, arguments);
+    try {
+      if (obj && typeof obj.text === "function") {
+        obj.text().then(capture).catch(function () {});
+      }
+    } catch (e) {}
+    return url;
+  };
+
+  // Best-effort auto-trigger. The real export control is an icon button whose
+  // label lives in aria-label/title ("Export analysis") - its text node is empty
+  // once analysis data exists - and the report formats are menu items labelled
+  // "JSON Report" / "Markdown" (CodeFlow index.html b0e82d1). One export per
+  // tick: the menu closes after each pick, so reopen it for the next format.
+  function labelOf(el) {
+    if (!el) return "";
+    var attr = "";
+    if (el.getAttribute) attr = (el.getAttribute("aria-label") || "") + " " + (el.getAttribute("title") || "");
+    return (attr + " " + (el.textContent || "")).trim();
+  }
+  function findExportButton() {
+    var nodes = document.querySelectorAll("button,[role=button]");
+    for (var i = 0; i < nodes.length; i++) {
+      if (/export/i.test(labelOf(nodes[i]))) return nodes[i];
+    }
+    return null;
+  }
+  function findMenuItem(re) {
+    var nodes = document.querySelectorAll(".export-option,[role=menuitem],[role=option],li");
+    for (var i = 0; i < nodes.length; i++) {
+      var t = (nodes[i].textContent || "").trim();
+      if (re.test(t)) return nodes[i];
+    }
+    return null;
+  }
+
+  var pending = ["JSON Report", "Markdown"];
+  var busy = false;
+  function trigger() {
+    if (busy || pending.length === 0 || !document.body) return;
+    var btn = findExportButton();
+    if (!btn || btn.disabled) return;
+    var label = pending[0];
+    busy = true;
+    try {
+      btn.click();
+    } catch (e) {
+      busy = false;
+      return;
+    }
+    setTimeout(function () {
+      var item = findMenuItem(new RegExp("^" + label.replace(/\s+/g, "\\s+") + "$", "i"));
+      if (item) {
+        pending.shift();
+        try { item.click(); } catch (e) {}
+      }
+      busy = false;
+    }, 60);
+  }
+  setInterval(trigger, 3000);
+})();
+"""
+
+# Single-slot, per-route store for the latest browser reports. The handler runs
+# under a ThreadingHTTPServer, so the dict is guarded by one lock; readers copy
+# the (body, timestamp) pair atomically to avoid a torn read. No history: the
+# browser re-runs the analysis after a container restart.
+_MAX_REPORT_BYTES = 16 * 1024 * 1024
+_REPORT_LOCK = threading.Lock()
+_REPORTS = {}  # route -> (body: bytes, at: epoch-ms int)
+_REPORT_ROUTES = {
+    "/api/analysis/report": "text/markdown; charset=utf-8",
+    "/api/analysis/report.json": "application/json; charset=utf-8",
+}
 
 # Rewrites applied to the served index.html. The vendored UI only knows the
 # GitHub API; these raise its analysis size limits (upstream guards exist
@@ -145,6 +304,9 @@ _UI_REWRITES = (
     ), b"'This workspace has '+files.length+' files.\\n\\n'+'Analyzing larger workspaces can take longer and use significant browser memory.\\n\\n'+'Tip: add exclude patterns to shrink the scan.'"),
     # Startup progress text: shown on every analysis; rate limits are fiction locally.
     (re.compile(re.escape(b"setProgress('Checking rate limit...')")), b"setProgress('Checking workspace...')"),
+    # Browser report bridge — injected just before the closing body tag. The
+    # real index.html has exactly one </body>. Silent no-op if upstream drops it.
+    (re.compile(re.escape(b"</body>")), _BRIDGE_SCRIPT + b"</body>"),
     # File classification: .mts/.cts are TypeScript (NodeNext ESM/CJS), but the
     # vendored analyzer knows only .ts/.tsx and drops them before analysis.
     # Spliced in after the last known extension of each hardcoded list; the
@@ -308,6 +470,14 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
+        # --- Browser bridge + report store --------------------------------
+        if path == "/codeflow-bridge.js":
+            self._serve_bytes(_BRIDGE_JS, "text/javascript; charset=utf-8")
+            return
+        if path in _REPORT_ROUTES:
+            self._serve_report(path)
+            return
+
         # --- Static UI -----------------------------------------------------
         if path in ("/", "/index.html"):
             if self._redirect_entrypoint(parsed):
@@ -318,6 +488,76 @@ class Handler(BaseHTTPRequestHandler):
             self._api(path)
             return
         self._serve_ui_file(path.lstrip("/"), patch_api_base=False)
+
+    def do_POST(self):  # noqa: N802
+        path = urllib.parse.urlparse(self.path).path
+        if path not in _REPORT_ROUTES:
+            # Any body on an unknown path is left unread — close so keep-alive
+            # clients do not reuse a desynchronized connection.
+            self.close_connection = True
+            self._not_found()
+            return
+
+        raw_len = self.headers.get("Content-Length") or ""
+        try:
+            length = int(raw_len)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            self._error(411, "Length Required")
+            return
+        if length < 0:
+            self.close_connection = True
+            self._error(411, "Length Required")
+            return
+        if length == 0:
+            self._error(400, "Empty report body")
+            return
+        if length > _MAX_REPORT_BYTES:
+            # Do not read the body — reject on the declared length alone.
+            self.close_connection = True
+            self._error(413, "Report too large")
+            return
+
+        body = self.rfile.read(length)
+        if len(body) != length:
+            self.close_connection = True
+            self._error(400, "Incomplete report body")
+            return
+
+        with _REPORT_LOCK:
+            _REPORTS[path] = (body, int(time.time() * 1000))
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _serve_bytes(self, body, content_type):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_report(self, route):
+        with _REPORT_LOCK:
+            entry = _REPORTS.get(route)
+        if entry is None:
+            self._not_found()
+            return
+        body, at = entry
+        self.send_response(200)
+        self.send_header("Content-Type", _REPORT_ROUTES[route])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Codeflow-Analysis-At", str(at))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _error(self, status, message):
+        body = json.dumps({"message": message}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_ui_file(self, rel, patch_api_base):
         target = os.path.realpath(os.path.join(UI_DIR, rel))

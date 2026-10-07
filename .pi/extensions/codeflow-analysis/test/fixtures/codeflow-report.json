@@ -1,0 +1,263 @@
+{
+  "repository": "SchneiderDaniel/cheasee-pi",
+  "analyzedAt": "2026-10-06T21:38:18.700Z",
+  "codeflowVersion": "1.0",
+  "summary": {
+    "healthScore": 70,
+    "healthGrade": "C",
+    "totalFiles": 9,
+    "totalFunctions": 14,
+    "totalConnections": 9,
+    "linesOfCode": 1234,
+    "unusedFunctions": 3,
+    "securityIssues": 1,
+    "patterns": 2,
+    "duplicates": 1,
+    "layerViolations": 1,
+    "highSecurityIssues": 1
+  },
+  "files": [
+    {
+      "path": "src/parser/ast.ts",
+      "name": "ast.ts",
+      "folder": "src/parser",
+      "layer": "Parser",
+      "lines": 220,
+      "churn": 1,
+      "isCode": true,
+      "functions": [
+        {
+          "key": "parse",
+          "name": "parse",
+          "line": 5,
+          "internalCalls": 1,
+          "externalCalls": 2,
+          "totalCalls": 3,
+          "isUnused": false,
+          "isExported": true,
+          "isClassMethod": false,
+          "isTopLevel": true,
+          "type": "function",
+          "callers": [
+            {
+              "file": "src/a.ts",
+              "name": "main",
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "functionCount": 1
+    }
+  ],
+  "unusedFunctions": [
+    {
+      "name": "legacyParse",
+      "file": "src/parser/legacy.ts",
+      "line": 44,
+      "codeLines": 18,
+      "code": "function legacyParse(){}",
+      "extension": ".ts"
+    },
+    {
+      "name": "oldHelper",
+      "file": "src/util/helpers.ts",
+      "line": 3,
+      "codeLines": 5,
+      "code": "",
+      "extension": ".ts"
+    },
+    {
+      "name": "deadBranch",
+      "file": "src/parser/legacy.ts",
+      "line": 90,
+      "codeLines": 7,
+      "code": "",
+      "extension": ".ts"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "src/parser/ast.ts",
+      "to": "src/ui/render.ts",
+      "function": "render",
+      "callCount": 2
+    }
+  ],
+  "architectureIssues": [
+    {
+      "type": "warning",
+      "title": "High coupling in parser layer",
+      "description": "Parser files depend on UI modules.",
+      "affectedFiles": [
+        "src/parser/ast.ts",
+        "src/ui/render.ts"
+      ],
+      "affectedItems": [
+        {
+          "file": "src/parser/ast.ts"
+        },
+        {
+          "file": "src/ui/render.ts"
+        }
+      ]
+    },
+    {
+      "type": "critical",
+      "title": "1 Architecture Violations",
+      "description": "Lower layers importing from higher layers",
+      "affectedFiles": [
+        "src/domain/b.ts"
+      ],
+      "affectedItems": [
+        {
+          "name": "domain → ui",
+          "file": "src/domain/b.ts",
+          "toFile": "src/ui/c.ts",
+          "fn": "render"
+        }
+      ]
+    },
+    {
+      "type": "warning",
+      "title": "Circular dependency",
+      "description": "A cycle between two modules.",
+      "affectedFiles": [
+        "src/cycle/a.ts",
+        "src/cycle/b.ts"
+      ],
+      "affectedItems": [
+        {
+          "file": "src/cycle/a.ts"
+        },
+        {
+          "file": "src/cycle/b.ts"
+        }
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "Singleton",
+      "description": "A single shared instance.",
+      "isAntiPattern": false,
+      "severity": "info",
+      "icon": "",
+      "files": [
+        "src/registry.ts"
+      ],
+      "fileDetails": [
+        {
+          "name": "src/registry.ts",
+          "path": "src/registry.ts"
+        }
+      ],
+      "metrics": {}
+    },
+    {
+      "name": "God Object",
+      "description": "Files with too many responsibilities.",
+      "isAntiPattern": true,
+      "severity": "warning",
+      "icon": "",
+      "files": [
+        "src/god.ts"
+      ],
+      "fileDetails": [
+        {
+          "name": "src/god.ts",
+          "path": "src/god.ts"
+        }
+      ],
+      "metrics": {}
+    }
+  ],
+  "securityIssues": [
+    {
+      "severity": "high",
+      "title": "Hardcoded secret",
+      "description": "Possible hardcoded API key.",
+      "path": "src/config.ts",
+      "line": 12,
+      "code": "const KEY = \"sk-live-abc\""
+    }
+  ],
+  "duplicates": [
+    {
+      "type": "name",
+      "name": "parseConfig",
+      "count": 3,
+      "files": [
+        {
+          "file": "src/dup/a.ts",
+          "line": 1
+        },
+        {
+          "file": "src/dup/b.ts",
+          "line": 2
+        },
+        {
+          "file": "src/dup/c.ts",
+          "line": 3
+        }
+      ],
+      "similarity": 80,
+      "suggestion": "consolidate"
+    }
+  ],
+  "layerViolations": [
+    {
+      "from": "src/layer/from.ts",
+      "to": "src/layer/to.ts",
+      "fromLayer": "domain",
+      "toLayer": "ui",
+      "fn": "render",
+      "suggestion": "invert"
+    }
+  ],
+  "suggestions": [
+    {
+      "priority": "high",
+      "icon": "layers",
+      "title": "Fix Architecture Violations",
+      "desc": "1 layer violations found.",
+      "action": "Invert dependencies",
+      "impact": "Improves testability"
+    }
+  ],
+  "languageBreakdown": [
+    {
+      "name": "TypeScript",
+      "count": 9
+    }
+  ],
+  "folderStructure": [
+    {
+      "name": "src",
+      "files": 9
+    }
+  ],
+  "functionStatistics": [
+    {
+      "key": "parse",
+      "name": "parse",
+      "file": "src/parser/ast.ts",
+      "folder": "src/parser",
+      "line": 5,
+      "internalCalls": 1,
+      "externalCalls": 2,
+      "totalCalls": 3,
+      "isExported": true,
+      "isClassMethod": false,
+      "isTopLevel": true,
+      "type": "function",
+      "callers": [
+        {
+          "file": "src/a.ts",
+          "name": "main",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}
