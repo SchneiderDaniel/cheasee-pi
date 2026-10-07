@@ -134,6 +134,23 @@ func TestCompose_CodeflowPointsAtWorkspace(t *testing.T) {
 	}
 }
 
+// TestCompose_CodeflowMountsBareRepo pins the fix for #1934: the workspace is
+// a linked worktree whose .git pointer (`../.bare/worktrees/main`) only
+// resolves when the sibling bare repo is mounted. Without it the shim's
+// `git check-ignore` filter fails open and CodeFlow analyzes gitignored
+// installs (virtualenvs, .pi/git).
+func TestCompose_CodeflowMountsBareRepo(t *testing.T) {
+	svc := composeService(t, readCompose(t), "codeflow")
+	vols, ok := svc["volumes"].([]any)
+	if !ok {
+		t.Fatalf("codeflow volumes missing, got %v", svc["volumes"])
+	}
+	want := "${WORKSPACE_BARE_PATH}:/workspaces/.bare:ro${VOLUME_RELABEL:-}"
+	if !slices.Contains(vols, any(want)) {
+		t.Errorf("codeflow volumes must mount the sibling bare repo %q, got %v", want, vols)
+	}
+}
+
 func TestCompose_DefaultsPresent(t *testing.T) {
 	content := readCompose(t)
 	for _, want := range []string{
