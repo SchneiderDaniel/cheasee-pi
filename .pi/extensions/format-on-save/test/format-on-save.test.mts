@@ -14,11 +14,19 @@ import { describe, it } from "node:test";
 import { registerHandler } from "../index.ts";
 import { formatEslintDiagnostics } from "../eslint.mts";
 import { looksLikeFilePath, MAX_FILE_SIZE_BYTES } from "../index.ts";
-import type { Formatter, Linter, FormatResult, LintResult, Diagnostic } from "../ports.mts";
+import type {
+	Formatter,
+	Linter,
+	FormatResult,
+	LintResult,
+	Diagnostic,
+	FileMutationQueue,
+} from "../ports.mts";
 
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -2539,5 +2547,509 @@ describe("handler — [config error] prefix for SyntaxError config errors", () =
 			handlerCleanup();
 			cleanup();
 		}
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Issue #1901 — serialised read-modify-write via FileMutationQueue
+// ═══════════════════════════════════════════════════════════════════════
+
+type QueueFake = FileMutationQueue & {
+	log: string[];
+	paths: string[];
+	state: { inLock: boolean };
+};
+
+/**
+ * Deterministic, non-reentrant FileMutationQueue fake.
+ * Serialises callers, records the paths it was asked to lock, and exposes
+ * `state.inLock` so a fake fs can assert it runs inside the critical section.
+ */
+function createFakeQueue(): QueueFake {
+	const log: string[] = [];
+	const paths: string[] = [];
+	const state = { inLock: false };
+	let tail: Promise<unknown> = Promise.resolve();
+	return {
+		log,
+		paths,
+		state,
+		async withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+			paths.push(path);
+			const prev = tail;
+			let release!: () => void;
+			tail = new Promise<void>((r) => {
+				release = r;
+			});
+			await prev;
+			log.push("lock:enter");
+			state.inLock = true;
+			try {
+				return await fn();
+			} finally {
+				state.inLock = false;
+				log.push("lock:exit");
+				release();
+			}
+		},
+	};
+}
+
+/** A promise gate: `wait` resolves when `open()` is called. */
+function createGate(): { wait: Promise<void>; open: () => void } {
+	let open!: () => void;
+	const wait = new Promise<void>((r) => {
+		open = r;
+	});
+	return { wait, open };
+}
+
+/**
+ * Yield long enough for a queued real-queue op to run — unless it is blocked
+ * behind a held lock, which is exactly what the liveness assertions check.
+ */
+function settle(): Promise<void> {
+	return new Promise<void>((r) => setTimeout(r, 25));
+}
+
+function makeTempFile(prefix: string, content: string): { dir: string; file: string } {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	const file = join(dir, "a.ts");
+	writeFileSync(file, content, "utf-8");
+	return { dir, file };
+}
+
+// ── Phase 1: PrettierFormatter serialised RMW ─────────────────────
+
+describe("PrettierFormatter — serialised RMW (issue #1901)", () => {
+	it("acquires the queue exactly once, with the target path", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const queue = createFakeQueue();
+		const mockPrettier = {
+			format: async () => "const x = 1;\n",
+			resolveConfig: async () => ({}),
+		};
+		const mockFs = { readFile: async () => "const x = 1\n", writeFile: async () => {} };
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).plugins = [];
+		await f.format("/path/file.ts");
+		assert.deepStrictEqual(queue.paths, ["/path/file.ts"]);
+	});
+
+	it("resolves config and loads plugins before the lock; reads and writes inside it", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const queue = createFakeQueue();
+		const mockPrettier = {
+			resolveConfig: async () => {
+				queue.log.push("config");
+				return {};
+			},
+			format: async () => {
+				queue.log.push("format");
+				return "const x = 1;\n";
+			},
+		};
+		const mockFs = {
+			readFile: async () => {
+				queue.log.push(queue.state.inLock ? "read:locked" : "read:unlocked");
+				return "const x = 1\n";
+			},
+			writeFile: async () => {
+				queue.log.push(queue.state.inLock ? "write:locked" : "write:unlocked");
+			},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).ensurePlugins = async () => {
+			queue.log.push("plugin");
+			return [];
+		};
+		await f.format("/path/file.ts");
+		assert.deepStrictEqual(queue.log, [
+			"config",
+			"plugin",
+			"lock:enter",
+			"read:locked",
+			"format",
+			"write:locked",
+			"lock:exit",
+		]);
+	});
+
+	it("lost update: newer content queued through the same queue survives", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const { dir, file } = makeTempFile("fos-prettier-lost-", "const   x   =   1;\n");
+		const newer = "const x = 1;\nconst fromNextTurn = 2;\n";
+		const gate = createGate();
+		let formatStarted!: () => void;
+		const started = new Promise<void>((r) => {
+			formatStarted = r;
+		});
+		const queue = createFakeQueue();
+		const mockPrettier = {
+			resolveConfig: async () => ({}),
+			format: async () => {
+				formatStarted();
+				await gate.wait;
+				return "const x = 1;\n"; // prettier's stale snapshot
+			},
+		};
+		const realFs = {
+			readFile: async (p: string) => readFileSync(p, "utf-8"),
+			writeFile: async (p: string, c: string) => {
+				writeFileSync(p, c, "utf-8");
+			},
+		};
+		const f = new PrettierFormatter(dir, mockPrettier as any, realFs as any, queue);
+		(f as any).plugins = [];
+		const pending = f.format(file);
+		await started; // formatter holds the lock, parked inside format()
+		const edit = queue.withLock(file, async () => {
+			writeFileSync(file, newer, "utf-8");
+		});
+		gate.open();
+		const result = await pending;
+		await edit;
+		assert.deepStrictEqual(result, { formatted: true });
+		assert.strictEqual(readFileSync(file, "utf-8"), newer, "newer edit must win");
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("skips the write and reports formatted=false when prettier returns source unchanged", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const source = "const x = 1;\n";
+		const queue = createFakeQueue();
+		let writes = 0;
+		const mockPrettier = { format: async () => source, resolveConfig: async () => ({}) };
+		const mockFs = {
+			readFile: async () => source,
+			writeFile: async () => {
+				writes++;
+			},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).plugins = [];
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.strictEqual(result.error, undefined);
+		assert.strictEqual(writes, 0, "unchanged file must not be written");
+	});
+
+	it("surfaces prettier failure and never writes", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const queue = createFakeQueue();
+		let writes = 0;
+		const mockPrettier = {
+			resolveConfig: async () => ({}),
+			format: async () => {
+				throw new Error("parse error");
+			},
+		};
+		const mockFs = {
+			readFile: async () => "const x = 1\n",
+			writeFile: async () => {
+				writes++;
+			},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).plugins = [];
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.ok(result.error?.includes("parse error"));
+		assert.strictEqual(writes, 0);
+	});
+
+	it("fail-closed: a rejecting queue surfaces an error and performs no write", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		let writes = 0;
+		const queue: FileMutationQueue = {
+			withLock: async () => {
+				throw new Error("queue unavailable");
+			},
+		};
+		const mockPrettier = { format: async () => "const x = 1;\n", resolveConfig: async () => ({}) };
+		const mockFs = {
+			readFile: async () => "const x = 1\n",
+			writeFile: async () => {
+				writes++;
+			},
+		};
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).plugins = [];
+		const result = await f.format("/path/file.ts");
+		assert.strictEqual(result.formatted, false);
+		assert.ok(result.error?.includes("queue unavailable"), "queue error must surface");
+		assert.strictEqual(writes, 0);
+	});
+
+	it("releases the lock when format() throws (next format completes)", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const queue = createFakeQueue();
+		let call = 0;
+		const mockPrettier = {
+			resolveConfig: async () => ({}),
+			format: async () => {
+				call++;
+				if (call === 1) throw new Error("boom");
+				return "const x = 1;\n";
+			},
+		};
+		const mockFs = { readFile: async () => "const x = 1\n", writeFile: async () => {} };
+		const f = new PrettierFormatter("/tmp", mockPrettier as any, mockFs as any, queue);
+		(f as any).plugins = [];
+		const first = await f.format("/path/file.ts");
+		assert.ok(first.error, "first call errors");
+		const second = await f.format("/path/file.ts");
+		assert.deepStrictEqual(second, { formatted: true });
+	});
+});
+
+// ── Phase 2: EslintLinter serialised fix-write ────────────────────
+
+describe("EslintLinter — serialised fix-write (issue #1901)", () => {
+	it("acquires the queue exactly once, with the target path", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const queue = createFakeQueue();
+		const mockESLint = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		(l as any).readFile = async () => "const x = 1;\n";
+		await l.lint("/path/file.ts");
+		assert.deepStrictEqual(queue.paths, ["/path/file.ts"]);
+	});
+
+	it("reads the file while the lock is held", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const queue = createFakeQueue();
+		let inLockAtRead = false;
+		const mockESLint = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		(l as any).readFile = async () => {
+			inLockAtRead = queue.state.inLock;
+			return "const x = 1;\n";
+		};
+		await l.lint("/path/file.ts");
+		assert.strictEqual(inLockAtRead, true, "read must happen inside the lock");
+	});
+
+	it("lost update: newer content queued through the same queue survives the fix-write", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, file } = makeTempFile("fos-eslint-lost-", "old;\n");
+		const newer = "new;\nconst fromNextTurn = 2;\n";
+		const gate = createGate();
+		let lintStarted!: () => void;
+		const started = new Promise<void>((r) => {
+			lintStarted = r;
+		});
+		const queue = createFakeQueue();
+		const mockESLint = async () => ({
+			lintText: async () => {
+				lintStarted();
+				await gate.wait;
+				return [{ filePath: file, messages: [], output: "stale output\n" }];
+			},
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		const pending = l.lint(file);
+		await started;
+		const edit = queue.withLock(file, async () => {
+			writeFileSync(file, newer, "utf-8");
+		});
+		gate.open();
+		const result = await pending;
+		await edit;
+		assert.strictEqual(result.fixesApplied, true);
+		assert.strictEqual(readFileSync(file, "utf-8"), newer, "newer edit must win");
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("does not write when the result carries no output", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const queue = createFakeQueue();
+		let writes = 0;
+		const mockESLint = async () => ({
+			lintText: async () => [
+				{
+					filePath: "/path/file.ts",
+					messages: [
+						{ line: 1, column: 1, severity: 1, message: "w", ruleId: null },
+					],
+				},
+			],
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).writeFile = async () => {
+			writes++;
+		};
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.fixesApplied, false);
+		assert.strictEqual(result.diagnostics.length, 1);
+		assert.strictEqual(writes, 0);
+	});
+
+	it("does not write on a non-config error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const queue = createFakeQueue();
+		let writes = 0;
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "TypeError", message: "Cannot read properties of undefined" };
+			},
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).writeFile = async () => {
+			writes++;
+		};
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error?.includes("Cannot read properties"));
+		assert.strictEqual(writes, 0);
+	});
+
+	it("config-error fallback still carries the original error", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const queue = createFakeQueue();
+		const mockESLint = async () => ({
+			lintText: async () => {
+				throw { name: "ConfigError", message: "bad config" };
+			},
+		});
+		const mockFallback = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+		const l = new EslintLinter(mockESLint as any, queue);
+		(l as any).readFile = async () => "const x = 1;\n";
+		(l as any).createFallbackESLint = mockFallback;
+		const result = await l.lint("/path/file.ts");
+		assert.ok(result.error?.includes("bad config"));
+		assert.strictEqual(result.fixesApplied, false);
+	});
+
+	it("default queue (1-arg ctor) still lints", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const mockESLint = async () => ({
+			lintText: async () => [{ filePath: "/path/file.ts", messages: [] }],
+		});
+		const l = new EslintLinter(mockESLint as any);
+		(l as any).readFile = async () => "const x = 1;\n";
+		const result = await l.lint("/path/file.ts");
+		assert.strictEqual(result.error, undefined);
+		assert.strictEqual(result.diagnostics.length, 0);
+	});
+});
+
+// ── Phase 3: Default wiring + composition root ────────────────────
+
+describe("FileMutationQueue — default wiring (issue #1901)", () => {
+	it("Prettier default queue is pi's real withFileMutationQueue", async () => {
+		const { PrettierFormatter } = await import("../prettier-adapter.mts");
+		const { dir, file } = makeTempFile("fos-prettier-real-", "const   y = 2;\n");
+		const newer = "const y = 2;\nconst fromNextTurn = 3;\n";
+		const gate = createGate();
+		let formatStarted!: () => void;
+		const started = new Promise<void>((r) => {
+			formatStarted = r;
+		});
+		const mockPrettier = {
+			resolveConfig: async () => ({}),
+			format: async () => {
+				formatStarted();
+				await gate.wait;
+				return "const y = 2;\n";
+			},
+		};
+		const realFs = {
+			readFile: async (p: string) => readFileSync(p, "utf-8"),
+			writeFile: async (p: string, c: string) => {
+				writeFileSync(p, c, "utf-8");
+			},
+		};
+		const f = new PrettierFormatter(dir, mockPrettier as any, realFs as any);
+		(f as any).plugins = [];
+		const pending = f.format(file);
+		await started; // formatter holds pi's real lock, parked inside format()
+		let editLanded = false;
+		const edit = withFileMutationQueue(file, async () => {
+			writeFileSync(file, newer, "utf-8");
+			editLanded = true;
+		});
+		try {
+			// While the formatter holds the lock, the queued edit must not run.
+			await settle();
+			assert.strictEqual(
+				editLanded,
+				false,
+				"queued edit must block behind the formatter's real-queue lock",
+			);
+			gate.open();
+			await pending;
+			await edit;
+			assert.strictEqual(
+				readFileSync(file, "utf-8"),
+				newer,
+				"newer edit must win with the real queue",
+			);
+		} finally {
+			gate.open();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("ESLint default queue is pi's real withFileMutationQueue", async () => {
+		const { EslintLinter } = await import("../eslint-adapter.mts");
+		const { dir, file } = makeTempFile("fos-eslint-real-", "old;\n");
+		const newer = "new;\nconst fromNextTurn = 4;\n";
+		const gate = createGate();
+		let lintStarted!: () => void;
+		const started = new Promise<void>((r) => {
+			lintStarted = r;
+		});
+		const mockESLint = async () => ({
+			lintText: async () => {
+				lintStarted();
+				await gate.wait;
+				return [{ filePath: file, messages: [], output: "stale output\n" }];
+			},
+		});
+		const l = new EslintLinter(mockESLint as any);
+		const pending = l.lint(file);
+		await started; // linter holds pi's real lock, parked in lintText()
+		let editLanded = false;
+		const edit = withFileMutationQueue(file, async () => {
+			writeFileSync(file, newer, "utf-8");
+			editLanded = true;
+		});
+		try {
+			await settle();
+			assert.strictEqual(
+				editLanded,
+				false,
+				"queued edit must block behind the linter's real-queue lock",
+			);
+			gate.open();
+			await pending;
+			await edit;
+			assert.strictEqual(
+				readFileSync(file, "utf-8"),
+				newer,
+				"newer edit must win with the real queue",
+			);
+		} finally {
+			gate.open();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("default extension factory registers the tool_result handler", async () => {
+		const { default: extensionFactory } = await import("../index.ts");
+		const { pi, events } = createMockAPI();
+		await extensionFactory(pi);
+		assert.ok(
+			events.some((e) => e.event === "tool_result"),
+			"factory must register a tool_result handler",
+		);
 	});
 });

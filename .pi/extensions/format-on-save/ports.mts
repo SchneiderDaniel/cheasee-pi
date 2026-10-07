@@ -72,3 +72,20 @@ export interface Linter {
 	/** Lint the file at the given path. Returns diagnostics. */
 	lint(path: string): Promise<LintResult>;
 }
+
+/**
+ * FileMutationQueue — serialises file-mutating read-modify-write operations
+ * targeting the same path (format-on-save and the agent's write/edit tools
+ * share the queue, so a stale formatter snapshot can never clobber a newer
+ * edit). Different paths still run in parallel.
+ *
+ * Ownership: the adapter method that performs the write acquires the lock;
+ * orchestrators (`handleFormat`/`handleLint`) must NOT wrap. `withLock` is
+ * non-reentrant — nesting the same path deadlocks.
+ *
+ * Implementations: pi's `withFileMutationQueue` (default), test fakes.
+ */
+export interface FileMutationQueue {
+	/** Run `fn` while holding the lock for `path`. */
+	withLock<T>(path: string, fn: () => Promise<T>): Promise<T>;
+}

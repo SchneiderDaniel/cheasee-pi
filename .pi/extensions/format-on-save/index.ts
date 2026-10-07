@@ -13,11 +13,12 @@ import type {
 	ExtensionContext,
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { formatEslintDiagnostics } from "./eslint.mts";
-import type { Formatter, Linter } from "./ports.mts";
+import type { FileMutationQueue, Formatter, Linter } from "./ports.mts";
 
 // ─── Config ───────────────────────────────────────────────────────────
 
@@ -220,8 +221,20 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// This matches the legacy behavior where findProjectRoot walks up
 	// from the working directory to find the project root.
 	const projectRoot = process.cwd();
-	const formatter: Formatter = new PrettierFormatter(projectRoot);
-	const linter: Linter = new EslintLinter();
+
+	// Composition root owns the queue wiring: both adapters serialise their
+	// read-modify-writes through pi's real, process-wide file-mutation queue,
+	// the same one the write/edit tools use.
+	const fileMutationQueue: FileMutationQueue = {
+		withLock: (path, fn) => withFileMutationQueue(path, fn),
+	};
+	const formatter: Formatter = new PrettierFormatter(
+		projectRoot,
+		undefined,
+		undefined,
+		fileMutationQueue,
+	);
+	const linter: Linter = new EslintLinter(undefined, fileMutationQueue);
 
 	registerHandler(pi, formatter, linter);
 }

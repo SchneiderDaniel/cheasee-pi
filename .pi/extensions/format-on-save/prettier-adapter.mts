@@ -16,7 +16,9 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { Formatter, FormatResult } from "./ports.mts";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+
+import type { FileMutationQueue, Formatter, FormatResult } from "./ports.mts";
 
 // ─── Supported File Extensions ────────────────────────────────────────
 
@@ -62,6 +64,15 @@ export interface FileSystem {
 
 const defaultFs: FileSystem = { readFile, writeFile };
 
+/**
+ * Default mutation queue: pi's real process-wide file-mutation queue.
+ * Defaulting to the real queue (not a passthrough) keeps the fix fail-closed
+ * — a missing injection cannot silently reintroduce the lost update.
+ */
+const defaultQueue: FileMutationQueue = {
+	withLock: (path, fn) => withFileMutationQueue(path, fn),
+};
+
 // ─── PrettierFormatter ────────────────────────────────────────────────
 
 /**
@@ -81,18 +92,26 @@ export class PrettierFormatter implements Formatter {
 	private readonly projectRoot: string;
 	private readonly prettierModule: PrettierModule | undefined;
 	private readonly fsModule: FileSystem | undefined;
+	private readonly queue: FileMutationQueue;
 	private plugins: unknown[] | null = null;
 	private pluginLoadError: string | null = null;
 
 	/**
-	 * @param projectRoot    Project root directory containing .prettierrc.
-	 * @param prettierModule Optional injected prettier module (for testing).
-	 * @param fsModule       Optional injected fs module (for testing).
+	 * @param projectRoot      Project root directory containing .prettierrc.
+	 * @param prettierModule   Optional injected prettier module (for testing).
+	 * @param fsModule         Optional injected fs module (for testing).
+	 * @param fileMutationQueue Optional injected mutation queue; defaults to pi's.
 	 */
-	constructor(projectRoot: string, prettierModule?: PrettierModule, fsModule?: FileSystem) {
+	constructor(
+		projectRoot: string,
+		prettierModule?: PrettierModule,
+		fsModule?: FileSystem,
+		fileMutationQueue?: FileMutationQueue,
+	) {
 		this.projectRoot = projectRoot;
 		this.prettierModule = prettierModule;
 		this.fsModule = fsModule;
+		this.queue = fileMutationQueue ?? defaultQueue;
 		this.rootConfigPath = resolve(projectRoot, ".prettierrc");
 	}
 
@@ -108,31 +127,34 @@ export class PrettierFormatter implements Formatter {
 			const fs = this.fsModule ?? defaultFs;
 			const prettier = await this.getPrettier();
 
-			// Read the file
-			const source = await fs.readFile(path, "utf-8");
-
-			// Resolve config from project root (root-only, matching current behavior)
+			// Config + plugin loading is pure I/O on the prettier side: do it
+			// OUTSIDE the lock so the critical section holds only read→format→write.
 			const config =
 				(await prettier.resolveConfig(path, {
 					config: this.rootConfigPath,
 				})) ?? {};
-
-			// Format with prettier
 			const plugins = this.plugins ?? (await this.ensurePlugins());
-			const formatted = await prettier.format(source, {
-				...config,
-				filepath: path,
-				plugins,
+
+			// Read INSIDE the lock: the snapshot must be taken under the same
+			// mutex the agent's write/edit tools use, or a stale snapshot wins.
+			return await this.queue.withLock(path, async () => {
+				const source = await fs.readFile(path, "utf-8");
+
+				const formatted = await prettier.format(source, {
+					...config,
+					filepath: path,
+					plugins,
+				});
+
+				// If unchanged, skip write
+				if (formatted === source) {
+					return { formatted: false };
+				}
+
+				// Write INSIDE the lock
+				await fs.writeFile(path, formatted, "utf-8");
+				return { formatted: true };
 			});
-
-			// If unchanged, skip write
-			if (formatted === source) {
-				return { formatted: false };
-			}
-
-			// Write back
-			await fs.writeFile(path, formatted, "utf-8");
-			return { formatted: true };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			return { formatted: false, error: message };

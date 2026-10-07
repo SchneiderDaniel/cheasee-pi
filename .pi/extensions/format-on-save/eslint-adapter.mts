@@ -15,8 +15,14 @@
  * without requiring a real ESLint installation.
  */
 
-import type { Diagnostic, LintResult } from "./ports.mts";
-import type { Linter } from "./ports.mts";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+
+import type {
+	Diagnostic,
+	FileMutationQueue,
+	LintResult,
+	Linter,
+} from "./ports.mts";
 
 // ─── Supported File Extensions ────────────────────────────────────────
 
@@ -68,6 +74,15 @@ const defaultCreateESLint: ESLintFactory = async () => {
 	return instance;
 };
 
+/**
+ * Default mutation queue: pi's real process-wide file-mutation queue.
+ * Defaulting to the real queue (not a passthrough) keeps the fix fail-closed
+ * — a missing injection cannot silently reintroduce the lost update.
+ */
+const defaultQueue: FileMutationQueue = {
+	withLock: (path, fn) => withFileMutationQueue(path, fn),
+};
+
 // ─── EslintLinter ─────────────────────────────────────────────────────
 
 /**
@@ -84,15 +99,18 @@ const defaultCreateESLint: ESLintFactory = async () => {
  */
 export class EslintLinter implements Linter {
 	private readonly createESLint: ESLintFactory;
+	private readonly queue: FileMutationQueue;
 	private eslintPromise: Promise<ESLintInstance> | null = null;
 	private initError: string | null = null;
 
 	/**
 	 * @param createESLint Factory for creating an ESLint instance.
 	 *   Default: dynamic import of `eslint` package.
+	 * @param fileMutationQueue Serialises the fix-write RMW; defaults to pi's.
 	 */
-	constructor(createESLint: ESLintFactory = defaultCreateESLint) {
+	constructor(createESLint: ESLintFactory = defaultCreateESLint, fileMutationQueue?: FileMutationQueue) {
 		this.createESLint = createESLint;
+		this.queue = fileMutationQueue ?? defaultQueue;
 	}
 
 	/** @inheritdoc */
@@ -105,26 +123,32 @@ export class EslintLinter implements Linter {
 	async lint(path: string): Promise<LintResult> {
 		try {
 			const eslint = await this.getESLint();
-			const source = await this.readFile(path);
 
-			// Primary attempt: lint with fix
-			let results = await eslint.lintText(source, { filePath: path });
+			// Read → lintText(fix) → write is one read-modify-write; hold the
+			// lock for its whole duration so an agent edit cannot land between
+			// the read and the fix-write (lost update).
+			return await this.queue.withLock(path, async () => {
+				const source = await this.readFile(path);
 
-			// Check if we got results
-			if (!results || results.length === 0) {
-				return { diagnostics: [], fixesApplied: false };
-			}
+				// Primary attempt: lint with fix
+				const results = await eslint.lintText(source, { filePath: path });
 
-			const fileResult = results[0]!;
-			const diagnostics = this.mapMessages(fileResult);
-			const fixesApplied = this.hasFixes(fileResult);
+				// Check if we got results
+				if (!results || results.length === 0) {
+					return { diagnostics: [], fixesApplied: false };
+				}
 
-			// Write fixes if any were applied
-			if (fixesApplied && fileResult.output) {
-				await this.writeFile(path, fileResult.output);
-			}
+				const fileResult = results[0]!;
+				const diagnostics = this.mapMessages(fileResult);
+				const fixesApplied = this.hasFixes(fileResult);
 
-			return { diagnostics, fixesApplied };
+				// Write fixes if any were applied
+				if (fixesApplied && fileResult.output) {
+					await this.writeFile(path, fileResult.output);
+				}
+
+				return { diagnostics, fixesApplied };
+			});
 		} catch (err) {
 			const message = this.getErrorMessage(err);
 
