@@ -13,7 +13,7 @@
 - **MCP tool annotations** — declares `readOnlyHint: true`, `idempotentHint: true`, `openWorldHint: false` (pure, repeat-safe, local-filesystem search).
 - **Pattern validation** — Rejects single-word text patterns that belong on ripgrep (collision rule)
 - **Language auto-detect** — Language parameter is optional; auto-detects from project config files (tsconfig.json → typescript, pyproject.toml → python, go.mod → go, Cargo.toml → rust, sgconfig.yml → languageGlobs). Defaults to `ts`.
-- **Result cache** — Results cached by (pattern, language, cwd). Repeated calls return instantly without re-executing ast-grep.
+- **Result cache** — Results cached by (pattern, language, cwd). Repeated calls return instantly without re-executing ast-grep. The cache is invalidated when a `write` or `edit` tool result reports success (the code may have changed), and on session start. `bash` mutations (`sed -i`, `git checkout`, codegen) are deliberately not invalidated — see Key Design Decisions.
 - **Streaming support** — Large result sets (>100 matches) return a truncated summary with total count. Refine the pattern to narrow results.
 - **Snippet truncation** — Results capped at 120 characters per match
 - **Custom TUI rendering** — In TUI mode, search results display with OSC 8 hyperlinked file paths and formatted line numbers for clickable navigation directly to matching lines
@@ -26,7 +26,7 @@
 1. The LLM calls `structural_search` with a pattern (language is optional)
 2. If language omitted, the extension auto-detects from project config files in scope (tsconfig.json → typescript, pyproject.toml → python, go.mod → go, Cargo.toml → rust, sgconfig.yml → languageGlobs). Defaults to `ts`.
 3. The extension validates the pattern — rejects text-only patterns (redirects to `ripgrep_search`)
-4. Checks the result cache — if the same (pattern, language, cwd) was searched before, returns cached result immediately
+4. Checks the result cache — if the same (pattern, language, cwd) was searched before in the current cache epoch, returns cached result immediately. A successful `write`/`edit` bumps the epoch, so the next identical search reflects the new on-disk code.
 5. Runs `ast-grep run --pattern <pattern> --json=stream --lang <language>`
 6. Parses NDJSON output into structured `SgMatch[]` results
 7. If >100 matches, returns truncated summary with total count; otherwise returns full results
@@ -89,7 +89,8 @@ Modular design — 6 source files, 1 entry point, 5 pure-function modules:
 ```
 ├── index.ts     # Entry: tool registration, execute orchestration, event hooks
 ├── types.ts     # SgMatch, SgResult, ExecResultResponse interfaces
-├── cache.ts     # FIFO-bounded Map cache (200 entries), keyed by pattern+language+cwd
+├── cache.ts     # FIFO-bounded Map cache (200 entries), keyed by epoch+pattern+language+cwd
+├── invalidation.ts # Cache-invalidation policy: which tool results mean "code changed"
 ├── language.ts  # Auto-detect language from sgconfig.yml / tsconfig.json / pyproject.toml / go.mod / Cargo.toml
 ├── parser.ts    # NDJSON stream parser, exit-code-based error interpretation, 100-match streaming threshold
 ├── validate.ts  # Pattern validation: rejects single-word text patterns, requires structural syntax ($, {, (, [)
@@ -117,6 +118,8 @@ flowchart LR
 
 - **Binary detection via lazy promise** — `getSgBinary()` caches the `ast-grep --version` check as a module-level promise. All concurrent callers await the same promise. On failure, the promise resets so next caller retries (transient fault recovery).
 - **FIFO eviction, not LRU** — Cache uses simple FIFO eviction at 200 entries. Hot-spot patterns may evict cold entries first. Revisit LRU when usage data exists.
+- **Mutation-triggered invalidation, epoch-qualified** — A successful `write`/`edit` tool result (`invalidation.ts`) clears the cache and bumps a monotonic world-version epoch mixed into every entry key. The epoch — not a bare `clear()` — is what makes an in-flight search that lands *after* a mutation unreachable rather than resurrect stale matches. Coarse whole-cache invalidation is intentional: surgical per-path invalidation needs canonical path comparison (symlinks, realpath) that is not worth the correctness risk for this fix.
+- **`bash` mutations are not invalidated** — `sed -i`, `rm`, `git checkout`, and codegen run through `bash` and are not treated as cache-invalidating: blanket invalidation on every bash destroys cache value in the normal agent loop. Residual staleness is accepted; `isMutatingToolResult` in `invalidation.ts` is the single extension point if that changes.
 - **Null-byte cache key separator** — `${pattern}\x00${language}\x00${cwd}` prevents collision when inputs contain `::`.
 - **Exit-code-based error interpretation** (not keyword heuristics) — code 0 = success, code 1 + empty stderr = no matches, all other non-zero = real errors. Stderr presence overrides success interpretation. ast-grep execution failures return `isError: true` with typed `structuredContent` (stderr, exitCode) instead of throwing; precondition guards (`validatePattern`, `resolveWithinRoot`, `getSgBinary`) still throw.
 - **Streaming threshold at 100 matches** — results beyond 100 are truncated with a clear notice and `totalMatches` count. Refine pattern to narrow.

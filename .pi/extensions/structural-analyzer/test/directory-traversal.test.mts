@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import structuralAnalyzer from "../index.ts";
-import { clearResultCache, getCache, makeCacheKey, setCache } from "../cache.ts";
+import { clearResultCache, getCache, makeCacheKey, setCache, currentCacheEpoch } from "../cache.ts";
 import type { ExecResultResponse } from "../types.ts";
 
 const CWD = mkdtempSync(join(tmpdir(), "sa-traversal-"));
@@ -119,13 +119,13 @@ describe("structural_search directory containment guard", () => {
 
 		// Attacker-controlled / stale raw key exactly as the old code built it
 		const poisonedKey = makeCacheKey(PATTERN, "ts", "../../etc");
-		setCache(poisonedKey, FAKE_RESPONSE);
+		setCache(poisonedKey, FAKE_RESPONSE, currentCacheEpoch());
 
 		const err = await captureError(() =>
 			executeTool(pi, { pattern: PATTERN, language: "ts", directory: "../../etc" }),
 		);
 		assert.match(err.message, /Directory traversal detected/);
-		assert.equal(getCache(poisonedKey), FAKE_RESPONSE, "test premise: entry still present");
+		assert.equal(getCache(poisonedKey, currentCacheEpoch()), FAKE_RESPONSE, "test premise: entry still present");
 	});
 
 	it("guard blocks a cache entry keyed by the resolved out-of-root path", async () => {
@@ -133,7 +133,7 @@ describe("structural_search directory containment guard", () => {
 		structuralAnalyzer(pi);
 
 		const poisonedKey = makeCacheKey(PATTERN, "ts", resolve(CWD, "../../etc"));
-		setCache(poisonedKey, FAKE_RESPONSE);
+		setCache(poisonedKey, FAKE_RESPONSE, currentCacheEpoch());
 
 		const err = await captureError(() =>
 			executeTool(pi, { pattern: PATTERN, language: "ts", directory: "../../etc" }),
