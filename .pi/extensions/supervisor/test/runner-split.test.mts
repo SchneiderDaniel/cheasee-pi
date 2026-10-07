@@ -719,6 +719,139 @@ if (hasMockModule) {
 		});
 	});
 
+	describe("runner/cleanup.ts — stateResultFields (state→fields mapping)", () => {
+		const baseArgs = (
+			state: AgentRunState,
+			over?: Partial<Parameters<typeof import("../agent/runner/cleanup.ts").stateResultFields>[0]>,
+		) => ({
+			state,
+			agentName: "test-agent",
+			durationMs: 1234,
+			textOutput: "Task complete.",
+			success: true,
+			...over,
+		});
+
+		it("omits the four caller-injected fields", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			const fields = stateResultFields(baseArgs(createState())) as Record<string, unknown>;
+			for (const key of ["output", "success", "errorOutput", "textOutput"]) {
+				assert.ok(!(key in fields), `${key} must be injected by the caller, not the builder`);
+			}
+		});
+
+		it("thinkingLevel passes through (present or undefined)", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(
+				stateResultFields(baseArgs(createState({ thinkingLevel: "medium" }))).thinkingLevel,
+				"medium",
+			);
+			assert.equal(stateResultFields(baseArgs(createState())).thinkingLevel, undefined);
+		});
+
+		it("failedToolCount: undefined → undefined; 0 → 0 (boundary); 3 → 3", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(stateResultFields(baseArgs(createState())).failedToolCount, undefined);
+			assert.equal(
+				stateResultFields(baseArgs(createState({ failedToolCount: 0 }))).failedToolCount,
+				0,
+			);
+			assert.equal(
+				stateResultFields(baseArgs(createState({ failedToolCount: 3 }))).failedToolCount,
+				3,
+			);
+		});
+
+		it("nestedCalls deep-equals nestedCallsFromState; nestedErrors passes through", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			const { nestedCallsFromState } = await import("../agent/state-helpers.ts");
+			const state = createState({
+				nestedCalls: [{ name: "read", status: "ok" }] as AgentRunState["nestedCalls"],
+				nestedErrorCount: 2,
+			});
+			const fields = stateResultFields(baseArgs(state));
+			assert.deepEqual(fields.nestedCalls, nestedCallsFromState(state));
+			assert.equal(fields.nestedErrors, 2);
+			assert.equal(stateResultFields(baseArgs(createState())).nestedErrors, undefined);
+		});
+
+		it("budgetExceeded: false → undefined; true → true", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(stateResultFields(baseArgs(createState())).budgetExceeded, undefined);
+			assert.equal(
+				stateResultFields(baseArgs(createState({ budgetExceeded: true }))).budgetExceeded,
+				true,
+			);
+		});
+
+		it("killReason ternary: timeout > budget > undefined", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(
+				stateResultFields(baseArgs(createState({ budgetExceeded: true }), { timedOut: true }))
+					.killReason,
+				"timeout",
+			);
+			assert.equal(
+				stateResultFields(baseArgs(createState({ budgetExceeded: true }), { timedOut: false }))
+					.killReason,
+				"budget",
+			);
+			assert.equal(stateResultFields(baseArgs(createState())).killReason, undefined);
+		});
+
+		it("timedOut: true → true; false/omitted → undefined", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(stateResultFields(baseArgs(createState(), { timedOut: true })).timedOut, true);
+			assert.equal(stateResultFields(baseArgs(createState(), { timedOut: false })).timedOut, undefined);
+			assert.equal(stateResultFields(baseArgs(createState())).timedOut, undefined);
+		});
+
+		it("configuredTimeoutMs only when timedOut and value present", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(
+				stateResultFields(baseArgs(createState(), { timedOut: true, configuredTimeoutMs: 5000 }))
+					.configuredTimeoutMs,
+				5000,
+			);
+			assert.equal(
+				stateResultFields(baseArgs(createState(), { timedOut: true })).configuredTimeoutMs,
+				undefined,
+			);
+			assert.equal(
+				stateResultFields(baseArgs(createState(), { timedOut: false, configuredTimeoutMs: 5000 }))
+					.configuredTimeoutMs,
+				undefined,
+			);
+		});
+
+		it("thinkingOutput joins lines with a blank line; empty → undefined", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			assert.equal(
+				stateResultFields(baseArgs(createState({ thinkingOutputLines: ["a", "b"] }))).thinkingOutput,
+				"a\n\nb",
+			);
+			assert.equal(stateResultFields(baseArgs(createState())).thinkingOutput, undefined);
+		});
+
+		it("toolCalls is the state reference; textOnly trims joined text lines", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			const state = createState({ toolCalls: ["read", "write"], textOutputLines: ["  hi  "] });
+			const fields = stateResultFields(baseArgs(state));
+			assert.equal(fields.toolCalls, state.toolCalls);
+			assert.equal(fields.textOnly, "hi");
+		});
+
+		it("summaryLine derives from the passed textOutput/success/agentName", async () => {
+			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
+			const fields = stateResultFields(
+				baseArgs(createState({ textOutputLines: ["ignored"] }), {
+					textOutput: "Did the thing.",
+				}),
+			);
+			assert.equal(fields.summaryLine, "Did the thing.");
+		});
+	});
+
 	describe("runner/ui.ts — widget cadence", () => {
 		it("300ms debounce fires setWidget during execution", async () => {
 			resetMock();

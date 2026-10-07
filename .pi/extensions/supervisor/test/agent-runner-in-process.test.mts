@@ -257,6 +257,20 @@ describe("runAgentInProcess — orchestration", () => {
 		assert.ok(result.durationMs >= 0, "durationMs should be non-negative");
 	});
 
+	it("reports the agent's thinkingLevel (matches subprocess result shape)", async () => {
+		resetMocks();
+		currentSessionConfig = {
+			messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
+		};
+
+		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
+		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 5000);
+
+		// mockAgent.config.thinking === "medium" — the state-derived field must
+		// reach the result exactly as it does on the subprocess path.
+		assert.equal(result.thinkingLevel, "medium");
+	});
+
 	it("output field is populated from session.agent.state.messages", async () => {
 		resetMocks();
 		currentSessionConfig = {
