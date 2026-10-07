@@ -745,6 +745,57 @@ func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
 	}
 }
 
+// TestCodeFlowServer_GitignoreFallbackWarns pins the fail-loud behaviour added
+// with #1934: when `git check-ignore` is unavailable (REPO_ROOT is not a work
+// tree / git missing), filtering stays permissive but emits a one-shot stderr
+// warning instead of silently analyzing every file.
+func TestCodeFlowServer_GitignoreFallbackWarns(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	dir := t.TempDir()
+	serverPath := filepath.Join(dir, "server.py")
+	if err := os.WriteFile(serverPath, src, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+	nonGit := t.TempDir()
+	script := `import contextlib, io, runpy, sys
+
+m = runpy.run_path(sys.argv[1])
+check = m["_check_ignore"]
+buf = io.StringIO()
+with contextlib.redirect_stderr(buf):
+    out = check(sys.argv[2], ["a.txt"])
+assert out == set(), out
+first = buf.getvalue()
+assert "filtering disabled" in first, first
+assert sys.argv[2] in first, first
+assert "not a git repository" in first, first
+# One-shot: a second call stays quiet.
+buf2 = io.StringIO()
+with contextlib.redirect_stderr(buf2):
+    check(sys.argv[2], ["a.txt"])
+assert buf2.getvalue() == "", buf2.getvalue()
+print("OK")
+`
+	scriptPath := filepath.Join(dir, "check_gitignore_warn.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write check script: %v", err)
+	}
+	out, err := exec.Command(python, scriptPath, serverPath, nonGit).CombinedOutput()
+	if err != nil {
+		t.Fatalf("gitignore fallback warning checks failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "OK") {
+		t.Fatalf("unexpected helper output: %s", out)
+	}
+}
+
 // TestCodeFlowServer_TypeScriptExtensionsPure drives the _UI_REWRITES rule
 // directly (no HTTP): each of the three upstream classification lists gains
 // .mts/.cts directly after its last TypeScript extension, a second pass is a

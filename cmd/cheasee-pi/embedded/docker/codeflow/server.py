@@ -44,6 +44,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -329,12 +330,35 @@ def _mime(path):
     return _MIME.get(ext) or mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
+_GITIGNORE_WARNED = False
+
+
+def _warn_gitignore_off(root, detail):
+    """One-shot stderr warning that .gitignore filtering is disabled.
+
+    The filter fails open: when git is missing or REPO_ROOT is not a usable
+    work tree, every blob outside EXCLUDE_DIRS is analyzed, so gitignored
+    installs (virtualenvs, .pi/git) leak in. Silence is what let a missing
+    bare-repo mount go unnoticed — make the degraded mode visible.
+    """
+    global _GITIGNORE_WARNED
+    if _GITIGNORE_WARNED:
+        return
+    _GITIGNORE_WARNED = True
+    print(
+        "codeflow-shim: .gitignore filtering disabled (%s); analyzing every "
+        "non-excluded file under %s" % (detail, root),
+        file=sys.stderr,
+    )
+
+
 def _gitignored(paths):
     """Return the subset of repo-relative paths matched by .gitignore.
 
     Delegates to `git check-ignore` so real gitignore semantics apply
     (nested .gitignore, negation, dir patterns). Empty set when git is
-    unavailable or REPO_ROOT is not a git work tree — no filtering then.
+    unavailable or REPO_ROOT is not a git work tree — filtering is then
+    disabled with a one-shot warning (see _warn_gitignore_off).
     """
     if not paths:
         return set()
@@ -351,18 +375,22 @@ def _check_ignore(root, paths):
             text=True,
             timeout=60,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
+        _warn_gitignore_off(root, "git unavailable: %s" % exc)
         return set()
     if proc.returncode not in (0, 1):  # 0 = matched, 1 = none matched
-        return set()  # not a git work tree (e.g. exit 128)
+        detail = (proc.stderr or "").strip() or "git check-ignore exited %d" % proc.returncode
+        _warn_gitignore_off(root, detail[:300])
+        return set()
     return {p for p in proc.stdout.split("\0") if p}
 
 
 # Workspace-content identity for the UI's content-addressed analysis cache:
 # the entrypoint redirect appends this fingerprint to the repo segment so the
 # browser misses (fresh analysis) when the workspace changed and hits when it
-# did not. Git-free on purpose — the running sidecar mounts no .git, so any
-# `git rev-parse`/`git diff` identity would be unusable there.
+# did not. Git-free on purpose — the mounted .git/bare are optional (absent
+# for a plain non-worktree checkout), so any `git rev-parse`/`git diff`
+# identity would be unusable there.
 _FP_LEN = 8
 try:
     _FP_TTL = float(os.environ.get("FP_TTL") or 2.0)

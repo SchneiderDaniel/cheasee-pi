@@ -95,6 +95,12 @@ services:
       - REPO_ROOT=/workspaces/main
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main:ro${VOLUME_RELABEL:-}
+      # The workspace is a linked worktree: its .git pointer
+      # (`gitdir: ../.bare/worktrees/main`) only resolves when the sibling
+      # bare repo is mounted too. Without it the shim's `git check-ignore`
+      # filter fails open and CodeFlow analyzes gitignored installs
+      # (virtualenvs, .pi/git). Mirrors the cheasee-pi service above.
+      - ${WORKSPACE_BARE_PATH}:/workspaces/.bare:ro${VOLUME_RELABEL:-}
       - ./codeflow/config.json:/opt/codeflow/config.json:ro
     ports:
       - "${CODEFLOW_HOST_IP:-127.0.0.1}:${CODEFLOW_PORT:-8470}:8470"
