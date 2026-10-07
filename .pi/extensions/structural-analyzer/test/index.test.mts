@@ -91,6 +91,38 @@ async function executeTool(
 	});
 }
 
+/** Invoke the registered `tool_result` handler with a synthetic event. */
+async function dispatchToolResult(pi: any, event: Record<string, unknown>): Promise<void> {
+	const handler = pi.__getOnCalls().find((c: any) => c.event === "tool_result")?.handler;
+	if (!handler) throw new Error("no tool_result handler registered");
+	await handler(event, { cwd: "/tmp" });
+}
+
+/** Invoke the registered `session_start` handler. */
+async function dispatchSessionStart(pi: any): Promise<void> {
+	const handler = pi.__getOnCalls().find((c: any) => c.event === "session_start")?.handler;
+	if (!handler) throw new Error("no session_start handler registered");
+	await handler();
+}
+
+/** Count ast-grep `run` scans serviced by the mock exec. */
+function scanPi(onScan?: () => Promise<void> | void): { pi: any; scans: () => number } {
+	let scans = 0;
+	const pi = makePi({
+		execOverride: async (cmd: string, args: string[]) => {
+			if (args.includes("--version"))
+				return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+			if (args[0] === "run") {
+				scans++;
+				if (onScan) await onScan();
+				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+			}
+			return { stdout: "", stderr: "", code: 1, killed: false };
+		},
+	});
+	return { pi, scans: () => scans };
+}
+
 describe("structuralAnalyzer extension wiring", () => {
 	beforeEach(() => {
 		clearResultCache();
@@ -108,30 +140,151 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.strictEqual(tool.name, "structural_search");
 	});
 
-	it("registers exactly one session_shutdown handler", () => {
+	it("registers no standalone session_shutdown handler", () => {
 		const pi = makePi();
 		structuralAnalyzer(pi);
-		const onCalls = pi.__getOnCalls();
-		const shutdownHandlers = onCalls.filter((c: any) => c.event === "session_shutdown");
-		assert.strictEqual(shutdownHandlers.length, 1);
+		const shutdownHandlers = pi.__getOnCalls().filter((c: any) => c.event === "session_shutdown");
+		assert.strictEqual(shutdownHandlers.length, 0);
 	});
 
-	it("session_shutdown clears the cache", async () => {
+	it("registers exactly one tool_result and one session_start handler", () => {
 		const pi = makePi();
 		structuralAnalyzer(pi);
 		const onCalls = pi.__getOnCalls();
-		const shutdownHandler = onCalls.find((c: any) => c.event === "session_shutdown")!.handler;
+		assert.strictEqual(onCalls.filter((c: any) => c.event === "tool_result").length, 1);
+		assert.strictEqual(onCalls.filter((c: any) => c.event === "session_start").length, 1);
+	});
 
-		// Execute once to cache
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.ok(result);
+	it("session_start clears the cache (identical search re-executes)", async () => {
+		const { pi, scans } = scanPi();
+		structuralAnalyzer(pi);
 
-		// Call shutdown handler
-		await shutdownHandler();
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 1);
 
-		// Execute again — should be a cache miss (re-exec)
-		const result2 = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.ok(result2);
+		await dispatchSessionStart(pi);
+
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 2, "session_start must invalidate the cache");
+	});
+
+	for (const toolName of ["edit", "write"]) {
+		it(`${toolName} success → identical search re-executes (scan count 2)`, async () => {
+			const { pi, scans } = scanPi();
+			structuralAnalyzer(pi);
+
+			await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+			assert.strictEqual(scans(), 1);
+
+			await dispatchToolResult(pi, { toolName, isError: false });
+
+			await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+			assert.strictEqual(scans(), 2, `${toolName} must invalidate the cache`);
+		});
+	}
+
+	it("after edit, identical search returns the fresh payload (not pre-edit)", async () => {
+		let scans = 0;
+		let payload = TWO_MATCHES;
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version"))
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				if (args[0] === "run") {
+					scans++;
+					return { stdout: payload, stderr: "", code: 0, killed: false };
+				}
+				return { stdout: "", stderr: "", code: 1, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		const before = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual((before.structuredContent as any).matches, 2);
+
+		// the edit removes one match
+		payload = createMatchJson("src/app.ts", "10-10", "console.log('App started')");
+		await dispatchToolResult(pi, { toolName: "edit", isError: false });
+
+		const after = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans, 2);
+		assert.strictEqual((after.structuredContent as any).matches, 1, "must reflect post-edit code");
+	});
+
+	it("failed mutation does NOT invalidate (cache hit preserved)", async () => {
+		const { pi, scans } = scanPi();
+		structuralAnalyzer(pi);
+
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		await dispatchToolResult(pi, { toolName: "edit", isError: true });
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 1, "failed edit must not invalidate");
+	});
+
+	it("non-mutating tool result does NOT invalidate (cache hit preserved)", async () => {
+		const { pi, scans } = scanPi();
+		structuralAnalyzer(pi);
+
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		await dispatchToolResult(pi, { toolName: "read", isError: false });
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 1, "read must not invalidate");
+	});
+
+	it("invalidation is coarse: a different pattern also re-execs after write", async () => {
+		const { pi, scans } = scanPi();
+		structuralAnalyzer(pi);
+
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
+		assert.strictEqual(scans(), 2);
+
+		await dispatchToolResult(pi, { toolName: "write", isError: false });
+
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
+		assert.strictEqual(scans(), 4, "every cached pattern is invalidated by a write");
+	});
+
+	it("epoch captured at the request boundary: in-flight write-back after mutation is unreachable", async () => {
+		let pi: any;
+		const { pi: mockPi, scans } = scanPi(async () => {
+			// mutation lands while this search is still in flight
+			await dispatchToolResult(pi, { toolName: "edit", isError: false });
+		});
+		pi = mockPi;
+		structuralAnalyzer(pi);
+
+		// first search writes back under its pre-mutation epoch → unreachable
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 1);
+
+		// second identical search must re-exec (stale payload was not served)
+		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
+		assert.strictEqual(scans(), 2, "pre-mutation write-back must be unreachable");
+	});
+
+	it("ast-grep error responses stay uncached across an epoch change", async () => {
+		let scans = 0;
+		const pi = makePi({
+			execOverride: async (cmd: string, args: string[]) => {
+				if (args.includes("--version"))
+					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
+				if (args[0] === "run") {
+					scans++;
+					return { stdout: "", stderr: "unknown language", code: 1, killed: false };
+				}
+				return { stdout: "", stderr: "", code: 1, killed: false };
+			},
+		});
+		structuralAnalyzer(pi);
+
+		const first = await executeTool(pi, { pattern: "console.log($A)", language: "badlang" });
+		assert.strictEqual(first.isError, true);
+		await dispatchToolResult(pi, { toolName: "edit", isError: false });
+		const second = await executeTool(pi, { pattern: "console.log($A)", language: "badlang" });
+		assert.strictEqual(second.isError, true);
+		assert.strictEqual(scans, 2, "error responses must never be cached");
 	});
 
 	it("same params (pattern, language, cwd) → second call returns cached result (no scan exec)", async () => {

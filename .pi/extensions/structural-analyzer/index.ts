@@ -6,7 +6,7 @@
  * validate, renderer).
  *
  * Features:
- * - Result cache keyed by (pattern, language, cwd)
+ * - Result cache keyed by (pattern, language, cwd), invalidated on write/edit
  * - Language auto-detect from project files when language param omitted
  * - Streaming support: truncates large result sets (>100 matches)
  * - Binary auto-detection via promise caching (race-condition-free)
@@ -16,7 +16,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { resolveWithinRoot } from "../lib/path-containment.ts";
-import { setCache, getCache, makeCacheKey, clearResultCache } from "./cache.ts";
+import { setCache, getCache, makeCacheKey, currentCacheEpoch } from "./cache.ts";
+import { registerCacheInvalidation } from "./invalidation.ts";
 import { detectLanguage, DEFAULT_LANGUAGE } from "./language.ts";
 import { interpretSgExecResult } from "./parser.ts";
 import { StructuralSearchOutputSchema } from "./types.ts";
@@ -160,9 +161,13 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 			// exec, so a poisoned out-of-root cache entry can never be served.
 			const resolvedDir = directory ? resolveWithinRoot(ctx.cwd, directory) : undefined;
 
-			// Check cache before executing
+			// Check cache before executing. The epoch is captured here, at the
+			// request boundary, and reused for the write-back below: a mutation
+			// that lands while ast-grep runs bumps the epoch, making this
+			// request's write-back unreachable rather than stale-readable.
 			const cacheKey = makeCacheKey(pattern, language, resolvedDir ?? ctx.cwd);
-			const cached = getCache(cacheKey);
+			const epoch = currentCacheEpoch();
+			const cached = getCache(cacheKey, epoch);
 			if (cached) {
 				return cached;
 			}
@@ -202,15 +207,14 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 			// so scripts receive typed stderr/exitCode. Preconditions (validatePattern,
 			// resolveWithinRoot, getSgBinary) keep throwing — those fail closed.
 			if (!response.isError) {
-				setCache(cacheKey, response);
+				setCache(cacheKey, response, epoch);
 			}
 
 			return response;
 		},
 	});
 
-	// Clear cache between sessions to prevent cross-session memory bleed
-	pi.on("session_shutdown", async () => {
-		clearResultCache();
-	});
+	// Invalidate the result cache when a write/edit may have changed the code,
+	// and on session_start to prevent cross-session bleed (see invalidation.ts).
+	registerCacheInvalidation(pi);
 }
