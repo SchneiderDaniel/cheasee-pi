@@ -678,6 +678,40 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			assert.deepStrictEqual(violations, []);
 		});
 
+		it("does not runtime-resolve imports in declaration files", async () => {
+			// Regression (audit finding): `.d.ts`/`.d.mts` files are scanned but
+			// never executed by Node, so a declaration-only SDK subpath used there
+			// must not be runtime-resolved (that would fail CI on an erased import).
+			for (const file of ["types/extension.d.ts", "types/extension.d.mts"]) {
+				const imports = extractSdkStaticImports(
+					`import { getModel } from "@earendil-works/pi-ai/types-only";`,
+					file,
+				);
+				assert.strictEqual(imports.length, 1);
+				assert.strictEqual(imports[0]!.erased, true);
+				assert.strictEqual(
+					isRuntimeRelevant(imports[0]!),
+					false,
+					`${file}: declaration-file import must be treated as erased`,
+				);
+
+				let resolveCalls = 0;
+				const violations = await findSdkImportViolations(imports, () => {
+					resolveCalls += 1;
+					throw new Error("ERR_PACKAGE_PATH_NOT_EXPORTED: declaration-only subpath");
+				});
+				assert.strictEqual(resolveCalls, 0, `${file}: must not be runtime-resolved`);
+				assert.deepStrictEqual(violations, []);
+			}
+
+			// A runtime file with the same import is still resolved (no over-erasing).
+			const runtime = extractSdkStaticImports(
+				`import { getModel } from "@earendil-works/pi-ai/types-only";`,
+				"extension.ts",
+			);
+			assert.strictEqual(isRuntimeRelevant(runtime[0]!), true);
+		});
+
 		it("still resolves a specifier used by a value import alongside a type import", async () => {
 			const imports = extractSdkStaticImports(
 				[
@@ -702,9 +736,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 
 	describe("Phase 2: guard over the real extension tree", () => {
 		const sources = collectExtensionSources();
-		const imports = sources.flatMap(({ file, source }) =>
-			extractSdkStaticImports(source).map((imp) => ({ ...imp, file })),
-		);
+		const imports = sources.flatMap(({ file, source }) => extractSdkStaticImports(source, file));
 		// Runtime-resolution checks only cover specifiers a value/side-effect
 		// import uses; type-only specifiers are erased and must not be resolved.
 		const runtimeImports = imports.filter(isRuntimeRelevant);

@@ -40,6 +40,11 @@ export interface SdkStaticImport {
 	bindings: SdkImportBinding[];
 	/** Populated by callers that know the source file. */
 	file?: string;
+	/**
+	 * Set for declaration files (`.d.ts`/`.d.mts`). Node never executes these,
+	 * so every import in them is erased and must not be runtime-resolved.
+	 */
+	erased?: boolean;
 }
 
 /** A specifier that does not resolve, or a value binding it lacks. */
@@ -63,7 +68,13 @@ export type SdkModuleResolver = (specifier: string) => SdkNamespace | Promise<Sd
  * could fail on a declaration-only subpath that never loads in production.
  */
 export function isRuntimeRelevant(imp: SdkStaticImport): boolean {
+	if (imp.erased === true) return false;
 	return imp.bindings.length === 0 || imp.bindings.some((binding) => !binding.typeOnly);
+}
+
+/** Whether a path names a declaration file, which is never executed. */
+function isDeclarationFile(file?: string): boolean {
+	return file !== undefined && (file.endsWith(".d.ts") || file.endsWith(".d.mts"));
 }
 
 function parseBindings(clause: ts.ImportClause | undefined): SdkImportBinding[] {
@@ -105,11 +116,15 @@ function parseBindings(clause: ts.ImportClause | undefined): SdkImportBinding[] 
  * embedded in a comment, string literal, or template literal. An earlier
  * regex version flagged documentation examples and dropped bindings that
  * followed an inline comment — both hid or invented SDK drift.
+ *
+ * When `file` names a declaration file, its imports are marked erased: Node
+ * never executes a `.d.ts`/`.d.mts`, so resolving its imports at runtime would
+ * fail CI on a declaration-only subpath.
  */
-export function extractSdkStaticImports(source: string): SdkStaticImport[] {
+export function extractSdkStaticImports(source: string, file?: string): SdkStaticImport[] {
 	if (typeof source !== "string" || source.trim() === "") return [];
 
-	const file = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		"extension.mts",
 		source,
 		ts.ScriptTarget.Latest,
@@ -118,16 +133,17 @@ export function extractSdkStaticImports(source: string): SdkStaticImport[] {
 	);
 
 	const imports: SdkStaticImport[] = [];
+	const erased = isDeclarationFile(file);
 	const visit = (node: ts.Node): void => {
 		if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
 			const specifier = node.moduleSpecifier.text;
 			if (specifier.startsWith(SDK_SCOPE)) {
-				imports.push({ specifier, bindings: parseBindings(node.importClause) });
+				imports.push({ specifier, bindings: parseBindings(node.importClause), file, erased });
 			}
 		}
 		ts.forEachChild(node, visit);
 	};
-	visit(file);
+	visit(sourceFile);
 
 	return imports;
 }
