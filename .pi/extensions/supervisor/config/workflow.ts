@@ -26,12 +26,20 @@ export interface WorkflowStep {
 	/** Statuses this step can send back to (feedback loop) */
 	canLoopBackTo?: string[];
 	/** Hooks to run before transition */
-	hooks?: ("tsc" | "lsp" | "ci" | "dup" | "trace")[];
+	hooks?: GateHook[];
 	/** Max rejections before forcing human intervention */
 	maxRejections?: number;
 	/** Built-in handler */
 	builtIn?: "backlog" | "done";
 }
+
+/**
+ * The pre-transition gate hook set. Exported as data so the agent-loop guard
+ * (and tests) reference the same source of truth instead of a duplicated
+ * literal — adding a gate here makes the guard cover it automatically.
+ */
+export const GATE_HOOKS = ["ci", "tsc", "lsp", "dup", "trace"] as const;
+type GateHook = (typeof GATE_HOOKS)[number];
 
 export const WORKFLOW: WorkflowStep[] = [
 	// Built-in: Backlog → Research
@@ -67,7 +75,7 @@ export const WORKFLOW: WorkflowStep[] = [
 		status: "Implementation",
 		agentName: "developer",
 		markerMap: { IMPLEMENTATION_COMPLETE: "Audit" },
-		hooks: ["ci", "tsc", "lsp", "dup", "trace"],
+		hooks: [...GATE_HOOKS],
 	},
 
 	// Audit → Done (approve) or Implementation (reject/loop back)

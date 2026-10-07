@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readGraph } from "../../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -131,53 +132,31 @@ describe("handler package — function size (S138)", () => {
 // ---------------------------------------------------------------------------
 
 describe("handler.ts shim — re-export contract", () => {
-	it("shim re-exports both handleSupervisorCommand and handlePostPipeline", () => {
-		const shim = readFileSync(SHIM_TS, "utf-8");
-		assert.ok(shim.includes("handleSupervisorCommand"), "shim re-exports handleSupervisorCommand");
-		assert.ok(shim.includes("handlePostPipeline"), "shim re-exports handlePostPipeline");
+	it("shim re-exports both handleSupervisorCommand and handlePostPipeline from the barrel", () => {
+		const graph = readGraph(SHIM_TS);
+		assert.ok(graph.namedReExports.includes("handleSupervisorCommand"), "shim re-exports handleSupervisorCommand");
+		assert.ok(graph.namedReExports.includes("handlePostPipeline"), "shim re-exports handlePostPipeline");
 		assert.ok(
-			shim.includes('from "./handler/index.ts"'),
+			graph.specifiers.includes("./handler/index.ts"),
 			"shim re-exports from the handler package barrel",
 		);
 	});
 
-	it("pipeline/index.ts import is unchanged (still resolves through the shim)", () => {
-		const src = readFileSync(PIPELINE_INDEX_TS, "utf-8");
+	it("pipeline/index.ts imports the command handler through the shim", () => {
+		const graph = readGraph(PIPELINE_INDEX_TS);
 		assert.ok(
-			src.includes('import { handleSupervisorCommand } from "./handler.ts"'),
+			graph.importedNames.includes("handleSupervisorCommand"),
+			"pipeline/index.ts consumes handleSupervisorCommand",
+		);
+		assert.ok(
+			graph.specifiers.includes("./handler.ts"),
 			"pipeline/index.ts keeps importing from ./handler.ts",
 		);
 	});
 
-	it("orchestration: index.ts runs preflight → agent loop → post-pipeline in order", () => {
-		const src = pkgSource("index.ts");
-		const preflightIdx = src.indexOf("runPreflight(runCtx)");
-		const loopIdx = src.indexOf("runAgentLoop(runCtx)");
-		const postIdx = src.indexOf("runPostPipelinePhase(runCtx)");
-		assert.ok(preflightIdx >= 0, "runPreflight called");
-		assert.ok(loopIdx >= 0, "runAgentLoop called");
-		assert.ok(postIdx >= 0, "runPostPipelinePhase called");
-		assert.ok(preflightIdx < loopIdx && loopIdx < postIdx, "phase call order preserved");
-	});
-
-	it("single top-level try/catch/finally in runSupervisorPipeline", () => {
-		const { start, end } = functionLineSpan("index.ts", "runSupervisorPipeline");
-		const body = pkgSource("index.ts")
-			.split("\n")
-			.slice(start - 1, end);
-		assert.ok(
-			body.some((l) => l.includes("try {")),
-			"try block present",
-		);
-		assert.ok(
-			body.some((l) => l.includes("} catch (err: unknown) {")),
-			"catch block present",
-		);
-		assert.ok(
-			body.some((l) => l.includes("} finally {")),
-			"finally block present",
-		);
-	});
+	// Orchestration order and the single top-level try/catch/finally are
+	// covered behaviorally by handler-entry.test.mts (end-to-end dispatch
+	// through the shim), not by slicing index.ts source text.
 });
 
 // ---------------------------------------------------------------------------
@@ -189,10 +168,10 @@ describe("handler package — acyclic imports", () => {
 		const phaseFiles = ["preflight.ts", "agent-loop.ts", "post-pipeline.ts"];
 		const forbidden = ["./preflight.ts", "./agent-loop.ts", "./post-pipeline.ts", "./index.ts"];
 		for (const file of phaseFiles) {
-			const src = pkgSource(file);
+			const { specifiers } = readGraph(resolve(HANDLER_PKG, file));
 			for (const target of forbidden) {
 				assert.ok(
-					!src.includes(`from "${target}"`),
+					!specifiers.includes(target),
 					`${file} must not import ${target} (acyclic graph)`,
 				);
 			}
@@ -201,14 +180,18 @@ describe("handler package — acyclic imports", () => {
 
 	it("phase modules consume shared.ts (RunContext / fetchResolvedByInfo)", () => {
 		for (const file of ["preflight.ts", "agent-loop.ts", "post-pipeline.ts"]) {
-			assert.ok(pkgSource(file).includes('from "./shared.ts"'), `${file} imports from shared.ts`);
+			assert.ok(
+				readGraph(resolve(HANDLER_PKG, file)).specifiers.includes("./shared.ts"),
+				`${file} imports from shared.ts`,
+			);
 		}
 	});
 
 	it("barrel uses explicit named re-exports, no `export *`", () => {
 		for (const file of PACKAGE_FILES) {
-			assert.ok(
-				!pkgSource(file).includes("export * from"),
+			assert.deepEqual(
+				readGraph(resolve(HANDLER_PKG, file)).starReExports,
+				[],
 				`${file} must use explicit named re-exports`,
 			);
 		}
@@ -218,9 +201,13 @@ describe("handler package — acyclic imports", () => {
 // ---------------------------------------------------------------------------
 // Erasable-syntax rules (node --experimental-strip-types)
 // ---------------------------------------------------------------------------
+// Non-erasable syntax (enum/namespace/parameter properties) makes the module
+// throw ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX when imported, so it is enforced by
+// the real imports in handler-entry/agent-loop tests rather than by string
+// scans. This suite keeps the explicit-.ts-extension rule.
 
 describe("handler package — erasable TypeScript", () => {
-	it("every relative import ends with .ts; no enums/namespaces/parameter properties", () => {
+	it("every relative import ends with .ts (allowImportingTsExtensions)", () => {
 		for (const file of PACKAGE_FILES) {
 			const src = pkgSource(file);
 			// Relative imports must carry the explicit .ts extension.
@@ -230,12 +217,6 @@ describe("handler package — erasable TypeScript", () => {
 					`${file}: relative import "${m[1]}" must end with .ts (allowImportingTsExtensions)`,
 				);
 			}
-			assert.ok(!src.includes("enum "), `${file} must not use enums`);
-			assert.ok(!src.includes("namespace "), `${file} must not use namespaces`);
-			assert.ok(
-				!src.includes("constructor("),
-				`${file} must not use constructor parameter properties`,
-			);
 		}
 	});
 });

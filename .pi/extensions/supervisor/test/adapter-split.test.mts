@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readGraph } from "../../lib/test/source-graph.ts";
 import type { AgentRunState } from "../config/types.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -186,8 +187,8 @@ describe("adapter/ split — shim + export surface", () => {
 	});
 
 	it("index.ts uses star re-exports only (no TS1205-fragile named type re-export)", () => {
-		const src = readFileSync(join(ADAPTER_DIR, "index.ts"), "utf-8");
-		assert.ok(!src.includes("export {"), "index.ts must not use named re-exports");
+		const graph = readGraph(join(ADAPTER_DIR, "index.ts"));
+		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
 	});
 });
 

@@ -141,9 +141,10 @@ describe("supervisor status cleanup — pipeline/audit siblings", () => {
 	it("aggregate/tsc-gate/lsp-gate/pre-gates contain zero setStatus('supervisor' calls", () => {
 		const siblingFiles = ["aggregate.ts", "tsc-gate.ts", "lsp-gate.ts", "pre-gates.ts"];
 		for (const file of siblingFiles) {
-			const src = readFileSync(join(__dirname, "../pipeline/audit", file), "utf-8");
-			assert.ok(
-				!src.includes('setStatus("supervisor"'),
+			const calls = findSetStatusCalls(join(__dirname, "../pipeline/audit", file));
+			assert.equal(
+				calls.length,
+				0,
 				`pipeline/audit/${file} must not call setStatus("supervisor", ...) — the orchestrator owns the lifecycle`,
 			);
 		}

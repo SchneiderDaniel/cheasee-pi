@@ -17,10 +17,14 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as stateCheckpoint from "../pipeline/state-checkpoint.ts";
+import type { SupervisorConfig } from "../config/types.ts";
+import type { SupervisorCheckpointState } from "../pipeline/state-checkpoint.ts";
+import type { Result } from "../pipeline/result.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -180,17 +184,6 @@ describe("getRunGate — unified dynamic import (Phase 2)", () => {
 		assert.ok(runTscCheckpoint.length >= 1, "runTscCheckpoint should accept at least worktreePath");
 	});
 
-	it("getRunGate exists in audit-gate-decision.ts with PolicyName param", () => {
-		const src = readFileSync(AUDIT_GATE_DECISION_TS, "utf-8");
-		const getRunIdx = src.indexOf("export async function getRunGate");
-		assert.ok(getRunIdx >= 0, "getRunGate function exists in audit-gate-decision.ts");
-		// Verify the signature shows PolicyName generic
-		assert.ok(
-			src.includes("getRunGate<K extends PolicyName>"),
-			"getRunGate should be generic over PolicyName",
-		);
-	});
-
 	it("calling resolved function with single string argument does not throw", async () => {
 		const { runTscCheckpoint } = await import("../../tsc-checkpoint/index.ts");
 		// Should not throw — returns empty diagnostics for nonexistent path
@@ -210,63 +203,12 @@ describe("getRunGate — unified dynamic import (Phase 2)", () => {
 });
 
 // ===========================================================================
-// Phase 3: `worktreePath` passed from `pipeline.ts` call site
-// ===========================================================================
-
-describe("pipeline.ts — worktreePath passed to runTscAndLspAudit (Phase 3)", () => {
-	it("runTscAndLspAudit call includes worktreePath as 8th arg", () => {
-		const src = readPipelineSource();
-		// Find the runTscAndLspAudit call
-		const callIdx = src.indexOf("const auditResult = await runTscAndLspAudit(");
-		assert.ok(callIdx >= 0, "runTscAndLspAudit call exists");
-		// Find the closing paren
-		const callSection = src.substring(callIdx, src.indexOf(");", callIdx));
-		// Should contain worktreePath, as an argument
-		assert.ok(
-			callSection.includes("worktreePath"),
-			"worktreePath should be present in runTscAndLspAudit call args",
-		);
-		// Count args — should be 8 now (was 7 before fix)
-		// Count commas at top level (not nested)
-		const argCount = (callSection.match(/,/g) || []).length;
-		assert.ok(argCount >= 7, "runTscAndLspAudit should have at least 8 args (7 commas)");
-	});
-
-	it("worktreePath in scope at pre-transition hooks site (destructured from RunContext before hooks block)", () => {
-		const src = readPipelineSource();
-		// Issue #1395 split: worktreePath is no longer a bare `let` at handler
-		// scope — it is destructured from RunContext at the top of runAgentLoop.
-		// Assert the destructure (which declares worktreePath) precedes the
-		// pre-transition hooks block.
-		const declIdx = src.indexOf("worktreePath,");
-		assert.ok(declIdx >= 0, "worktreePath destructured from RunContext at agent-loop scope");
-
-		// Verify declaration comes before pre-transition hooks block
-		const hooksIdx = src.indexOf("// Pre-transition hooks");
-		assert.ok(declIdx < hooksIdx, "worktreePath destructured before hooks block");
-	});
-});
-
-// ===========================================================================
 // Phase 8: LSP gate consumes runner-supplied retryCount (issue #1773)
 // ===========================================================================
-
-describe("pipeline/audit/lsp-gate.ts — retryCount sourced from runner (Phase 8)", () => {
-	it("[source guard] no getEntries() recount in lsp-gate.ts", () => {
-		const src = readLspGateSource();
-		assert.ok(!src.includes("getEntries("), "lsp-gate.ts must not read session entries directly");
-		assert.ok(!src.includes("lsp-audit-retry"), "inline retry recount loop removed");
-	});
-
-	it("[source guard] derives retryCount from preAuditResult.retryCount", () => {
-		const src = readLspGateSource();
-		assert.ok(
-			src.includes("preAuditResult.retryCount") || src.includes("preAuditResult?.retryCount"),
-			"retryCount comes from the runner result",
-		);
-		assert.ok(src.includes("retryCount"), "retryCount threaded into context");
-	});
-});
+// retryCount sourcing is asserted behaviorally in
+// lsp-auditor/test/lsp-auditor-run-pre-audit.test.mts (runPreAudit with
+// active-branch retry entries → result.retryCount), so the former source
+// guards were removed.
 
 // ===========================================================================
 // Phase 4: Path construction consistency (resolvePath not string concat)
@@ -302,15 +244,6 @@ describe("pipeline/audit/lsp-gate.ts — resolvePath used in runLspPreAudit (Pha
 // ===========================================================================
 
 describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () => {
-	it("no string concat pattern `${config.worktreeBase!}${branch}` in pipeline-audit.ts", () => {
-		const src = readAuditSource();
-		const oldPattern = "`${config.worktreeBase!}${branch}`";
-		assert.ok(
-			!src.includes(oldPattern),
-			"Old string-concat pattern should not exist in pipeline-audit.ts",
-		);
-	});
-
 	it("path resolution uses resolvePath via createWorktree import", () => {
 		const lspGateSrc = readLspGateSource();
 		const preflightSrc = readFileSync(PREFLIGHT_TS, "utf-8");
@@ -334,17 +267,6 @@ describe("pipeline-audit.ts — non-standard worktreeBase config (Phase 6)", () 
 // ===========================================================================
 
 describe("pipeline/audit/tsc-gate.ts — TSC checkpoint try/catch error boundary (Phase 7)", () => {
-	it("tscResult declared with let outside try block (visible after catch)", () => {
-		const src = readTscGateSource();
-		// Verify let-declared tscResult before try block, not const inside it
-		const letDecl = "let tscResult: TscCheckpointResult | null = null;";
-		assert.ok(src.includes(letDecl), "tscResult should be declared with let outside try block");
-		// Verify it appears before the try block
-		const tryIdx = src.indexOf("try {", src.indexOf(letDecl));
-		const declIdx = src.indexOf(letDecl);
-		assert.ok(declIdx >= 0 && declIdx < tryIdx, "let tscResult should appear before the try block");
-	});
-
 	it("runTscCheckpointFn call wrapped in try block", () => {
 		const src = readTscGateSource();
 		const callIdx = src.indexOf("runTscCheckpointFn(worktreePath)");
@@ -425,123 +347,146 @@ describe("pipeline/audit/tsc-gate.ts — TSC checkpoint try/catch error boundary
 });
 
 // ===========================================================================
-// Phase 5: State checkpoint integration (pipeline state checkpoint for crash recovery)
+// Phase 5: State checkpoint integration (behavior — Issue #1866)
 // ===========================================================================
+// Checkpoints are observed through an injected writer spy, not by scanning
+// orchestrator source: the spy records each write so the pre-tsc → pre-lsp
+// order and the state shape come from real calls, and a failing writer drives
+// the warning notification path.
 
-describe("pipeline/audit/index.ts — state checkpoint integration (Phase 5)", () => {
-	it("imports writeCheckpointFile from state-checkpoint", () => {
-		const src = readAuditSource();
-		const importSection = src.substring(0, src.indexOf("export async function"));
-		assert.ok(
-			importSection.includes(
-				'import { writeCheckpointFile, type CheckpointName } from "../state-checkpoint.ts"',
-			),
-			"should import writeCheckpointFile from state-checkpoint",
-		);
+// ── Module mocks: heavy gates + checkpoint writer (issue #1866) ──
+// The orchestrator runs for real; only the shell-out gates and the checkpoint
+// writer are replaced (--experimental-test-module-mocks). Without the flag the
+// Phase 5 suite is skipped.
+const hasMockModule = typeof mock.module === "function";
+
+// Mutable holders read by the mocks at call time.
+let checkpointWrites: Array<{ cwd: string; state: SupervisorCheckpointState }> = [];
+let checkpointWriteResult: Result<void> = { ok: true, value: undefined };
+
+if (hasMockModule) {
+	mock.module("../pipeline/state-checkpoint.ts", {
+		namedExports: {
+			...stateCheckpoint,
+			writeCheckpointFile: (cwd: string, state: SupervisorCheckpointState) => {
+				checkpointWrites.push({ cwd, state });
+				return checkpointWriteResult;
+			},
+		},
 	});
-
-	it("calls writeCheckpointFile with checkpoint 'pre-tsc' before the TSC gate runs", () => {
-		const src = readAuditSource();
-		// Find the pre-tsc checkpoint write (writeAuditCheckpoint helper)
-		const preTscIdx = src.indexOf('"pre-tsc"');
-		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint write");
-
-		// The pre-tsc checkpoint should appear before the TSC gate invocation
-		// (getRunGate lives in tsc-gate.ts since the #1407 split)
-		const tscGateIdx = src.indexOf("await runTscGate(");
-		assert.ok(tscGateIdx >= 0, 'should have runTscGate("tsc") invocation');
-
-		// Verify ordering: pre-tsc checkpoint comes BEFORE the TSC gate runs
-		assert.ok(
-			preTscIdx < tscGateIdx,
-			"pre-tsc checkpoint should be written before the TSC gate is invoked",
-		);
+	mock.module("../pipeline/audit/pre-gates.ts", {
+		namedExports: {
+			runCiGate: (async () => ({})) as unknown,
+			runDuplicateGate: (async () => ({
+				dupResult: { status: "no_jscpd", clones: [], totalDuplicateLines: 0, changedFilesScanned: [] },
+			})) as unknown,
+			runDeadCodeGate: (async () => ({
+				deadResult: { status: "no_knip", findings: [], totalDeadLines: 0, changedFilesScanned: [] },
+			})) as unknown,
+			runPackageSafetyGate: (async () => ({})) as unknown,
+			runOsvGate: (async () => ({
+				vulnResult: {
+					status: "no_osv_scanner",
+					findings: [],
+					counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+				},
+			})) as unknown,
+			runTraceabilityGate: (async () => ({})) as unknown,
+		},
 	});
-
-	it("calls writeCheckpointFile with checkpoint 'pre-lsp' before runLspPreAudit()", () => {
-		const src = readAuditSource();
-		const preLspIdx = src.indexOf('"pre-lsp"');
-		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint write");
-
-		const runLspIdx = src.indexOf("await runLspPreAudit(issueNum");
-		assert.ok(runLspIdx >= 0, "should have runLspPreAudit() call");
-
-		assert.ok(
-			preLspIdx < runLspIdx,
-			"pre-lsp checkpoint should be written before runLspPreAudit() is called",
-		);
+	mock.module("../pipeline/audit/tsc-gate.ts", {
+		namedExports: { runTscGate: (async () => null) as unknown },
 	});
-
-	it("writeCheckpointFile('pre-tsc') passes correct state shape", () => {
-		const src = readAuditSource();
-		const preTscIdx = src.indexOf('"pre-tsc"');
-		assert.ok(preTscIdx >= 0, "should have pre-tsc checkpoint");
-
-		// Find the writeCheckpointFile call containing pre-tsc
-		const callStart = src.lastIndexOf("writeCheckpointFile(ctx.cwd,", preTscIdx);
-		assert.ok(callStart >= 0, "writeCheckpointFile call exists for pre-tsc");
-
-		// Find closing ");" after the checkpoint
-		const closingParen = src.indexOf(");", preTscIdx);
-		assert.ok(closingParen >= 0, "should find closing paren for pre-tsc call");
-
-		const callSection = src.substring(callStart, closingParen + 2);
-
-		// Verify all required fields are present in the call block
-		assert.ok(callSection.includes("issueNum"), "should pass issueNum");
-		assert.ok(callSection.includes("checkpoint"), "should pass checkpoint");
-		assert.ok(callSection.includes("worktreePath"), "should pass worktreePath");
-		assert.ok(callSection.includes("worktreeBranch"), "should pass worktreeBranch");
-		assert.ok(callSection.includes("startedAt"), "should pass startedAt");
-		assert.ok(
-			callSection.includes("new Date().toISOString()"),
-			"should use new Date().toISOString() for startedAt",
-		);
-		assert.ok(callSection.includes("ctx.cwd"), "should use ctx.cwd as first arg");
+	mock.module("../pipeline/audit/lsp-gate.ts", {
+		namedExports: {
+			runLspPreAudit: (async () => ({ nextStatus: "Audit", note: "lsp ok" })) as unknown,
+		},
 	});
+}
 
-	it("writeCheckpointFile('pre-lsp') passes correct state shape", () => {
-		const src = readAuditSource();
-		const preLspIdx = src.indexOf('"pre-lsp"');
-		assert.ok(preLspIdx >= 0, "should have pre-lsp checkpoint");
+function makeAuditConfig(): SupervisorConfig {
+	return {
+		ciGatingTimeoutSec: 0,
+		defaultBranch: "main",
+		branchPrefix: "worktree-",
+		repo: "owner/repo",
+	} as SupervisorConfig;
+}
 
-		const callStart = src.lastIndexOf("writeCheckpointFile(ctx.cwd,", preLspIdx);
-		assert.ok(callStart >= 0, "writeCheckpointFile call exists for pre-lsp");
+function makeAuditCtx(): { ctx: any; notify: ReturnType<typeof mock.fn> } {
+	const notify = mock.fn();
+	return {
+		ctx: { cwd: "/repo", ui: { notify, setStatus: mock.fn() } },
+		notify,
+	};
+}
 
-		const closingParen = src.indexOf(");", preLspIdx);
-		assert.ok(closingParen >= 0, "should find closing paren for pre-lsp call");
+if (hasMockModule) {
+	describe("pipeline/audit/index.ts — state checkpoint integration (Phase 5)", () => {
+		it("writes pre-tsc then pre-lsp checkpoints, each carrying issue/worktree state", async () => {
+			checkpointWrites = [];
+			checkpointWriteResult = { ok: true, value: undefined };
+			const { ctx } = makeAuditCtx();
+			const { runTscAndLspAudit } = await import("../pipeline/audit/index.ts");
 
-		const callSection = src.substring(callStart, closingParen + 2);
+			const result = await runTscAndLspAudit(
+				42,
+				"Checkpoint order",
+				makeAuditConfig(),
+				"developer",
+				{ body: "", comments: [] },
+				"/wt/issue-42",
+				{} as any,
+				ctx,
+				undefined,
+			);
 
-		assert.ok(callSection.includes("issueNum"), "should pass issueNum");
-		assert.ok(callSection.includes("checkpoint"), "should pass checkpoint");
-		assert.ok(callSection.includes("worktreePath"), "should pass worktreePath");
-		assert.ok(callSection.includes("worktreeBranch"), "should pass worktreeBranch");
-		assert.ok(callSection.includes("startedAt"), "should pass startedAt");
-		assert.ok(callSection.includes("ctx.cwd"), "should use ctx.cwd as first arg");
+			assert.equal(result.nextStatus, "Audit");
+			assert.deepEqual(
+				checkpointWrites.map((w) => w.state.checkpoint),
+				["pre-tsc", "pre-lsp"],
+				"checkpoint writes happen in gate order",
+			);
+			for (const { cwd, state } of checkpointWrites) {
+				assert.equal(cwd, "/repo", "checkpoint is written under ctx.cwd");
+				assert.equal(state.issueNum, 42);
+				assert.equal(state.worktreePath, "/wt/issue-42");
+				assert.ok(state.worktreeBranch.length > 0, "worktreeBranch is set");
+				assert.ok(!Number.isNaN(Date.parse(state.startedAt)), "startedAt is an ISO date");
+			}
+		});
+
+		it("notifies a warning for each failed checkpoint write", async () => {
+			checkpointWrites = [];
+			checkpointWriteResult = { ok: false, error: "disk full", source: "state-checkpoint" };
+			const { ctx, notify } = makeAuditCtx();
+			const { runTscAndLspAudit } = await import("../pipeline/audit/index.ts");
+
+			await runTscAndLspAudit(
+				7,
+				"Checkpoint failure",
+				makeAuditConfig(),
+				"developer",
+				{ body: "", comments: [] },
+				"/wt/issue-7",
+				{} as any,
+				ctx,
+				undefined,
+			);
+
+			const messages = notify.mock.calls.map((c: any) => c.arguments[0] as string);
+			assert.ok(
+				messages.some((m) => m.includes("pre-TSC") && m.includes("disk full")),
+				`expected a pre-TSC failure warning, got: ${messages.join(" | ")}`,
+			);
+			assert.ok(
+				messages.some((m) => m.includes("pre-LSP") && m.includes("disk full")),
+				`expected a pre-LSP failure warning, got: ${messages.join(" | ")}`,
+			);
+			for (const call of notify.mock.calls) {
+				assert.equal(call.arguments[1], "warning", "checkpoint failure notify uses warning level");
+			}
+		});
 	});
+}
 
-	it("writeCheckpointFile calls use ctx.cwd consistently", () => {
-		const src = readAuditSource();
-		// writeCheckpointFile is called once in the writeAuditCheckpoint helper,
-		// which the orchestrator invokes twice (pre-tsc, pre-lsp)
-		const matches = src.match(/writeCheckpointFile\(ctx\.cwd,/g);
-		assert.equal(
-			matches?.length ?? 0,
-			1,
-			"should have exactly 1 writeCheckpointFile call (in writeAuditCheckpoint)",
-		);
-		assert.ok(src.includes('"pre-tsc"'), "pre-tsc checkpoint invocation exists");
-		assert.ok(src.includes('"pre-lsp"'), "pre-lsp checkpoint invocation exists");
-	});
-	it("no old resolvePath(worktreePath, '..') pattern remains", () => {
-		const src = readAuditSource();
-		// Should not reference worktreePath for cwd in checkpoint writes
-		// (the old pattern used resolvePath(worktreePath, "..") )
-		const oldPattern = 'resolvePath(worktreePath, "..")';
-		assert.ok(
-			!src.includes(oldPattern),
-			"should not use resolvePath(worktreePath, '..') for checkpoint writes",
-		);
-	});
-});

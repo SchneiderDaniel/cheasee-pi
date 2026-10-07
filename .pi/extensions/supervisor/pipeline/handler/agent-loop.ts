@@ -30,7 +30,7 @@ import { resolveTimeoutPolicy } from "../../config/config.ts";
 import { buildAgentTask, summarizeComments } from "../../agent/task.ts";
 import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
-import { WORKFLOW, type WorkflowStep } from "../../config/workflow.ts";
+import { WORKFLOW, GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
 import { getRefusalInfo } from "../../agent/output.ts";
@@ -893,11 +893,10 @@ async function handleBudgetExceeded(
 
 /**
  * Pre-transition hooks (CI, TSC, LSP, duplicate code) — issue #787/#1407.
- * Runs the audit gate chain and returns the effective next status. Kept
- * in agent-loop.ts because gate-failure-context.test.mts /
- * pipeline-audit.test.mts source-pin the block inline (S138 exemption
- * contract). Fail-open: hook exception → warn + collector, proceed with
- * the unmodified next status.
+ * Runs the audit gate chain and returns the effective next status. Kept in
+ * agent-loop.ts as the dispatch site for the gate hooks declared in
+ * config/workflow.ts (GATE_HOOKS). Fail-open: hook exception → warn +
+ * collector, proceed with the unmodified next status.
  */
 async function runPreTransitionHooks(
 	step: WorkflowStep,
@@ -915,7 +914,7 @@ async function runPreTransitionHooks(
 	iteration: number,
 ): Promise<string> {
 	let effectiveNextStatus = nextStatus;
-	if (step.hooks?.some((h) => ["ci", "tsc", "lsp", "dup", "trace"].includes(h))) {
+	if (step.hooks?.some((h) => GATE_HOOKS.includes(h))) {
 		try {
 			getDebugLogger().info("handler", "Running pre-transition hooks", {
 				hooks: step.hooks,

@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readGraph } from "../../../lib/test/source-graph.ts";
 import {
 	MAX_PIPELINE_LOOPS,
 	createStageState,
@@ -136,8 +137,8 @@ describe("stages/ split — barrel contract", () => {
 	});
 
 	it("index.ts uses explicit re-exports only (no export *)", () => {
-		const src = readFileSync(join(STAGES_DIR, "index.ts"), "utf-8");
-		assert.ok(!src.includes("export *"), "stages/index.ts must not use export *");
+		const graph = readGraph(join(STAGES_DIR, "index.ts"));
+		assert.deepEqual(graph.starReExports, [], "stages/index.ts must not use export *");
 	});
 });
 

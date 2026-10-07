@@ -194,7 +194,7 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			"const { result: initialResult } = await executeAgent(",
 			"const auditResult = await runTscAndLspAudit(",
 			"applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note",
-			'["ci", "tsc", "lsp", "dup", "trace"]',
+			"step.hooks?.some((h) => GATE_HOOKS.includes(h))",
 			"// Pre-transition hooks",
 			"// Graceful degradation",
 			"const task = buildAgentTask(",

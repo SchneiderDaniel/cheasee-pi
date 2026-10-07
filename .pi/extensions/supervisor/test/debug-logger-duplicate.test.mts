@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { declarersOf } from "../../lib/test/source-graph.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const typesPath = resolve(__dirname, "..", "config/types.ts");
@@ -57,20 +58,12 @@ describe("DebugLogger — consumer imports", () => {
 		// handler/{index,preflight,agent-loop,post-pipeline,shared}.ts package.
 		// None of the split files may redefine the DebugLogger interface —
 		// they consume the canonical getDebugLogger from lib/debug.ts.
-		const packageFiles = [
-			"index.ts",
-			"preflight.ts",
-			"agent-loop.ts",
-			"post-pipeline.ts",
-			"shared.ts",
-		];
-		for (const file of packageFiles) {
-			const src = readFileSync(resolve(__dirname, "..", "pipeline", "handler", file), "utf-8");
-			assert.ok(
-				!src.includes("interface DebugLogger"),
-				`handler/${file} must not redefine the DebugLogger interface`,
-			);
-		}
+		const handlerDir = resolve(__dirname, "..", "pipeline", "handler");
+		assert.deepEqual(
+			declarersOf(handlerDir, "DebugLogger"),
+			[],
+			"the handler package must not declare the DebugLogger interface",
+		);
 		const loopSrc = readFileSync(
 			resolve(__dirname, "..", "pipeline", "handler", "agent-loop.ts"),
 			"utf-8",
@@ -92,7 +85,7 @@ describe("DebugLogger — consumer imports", () => {
 			resolve(__dirname, "..", "agent", "runner", "index.ts"),
 			"utf-8",
 		);
-		assert.ok(runnerSource.includes("export * from \"./runner/index.ts\""), "runner.ts is a barrel");
+		assert.ok(runnerSource.includes('export * from "./runner/index.ts"'), "runner.ts is a barrel");
 		assert.ok(
 			indexSource.includes('from "../../lib/debug.ts"'),
 			"runner package imports getDebugLogger from lib/debug.ts",

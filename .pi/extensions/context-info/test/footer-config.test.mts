@@ -1341,16 +1341,14 @@ describe("footer — width regression under light appearance", () => {
 		assert.strictEqual(openers, closers, "every OSC 8 opener must have a matching closer");
 		assert.ok(visibleWidth(row3) <= 40, "link row must fit width");
 	});
-
-	it("footer.ts stays mode-agnostic (no tuiMode reference)", () => {
-		const src = readSource("../footer.ts");
-		assert.ok(!src.includes("tuiMode"), "footer.ts must not reference tuiMode");
-	});
 });
 
 // ---------------------------------------------------------------------------
 // Docs mention appearance-aware secondary text (Phase 5)
 // ---------------------------------------------------------------------------
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const readSource = (rel: string) => readFileSync(joinPath(TEST_DIR, rel), "utf-8");
 
 describe("context-info docs — appearance-awareness", () => {
 	it("README and docs/extensions describe appearance-aware secondary text", () => {
@@ -1362,19 +1360,19 @@ describe("context-info docs — appearance-awareness", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Static AC guard (Phase 4): no fixed-hex color literals remain
+// Behavior guard (Phase 4): rendered output carries no fixed-hex literals
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = dirname(fileURLToPath(import.meta.url));
-const readSource = (rel: string) => readFileSync(joinPath(TEST_DIR, rel), "utf-8");
-
-describe("footer/formatting — no fixed-hex color literals", () => {
-	it("footer.ts and formatting.ts contain no fgHex/pickThresholdHex or 6-digit hex", () => {
-		for (const rel of ["../footer.ts", "../formatting.ts"]) {
-			const src = readSource(rel);
-			assert.ok(!src.includes("fgHex"), `${rel} must not reference fgHex`);
-			assert.ok(!src.includes("pickThresholdHex"), `${rel} must not reference pickThresholdHex`);
-			assert.ok(!/#[0-9a-fA-F]{6}/.test(src), `${rel} must contain no 6-digit hex literal`);
+describe("footer — rendered output carries no fixed-hex color literals", () => {
+	it("rendered rows contain no 6-digit hex color in any appearance", () => {
+		for (const appearance of ["dark", "light"] as const) {
+			const { component } = createHarness({ appearance });
+			for (const row of component.render(120)) {
+				assert.ok(
+					!/#[0-9a-fA-F]{6}/.test(row),
+					`${appearance} row must not contain a 6-digit hex literal: ${JSON.stringify(row)}`,
+				);
+			}
 		}
 	});
 });

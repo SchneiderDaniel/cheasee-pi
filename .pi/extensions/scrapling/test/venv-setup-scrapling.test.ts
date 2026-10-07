@@ -372,29 +372,18 @@ describe("ensureScraplingVenv — adapter", () => {
 
 	// ── regression: playwright/scrapling.cli never used for the browser ──
 
-	it("(regression) no scrapling.cli invocation remains in venv-setup.ts or its test", async () => {
-		const adapterSource = fs.readFileSync(new URL("../venv-setup.ts", import.meta.url), "utf8");
-		const testSource = fs.readFileSync(new URL(import.meta.url), "utf8");
-		// Build the needle so this test's own source doesn't contain the literal.
-		const cliNeedle = '"' + "scrapling" + ".cli\"";
-		for (const [name, src] of [
-			["venv-setup.ts", adapterSource],
-			["venv-setup-scrapling.test.ts", testSource],
-		]) {
-			// Invocations appear as the quoted arg in exec calls; comments may
-			// legitimately reference the name.
+	it("(regression) browser provisioning delegates to patchright, never scrapling.cli/playwright", async () => {
+		const { cwd, exec } = setupTest();
+		await ensureScraplingVenv(exec, cwd);
+		for (const call of trackedCalls(exec)) {
 			assert.ok(
-				!src.includes(cliNeedle),
-				`${name} must not invoke scrapling.cli (it delegates to playwright's registry, wrong revision)`,
+				!call.args.includes("scrapling.cli"),
+				`must not invoke scrapling.cli (delegates to patchright's registry): ${call.args.join(" ")}`,
+			);
+			assert.ok(
+				!call.args.includes("playwright"),
+				`must not invoke playwright (patchright owns the stealth-tier registry): ${call.args.join(" ")}`,
 			);
 		}
-	});
-
-	it("(regression) no playwright invocation used for browser provisioning", async () => {
-		const adapterSource = fs.readFileSync(new URL("../venv-setup.ts", import.meta.url), "utf8");
-		assert.ok(
-			!adapterSource.includes('"playwright"'),
-			"venv-setup.ts must not invoke playwright (patchright owns the stealth-tier browser registry)",
-		);
 	});
 });

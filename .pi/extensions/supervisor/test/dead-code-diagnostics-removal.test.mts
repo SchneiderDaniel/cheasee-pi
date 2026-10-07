@@ -21,29 +21,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve, dirname, join, sep } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { importersOf, declarersOf } from "../../lib/test/source-graph.ts";
 
 const SUPERVISOR_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-function walk(dir: string): string[] {
-	const entries: string[] = [];
-	for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
-		const full = join(dir, entry);
-		if (statSync(full).isFile()) entries.push(full);
-	}
-	return entries;
-}
-
-function readAllSources(): string[] {
-	const skip = (p: string) =>
-		p.includes(`${sep}fixtures${sep}`) || p.endsWith("dead-code-diagnostics-removal.test.mts");
-	return walk(SUPERVISOR_ROOT)
-		.filter((p) => p.endsWith(".ts") || p.endsWith(".mts"))
-		.filter((p) => !skip(p))
-		.map((p) => readFileSync(p, "utf8"));
-}
 
 describe("config/diagnostics.ts — dead module removed", () => {
 	it("config/diagnostics.ts no longer exists on disk", () => {
@@ -56,20 +39,22 @@ describe("config/diagnostics.ts — dead module removed", () => {
 		assert.equal(existsSync(path), false, "test/diagnostics.test.mts must be deleted");
 	});
 
-	it("no file references config/diagnostics (no dangling import)", () => {
-		const hits = readAllSources()
-			.map((src, i) => (src.includes("config/diagnostics") ? i : -1))
-			.filter((i) => i >= 0);
-		assert.equal(hits.length, 0, "no source may import ../config/diagnostics.ts");
+	it("no file imports config/diagnostics (no dangling module edge)", () => {
+		assert.deepEqual(
+			importersOf(SUPERVISOR_ROOT, "config/diagnostics"),
+			[],
+			"no source may import ../config/diagnostics.ts",
+		);
 	});
 
-	it("no file references detectEventGap / buildErrorNotificationContext", () => {
-		const hits = readAllSources()
-			.map((src, i) =>
-				src.includes("detectEventGap") || src.includes("buildErrorNotificationContext") ? i : -1,
-			)
-			.filter((i) => i >= 0);
-		assert.equal(hits.length, 0, "both exports must die with the module");
+	it("detectEventGap / buildErrorNotificationContext are no longer declared", () => {
+		for (const name of ["detectEventGap", "buildErrorNotificationContext"]) {
+			assert.deepEqual(
+				declarersOf(SUPERVISOR_ROOT, name),
+				[],
+				`${name} must die with the removed module`,
+			);
+		}
 	});
 
 	it("config/ retains exactly types.ts, config.ts, merge.ts, workflow.ts", () => {
