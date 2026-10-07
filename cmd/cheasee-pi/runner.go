@@ -12,6 +12,17 @@ import (
 // the single exec seam — cmdIface/execCommand and raw exec.Command call sites
 // all route through runCommandContext, so tests substitute one fake
 // (mockCmd) for every docker/git/gh/id/true invocation.
+//
+// The width of this port is the union of production call sites (up_compose,
+// repo, up_env, down, images, containers, init_clone, docker_check, identity,
+// orphan, clean, codeflow_drift), each of which consumes a setter or a capture
+// method. Do not narrow it to what mockCmd happens to vary: a removed method
+// that any production caller still uses fails the build.
+//
+// Construction and cancellation policy — binary resolution and the WaitDelay
+// wedge bound — live only in runCommandContext, not on this port. A port owns
+// handle behavior; letting a call site set WaitDelay would let it weaken the
+// post-exit drain guarantee documented on execWaitDelay.
 type runner interface {
 	Output() ([]byte, error)
 	CombinedOutput() ([]byte, error)
