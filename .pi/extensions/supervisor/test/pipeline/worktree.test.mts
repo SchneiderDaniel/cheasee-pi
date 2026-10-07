@@ -258,6 +258,77 @@ describe("createWorktree()", () => {
 		assert.equal(result.ok, true);
 		assert.equal(calls.filter((c) => c.level === "error").length, 0);
 	});
+
+	it("fatal reconcile on dir-exists fallback — returns { ok: false, Reconciliation failed }, notify.error once, no reset", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe: no stale reg
+				{ code: 1, stdout: "", stderr: "error" }, // add -b fails
+				{ code: 1, stdout: "", stderr: "already exists" }, // add fails
+				{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 1, stdout: "", stderr: "network error" }, // fetch fails → fatal
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.ok(result.error.includes("Reconciliation failed"));
+			assert.equal(result.source, "worktree");
+		}
+		assert.equal(notifyCalls.filter((c) => c.level === "error").length, 1, "notify.error once");
+		assert.equal(calls.length, 6, "no reset attempted after fatal fetch");
+		assert.equal(calls[4].cmd, "git");
+		assert.deepEqual(calls[4].args, ["ls-remote", "--heads", "origin", "refs/heads/branch"]);
+	});
+
+	it("attempt 1 reconcile fatal cascades to attempt 2 — { ok: true }, no notify.error", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe
+				{ code: 0, stdout: "", stderr: "" }, // add -b succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 1, stdout: "", stderr: "network error" }, // fetch fails → fatal (caught)
+				{ code: 0, stdout: "", stderr: "" }, // attempt 2: add succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote
+				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
+				{ code: 0, stdout: "", stderr: "" }, // reset succeeds
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 8);
+		assert.equal(notifyCalls.filter((c) => c.level === "error").length, 0, "attempt-1 fatal must be swallowed");
+	});
+
+	it("attempt 2 reconcile fatal cascades to dir-exists fallback — { ok: true }, no notify.error", async () => {
+		const calls: ExecCall[] = [];
+		const pi = createMockPi(
+			[
+				{ code: 0, stdout: "/repo/.bare", stderr: "" }, // recovery probe
+				{ code: 1, stdout: "", stderr: "error" }, // add -b fails
+				{ code: 0, stdout: "", stderr: "" }, // attempt 2: add succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote: remote exists
+				{ code: 1, stdout: "", stderr: "network error" }, // fetch fails → fatal (caught)
+				{ code: 0, stdout: "", stderr: "" }, // test -d succeeds
+				{ code: 0, stdout: "abc123\trefs/heads/branch\n", stderr: "" }, // ls-remote
+				{ code: 0, stdout: "", stderr: "" }, // fetch succeeds
+				{ code: 0, stdout: "", stderr: "" }, // reset succeeds
+			],
+			calls,
+		);
+		const { notify, calls: notifyCalls } = createMockNotify();
+		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
+		assert.equal(result.ok, true);
+		assert.equal(calls.length, 9);
+		assert.equal(notifyCalls.filter((c) => c.level === "error").length, 0, "attempt-2 fatal must be swallowed");
+	});
 });
 
 // ─── Tests: installWorktreeDeps() ─────────────────────────────────

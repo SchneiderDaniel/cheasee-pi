@@ -54,6 +54,27 @@ async function execChecked(
 }
 
 /**
+ * Reconcile the worktree to its remote tracking branch and abort on failure.
+ *
+ * Every createWorktree exit path treats a non-ok reconcile as fatal and only
+ * ever reconciles against `origin`; this is the one place that policy lives.
+ * Never notifies — the caller's withNotify reports the thrown error once.
+ */
+async function reconcileOrThrow(
+	pi: ExtensionAPI,
+	cwd: string,
+	wt: string,
+	worktreeBranch: string,
+	notify: NotifyFn,
+): Promise<string> {
+	const reconcile = await reconcileToRemoteBranch(pi, cwd, wt, worktreeBranch, "origin", notify);
+	if (!reconcile.ok) {
+		throw new Error(`Reconciliation failed: ${reconcile.error}`);
+	}
+	return wt;
+}
+
+/**
  * Reconcile the worktree branch to match the remote tracking branch if one exists.
  *
  * When a worktree is recreated after pipeline cleanup (local branch deleted but
@@ -277,20 +298,10 @@ export async function createWorktree(
 				}
 				log.info("worktree", `Worktree created at ${wt}`);
 
-				// Reconcile to remote tracking branch if one exists
-				const reconcile = await reconcileToRemoteBranch(
-					pi,
-					cwd,
-					wt,
-					worktreeBranch,
-					"origin",
-					notify,
-				);
-				if (!reconcile.ok) {
-					throw new Error(`Reconciliation failed: ${reconcile.error}`);
-				}
-
-				return wt;
+				// await: keeps a reconcile rejection inside this try so the catch
+				// can fall through to attempt 2 (returning the bare promise would
+				// let the rejection escape the catch).
+				return await reconcileOrThrow(pi, cwd, wt, worktreeBranch, notify);
 			} catch (err: unknown) {
 				const attempt1Err = err instanceof Error ? err.message : String(err);
 				log.warn("worktree", `Attempt 1 failed: ${attempt1Err}`);
@@ -307,20 +318,7 @@ export async function createWorktree(
 				}
 				log.info("worktree", `Worktree attached at ${wt} (existing branch ${worktreeBranch})`);
 
-				// Reconcile to remote tracking branch if one exists
-				const reconcile = await reconcileToRemoteBranch(
-					pi,
-					cwd,
-					wt,
-					worktreeBranch,
-					"origin",
-					notify,
-				);
-				if (!reconcile.ok) {
-					throw new Error(`Reconciliation failed: ${reconcile.error}`);
-				}
-
-				return wt;
+				return await reconcileOrThrow(pi, cwd, wt, worktreeBranch, notify);
 			} catch (err2: unknown) {
 				const attempt2Err = err2 instanceof Error ? err2.message : String(err2);
 				log.warn("worktree", `Attempt 2 failed: ${attempt2Err}`);
@@ -338,20 +336,7 @@ export async function createWorktree(
 			}
 			log.warn("worktree", "Both attempts failed but worktree dir exists — using it");
 
-			// Reconcile to remote tracking branch if one exists
-			const reconcile = await reconcileToRemoteBranch(
-				pi,
-				cwd,
-				wt,
-				worktreeBranch,
-				"origin",
-				notify,
-			);
-			if (!reconcile.ok) {
-				throw new Error(`Reconciliation failed: ${reconcile.error}`);
-			}
-
-			return wt;
+			return await reconcileOrThrow(pi, cwd, wt, worktreeBranch, notify);
 		},
 		notify,
 		"worktree",
