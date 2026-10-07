@@ -18,6 +18,7 @@ import { spawn } from "node:child_process";
 import {
 	extractSdkStaticImports,
 	findSdkImportViolations,
+	isRuntimeRelevant,
 } from "./lib/sdk-import-guard.mts";
 
 const EXTENSIONS_DIR = resolve(import.meta.dirname, "..", ".pi/extensions");
@@ -621,6 +622,36 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			assert.deepStrictEqual(violations, []);
 		});
 
+		it("does not runtime-resolve a specifier used only by type imports", async () => {
+			// Regression (audit finding): a declaration-only SDK subpath has no
+			// runtime JS; resolving it would raise ERR_PACKAGE_PATH_NOT_EXPORTED
+			// and fail CI on an import TypeScript erases.
+			let resolveCalls = 0;
+			const violations = await findSdkImportViolations(
+				extractSdkStaticImports(
+					`import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";`,
+				),
+				() => {
+					resolveCalls += 1;
+					throw new Error("ERR_PACKAGE_PATH_NOT_EXPORTED: declaration-only subpath");
+				},
+			);
+			assert.strictEqual(resolveCalls, 0, "type-only-only specifier must not be resolved");
+			assert.deepStrictEqual(violations, []);
+		});
+
+		it("still resolves a specifier used by a value import alongside a type import", async () => {
+			const imports = extractSdkStaticImports(
+				[
+					`import type { A } from "@earendil-works/pi-ai";`,
+					`import { B } from "@earendil-works/pi-ai";`,
+				].join("\n"),
+			);
+			const violations = await findSdkImportViolations(imports, () => ({}));
+			assert.strictEqual(violations.length, 1);
+			assert.deepStrictEqual(violations[0]!.missingBindings, ["B"]);
+		});
+
 		it("reports ERR_MODULE_NOT_FOUND without crashing", async () => {
 			const imports = extractSdkStaticImports(`import { x } from "@earendil-works/pi-ai";`);
 			const violations = await findSdkImportViolations(imports, () => {
@@ -636,7 +667,10 @@ describe("Phase 7: SDK static import resolution guard", () => {
 		const imports = sources.flatMap(({ file, source }) =>
 			extractSdkStaticImports(source).map((imp) => ({ ...imp, file })),
 		);
-		const specifiers = [...new Set(imports.map((imp) => imp.specifier))];
+		// Runtime-resolution checks only cover specifiers a value/side-effect
+		// import uses; type-only specifiers are erased and must not be resolved.
+		const runtimeImports = imports.filter(isRuntimeRelevant);
+		const specifiers = [...new Set(runtimeImports.map((imp) => imp.specifier))];
 
 		it("scans a non-vacuous set of SDK imports", () => {
 			assert.ok(sources.length > 0, "no extension sources scanned");

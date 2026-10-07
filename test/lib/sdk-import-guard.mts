@@ -50,6 +50,16 @@ export type SdkNamespace = Record<string, unknown>;
 /** Injected resolver: the impure boundary. May be sync or async. */
 export type SdkModuleResolver = (specifier: string) => SdkNamespace | Promise<SdkNamespace>;
 
+/**
+ * Pure: whether an import is resolved at runtime. Side-effect imports (no
+ * bindings) and imports carrying at least one value binding are. An import
+ * whose bindings are all `type`-only is erased by TypeScript, so resolving it
+ * could fail on a declaration-only subpath that never loads in production.
+ */
+export function isRuntimeRelevant(imp: SdkStaticImport): boolean {
+	return imp.bindings.length === 0 || imp.bindings.some((binding) => !binding.typeOnly);
+}
+
 function parseBindings(clause: ts.ImportClause | undefined): SdkImportBinding[] {
 	if (clause === undefined) return []; // side-effect import: no bindings
 
@@ -114,8 +124,9 @@ export function extractSdkStaticImports(source: string): SdkStaticImport[] {
 /**
  * Pure: check each import against the namespace returned by `resolve`.
  * A specifier that fails to resolve (or a value binding absent from the
- * resolved namespace) yields one violation. Type-only bindings are erased at
- * runtime and never checked.
+ * resolved namespace) yields one violation. Type-only imports are erased at
+ * runtime and skipped entirely — resolving a declaration-only subpath would
+ * otherwise fail CI on an import TypeScript never emits.
  */
 export async function findSdkImportViolations(
 	imports: SdkStaticImport[],
@@ -124,6 +135,8 @@ export async function findSdkImportViolations(
 	const violations: SdkImportViolation[] = [];
 
 	for (const imp of imports) {
+		if (!isRuntimeRelevant(imp)) continue;
+
 		let namespace: SdkNamespace;
 		try {
 			namespace = await resolve(imp.specifier);
