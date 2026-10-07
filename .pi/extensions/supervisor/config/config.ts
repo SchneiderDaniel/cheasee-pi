@@ -148,31 +148,61 @@ export function loadSkillsRoots(cwd: string): string[] {
 // ─── Timeout validation ──────────────────────────────────────────────
 
 /**
- * Validate the raw agentTimeoutsMin config value.
- * Returns a sanitized Record<string, number>.
+ * Policy for one timeout field. The two rows in TIMEOUT_FIELD_SPECS are the
+ * only place the minutes/seconds policy may diverge.
  */
-export function validateAgentTimeouts(raw: unknown, knownAgents: string[]): Record<string, number> {
+interface TimeoutFieldSpec {
+	field: string;
+	min: number; // 1 = positive, 0 = non-negative
+	max: number;
+	label: string; // "positive" | "non-negative"
+	unit: string; // text immediately after the max (spacing is part of the message)
+}
+
+const TIMEOUT_FIELD_SPECS = {
+	agentTimeoutsMin: {
+		field: "agentTimeoutsMin",
+		min: 1,
+		max: MAX_AGENT_TIMEOUT_MIN,
+		label: "positive",
+		unit: " minutes",
+	},
+	agentTimeoutSec: {
+		field: "agentTimeoutSec",
+		min: 0,
+		max: MAX_AGENT_TIMEOUT_SEC,
+		label: "non-negative",
+		unit: "s",
+	},
+} as const satisfies Record<string, TimeoutFieldSpec>;
+
+/** Shared body for both timeout validators — see TIMEOUT_FIELD_SPECS for divergence. */
+function validateTimeoutRecord(
+	raw: unknown,
+	knownAgents: string[],
+	spec: TimeoutFieldSpec,
+): Record<string, number> {
 	if (raw === undefined || raw === null) {
 		return {};
 	}
-	if (typeof raw !== "object" || Array.isArray(raw) || raw === null) {
-		throw new Error(`agentTimeoutsMin must be an object, got ${typeof raw}`);
+	if (typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`${spec.field} must be an object, got ${typeof raw}`);
 	}
 	const record = raw as Record<string, unknown>;
 	const result: Record<string, number> = {};
 	for (const [key, value] of Object.entries(record)) {
 		if (!knownAgents.includes(key)) {
-			console.warn(`agentTimeoutsMin: unknown agent "${key}" — entry ignored`);
+			console.warn(`${spec.field}: unknown agent "${key}" — entry ignored`);
 			continue;
 		}
-		if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+		if (typeof value !== "number" || !Number.isInteger(value) || value < spec.min) {
 			throw new Error(
-				`agentTimeoutsMin.${key} must be a positive integer, got ${JSON.stringify(value)}`,
+				`${spec.field}.${key} must be a ${spec.label} integer, got ${JSON.stringify(value)}`,
 			);
 		}
-		if (value > MAX_AGENT_TIMEOUT_MIN) {
+		if (value > spec.max) {
 			throw new Error(
-				`agentTimeoutsMin.${key} must be ≤ ${MAX_AGENT_TIMEOUT_MIN} minutes (Node timer limit), got ${value}`,
+				`${spec.field}.${key} must be ≤ ${spec.max}${spec.unit} (Node timer limit), got ${value}`,
 			);
 		}
 		result[key] = value;
@@ -181,43 +211,22 @@ export function validateAgentTimeouts(raw: unknown, knownAgents: string[]): Reco
 }
 
 /**
- * Validate the raw agentTimeoutSec config value (seconds, 0 = no timeout).
- * Mirrors validateAgentTimeouts but accepts 0 — the whole point of the
- * seconds field is that a configured 0 means "no timeout", never the
- * 30-minute default. Unknown agent keys warn + skip (fail-open, same
- * conscious policy as the legacy minutes field).
+ * Validate the raw agentTimeoutsMin config value (minutes, positive).
+ * Returns a sanitized Record<string, number>.
  */
-export function validateAgentTimeoutSec(
+export const validateAgentTimeouts = (raw: unknown, knownAgents: string[]): Record<string, number> =>
+	validateTimeoutRecord(raw, knownAgents, TIMEOUT_FIELD_SPECS.agentTimeoutsMin);
+
+/**
+ * Validate the raw agentTimeoutSec config value (seconds, 0 = no timeout).
+ * Accepts 0 — a configured 0 means "no timeout", never the 30-minute
+ * default. Unknown agent keys warn + skip (fail-open, same conscious policy
+ * as the legacy minutes field).
+ */
+export const validateAgentTimeoutSec = (
 	raw: unknown,
 	knownAgents: string[],
-): Record<string, number> {
-	if (raw === undefined || raw === null) {
-		return {};
-	}
-	if (typeof raw !== "object" || Array.isArray(raw) || raw === null) {
-		throw new Error(`agentTimeoutSec must be an object, got ${typeof raw}`);
-	}
-	const record = raw as Record<string, unknown>;
-	const result: Record<string, number> = {};
-	for (const [key, value] of Object.entries(record)) {
-		if (!knownAgents.includes(key)) {
-			console.warn(`agentTimeoutSec: unknown agent "${key}" — entry ignored`);
-			continue;
-		}
-		if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-			throw new Error(
-				`agentTimeoutSec.${key} must be a non-negative integer, got ${JSON.stringify(value)}`,
-			);
-		}
-		if (value > MAX_AGENT_TIMEOUT_SEC) {
-			throw new Error(
-				`agentTimeoutSec.${key} must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit), got ${value}`,
-			);
-		}
-		result[key] = value;
-	}
-	return result;
-}
+): Record<string, number> => validateTimeoutRecord(raw, knownAgents, TIMEOUT_FIELD_SPECS.agentTimeoutSec);
 
 /** Source of a resolved per-agent timeout policy. */
 type TimeoutSource = "agentTimeoutSec" | "agentTimeoutsMin" | "default";
