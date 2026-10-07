@@ -12,11 +12,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StageState } from "../../pipeline/stages/core.ts";
 import { createStageState, applyGateFailureContext } from "../../pipeline/stages/index.ts";
-import {
-	buildDeadCodeContext,
-	buildVulnContext,
-	buildDuplicateCodeContext,
-} from "../../pipeline/stages/index.ts";
+import { buildDuplicateCodeContext } from "../../pipeline/stages/index.ts";
+import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { readGraph } from "../../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,10 +32,7 @@ function agentLoopSource(): string {
 describe("StageState — rebaseConflictFiles field (Phase 3, Issue #1473)", () => {
 	it("createStageState('Implementation') — rebaseConflictFiles is undefined", () => {
 		const state = createStageState("Implementation");
-		assert.ok(
-			"rebaseConflictFiles" in state,
-			"rebaseConflictFiles field exists on StageState",
-		);
+		assert.ok("rebaseConflictFiles" in state, "rebaseConflictFiles field exists on StageState");
 		assert.equal(state.rebaseConflictFiles, undefined);
 	});
 
@@ -110,10 +104,7 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 			graph.importedNames.includes("tryRebaseOntoBase"),
 			"tryRebaseOntoBase imported by agent-loop.ts",
 		);
-		assert.ok(
-			graph.specifiers.includes("../rebase.ts"),
-			"imported from pipeline/rebase.ts",
-		);
+		assert.ok(graph.specifiers.includes("../rebase.ts"), "imported from pipeline/rebase.ts");
 	});
 
 	it("refreshWorktreeBeforeImplementation invoked inside the loop BEFORE `const task = buildAgentTask(`", () => {
@@ -134,7 +125,7 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 		assert.ok(rebaseCallIdx > helperIdx, "tryRebaseOntoBase invoked inside the helper");
 	});
 
-	it("guarded by agentName === \"developer\" && worktreePath && worktreeBranch", () => {
+	it('guarded by agentName === "developer" && worktreePath && worktreeBranch', () => {
 		const src = agentLoopSource();
 		const refreshIdx = src.indexOf("refreshWorktreeBeforeImplementation(runCtx, worktreePath)");
 		const guard = src.slice(0, refreshIdx);
@@ -149,7 +140,10 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 		const helperIdx = src.indexOf("async function refreshWorktreeBeforeImplementation");
 		const rebaseCallIdx = src.indexOf("await tryRebaseOntoBase(");
 		const callBlock = src.slice(rebaseCallIdx, rebaseCallIdx + 300);
-		assert.ok(callBlock.includes("{ mergeFallback: false }"), "mergeFallback disabled for pre-dispatch refresh");
+		assert.ok(
+			callBlock.includes("{ mergeFallback: false }"),
+			"mergeFallback disabled for pre-dispatch refresh",
+		);
 		assert.ok(
 			src.slice(helperIdx).includes("tryRebaseOntoBase("),
 			"rebase call lives in the helper, not the loop",
@@ -220,11 +214,7 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 
 	it("regression — context builders are consumed by the developer dispatch", () => {
 		const graph = readGraph(AGENT_LOOP_TS);
-		for (const name of [
-			"buildDeadCodeContext",
-			"buildVulnContext",
-			"buildDuplicateCodeContext",
-		]) {
+		for (const name of ["buildDeadCodeContext", "buildVulnContext", "buildDuplicateCodeContext"]) {
 			assert.ok(graph.importedNames.includes(name), `${name} imported by agent-loop.ts`);
 		}
 
@@ -248,7 +238,6 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 
 	it("regression — context builders guard null results (no injection)", () => {
 		assert.equal(buildDeadCodeContext(null), null);
-		assert.equal(buildVulnContext(null), null);
 		assert.equal(buildDuplicateCodeContext(null), null);
 	});
 

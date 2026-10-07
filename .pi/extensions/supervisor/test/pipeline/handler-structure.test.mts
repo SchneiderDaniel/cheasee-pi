@@ -220,3 +220,66 @@ describe("handler package — erasable TypeScript", () => {
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Pass-through wrapper removal (issue #1863)
+// ---------------------------------------------------------------------------
+
+const STAGES_INDEX_TS = resolve(__dirname, "../../pipeline/stages/index.ts");
+const STAGES_CORE_TS = resolve(__dirname, "../../pipeline/stages/core.ts");
+
+/** Source of the stage-barrel import specifier list in a handler module. */
+function stagesBarrelSpecifiers(src: string): string {
+	const m = src.match(/import\s*\{([\s\S]*?)\}\s*from\s*"\.\.\/stages\/index\.ts"/);
+	assert.ok(m, "handler module imports the stage barrel");
+	return m[1]!;
+}
+
+describe("stages/checks — pass-through wrappers deleted", () => {
+	it("stages/index.ts barrel no longer re-exports the two checks formatters", () => {
+		const src = readFileSync(STAGES_INDEX_TS, "utf-8");
+		assert.ok(!src.includes("buildDeadCodeContext"), "barrel must not mention buildDeadCodeContext");
+		assert.ok(!src.includes("buildVulnContext"), "barrel must not mention buildVulnContext");
+	});
+
+	it("stages/core.ts defines neither wrapper nor their checks import aliases", () => {
+		const src = readFileSync(STAGES_CORE_TS, "utf-8");
+		assert.ok(!src.includes("export function buildDeadCodeContext"), "core wrapper deleted");
+		assert.ok(!src.includes("export function buildVulnContext"), "core wrapper deleted");
+		assert.ok(!src.includes("buildDeadCodeContextInner"), "dead-code alias dropped");
+		assert.ok(!src.includes("buildVulnContextInner"), "vuln alias dropped");
+	});
+
+	it("agent-loop.ts imports the formatters directly from checks/, not the stage barrel", () => {
+		const src = pkgSource("agent-loop.ts");
+		assert.ok(
+			src.includes('import { buildDeadCodeContext } from "../../checks/dead-code.ts"'),
+			"agent-loop imports buildDeadCodeContext from checks/dead-code.ts",
+		);
+		assert.ok(
+			src.includes('import { buildVulnContext } from "../../checks/osv-scanner.ts"'),
+			"agent-loop imports buildVulnContext from checks/osv-scanner.ts",
+		);
+		const barrelSpecifiers = stagesBarrelSpecifiers(src);
+		assert.ok(
+			!barrelSpecifiers.includes("buildDeadCodeContext"),
+			"stage barrel import must not carry buildDeadCodeContext",
+		);
+		assert.ok(
+			!barrelSpecifiers.includes("buildVulnContext"),
+			"stage barrel import must not carry buildVulnContext",
+		);
+	});
+
+	it("agent-loop.ts guards the null case before calling the non-null vuln builder", () => {
+		const src = pkgSource("agent-loop.ts");
+		assert.ok(
+			src.includes("buildVulnContext(stageState.vulnResult)"),
+			"vuln call text preserved",
+		);
+		assert.ok(
+			src.includes('agentName === "auditor" && stageState.vulnResult'),
+			"null vulnResult must short-circuit to undefined (wrapper policy preserved)",
+		);
+	});
+});

@@ -33,8 +33,6 @@ import {
 	hasBranchCommits,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
-	buildDeadCodeContext,
-	buildVulnContext,
 	validateResearcherFindings,
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
@@ -65,8 +63,6 @@ const RUNTIME_EXPORTS: Array<{ name: string; value: unknown }> = [
 	{ name: "hasBranchCommits", value: hasBranchCommits },
 	{ name: "buildDuplicateCodeContext", value: buildDuplicateCodeContext },
 	{ name: "applyGateFailureContext", value: applyGateFailureContext },
-	{ name: "buildDeadCodeContext", value: buildDeadCodeContext },
-	{ name: "buildVulnContext", value: buildVulnContext },
 	{ name: "validateResearcherFindings", value: validateResearcherFindings },
 	{ name: "buildApprovalCommentFromOutput", value: buildApprovalCommentFromOutput },
 	{ name: "buildRejectionCommentFromOutput", value: buildRejectionCommentFromOutput },
@@ -113,7 +109,7 @@ function readAllStagesSource(): string {
 // ---------------------------------------------------------------------------
 
 describe("stages/ split — barrel contract", () => {
-	it("exports all 22 runtime symbols from stages/index.ts", () => {
+	it("exports all 19 runtime symbols from stages/index.ts", () => {
 		for (const { name, value } of RUNTIME_EXPORTS) {
 			assert.ok(
 				typeof value === "function" || typeof value === "number",

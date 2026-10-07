@@ -192,7 +192,7 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			"validateAgentResult(result)",
 			"if (result.budgetExceeded)",
 			"const { result: initialResult } = await executeAgent(",
-			"const auditResult = await auditFn(",
+			"const auditResult = await runTscAndLspAudit(",
 			"applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note",
 			"step.hooks?.some((h) => GATE_HOOKS.includes(h))",
 			"// Pre-transition hooks",

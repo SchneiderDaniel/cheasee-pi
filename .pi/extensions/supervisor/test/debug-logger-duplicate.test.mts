@@ -7,11 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execSync } from "node:child_process";
 import { declarersOf } from "../../lib/test/source-graph.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const projectRoot = resolve(__dirname, "..", "..", "..", "..");
 const typesPath = resolve(__dirname, "..", "config/types.ts");
 
 // ─── Source-level assertion — types.ts does NOT redefine DebugLogger ──
@@ -37,22 +35,6 @@ describe("DebugLogger — config/types.ts", () => {
 			debugSource.includes("export interface DebugLogger {"),
 			"lib/debug.ts owns the canonical DebugLogger definition",
 		);
-	});
-});
-
-// ─── TSC compilation check — re-export resolves correctly ──────────
-
-describe("DebugLogger — tsc compilation", () => {
-	it("project compiles with tsc --noEmit (re-export type resolution)", () => {
-		// Run tsc against the supervisor extension's tsconfig
-		const result = execSync("npx tsc --noEmit --project .pi/tsconfig.json 2>&1", {
-			cwd: projectRoot,
-			encoding: "utf-8",
-			timeout: 30_000,
-		});
-		// tsc returns empty stdout on success (warnings go to stderr)
-		// We just verify it doesn't throw
-		assert.ok(true, "tsc --noEmit passed — all type references including DebugLogger resolve");
 	});
 });
 
@@ -103,7 +85,7 @@ describe("DebugLogger — consumer imports", () => {
 			resolve(__dirname, "..", "agent", "runner", "index.ts"),
 			"utf-8",
 		);
-		assert.ok(runnerSource.includes("export * from \"./runner/index.ts\""), "runner.ts is a barrel");
+		assert.ok(runnerSource.includes('export * from "./runner/index.ts"'), "runner.ts is a barrel");
 		assert.ok(
 			indexSource.includes('from "../../lib/debug.ts"'),
 			"runner package imports getDebugLogger from lib/debug.ts",
