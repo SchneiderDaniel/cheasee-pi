@@ -197,7 +197,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -241,7 +246,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -278,7 +288,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -304,15 +319,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1,
-				undefined,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			emitMockEvents();
 
@@ -348,15 +361,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1,
-				undefined,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			emitMockEvents();
 
@@ -383,7 +394,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -402,7 +418,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -430,7 +451,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -463,7 +489,12 @@ if (hasMockModule) {
 				};
 
 				const { runAgentSubprocess } = await import("../agent/runner.ts");
-				const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+				const resultPromise = runAgentSubprocess({
+					agent: mockAgent as any,
+					task: "test task",
+					ctx: mockCtx,
+					timeoutMs: 5000,
+				});
 
 				// Wait briefly for scheduleFlush (300ms debounce) to fire
 				await new Promise((r) => setTimeout(r, 400));
@@ -491,7 +522,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			// Emit error on the child instead of close
 			const child = currentMockChild;
@@ -529,7 +565,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -572,17 +613,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -643,17 +680,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -700,17 +733,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -758,17 +787,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -804,7 +829,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -841,7 +871,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			emitMockEvents();
 
@@ -883,17 +918,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -936,17 +967,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -994,17 +1021,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -1066,17 +1089,13 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				mockPi as any,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				pi: mockPi as any,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -1251,7 +1270,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: badSkillAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents();
 			const result = await resultPromise;
 
@@ -1262,13 +1286,13 @@ if (hasMockModule) {
 		it("existsSync(effectiveCwd) guard still returns {success: false} (regression)", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const result = await runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				"/nonexistent-path-12345",
-			);
+			const result = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				cwd: "/nonexistent-path-12345",
+			});
 
 			assert.equal(result.success, false);
 			assert.ok(
@@ -1282,13 +1306,13 @@ if (hasMockModule) {
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 
 			// Bad cwd — guarded before spawn, resolves without rejection
-			const badCwdResult = await runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				"/nonexistent-path-12345",
-			);
+			const badCwdResult = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				cwd: "/nonexistent-path-12345",
+			});
 			assert.equal(badCwdResult.success, false);
 			assert.equal(badCwdResult.agentName, "test-agent");
 
@@ -1317,7 +1341,12 @@ if (hasMockModule) {
 				systemPrompt: "You are a test agent.",
 			};
 
-			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: badSkillAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents();
 			const result = await resultPromise;
 			assert.equal(result.success, true);
@@ -1340,12 +1369,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents();
 			const result = await resultPromise;
 			assert.equal(result.success, true);
@@ -1377,7 +1406,12 @@ if (hasMockModule) {
 			};
 
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(badSkillAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: badSkillAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents();
 			const result = await resultPromise;
 
@@ -1402,7 +1436,12 @@ if (hasMockModule) {
 		it("spawn opts include detached:true and NO timeout (watchdog owns kills)", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			emitMockEvents();
 			await resultPromise;
 
@@ -1421,18 +1460,13 @@ if (hasMockModule) {
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 			// timeoutMs=40, killGraceSec=0.05 → SIGTERM≈40ms, SIGKILL≈90ms
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				40,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				0.05,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 40,
+				killGraceSec: 0.05,
+			});
 
 			await new Promise((r) => setTimeout(r, 130));
 
@@ -1468,18 +1502,13 @@ if (hasMockModule) {
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 			// SIGTERM≈20ms, SIGKILL≈40ms, force-resolve≈60ms — close NEVER emitted.
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				20,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				0.02,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 20,
+				killGraceSec: 0.02,
+			});
 
 			const result = await resultPromise;
 
@@ -1498,7 +1527,12 @@ if (hasMockModule) {
 			resetMock();
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, null);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: null,
+			});
 
 			await new Promise((r) => setTimeout(r, 50));
 			assert.equal(killMock.mock.calls.length, 0, "no kill issued for null timeout");
@@ -1513,14 +1547,13 @@ if (hasMockModule) {
 		it("budget kill still classifies killReason=budget (regression)", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-				undefined,
-				1, // maxToolCalls=1 → budget exceeded
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+				maxToolCalls: 1,
+			});
 
 			currentMockOpts = {
 				stdoutLines: [
@@ -1541,7 +1574,12 @@ if (hasMockModule) {
 		it("plain code-0 exit has no killReason", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(mockAgent as any, "test task", mockCtx, 5000);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			currentMockOpts = { exitCode: 0, exitSignal: null };
 			emitMockEvents();
 			const result = await resultPromise;
@@ -1560,18 +1598,13 @@ if (hasMockModule) {
 			resetMock();
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				30,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				0.08, // grace: SIGTERM≈30ms → SIGKILL≈110ms → force≈190ms
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 30,
+				killGraceSec: 0.08,
+			});
 
 			// Let the SIGTERM group kill land, then reap the leader only
 			// (childExited=true) — the descendant still holds the piped stdout.
@@ -1605,18 +1638,13 @@ if (hasMockModule) {
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 			// SIGTERM≈30ms, SIGKILL≈130ms (grace 0.1s)
-			const resultPromise = runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				30,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				0.1,
-			);
+			const resultPromise = runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 30,
+				killGraceSec: 0.1,
+			});
 
 			// Leader exits + pipe drains right after SIGTERM, still pre-SIGKILL.
 			await sleep(60);
@@ -1652,18 +1680,13 @@ if (hasMockModule) {
 			});
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
 			// close never fires → force-resolve bounds the run.
-			const result = await runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				30,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				0.02,
-			);
+			const result = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 30,
+				killGraceSec: 0.02,
+			});
 
 			assert.equal(result.timedOut, true);
 			assert.equal(result.success, false);
@@ -1682,7 +1705,12 @@ if (hasMockModule) {
 			resetMock();
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const result = await runAgentSubprocess(mockAgent as any, "test task", mockCtx, 0);
+			const result = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 0,
+			});
 
 			assert.equal(lastSpawnOpts, null, "no spawn once preparation exhausted the window");
 			assert.equal(killMock.mock.calls.length, 0, "no kill issued — nothing was spawned");
@@ -1704,19 +1732,13 @@ if (hasMockModule) {
 			resetMock();
 			const killMock = t.mock.method(process, "kill", () => undefined);
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const result = await runAgentSubprocess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				300_000,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				Date.now() - 1,
-			);
+			const result = await runAgentSubprocess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 300_000,
+				deadlineMs: Date.now() - 1,
+			});
 
 			assert.equal(lastSpawnOpts, null, "no spawn once the absolute deadline is spent");
 			assert.equal(killMock.mock.calls.length, 0, "no kill issued — nothing was spawned");

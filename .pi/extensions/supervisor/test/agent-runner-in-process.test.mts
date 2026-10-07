@@ -245,12 +245,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		assert.equal(result.success, true);
 		assert.equal(result.agentName, "test-agent");
@@ -265,7 +265,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 5000);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		// mockAgent.config.thinking === "medium" — the state-derived field must
 		// reach the result exactly as it does on the subprocess path.
@@ -282,12 +287,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		assert.ok(result.output.length > 0, "output should not be empty");
 		const parsed = JSON.parse(result.output);
@@ -299,12 +304,12 @@ describe("runAgentInProcess — orchestration", () => {
 		currentSessionConfig = {};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		assert.equal(result.success, true);
 	});
@@ -317,12 +322,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task that hangs",
-			mockCtx,
-			60, // short deadline
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task that hangs",
+			ctx: mockCtx,
+			timeoutMs: 60,
+		});
 
 		// No throw on the timeout path — the dispatcher must not fall back
 		// to a subprocess after the deadline fired (hard 1× bound).
@@ -353,7 +358,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		const startedAt = Date.now();
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 50);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 50,
+		});
 
 		assert.equal(result.timedOut, true, "setup starvation still times out");
 		assert.equal(result.success, false);
@@ -381,7 +391,12 @@ describe("runAgentInProcess — orchestration", () => {
 		currentSessionConfig = cfg;
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 40);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 40,
+		});
 		assert.equal(result.timedOut, true, "setup hang is bounded by the deadline");
 
 		// Let the delayed session creation resolve after the timeout.
@@ -403,7 +418,12 @@ describe("runAgentInProcess — orchestration", () => {
 		try {
 			const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 			const startedAt = Date.now();
-			const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 100);
+			const result = await runAgentInProcess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 100,
+			});
 			const elapsed = Date.now() - startedAt;
 
 			assert.equal(result.timedOut, true, "sync setup past the deadline still times out");
@@ -425,7 +445,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		const startedAt = Date.now();
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 60);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 60,
+		});
 		const elapsed = Date.now() - startedAt;
 
 		assert.equal(result.timedOut, true, "never-settling setup bounded by the deadline");
@@ -451,7 +476,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgent } = await import("../agent/runner.ts");
 		const startedAt = Date.now();
-		const result = await runAgent(mockAgent as any, "test task", mockCtx, 50);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 50,
+		});
 
 		assert.equal(result.timedOut, true, "dispatcher returns the setup-time timeout result");
 		assert.equal(result.killReason, "timeout");
@@ -474,7 +504,12 @@ describe("runAgentInProcess — orchestration", () => {
 		currentSessionConfig = cfg;
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 0);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 0,
+		});
 
 		assert.equal(result.timedOut, true, "zero remaining budget is a timeout, not a success");
 		assert.equal(result.success, false);
@@ -494,18 +529,13 @@ describe("runAgentInProcess — orchestration", () => {
 		currentSessionConfig = cfg;
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			300_000,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			Date.now() - 1,
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 300_000,
+			deadlineMs: Date.now() - 1,
+		});
 
 		assert.equal(result.timedOut, true, "an expired absolute deadline still times out");
 		assert.equal(
@@ -523,12 +553,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			null, // configured 0 = no timeout
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: null,
+		});
 
 		assert.equal(result.success, true);
 		assert.equal(result.timedOut, undefined, "no timeout state for unbounded run");
@@ -542,7 +572,12 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(mockAgent as any, "test task", mockCtx, 200);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 200,
+		});
 
 		assert.equal(result.success, true, "prompt won the race against a 200ms deadline");
 		assert.equal(currentSessionConfig.abortCalled, undefined, "no late abort after completion");
@@ -557,7 +592,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		await assert.rejects(
-			runAgentInProcess(mockAgent as any, "test task", mockCtx, 5000),
+			runAgentInProcess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			}),
 			/SDK failed/,
 		);
 	});
@@ -569,14 +609,13 @@ describe("runAgentInProcess — orchestration", () => {
 		};
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
-		const result = await runAgentInProcess(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-			undefined,
-			1, // maxToolCalls=1
-		);
+		const result = await runAgentInProcess({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+			maxToolCalls: 1,
+		});
 
 		assert.ok("budgetExceeded" in result, "result should have budgetExceeded field");
 	});
@@ -590,12 +629,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		try {
-			await runAgentInProcess(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			await runAgentInProcess({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			assert.fail("should have thrown SDK error");
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -622,12 +661,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		try {
-			await runAgentInProcess(
-				badAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			await runAgentInProcess({
+				agent: badAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			assert.fail("should have thrown model resolution error");
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -654,12 +693,12 @@ describe("runAgentInProcess — orchestration", () => {
 
 		const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 		try {
-			await runAgentInProcess(
-				badAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			await runAgentInProcess({
+				agent: badAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 			assert.fail("should have thrown for empty model");
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -683,12 +722,12 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		};
 
 		const { runAgent } = await import("../agent/runner.ts");
-		const result = await runAgent(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			5000,
-		);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		assert.ok(result !== undefined, "should return a result");
 		assert.equal(typeof result.success, "boolean");
@@ -703,7 +742,12 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 
 		const { runAgent } = await import("../agent/runner.ts");
 		const startedAt = Date.now();
-		const result = await runAgent(mockAgent as any, "test task", mockCtx, 25);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 25,
+		});
 
 		// The returned result IS the in-process timeout result — a subprocess
 		// fallback would have surfaced an ENOENT-spawn failure without a
@@ -727,19 +771,13 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		const { runAgent } = await import("../agent/runner.ts");
 		// Absolute deadline already past while the configured timeout is 300s:
 		// failure state must report 300_000ms, never the ~0 remaining budget.
-		const result = await runAgent(
-			mockAgent as any,
-			"test task",
-			mockCtx,
-			300_000,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			Date.now() - 1,
-		);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 300_000,
+			deadlineMs: Date.now() - 1,
+		});
 
 		assert.equal(result.timedOut, true, "an expired absolute deadline still times out");
 		assert.equal(
@@ -761,7 +799,12 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		};
 
 		const { runAgent } = await import("../agent/runner.ts");
-		const result = await runAgent(mockAgent as any, "test task", mockCtx, 5000);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+		});
 
 		assert.equal(result.success, true);
 		assert.equal(result.timedOut, undefined);
@@ -780,7 +823,13 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		};
 
 		const { runAgent } = await import("../agent/runner.ts");
-		const result = await runAgent(mockAgent as any, "test task", mockCtx, 5000, undefined, 1);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "test task",
+			ctx: mockCtx,
+			timeoutMs: 5000,
+			maxToolCalls: 1,
+		});
 
 		// The fallback subprocess attempt runs (and fails here for lack of
 		// /usr/bin/pi) — the key assertion is that it was NOT suppressed:
@@ -795,17 +844,17 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 		};
 
 		const { runAgent } = await import("../agent/runner.ts");
-		const result = await runAgent(
-			mockAgent as any,
-			"special task with args",
-			mockCtx,
-			10000,
-			"/custom/cwd",
-			5,
-			10000,
-			"/tmp/session.jsonl",
-			mockPi,
-		);
+		const result = await runAgent({
+			agent: mockAgent as any,
+			task: "special task with args",
+			ctx: mockCtx,
+			timeoutMs: 10000,
+			cwd: "/custom/cwd",
+			maxToolCalls: 5,
+			agentTokenBudget: 10000,
+			sessionPath: "/tmp/session.jsonl",
+			pi: mockPi,
+		});
 
 		assert.ok(result !== undefined, "should return a result with all args");
 	});
@@ -817,12 +866,12 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 			resetMocks();
 
 			const { runAgent } = await import("../agent/runner.ts");
-			const result = await runAgent(
-				mockAgent as any,
-				"test task",
-				mockCtx,
-				1, // very short timeout → in-process throws → fallback
-			);
+			const result = await runAgent({
+				agent: mockAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 1,
+			});
 
 			assert.ok(
 				result !== undefined,
@@ -852,12 +901,12 @@ describe("runAgent — dispatcher with in-process first, subprocess fallback", (
 			};
 
 			const { runAgent } = await import("../agent/runner.ts");
-			const result = await runAgent(
-				badSkillAgent as any,
-				"test task",
-				mockCtx,
-				5000,
-			);
+			const result = await runAgent({
+				agent: badSkillAgent as any,
+				task: "test task",
+				ctx: mockCtx,
+				timeoutMs: 5000,
+			});
 
 			assert.equal(result.success, false);
 			assert.equal(result.agentName, "bad-skill-agent");

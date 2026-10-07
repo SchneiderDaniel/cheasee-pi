@@ -5,12 +5,12 @@
 // Dispatcher: tries in-process SDK runner first, falls back to subprocess.
 // Subprocess path retained as backward-compatible fallback.
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AgentRunResult, AgentRunState, ParsedAgent } from "../config/types.ts";
+import type { AgentRunOptions, AgentRunResult, ParsedAgent } from "../config/types.ts";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
-import { agentSessionEventToNormalizedEvent, processNormalizedEvent, forwardNormalizedEventToChat, createForwardChatState } from "../event/adapter.ts";
+import { agentSessionEventToNormalizedEvent, createForwardChatState } from "../event/adapter.ts";
 import { pushLog, createAgentRunState } from "./state-helpers.ts";
-import { buildWidgetLines, getWorkingMessage } from "../session/widget.ts";
+import { buildWidgetLines } from "../session/widget.ts";
+import { handleNormalizedEvent } from "./runner/event-loop.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
@@ -82,18 +82,12 @@ function buildToolList(agent: ParsedAgent, cwd?: string): string[] {
 
 // ─── runAgentInProcess (Primary) ──────────────────────────────────
 
-export async function runAgentInProcess(
-	agent: ParsedAgent,
-	task: string,
-	ctx: ExtensionCommandContext,
-	timeoutMs: number | null = DEFAULT_AGENT_TIMEOUT_MS,
-	cwd?: string,
-	maxToolCalls?: number,
-	agentTokenBudget?: number,
-	sessionPath?: string,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-	deadlineMs?: number | null,
-): Promise<AgentRunResult> {
+export async function runAgentInProcess(opts: AgentRunOptions): Promise<AgentRunResult> {
+	const { agent, task, ctx, cwd, maxToolCalls, agentTokenBudget, pi } = opts;
+	// timeoutMs: omitted → configured default; null → no deadline. Resolved here
+	// (not as a parameter default) so the AgentRunOptions contract is uniform.
+	const timeoutMs = opts.timeoutMs === undefined ? DEFAULT_AGENT_TIMEOUT_MS : opts.timeoutMs;
+	const deadlineMs = opts.deadlineMs;
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
 	const agentName = agent.config.name;
@@ -337,29 +331,15 @@ export async function runAgentInProcess(
 				try {
 					const normalized = agentSessionEventToNormalizedEvent(event);
 					if (!normalized) return;
-
-					const preThinkingText =
-						normalized.kind === "thinking_end" ? state.liveThinking.trim() : "";
-
-					const result = processNormalizedEvent(normalized, state, effectiveCwd);
-					if (result.workingChange) {
-						scheduleFlush();
-						const wm = getWorkingMessage(state, agentName);
-						ctx.ui.setWorkingMessage(wm ?? undefined);
-					}
-
-					// Forward key events as supervisor chat messages
-					if (pi) {
-						forwardNormalizedEventToChat(
-							normalized,
-							state,
-							pi,
-							agentName,
-							pending,
-							preThinkingText,
-							effectiveCwd,
-						);
-					}
+					handleNormalizedEvent(normalized, {
+						state,
+						effectiveCwd,
+						agentName,
+						pi,
+						pending,
+						scheduleFlush,
+						ctx,
+					});
 				} catch (parseErr: unknown) {
 					const errMsg = String(parseErr).slice(0, 200);
 					log.warn("agent-stream", `Event processing error: ${errMsg}`);

@@ -174,18 +174,16 @@ async function resolveBranchConflicts(
 
 			const devTimeoutPolicy = resolveTimeoutPolicy("developer", config);
 
-			const devResult = await (runner ?? runAgentSubprocess)(
-				developerAgent,
-				devTask,
+			const devResult = await (runner ?? runAgentSubprocess)({
+				agent: developerAgent,
+				task: devTask,
 				ctx,
-				devTimeoutPolicy.timeoutMs,
-				wt,
-				config.maxToolCalls,
-				config.agentTokenBudget,
-				undefined,
-				undefined,
-				config.agentKillGraceSec,
-			);
+				timeoutMs: devTimeoutPolicy.timeoutMs,
+				cwd: wt,
+				maxToolCalls: config.maxToolCalls,
+				agentTokenBudget: config.agentTokenBudget,
+				killGraceSec: config.agentKillGraceSec,
+			});
 
 		const devSuccess = devResult.success;
 		// Timeout metadata is user-visible on this path too (audit #4): name the

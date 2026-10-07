@@ -46,18 +46,18 @@ export async function executeAgent(
 	const sessionPath = join(sessionDir, `${agentName}-${Date.now()}.jsonl`);
 
 	// ── 3. Run subprocess (handles widget lifecycle internally) ──
-	const result = await (runner ?? runAgent)(
+	const result = await (runner ?? runAgent)({
 		agent,
 		task,
 		ctx,
 		timeoutMs,
-		agentCwd,
+		cwd: agentCwd,
 		maxToolCalls,
 		agentTokenBudget,
 		sessionPath,
 		pi,
 		killGraceSec,
-	);
+	});
 
 	// ── 4. Replay session file for persistent chat message ───────
 	if (result.success) {
