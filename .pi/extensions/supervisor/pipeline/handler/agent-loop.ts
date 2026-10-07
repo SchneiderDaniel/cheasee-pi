@@ -49,13 +49,13 @@ import {
 	inferForwardStatus,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
-	buildDeadCodeContext,
-	buildVulnContext,
 	computeAuditGateRejection,
 	handleEmptyWorktree,
 	type EmptyWorktreeOutcome,
 	type StageState,
 } from "../stages/index.ts";
+import { buildDeadCodeContext } from "../../checks/dead-code.ts";
+import { buildVulnContext } from "../../checks/osv-scanner.ts";
 import { fetchFreshIssueData, loadAgentFile as loadAgentFileHelper } from "../helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
@@ -271,7 +271,9 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 				: undefined;
 		// Build vuln context for auditor
 		const vulnContext: string | undefined =
-			agentName === "auditor" ? (buildVulnContext(stageState.vulnResult) ?? undefined) : undefined;
+			agentName === "auditor" && stageState.vulnResult
+				? buildVulnContext(stageState.vulnResult)
+				: undefined;
 		// Pre-Implementation rebase (issue #1473): refresh the worktree onto the
 		// latest default branch before every developer dispatch (incl. Audit→
 		// Implementation loop-backs), so same-family PRs landing mid-pipeline

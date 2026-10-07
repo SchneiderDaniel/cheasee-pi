@@ -19,8 +19,6 @@ export {
 	inferForwardStatus,
 	buildDuplicateCodeContext,
 	applyGateFailureContext,
-	buildDeadCodeContext,
-	buildVulnContext,
 	validateResearcherFindings,
 } from "./core.ts";
 export type { StageState, AuditGateContext, GateRejected } from "./core.ts";
