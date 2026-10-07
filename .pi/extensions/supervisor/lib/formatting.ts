@@ -5,21 +5,6 @@ import { parseAgentOutput, isSuccess as isAgentOutputSuccess } from "../agent/ou
 import type { AgentOutput } from "../config/types.ts";
 import { isToolLine } from "./tool-line.ts";
 
-export function formatTokens(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
-}
-
-/** Integer-rounded, lowercase k/m token display for compact stats lines.
- *  Values <1000 return raw number; values >=1e6 use lowercase `m`.
- */
-export function formatTokensInt(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}m`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-	return String(n);
-}
-
 export function formatDuration(ms: number): string {
 	if (ms < 1_000) return `${ms}ms`;
 	const sec = Math.round(ms / 1_000);

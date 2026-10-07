@@ -4,7 +4,8 @@
 
 import type { AgentRunState } from "../config/types.ts";
 import type { SubagentDetails } from "../subagent/types.ts";
-import { formatTokens, formatDuration } from "../lib/formatting.ts";
+import { formatDuration } from "../lib/formatting.ts";
+import { formatTokens } from "../../lib/format-tokens.ts";
 import { thinkingLabel } from "../../lib/thinking-level.ts";
 
 /**

@@ -9,7 +9,8 @@ import type {
 	PrCreationResult,
 } from "../config/types.ts";
 import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
-import { formatDuration, formatTokens } from "../lib/formatting.ts";
+import { formatDuration } from "../lib/formatting.ts";
+import { formatTokens } from "../../lib/format-tokens.ts";
 
 // ─── Status display mapping ──────────────────────────────────────────
 

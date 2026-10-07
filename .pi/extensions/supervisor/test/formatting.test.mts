@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatTokensInt } from "../lib/formatting.ts";
+import { formatTokensInt } from "../../lib/format-tokens.ts";
 
 describe("formatTokensInt", () => {
 	// ── Sub-1000: raw number ────────────────────────────────────
