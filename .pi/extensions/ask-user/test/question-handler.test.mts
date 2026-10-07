@@ -1,226 +1,25 @@
 /**
  * Unit tests for QuestionHandler — extracted from ask-user index.ts execute logic.
  *
- * Tests each mode (freetext, choice) with answer, cancel, and error paths.
- * Mocks ctx.ui and appendQnaEntry to isolate the handler from TUI and I/O.
+ * Exercises the production QuestionHandler from ../question-handler.ts against a
+ * hand-rolled port mock — no inlined copy, no duplicated local types.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/ask-user/test/question-handler.test.mts
  */
 
 import assert from "node:assert";
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { QuestionHandler, type QuestionHandlerContext } from "../question-handler.ts";
 
 // ---------------------------------------------------------------------------
-// Types (duplicated from .pi/extensions/ask-user/types.ts — test convention)
+// Mock context — the handler's own narrow port (no `as any`).
 // ---------------------------------------------------------------------------
 
-type Mode = "choice" | "freetext";
-
-interface LabelValuePair {
-	label: string;
-	value: string;
-}
-
-interface QnaEntry {
-	datetime: string;
-	question: string;
-	answer: string;
-}
-
-interface OptionItem {
-	label: string;
-	value: string;
-	recommended?: boolean;
-}
-
-interface QuestionParams {
-	mode?: Mode;
-	question: string;
-	options?: OptionItem[];
-	disableOther?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Simplied mock of ExtensionUIContext and ExtensionContext
-// ---------------------------------------------------------------------------
-
-interface MockUI {
-	input: (title: string, placeholder?: string) => Promise<string | undefined>;
-	custom: <T>(
-		factory: (tui: any, theme: any, keybindings: any, done: (result: T) => void) => any,
-	) => Promise<T>;
-	notify: (message: string, type?: "info" | "warning" | "error") => void;
-}
-
-interface MockCtx {
-	ui: MockUI;
-	sessionManager: {
-		getCwd: () => string;
-	};
-}
-
-// ---------------------------------------------------------------------------
-// The QuestionHandler class under test (duplicated from source — test convention)
-// ---------------------------------------------------------------------------
-
-class QuestionHandler {
-	private projectDir: string;
-	private ctx: MockCtx;
-
-	constructor(projectDir: string, ctx: MockCtx) {
-		this.projectDir = projectDir;
-		this.ctx = ctx;
-	}
-
-	async handle(params: QuestionParams): Promise<{
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	}> {
-		const { question } = params;
-
-		switch (params.mode) {
-			case "freetext":
-				return this.handleFreetext(question);
-			default:
-				return this.handleChoice(params);
-		}
-	}
-
-	private async handleFreetext(question: string): Promise<{
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	}> {
-		const answer = await this.ctx.ui.input(question, "");
-		if (answer === undefined || answer.trim() === "") {
-			return this.cancelResponse();
-		}
-
-		const trimmedAnswer = answer.trim();
-		await this.logAnswer(question, trimmedAnswer);
-
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: `User answered: "${trimmedAnswer}"`,
-				},
-			],
-			details: { answer: trimmedAnswer },
-		};
-	}
-
-	private async handleChoice(params: QuestionParams): Promise<{
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	}> {
-		const { question, disableOther } = params;
-		const options = params.options ?? [];
-
-		// Build SelectItems. Map labels back to values after selection.
-		const labelToValue: LabelValuePair[] = [];
-		const items: Array<{ value: string; label: string }> = [];
-
-		for (let i = 0; i < options.length; i++) {
-			const opt = options[i]!;
-			const suffix = opt.recommended ? " (Recommended)" : "";
-			const label = `${i + 1}. ${opt.label}${suffix}`;
-			labelToValue.push({ label, value: opt.value });
-			items.push({ value: label, label });
-		}
-
-		let otherLabel = "";
-		if (!disableOther) {
-			otherLabel = `${items.length + 1}. Other (type your answer)`;
-			items.push({ value: otherLabel, label: otherLabel });
-		}
-
-		// Simpler test mock — in real code this calls renderScrollableDialog
-		const selectedLabel = await this.ctx.ui.custom<string | undefined>(
-			(_tui: any, _theme: any, _keybindings: any, done: (result: any) => void) => {
-				// Simplified: the mock renders nothing, test controls what done() is called with
-				return {
-					render: () => [],
-					invalidate: () => {},
-					handleInput: (_data: string) => {},
-				};
-			},
-		);
-
-		// User cancelled (Esc)
-		if (selectedLabel === undefined) {
-			return this.cancelResponse();
-		}
-
-		// User picked "Other" — ask for custom text (only when not disabled)
-		if (!disableOther && selectedLabel === otherLabel) {
-			const customAnswer = await this.ctx.ui.input("Type your answer:", "");
-			if (customAnswer === undefined || customAnswer.trim() === "") {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: "User cancelled or left 'Other' empty. Re-ask or mark this topic as unresolved.",
-						},
-					],
-					details: {} as Record<string, unknown>,
-				};
-			}
-
-			const trimmedCustom = customAnswer.trim();
-			await this.logAnswer(question, trimmedCustom);
-
-			return {
-				content: [
-					{
-						type: "text" as const,
-						text: `User chose "Other" and answered: "${trimmedCustom}"`,
-					},
-				],
-				details: { selected: "__other__", customAnswer: trimmedCustom },
-			};
-		}
-
-		// User picked a predefined option
-		const selectedValue =
-			labelToValue.find((e) => e.label === selectedLabel)?.value ?? selectedLabel;
-
-		await this.logAnswer(question, selectedValue);
-
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: `User selected: "${selectedLabel}"`,
-				},
-			],
-			details: { selected: selectedValue, label: selectedLabel },
-		};
-	}
-
-	private async logAnswer(question: string, answer: string): Promise<void> {
-		// In real code this calls appendQnaEntry; in tests we check it was called
-		// via mock instrumentation.
-		void this.projectDir;
-		void question;
-		void answer;
-	}
-
-	private cancelResponse(): {
-		content: Array<{ type: "text"; text: string }>;
-		details: Record<string, unknown>;
-	} {
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text: "User cancelled the question. Ask if they want to skip this topic and move on.",
-				},
-			],
-			details: {} as Record<string, unknown>,
-		};
-	}
-}
+type MockCtx = QuestionHandlerContext;
+type MockUI = QuestionHandlerContext["ui"];
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -230,15 +29,15 @@ function makeMockCtx(overrides?: Partial<MockUI>): MockCtx {
 	const ui: MockUI = {
 		input: async () => "mock answer",
 		custom: async <T,>() => undefined as T,
+		select: async () => undefined,
 		notify: () => {},
 		...overrides,
 	};
 
 	return {
 		ui,
-		sessionManager: {
-			getCwd: () => "/test/project",
-		},
+		// Trust gate off by default: `true` would run the real appendQnaEntry.
+		isProjectTrusted: async () => false,
 	};
 }
 
@@ -289,7 +88,9 @@ describe("QuestionHandler — freetext mode", () => {
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
 		);
-		assert.deepStrictEqual(result.details, {});
+		assert.strictEqual(result.details.selected, undefined);
+		assert.strictEqual(result.details.answer, undefined);
+		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
 	it("returns cancellation response when user provides empty string", async () => {
@@ -306,7 +107,9 @@ describe("QuestionHandler — freetext mode", () => {
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
 		);
-		assert.deepStrictEqual(result.details, {});
+		assert.strictEqual(result.details.selected, undefined);
+		assert.strictEqual(result.details.answer, undefined);
+		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
 	it("returns cancellation response when user provides only whitespace", async () => {
@@ -323,16 +126,24 @@ describe("QuestionHandler — freetext mode", () => {
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
 		);
-		assert.deepStrictEqual(result.details, {});
+		assert.strictEqual(result.details.selected, undefined);
+		assert.strictEqual(result.details.answer, undefined);
+		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
 	it("calls ctx.ui.input with the question and empty placeholder", async () => {
 		let capturedTitle = "";
 		let capturedPlaceholder = "";
+		let capturedSignal: AbortSignal | undefined;
 		const ctx = makeMockCtx({
-			input: async (title: string, placeholder?: string) => {
+			input: async (
+				title: string,
+				placeholder?: string,
+				opts?: { signal?: AbortSignal },
+			) => {
 				capturedTitle = title;
 				capturedPlaceholder = placeholder ?? "";
+				capturedSignal = opts?.signal;
 				return "answer";
 			},
 		});
@@ -344,6 +155,7 @@ describe("QuestionHandler — freetext mode", () => {
 
 		assert.strictEqual(capturedTitle, "What is your quest?");
 		assert.strictEqual(capturedPlaceholder, "");
+		assert.strictEqual(capturedSignal, undefined);
 	});
 });
 
@@ -451,7 +263,9 @@ describe("QuestionHandler — choice mode", () => {
 			result.content[0]?.text,
 			"User cancelled or left 'Other' empty. Re-ask or mark this topic as unresolved.",
 		);
-		assert.deepStrictEqual(result.details, {});
+		assert.strictEqual(result.details.selected, undefined);
+		assert.strictEqual(result.details.answer, undefined);
+		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
 	it("handles 'Other' with empty string input", async () => {
@@ -484,6 +298,9 @@ describe("QuestionHandler — choice mode", () => {
 			result.content[0]?.text,
 			"User cancelled or left 'Other' empty. Re-ask or mark this topic as unresolved.",
 		);
+		assert.strictEqual(result.details.selected, undefined);
+		assert.strictEqual(result.details.answer, undefined);
+		assert.strictEqual(result.details.customAnswer, undefined);
 	});
 
 	it("does not append 'Other' option when disableOther is true", async () => {
@@ -660,5 +477,66 @@ describe("QuestionHandler — error resilience", () => {
 			result.content[0]?.text,
 			"User cancelled the question. Ask if they want to skip this topic and move on.",
 		);
+	});
+});
+
+// ============================================================================
+// Tests: QuestionHandler — trust gate (real appendQnaEntry must not run)
+// ============================================================================
+
+describe("QuestionHandler — trust gate", () => {
+	it("does not attempt persistence when isProjectTrusted() is false", async () => {
+		const notifications: string[] = [];
+		const ctx = makeMockCtx({
+			input: async () => "answer",
+			notify: (message: string) => {
+				notifications.push(message);
+			},
+		});
+		const handler = new QuestionHandler("/test", ctx);
+		const result = await handler.handle({
+			mode: "freetext",
+			question: "Say something:",
+		});
+
+		assert.strictEqual(result.details.answer, "answer");
+		// A trusted run would call appendQnaEntry("/test", ...) → EACCES on mkdir,
+		// surfaced via ui.notify. The untrusted path must never get there.
+		assert.strictEqual(
+			notifications.some((m) => m.includes("Failed to save Q&A entry")),
+			false,
+		);
+	});
+});
+
+// ============================================================================
+// Tests: import hygiene — the suite must exercise the shipped class
+// ============================================================================
+
+describe("question-handler test — import hygiene", () => {
+	it("imports the production QuestionHandler and declares no shadowing types", () => {
+		const source = readFileSync(fileURLToPath(import.meta.url), "utf-8");
+
+		assert.ok(
+			/import\s*\{[^}]*\bQuestionHandler\b[^}]*\}\s*from\s*"\.\.\/question-handler\.ts"/.test(
+				source,
+			),
+			"must import QuestionHandler from ../question-handler.ts",
+		);
+
+		for (const declaration of [
+			/\bclass\s+QuestionHandler\b/,
+			/\binterface\s+QuestionParams\b/,
+			/\binterface\s+QuestionHandlerParams\b/,
+			/\binterface\s+OptionItem\b/,
+			/\binterface\s+LabelValuePair\b/,
+			/\binterface\s+QnaEntry\b/,
+			/\btype\s+Mode\b/,
+		]) {
+			assert.ok(
+				!declaration.test(source),
+				`local declaration matches ${declaration} — import it from production instead`,
+			);
+		}
 	});
 });

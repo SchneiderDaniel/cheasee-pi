@@ -13,7 +13,7 @@
  */
 
 import { addAbortListener } from "node:events";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { appendQnaEntry } from "./jsonl-logger.ts";
 import { renderScrollableDialog } from "./question-ui.ts";
 import type { LabelValuePair, OptionItem } from "./types.ts";
@@ -23,11 +23,28 @@ import type { LabelValuePair, OptionItem } from "./types.ts";
 // ---------------------------------------------------------------------------
 
 /** Shape of parameters accepted by the QuestionHandler. */
-interface QuestionHandlerParams {
+export interface QuestionHandlerParams {
 	mode?: "choice" | "freetext";
 	question: string;
 	options?: OptionItem[];
 	disableOther?: boolean;
+}
+
+/**
+ * Current run mode. `ExtensionMode` is not re-exported by the package root,
+ * so derive it from the exported context type.
+ */
+type ExtensionMode = ExtensionContext["mode"];
+
+/**
+ * Narrow port the QuestionHandler drives: only the UI surface and trust check
+ * it actually uses. A structural supertype of the framework `ExtensionContext`,
+ * so callers pass the real context unchanged while tests build a small mock.
+ */
+export interface QuestionHandlerContext {
+	ui: Pick<ExtensionUIContext, "input" | "custom" | "select" | "notify">;
+	mode?: ExtensionMode;
+	isProjectTrusted(): boolean | Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,14 +62,14 @@ export type ExecuteResponse = Promise<{
 
 export class QuestionHandler {
 	private projectDir: string;
-	private ctx: ExtensionContext;
+	private ctx: QuestionHandlerContext;
 	private mode: string;
 	private signal: AbortSignal | undefined;
 
-	constructor(projectDir: string, ctx: ExtensionContext, signal?: AbortSignal) {
+	constructor(projectDir: string, ctx: QuestionHandlerContext, signal?: AbortSignal) {
 		this.projectDir = projectDir;
 		this.ctx = ctx;
-		this.mode = (ctx as unknown as { mode?: string }).mode ?? "tui";
+		this.mode = ctx.mode ?? "tui";
 		this.signal = signal;
 	}
 
@@ -216,7 +233,7 @@ export class QuestionHandler {
 	 */
 	private async logAnswer(question: string, answer: string): Promise<void> {
 		// Skip persistence if project trust not granted
-		if (!(await (this.ctx as any).isProjectTrusted())) {
+		if (!(await this.ctx.isProjectTrusted())) {
 			return;
 		}
 
