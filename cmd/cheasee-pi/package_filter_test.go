@@ -472,3 +472,53 @@ func TestCommittedSettings_PonytailPackageFiltered(t *testing.T) {
 		t.Error("committed .pi/settings.json already carries the filter — reconcile must be a no-op")
 	}
 }
+
+// committedSkillsDir is the repo's committed dogfooding skill layout (repo
+// root, sibling of cmd/).
+func committedSkillsDir() string {
+	return filepath.Join("..", "..", ".pi", "skills")
+}
+
+// TestCommittedSkills_PonytailAuxiliaryNotLinked is the repo-layout half of the
+// filter. The .pi/settings.json package filter only narrows the package
+// manifest; skills under the project's .pi/skills dir register unconditionally.
+// A committed link for an auxiliary ponytail skill therefore re-adds exactly
+// what the filter removes, in every cheasee-pi dev session (dogfooding). The
+// five top-level links were deleted with issue #1936 — this test fails if one
+// returns, so the two halves cannot drift apart silently.
+func TestCommittedSkills_PonytailAuxiliaryNotLinked(t *testing.T) {
+	root := committedSkillsDir()
+	top, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read %s: %v", root, err)
+	}
+	for _, e := range top {
+		if strings.HasPrefix(e.Name(), "ponytail-") {
+			t.Errorf("committed skill link %q bypasses the .pi/settings.json package filter — remove it (or drop the filter) so the five auxiliary skills stay unregistered", filepath.Join(root, e.Name()))
+		}
+	}
+
+	// Nested links under the core skill dir are never discovered (pi stops at
+	// the first SKILL.md in a directory), but they are dead weight pointing into
+	// the gitignored clone — the same rule keeps them from accumulating.
+	core := filepath.Join(root, "ponytail")
+	nested, err := os.ReadDir(core)
+	if err != nil {
+		t.Fatalf("read %s: %v", core, err)
+	}
+	for _, e := range nested {
+		if strings.HasPrefix(e.Name(), "ponytail-") {
+			t.Errorf("stale nested auxiliary link %q under the core skill dir", filepath.Join(core, e.Name()))
+		}
+	}
+
+	// The core skill must stay discoverable: pi registers a skill from the
+	// SKILL.md in a dir named after it. Lstat, not Stat — a fresh checkout has
+	// no .pi/git clone and the link is legitimately dangling, but the entry
+	// itself must exist so `ln -s` in a re-clone can target it.
+	if fi, err := os.Lstat(filepath.Join(core, "SKILL.md")); err != nil {
+		t.Errorf("core ponytail SKILL.md must stay linked for dogfooding: %v", err)
+	} else if fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("core ponytail SKILL.md must be a symlink into the package clone, got mode %s", fi.Mode())
+	}
+}

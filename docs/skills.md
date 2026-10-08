@@ -128,7 +128,7 @@ Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automat
 | ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard: less code, less cost, more speed |
 | ponytail-help | `/skill:ponytail-help` | Quick-reference card for all ponytail modes and skills |
 
-**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package symlinked into `.pi/skills/ponytail/`.
+**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package; only the core `ponytail` skill is linked into `.pi/skills/ponytail/`.
 
 **Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
 

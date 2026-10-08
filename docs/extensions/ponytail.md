@@ -25,6 +25,8 @@ nav_order: 18
 
 pi's `applyPatterns` treats a bare `!glob` exclusion as "everything minus the matches", and matches it against a skill's parent directory name — so `!ponytail-*` excludes the five auxiliary skills and keeps `ponytail` (no dash). `extensions` is omitted, so the extension still loads in full. `cheasee-pi start` writes this form for the default source before the container entrypoint's `pi install`, which no-ops on a source already present. Nothing is injected for the core ladder at load time: `ponytail-instructions.js` reads `skills/ponytail/SKILL.md` by absolute path, so filtering skills never disables lazy mode.
 
+Project-path skills bypass the package filter, so the repo's committed dogfooding layout must not carry the extras either: `.pi/skills/` links only the core `ponytail` skill, and `TestCommittedSkills_PonytailAuxiliaryNotLinked` fails if an auxiliary link returns. In a workspace that is not the cheasee-pi repo, `.pi/skills/` has no ponytail links at all — the filter is the only source of skill registration.
+
 To load all six skills instead, run `pi config --local` and enable them (a hand-added `https://…ponytail.git` or `@ref` source variant is left untouched by the reconciler).
 
 **Location:** `.pi/extensions/ponytail/` (symlink to `.pi/git/github.com/DietrichGebert/ponytail/pi-extension/`)
@@ -56,7 +58,7 @@ Deactivate with `stop ponytail` or `normal mode`. Resume with `/ponytail`.
 
 ## Skills
 
-Ponytail ships 6 skills. Only `ponytail` is registered by default — the five below are excluded by the package resource filter and can be enabled with `pi config --local`.
+Ponytail ships 6 skills. Only `ponytail` is registered by default — the five below are excluded by the package resource filter and can be enabled with `pi config --local`. (They can also be enabled by re-linking them under `.pi/skills/`, which bypasses the filter; the repo deliberately does not.)
 
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
