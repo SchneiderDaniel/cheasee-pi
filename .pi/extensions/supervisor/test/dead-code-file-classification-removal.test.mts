@@ -49,12 +49,16 @@ function exportedNames(source: string): string[] {
 	return out;
 }
 
-/** Named bindings imported/re-exported from `file-classification` by a source string. */
+/** The defining module's own specifier; a similarly named neighbour must not satisfy the guard. */
+const FILE_CLASSIFICATION_MODULE = /(?:^|\/)file-classification\.[cm]?ts$/;
+
+/** Named bindings imported/re-exported from `file-classification.ts` by a source string. */
 function importedNames(source: string): Set<string> {
 	const names = new Set<string>();
 	for (const m of source.matchAll(
-		/(?:^|\n)\s*(?:import|export)\b[^'";]*?\bfrom\s*["'][^"']*file-classification[^"']*["']/g,
+		/(?:^|\n)\s*(?:import|export)\b[^'";]*?\bfrom\s*["']([^"']*)["']/g,
 	)) {
+		if (!FILE_CLASSIFICATION_MODULE.test(m[1])) continue;
 		for (const clause of m[0].matchAll(/\{([^}]*)\}/g)) {
 			for (const spec of clause[1].split(",")) {
 				// Imported export name is the spec before any `as` alias.
@@ -136,6 +140,13 @@ describe("file-classification export surface", () => {
 		const synthetic = "export function phantomThing(): void {}\n";
 		const commentOnly = "// phantomThing is mentioned here but never imported\n";
 		assert.deepEqual(unreferencedExports(synthetic, [commentOnly]), ["phantomThing"]);
+	});
+
+	it("does not count a similarly named module as a consumer", () => {
+		const synthetic = "export function phantomThing(): void {}\n";
+		const neighbour =
+			'import { phantomThing } from "../checks/file-classification-helpers.ts";\n';
+		assert.deepEqual(unreferencedExports(synthetic, [neighbour]), ["phantomThing"]);
 	});
 
 	it("counts an aliased import as a consumer of the imported name", () => {
