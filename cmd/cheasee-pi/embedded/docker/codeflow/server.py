@@ -477,8 +477,11 @@ class Handler(BaseHTTPRequestHandler):
         if suffix == fp:
             return False
         query = urllib.parse.urlencode([(k, base + "-" + fp if k == "repo" else v) for k, v in params])
+        # Strip CR/LF so a crafted request target cannot split the response
+        # header (CodeQL's recognized sanitizer for header injection).
+        location = (parsed.path + "?" + query).replace("\r", "").replace("\n", "")
         self.send_response(302)
-        self.send_header("Location", parsed.path + "?" + query)
+        self.send_header("Location", location)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
         self.end_headers()
