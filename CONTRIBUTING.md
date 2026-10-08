@@ -70,24 +70,30 @@ We recommend the same workflow for external contributions:
    git worktree remove --force ../cheasee-pi-my-change
    ```
 
+The project-specific source map and validation workflow are also described in
+[Development Guide](docs/development.md).
+
 ## Building and testing
 
-All tests run with the standard Node.js test runner:
+The project includes TypeScript extension tests, TypeScript type checking, a
+Go CLI test suite, and shell/Python checks. We ask contributors to run these
+checks before opening a pull request:
 
 ```bash
 npm test
-```
-
-TypeScript validation for the extension layer runs separately:
-
-```bash
 npm run tsc:extensions
+go test ./cmd/cheasee-pi/ -count=1
+bash test/no-submodules.test.sh
+bash test/uninstall-script.test.sh
+python3 test/dependency-existence-check.test.py
+python3 test/dependency-existence-check-refactor.test.py
+node --experimental-strip-types --test docker/test/unbreak-worktrees.test.mts
 ```
 
-The full test suite executes before every merge, so we ask that contributors
-run both commands locally and confirm a clean result before opening a pull
-request. New logic of non-trivial complexity is expected to arrive with
-corresponding tests.
+The Go CLI can be built with `make build` or `go build ./cmd/cheasee-pi/`.
+Docker-backed integration tests require a running Docker Engine and are not part
+of the default Go test command. New non-trivial logic is expected to arrive
+with corresponding tests.
 
 ## Submitting a pull request
 
@@ -96,8 +102,7 @@ Each pull request should satisfy the following checklist:
 - The description states clearly what changed and why.
 - The description references the related issue, for example `Closes #123`.
 - The commit messages follow Conventional Commits.
-- `npm test` passes.
-- `npm run tsc:extensions` passes.
+- All checks in [Building and testing](#building-and-testing) pass.
 - Tests cover the changes where applicable.
 - No sensitive data is committed — no secrets, credentials, or tokens.
 

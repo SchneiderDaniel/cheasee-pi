@@ -57,7 +57,8 @@ cheasee-pi --version
 ## Setup
 
 > Full command reference — what every command does, checks, and needs as input:
-> [CLI Reference](cli.md).
+> [CLI Reference](cli.md). Workspace settings and credential storage are
+> described in the [Configuration reference](configuration.md).
 
 ```bash
 cheasee-pi init
@@ -128,7 +129,7 @@ Run cheasee-pi from your **cheasee-pi workspace** — or straight from an empty
 folder, which auto-runs init first:
 
 ```bash
-# ✓ Auth config saved to ~/.config/cheasee-pi/auth.json after init
+# ✓ Auth config saved to the OS user config directory after init
 cheasee-pi start
 ```
 
