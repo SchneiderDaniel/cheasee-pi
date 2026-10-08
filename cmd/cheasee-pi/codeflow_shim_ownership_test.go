@@ -12,10 +12,10 @@ import (
 // TestCodeFlowServer_TrackedSetSurvivesForeignOwnership is the #1935 follow-up
 // regression: mounting the sibling bare repo fixed the dangling worktree
 // gitdir, but the sidecar still runs as root over host-owned bind mounts, so
-// git aborts `ls-files` with "fatal: detected dubious ownership"
+// git aborts `ls-tree` with "fatal: detected dubious ownership"
 // (CVE-2022-24765) and the tracked set comes back empty. Reproduces that
 // root-on-foreign-repo condition without a second uid: the shim must opt in
-// with `-c safe.directory=*` and still return the index paths.
+// with `-c safe.directory=*` and still return committed paths.
 func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -44,6 +44,7 @@ func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 	if out, err := exec.Command("git", "-C", repoRoot, "add", "tracked.txt").CombinedOutput(); err != nil {
 		t.Fatalf("git add tracked.txt: %v\n%s", err, out)
 	}
+	gitCommit(t, repoRoot)
 
 	script := `import contextlib, io, os, runpy, sys
 
@@ -55,8 +56,8 @@ g["REPO_ROOT"] = sys.argv[2]
 g["_GIT_WARNED"] = False
 buf = io.StringIO()
 with contextlib.redirect_stderr(buf):
-    out = g["_tracked_paths"]()
-assert out == ["tracked.txt"], out
+    out = g["_committed_blobs"]()
+assert [entry["path"] for entry in out] == ["tracked.txt"], out
 assert buf.getvalue() == "", buf.getvalue()
 print("OK")
 `
@@ -66,7 +67,7 @@ print("OK")
 	}
 	out, err := exec.Command(python, scriptPath, serverPath, repoRoot).CombinedOutput()
 	if err != nil {
-		t.Fatalf("foreign-ownership gitignore checks failed: %v\n%s", err, out)
+		t.Fatalf("foreign-ownership committed-tree checks failed: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "OK") {
 		t.Fatalf("unexpected helper output: %s", out)

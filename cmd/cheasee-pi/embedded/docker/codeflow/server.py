@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """CodeFlow local shim — serves the CodeFlow UI and emulates the GitHub REST API
-against the mounted repository's git-tracked files, so the browser can analyze the
-codebase that lives on GitHub — nothing else. Untracked workspace artifacts
-(cheasee-pi's .pi/git package clones, the web-tool virtualenvs, session logs)
-are not part of the GitHub tree and are never served.
+against the mounted repository's committed HEAD tree, so the browser analyzes
+one immutable repository snapshot. Working-tree and index changes, along with
+untracked workspace artifacts, are not part of that snapshot and are never served.
 
 Emulated endpoints (the only ones CodeFlow's analysis path uses):
   GET /api/repos/{owner}/{repo}                      -> {"default_branch": ...}
@@ -26,7 +25,7 @@ the UI speaks about local files instead of the GitHub API it only emulates.
 Every patch is a silent no-op if upstream renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
-  exclude_dirs         directory names excluded from the served tracked set (default: [".git", "node_modules", "ignore"])
+  exclude_dirs         directory names excluded from the served committed tree (default: [".git", "node_modules", "ignore"])
   port                 listen port (default: 8470)
   host                 bind address (default: 0.0.0.0)
 
@@ -333,32 +332,29 @@ _GIT_WARNED = False
 
 
 def _warn_git_unavailable(detail):
-    """One-shot stderr warning that the tracked-file set is unavailable.
+    """One-shot stderr warning that the committed tree is unavailable.
 
-    The shim serves exactly the git-index paths (the GitHub tree). When git
-    cannot list them — missing git, missing worktree/bare mount, not a repo —
-    it serves nothing and says so, instead of falling back to a full working
-    tree walk that drags in cheasee-pi's untracked artifacts (.pi/git package
-    clones, the web-tool virtualenvs, session logs).
+    When git cannot list HEAD's tree — missing git, missing worktree/bare
+    mount, or no commit yet — the shim serves nothing rather than falling back
+    to working-tree files that are absent from the repository snapshot.
     """
     global _GIT_WARNED
     if _GIT_WARNED:
         return
     _GIT_WARNED = True
     print(
-        "codeflow-shim: git index unavailable (%s); serving no files under %s"
+        "codeflow-shim: committed tree unavailable (%s); serving no files under %s"
         % (detail, REPO_ROOT),
         file=sys.stderr,
     )
 
 
-def _tracked_paths():
-    """Repo-relative paths in the git index — exactly the GitHub tree.
+def _committed_blobs():
+    """Return blob entries from HEAD's committed tree, or None if unavailable.
 
-    Returns None (after a one-shot warning) when git cannot list the index;
-    the caller then serves nothing. Filtering by .gitignore alone is not
-    enough: cheasee-pi materializes untracked artifacts inside every
-    workspace and a user repo's .gitignore rarely covers them.
+    The index and working tree can contain changes absent from HEAD. Listing
+    and serving object IDs from HEAD keeps both API routes on one committed
+    snapshot. Gitlinks are commits, not blobs, and are omitted.
 
     `-c safe.directory=*` is load-bearing, not cosmetic. The sidecar runs as
     root while the bind-mounted workspace — and the sibling bare repo its
@@ -368,27 +364,39 @@ def _tracked_paths():
     """
     try:
         proc = subprocess.run(
-            ["git", "-c", "safe.directory=*", "-C", REPO_ROOT, "ls-files", "-z"],
+            ["git", "-c", "safe.directory=*", "-C", REPO_ROOT,
+             "ls-tree", "-r", "-z", "-l", "--full-tree", "HEAD"],
             capture_output=True,
-            text=True,
             timeout=60,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         _warn_git_unavailable("git unavailable: %s" % exc)
         return None
     if proc.returncode != 0:
-        detail = (proc.stderr or "").strip() or "git ls-files exited %d" % proc.returncode
-        _warn_git_unavailable(detail[:300])
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        _warn_git_unavailable(detail[:300] or "git ls-tree exited %d" % proc.returncode)
         return None
-    return [p for p in proc.stdout.split("\0") if p]
+
+    blobs = []
+    for record in proc.stdout.split(b"\0"):
+        if not record:
+            continue
+        metadata, raw_path = record.split(b"\t", 1)
+        _, kind, oid, size = metadata.split(b" ", 3)
+        if kind == b"blob":
+            blobs.append({
+                "path": os.fsdecode(raw_path),
+                "type": "blob",
+                "size": int(size),
+                "oid": oid.decode("ascii"),
+            })
+    return blobs
 
 
-# Workspace-content identity for the UI's content-addressed analysis cache:
-# the entrypoint redirect appends this fingerprint to the repo segment so the
-# browser misses (fresh analysis) when the workspace changed and hits when it
-# did not. Git-free on purpose — the mounted .git/bare are optional (absent
-# for a plain non-worktree checkout), so any `git rev-parse`/`git diff`
-# identity would be unusable there.
+# Committed-tree identity for the UI's content-addressed analysis cache: the
+# entrypoint redirect appends this fingerprint to the repo segment so the
+# browser re-analyzes when HEAD's tree changes, independent of working-tree or
+# index changes.
 _FP_LEN = 8
 try:
     _FP_TTL = float(os.environ.get("FP_TTL") or 2.0)
@@ -398,35 +406,20 @@ _scan_cache = None  # (expiry_monotonic, entries)
 
 
 def _scan():
-    """Return the served blob set, memoized for _FP_TTL seconds.
+    """Return HEAD's served blob set, memoized for _FP_TTL seconds.
 
-    One listing shared by the tree API, the contents API and the fingerprint,
-    so all three always see the same blobs (consistent cache key <-> served
-    content, and one filter). The set is the git index (the GitHub tree) minus
-    EXCLUDE_DIRS names — see _tracked_paths for why untracked files are not
-    served.
+    One listing shared by the tree API, contents API and fingerprint keeps all
+    three on the same committed snapshot. EXCLUDE_DIRS prunes configured paths.
     """
     global _scan_cache
     if _scan_cache is not None and time.monotonic() < _scan_cache[0]:
         return _scan_cache[1]
-    entries = []
-    for rel in _tracked_paths() or []:
-        if any(part in EXCLUDE_DIRS for part in rel.split("/")):
-            continue
-        # Skip gitlinks (submodules: the index records a commit, not files),
-        # dangling tracked symlinks, and staged deletions — nothing to read.
-        full = os.path.join(REPO_ROOT, rel)
-        if not os.path.isfile(full):
-            continue
-        try:
-            st = os.stat(full)
-        except OSError:
-            continue
-        entries.append({"path": rel, "type": "blob", "size": st.st_size, "mtime_ns": st.st_mtime_ns})
+    entries = [
+        e for e in (_committed_blobs() or [])
+        if not any(part in EXCLUDE_DIRS for part in e["path"].split("/"))
+    ]
     entries.sort(key=lambda e: e["path"])
-    # Expiry is measured after scanning: a slow scan must not store an
-    # already-expired entry (that would stop the entrypoint and tree request
-    # from sharing the scan), so the cache always lives a full TTL.
+    # Expiry is measured after scanning so a slow scan still lives a full TTL.
     _scan_cache = (time.monotonic() + _FP_TTL, entries)
     return entries
 
@@ -437,10 +430,10 @@ def _walk():
 
 
 def _fingerprint(entries):
-    """Short hex digest over sorted path + size + mtime_ns of the blob set."""
+    """Short hex digest over sorted paths and committed blob object IDs."""
     h = hashlib.sha256()
     for e in sorted(entries, key=lambda e: e["path"]):
-        h.update(("%s\0%d\0%d\0" % (e["path"], e["size"], e.get("mtime_ns", 0))).encode())
+        h.update(os.fsencode(e["path"]) + b"\0" + e["oid"].encode("ascii") + b"\0")
     return h.hexdigest()[:_FP_LEN]
 
 
@@ -625,24 +618,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if rest[0] == "contents":
-            rel = "/".join(rest[1:])
-            root = os.path.realpath(REPO_ROOT)
-            target = os.path.realpath(os.path.join(root, rel.lstrip("/")))
-            if target != root and not target.startswith(root + os.sep):
-                self._not_found()
-                return
-            self._list_contents(rel)
+            self._list_contents("/".join(rest[1:]))
             return
 
         self._not_found()
 
     def _list_contents(self, rel):
-        """Serve GET /contents/{rel} from the scanned (tracked) set.
-
-        Derived from _scan rather than os.listdir so the route obeys the same
-        filter as the tree API: an untracked or EXCLUDE_DIRS path is invisible
-        here too (.git, node_modules, .pi/git artifacts).
-        """
+        """Serve GET /contents/{rel} from the scanned committed tree."""
         rel = rel.strip("/")
         prefix = rel + "/" if rel else ""
         scanned = _scan()
@@ -665,18 +647,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         for e in scanned:
             if e["path"] == rel:
-                self._file_contents(rel)
+                self._file_contents(e["oid"])
                 return
         self._not_found()
 
-    def _file_contents(self, rel):
+    def _file_contents(self, oid):
         try:
-            with open(os.path.join(REPO_ROOT, rel), "rb") as fh:
-                raw = fh.read()
-        except OSError:
+            proc = subprocess.run(
+                ["git", "-c", "safe.directory=*", "-C", REPO_ROOT, "cat-file", "blob", oid],
+                capture_output=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
             self._not_found()
             return
-        self._json({"content": base64.b64encode(raw).decode(), "encoding": "base64"})
+        if proc.returncode != 0:
+            self._not_found()
+            return
+        self._json({"content": base64.b64encode(proc.stdout).decode(), "encoding": "base64"})
 
     def log_message(self, format, *args):  # quiet
         pass

@@ -44,6 +44,7 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 	write(filepath.Join("sub", "b.txt"), []byte("world\n"))
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
 	// Untracked + EXCLUDE_DIRS junk: cheasee-pi materializes this inside a
 	// user workspace and a user repo's .gitignore rarely covers it, so it must
 	// never reach the analysis.
@@ -229,5 +230,142 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 	// Error path.
 	if status, _ := get("/api/nope"); status != http.StatusNotFound {
 		t.Errorf("/api/nope status = %d, want 404", status)
+	}
+}
+
+func TestCodeFlowServer_ServesCommittedSnapshot(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "tracked.txt", "committed version\n")
+	initGitRepo(t, repoRoot)
+	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
+
+	writeFile(t, repoRoot, "tracked.txt", "local edit\n")
+	writeFile(t, repoRoot, "staged.txt", "staged but uncommitted\n")
+	gitAddAll(t, repoRoot)
+	writeFile(t, repoRoot, "untracked.txt", "untracked\n")
+	base := startShim(t, repoRoot, writeUIDir(t))
+	client := newNoRedirectClient()
+
+	resp, body := getStatus(t, client, base+"/api/repos/o/r/git/trees/main")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("trees: status %d, body %s", resp.StatusCode, body)
+	}
+	var tree struct {
+		Tree []struct {
+			Path string `json:"path"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(body, &tree); err != nil {
+		t.Fatalf("trees: bad JSON: %v\n%s", err, body)
+	}
+	if len(tree.Tree) != 1 || tree.Tree[0].Path != "tracked.txt" {
+		t.Fatalf("tree paths = %+v, want only committed tracked.txt", tree.Tree)
+	}
+
+	resp, body = getStatus(t, client, base+"/api/repos/o/r/contents/tracked.txt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tracked contents: status %d, body %s", resp.StatusCode, body)
+	}
+	var file struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(body, &file); err != nil {
+		t.Fatalf("tracked contents: bad JSON: %v\n%s", err, body)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(file.Content)
+	if err != nil {
+		t.Fatalf("decode tracked contents: %v", err)
+	}
+	if got := string(decoded); got != "committed version\n" {
+		t.Errorf("tracked contents = %q, want committed version", got)
+	}
+
+	for _, name := range []string{"staged.txt", "untracked.txt"} {
+		resp, body = getStatus(t, client, base+"/api/repos/o/r/contents/"+name)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("contents %s status = %d, want 404: %s", name, resp.StatusCode, body)
+		}
+	}
+}
+
+// TestCodeFlowServer_FingerprintChange pins the committed-tree cache identity:
+// working-tree and index edits do not matter until they are committed.
+func TestCodeFlowServer_FingerprintChange(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	initGitRepo(t, repoRoot)
+	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
+	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
+	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
+	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
+	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
+
+	before := freshFingerprint(t, base)
+	writeFile(t, repoRoot, "a.txt", "hello world\n")
+	writeFile(t, repoRoot, "a.txt", "HELLO WORLD\n")
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(repoRoot, "a.txt"), future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint changed for uncommitted tracked-file edits")
+	}
+	gitAddAll(t, repoRoot)
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint changed for staged but uncommitted edits")
+	}
+	gitCommit(t, repoRoot)
+	waitPastTTL()
+	changed := freshFingerprint(t, base)
+	if changed == before {
+		t.Error("fingerprint unchanged after committing tracked-file edits")
+	}
+
+	writeFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != changed {
+		t.Error("fingerprint changed for an untracked new file")
+	}
+	gitAddAll(t, repoRoot)
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != changed {
+		t.Error("fingerprint changed for a staged but uncommitted new file")
+	}
+	gitCommit(t, repoRoot)
+	waitPastTTL()
+	added := freshFingerprint(t, base)
+	if added == changed {
+		t.Error("fingerprint unchanged after committing a new file")
+	}
+
+	if err := os.Remove(filepath.Join(repoRoot, "sub", "c.txt")); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != added {
+		t.Error("fingerprint changed for an uncommitted deletion")
+	}
+	gitAddAll(t, repoRoot)
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != added {
+		t.Error("fingerprint changed for a staged but uncommitted deletion")
+	}
+	gitCommit(t, repoRoot)
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after == added {
+		t.Error("fingerprint unchanged after committing a deletion")
+	}
+
+	before = freshFingerprint(t, base)
+	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "two\n")
+	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "two\n")
+	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint changed after editing excluded paths")
 	}
 }

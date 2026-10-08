@@ -51,12 +51,11 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 		"['.js','.jsx','.ts','.tsx'",
 		",'.mjs','.cjs','.vue','.svelte']",
 		// #1935 follow-up: the sidecar runs as root over a host-owned mount, so
-		// git needs the safe.directory opt-in or the index listing fails.
+		// git needs the safe.directory opt-in or committed-tree listing fails.
 		"safe.directory=*",
-		// The served set is the git index (the GitHub tree), not a working-tree
-		// walk: untracked cheasee-pi artifacts must stay out of the analysis.
-		"ls-files",
-		"def _tracked_paths",
+		// The served set is HEAD's committed tree, not the working tree or index.
+		"ls-tree",
+		"def _committed_blobs",
 		"def _list_contents",
 		"def _file_contents",
 	} {
@@ -94,8 +93,8 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 }
 
-// initGitRepo makes root a git work tree: the shim serves the git index (the
-// GitHub tree), so every shim test needs one. Skips when git is unavailable.
+// initGitRepo makes root a git work tree: the shim serves HEAD's committed
+// tree, so every API test needs a commit. Skips when git is unavailable.
 func initGitRepo(t *testing.T, root string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -106,12 +105,19 @@ func initGitRepo(t *testing.T, root string) {
 	}
 }
 
-// gitAddAll stages everything: the served set is the index, so test fixtures
-// become visible to the shim only once staged.
+// gitAddAll stages every fixture file.
 func gitAddAll(t *testing.T, root string) {
 	t.Helper()
 	if out, err := exec.Command("git", "-C", root, "add", "-A").CombinedOutput(); err != nil {
 		t.Fatalf("git add -A: %v\n%s", err, out)
+	}
+}
+
+func gitCommit(t *testing.T, root string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", root, "-c", "user.name=CodeFlow Test", "-c", "user.email=codeflow@example.invalid", "commit", "-qm", "fixture snapshot")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
 	}
 }
 
@@ -258,7 +264,7 @@ func waitPastTTL() { time.Sleep(300 * time.Millisecond) }
 
 // TestCodeFlowServer_FingerprintPure drives the hashing helper directly (no
 // HTTP) to pin its identity semantics: deterministic, order-independent, and
-// sensitive to path, size, and mtime changes.
+// sensitive to committed paths and blob-object changes.
 func TestCodeFlowServer_FingerprintPure(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -280,8 +286,8 @@ fp = m["_fingerprint"]
 n = m["_FP_LEN"]
 
 base = [
-    {"path": "a.txt", "type": "blob", "size": 6, "mtime_ns": 111},
-    {"path": "sub/b.txt", "type": "blob", "size": 9, "mtime_ns": 222},
+    {"path": "a.txt", "type": "blob", "size": 6, "oid": "a" * 40},
+    {"path": "sub/b.txt", "type": "blob", "size": 9, "oid": "b" * 40},
 ]
 d = fp(base)
 assert d == fp(base), "unstable across identical calls"
@@ -296,10 +302,9 @@ def variant(fn):
 
 
 for label, fn in [
-    ("size", lambda e: e[0].__setitem__("size", 7)),
-    ("mtime", lambda e: e[0].__setitem__("mtime_ns", 999)),
+    ("blob", lambda e: e[0].__setitem__("oid", "c" * 40)),
     ("rename", lambda e: e[0].__setitem__("path", "a2.txt")),
-    ("add", lambda e: e.append({"path": "c.txt", "type": "blob", "size": 1, "mtime_ns": 1})),
+    ("add", lambda e: e.append({"path": "c.txt", "type": "blob", "size": 1, "oid": "c" * 40})),
     ("drop", lambda e: e.pop(0)),
 ]:
     assert fp(variant(fn)) != d, "digest unchanged for %s" % label
@@ -355,7 +360,7 @@ g["REPO_ROOT"] = sys.argv[2]
 g["_FP_TTL"] = 0.3
 g["_scan_cache"] = None
 
-real = g["_tracked_paths"]
+real = g["_committed_blobs"]
 calls = {"n": 0}
 
 
@@ -365,7 +370,7 @@ def slow():
     return real()
 
 
-g["_tracked_paths"] = slow
+g["_committed_blobs"] = slow
 scan = m["_scan"]
 
 first = scan()
@@ -395,6 +400,7 @@ func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
 	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t))
 	client := newNoRedirectClient()
 
@@ -485,6 +491,7 @@ func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 	writeFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t))
 	client := newNoRedirectClient()
 
@@ -515,79 +522,6 @@ func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 	}
 }
 
-// TestCodeFlowServer_FingerprintChange is the cache-identity behaviour: the
-// fingerprint follows the served (git-index) set — tracked content/mtime
-// changes move it, untracked and EXCLUDE_DIRS edits do not.
-func TestCodeFlowServer_FingerprintChange(t *testing.T) {
-	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
-	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
-	initGitRepo(t, repoRoot)
-	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
-	gitAddAll(t, repoRoot)
-	// The served set is the index, so these stay invisible without any
-	// .gitignore help (a user repo does not list cheasee-pi's artifacts).
-	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
-	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
-	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
-
-	before := freshFingerprint(t, base)
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after != before {
-		t.Fatalf("fingerprint changed with no edits: %s -> %s", before, after)
-	}
-
-	// Tracked file whose size changes.
-	before = freshFingerprint(t, base)
-	writeFile(t, repoRoot, "a.txt", "hello world\n")
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after == before {
-		t.Error("fingerprint unchanged after tracked size change")
-	}
-
-	// Tracked file rewritten same size, new mtime.
-	before = freshFingerprint(t, base)
-	writeFile(t, repoRoot, "a.txt", "HELLO WORLD\n") // same length as "hello world\n"
-	future := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(filepath.Join(repoRoot, "a.txt"), future, future); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after == before {
-		t.Error("fingerprint unchanged after same-size mtime change")
-	}
-
-	// A new file counts only once staged: the served set is the git index.
-	before = freshFingerprint(t, base)
-	writeFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after != before {
-		t.Error("fingerprint changed for an untracked new file")
-	}
-	gitAddAll(t, repoRoot)
-	waitPastTTL()
-	added := freshFingerprint(t, base)
-	if added == before {
-		t.Error("fingerprint unchanged after staging a new file")
-	}
-	if err := os.Remove(filepath.Join(repoRoot, "sub", "c.txt")); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after != before {
-		t.Error("fingerprint did not return to baseline after deleting the staged file")
-	}
-
-	// Gitignored and EXCLUDE_DIRS edits are invisible.
-	before = freshFingerprint(t, base)
-	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "two\n")
-	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "two\n")
-	waitPastTTL()
-	if after := freshFingerprint(t, base); after != before {
-		t.Error("fingerprint changed after editing ignored paths")
-	}
-}
-
 // TestCodeFlowServer_ConcurrentEntrypoints exercises the shared module-level
 // scan cache under ThreadingHTTPServer: every response is a valid 302/200 and
 // the captured log stays traceback-free.
@@ -596,6 +530,7 @@ func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
 	writeFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
+	gitCommit(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
 
 	var wg sync.WaitGroup
@@ -658,16 +593,16 @@ g["REPO_ROOT"] = sys.argv[2]
 g["_GIT_WARNED"] = False
 buf = io.StringIO()
 with contextlib.redirect_stderr(buf):
-    out = g["_tracked_paths"]()
+    out = g["_committed_blobs"]()
 assert out is None, out
 first = buf.getvalue()
-assert "index unavailable" in first, first
+assert "committed tree unavailable" in first, first
 assert sys.argv[2] in first, first
 assert "not a git repository" in first, first
 # One-shot: a second call stays quiet.
 buf2 = io.StringIO()
 with contextlib.redirect_stderr(buf2):
-    g["_tracked_paths"]()
+    g["_committed_blobs"]()
 assert buf2.getvalue() == "", buf2.getvalue()
 print("OK")
 `
