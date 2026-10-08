@@ -17,16 +17,14 @@ func TestCommittedSettings_NoParentPrivatePiRefs(t *testing.T) {
 	}
 }
 
-func TestCommittedSettings_PrivatePathsPointAtOpt(t *testing.T) {
+// private-pi loads through the packages array (bare git source). Absolute
+// /opt/cheasee-pi/private-pi roots exist only in the maintainer's container;
+// they are dangling for every fresh clone, so the committed settings must not
+// carry them.
+func TestCommittedSettings_NoHostPrivatePiPaths(t *testing.T) {
 	content := readCommittedSettings(t)
-	for _, want := range []string{
-		"/opt/cheasee-pi/private-pi/extensions/check-extensions",
-		"/opt/cheasee-pi/private-pi/prompts",
-		"/opt/cheasee-pi/private-pi/skills",
-	} {
-		if !strings.Contains(content, want) {
-			t.Errorf("committed settings must reference %q", want)
-		}
+	if strings.Contains(content, "/opt/cheasee-pi/private-pi") {
+		t.Error("committed settings must not reference /opt/cheasee-pi/private-pi (maintainer-container path, dangling on fresh clones)")
 	}
 }
 
