@@ -27,7 +27,7 @@ const createMessageRenderer = (...args: Parameters<typeof createMessageRendererT
 const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
 	createSummaryRendererTyped(...args) as LooseRenderer;
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
-import { renderBudgetExceeded } from "../session/message-renderers/render-budget.ts";
+import * as renderSimple from "../session/message-renderers/render-simple.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 
@@ -125,6 +125,24 @@ describe("RENDERERS dispatch table", () => {
 
 	it("lookup of an unknown eventType returns undefined (factory falls back)", () => {
 		assert.equal(RENDERERS["made-up-type"], undefined);
+	});
+
+	it("render-simple.ts is the sole home of the five small renderers, wired unchanged", () => {
+		assert.deepEqual(
+			[...Object.keys(renderSimple)].sort(),
+			[
+				"renderBudgetExceeded",
+				"renderCompaction",
+				"renderError",
+				"renderThinking",
+				"renderToolStart",
+			].sort(),
+		);
+		assert.equal(RENDERERS["compaction"], renderSimple.renderCompaction);
+		assert.equal(RENDERERS["error"], renderSimple.renderError);
+		assert.equal(RENDERERS["budget-exceeded"], renderSimple.renderBudgetExceeded);
+		assert.equal(RENDERERS["tool-start"], renderSimple.renderToolStart);
+		assert.equal(RENDERERS["thinking"], renderSimple.renderThinking);
 	});
 
 	it("fallbackRenderer is exported and handles string content as Markdown", () => {
@@ -386,7 +404,7 @@ describe("createSummaryRenderer subtle token", () => {
 describe("renderBudgetExceeded style adoption", () => {
 	it("styles the warning via style() and makes no fg call", () => {
 		const { theme, fgCalls, styleCalls } = makeTestTheme();
-		renderBudgetExceeded(
+		RENDERERS["budget-exceeded"](
 			{ details: { agentName: "dev", toolCount: 5, tokenCount: 5000 } } as never,
 			{} as never,
 			theme as never,
