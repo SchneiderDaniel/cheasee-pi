@@ -107,17 +107,59 @@ describe("pipeline/stages/core.ts — dedup policy owner intact", () => {
 });
 
 describe("tsc gate — shared-prompts.ts clean under --noUnusedLocals", () => {
-	it("shared-prompts.ts produces zero TS6133/TS6192/TS6196 errors", () => {
+	// Fail closed: prove the compiler ran and actually processed the target file
+	// before trusting the absence of diagnostics. `--listFiles` makes tsc print the
+	// program's file set, so a launch/configuration failure cannot masquerade as a
+	// clean run.
+	const TARGET = "extensions/supervisor/lib/shared-prompts.ts";
+
+	it("target file is compiled and produces zero TS6133/TS6192/TS6196 errors", () => {
+		let status: number | null = null;
 		let output = "";
 		try {
 			output = execSync(
-				"npx tsc --noEmit --noUnusedLocals --noUnusedParameters --project .pi/tsconfig.json",
-				{ cwd: resolve(EXT_ROOT, "../../.."), encoding: "utf8", stdio: "pipe" },
+				"npx tsc --noEmit --noUnusedLocals --noUnusedParameters --listFiles --project .pi/tsconfig.json",
+				{
+					cwd: resolve(EXT_ROOT, "../../.."),
+					encoding: "utf8",
+					stdio: "pipe",
+					maxBuffer: 64 * 1024 * 1024,
+				},
 			);
+			status = 0;
 		} catch (err) {
-			const e = err as { stdout?: string; stderr?: string };
+			const e = err as NodeJS.ErrnoException & {
+				status?: number | null;
+				stdout?: string;
+				stderr?: string;
+			};
 			output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+			if (typeof e.status !== "number") {
+				assert.fail(`tsc could not be launched: ${e.code ?? ""} ${e.message}`);
+			}
+			status = e.status;
 		}
+
+		// Configuration/CLI failures (TS5xxx) mean the project was never compiled.
+		const configErrors = output.match(/error TS5\d{3}/g);
+		assert.equal(
+			configErrors,
+			null,
+			`tsc configuration failure — project not compiled:\n${configErrors?.join("\n")}`,
+		);
+
+		// A non-zero exit with no diagnostics means the compiler did not run.
+		assert.ok(
+			status === 0 || /error TS\d+/.test(output),
+			`tsc exited ${status} without diagnostics — compiler did not run:\n${output}`,
+		);
+
+		// Positive control: the target must appear in the compiler's file list.
+		assert.ok(
+			output.includes(TARGET),
+			`compiler did not process ${TARGET} (absent from --listFiles output)`,
+		);
+
 		const matches = output.match(
 			/lib\/shared-prompts\.ts\(\d+,\d+\): error TS(6133|6192|6196)/g,
 		);
