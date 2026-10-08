@@ -156,16 +156,9 @@ func TestRunInit_GitHubFlowClonesWorktree(t *testing.T) {
 	// GitHub flow: docker check + URL input + OAuth + bare clone + worktree +
 	// cheasee-settings.json scaffold + save. Nothing is extracted into the
 	// workdir (compose stays in the CLI cache dir).
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	clone := stubInitGit(t)
+	clone := stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	err := runInit(context.Background(), initDepsWithRepoURL(t, workdir))
 	if err != nil {
 		t.Fatalf("GitHub flow failed: %v", err)
@@ -191,16 +184,9 @@ func TestRunInit_OverviewAndPlainPrompts(t *testing.T) {
 	// User-journey: an interactive GitHub-flow run prints the workflow
 	// overview before the first prompt, then drives both prompts with
 	// plain-language titles/placeholders/hints.
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 
 	var calls *[]promptCall
 	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
@@ -262,16 +248,9 @@ func TestRunInit_OverviewAndPlainPrompts(t *testing.T) {
 func TestRunInit_NoInputSkipsOverview(t *testing.T) {
 	// --no-input GitHub flow (--repo-url set): no prompts → no overview
 	// narration (clig.dev no-prompts rule).
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
 		d.NoInput = true

@@ -191,16 +191,9 @@ func TestRunInitAuth_RequestCodeError(t *testing.T) {
 }
 
 func TestRunInit_FullFlow(t *testing.T) {
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	clone := stubInitGit(t)
+	clone := stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	err := runInit(context.Background(), initDepsWithRepoURL(t, workdir))
 	if err != nil {
 		t.Fatalf("full flow failed: %v", err)
@@ -314,16 +307,9 @@ func TestRunInit_ErrUnsupportedFallsBackToLegacy(t *testing.T) {
 	// the legacy API-key path (call site #2): clone still runs and auth.json
 	// is written in the legacy patch shape (provider entry + repo_path, no
 	// github_token/github_user), with the fallback stderr contract intact.
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	clone := stubInitGit(t)
+	clone := stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	var err error
 	stderr := testutil.CaptureStderr(t, func() {
 		err = runInit(context.Background(), initDepsWithRepoURL(t, workdir, func(d *InitDeps) {

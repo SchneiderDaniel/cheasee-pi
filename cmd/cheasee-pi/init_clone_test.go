@@ -97,11 +97,7 @@ func TestCanonicalRepoURL(t *testing.T) {
 // ──────────────────────────────────────────────
 
 func TestGitCloneWorktree_exactArgv(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	if err := gitCloneWorktree(context.Background(), "https://github.com/owner/repo", workdir); err != nil {
@@ -146,11 +142,7 @@ func TestGitCloneWorktree_exactArgv(t *testing.T) {
 }
 
 func TestGitCloneWorktree_masterDefaultAttached(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	c.symRefOut = "refs/heads/master\n"
@@ -167,11 +159,7 @@ func TestGitCloneWorktree_detachedHeadFallback(t *testing.T) {
 	// Exotic edge: the bare HEAD cannot be resolved to a branch name — the
 	// clone degrades to the old detached bare-HEAD checkout instead of
 	// failing the workspace init.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	c.symRefOut = ""
@@ -186,11 +174,7 @@ func TestGitCloneWorktree_detachedHeadFallback(t *testing.T) {
 }
 
 func TestGitCloneWorktree_shorthandNormalizedToHTTPS(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	if err := gitCloneWorktree(context.Background(), "owner/repo", workdir); err != nil {
@@ -202,11 +186,7 @@ func TestGitCloneWorktree_shorthandNormalizedToHTTPS(t *testing.T) {
 }
 
 func TestGitCloneWorktree_scpStyleNormalizedToHTTPS(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	if err := gitCloneWorktree(context.Background(), "git@github.com:owner/repo.git", workdir); err != nil {
@@ -218,11 +198,7 @@ func TestGitCloneWorktree_scpStyleNormalizedToHTTPS(t *testing.T) {
 }
 
 func TestGitCloneWorktree_credentialURLRefused(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	err := gitCloneWorktree(context.Background(), "https://oauth2:SECRETTOKEN@github.com/owner/repo", workdir)
@@ -242,11 +218,7 @@ func TestGitCloneWorktree_credentialURLRefused(t *testing.T) {
 }
 
 func TestGitCloneWorktree_sshGitUserAllowed(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 
 	c := stubGitClone(t, nil, nil)
 	if err := gitCloneWorktree(context.Background(), "ssh://git@github.com/owner/repo", workdir); err != nil {
@@ -299,11 +271,7 @@ func TestGitCloneWorktree_schemeURLWithoutAuthorityRefused(t *testing.T) {
 }
 
 func TestGitCloneWorktree_bareCollisionFailsClosed(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 	// Non-empty existing .bare → fail-closed collision error.
 	if err := os.MkdirAll(filepath.Join(parent, ".bare", "objects"), 0755); err != nil {
 		t.Fatal(err)
@@ -320,11 +288,7 @@ func TestGitCloneWorktree_bareCollisionFailsClosed(t *testing.T) {
 }
 
 func TestGitCloneWorktree_emptyStrayBareDirProceeds(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 	// A stray empty .bare (e.g. docker-created) is fine — git clones into it.
 	if err := os.MkdirAll(filepath.Join(parent, ".bare"), 0755); err != nil {
 		t.Fatal(err)
@@ -340,11 +304,7 @@ func TestGitCloneWorktree_emptyStrayBareDirProceeds(t *testing.T) {
 }
 
 func TestGitCloneWorktree_cloneFailureWrappedAndCleaned(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	stubGitClone(t, errors.New("connection refused"), nil)
 	err := gitCloneWorktree(context.Background(), "https://github.com/owner/repo", workdir)
@@ -364,11 +324,7 @@ func TestGitCloneWorktree_cancelledBetweenCloneAndWorktree(t *testing.T) {
 	// A cancelled parent (Ctrl-C) right after the bare clone returns must not
 	// proceed to worktree add — the bare clone we created is cleaned up so no
 	// half-cloned residue remains.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -397,11 +353,7 @@ func TestGitCloneWorktree_cancelledBetweenCloneAndWorktree(t *testing.T) {
 }
 
 func TestGitCloneWorktree_worktreeAddFailureWrapped(t *testing.T) {
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	stubGitClone(t, nil, errors.New("fatal: invalid reference: main"))
 	err := gitCloneWorktree(context.Background(), "https://github.com/owner/repo", workdir)
