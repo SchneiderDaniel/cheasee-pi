@@ -64,15 +64,12 @@ export interface ProjectBoardResult {
 }
 
 export async function readProjectBoard(
-	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
-	_issueNum: number,
+	port: GitHubPort,
 	collector?: ErrorCollector,
-	port?: GitHubPort,
 ): Promise<ProjectBoardResult> {
 	try {
-		if (!port) throw new Error("GitHubPort not provided to readProjectBoard");
 		const fields = await port.getProjectFields(config.projectNumber);
 		const items = await port.getProjectItems(config.projectNumber);
 		const projectId = await port.getProjectId(config.projectNumber);
@@ -103,15 +100,13 @@ export async function readProjectBoard(
 // ─── Check Dependencies ──────────────────────────────────────────
 
 export async function checkDependencies(
-	exec: ExecFn,
 	notify: NotifyFn,
 	config: SupervisorConfig,
 	issueNum: number,
+	port: GitHubPort,
 	collector?: ErrorCollector,
-	port?: GitHubPort,
 ): Promise<boolean> {
 	try {
-		if (!port) throw new Error("GitHubPort not provided to checkDependencies");
 		const depsResult = await port.checkBlockedByDependencies(issueNum, config.repo);
 		if (depsResult.blocked) {
 			const lines = depsResult.blockers.map(

@@ -150,9 +150,8 @@ describe("readProjectBoard()", () => {
 			getProjectId: async () => "project_123",
 		}, trackCalls);
 		const notify = makeNotify();
-		const exec = makeExec([]);
 
-		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
+		const result = await readProjectBoard(notify, mockConfig, port);
 		assert.ok(result.fields, "fields should be returned");
 		assert.ok(Array.isArray(result.items), "items should be an array");
 		assert.equal(result.projectId, "project_123");
@@ -176,9 +175,8 @@ describe("readProjectBoard()", () => {
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
-		const exec = makeExec([]);
 
-		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
+		const result = await readProjectBoard(notify, mockConfig, port);
 		assert.equal(result.fields, null);
 		assert.ok(notifyLog.some((n) => n.level === "error" && n.msg.includes("Status")));
 	});
@@ -189,9 +187,8 @@ describe("readProjectBoard()", () => {
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
-		const exec = makeExec([]);
 
-		const result = await readProjectBoard(exec, notify, mockConfig, 42, undefined, port);
+		const result = await readProjectBoard(notify, mockConfig, port);
 		assert.equal(result.fields, null);
 		assert.ok(notifyLog.some((n) => n.level === "error"));
 	});
@@ -201,18 +198,16 @@ describe("readProjectBoard()", () => {
 
 describe("checkDependencies()", () => {
 	it("returns true when no blockers found", async () => {
-		const exec = makeExec([]);
 		const notify = makeNotify();
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => ({ blocked: false, blockers: [] }),
 		});
 
-		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
+		const result = await checkDependencies(notify, mockConfig, 42, port);
 		assert.equal(result, true);
 	});
 
 	it("returns false and notifies when blockers exist", async () => {
-		const exec = makeExec([]);
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
@@ -222,20 +217,19 @@ describe("checkDependencies()", () => {
 			}),
 		});
 
-		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
+		const result = await checkDependencies(notify, mockConfig, 42, port);
 		assert.equal(result, false);
 		assert.ok(notifyLog.some((n) => n.level === "error" && n.msg.includes("blocked")));
 	});
 
 	it("returns false on port error", async () => {
-		const exec = makeExec([]);
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
 			checkBlockedByDependencies: async () => { throw new Error("network error"); },
 		});
 
-		const result = await checkDependencies(exec, notify, mockConfig, 42, undefined, port);
+		const result = await checkDependencies(notify, mockConfig, 42, port);
 		assert.equal(result, false);
 		assert.ok(notifyLog.some((n) => n.level === "error"));
 	});

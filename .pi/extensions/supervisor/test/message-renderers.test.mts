@@ -27,7 +27,7 @@ const createMessageRenderer = (...args: Parameters<typeof createMessageRendererT
 const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
 	createSummaryRendererTyped(...args) as LooseRenderer;
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
-import { renderBudgetExceeded } from "../session/message-renderers/render-simple.ts";
+import * as renderSimple from "../session/message-renderers/render-simple.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 
@@ -125,6 +125,26 @@ describe("RENDERERS dispatch table", () => {
 
 	it("lookup of an unknown eventType returns undefined (factory falls back)", () => {
 		assert.equal(RENDERERS["made-up-type"], undefined);
+	});
+
+	it("render-simple.ts is the sole home of the six small renderers, wired unchanged", () => {
+		assert.deepEqual(
+			[...Object.keys(renderSimple)].sort(),
+			[
+				"renderBudgetExceeded",
+				"renderCompaction",
+				"renderError",
+				"renderPhaseChange",
+				"renderThinking",
+				"renderToolStart",
+			].sort(),
+		);
+		assert.equal(RENDERERS["compaction"], renderSimple.renderCompaction);
+		assert.equal(RENDERERS["error"], renderSimple.renderError);
+		assert.equal(RENDERERS["budget-exceeded"], renderSimple.renderBudgetExceeded);
+		assert.equal(RENDERERS["tool-start"], renderSimple.renderToolStart);
+		assert.equal(RENDERERS["thinking"], renderSimple.renderThinking);
+		assert.equal(RENDERERS["phase-change"], renderSimple.renderPhaseChange);
 	});
 
 	it("fallbackRenderer is exported and handles string content as Markdown", () => {
@@ -360,7 +380,10 @@ describe("createSummaryRenderer subtle token", () => {
 		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
 		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
 		assert.equal(subtle.length, 2);
-		assert.ok(subtle.every((c) => c.color === "dim"), JSON.stringify(subtle));
+		assert.ok(
+			subtle.every((c) => c.color === "dim"),
+			JSON.stringify(subtle),
+		);
 	});
 
 	it("light theme styles table/bold rows with muted and never dim", () => {
@@ -368,7 +391,10 @@ describe("createSummaryRenderer subtle token", () => {
 		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
 		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
 		assert.equal(subtle.length, 2);
-		assert.ok(subtle.every((c) => c.color === "muted"), JSON.stringify(subtle));
+		assert.ok(
+			subtle.every((c) => c.color === "muted"),
+			JSON.stringify(subtle),
+		);
 		assert.ok(!fgCalls.some((c) => c.color === "dim"), "light path must not use dim");
 	});
 
@@ -386,12 +412,15 @@ describe("createSummaryRenderer subtle token", () => {
 describe("renderBudgetExceeded style adoption", () => {
 	it("styles the warning via style() and makes no fg call", () => {
 		const { theme, fgCalls, styleCalls } = makeTestTheme();
-		renderBudgetExceeded(
+		RENDERERS["budget-exceeded"](
 			{ details: { agentName: "dev", toolCount: 5, tokenCount: 5000 } } as never,
 			{} as never,
 			theme as never,
 		);
-		assert.ok(styleCalls.some((c) => c.options.fg === "warning"), JSON.stringify(styleCalls));
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "warning"),
+			JSON.stringify(styleCalls),
+		);
 		assert.deepEqual(fgCalls, [], JSON.stringify(fgCalls));
 	});
 });
