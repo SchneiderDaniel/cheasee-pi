@@ -1,0 +1,79 @@
+# CodeQL findings gate
+# ====================
+# GitHub's CodeQL default setup uploads findings to the Security tab, but its
+# check never fails on them — a PR with new alerts still merges green (that is
+# how alert 25 sat open on main for two days). This gate waits for the CodeQL
+# analysis of the PR head to finish, then fails while that PR still has open
+# CodeQL alerts.
+#
+# The check it publishes is named `codeql-findings`. On its own it only turns
+# red; mark it as a required status check in branch protection to actually
+# block a merge.
+#
+# Same-repo PRs only: it needs `security-events: read`, which fork PRs on the
+# pull_request event cannot get.
+#
+# Budget: ~1 min once CodeQL uploads (it polls up to 30 min for that).
+
+name: CodeQL Findings Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read # list the CodeQL workflow run for this PR
+  security-events: read # read code scanning alerts
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: codeql-findings-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codeql-findings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Runs concurrently with CodeQL, so polling for the alert list before
+      # CodeQL uploaded it would pass a PR that has findings.
+      - name: Wait for this PR's CodeQL analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          for _ in $(seq 1 60); do
+            status=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
+              --jq "[.workflow_runs[] | select(.name == \"PR #$PR\")] | (.[0].status // \"missing\")")
+            if [ "$status" = completed ]; then
+              echo "CodeQL analysis for $HEAD_SHA completed"
+              exit 0
+            fi
+            echo "CodeQL status: $status — waiting"
+            sleep 30
+          done
+          echo "::error::CodeQL analysis for this PR head never completed"
+          exit 1
+
+      - name: Fail on open CodeQL findings in this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          alerts=$(gh api "repos/$REPO/code-scanning/alerts?state=open&tool_name=CodeQL&pr=$PR&per_page=100" --paginate)
+          count=$(jq -s 'add | length' <<<"$alerts")
+          if [ "$count" -eq 0 ]; then
+            echo "No open CodeQL findings for PR #$PR"
+            exit 0
+          fi
+          jq -rs 'add[] | "::error file=\(.most_recent_instance.location.path),line=\(.most_recent_instance.location.start_line)::\(.rule.id): \(.most_recent_instance.message.text) — \(.html_url)"' <<<"$alerts"
+          echo "::error::$count open CodeQL finding(s) in PR #$PR"
+          exit 1
