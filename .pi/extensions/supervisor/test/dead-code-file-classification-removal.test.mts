@@ -114,6 +114,19 @@ function namespaceMembers(consumer: Consumer, nsName: string): string[] {
 			ts.isStringLiteral(node.argumentExpression)
 		) {
 			members.push(node.argumentExpression.text);
+		} else if (
+			ts.isVariableDeclaration(node) &&
+			ts.isObjectBindingPattern(node.name) &&
+			node.initializer &&
+			ts.isIdentifier(node.initializer) &&
+			checker.getSymbolAtLocation(node.initializer) === alias
+		) {
+			// `const { phantomThing } = fc` / `const { phantomThing: x } = fc` consume
+			// the namespace members named by each binding's property name.
+			for (const el of node.name.elements) {
+				const name = el.propertyName ?? el.name;
+				if (ts.isIdentifier(name)) members.push(name.text);
+			}
 		}
 		ts.forEachChild(node, collect);
 	};
@@ -370,6 +383,33 @@ describe("file-classification export surface", () => {
 		assert.deepEqual(
 			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
 			[],
+		);
+	});
+
+	it("counts a destructured namespace import member as a consumer", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nconst { phantomThing } = fc;\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
+		);
+	});
+
+	it("counts a renamed destructured namespace member as a consumer", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nconst { phantomThing: renamed } = fc;\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
+		);
+	});
+
+	it("ignores a destructuring whose namespace binding is shadowed", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nfunction g(fc: any) { const { phantomThing } = fc; }\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			["phantomThing"],
 		);
 	});
 
