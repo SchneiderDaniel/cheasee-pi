@@ -719,6 +719,106 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		assert.equal(outcome, true, "timed-out conflict resolution leaves conflicts unresolved");
 	});
 
+	it("developer conflict resolution success renders SUCCESS label + details.statusLabel", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const sendMessage = mock.fn();
+		(pi as any).sendMessage = sendMessage;
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner({ success: true });
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devMsg: any = sendMessage.mock.calls
+			.map((c) => c.arguments[0])
+			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+		assert.ok(devMsg, "conflict-resolution message posted");
+		assert.match(devMsg.content, /Conflict Resolution: developer — SUCCESS/);
+		assert.equal(devMsg.details.details.statusLabel, "SUCCESS");
+	});
+
+	it("developer conflict resolution failure renders FAILED label + details.statusLabel", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const sendMessage = mock.fn();
+		(pi as any).sendMessage = sendMessage;
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner({
+			success: false,
+			timedOut: false,
+			errorOutput: "resolution failed",
+		});
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devMsg: any = sendMessage.mock.calls
+			.map((c) => c.arguments[0])
+			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+		assert.ok(devMsg, "conflict-resolution message posted");
+		assert.match(devMsg.content, /Conflict Resolution: developer — FAILED/);
+		assert.equal(devMsg.details.details.statusLabel, "FAILED");
+	});
+
+	it("developer conflict resolution success wins over timedOut=true (precedence)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createPiWithFailedMerge(execCalls);
+		const sendMessage = mock.fn();
+		(pi as any).sendMessage = sendMessage;
+		const ctx = createMockCtx(true);
+		const runner = createMockRunner({ success: true, timedOut: true });
+		const wt = createTempWorktree();
+		tempDirs.push(wt);
+
+		const { handlePostPipelineMerge } = await import("../../pipeline/merge.ts");
+		await handlePostPipelineMerge(
+			42,
+			"Foo issue",
+			"Done",
+			makeConfig(),
+			pi,
+			ctx,
+			wt,
+			undefined,
+			runner,
+			createMockMergePort(true),
+		);
+
+		const devMsg: any = sendMessage.mock.calls
+			.map((c) => c.arguments[0])
+			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+		assert.ok(devMsg, "conflict-resolution message posted");
+		assert.match(devMsg.content, /Conflict Resolution: developer — SUCCESS/);
+		assert.equal(devMsg.details.details.statusLabel, "SUCCESS");
+	});
+
 	it("task includes merge conflict resolution instructions", async () => {
 		const execCalls: ExecCall[] = [];
 		const pi = createPiWithFailedMerge(execCalls);

@@ -2,8 +2,7 @@
 // Low-level gh/ghJson with typed generic returns.
 // Replaces raw `Promise<any>` returns from the old github.ts.
 
-import type { ExecFn } from "../pipeline/helpers.ts";
-import type { ExecResult } from "@earendil-works/pi-coding-agent";
+import type { ExecFn, ExecResult } from "../../lib/port-types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";

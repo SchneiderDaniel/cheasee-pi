@@ -10,7 +10,8 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { pushBranch, commitChanges, commitAndPush } from "../github/git.ts";
-import type { ExecFn, NotifyFn } from "../pipeline/helpers.ts";
+import type { ExecFn } from "../../lib/port-types.ts";
+import type { NotifyFn } from "../pipeline/helpers.ts";
 import type { ExecOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,6 @@ function makeMockExec(results: Array<{ code: number; stdout?: string; stderr?: s
 			code: result.code ?? 0,
 			stdout: result.stdout ?? "",
 			stderr: result.stderr ?? "",
-			killed: false,
 		};
 	};
 	return { exec, calls };

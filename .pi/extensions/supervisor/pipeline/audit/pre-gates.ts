@@ -9,7 +9,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import type { ExecFn } from "../helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import { pollCiChecks } from "../../checks/ci-gating.ts";
 import { runDuplicateCheck } from "../../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";

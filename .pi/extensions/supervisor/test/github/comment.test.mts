@@ -5,7 +5,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, rmSync, mkdirSync } from "node:fs";
-import type { ExecFn } from "../../pipeline/helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import { postIssueComment } from "../../github/comment.ts";
 import {
 	extractStructuredAuditOutput,
