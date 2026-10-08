@@ -1,5 +1,5 @@
 ---
-name: architecture-review
+name: audit-architecture-review
 description: Analyze codebase architectural friction — shallow modules, leaky seams, low locality. File umbrella GitHub issue with Mermaid diagrams plus sub-issues per candidate with dependency categories and testing strategy.
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Requires: `gh` CLI authenticated.
 ## Usage
 
 ```
-/skill:architecture-review <target>
+/skill:audit-architecture-review <target>
 ```
 
 | Target              | What it analyzes                                |
@@ -27,7 +27,7 @@ Requires: `gh` CLI authenticated.
 
 Extract target from message:
 
-- `/skill:architecture-review <target>` → use directly
+- `/skill:audit-architecture-review <target>` → use directly
 - Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 
