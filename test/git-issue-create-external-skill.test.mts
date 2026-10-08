@@ -1,11 +1,11 @@
 /**
- * Tests for external-issue skill
+ * Tests for git-issue-create-external skill
  *
  * Text-analysis tests that read the SKILL.md file and assert content patterns.
  * Tests cover all requirements from Issue #861.
  *
  * Run with:
- *   node --experimental-strip-types --test test/external-issue-skill.test.mts
+ *   node --experimental-strip-types --test test/git-issue-create-external-skill.test.mts
  */
 
 import assert from "node:assert";
@@ -13,7 +13,11 @@ import { describe, it } from "node:test";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const SKILL_PATH = resolve(import.meta.dirname, "..", ".pi/skills/create-external-issue/SKILL.md");
+const SKILL_PATH = resolve(
+	import.meta.dirname,
+	"..",
+	".pi/skills/git-issue-create-external/SKILL.md",
+);
 
 /**
  * Parse YAML frontmatter from a markdown file.
@@ -116,7 +120,7 @@ function parseFrontmatter(filePath: string): {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Phase 1: File existence and structure", () => {
-	it("exists at .pi/skills/create-external-issue/SKILL.md", () => {
+	it("exists at .pi/skills/git-issue-create-external/SKILL.md", () => {
 		assert.ok(existsSync(SKILL_PATH), `File not found: ${SKILL_PATH}`);
 	});
 
@@ -154,9 +158,9 @@ describe("Phase 1: File existence and structure", () => {
 		}
 	});
 
-	it("name field equals create-external-issue", () => {
+	it("name field equals git-issue-create-external", () => {
 		const { frontmatter } = parseFrontmatter(SKILL_PATH);
-		assert.strictEqual(frontmatter.name, "create-external-issue");
+		assert.strictEqual(frontmatter.name, "git-issue-create-external");
 	});
 
 	it("markdown body is non-empty after frontmatter", () => {

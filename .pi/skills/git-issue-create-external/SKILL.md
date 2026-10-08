@@ -1,5 +1,5 @@
 ---
-name: create-external-issue
+name: git-issue-create-external
 description: "Guides the agent to autonomously file high-quality issues on external public GitHub repos. Enforces a strict 5-step checklist: read repo guidelines, read issue templates, check for duplicates, write a professional issue body with neutral reproducible examples, and file via gh issue create."
 metadata:
   steps: discover-template-deduplicate-compose-file

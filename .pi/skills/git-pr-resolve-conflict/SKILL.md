@@ -1,5 +1,5 @@
 ---
-name: resolve-worktree-merge-conflict
+name: git-pr-resolve-conflict
 description: "Resolve merge conflicts on PR branches that live in git worktrees. Use whenever a PR shows CONFLICTING or DIRTY merge state, 'git merge origin/main' or a rebase reports conflicts, a worktree branch must absorb origin/main changes, or two PRs touch the same files (same-family refactors). Covers conflict diagnosis, combined-semantics resolution, test-file merging, dead-reference sweeps, verification by build/test, and clean rebase history. Trigger even on short asks like 'fix the conflict', 'PR is not mergeable', or 'rebase this branch'."
 ---
 
