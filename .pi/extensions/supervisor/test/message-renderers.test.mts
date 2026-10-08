@@ -27,7 +27,7 @@ const createMessageRenderer = (...args: Parameters<typeof createMessageRendererT
 const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererTyped>) =>
 	createSummaryRendererTyped(...args) as LooseRenderer;
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
-import { renderBudgetExceeded } from "../session/message-renderers/render-budget.ts";
+import { renderBudgetExceeded } from "../session/message-renderers/render-simple.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 
