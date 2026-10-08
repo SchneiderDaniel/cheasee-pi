@@ -56,10 +56,14 @@ function resolvesTo(specifier: string, fromFile: string, target: string): boolea
 	return resolved === target || `${resolved}.ts` === target;
 }
 
-/** Named bindings imported/re-exported from `target` by the consumer source. */
+/**
+ * Names the consumer imports/re-exports from `target`, or `"*"` when it
+ * re-exports the module wholesale (`export * …`), which references every name.
+ */
 function importedNames(consumer: Consumer, target: string): Set<string> {
 	const names = new Set<string>();
-	for (const st of parse(consumer.path, consumer.source).statements) {
+	const sourceFile = parse(consumer.path, consumer.source);
+	for (const st of sourceFile.statements) {
 		if (ts.isImportDeclaration(st)) {
 			if (!ts.isStringLiteral(st.moduleSpecifier)) continue;
 			if (!resolvesTo(st.moduleSpecifier.text, consumer.path, target)) continue;
@@ -68,6 +72,20 @@ function importedNames(consumer: Consumer, target: string): Set<string> {
 			if (named && ts.isNamedImports(named)) {
 				// Imported export name is the spec before any `as` alias.
 				for (const el of named.elements) names.add((el.propertyName ?? el.name).text);
+			} else if (named && ts.isNamespaceImport(named)) {
+				// Namespace import: the names used are `ns.<name>` member accesses.
+				const ns = named.name.text;
+				const collect = (node: ts.Node): void => {
+					if (
+						ts.isPropertyAccessExpression(node) &&
+						ts.isIdentifier(node.expression) &&
+						node.expression.text === ns
+					) {
+						names.add(node.name.text);
+					}
+					ts.forEachChild(node, collect);
+				};
+				collect(sourceFile);
 			}
 		} else if (ts.isExportDeclaration(st) && st.moduleSpecifier) {
 			if (!ts.isStringLiteral(st.moduleSpecifier)) continue;
@@ -75,6 +93,9 @@ function importedNames(consumer: Consumer, target: string): Set<string> {
 			const clause = st.exportClause;
 			if (clause && ts.isNamedExports(clause)) {
 				for (const el of clause.elements) names.add((el.propertyName ?? el.name).text);
+			} else {
+				// `export * from …` / `export * as ns from …` re-export every name.
+				names.add("*");
 			}
 		}
 	}
@@ -86,8 +107,14 @@ function exportedNames(fileName: string, source: string): string[] {
 	const names: string[] = [];
 	for (const st of parse(fileName, source).statements) {
 		if (ts.isExportDeclaration(st)) {
-			if (st.exportClause && ts.isNamedExports(st.exportClause)) {
+			if (!st.exportClause) {
+				// `export * from …` re-exports an unenumerable set → fail closed.
+				throw new Error(`unsupported star re-export in ${fileName}`);
+			}
+			if (ts.isNamedExports(st.exportClause)) {
 				for (const el of st.exportClause.elements) names.push(el.name.text);
+			} else if (ts.isNamespaceExport(st.exportClause)) {
+				names.push(st.exportClause.name.text);
 			}
 			continue;
 		}
@@ -110,8 +137,9 @@ function exportedNames(fileName: string, source: string): string[] {
 			ts.isEnumDeclaration(st) ||
 			ts.isModuleDeclaration(st)
 		) {
-			if (st.name && ts.isIdentifier(st.name)) names.push(st.name.text);
-			else if (isDefault) names.push("default");
+			// `export default function f()` exports the public name `default`.
+			if (isDefault) names.push("default");
+			else if (st.name && ts.isIdentifier(st.name)) names.push(st.name.text);
 		}
 	}
 	return names;
@@ -127,6 +155,7 @@ function unreferencedExports(
 	for (const consumer of consumers) {
 		for (const name of importedNames(consumer, target)) referenced.add(name);
 	}
+	if (referenced.has("*")) return [];
 	return exportedNames(target, source).filter((name) => !referenced.has(name));
 }
 
@@ -236,7 +265,45 @@ describe("file-classification export surface", () => {
 		assert.deepEqual(unreferencedExports("export { phantomThing };\n", []), ["phantomThing"]);
 		assert.deepEqual(
 			unreferencedExports("export default function phantomThing(): void {}\n", []),
-			["phantomThing"],
+			["default"],
+		);
+	});
+
+	it("recognizes a namespace export as an export", () => {
+		assert.deepEqual(unreferencedExports('export * as phantomThing from "./x.ts";\n', []), [
+			"phantomThing",
+		]);
+	});
+
+	it("fails closed on an unsupported star export in the defining module", () => {
+		assert.throws(() => unreferencedExports('export * from "./x.ts";\n', []), /star re-export/);
+	});
+
+	it("counts a default import as a consumer of the default export", () => {
+		const defaultSource = "export default function phantomThing(): void {}\n";
+		const importer = 'import phantomThing from "../file-classification.ts";\n';
+		assert.deepEqual(
+			unreferencedExports(defaultSource, [
+				consumer(join(checksDir, "requirements", "parity.ts"), importer),
+			]),
+			[],
+		);
+	});
+
+	it("counts a namespace import's member access as a consumer", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nconst ok = fc.phantomThing;\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
+		);
+	});
+
+	it("counts a star re-export as a consumer", () => {
+		const importer = 'export * from "./file-classification.ts";\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
 		);
 	});
 
