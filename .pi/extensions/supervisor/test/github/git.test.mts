@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExecFn } from "../../pipeline/helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import {
 	commitChanges,

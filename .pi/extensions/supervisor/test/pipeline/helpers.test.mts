@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
 import { createMockGitHubPort, type PortCall } from "../helper/mock-github-port.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import {
 	fetchIssue,
 	readProjectBoard,
@@ -13,7 +14,6 @@ import {
 	fetchFreshIssueData,
 	loadAgentFile,
 	type NotifyFn,
-	type ExecFn,
 } from "../../pipeline/helpers.ts";
 
 // ─── Mock Helpers ──────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 // Extracted from handler.ts with injected ExecFn/NotifyFn/ErrorCollector dependencies.
 // Independently unit-testable: no direct pi/ctx dependency.
 
-import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
+import type { ExecFn } from "../../lib/port-types.ts";
 import type {
 	SupervisorConfig,
 	FilteredIssueData,
@@ -14,10 +14,6 @@ import { filterIssueData } from "../lib/issue-filter.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-
-/** Exec function type for subprocess calls — port matching the real dependency. */
-// Diverges from lib/port-types.ExecFn: opts use @earendil-works/pi-coding-agent ExecOptions
-export type ExecFn = (cmd: string, args: string[], opts?: ExecOptions) => Promise<ExecResult>;
 
 /**
  * NotifyFn: notification callbacks for UI status updates.

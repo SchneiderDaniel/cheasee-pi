@@ -14,7 +14,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig } from "../../config/types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { generateBranchName } from "../../agent/task.ts";
-import type { ExecFn } from "../helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { writeCheckpointFile, type CheckpointName } from "../state-checkpoint.ts";
 import {

@@ -5,7 +5,7 @@
 
 import { writeFile, unlink, mkdir } from "node:fs/promises";
 import { dirname, join as joinPath } from "node:path";
-import type { ExecFn } from "../pipeline/helpers.ts";
+import type { ExecFn } from "../../lib/port-types.ts";
 import { gh } from "./gh-client.ts";
 import { normalizeEscapes } from "../agent/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";

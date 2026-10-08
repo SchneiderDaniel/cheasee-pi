@@ -2,7 +2,7 @@
 // commitChanges, pushBranch, commitAndPush.
 // pushBranch and commitAndPush return Result<T> for explicit failure handling.
 
-import type { ExecFn } from "../pipeline/helpers.ts";
+import type { ExecFn } from "../../lib/port-types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { withNotify, type Result } from "../pipeline/result.ts";
 import type { NotifyFn } from "../pipeline/helpers.ts";

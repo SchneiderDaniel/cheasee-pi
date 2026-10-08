@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExecFn } from "../../pipeline/helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import type { ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import { gh, ghJson, ghRaw, detectTokenClass, resolveGitHubToken } from "../../github/gh-client.ts";
 import { createGitHubPort } from "../../github/ports.ts";
