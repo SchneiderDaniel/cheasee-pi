@@ -103,7 +103,7 @@ Collect writing samples from user (paste, URL, or file), analyze 7 style dimensi
 
 - **Mode:** Manual — agent cannot auto-invoke; use `/skill:voice-trainer`
 - **Skills:** Style analysis, pattern abstraction, guide generation
-- **Output:** New voice file in `.pi/skills/writing-voice/references/`
+- **Output:** New voice file in `.pi/skills/voice-for-writing/references/`
 - **Invocation:** `/skill:voice-trainer`
 
 ### git-issue-create-external
@@ -132,11 +132,11 @@ Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automat
 
 **Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
 
-### writing-voice
+### voice-for-writing
 
 Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. Applied before drafting any user-facing prose.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:writing-voice`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:voice-for-writing`
 - **Skills:** Voice analysis, style guide generation
 - **Input:** Sample text (URL, file path, or paste)
 - **Output:** Structured voice style guide
