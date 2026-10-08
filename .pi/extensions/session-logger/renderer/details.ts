@@ -15,6 +15,42 @@ import {
 	THINKING_PREVIEW_CHARS,
 	truncate,
 } from "./format.ts";
+import type {
+	CompactionEntry,
+	CustomEntry,
+	ModelChangeEntry,
+	SessionMessageEntry,
+	ThinkingLevelChangeEntry,
+} from "@earendil-works/pi-coding-agent";
+import type {
+	AssistantMessage,
+	ImageContent,
+	TextContent,
+	ThinkingContent,
+	ToolCall,
+	ToolResultMessage,
+	UserMessage,
+} from "@earendil-works/pi-ai";
+
+/** Open-ended member for on-disk blocks the parser passes through untyped. */
+interface UnknownContentBlock {
+	type: string;
+	[key: string]: unknown;
+}
+
+/** Content block shapes consumed by the detail renderers. */
+type ContentBlock = TextContent | ThinkingContent | ToolCall | ImageContent | UnknownContentBlock;
+
+/** Single narrowing site: filter content blocks by discriminant. */
+function blocksOf<T extends ContentBlock["type"]>(
+	content: ContentBlock[],
+	type: T,
+): Extract<ContentBlock, { type: T }>[] {
+	return content.filter((c): c is Extract<ContentBlock, { type: T }> => c.type === type);
+}
+
+/** Supervisor `custom` entries carry `details`; upstream CustomEntry does not declare it. */
+type SupervisorCustomEntry = CustomEntry & { details?: Record<string, unknown> };
 
 /**
  * Render sub-agent details from a supervisor custom message.
@@ -36,7 +72,7 @@ import {
  *
  * All fields optional — degrades gracefully via `?.` optional chaining.
  */
-export function renderSupervisorDetails(details: Record<string, unknown>): string[] {
+function renderSupervisorDetails(details: Record<string, unknown>): string[] {
 	const lines: string[] = [];
 
 	const agentName = details?.agentName ?? "unknown-agent";
@@ -110,12 +146,12 @@ export function renderSupervisorDetails(details: Record<string, unknown>): strin
 }
 
 /** Pass-through `model_change` entry line. */
-export function renderModelChangeEntry(entry: any): string[] {
+export function renderModelChangeEntry(entry: ModelChangeEntry): string[] {
 	return [`> **Model:** \`${entry.provider}/${entry.modelId}\``, ``];
 }
 
 /** Pass-through `thinking_level_change` entry line. */
-export function renderThinkingChangeEntry(entry: any): string[] {
+export function renderThinkingChangeEntry(entry: ThinkingLevelChangeEntry): string[] {
 	return [`> **Thinking:** \`${entry.thinkingLevel}\``, ``];
 }
 
@@ -123,21 +159,21 @@ export function renderThinkingChangeEntry(entry: any): string[] {
  * `custom` entry — supervisor entries with non-empty details expand to
  * renderSupervisorDetails; everything else falls through to a one-liner.
  */
-export function renderCustomEntry(entry: any): string[] {
+export function renderCustomEntry(entry: SupervisorCustomEntry): string[] {
 	if (
 		entry.customType === "supervisor" &&
 		entry.details &&
 		typeof entry.details === "object" &&
-		Object.keys(entry.details as Record<string, unknown>).length > 0
+		Object.keys(entry.details).length > 0
 	) {
-		return renderSupervisorDetails(entry.details as Record<string, unknown>);
+		return renderSupervisorDetails(entry.details);
 	}
 	const data = JSON.stringify(entry.data ?? {});
 	return [`> *${entry.customType}* ${data !== "{}" ? `— ${data}` : ""}`, ``];
 }
 
 /** `compaction` entry line. */
-export function renderCompactionEntry(entry: any): string[] {
+export function renderCompactionEntry(entry: CompactionEntry): string[] {
 	return [`> **Context compacted** — ${fmtTokens(entry.tokensBefore ?? 0)} tokens summarized`, ``];
 }
 
@@ -147,7 +183,11 @@ export interface ConversationTurnState {
 	inTurn: boolean;
 }
 
-function renderUserMessage(msg: any, content: any[], turn: ConversationTurnState): string[] {
+function renderUserMessage(
+	msg: UserMessage,
+	content: ContentBlock[],
+	turn: ConversationTurnState,
+): string[] {
 	const sections: string[] = [];
 
 	// Close previous turn
@@ -158,9 +198,8 @@ function renderUserMessage(msg: any, content: any[], turn: ConversationTurnState
 	turn.turnIdx++;
 	turn.inTurn = true;
 
-	const texts = content
-		.filter((c: any) => c.type === "text")
-		.map((c: any) => c.text)
+	const texts = blocksOf(content, "text")
+		.map((c) => c.text)
 		.join("\n");
 	sections.push(`### Turn ${turn.turnIdx} — User`);
 	sections.push(``);
@@ -169,7 +208,11 @@ function renderUserMessage(msg: any, content: any[], turn: ConversationTurnState
 	return sections;
 }
 
-function renderAssistantMessage(msg: any, content: any[], turn: ConversationTurnState): string[] {
+function renderAssistantMessage(
+	msg: AssistantMessage,
+	content: ContentBlock[],
+	turn: ConversationTurnState,
+): string[] {
 	const sections: string[] = [];
 
 	if (!turn.inTurn) {
@@ -191,9 +234,9 @@ function renderAssistantMessage(msg: any, content: any[], turn: ConversationTurn
 	if (stop) metaParts.push(`stop=\`${stop}\``);
 
 	// Extract parts
-	const thinkBlocks = content.filter((c: any) => c.type === "thinking").map((c: any) => c.thinking);
-	const textBlocks = content.filter((c: any) => c.type === "text").map((c: any) => c.text);
-	const toolCalls = content.filter((c: any) => c.type === "toolCall");
+	const thinkBlocks = blocksOf(content, "thinking").map((c) => c.thinking);
+	const textBlocks = blocksOf(content, "text").map((c) => c.text);
+	const toolCalls = blocksOf(content, "toolCall");
 
 	const thinkTotal = thinkBlocks.reduce((s: number, t: string) => s + t.length, 0);
 
@@ -242,14 +285,13 @@ function renderAssistantMessage(msg: any, content: any[], turn: ConversationTurn
 	return sections;
 }
 
-function renderToolResultMessage(msg: any, content: any[]): string[] {
+function renderToolResultMessage(msg: ToolResultMessage, content: ContentBlock[]): string[] {
 	const sections: string[] = [];
 
 	const tn = msg.toolName ?? "?";
 	const isErr = msg.isError ?? false;
-	const resultText = content
-		.filter((c: any) => c.type === "text")
-		.map((c: any) => c.text)
+	const resultText = blocksOf(content, "text")
+		.map((c) => c.text)
 		.join("\n");
 	const errMark = isErr ? " ⚠️" : "";
 	const sizeLabel = fmtTokens(resultText.length);
@@ -279,13 +321,20 @@ function renderToolResultMessage(msg: any, content: any[]): string[] {
  * `message` entry dispatcher — user / assistant / toolResult roles.
  * Unknown roles render nothing (no crash).
  */
-export function renderMessageEntry(entry: any, turn: ConversationTurnState): string[] {
-	const msg = entry.message ?? {};
-	const role = msg.role ?? "?";
-	const content = msg.content ?? [];
+export function renderMessageEntry(
+	entry: SessionMessageEntry,
+	turn: ConversationTurnState,
+): string[] {
+	const msg = entry.message;
+	if (!msg) return [];
 
-	if (role === "user") return renderUserMessage(msg, content, turn);
-	if (role === "assistant") return renderAssistantMessage(msg, content, turn);
-	if (role === "toolResult") return renderToolResultMessage(msg, content);
+	if (msg.role === "user") {
+		// UserMessage.content is `string | (TextContent | ImageContent)[]`; string
+		// content is malformed and throws at the `.filter` in renderUserMessage,
+		// which report.ts:119 catches. One boundary assertion at dispatch.
+		return renderUserMessage(msg, msg.content as ContentBlock[], turn);
+	}
+	if (msg.role === "assistant") return renderAssistantMessage(msg, msg.content, turn);
+	if (msg.role === "toolResult") return renderToolResultMessage(msg, msg.content);
 	return [];
 }
