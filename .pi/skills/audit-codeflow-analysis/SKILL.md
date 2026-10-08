@@ -1,5 +1,5 @@
 ---
-name: codeflow-analysis
+name: audit-codeflow-analysis
 description: "Fetch the CodeFlow structural analysis report, turn it into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
 metadata:
   steps: fetch-report-parse-group-confirm-file

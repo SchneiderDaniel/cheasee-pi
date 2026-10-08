@@ -35,7 +35,7 @@ const MODIFIED_MD_FILES = [
 	".pi/extensions/supervisor/agents/auditor.md",
 	".pi/extensions/supervisor/agents/developer.md",
 	".pi/extensions/supervisor/agents/test-designer.md",
-	".pi/skills/architecture-review/SKILL.md",
+	".pi/skills/audit-architecture-review/SKILL.md",
 ];
 
 // Live scan of .pi/skills/<name>/SKILL.md so future prompt→skill migrations
@@ -92,10 +92,7 @@ describe("ranked_map extension removal", () => {
 
 		it("APPEND_SYSTEM.md does not mention ranked_map", () => {
 			const content = readFileSync(APPEND_SYSTEM_MD_PATH, "utf-8");
-			assert.ok(
-				!content.includes("ranked_map"),
-				"APPEND_SYSTEM.md still references 'ranked_map'",
-			);
+			assert.ok(!content.includes("ranked_map"), "APPEND_SYSTEM.md still references 'ranked_map'");
 		});
 
 		it("APPEND_SYSTEM.md mentions ripgrep_search for literal text", () => {

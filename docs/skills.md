@@ -26,32 +26,32 @@ Skills differ from extensions in that they are **prompt-based instruction sets**
 
 ## Available skills
 
-### architecture-review
+### audit-architecture-review
 
 Audit codebase architecture for shallow modules, leaky seams, low locality. Files umbrella issue with Mermaid diagrams + sub-issues per candidate.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:architecture-review <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-architecture-review <target>`
 - **Skills:** Structural search, import graph analysis, seam detection
 - **Output:** GitHub umbrella issue with 2-5 candidates + sub-issues
-- **Invocation:** `/skill:architecture-review <target>`
+- **Invocation:** `/skill:audit-architecture-review <target>`
 
-### clean-code-audit
+### audit-clean-code
 
 Scan code for oversized files/functions and "what" comments. Files umbrella + sub-issues with cited sources.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:clean-code-audit <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-clean-code <target>`
 - **Skills:** Size analysis, comment classification, evidence-based reporting
 - **Rules:** SonarQube S104, Clean Code ch. 4
-- **Invocation:** `/skill:clean-code-audit <target>`
+- **Invocation:** `/skill:audit-clean-code <target>`
 
-### code-simplification
+### audit-code-simplification
 
 Find deep nesting, dead code, unnecessary abstractions, naming issues. Files umbrella + sub-issues.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:code-simplification <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-code-simplification <target>`
 - **Skills:** Complexity analysis, dead code detection, naming audit
 - **Patterns:** 5 simplification principles
-- **Invocation:** `/skill:code-simplification <target>`
+- **Invocation:** `/skill:audit-code-simplification <target>`
 
 ### handover
 

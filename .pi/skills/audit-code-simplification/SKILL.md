@@ -1,5 +1,5 @@
 ---
-name: code-simplification
+name: audit-code-simplification
 description: Scan target code for complexity patterns — deep nesting, dead code, unnecessary abstractions, naming issues. File umbrella GitHub issue with simplification candidates and per-candidate sub-issues with examples.
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Requires: `gh` CLI authenticated.
 ## Usage
 
 ```
-/skill:code-simplification <target>
+/skill:audit-code-simplification <target>
 ```
 
 | Target              | What it analyzes                                |
@@ -27,7 +27,7 @@ Requires: `gh` CLI authenticated.
 
 Extract target from message:
 
-- `/skill:code-simplification <target>` → use directly
+- `/skill:audit-code-simplification <target>` → use directly
 - Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 

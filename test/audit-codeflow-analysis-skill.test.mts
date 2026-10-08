@@ -1,5 +1,5 @@
 /**
- * Tests for the codeflow-analysis skill contract.
+ * Tests for the audit-codeflow-analysis skill contract.
  *
  * Text-analysis tests that read SKILL.md and assert the required contract:
  * tool/report references, the ask_user confirmation gate before any
@@ -7,7 +7,7 @@
  * delegation, best-effort isolation disclosure, and package.json wiring.
  *
  * Run with:
- *   node --experimental-strip-types --test test/codeflow-analysis-skill.test.mts
+ *   node --experimental-strip-types --test test/audit-codeflow-analysis-skill.test.mts
  */
 
 import assert from "node:assert";
@@ -18,7 +18,7 @@ import { resolve } from "node:path";
 import { isRegistered } from "./lib/test-discovery.mts";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const SKILL_PATH = resolve(ROOT, ".pi/skills/codeflow-analysis/SKILL.md");
+const SKILL_PATH = resolve(ROOT, ".pi/skills/audit-codeflow-analysis/SKILL.md");
 
 function parseFrontmatter(content: string): { frontmatter: Record<string, string>; body: string } {
 	const lines = content.split("\n");
@@ -43,13 +43,13 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, string
 const skill = readFileSync(SKILL_PATH, "utf-8");
 const { frontmatter, body } = parseFrontmatter(skill);
 
-describe("codeflow-analysis SKILL.md", () => {
+describe("audit-codeflow-analysis SKILL.md", () => {
 	it("exists", () => {
 		assert.ok(existsSync(SKILL_PATH), "SKILL.md must exist");
 	});
 
-	it("has name: codeflow-analysis and a non-empty description", () => {
-		assert.strictEqual(frontmatter.name, "codeflow-analysis");
+	it("has name: audit-codeflow-analysis and a non-empty description", () => {
+		assert.strictEqual(frontmatter.name, "audit-codeflow-analysis");
 		assert.ok(
 			(frontmatter.description ?? "").replace(/"/g, "").trim().length > 0,
 			"description must be non-empty",
