@@ -83,13 +83,6 @@ export const INVESTIGATION_EFFICIENCY = `## Investigation Efficiency — When de
 3. **Trace only the relevant path** — Once you know which assertion fails, trace only the code path producing actual vs expected.`;
 
 /**
- * Instruction for researcher deduplication scan.
- * Previously embedded in researcher.md, now a shared constant.
- */
-const DEDUPLICATION_SCAN_INSTRUCTION = `### 1. Deduplication Scan
-Scan the provided issue data for an existing comment containing \`## Research Findings\`. If one exists, skip all research and output a JSON object with \`"action": "COMPLETE", "agentName": "researcher"\` (see Structured Output Format in your task). Fallback: if you cannot output JSON, output \`RESEARCH_COMPLETE\` on its own line. Do nothing else.`;
-
-/**
  * Centralized comment format templates.
  * Previously defined in individual agent .md files, now code-generated.
  * Auditor verdict templates interpolate the AUDIT_*_HEADING constants
