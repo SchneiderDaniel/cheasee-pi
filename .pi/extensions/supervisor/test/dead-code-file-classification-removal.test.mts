@@ -38,6 +38,23 @@ function scanSources(needle: string): string[] {
 	return collectSourceFiles(checksDir).filter((f) => readFileSync(f, "utf8").includes(needle));
 }
 
+/** Top-level export names declared in a source string. */
+function exportedNames(source: string): string[] {
+	const out: string[] = [];
+	for (const m of source.matchAll(
+		/^export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+(\w+)/gm,
+	)) {
+		out.push(m[1]);
+	}
+	return out;
+}
+
+/** Export names of `source` absent from every consumer source (defining file excluded). */
+function unreferencedExports(source: string, consumers: string[]): string[] {
+	const corpus = consumers.join("\n");
+	return exportedNames(source).filter((name) => !corpus.includes(name));
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: removed symbols are gone and leave no dangling references
 // ═══════════════════════════════════════════════════════════════════════
@@ -70,6 +87,34 @@ describe("file-classification dead-code removal", () => {
 		const source = readFileSync(classificationPath, "utf8");
 		assert.ok(source.includes("SOURCE_EXTENSIONS"));
 		assert.ok(source.includes("export function isTestableFile"));
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Dead-export guard: every export needs a consumer outside its own file
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("file-classification export surface", () => {
+	const consumers = () =>
+		collectSourceFiles(checksDir)
+			.filter((f) => f !== classificationPath)
+			.map((f) => readFileSync(f, "utf8"));
+
+	it("every export has a consumer outside the defining file", () => {
+		const unreferenced = unreferencedExports(readFileSync(classificationPath, "utf8"), consumers());
+		assert.deepEqual(unreferenced, [], `unreferenced export(s): ${unreferenced.join(", ")}`);
+	});
+
+	it("reports a synthetic export with no consumer as unreferenced", () => {
+		const synthetic = "export function phantomThing(): void {}\n";
+		assert.deepEqual(unreferencedExports(synthetic, ["import { other } from './x'"]), [
+			"phantomThing",
+		]);
+	});
+
+	it("excludes the defining file so isTestableFile cannot self-satisfy", () => {
+		const source = readFileSync(classificationPath, "utf8");
+		assert.ok(unreferencedExports(source, []).includes("isTestableFile"));
 	});
 });
 

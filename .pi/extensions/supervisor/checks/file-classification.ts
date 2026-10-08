@@ -1,6 +1,7 @@
 // ─── File Classification ──────────────────────────────────────────
 // Shared utilities for classifying files as test/source, extracted
-// from the former tdd-gate.ts. Used by requirements-traceability.ts.
+// from the former tdd-gate.ts. Consumed by checks/requirements/parity.ts,
+// re-exported via checks/requirements/index.ts.
 
 // ─── Constants ──────────────────────────────────────────────────────
 
