@@ -16,6 +16,24 @@ import (
 // Canonical form, stored verbatim.
 var defaultSkillRepos = []string{"https://github.com/DietrichGebert/ponytail"}
 
+// defaultPackageFilter narrows the resources cheasee-pi's default package
+// contributes. pi's applyPatterns treats a plain "!glob" entry as an
+// exclusion from the full manifest set, and matchesAnyPattern compares it
+// against a skill's parent directory name, so a bare glob is the whole
+// pattern.
+type defaultPackageFilter struct {
+	Source string
+	Skills []string
+}
+
+// defaultPackageFilters keeps the default package from loading skills nothing
+// uses: ponytail ships five auxiliary skills beside the core ladder skill, and
+// only the core one is wanted. The core keeps working regardless — ponytail's
+// extension hook injects its SKILL.md by absolute path, not via registration.
+var defaultPackageFilters = []defaultPackageFilter{
+	{Source: defaultSkillRepos[0], Skills: []string{"!ponytail-*"}},
+}
+
 // canonicalSkillRepo validates and normalizes a custom skill repository spec
 // to the canonical form the entrypoint passes to `pi install -l -a` verbatim
 // (clones land in the bind-mounted .pi/git/ and pi owns the settings
