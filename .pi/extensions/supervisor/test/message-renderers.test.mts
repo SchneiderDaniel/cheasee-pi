@@ -127,13 +127,14 @@ describe("RENDERERS dispatch table", () => {
 		assert.equal(RENDERERS["made-up-type"], undefined);
 	});
 
-	it("render-simple.ts is the sole home of the five small renderers, wired unchanged", () => {
+	it("render-simple.ts is the sole home of the six small renderers, wired unchanged", () => {
 		assert.deepEqual(
 			[...Object.keys(renderSimple)].sort(),
 			[
 				"renderBudgetExceeded",
 				"renderCompaction",
 				"renderError",
+				"renderPhaseChange",
 				"renderThinking",
 				"renderToolStart",
 			].sort(),
@@ -143,6 +144,7 @@ describe("RENDERERS dispatch table", () => {
 		assert.equal(RENDERERS["budget-exceeded"], renderSimple.renderBudgetExceeded);
 		assert.equal(RENDERERS["tool-start"], renderSimple.renderToolStart);
 		assert.equal(RENDERERS["thinking"], renderSimple.renderThinking);
+		assert.equal(RENDERERS["phase-change"], renderSimple.renderPhaseChange);
 	});
 
 	it("fallbackRenderer is exported and handles string content as Markdown", () => {
@@ -378,7 +380,10 @@ describe("createSummaryRenderer subtle token", () => {
 		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
 		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
 		assert.equal(subtle.length, 2);
-		assert.ok(subtle.every((c) => c.color === "dim"), JSON.stringify(subtle));
+		assert.ok(
+			subtle.every((c) => c.color === "dim"),
+			JSON.stringify(subtle),
+		);
 	});
 
 	it("light theme styles table/bold rows with muted and never dim", () => {
@@ -386,7 +391,10 @@ describe("createSummaryRenderer subtle token", () => {
 		createSummaryRenderer({} as never)({ content } as never, {} as never, theme as never);
 		const subtle = fgCalls.filter((c) => c.text.startsWith("| ") || c.text.startsWith("**"));
 		assert.equal(subtle.length, 2);
-		assert.ok(subtle.every((c) => c.color === "muted"), JSON.stringify(subtle));
+		assert.ok(
+			subtle.every((c) => c.color === "muted"),
+			JSON.stringify(subtle),
+		);
 		assert.ok(!fgCalls.some((c) => c.color === "dim"), "light path must not use dim");
 	});
 
@@ -409,7 +417,10 @@ describe("renderBudgetExceeded style adoption", () => {
 			{} as never,
 			theme as never,
 		);
-		assert.ok(styleCalls.some((c) => c.options.fg === "warning"), JSON.stringify(styleCalls));
+		assert.ok(
+			styleCalls.some((c) => c.options.fg === "warning"),
+			JSON.stringify(styleCalls),
+		);
 		assert.deepEqual(fgCalls, [], JSON.stringify(fgCalls));
 	});
 });
