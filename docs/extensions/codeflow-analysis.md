@@ -40,5 +40,5 @@ is reported as a warning and does not discard the Markdown result.
 
 See [Daily Usage](../daily-usage.md#codeflow-code-structure-visualization) for
 CodeFlow availability and limitations, and the
-[CodeFlow analysis skill](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/skills/codeflow-analysis/SKILL.md) for the
+[CodeFlow analysis skill](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.pi/skills/audit-codeflow-analysis/SKILL.md) for the
 follow-up workflow.
