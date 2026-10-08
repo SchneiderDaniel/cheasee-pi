@@ -71,6 +71,10 @@ type SupervisorCustomEntry = CustomEntry & { details?: Record<string, unknown> }
  * }
  *
  * All fields optional — degrades gracefully via `?.` optional chaining.
+ *
+ * Module-private by design: only `renderCustomEntry` calls it, so the `export`
+ * was dead (knip unused-export) and removed — see
+ * test/session-logger-details-content-blocks.test.mts.
  */
 function renderSupervisorDetails(details: Record<string, unknown>): string[] {
 	const lines: string[] = [];
@@ -332,9 +336,9 @@ export function renderMessageEntry(
 		// UserMessage.content is `string | (TextContent | ImageContent)[]`; string
 		// content is malformed and throws at the `.filter` in renderUserMessage,
 		// which report.ts:119 catches. One boundary assertion at dispatch.
-		return renderUserMessage(msg, msg.content as ContentBlock[], turn);
+		return renderUserMessage(msg, (msg.content ?? []) as ContentBlock[], turn);
 	}
-	if (msg.role === "assistant") return renderAssistantMessage(msg, msg.content, turn);
-	if (msg.role === "toolResult") return renderToolResultMessage(msg, msg.content);
+	if (msg.role === "assistant") return renderAssistantMessage(msg, msg.content ?? [], turn);
+	if (msg.role === "toolResult") return renderToolResultMessage(msg, msg.content ?? []);
 	return [];
 }

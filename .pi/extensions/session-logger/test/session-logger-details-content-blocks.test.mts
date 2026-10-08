@@ -114,6 +114,46 @@ describe("renderer/details.ts — content-block narrowing", () => {
 		assert.ok(md.includes("### Turn 1 — User"), "user turn heading present");
 	});
 
+	it("user: missing content field → empty turn section, no crash (?? [] fallback)", () => {
+		const filepath = writeJsonl([
+			sessionHeader(),
+			{ type: "message", message: { role: "user" } },
+		]);
+
+		const md = renderSessionToMarkdown(filepath);
+		assert.ok(md.includes("### Turn 1 — User"), "user turn heading present");
+	});
+
+	it("user: null content → empty turn section, no crash (?? [] fallback)", () => {
+		const filepath = writeJsonl([
+			sessionHeader(),
+			{ type: "message", message: { role: "user", content: null } },
+		]);
+
+		const md = renderSessionToMarkdown(filepath);
+		assert.ok(md.includes("### Turn 1 — User"), "user turn heading present");
+	});
+
+	it("assistant: missing content field → heading only, no crash (?? [] fallback)", () => {
+		const filepath = writeJsonl([
+			sessionHeader(),
+			{ type: "message", message: { role: "assistant" } },
+		]);
+
+		const md = renderSessionToMarkdown(filepath);
+		assert.ok(md.includes("### Turn 1 — Assistant"), "assistant turn heading present");
+	});
+
+	it("toolResult: missing content field → zero size, no crash (?? [] fallback)", () => {
+		const filepath = writeJsonl([
+			sessionHeader(),
+			{ type: "message", message: { role: "toolResult", toolName: "read" } },
+		]);
+
+		const md = renderSessionToMarkdown(filepath);
+		assert.ok(md.includes("  📥 `read` — 0"), "result size derived from empty content");
+	});
+
 	it("message: unknown role with no content field → renders nothing, no crash", () => {
 		const filepath = writeJsonl([
 			sessionHeader(),
@@ -204,6 +244,24 @@ describe("renderer/details.ts — content-block narrowing", () => {
 
 		assert.throws(() => renderSessionToMarkdown(filepath));
 	});
+
+	it("supervisor custom entry: details render through the public entry point", () => {
+		const filepath = writeJsonl([
+			sessionHeader(),
+			{
+				type: "custom",
+				customType: "supervisor",
+				timestamp: "2025-06-01T10:04:00Z",
+				data: {},
+				details: { agentName: "auditor", statusLabel: "done", toolCount: 5, auditScore: 9 },
+			},
+		]);
+
+		const md = renderSessionToMarkdown(filepath);
+		assert.ok(md.includes("### Agent: auditor -- done"), "supervisor details header rendered");
+		assert.ok(md.includes("5 tools"), "supervisor stats rendered");
+		assert.ok(md.includes("Audit score: 9"), "supervisor audit score rendered");
+	});
 });
 
 describe("renderer/details.ts — static guards", () => {
@@ -219,5 +277,14 @@ describe("renderer/details.ts — static guards", () => {
 	it("collapses the text-extraction chain into blocksOf", () => {
 		assert.ok(!source.includes('c.type === "text"'), "no inline text-block filter chains");
 		assert.ok(source.includes("blocksOf"), "blocksOf helper owns extraction");
+	});
+
+	it("renderSupervisorDetails is module-private (unused export removed)", async () => {
+		const mod = await import("../renderer/details.ts");
+		assert.strictEqual(
+			typeof (mod as Record<string, unknown>).renderSupervisorDetails,
+			"undefined",
+			"renderSupervisorDetails must not be exported — called only by renderCustomEntry",
+		);
 	});
 });
