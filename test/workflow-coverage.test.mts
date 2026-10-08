@@ -139,7 +139,7 @@ describe("workflow coverage — no orphan tests", () => {
 			"test/goreleaser-config.test.mts",
 			"test/no-submodules.test.sh",
 			"test/release-workflow.test.mts",
-			"test/writing-voice.test.mts",
+			"test/voice-for-writing.test.mts",
 			"docker/test/unbreak-worktrees.test.mts",
 		];
 		for (const rel of expected) {
