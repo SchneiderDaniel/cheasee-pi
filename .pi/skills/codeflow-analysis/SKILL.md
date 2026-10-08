@@ -1,16 +1,19 @@
 ---
 name: codeflow-analysis
-description: "Fetch the CodeFlow structural analysis report, turn it into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
+description: "Fetch the CodeFlow structural analysis report, verify every finding against the source with read-only subagents, turn the survivors into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
 metadata:
-  steps: fetch-report-parse-group-confirm-file
+  steps: fetch-report-parse-validate-group-confirm-file
   scope: issues-only-no-commits
-  dependencies: codeflow_analysis_report, create-internal-issue, ask_user
+  dependencies: codeflow_analysis_report, create-internal-issue, ask_user, validate-finding.sh
 ---
 
 # CodeFlow Analysis
 
-Turn a CodeFlow analysis into a set of git issues, each touching a disjoint file
-set where possible, filed on this repo **only after the user confirms**.
+Turn a CodeFlow analysis into a set of verified git issues, each touching a
+mostly disjoint file set, filed on this repo **only after the user confirms**.
+
+CodeFlow reports false positives. Every candidate finding is checked against the
+real source by a read-only subagent before it can reach an issue.
 
 ## Trigger
 
@@ -23,6 +26,9 @@ Load this skill when the user asks to:
 ## Hard Rules
 
 - **Issues only.** Do not create branches, commits, or PRs. `main` is locked.
+- **Verify before filing.** Every candidate goes through Step 4. A finding whose
+  validation exits `1` is dropped, never filed or re-framed. One whose validation
+  exits `2`/`3` is unverified: not filed, and disclosed as unverified.
 - **Confirm before filing.** No `gh issue create` (directly or via
   `create-internal-issue`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
@@ -95,7 +101,38 @@ Only keep tokens that name a file path (contain `/` or an extension); drop bare
 function names and layer labels. Unknown, absent, or truncated sections yield no
 candidates and must never abort the run.
 
-### Step 3 — Group by file conflict (best-effort isolation)
+### Step 3 — Validate every candidate (read-only subagent)
+
+A finding is a candidate until the source confirms it. Write each candidate to
+`ignore/codeflow-findings/NN-<slug>.md` (kind, section/field, title, description,
+claimed files), then validate all of them in one batched `bash` call:
+
+```bash
+for f in ignore/codeflow-findings/*.md; do
+  .pi/skills/codeflow-analysis/scripts/validate-finding.sh "$f" > "${f%.md}.verdict" &
+  while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
+done
+wait
+```
+
+The script spawns `pi -p` with `--tools
+read,ripgrep_search,structural_search`, the `references/finding-validator.md`
+system prompt, this session's model, and no project skills or context files. Exit
+codes:
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0` | `VERDICT: VALID` | keep it for Step 4 |
+| `1` | `VERDICT: INVALID` | drop it; keep the `REASON` line for the confirmation list |
+| `2` | usage / repo-root error | fix the call and rerun |
+| `3` | subagent failed or printed no verdict | unverified — never file, disclose as unverified |
+
+Take the verdict from code the subagent read itself. Reject any verdict whose
+`EVIDENCE` names a path that does not exist. Never re-run a validator hoping for
+a different answer. Cap parallel spawns at 4, and delete
+`ignore/codeflow-findings/` when the run ends.
+
+### Step 4 — Group by file conflict (best-effort isolation)
 
 Build a file-conflict graph: issues that share **any** file are merged
 (transitively) into one group. `groupIssues` returns, per group, `isolated`
@@ -109,7 +146,7 @@ Build a file-conflict graph: issues that share **any** file are merged
 State best-effort isolation explicitly in every issue body that could not be
 fully split: list the files, and say which are shared (disclose the overlap).
 
-### Step 4 — Draft the issues
+### Step 5 — Draft the issues
 
 For each group, draft an issue using the `create-internal-issue` skill (load it
 for the repo's issue template, duplicate check, and project-board wiring). Use
@@ -122,18 +159,19 @@ the group's affected files as the scope and include:
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
 
-### Step 5 — Confirmation gate (REQUIRED)
+### Step 6 — Confirmation gate (REQUIRED)
 
-Present the proposed set and ask with `ask_user`, offering exactly three
-choices: **all**, **some**, **cancel**.
+Present the proposed set — and, separately, the findings dropped in Step 3 with
+their `REASON` — then ask with `ask_user`, offering exactly three choices:
+**all**, **some**, **cancel**.
 
 - **cancel** → stop; create nothing.
 - **some** → ask which ones, then create only those.
 - **all** → create the full set.
 
-Never proceed to Step 6 without the user's answer.
+Never proceed to Step 7 without the user's answer.
 
-### Step 6 — File the confirmed issues
+### Step 7 — File the confirmed issues
 
 Only now file the confirmed drafts via `create-internal-issue` (template,
 duplicate check already done, add to the project board). Issues only — no
@@ -146,5 +184,7 @@ commits, no branches, no PRs. Report the created issue URLs back to the user.
   (duplicates, layer violations, suggestions) were unavailable.
 - Every proposed issue names at least one file (except file-less suggestions,
   which must reference the signal that produced them).
+- Every filed issue's finding exited `0` from `validate-finding.sh`; every
+  dropped finding has a recorded `REASON`.
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.
