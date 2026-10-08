@@ -5,7 +5,7 @@ disable-model-invocation: true
 metadata:
   steps: fetch-report-parse-validate-group-confirm-file
   scope: issues-only-no-commits
-  dependencies: codeflow_analysis_report, create-internal-issue, ask_user, validate-finding.sh
+  dependencies: scripts/fetch-report.mts, create-internal-issue, ask_user, validate-finding.sh
 ---
 
 # CodeFlow Analysis
@@ -49,7 +49,8 @@ Load this skill when the user asks to:
 
 ## Preconditions
 
-- `codeflow_analysis_report` tool available (the `codeflow-analysis` extension).
+- The skill-owned fetch script `.pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts`
+  is present, and Node runs with `--experimental-strip-types`.
 - `ask_user` tool available (the `ask-user` extension).
 - `.pi/settings.json` has `supervisor.repo` set to `owner/repo`.
 - The CodeFlow UI has been run at least once in this session (the browser
@@ -59,17 +60,35 @@ Load this skill when the user asks to:
 
 ### Step 1 — Fetch the report
 
-Call the tool:
+Run the skill-owned fetch script:
 
-```
-codeflow_analysis_report
+```bash
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts
 ```
 
 It writes the report to `ignore/codeflow-report.md` (markdown) and, when the
-browser posted it, `ignore/codeflow-report.json` (structured), returning
-`{ path, jsonPath, bytes, analyzedAt }`. If it reports **"No CodeFlow report yet
-— run analysis in CodeFlow"**, stop and ask the user to run an analysis in the
-CodeFlow UI, then retry with `refresh: true`.
+browser posted it, `ignore/codeflow-report.json` (structured), then prints a
+single JSON object to stdout:
+
+```json
+{ "path": "…", "jsonPath": "…", "bytes": 0, "analyzedAt": 0, "warnings": [] }
+```
+
+`path` is the markdown artifact, `jsonPath` is the structured artifact (or
+`null` when unavailable), `bytes` is the markdown byte count, `analyzedAt` is
+the analysis timestamp in epoch ms (or `null`), and `warnings` lists non-fatal
+problems (e.g. the JSON route failed). Progress and errors go to stderr.
+Exit codes:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | report fetched and written |
+| `2` | no report yet (HTTP 404) or bad usage — ask the user to run an analysis in the CodeFlow UI |
+| `1` | transport or write failure |
+
+If it exits **`2`** with **"No CodeFlow report yet — run analysis in CodeFlow"**,
+stop and ask the user to run an analysis in the CodeFlow UI, then retry with
+`--refresh`.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
 `ignore/codeflow-report.json` when `jsonPath` is non-null.
@@ -81,7 +100,7 @@ from.
 
 ### Step 2 — Extract issue candidates
 
-The pure parser in `.pi/extensions/codeflow-analysis/report.ts` is the
+The pure parser in `.pi/skills/audit-codeflow-analysis/lib/report.ts` is the
 machine-verifiable spec for this step (`parseReport` for markdown,
 `parseReportJson` for the structured export, `parseBestReport` to pick the
 richer source, and `groupIssues`); mirror its rules when reading the artifacts.
@@ -220,7 +239,7 @@ Only now file the confirmed drafts via `create-internal-issue` (template,
 duplicate check already done, add to the project board). Issues only — no
 commits, no branches, no PRs. Report the created issue URLs back to the user.
 
-Immediately before the first creation, re-fetch with `refresh: true` and compare
+Immediately before the first creation, re-fetch with `--refresh` and compare
 `analyzedAt` with Step 1. If it changed, the shim has absorbed a newer browser
 analysis and every verdict was reached against a superseded report: stop, tell
 the user, and restart from Step 1.

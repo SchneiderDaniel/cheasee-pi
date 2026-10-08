@@ -25,7 +25,7 @@ import {
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 
-/** Independent readdirSync walk mirroring the glob scope: .pi/extensions/** + test/**. */
+/** Independent readdirSync walk mirroring the glob scope: .pi/extensions/** + .pi/skills/** + test/**. */
 function walkTestFiles(): string[] {
 	const out: string[] = [];
 	const walk = (dir: string): void => {
@@ -39,16 +39,20 @@ function walkTestFiles(): string[] {
 			}
 		}
 	};
-	for (const root of [join(REPO_ROOT, ".pi", "extensions"), join(REPO_ROOT, "test")]) {
+	for (const root of [
+		join(REPO_ROOT, ".pi", "extensions"),
+		join(REPO_ROOT, ".pi", "skills"),
+		join(REPO_ROOT, "test"),
+	]) {
 		walk(root);
 	}
 	return out.sort();
 }
 
 describe("test-discovery core (#1859)", () => {
-	it("parseTokens returns exactly the three unquoted glob tokens of scripts.test", () => {
+	it("parseTokens returns exactly the five unquoted glob tokens of scripts.test", () => {
 		const tokens = parseTokens(testScript());
-		assert.strictEqual(tokens.length, 3, `expected 3 glob tokens, got ${tokens.join(" ")}`);
+		assert.strictEqual(tokens.length, 5, `expected 5 glob tokens, got ${tokens.join(" ")}`);
 		for (const token of tokens) {
 			assert.ok(token.includes("*"), `token is not a glob: ${token}`);
 			assert.ok(

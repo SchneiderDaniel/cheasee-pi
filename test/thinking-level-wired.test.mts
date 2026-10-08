@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, relative, dirname, sep } from "node:path";
 
 const EXTENSIONS_DIR = resolve(import.meta.dirname, "..", ".pi/extensions");
+const SKILLS_DIR = resolve(import.meta.dirname, "..", ".pi/skills");
 const LIB_DIR = join(EXTENSIONS_DIR, "lib");
 const THINKING_LEVEL_FILE = join(LIB_DIR, "thinking-level.ts");
 
@@ -42,11 +43,18 @@ function walkTsFiles(dir: string): string[] {
 /** Non-test source file: not a *.test.* file and not inside any `test/` directory. */
 function isProductionSource(file: string): boolean {
 	if (isTestFile(file)) return false;
-	return !relative(EXTENSIONS_DIR, file).split(sep).includes("test");
+	const root = file.startsWith(SKILLS_DIR + sep) ? SKILLS_DIR : EXTENSIONS_DIR;
+	return !relative(root, file).split(sep).includes("test");
 }
 
+/**
+ * Production sources of every consumer tree. `.pi/skills/**` is included
+ * because skill-owned modules import `.pi/extensions/lib/*` shared libs.
+ */
 function productionSourceFiles(): string[] {
-	return walkTsFiles(EXTENSIONS_DIR).filter(isProductionSource);
+	return [EXTENSIONS_DIR, SKILLS_DIR]
+		.flatMap((root) => walkTsFiles(root))
+		.filter(isProductionSource);
 }
 
 /** Match `from "./x"`, `from "../lib/x.ts"`, and dynamic `import("./x")` specifiers. */

@@ -15,7 +15,7 @@
  * with GET, exercising the full export → POST → GET round trip.
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/codeflow-analysis/test/bridge.test.mts
+ *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/bridge.test.mts
  */
 
 import assert from "node:assert";

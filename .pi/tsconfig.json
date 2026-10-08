@@ -18,12 +18,15 @@
 		"extensions/**/*.ts",
 		"extensions/**/*.mts",
 		"lib/**/*.ts",
-		"scripts/**/*.ts"
+		"scripts/**/*.ts",
+		"skills/**/*.ts",
+		"skills/**/*.mts"
 	],
 	"exclude": [
 		"sessions",
 		"node_modules",
 		"extensions/**/test/fixtures/**",
-		"extensions/**/fixtures/**"
+		"extensions/**/fixtures/**",
+		"skills/**/fixtures/**"
 	]
 }

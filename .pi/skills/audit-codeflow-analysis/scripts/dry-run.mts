@@ -22,7 +22,7 @@ import {
 	parseBestReport,
 	reportSectionCoverage,
 	type IssueFact,
-} from "../../../extensions/codeflow-analysis/report.ts";
+} from "../lib/report.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VALIDATOR = join(HERE, "validate-finding.sh");
