@@ -51,8 +51,14 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 		"['.js','.jsx','.ts','.tsx'",
 		",'.mjs','.cjs','.vue','.svelte']",
 		// #1935 follow-up: the sidecar runs as root over a host-owned mount, so
-		// git needs the safe.directory opt-in or check-ignore fails open.
+		// git needs the safe.directory opt-in or the index listing fails.
 		"safe.directory=*",
+		// The served set is the git index (the GitHub tree), not a working-tree
+		// walk: untracked cheasee-pi artifacts must stay out of the analysis.
+		"ls-files",
+		"def _tracked_paths",
+		"def _list_contents",
+		"def _file_contents",
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("preserved surface missing %q", want)
@@ -73,169 +79,6 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 	}
 }
 
-// TestCodeFlowServer_Smoke starts the embedded server against a fake repo
-// root and verifies the emulated GitHub API surface still serves: tree
-// listing, repo metadata, and the 404 error path. A runtime NameError (e.g. a
-// stray reference to the removed helper) would surface as a traceback in
-// the captured server log.
-func TestCodeFlowServer_Smoke(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not available")
-	}
-
-	// Fake repo: flat file + nested dir.
-	repoRoot := t.TempDir()
-	write := func(rel string, data []byte) {
-		t.Helper()
-		path := filepath.Join(repoRoot, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
-		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			t.Fatalf("write %s: %v", rel, err)
-		}
-	}
-	write("a.txt", []byte("hello\n"))
-	write(filepath.Join("sub", "b.txt"), []byte("world\n"))
-
-	// Reserve a free port, release it, and hand it to the server.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve port: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
-	serverPath := filepath.Join(t.TempDir(), "server.py")
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
-
-	cmd := exec.Command(python, serverPath)
-	cmd.Env = append(os.Environ(),
-		"REPO_ROOT="+repoRoot,
-		"UI_DIR="+t.TempDir(), // empty UI dir; API surface unaffected
-		"CONFIG_FILE="+filepath.Join(t.TempDir(), "missing-config.json"),
-		fmt.Sprintf("PORT=%d", port),
-		"HOST=127.0.0.1",
-		"PYTHONUNBUFFERED=1",
-	)
-	var log bytes.Buffer
-	cmd.Stdout = &log
-	cmd.Stderr = &log
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start server: %v", err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	defer func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		select {
-		case <-done: // SIGKILL is the expected shutdown path (serve_forever)
-		case <-time.After(5 * time.Second):
-			t.Error("server process did not exit after Kill")
-		}
-		if strings.Contains(log.String(), "Traceback") {
-			t.Errorf("server log contains a traceback:\n%s", log.String())
-		}
-	}()
-
-	base := fmt.Sprintf("http://127.0.0.1:%d", port)
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	// Wait for the server to accept connections.
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		select {
-		case <-done:
-			t.Fatalf("server exited early:\n%s", log.String())
-		default:
-		}
-		r, err := client.Get(base + "/api/repos/o/r")
-		if err == nil {
-			r.Body.Close()
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("server did not come up: %v\nlog:\n%s", err, log.String())
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	get := func(path string) (int, []byte) {
-		t.Helper()
-		r, err := client.Get(base + path)
-		if err != nil {
-			t.Fatalf("GET %s: %v", path, err)
-		}
-		defer r.Body.Close()
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read GET %s body: %v", path, err)
-		}
-		return r.StatusCode, b
-	}
-
-	// Tree listing: both blobs present with correct sizes.
-	status, body := get("/api/repos/o/r/git/trees/main")
-	if status != http.StatusOK {
-		t.Fatalf("trees: status %d, body %s", status, body)
-	}
-	var tree struct {
-		Tree []struct {
-			Path string `json:"path"`
-			Type string `json:"type"`
-			Size int64  `json:"size"`
-		} `json:"tree"`
-		Truncated bool `json:"truncated"`
-	}
-	if err := json.Unmarshal(body, &tree); err != nil {
-		t.Fatalf("trees: bad JSON: %v\n%s", err, body)
-	}
-	if tree.Truncated {
-		t.Error("trees: unexpected truncated=true")
-	}
-	blobs := make(map[string]int64)
-	for _, e := range tree.Tree {
-		if e.Type == "blob" {
-			blobs[e.Path] = e.Size
-		}
-	}
-	if blobs["a.txt"] != 6 {
-		t.Errorf("trees: a.txt size = %d, want 6 (blobs: %v)", blobs["a.txt"], blobs)
-	}
-	if blobs["sub/b.txt"] != 6 {
-		t.Errorf("trees: sub/b.txt size = %d, want 6 (blobs: %v)", blobs["sub/b.txt"], blobs)
-	}
-
-	// Repo metadata.
-	status, body = get("/api/repos/o/r")
-	if status != http.StatusOK {
-		t.Fatalf("repo metadata: status %d, body %s", status, body)
-	}
-	var meta struct {
-		DefaultBranch string `json:"default_branch"`
-	}
-	if err := json.Unmarshal(body, &meta); err != nil {
-		t.Fatalf("repo metadata: bad JSON: %v\n%s", err, body)
-	}
-	if meta.DefaultBranch != "main" {
-		t.Errorf("repo metadata: default_branch = %q, want %q", meta.DefaultBranch, "main")
-	}
-
-	// Error path.
-	if status, _ := get("/api/nope"); status != http.StatusNotFound {
-		t.Errorf("/api/nope status = %d, want 404", status)
-	}
-}
-
 // --- Shared harness for the fingerprint / redirect tests ------------------
 
 var fpRepoRE = regexp.MustCompile(`^local/workspace-([0-9a-f]{8})$`)
@@ -248,6 +91,27 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write %s: %v", rel, err)
+	}
+}
+
+// initGitRepo makes root a git work tree: the shim serves the git index (the
+// GitHub tree), so every shim test needs one. Skips when git is unavailable.
+func initGitRepo(t *testing.T, root string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init failed: %v\n%s", err, out)
+	}
+}
+
+// gitAddAll stages everything: the served set is the index, so test fixtures
+// become visible to the shim only once staged.
+func gitAddAll(t *testing.T, root string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", root, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("git add -A: %v\n%s", err, out)
 	}
 }
 
@@ -477,6 +341,8 @@ func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
 	}
 	repoRoot := t.TempDir()
 	writeFile(t, repoRoot, "a.txt", "hello\n")
+	initGitRepo(t, repoRoot)
+	gitAddAll(t, repoRoot)
 
 	// A scan slower than the TTL must still be reused by the next call. Note
 	// runpy.run_path returns a globals copy; functions keep the original dict,
@@ -489,17 +355,17 @@ g["REPO_ROOT"] = sys.argv[2]
 g["_FP_TTL"] = 0.3
 g["_scan_cache"] = None
 
-real = g["_gitignored"]
+real = g["_tracked_paths"]
 calls = {"n": 0}
 
 
-def slow(paths):
+def slow():
     calls["n"] += 1
     time.sleep(0.5)  # scan exceeds the TTL
-    return real(paths)
+    return real()
 
 
-g["_gitignored"] = slow
+g["_tracked_paths"] = slow
 scan = m["_scan"]
 
 first = scan()
@@ -527,6 +393,8 @@ func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeFile(t, repoRoot, "a.txt", "hello\n")
 	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	initGitRepo(t, repoRoot)
+	gitAddAll(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t))
 	client := newNoRedirectClient()
 
@@ -615,6 +483,8 @@ func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
 func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeFile(t, repoRoot, "a.txt", "hello\n")
+	initGitRepo(t, repoRoot)
+	gitAddAll(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t))
 	client := newNoRedirectClient()
 
@@ -646,15 +516,17 @@ func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 }
 
 // TestCodeFlowServer_FingerprintChange is the cache-identity behaviour: the
-// fingerprint tracks tracked blob content/mtime and ignores untracked edits.
+// fingerprint follows the served (git-index) set — tracked content/mtime
+// changes move it, untracked and EXCLUDE_DIRS edits do not.
 func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeFile(t, repoRoot, "a.txt", "hello\n")
 	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
-	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
-		t.Skipf("git init failed: %v\n%s", err, out)
-	}
+	initGitRepo(t, repoRoot)
 	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
+	gitAddAll(t, repoRoot)
+	// The served set is the index, so these stay invisible without any
+	// .gitignore help (a user repo does not list cheasee-pi's artifacts).
 	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
 	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
 	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
@@ -685,20 +557,25 @@ func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 		t.Error("fingerprint unchanged after same-size mtime change")
 	}
 
-	// Add then delete a tracked file.
+	// A new file counts only once staged: the served set is the git index.
 	before = freshFingerprint(t, base)
 	writeFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
 	waitPastTTL()
+	if after := freshFingerprint(t, base); after != before {
+		t.Error("fingerprint changed for an untracked new file")
+	}
+	gitAddAll(t, repoRoot)
+	waitPastTTL()
 	added := freshFingerprint(t, base)
 	if added == before {
-		t.Error("fingerprint unchanged after adding a tracked file")
+		t.Error("fingerprint unchanged after staging a new file")
 	}
 	if err := os.Remove(filepath.Join(repoRoot, "sub", "c.txt")); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	waitPastTTL()
 	if after := freshFingerprint(t, base); after != before {
-		t.Error("fingerprint did not return to baseline after deleting the added file")
+		t.Error("fingerprint did not return to baseline after deleting the staged file")
 	}
 
 	// Gitignored and EXCLUDE_DIRS edits are invisible.
@@ -717,6 +594,8 @@ func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeFile(t, repoRoot, "a.txt", "hello\n")
+	initGitRepo(t, repoRoot)
+	gitAddAll(t, repoRoot)
 	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
 
 	var wg sync.WaitGroup
@@ -748,14 +627,18 @@ func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
 	}
 }
 
-// TestCodeFlowServer_GitignoreFallbackWarns pins the fail-loud behaviour added
-// with #1934: when `git check-ignore` is unavailable (REPO_ROOT is not a work
-// tree / git missing), filtering stays permissive but emits a one-shot stderr
-// warning instead of silently analyzing every file.
-func TestCodeFlowServer_GitignoreFallbackWarns(t *testing.T) {
+// TestCodeFlowServer_GitUnavailableWarns pins the fail-closed behaviour: when
+// the git index cannot be listed (REPO_ROOT is not a work tree / git missing),
+// the shim serves nothing and emits a one-shot stderr warning instead of
+// falling back to a full working-tree walk — which is exactly how untracked
+// cheasee-pi artifacts leaked into the analysis.
+func TestCodeFlowServer_GitUnavailableWarns(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
 	}
 	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
 	if err != nil {
@@ -770,29 +653,31 @@ func TestCodeFlowServer_GitignoreFallbackWarns(t *testing.T) {
 	script := `import contextlib, io, runpy, sys
 
 m = runpy.run_path(sys.argv[1])
-check = m["_check_ignore"]
+g = m["_scan"].__globals__
+g["REPO_ROOT"] = sys.argv[2]
+g["_GIT_WARNED"] = False
 buf = io.StringIO()
 with contextlib.redirect_stderr(buf):
-    out = check(sys.argv[2], ["a.txt"])
-assert out == set(), out
+    out = g["_tracked_paths"]()
+assert out is None, out
 first = buf.getvalue()
-assert "filtering disabled" in first, first
+assert "index unavailable" in first, first
 assert sys.argv[2] in first, first
 assert "not a git repository" in first, first
 # One-shot: a second call stays quiet.
 buf2 = io.StringIO()
 with contextlib.redirect_stderr(buf2):
-    check(sys.argv[2], ["a.txt"])
+    g["_tracked_paths"]()
 assert buf2.getvalue() == "", buf2.getvalue()
 print("OK")
 `
-	scriptPath := filepath.Join(dir, "check_gitignore_warn.py")
+	scriptPath := filepath.Join(dir, "check_git_warn.py")
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		t.Fatalf("write check script: %v", err)
 	}
 	out, err := exec.Command(python, scriptPath, serverPath, nonGit).CombinedOutput()
 	if err != nil {
-		t.Fatalf("gitignore fallback warning checks failed: %v\n%s", err, out)
+		t.Fatalf("git-unavailable warning checks failed: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "OK") {
 		t.Fatalf("unexpected helper output: %s", out)

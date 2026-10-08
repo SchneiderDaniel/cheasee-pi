@@ -131,6 +131,12 @@ the mounted repository, but appends a short workspace-content fingerprint to
 it on the entrypoint redirect, so the browser re-analyzes when the workspace
 changes and reuses the cached result when it does not).
 
+What gets analyzed is the repository's **git-tracked files** — the same set
+GitHub serves. Untracked workspace artifacts (the `.pi/git` package clones,
+the python virtualenvs under `.pi/`, session logs) stay out of the graph even
+when the repository's own `.gitignore` does not list them. Uncommitted edits
+to tracked files are read as-is; a brand-new file appears once it is staged.
+
 To pin a port explicitly, set `docker.codeflowPort` in
 `cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
 derivation, the settings file wins over the env).
@@ -154,7 +160,7 @@ read-only, editable without rebuilding the image):
 | --- | --- | --- |
 | `port` | `8470` | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
 | `host` | `0.0.0.0` | **Container-side** bind address — must stay `0.0.0.0` (docker-proxy/DNAT delivers published traffic to it); host-side reachability is the compose mapping's `CODEFLOW_HOST_IP` job, below |
-| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
+| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names excluded from the served tracked set |
 
 Configuration changes take effect on the next container start (no rebuild
 required). The compose port mapping uses `CODEFLOW_PORT` for the host side

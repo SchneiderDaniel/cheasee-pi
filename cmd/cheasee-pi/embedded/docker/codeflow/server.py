@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """CodeFlow local shim — serves the CodeFlow UI and emulates the GitHub REST API
-against a mounted repository directory, so the browser can analyze the container's
-own codebase.
+against the mounted repository's git-tracked files, so the browser can analyze the
+codebase that lives on GitHub — nothing else. Untracked workspace artifacts
+(cheasee-pi's .pi/git package clones, the web-tool virtualenvs, session logs)
+are not part of the GitHub tree and are never served.
 
 Emulated endpoints (the only ones CodeFlow's analysis path uses):
   GET /api/repos/{owner}/{repo}                      -> {"default_branch": ...}
@@ -24,7 +26,7 @@ the UI speaks about local files instead of the GitHub API it only emulates.
 Every patch is a silent no-op if upstream renames the matched strings.
 
 Config (docker/codeflow/config.json, JSON wins over env):
-  exclude_dirs         list of directory names skipped when walking (default: [".git", "node_modules", "ignore"])
+  exclude_dirs         directory names excluded from the served tracked set (default: [".git", "node_modules", "ignore"])
   port                 listen port (default: 8470)
   host                 bind address (default: 0.0.0.0)
 
@@ -318,9 +320,6 @@ _UI_REWRITES = (
     _ts_rewrite(b"['.js','.jsx','.ts','.tsx'", b",'.mjs','.cjs','.vue','.svelte']"),
 )
 
-# .git appears both as a directory and (inside linked worktrees) as a pointer
-# file; both are meaningless for analysis.
-_IGNORED_NAMES = {'.git'}
 # Force a correct content type; the stdlib guess misses .wasm on some platforms.
 _MIME = {"wasm": "application/wasm", "js": "text/javascript", "mjs": "text/javascript"}
 
@@ -330,68 +329,58 @@ def _mime(path):
     return _MIME.get(ext) or mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
-_GITIGNORE_WARNED = False
+_GIT_WARNED = False
 
 
-def _warn_gitignore_off(root, detail):
-    """One-shot stderr warning that .gitignore filtering is disabled.
+def _warn_git_unavailable(detail):
+    """One-shot stderr warning that the tracked-file set is unavailable.
 
-    The filter fails open: when git is missing or REPO_ROOT is not a usable
-    work tree, every blob outside EXCLUDE_DIRS is analyzed, so gitignored
-    installs (virtualenvs, .pi/git) leak in. Silence is what let a missing
-    bare-repo mount go unnoticed — make the degraded mode visible.
+    The shim serves exactly the git-index paths (the GitHub tree). When git
+    cannot list them — missing git, missing worktree/bare mount, not a repo —
+    it serves nothing and says so, instead of falling back to a full working
+    tree walk that drags in cheasee-pi's untracked artifacts (.pi/git package
+    clones, the web-tool virtualenvs, session logs).
     """
-    global _GITIGNORE_WARNED
-    if _GITIGNORE_WARNED:
+    global _GIT_WARNED
+    if _GIT_WARNED:
         return
-    _GITIGNORE_WARNED = True
+    _GIT_WARNED = True
     print(
-        "codeflow-shim: .gitignore filtering disabled (%s); analyzing every "
-        "non-excluded file under %s" % (detail, root),
+        "codeflow-shim: git index unavailable (%s); serving no files under %s"
+        % (detail, REPO_ROOT),
         file=sys.stderr,
     )
 
 
-def _gitignored(paths):
-    """Return the subset of repo-relative paths matched by .gitignore.
+def _tracked_paths():
+    """Repo-relative paths in the git index — exactly the GitHub tree.
 
-    Delegates to `git check-ignore` so real gitignore semantics apply
-    (nested .gitignore, negation, dir patterns). Empty set when git is
-    unavailable or REPO_ROOT is not a git work tree — filtering is then
-    disabled with a one-shot warning (see _warn_gitignore_off).
-    """
-    if not paths:
-        return set()
-    return _check_ignore(REPO_ROOT, paths)
-
-
-def _check_ignore(root, paths):
-    """Run `git check-ignore --stdin` under root; return the ignored paths.
+    Returns None (after a one-shot warning) when git cannot list the index;
+    the caller then serves nothing. Filtering by .gitignore alone is not
+    enough: cheasee-pi materializes untracked artifacts inside every
+    workspace and a user repo's .gitignore rarely covers them.
 
     `-c safe.directory=*` is load-bearing, not cosmetic. The sidecar runs as
     root while the bind-mounted workspace — and the sibling bare repo its
     worktree `.git` pointer resolves into — are owned by the host user. Git
-    then refuses with "fatal: detected dubious ownership" (CVE-2022-24765),
-    the filter fails open, and every gitignored install (virtualenvs,
-    .pi/git) leaks into the analysis. Trust is scoped to this read-only
-    analyzer container, never the host.
+    then refuses with "fatal: detected dubious ownership" (CVE-2022-24765).
+    Trust is scoped to this read-only analyzer container, never the host.
     """
     try:
         proc = subprocess.run(
-            ["git", "-c", "safe.directory=*", "-C", root, "check-ignore", "--stdin", "-z"],
-            input="\0".join(paths) + "\0",
+            ["git", "-c", "safe.directory=*", "-C", REPO_ROOT, "ls-files", "-z"],
             capture_output=True,
             text=True,
             timeout=60,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        _warn_gitignore_off(root, "git unavailable: %s" % exc)
-        return set()
-    if proc.returncode not in (0, 1):  # 0 = matched, 1 = none matched
-        detail = (proc.stderr or "").strip() or "git check-ignore exited %d" % proc.returncode
-        _warn_gitignore_off(root, detail[:300])
-        return set()
-    return {p for p in proc.stdout.split("\0") if p}
+        _warn_git_unavailable("git unavailable: %s" % exc)
+        return None
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip() or "git ls-files exited %d" % proc.returncode
+        _warn_git_unavailable(detail[:300])
+        return None
+    return [p for p in proc.stdout.split("\0") if p]
 
 
 # Workspace-content identity for the UI's content-addressed analysis cache:
@@ -409,34 +398,33 @@ _scan_cache = None  # (expiry_monotonic, entries)
 
 
 def _scan():
-    """Return the scanned blob set, memoized for _FP_TTL seconds.
+    """Return the served blob set, memoized for _FP_TTL seconds.
 
-    One traversal shared by the tree API and the fingerprint, so both always
-    see the same blobs (consistent cache key <-> served content). Prunes
-    EXCLUDE_DIRS by directory name and any path matched by .gitignore (e.g.
-    installed package artifacts).
+    One listing shared by the tree API, the contents API and the fingerprint,
+    so all three always see the same blobs (consistent cache key <-> served
+    content, and one filter). The set is the git index (the GitHub tree) minus
+    EXCLUDE_DIRS names — see _tracked_paths for why untracked files are not
+    served.
     """
     global _scan_cache
     if _scan_cache is not None and time.monotonic() < _scan_cache[0]:
         return _scan_cache[1]
     entries = []
-    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
-        rel_dir = os.path.relpath(dirpath, REPO_ROOT)
-        dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDE_DIRS and d not in _IGNORED_NAMES)
-        for name in sorted(filenames):
-            if name in _IGNORED_NAMES:
-                continue
-            rel = name if rel_dir == "." else os.path.join(rel_dir, name)
-            try:
-                st = os.stat(os.path.join(dirpath, name))
-            except OSError:
-                continue
-            entries.append({"path": rel, "type": "blob", "size": st.st_size, "mtime_ns": st.st_mtime_ns})
-    # Analysis is tree-driven; gitignored installs (e.g. .pi/git) would
-    # otherwise surface as dead code. One batch call, no per-file cost.
-    ignored = _gitignored([e["path"] for e in entries])
-    entries = [e for e in entries if e["path"] not in ignored]
-    # Expiry is measured after scanning: a slow traversal must not store an
+    for rel in _tracked_paths() or []:
+        if any(part in EXCLUDE_DIRS for part in rel.split("/")):
+            continue
+        # Skip gitlinks (submodules: the index records a commit, not files),
+        # dangling tracked symlinks, and staged deletions — nothing to read.
+        full = os.path.join(REPO_ROOT, rel)
+        if not os.path.isfile(full):
+            continue
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        entries.append({"path": rel, "type": "blob", "size": st.st_size, "mtime_ns": st.st_mtime_ns})
+    entries.sort(key=lambda e: e["path"])
+    # Expiry is measured after scanning: a slow scan must not store an
     # already-expired entry (that would stop the entrypoint and tree request
     # from sharing the scan), so the cache always lives a full TTL.
     _scan_cache = (time.monotonic() + _FP_TTL, entries)
@@ -640,46 +628,55 @@ class Handler(BaseHTTPRequestHandler):
             rel = "/".join(rest[1:])
             root = os.path.realpath(REPO_ROOT)
             target = os.path.realpath(os.path.join(root, rel.lstrip("/")))
-            if target == root:
-                # Repo root itself: allowed. Use the untainted constant so
-                # CodeQL sees the guard below as the only tainted path.
-                self._list_contents(root, "")
-                return
-            if not target.startswith(root + os.sep):
+            if target != root and not target.startswith(root + os.sep):
                 self._not_found()
                 return
-            self._list_contents(target, rel)
+            self._list_contents(rel)
             return
 
         self._not_found()
 
-    def _list_contents(self, target, rel):
-        """Serve GET /contents/{rel}: dir listing or base64 file."""
-        if os.path.isdir(target):
-            entries = []
-            for name in sorted(os.listdir(target)):
-                full = os.path.join(target, name)
-                rel_child = os.path.join(rel, name) if rel else name
-                if os.path.isdir(full):
-                    entries.append({"type": "dir", "path": rel_child, "name": name})
-                elif os.path.isfile(full):
-                    try:
-                        size = os.path.getsize(full)
-                    except OSError:
-                        size = 0
-                    entries.append({"type": "file", "path": rel_child, "name": name, "size": size})
+    def _list_contents(self, rel):
+        """Serve GET /contents/{rel} from the scanned (tracked) set.
+
+        Derived from _scan rather than os.listdir so the route obeys the same
+        filter as the tree API: an untracked or EXCLUDE_DIRS path is invisible
+        here too (.git, node_modules, .pi/git artifacts).
+        """
+        rel = rel.strip("/")
+        prefix = rel + "/" if rel else ""
+        scanned = _scan()
+        entries = []
+        seen = set()
+        for e in scanned:
+            path = e["path"]
+            if prefix and not path.startswith(prefix):
+                continue
+            name, sep, _ = path[len(prefix):].partition("/")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if sep:
+                entries.append({"type": "dir", "path": prefix + name, "name": name})
+            else:
+                entries.append({"type": "file", "path": path, "name": name, "size": e["size"]})
+        if entries or not rel:
             self._json(entries)
             return
-        if os.path.isfile(target):
-            try:
-                with open(target, "rb") as fh:
-                    raw = fh.read()
-            except OSError:
-                self._not_found()
+        for e in scanned:
+            if e["path"] == rel:
+                self._file_contents(rel)
                 return
-            self._json({"content": base64.b64encode(raw).decode(), "encoding": "base64"})
-            return
         self._not_found()
+
+    def _file_contents(self, rel):
+        try:
+            with open(os.path.join(REPO_ROOT, rel), "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            self._not_found()
+            return
+        self._json({"content": base64.b64encode(raw).decode(), "encoding": "base64"})
 
     def log_message(self, format, *args):  # quiet
         pass
