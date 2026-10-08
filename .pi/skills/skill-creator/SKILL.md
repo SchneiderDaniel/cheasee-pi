@@ -1,1 +1,0 @@
-skill-creator/SKILL.md

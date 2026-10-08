@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists all Cheasee-Pi extensions. Each has its own page with **Why** (benefit) and **How** (walkthrough).
+This page lists the 18 Cheasee-Pi extensions. Extension guides describe user-visible behavior, commands, and configuration where applicable.
 
 ## File manifest
 
@@ -23,9 +23,11 @@ This page lists all Cheasee-Pi extensions. Each has its own page with **Why** (b
 | `.pi/extensions/web-search/` | [Web Search](extensions/web-search) |
 | `.pi/extensions/supervisor/` | [Supervisor](extensions/supervisor) |
 | `.pi/extensions/context-info/` | [Context Info](extensions/context-info) |
+| `.pi/extensions/codeflow-analysis/` | [CodeFlow Analysis Report](extensions/codeflow-analysis) |
 | `.pi/extensions/session-logger/` | [Session Logger](extensions/session-logger) |
 | `.pi/extensions/agent-harness/` | [Agent Harness](extensions/agent-harness) |
 | `.pi/extensions/ask-user/` | [Ask User](extensions/ask-user) |
+| `.pi/extensions/zzz-dump-context/` | [Dump Context](extensions/dump-context) |
 | `.pi/extensions/caveman/` | [Caveman Protocol](extensions/caveman) |
 | `.pi/extensions/format-on-save/` | [Format on Save](extensions/format-on-save) |
 | `.pi/extensions/lsp-auditor/` | [LSP Auditor](extensions/lsp-auditor) |

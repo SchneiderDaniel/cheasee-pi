@@ -1,5 +1,5 @@
 ---
-name: clean-code-audit
+name: audit-clean-code
 description: Scan target code for two grounded violations — oversized files/functions (SonarQube S104, Clean Code) and "what" comments that restate the code. File umbrella GitHub issue with audit candidates plus per-candidate sub-issues with before/after diff and cited source.
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Requires: `gh` CLI authenticated.
 ## Usage
 
 ```
-/skill:clean-code-audit <target>
+/skill:audit-clean-code <target>
 ```
 
 | Target              | What it analyzes                                |
@@ -27,7 +27,7 @@ Requires: `gh` CLI authenticated.
 
 Extract target from message:
 
-- `/skill:clean-code-audit <target>` → use directly
+- `/skill:audit-clean-code <target>` → use directly
 - Natural language: parse "of X", "in X", "for X", or single word matching a valid path
 - If nothing matches, treat as `root`
 

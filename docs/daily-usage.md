@@ -19,6 +19,9 @@ nav_order: 3
 ## Prerequisites
 
 > Command-level reference (flags, checks, inputs): [CLI Reference](cli.md).
+> Workspace values and credential storage: [Configuration](configuration.md).
+> Examples with `~/.config` or `~/.cache` use Linux paths; macOS and Windows
+> use their operating-system user directories.
 
 Before running pi via Docker, ensure the following are in place:
 

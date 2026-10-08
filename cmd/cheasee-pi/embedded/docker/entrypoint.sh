@@ -185,9 +185,38 @@ link_owned() {
     fi
 }
 
+# prune_stale_repo_links <agent_dir> <repo_dir> — drop agent-dir symlinks
+# that an earlier re_point pointed at the live repo whose source entry was
+# since deleted (e.g. the auxiliary ponytail skills removed with #1936).
+# Candidate only when readlink is under <repo_dir>, so baked /opt links
+# and any user-created link survive. A source entry that
+# still exists is never touched, even when it is a dangling symlink: the repo
+# still owns the link, and a missing .pi/git clone must not erase it before
+# `pi install` restores the target. Real files/dirs at the link name are
+# never removed.
+prune_stale_repo_links() {
+    local agent_dir="$1" repo_dir="$2"
+    local link target name
+    for link in "$agent_dir"/*; do
+        [ -L "$link" ] || continue
+        target="$(readlink "$link")"
+        case "$target" in
+            "$repo_dir"/*) ;;
+            *) continue ;;
+        esac
+        name="$(basename "$link")"
+        if [ -e "$repo_dir/$name" ] || [ -L "$repo_dir/$name" ]; then
+            continue
+        fi
+        rm -f "$link"
+    done
+}
+
 # re_point <agent_subdir> <repo_dir> — re-point the global resource symlinks
 # at the live repo's entries. Policy only: dirs, dotfile skip, missing-target
-# guards — the link semantics live in link_owned.
+# guards — the link semantics live in link_owned. Entries the repo no longer
+# has are pruned afterwards so a deleted resource does not linger as a
+# dangling global link across a persisted agent home.
 re_point() {
     local agent_subdir="$1" repo_dir="$2"
     local agent_dir="/home/agentuser/.pi/agent/$agent_subdir"
@@ -200,6 +229,7 @@ re_point() {
         [[ "$name" == .* ]] && continue
         link_owned "$agent_dir/$name" "$d"
     done
+    prune_stale_repo_links "$agent_dir" "$repo_dir"
 }
 
 # re_point_file — thin link_owned wrapper for single-file links

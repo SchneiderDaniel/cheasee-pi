@@ -1,5 +1,5 @@
 ---
-name: codeflow-analysis
+name: audit-codeflow-analysis
 description: "Fetch the CodeFlow structural analysis report, verify every finding against the source with read-only subagents, turn the survivors into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
 metadata:
   steps: fetch-report-parse-validate-group-confirm-file
@@ -109,7 +109,7 @@ claimed files), then validate all of them in one batched `bash` call:
 
 ```bash
 for f in ignore/codeflow-findings/*.md; do
-  .pi/skills/codeflow-analysis/scripts/validate-finding.sh "$f" > "${f%.md}.verdict" &
+  .pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh "$f" > "${f%.md}.verdict" &
   while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
 done
 wait
@@ -186,9 +186,9 @@ validates every finding with a read-only subagent, and prints the issue it would
 file — or, for a false finding, the validator's reason and evidence.
 
 ```bash
-node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --limit 5
-node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no subagents
-node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no subagents
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
 ```
 
 It never calls `gh`. Exit `0` for a completed run even when every finding is

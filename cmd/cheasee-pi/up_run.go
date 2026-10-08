@@ -118,11 +118,29 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Phase 5: cheasee-pi owns the default package's resource filter in the
+	// project .pi/settings.json — write it before the entrypoint's `pi install`
+	// (which no-ops on a source already present) so pi drops the default
+	// package's auxiliary skills. Also migrates workspaces installed before the
+	// filter existed. Fail closed: a malformed settings file halts the start
+	// before any docker work rather than silently loading the extras.
+	if err := reconcileDefaultPackageFilters(root); err != nil {
+		return fmt.Errorf("reconcile package filters: %w", err)
+	}
+
 	// Phases 5-6: extract the version-keyed compose cache, start the container
 	// when missing or --build, and wait for the entrypoint ready marker before
 	// execing pi (see ensureContainerReady).
 	if _, err := ensureContainerReady(ctx, root, upName, upBuild); err != nil {
 		return err
+	}
+
+	// A workspace with no .pi/settings.json yet had nothing for the pass above
+	// to upgrade: pi owns that file and the entrypoint's `pi install -l -a`
+	// just created it with a bare string. Reconcile again so the first session
+	// in a brand-new workspace already loads only the core skill.
+	if err := reconcileDefaultPackageFilters(root); err != nil {
+		return fmt.Errorf("reconcile package filters: %w", err)
 	}
 
 	// CodeFlow URL: the port the sidecar actually published (`docker port`),

@@ -8,7 +8,7 @@
  * script never calls `gh`.
  *
  * Usage:
- *   node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts
+ *   node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts
  *   ... --limit 5 --report ignore/codeflow-report.md --json ignore/codeflow-report.json
  *   ... --self-check
  */

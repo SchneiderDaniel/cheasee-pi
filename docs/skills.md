@@ -8,7 +8,7 @@ nav_order: 5
 
 {: .no_toc }
 
-Skills are reusable instruction sets for specialized tasks. They are loaded on-demand via `/skill:<name>` invocation.
+Skills are reusable Markdown instruction sets for specialized tasks. They are loaded on-demand via `/skill:<name>` invocation.
 
 ## Table of contents
 {: .no_toc .text-delta }
@@ -22,36 +22,36 @@ Skills are reusable instruction sets for specialized tasks. They are loaded on-d
 
 Skills differ from extensions in that they are **prompt-based instruction sets** rather than executable tools. Each skill provides specialized knowledge and workflow instructions for a specific task.
 
-**Note:** Every skill's description injects ~50-150 tokens into the context window on every turn. Use sparingly. Prefer extensions (concise prompt snippets) or prompt templates (lazy-loaded) over skills.
+**Note:** Model-invocable skill descriptions add context overhead on each turn. Prefer extensions (concise prompt snippets) or prompt templates (lazy-loaded) over skills.
 
 ## Available skills
 
-### architecture-review
+### audit-architecture-review
 
 Audit codebase architecture for shallow modules, leaky seams, low locality. Files umbrella issue with Mermaid diagrams + sub-issues per candidate.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:architecture-review <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-architecture-review <target>`
 - **Skills:** Structural search, import graph analysis, seam detection
 - **Output:** GitHub umbrella issue with 2-5 candidates + sub-issues
-- **Invocation:** `/skill:architecture-review <target>`
+- **Invocation:** `/skill:audit-architecture-review <target>`
 
-### clean-code-audit
+### audit-clean-code
 
 Scan code for oversized files/functions and "what" comments. Files umbrella + sub-issues with cited sources.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:clean-code-audit <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-clean-code <target>`
 - **Skills:** Size analysis, comment classification, evidence-based reporting
 - **Rules:** SonarQube S104, Clean Code ch. 4
-- **Invocation:** `/skill:clean-code-audit <target>`
+- **Invocation:** `/skill:audit-clean-code <target>`
 
-### code-simplification
+### audit-code-simplification
 
 Find deep nesting, dead code, unnecessary abstractions, naming issues. Files umbrella + sub-issues.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:code-simplification <target>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:audit-code-simplification <target>`
 - **Skills:** Complexity analysis, dead code detection, naming audit
 - **Patterns:** 5 simplification principles
-- **Invocation:** `/skill:code-simplification <target>`
+- **Invocation:** `/skill:audit-code-simplification <target>`
 
 ### handover
 
@@ -106,35 +106,68 @@ Collect writing samples from user (paste, URL, or file), analyze 7 style dimensi
 - **Output:** New voice file in `.pi/skills/writing-voice/references/`
 - **Invocation:** `/skill:voice-trainer`
 
-### external-issue
+### create-external-issue
 
-File high-quality issues on external public GitHub repos. Enforces a strict 5-step checklist: read repo guidelines, read issue templates, check for duplicates, write professional issue body with neutral reproducible examples, and file via `gh issue create`.
+File high-quality issues on external public GitHub repositories. Enforces a strict 5-step checklist: read repo guidelines, read issue templates, check for duplicates, write professional issue body with neutral reproducible examples, and file via `gh issue create`.
 
 - **Mode:** Auto — agent may invoke without explicit user command
 - **Skills:** Duplicate detection, issue template compliance, professional writing
 - **Scope:** External public repos only
 - **Dependency:** `gh` CLI authenticated
 
+### create-internal-issue
+
+Create an issue on the repository configured in `.pi/settings.json`, using the internal issue template and project-board workflow.
+
+- **Mode:** Auto — agent may invoke without explicit user command
+- **Scope:** Cheasee-Pi's configured internal repository
+- **Dependency:** Authenticated `gh` CLI and repository settings
+
+### codeflow-analysis
+
+Interpret a CodeFlow analysis report, group findings by file, and propose internal GitHub issues after explicit confirmation.
+
+- **Mode:** Auto — agent may invoke without explicit user command
+- **Dependency:** CodeFlow report artifacts and configured internal repository
+
+### resolve-worktree-merge-conflict
+
+Resolve conflicts on pull-request branches in Git worktrees while preserving combined behavior and validating the merged result.
+
+- **Mode:** Auto — agent may invoke when a worktree branch must absorb upstream changes
+
+### skill-creator
+
+Create or update Pi skills using the repository's skill-writing standards.
+
+- **Mode:** Auto — agent may invoke when a skill is being created or updated
+
+### writing-great-skills
+
+Apply structured guidance for designing clear, reliable, maintainable skills.
+
+- **Mode:** Auto — agent may invoke when skill design or revision is requested
+
 ### ponytail (lazy senior dev mode)
 
-Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills:
+Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills, of which cheasee-pi registers only the core one by default (the package's `packages` entry in `.pi/settings.json` carries a `skills: ["!ponytail-*"]` filter — see [Ponytail](extensions/ponytail.md)):
 
 | Skill | Trigger | Purpose |
 |-------|---------|--------|
-| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) |
+| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) — installed by default |
 | ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review: yagni, stdlib, native, shrink tags |
 | ponytail-audit | `/skill:ponytail-audit` | Whole-repo bloat scan (same tags, repo-wide) |
 | ponytail-debt | `/skill:ponytail-debt` | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger |
 | ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard: less code, less cost, more speed |
 | ponytail-help | `/skill:ponytail-help` | Quick-reference card for all ponytail modes and skills |
 
-**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package symlinked into `.pi/skills/ponytail/`.
+**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package; only the core `ponytail` skill is linked into `.pi/skills/ponytail/`.
 
-**Mode:** Auto — all 7 ponytail skills are agent-invocable (descriptions injected every turn).
+**Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
 
 ### writing-voice
 
-Derive consistent AI writing voice from sample text (paste, URL, or file). Generates `voice-{lang}.md` style guide. Applied before drafting any user-facing prose.
+Apply the repository's stored writing voice before drafting user-facing prose. The skill reads language-specific rules and does not modify them.
 
 - **Mode:** Manual — agent cannot auto-invoke; use `/skill:writing-voice`
 - **Skills:** Voice analysis, style guide generation

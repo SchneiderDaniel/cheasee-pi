@@ -1,6 +1,6 @@
-# Cheasee-Pi: Build Your Own PI. Cheap. Easy. Secure.
+# Cheasee-Pi: A Docker-Based Pi Coding Agent
 
-> Early Access, stable version still in works
+> Early access. Stability work is ongoing.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE)
 [![Pi](https://img.shields.io/badge/Pi-%3E%3D1.0.2-6e3bf0)](https://pi.dev)
@@ -43,6 +43,8 @@ Customize ruthlessly. Make it yours.
 | **Worktree Sandbox** | Worktree path enforcement |
 | **RTK** | Token-saving bash rewrite — 60-90% less output per command |
 | **LSP Auditor** | LSP diagnostics pre-audit for pipeline |
+| **CodeFlow Analysis Report** | Save browser-run CodeFlow analysis reports to the workspace |
+| **Dump Context** | Inspect the assembled system prompt and its sources |
 
 ## Quick start
 
@@ -56,9 +58,9 @@ Or manually from the [latest release](https://github.com/SchneiderDaniel/cheasee
 
 ### First run: three steps
 
-1. `cheasee-pi init` in an **empty folder** — sets up the workspace (repo URL, auth, bare clone + worktree, scaffolded `cheasee-settings.json`)
-2. `cd <workspace-folder>`
-2. `cheasee-pi` (or `cheasee-pi start`) in that folder — launches pi inside the container
+1. Run `cheasee-pi init` in an **empty folder**. The CLI sets up the workspace, authenticates GitHub and the model provider, creates a bare clone and worktree, and scaffolds `cheasee-settings.json`.
+2. Change to the workspace folder with `cd <workspace-folder>`.
+3. Run `cheasee-pi` or `cheasee-pi start` to launch Pi inside the container.
 
 ### Using the CLI (auto)
 
@@ -73,7 +75,7 @@ cheasee-pi prune-images   # delete ALL tagged cheasee-pi images (every repo) —
 cheasee-pi build          # rebuild container image (Dockerfile/entrypoint changes)
 cheasee-pi auth add       # add API key for a provider
 cheasee-pi auth list      # list configured providers/keys
-cheasee-pi auth remove    # remove a provider key
+cheasee-pi auth remove <provider>  # remove a provider key
 ```
 
 See [Installation guide](installation.md) for prerequisites and step-by-step setup.
@@ -85,14 +87,17 @@ Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schnei
 | Section | What's there |
 |---------|-------------|
 | [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
+| [CLI Reference](https://schneiderdaniel.github.io/cheasee-pi/cli) | Commands, flags, environment variables, and sidecars |
+| [Configuration](https://schneiderdaniel.github.io/cheasee-pi/configuration) | Workspace settings, provider defaults, and credentials |
 | [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage) | Docker workflow, parallel sessions, troubleshooting |
 | [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
-| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 17 extensions, agent definitions, published packages |
-| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | 21 skill definitions (11 auto-loaded, 10 manual) |
-| [Methodology](https://schneiderdaniel.github.io/cheasee-pi/methodology) | Kanban pipeline, security, token efficiency, daily use |
-| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | Internal-only prompts (all Cheasee-Pi prompts converted to skills) |
+| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 18 extensions, behavior guides, and published packages |
+| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | Skill definitions, invocation modes, and usage |
+| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | Internal prompt and skill conventions |
+| [Security](https://schneiderdaniel.github.io/cheasee-pi/security) | Trust boundaries, credentials, sidecar exposure, and threat model |
 | [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
 | [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses |
+| [Development Guide](https://schneiderdaniel.github.io/cheasee-pi/development) | Source map, validation commands, and documentation workflow |
 
 ## Contributing
 
@@ -111,11 +116,8 @@ Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
    cd ../cheasee-pi-my-change
    ```
 3. Implement your change. Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
-4. Run the full test suite before opening a PR:
-   ```bash
-   npm test
-   npm run tsc:extensions
-   ```s
+4. Run the full validation suite listed in
+   [CONTRIBUTING.md](../CONTRIBUTING.md#building-and-testing) before opening a PR.
 5. Push the branch and open a PR referencing the related issue (e.g. `Closes #123`).
 6. Clean up after the PR is merged:
    ```bash
@@ -126,4 +128,4 @@ Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## License
 
-MIT © 2025. See [LICENSE](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE).
