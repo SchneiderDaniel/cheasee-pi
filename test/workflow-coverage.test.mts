@@ -21,7 +21,13 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join, extname, relative, basename } from "node:path";
 import { load } from "js-yaml";
 
-import { isGlobBased, isRegistered, parseTokens, testGlobs, testScript } from "./lib/test-discovery.mts";
+import {
+	isGlobBased,
+	isRegistered,
+	parseTokens,
+	testGlobs,
+	testScript,
+} from "./lib/test-discovery.mts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const WORKFLOWS_DIR = join(ROOT, ".github", "workflows");
@@ -67,11 +73,7 @@ const TEST_FILE_RE = /\.test\.(mts|ts|sh|py)$/;
 
 /** Repo-relative paths of every test file in scope (fixtures excluded). */
 function testFilePaths(): string[] {
-	const dirs = [
-		join(ROOT, ".pi", "extensions"),
-		join(ROOT, "test"),
-		join(ROOT, "docker", "test"),
-	];
+	const dirs = [join(ROOT, ".pi", "extensions"), join(ROOT, "test"), join(ROOT, "docker", "test")];
 	const files: string[] = [];
 	for (const dir of dirs) {
 		if (!existsSync(dir)) continue;
@@ -133,7 +135,7 @@ describe("workflow coverage — no orphan tests", () => {
 		const expected = [
 			"test/docs-installation.test.mts",
 			"test/dogfooding-dedup.test.sh",
-			"test/external-issue-skill.test.mts",
+			"test/git-issue-create-external-skill.test.mts",
 			"test/goreleaser-config.test.mts",
 			"test/no-submodules.test.sh",
 			"test/release-workflow.test.mts",

@@ -1,5 +1,5 @@
 ---
-name: issue-refinement
+name: git-issue-refinement
 description: Refine a GitHub issue by conducting a one-question-at-a-time Socratic interview, challenging the issue against the codebase, then replacing vague requirements with concrete acceptance criteria.
 disable-model-invocation: true
 ---
@@ -73,7 +73,7 @@ Every vague answer gets a follow-up until it becomes concrete and testable.
 
 Read the conversation history. Determine your state:
 
-- **INITIAL**: First invocation of `/skill:issue-refinement` in this conversation. → Go to PHASE 0: INVESTIGATE.
+- **INITIAL**: First invocation of `/skill:git-issue-refinement` in this conversation. → Go to PHASE 0: INVESTIGATE.
 - **INTERVIEWING**: Investigation done, interview in progress. → Go to PHASE 1: INTERVIEW.
 - **FRONTEND_INTERVIEWING**: Core interview done, but `frontend_flag` is `true` and frontend refinement questions remain. → Go to PHASE 1.5: FRONTEND REFINEMENT.
 - **COMPLETE**: All topics covered, understanding reached. → Go to PHASE 2: WRITE & UPDATE (write the refined issue and update GitHub in one shot, no approval).
@@ -444,12 +444,12 @@ Immediately after confirming the update, call `ask_user`:
 ```
 question: "Issue #$1 is refined. What's next?"
 options:
-  - label: "Call issue-cutter to split into sub-issues"    value: "cut"      recommended: true
+  - label: "Call git-issue-cutter to split into sub-issues"    value: "cut"      recommended: true
   - label: "Done — no further action"                      value: "done"
   - label: "Other (type your answer)"                      value: "other"
 ```
 
-- If user selects **"cut"** → immediately load and follow `.pi/skills/issue-cutter/SKILL.md` for issue #$1.
+- If user selects **"cut"** → immediately load and follow `.pi/skills/git-issue-cutter/SKILL.md` for issue #$1.
 - If user selects **"done"** or **"other"** → acknowledge and end.
 
 ---
