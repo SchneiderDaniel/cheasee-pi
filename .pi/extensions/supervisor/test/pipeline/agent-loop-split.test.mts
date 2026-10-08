@@ -72,6 +72,11 @@ function functionSpan(source: string, name: string): number {
 
 describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)", () => {
 	const AGENT_LOOP = src(join(HANDLER_PKG, "agent-loop.ts"));
+	const AGENT_LOOP_STEPS_SRC = src(join(HANDLER_PKG, "agent-loop-steps.ts"));
+	const FILE_SOURCES: Record<string, string> = {
+		"agent-loop.ts": AGENT_LOOP,
+		"agent-loop-steps.ts": AGENT_LOOP_STEPS_SRC,
+	};
 	const STAGES = readdirSync(STAGES_DIR)
 		.filter((f) => f.endsWith(".ts"))
 		.sort()
@@ -84,10 +89,20 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 		["agent-loop.ts", "handleBudgetExceeded"],
 		["agent-loop.ts", "runPreTransitionHooks"],
 		["agent-loop.ts", "refreshWorktreeBeforeImplementation"],
+		["agent-loop-steps.ts", "resolveStep"],
+		["agent-loop-steps.ts", "runBacklogStep"],
+		["agent-loop-steps.ts", "runDoneStep"],
+		["agent-loop-steps.ts", "resolveLoopAgent"],
+		["agent-loop-steps.ts", "loadLoopIssue"],
+		["agent-loop-steps.ts", "runResearcherDedupGate"],
+		["agent-loop-steps.ts", "writePreAuditorCheckpoint"],
+		["agent-loop-steps.ts", "loadLoopAgentFile"],
+		["agent-loop-steps.ts", "assembleAgentTask"],
+		["agent-loop-steps.ts", "recordPostDispatch"],
 	];
 	for (const [file, name] of sameFileHelpers) {
 		it(`${name} ≤ ${CEILING} lines`, () => {
-			const span = functionSpan(AGENT_LOOP, name);
+			const span = functionSpan(FILE_SOURCES[file]!, name);
 			assert.ok(span <= CEILING, `${name} spans ${span} lines (> ${CEILING})`);
 		});
 	}
@@ -106,6 +121,11 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 		});
 	}
 
+	it("runAgentLoop reduced to a ≤400-line skeleton (issue #1886)", () => {
+		const span = functionSpan(AGENT_LOOP, "runAgentLoop");
+		assert.ok(span <= 400, `runAgentLoop spans ${span} lines (> 400 target)`);
+	});
+
 	it("runAgentLoop still within the ≤800 S138 exemption", () => {
 		const span = functionSpan(AGENT_LOOP, "runAgentLoop");
 		assert.ok(span <= 800, `runAgentLoop spans ${span} lines (> 800 exemption)`);
@@ -113,6 +133,13 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 
 	it("agent-loop.ts stays under the 1000-line S104 ceiling", () => {
 		assert.ok(AGENT_LOOP.split("\n").length <= 1000, "agent-loop.ts under 1000 raw lines");
+	});
+
+	it("agent-loop-steps.ts stays under the 1000-line S104 ceiling", () => {
+		assert.ok(
+			AGENT_LOOP_STEPS_SRC.split("\n").length <= 1000,
+			"agent-loop-steps.ts under 1000 raw lines",
+		);
 	});
 });
 
@@ -146,6 +173,14 @@ describe("agent-loop split — acyclic stages→handler, signals not break/conti
 		assert.ok(src(join(HANDLER_PKG, "agent-loop.ts")).includes('from "./shared.ts"'));
 	});
 
+	it("handler/agent-loop-steps.ts consumes RunContext from ./shared.ts", () => {
+		assert.ok(src(join(HANDLER_PKG, "agent-loop-steps.ts")).includes('from "./shared.ts"'));
+	});
+
+	it("handler/agent-loop-steps.ts does not import ./agent-loop.ts (acyclic within handler)", () => {
+		assert.ok(!src(join(HANDLER_PKG, "agent-loop-steps.ts")).includes('from "./agent-loop.ts"'));
+	});
+
 	it("handler/pr-gates.ts does not import agent-loop.ts (acyclic within handler)", () => {
 		assert.ok(!src(join(HANDLER_PKG, "pr-gates.ts")).includes('from "./agent-loop.ts"'));
 	});
@@ -157,8 +192,10 @@ describe("agent-loop split — acyclic stages→handler, signals not break/conti
 
 describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 	const AGENT_LOOP = src(join(HANDLER_PKG, "agent-loop.ts"));
+	const AGENT_LOOP_STEPS = src(join(HANDLER_PKG, "agent-loop-steps.ts"));
+	const ALL = `${AGENT_LOOP}\n${AGENT_LOOP_STEPS}`;
 
-	it("each extracted helper is called exactly once from runAgentLoop", () => {
+	it("each extracted helper is called exactly once across agent-loop.ts + agent-loop-steps.ts", () => {
 		for (const call of [
 			"await dispatchAgentWithRetry(",
 			"await handleBudgetExceeded(",
@@ -167,8 +204,32 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			"computeAuditGateRejection(",
 			"await handlePrApprovalFlow(",
 		]) {
-			const count = AGENT_LOOP.split(call).length - 1;
+			const count = ALL.split(call).length - 1;
 			assert.equal(count, 1, `${call} invoked exactly once`);
+		}
+	});
+
+	it("every extracted step helper is invoked once from runAgentLoop under a // ─── marker", () => {
+		const markers = AGENT_LOOP.match(/^\t\t\/\/ ─── .+ ───$/gm) || [];
+		const stepCalls = [
+			"resolveStep(",
+			"runBacklogStep(",
+			"runDoneStep(",
+			"resolveLoopAgent(",
+			"loadLoopIssue(",
+			"runResearcherDedupGate(",
+			"writePreAuditorCheckpoint(",
+			"loadLoopAgentFile(",
+			"assembleAgentTask(",
+			"recordPostDispatch(",
+		];
+		assert.equal(markers.length, stepCalls.length, "one // ─── marker per extracted step helper");
+		for (const call of stepCalls) {
+			assert.equal(
+				AGENT_LOOP.split(call).length - 1,
+				1,
+				`${call} invoked exactly once from the loop skeleton`,
+			);
 		}
 	});
 
@@ -197,7 +258,6 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			"step.hooks?.some((h) => GATE_HOOKS.includes(h))",
 			"// Pre-transition hooks",
 			"// Graceful degradation",
-			"const task = buildAgentTask(",
 			"refreshWorktreeBeforeImplementation(runCtx, worktreePath)",
 		];
 		for (const pin of pins) {
@@ -207,6 +267,13 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			(AGENT_LOOP.match(/if \(result\.budgetExceeded\)/g) || []).length,
 			2,
 			"budgetExceeded guard appears twice (retry gate + pipeline control)",
+		);
+	});
+
+	it("pinned task-build string resolves in agent-loop-steps.ts", () => {
+		assert.ok(
+			AGENT_LOOP_STEPS.includes("const task = buildAgentTask("),
+			"task assembly lives in the extracted step module",
 		);
 	});
 });

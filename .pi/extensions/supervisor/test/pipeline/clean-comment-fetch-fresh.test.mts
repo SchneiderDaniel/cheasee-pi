@@ -9,14 +9,14 @@ import { fileURLToPath } from "node:url";
 import { readGraph } from "../../../lib/test/source-graph.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AGENT_LOOP_TS = resolve(__dirname, "../../pipeline/handler/agent-loop.ts");
+const AGENT_LOOP_STEPS_TS = resolve(__dirname, "../../pipeline/handler/agent-loop-steps.ts");
 
-describe("agent-loop.ts — fetch fresh issue data import edge", () => {
+describe("agent-loop steps — fetch fresh issue data import edge", () => {
 	it("consumes fetchFreshIssueData from ../helpers.ts", () => {
-		const graph = readGraph(AGENT_LOOP_TS);
+		const graph = readGraph(AGENT_LOOP_STEPS_TS);
 		assert.ok(
 			graph.importedNames.includes("fetchFreshIssueData"),
-			"fetchFreshIssueData imported by the agent loop",
+			"fetchFreshIssueData imported by the agent loop steps",
 		);
 		assert.ok(graph.specifiers.includes("../helpers.ts"), "imported from ../helpers.ts");
 	});

@@ -25,6 +25,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const HANDLER_STEPS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-steps.ts");
 
 // runAgentLoop with the audit module mocked needs --experimental-test-module-mocks.
 // Without it the Phase 4 integration suite is skipped; the pure-function and
@@ -433,7 +434,7 @@ describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", 
 	});
 
 	it("auditor rejection path consumes the shared anchored matcher — issue #1668", () => {
-		const graph = readGraph(HANDLER_TS);
+		const graph = readGraph(HANDLER_STEPS_TS);
 		assert.ok(
 			graph.importedNames.includes("isAuditRejectedComment"),
 			"auditFeedback scan imports the shared anchored matcher",
