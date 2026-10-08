@@ -49,10 +49,29 @@ function exportedNames(source: string): string[] {
 	return out;
 }
 
+/** Named bindings imported/re-exported from `file-classification` by a source string. */
+function importedNames(source: string): Set<string> {
+	const names = new Set<string>();
+	for (const m of source.matchAll(
+		/(?:^|\n)\s*(?:import|export)\b[^'";]*?\bfrom\s*["'][^"']*file-classification[^"']*["']/g,
+	)) {
+		for (const clause of m[0].matchAll(/\{([^}]*)\}/g)) {
+			for (const spec of clause[1].split(",")) {
+				const name = spec.trim().split(/\s+as\s+/).pop()?.trim();
+				if (name) names.add(name);
+			}
+		}
+	}
+	return names;
+}
+
 /** Export names of `source` absent from every consumer source (defining file excluded). */
 function unreferencedExports(source: string, consumers: string[]): string[] {
-	const corpus = consumers.join("\n");
-	return exportedNames(source).filter((name) => !corpus.includes(name));
+	const referenced = new Set<string>();
+	for (const consumer of consumers) {
+		for (const name of importedNames(consumer)) referenced.add(name);
+	}
+	return exportedNames(source).filter((name) => !referenced.has(name));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -110,6 +129,12 @@ describe("file-classification export surface", () => {
 		assert.deepEqual(unreferencedExports(synthetic, ["import { other } from './x'"]), [
 			"phantomThing",
 		]);
+	});
+
+	it("does not count a comment-only mention as a consumer", () => {
+		const synthetic = "export function phantomThing(): void {}\n";
+		const commentOnly = "// phantomThing is mentioned here but never imported\n";
+		assert.deepEqual(unreferencedExports(synthetic, [commentOnly]), ["phantomThing"]);
 	});
 
 	it("excludes the defining file so isTestableFile cannot self-satisfy", () => {
