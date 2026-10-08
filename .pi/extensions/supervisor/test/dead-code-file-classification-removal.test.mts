@@ -57,6 +57,71 @@ function resolvesTo(specifier: string, fromFile: string, target: string): boolea
 }
 
 /**
+ * Member names accessed on the namespace-import binding `nsName` in `consumer`.
+ *
+ * Resolves each accessor identifier with the type checker, so an identifier that
+ * merely shares the name (e.g. a shadowing parameter) is not mistaken for the
+ * imported namespace.
+ */
+function namespaceMembers(consumer: Consumer, nsName: string): string[] {
+	const fileName = consumer.path;
+	const sourceFile = parse(fileName, consumer.source);
+	const host: ts.CompilerHost = {
+		getSourceFile: (f) => (f === fileName ? sourceFile : undefined),
+		getDefaultLibFileName: () => "lib.d.ts",
+		writeFile: () => {},
+		getCurrentDirectory: () => dirname(fileName),
+		getDirectories: () => [],
+		fileExists: (f) => f === fileName,
+		readFile: (f) => (f === fileName ? consumer.source : undefined),
+		getCanonicalFileName: (f) => f,
+		useCaseSensitiveFileNames: () => true,
+		getNewLine: () => "\n",
+	};
+	const program = ts.createProgram(
+		[fileName],
+		{ noResolve: true, noLib: true, target: ts.ScriptTarget.Latest },
+		host,
+	);
+	const sf = program.getSourceFile(fileName);
+	if (!sf) return [];
+	const checker = program.getTypeChecker();
+	let alias: ts.Symbol | undefined;
+	const findAlias = (node: ts.Node): void => {
+		if (
+			!alias &&
+			ts.isImportDeclaration(node) &&
+			node.importClause?.namedBindings &&
+			ts.isNamespaceImport(node.importClause.namedBindings) &&
+			node.importClause.namedBindings.name.text === nsName
+		) {
+			alias = checker.getSymbolAtLocation(node.importClause.namedBindings.name);
+		}
+		ts.forEachChild(node, findAlias);
+	};
+	findAlias(sf);
+	if (!alias) return [];
+	const members: string[] = [];
+	const collect = (node: ts.Node): void => {
+		if (ts.isPropertyAccessExpression(node)) {
+			if (ts.isIdentifier(node.expression) && checker.getSymbolAtLocation(node.expression) === alias)
+				members.push(node.name.text);
+		} else if (
+			ts.isElementAccessExpression(node) &&
+			ts.isIdentifier(node.expression) &&
+			checker.getSymbolAtLocation(node.expression) === alias &&
+			node.argumentExpression &&
+			ts.isStringLiteral(node.argumentExpression)
+		) {
+			members.push(node.argumentExpression.text);
+		}
+		ts.forEachChild(node, collect);
+	};
+	collect(sf);
+	return members;
+}
+
+/**
  * Names the consumer imports/re-exports from `target`, or `"*"` when it
  * re-exports the module wholesale (`export * …`), which references every name.
  */
@@ -73,24 +138,8 @@ function importedNames(consumer: Consumer, target: string): Set<string> {
 				// Imported export name is the spec before any `as` alias.
 				for (const el of named.elements) names.add((el.propertyName ?? el.name).text);
 			} else if (named && ts.isNamespaceImport(named)) {
-				// Namespace import: the names used are `ns.<name>` / `ns["<name>"]` accesses.
-				const ns = named.name.text;
-				const isNsExpr = (node: ts.Expression): boolean =>
-					ts.isIdentifier(node) && node.text === ns;
-				const collect = (node: ts.Node): void => {
-					if (ts.isPropertyAccessExpression(node) && isNsExpr(node.expression)) {
-						names.add(node.name.text);
-					} else if (
-						ts.isElementAccessExpression(node) &&
-						isNsExpr(node.expression) &&
-						node.argumentExpression &&
-						ts.isStringLiteral(node.argumentExpression)
-					) {
-						names.add(node.argumentExpression.text);
-					}
-					ts.forEachChild(node, collect);
-				};
-				collect(sourceFile);
+				// Namespace import: names accessed as `ns.<name>` / `ns["<name>"]`.
+				for (const member of namespaceMembers(consumer, named.name.text)) names.add(member);
 			}
 		} else if (ts.isExportDeclaration(st) && st.moduleSpecifier) {
 			if (!ts.isStringLiteral(st.moduleSpecifier)) continue;
@@ -318,6 +367,24 @@ describe("file-classification export surface", () => {
 	it("counts a computed namespace member access as a consumer", () => {
 		const importer =
 			'import * as fc from "./file-classification.ts";\nconst ok = fc["phantomThing"];\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
+		);
+	});
+
+	it("ignores a namespace member access shadowed by a local parameter", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nfunction g(fc: any) { return fc.phantomThing; }\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			["phantomThing"],
+		);
+	});
+
+	it("counts an unshadowed access even alongside a shadowing parameter", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nconst ok = fc.phantomThing;\nfunction g(fc: any) { return fc.other; }\n';
 		assert.deepEqual(
 			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
 			[],
