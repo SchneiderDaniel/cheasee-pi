@@ -271,6 +271,97 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(result.success, false, "budget exceeded should have success=false");
 	});
 
+	it("budget exceeded path renders ⚠ BUDGET_EXCEEDED in the final message", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const runner = mockRunner({
+			success: false,
+			budgetExceeded: true,
+			summaryLine: "Budget exceeded after 30 tools",
+		});
+
+		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
+		await executeAgent(
+			mockAgent as any,
+			"test task",
+			ctx,
+			pi,
+			30000,
+			"/worktree",
+			5,
+			10000,
+			undefined,
+			runner,
+		);
+
+		const resultMsgs = pi.sendMessageCalls.filter(
+			(m: any) => m.details?.eventType === "subagent-result",
+		);
+		const content = resultMsgs[resultMsgs.length - 1].content;
+		assert.ok(
+			content.includes("⚠") && content.includes("BUDGET_EXCEEDED"),
+			"budget outcome renders ⚠ BUDGET_EXCEEDED",
+		);
+	});
+
+	it("success wins over budgetExceeded in the rendered message (precedence)", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const runner = mockRunner({ success: true, budgetExceeded: true });
+
+		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
+		await executeAgent(
+			mockAgent as any,
+			"test task",
+			ctx,
+			pi,
+			30000,
+			"/worktree",
+			5,
+			10000,
+			undefined,
+			runner,
+		);
+
+		const resultMsgs = pi.sendMessageCalls.filter(
+			(m: any) => m.details?.eventType === "subagent-result",
+		);
+		const content = resultMsgs[resultMsgs.length - 1].content;
+		assert.ok(
+			content.includes("✅") && content.includes("SUCCESS"),
+			"success branch wins over budgetExceeded",
+		);
+	});
+
+	it("empty summaryLine still renders the status line without crashing", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const runner = mockRunner({ summaryLine: "" });
+
+		const { executeAgent } = await import("../../pipeline/execute-agent.ts");
+		await executeAgent(
+			mockAgent as any,
+			"test task",
+			ctx,
+			pi,
+			30000,
+			"/worktree",
+			50,
+			100000,
+			undefined,
+			runner,
+		);
+
+		const resultMsgs = pi.sendMessageCalls.filter(
+			(m: any) => m.details?.eventType === "subagent-result",
+		);
+		const content = resultMsgs[resultMsgs.length - 1].content;
+		assert.ok(
+			content.includes("✅ developer — SUCCESS"),
+			"status line renders with empty summaryLine",
+		);
+	});
+
 
 	it("passes sessionPath to runAgentSubprocess", async () => {
 		const pi = createMockPi();

@@ -16,6 +16,12 @@ import { detectThinkingLevelMismatch } from "./thinking-mismatch.ts";
 // ─── executeAgent — primary subprocess execution ───────────────────
 // Signature unchanged for backward compatibility with handler.ts callers.
 
+function agentOutcome(result: AgentRunResult): { icon: string; label: string } {
+	if (result.success) return { icon: "✅", label: "SUCCESS" };
+	if (result.budgetExceeded) return { icon: "⚠", label: "BUDGET_EXCEEDED" };
+	return { icon: "❌", label: "FAILED" };
+}
+
 export async function executeAgent(
 	agent: ParsedAgent,
 	task: string,
@@ -83,16 +89,11 @@ export async function executeAgent(
 	}
 
 	// ── 5. Send final result message ────────────────────────────
-	const finalStatus = result.success ? "✅" : result.budgetExceeded ? "⚠" : "❌";
-	const statusLabel = result.success
-		? "SUCCESS"
-		: result.budgetExceeded
-			? "BUDGET_EXCEEDED"
-			: "FAILED";
+	const { icon, label } = agentOutcome(result);
 	const toolResult = convertAgentRunToToolResult(result, task);
 	pi.sendMessage({
 		customType: "supervisor",
-		content: `${finalStatus} ${agentName} — ${statusLabel}\n\n${result.summaryLine || ""}`,
+		content: `${icon} ${agentName} — ${label}\n\n${result.summaryLine || ""}`,
 		display: true,
 		details: {
 			eventType: "subagent-result",

@@ -532,16 +532,24 @@ export async function applyStatusTransition(
 
 // ─── Build Agent Result Entry ─────────────────────────────────────
 
+function resolveAgentStatus(
+	result: AgentRunResult,
+	usedRetry: boolean,
+): PipelineAgentResult["status"] {
+	if (!result.success) return "FAILED";
+	return usedRetry ? "SUCCESS (after retry)" : "SUCCESS";
+}
+
 export function buildAgentResultEntry(
 	result: AgentRunResult,
 	usedRetry: boolean,
 	model?: string,
 ): PipelineAgentResult {
-	const statusLabel = !result.success ? "FAILED" : usedRetry ? "SUCCESS (after retry)" : "SUCCESS";
+	const status = resolveAgentStatus(result, usedRetry);
 
 	return {
 		agentName: result.agentName,
-		status: statusLabel as PipelineAgentResult["status"],
+		status,
 		durationMs: result.durationMs,
 		tokenCount: result.tokenCount,
 		toolCount: result.toolCount,

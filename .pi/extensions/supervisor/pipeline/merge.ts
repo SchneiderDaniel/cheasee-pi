@@ -17,6 +17,7 @@ import type {
 	PipelineAgentResult,
 	SupervisorConfig,
 	AgentRunner,
+	AgentRunResult,
 } from "../config/types.ts";
 import { resolve as resolvePath } from "node:path";
 import { generateBranchName } from "../agent/task.ts";
@@ -79,6 +80,12 @@ export async function awaitPrMergeability(
 // Shared auto-merge → push → developer-dispatch sequence used by both
 // the pre-Done gate and the post-Done backstop. Returns whether the
 // branch is resolved and whether the developer was dispatched.
+function devConflictStatusLabel(result: AgentRunResult): "SUCCESS" | "TIMEOUT" | "FAILED" {
+	if (result.success) return "SUCCESS";
+	if (result.timedOut) return "TIMEOUT";
+	return "FAILED";
+}
+
 async function resolveBranchConflicts(
 	issueNum: number,
 	branch: string,
@@ -190,11 +197,7 @@ async function resolveBranchConflicts(
 		// agent, the configured duration and the actual duration, and carry the
 		// runner's errorOutput (which already holds the structured [Timeout: …]
 		// note) so a timed-out dispatch is never reported as a bare FAILED.
-		const devStatusLabel = devSuccess
-			? "SUCCESS"
-			: devResult.timedOut
-				? "TIMEOUT"
-				: "FAILED";
+		const devStatusLabel = devConflictStatusLabel(devResult);
 		const devDetailText = [devResult.summaryLine || "", devResult.errorOutput || ""]
 			.filter((line) => line.trim().length > 0)
 			.join("\n\n");
