@@ -9,15 +9,14 @@ import (
 	"testing"
 )
 
-// TestCodeFlowServer_GitignoreSurvivesForeignOwnership is the #1935 follow-up
+// TestCodeFlowServer_TrackedSetSurvivesForeignOwnership is the #1935 follow-up
 // regression: mounting the sibling bare repo fixed the dangling worktree
 // gitdir, but the sidecar still runs as root over host-owned bind mounts, so
-// git aborts `check-ignore` with "fatal: detected dubious ownership"
-// (CVE-2022-24765), the filter fails open, and every gitignored install leaks
-// into the analysis. GIT_TEST_ASSUME_DIFFERENT_OWNER=1 reproduces that
+// git aborts `ls-tree` with "fatal: detected dubious ownership"
+// (CVE-2022-24765) and the tracked set comes back empty. Reproduces that
 // root-on-foreign-repo condition without a second uid: the shim must opt in
-// with `-c safe.directory=*` and still return the ignored paths.
-func TestCodeFlowServer_GitignoreSurvivesForeignOwnership(t *testing.T) {
+// with `-c safe.directory=*` and still return committed paths.
+func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available")
@@ -42,17 +41,23 @@ func TestCodeFlowServer_GitignoreSurvivesForeignOwnership(t *testing.T) {
 	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
 		t.Skipf("git init failed: %v\n%s", err, out)
 	}
+	if out, err := exec.Command("git", "-C", repoRoot, "add", "tracked.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add tracked.txt: %v\n%s", err, out)
+	}
+	gitCommit(t, repoRoot)
 
 	script := `import contextlib, io, os, runpy, sys
 
 # Reproduce the sidecar's root-on-host-owned-mount condition without a second uid.
 os.environ["GIT_TEST_ASSUME_DIFFERENT_OWNER"] = "1"
 m = runpy.run_path(sys.argv[1])
-check = m["_check_ignore"]
+g = m["_scan"].__globals__
+g["REPO_ROOT"] = sys.argv[2]
+g["_GIT_WARNED"] = False
 buf = io.StringIO()
 with contextlib.redirect_stderr(buf):
-    out = check(sys.argv[2], ["ignored/x.txt", "tracked.txt"])
-assert out == {"ignored/x.txt"}, out
+    out = g["_committed_blobs"]()
+assert [entry["path"] for entry in out] == ["tracked.txt"], out
 assert buf.getvalue() == "", buf.getvalue()
 print("OK")
 `
@@ -62,7 +67,7 @@ print("OK")
 	}
 	out, err := exec.Command(python, scriptPath, serverPath, repoRoot).CombinedOutput()
 	if err != nil {
-		t.Fatalf("foreign-ownership gitignore checks failed: %v\n%s", err, out)
+		t.Fatalf("foreign-ownership committed-tree checks failed: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "OK") {
 		t.Fatalf("unexpected helper output: %s", out)

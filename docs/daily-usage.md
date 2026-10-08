@@ -127,9 +127,15 @@ CodeFlow:  http://localhost:8891/?repo=local/workspace&run=1
 Open the printed URL in the browser (the `repo` and `run` parameters trigger
 analysis of the mounted workspace `/workspaces/main` without further
 interaction; the shim ignores the `repo` name and maps every API request to
-the mounted repository, but appends a short workspace-content fingerprint to
-it on the entrypoint redirect, so the browser re-analyzes when the workspace
-changes and reuses the cached result when it does not).
+the mounted repository, but appends a fingerprint of its committed `HEAD` tree
+to the repo name on the entrypoint redirect, so the browser re-analyzes when a
+new commit changes the tree and reuses the cached result otherwise).
+
+In CodeFlow, we analyze the committed tree at the workspace's current `HEAD`.
+We exclude uncommitted edits, staged changes, and untracked files.
+Consequently, workspace artifacts such as `.pi/git` package clones, Python
+virtualenvs under `.pi/`, and session logs remain outside the graph even when
+the repository's `.gitignore` does not list them.
 
 To pin a port explicitly, set `docker.codeflowPort` in
 `cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
@@ -154,7 +160,7 @@ read-only, editable without rebuilding the image):
 | --- | --- | --- |
 | `port` | `8470` | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
 | `host` | `0.0.0.0` | **Container-side** bind address — must stay `0.0.0.0` (docker-proxy/DNAT delivers published traffic to it); host-side reachability is the compose mapping's `CODEFLOW_HOST_IP` job, below |
-| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names skipped during the file walk |
+| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names excluded from the served committed tree |
 
 Configuration changes take effect on the next container start (no rebuild
 required). The compose port mapping uses `CODEFLOW_PORT` for the host side
