@@ -48,6 +48,7 @@ verdict_file="$(mktemp)"
 trap 'rm -f "$verdict_file"' EXIT INT TERM
 if ! timeout 600 pi -p \
 	--no-extensions \
+	--no-session \
 	"${model_args[@]+"${model_args[@]}"}" \
 	-e "$repo_root/.pi/extensions/ripgrep-search/index.ts" \
 	-e "$repo_root/.pi/extensions/structural-analyzer/index.ts" \
@@ -56,8 +57,8 @@ if ! timeout 600 pi -p \
 	--append-system-prompt "$skill_dir/references/finding-validator.md" \
 	-- "Verify this CodeFlow finding:
 
-$(cat "$finding")" >"$verdict_file" 2>&1; then
-	echo "validator subagent failed (exit $?) — output:" >&2
+$(cat "$finding")" >"$verdict_file" 2>&1 </dev/null; then
+	echo "validator subagent failed — output:" >&2
 	cat "$verdict_file" >&2
 	exit 3
 fi

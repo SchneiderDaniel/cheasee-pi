@@ -177,6 +177,23 @@ Only now file the confirmed drafts via `create-internal-issue` (template,
 duplicate check already done, add to the project board). Issues only — no
 commits, no branches, no PRs. Report the created issue URLs back to the user.
 
+## Dry run (creates nothing)
+
+`scripts/dry-run.mts` exercises the extract → resolve → validate path without
+touching GitHub: it takes the first N findings, maps each cited file onto the
+repo (the markdown exporter emits bare basenames in its pattern sections),
+validates every finding with a read-only subagent, and prints the issue it would
+file — or, for a false finding, the validator's reason and evidence.
+
+```bash
+node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --limit 5
+node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no subagents
+node --experimental-strip-types .pi/skills/codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
+```
+
+It never calls `gh`. Exit `0` for a completed run even when every finding is
+false, `2` for bad usage or a missing report.
+
 ## Verification
 
 - `ignore/codeflow-report.md` exists and is non-empty before parsing.
