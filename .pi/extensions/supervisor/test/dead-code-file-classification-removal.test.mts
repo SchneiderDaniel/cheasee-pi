@@ -12,7 +12,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import ts from "typescript";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const checksDir = join(testDir, "..", "checks");
@@ -38,45 +39,95 @@ function scanSources(needle: string): string[] {
 	return collectSourceFiles(checksDir).filter((f) => readFileSync(f, "utf8").includes(needle));
 }
 
-/** Top-level export names declared in a source string. */
-function exportedNames(source: string): string[] {
-	const out: string[] = [];
-	for (const m of source.matchAll(
-		/^export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+(\w+)/gm,
-	)) {
-		out.push(m[1]);
-	}
-	return out;
+interface Consumer {
+	path: string;
+	source: string;
 }
 
-/** The defining module's own specifier; a similarly named neighbour must not satisfy the guard. */
-const FILE_CLASSIFICATION_MODULE = /(?:^|\/)file-classification\.[cm]?ts$/;
+/** Parse a source string with the TypeScript compiler for AST-based import/export analysis. */
+function parse(fileName: string, source: string): ts.SourceFile {
+	return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
 
-/** Named bindings imported/re-exported from `file-classification.ts` by a source string. */
-function importedNames(source: string): Set<string> {
+/** Whether a relative specifier used in `fromFile` resolves to `target`. */
+function resolvesTo(specifier: string, fromFile: string, target: string): boolean {
+	if (!specifier.startsWith(".")) return false;
+	const resolved = resolve(dirname(fromFile), specifier);
+	return resolved === target || `${resolved}.ts` === target;
+}
+
+/** Named bindings imported/re-exported from `target` by the consumer source. */
+function importedNames(consumer: Consumer, target: string): Set<string> {
 	const names = new Set<string>();
-	for (const m of source.matchAll(
-		/(?:^|\n)\s*(?:import|export)\b[^'";]*?\bfrom\s*["']([^"']*)["']/g,
-	)) {
-		if (!FILE_CLASSIFICATION_MODULE.test(m[1])) continue;
-		for (const clause of m[0].matchAll(/\{([^}]*)\}/g)) {
-			for (const spec of clause[1].split(",")) {
+	for (const st of parse(consumer.path, consumer.source).statements) {
+		if (ts.isImportDeclaration(st)) {
+			if (!ts.isStringLiteral(st.moduleSpecifier)) continue;
+			if (!resolvesTo(st.moduleSpecifier.text, consumer.path, target)) continue;
+			if (st.importClause?.name) names.add("default");
+			const named = st.importClause?.namedBindings;
+			if (named && ts.isNamedImports(named)) {
 				// Imported export name is the spec before any `as` alias.
-				const name = spec.trim().split(/\s+as\s+/)[0]?.trim();
-				if (name) names.add(name);
+				for (const el of named.elements) names.add((el.propertyName ?? el.name).text);
+			}
+		} else if (ts.isExportDeclaration(st) && st.moduleSpecifier) {
+			if (!ts.isStringLiteral(st.moduleSpecifier)) continue;
+			if (!resolvesTo(st.moduleSpecifier.text, consumer.path, target)) continue;
+			const clause = st.exportClause;
+			if (clause && ts.isNamedExports(clause)) {
+				for (const el of clause.elements) names.add((el.propertyName ?? el.name).text);
 			}
 		}
 	}
 	return names;
 }
 
+/** Export names declared by a module's source, including clauses and default declarations. */
+function exportedNames(fileName: string, source: string): string[] {
+	const names: string[] = [];
+	for (const st of parse(fileName, source).statements) {
+		if (ts.isExportDeclaration(st)) {
+			if (st.exportClause && ts.isNamedExports(st.exportClause)) {
+				for (const el of st.exportClause.elements) names.push(el.name.text);
+			}
+			continue;
+		}
+		if (ts.isExportAssignment(st)) {
+			names.push("default");
+			continue;
+		}
+		const modifiers = ts.canHaveModifiers(st) ? ts.getModifiers(st) : undefined;
+		if (!modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+		const isDefault = modifiers.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
+		if (ts.isVariableStatement(st)) {
+			for (const d of st.declarationList.declarations) {
+				if (ts.isIdentifier(d.name)) names.push(d.name.text);
+			}
+		} else if (
+			ts.isFunctionDeclaration(st) ||
+			ts.isClassDeclaration(st) ||
+			ts.isInterfaceDeclaration(st) ||
+			ts.isTypeAliasDeclaration(st) ||
+			ts.isEnumDeclaration(st) ||
+			ts.isModuleDeclaration(st)
+		) {
+			if (st.name && ts.isIdentifier(st.name)) names.push(st.name.text);
+			else if (isDefault) names.push("default");
+		}
+	}
+	return names;
+}
+
 /** Export names of `source` absent from every consumer source (defining file excluded). */
-function unreferencedExports(source: string, consumers: string[]): string[] {
+function unreferencedExports(
+	source: string,
+	consumers: Consumer[],
+	target: string = classificationPath,
+): string[] {
 	const referenced = new Set<string>();
 	for (const consumer of consumers) {
-		for (const name of importedNames(consumer)) referenced.add(name);
+		for (const name of importedNames(consumer, target)) referenced.add(name);
 	}
-	return exportedNames(source).filter((name) => !referenced.has(name));
+	return exportedNames(target, source).filter((name) => !referenced.has(name));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -119,10 +170,14 @@ describe("file-classification dead-code removal", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("file-classification export surface", () => {
-	const consumers = () =>
+	const consumers = (): Consumer[] =>
 		collectSourceFiles(checksDir)
 			.filter((f) => f !== classificationPath)
-			.map((f) => readFileSync(f, "utf8"));
+			.map((f): Consumer => ({ path: f, source: readFileSync(f, "utf8") }));
+
+	/** A synthetic consumer source at a path below checks/. */
+	const consumer = (path: string, source: string): Consumer => ({ path, source });
+	const synthetic = "export function phantomThing(): void {}\n";
 
 	it("every export has a consumer outside the defining file", () => {
 		const unreferenced = unreferencedExports(readFileSync(classificationPath, "utf8"), consumers());
@@ -130,29 +185,59 @@ describe("file-classification export surface", () => {
 	});
 
 	it("reports a synthetic export with no consumer as unreferenced", () => {
-		const synthetic = "export function phantomThing(): void {}\n";
-		assert.deepEqual(unreferencedExports(synthetic, ["import { other } from './x'"]), [
-			"phantomThing",
-		]);
+		assert.deepEqual(
+			unreferencedExports(synthetic, [
+				consumer(join(checksDir, "a.ts"), "import { other } from './x.ts';\n"),
+			]),
+			["phantomThing"],
+		);
 	});
 
 	it("does not count a comment-only mention as a consumer", () => {
-		const synthetic = "export function phantomThing(): void {}\n";
-		const commentOnly = "// phantomThing is mentioned here but never imported\n";
-		assert.deepEqual(unreferencedExports(synthetic, [commentOnly]), ["phantomThing"]);
+		const commentOnly = '/* import { phantomThing } from "../file-classification.ts"; */\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [
+				consumer(join(checksDir, "requirements", "x.ts"), commentOnly),
+			]),
+			["phantomThing"],
+		);
 	});
 
 	it("does not count a similarly named module as a consumer", () => {
-		const synthetic = "export function phantomThing(): void {}\n";
-		const neighbour =
-			'import { phantomThing } from "../checks/file-classification-helpers.ts";\n';
-		assert.deepEqual(unreferencedExports(synthetic, [neighbour]), ["phantomThing"]);
+		const neighbour = 'import { phantomThing } from "./file-classification-helpers.ts";\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), neighbour)]),
+			["phantomThing"],
+		);
+	});
+
+	it("does not count a specifier that resolves to a different file", () => {
+		// From checks/requirements/, "./file-classification.ts" is a different module.
+		const sibling = 'import { phantomThing } from "./file-classification.ts";\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [
+				consumer(join(checksDir, "requirements", "x.ts"), sibling),
+			]),
+			["phantomThing"],
+		);
 	});
 
 	it("counts an aliased import as a consumer of the imported name", () => {
-		const synthetic = "export function phantomThing(): void {}\n";
-		const aliased = 'import { phantomThing as classify } from "../checks/file-classification.ts";\n';
-		assert.deepEqual(unreferencedExports(synthetic, [aliased]), []);
+		const aliased = 'import { phantomThing as classify } from "../file-classification.ts";\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [
+				consumer(join(checksDir, "requirements", "parity.ts"), aliased),
+			]),
+			[],
+		);
+	});
+
+	it("recognizes re-export clauses and default declarations as exports", () => {
+		assert.deepEqual(unreferencedExports("export { phantomThing };\n", []), ["phantomThing"]);
+		assert.deepEqual(
+			unreferencedExports("export default function phantomThing(): void {}\n", []),
+			["phantomThing"],
+		);
 	});
 
 	it("excludes the defining file so isTestableFile cannot self-satisfy", () => {
