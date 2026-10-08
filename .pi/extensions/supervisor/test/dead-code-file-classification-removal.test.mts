@@ -73,15 +73,20 @@ function importedNames(consumer: Consumer, target: string): Set<string> {
 				// Imported export name is the spec before any `as` alias.
 				for (const el of named.elements) names.add((el.propertyName ?? el.name).text);
 			} else if (named && ts.isNamespaceImport(named)) {
-				// Namespace import: the names used are `ns.<name>` member accesses.
+				// Namespace import: the names used are `ns.<name>` / `ns["<name>"]` accesses.
 				const ns = named.name.text;
+				const isNsExpr = (node: ts.Expression): boolean =>
+					ts.isIdentifier(node) && node.text === ns;
 				const collect = (node: ts.Node): void => {
-					if (
-						ts.isPropertyAccessExpression(node) &&
-						ts.isIdentifier(node.expression) &&
-						node.expression.text === ns
-					) {
+					if (ts.isPropertyAccessExpression(node) && isNsExpr(node.expression)) {
 						names.add(node.name.text);
+					} else if (
+						ts.isElementAccessExpression(node) &&
+						isNsExpr(node.expression) &&
+						node.argumentExpression &&
+						ts.isStringLiteral(node.argumentExpression)
+					) {
+						names.add(node.argumentExpression.text);
 					}
 					ts.forEachChild(node, collect);
 				};
@@ -100,6 +105,17 @@ function importedNames(consumer: Consumer, target: string): Set<string> {
 		}
 	}
 	return names;
+}
+
+/** Identifier names bound by a binding name (including destructuring patterns). */
+function bindingNames(name: ts.BindingName): string[] {
+	if (ts.isIdentifier(name)) return [name.text];
+	const out: string[] = [];
+	for (const el of name.elements) {
+		if (ts.isOmittedExpression(el)) continue;
+		out.push(...bindingNames(el.name));
+	}
+	return out;
 }
 
 /** Export names declared by a module's source, including clauses and default declarations. */
@@ -127,7 +143,7 @@ function exportedNames(fileName: string, source: string): string[] {
 		const isDefault = modifiers.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
 		if (ts.isVariableStatement(st)) {
 			for (const d of st.declarationList.declarations) {
-				if (ts.isIdentifier(d.name)) names.push(d.name.text);
+				names.push(...bindingNames(d.name));
 			}
 		} else if (
 			ts.isFunctionDeclaration(st) ||
@@ -297,6 +313,24 @@ describe("file-classification export surface", () => {
 			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
 			[],
 		);
+	});
+
+	it("counts a computed namespace member access as a consumer", () => {
+		const importer =
+			'import * as fc from "./file-classification.ts";\nconst ok = fc["phantomThing"];\n';
+		assert.deepEqual(
+			unreferencedExports(synthetic, [consumer(join(checksDir, "a.ts"), importer)]),
+			[],
+		);
+	});
+
+	it("recognizes destructured exported bindings as exports", () => {
+		assert.deepEqual(unreferencedExports("export const { phantomThing } = value;\n", []), [
+			"phantomThing",
+		]);
+		assert.deepEqual(unreferencedExports("export const [phantomThing] = list;\n", []), [
+			"phantomThing",
+		]);
 	});
 
 	it("counts a star re-export as a consumer", () => {
