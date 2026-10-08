@@ -23,7 +23,7 @@ import {
 	type PreGateDeps,
 } from "../pipeline/audit/pre-gates.ts";
 import type { SupervisorConfig } from "../config/types.ts";
-import type { ExecFn } from "../pipeline/helpers.ts";
+import type { ExecFn } from "../../lib/port-types.ts";
 import type { CiPollResult } from "../checks/ci-gating.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";

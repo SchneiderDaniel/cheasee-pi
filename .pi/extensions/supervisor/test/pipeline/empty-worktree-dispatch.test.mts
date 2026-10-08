@@ -16,7 +16,7 @@ import {
 	handleEmptyWorktree,
 } from "../../pipeline/stages/index.ts";
 import type { EmptyWorktreeAction } from "../../pipeline/empty-worktree-policy.ts";
-import type { ExecFn } from "../../pipeline/helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import { ErrorCollector } from "../../pipeline/error-collector.ts";
 
 const CONFIG = {

@@ -10,7 +10,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig } from "../../config/types.ts";
 import type { ClosingPrRef, GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
-import type { ExecFn } from "../helpers.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import {
 	classifyEmptyWorktree,
