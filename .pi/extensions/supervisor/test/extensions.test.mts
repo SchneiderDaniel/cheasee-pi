@@ -5,8 +5,13 @@ import { describe, it, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
-import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
+import { join, resolve as resolvePath, dirname } from "node:path";
+import {
+	resolveSkillPaths,
+	resolveSkillPathsWithFs,
+	discoverExtensionTools,
+	resolveTools,
+} from "../lib/extensions.ts";
 
 // ─── resolveSkillPaths (uses real fs) ────────────────────────────
 
@@ -227,5 +232,130 @@ describe("resolveSkillPathsWithFs", () => {
 		assert.deepEqual(resolveSkillPathsWithFs(undefined, "/root", mockExists), []);
 		assert.deepEqual(resolveSkillPathsWithFs("", "/root", mockExists), []);
 		assert.deepEqual(resolveSkillPathsWithFs("   ", "/root", mockExists), []);
+	});
+});
+
+// ─── discoverExtensionTools / resolveTools (real fs, cwd-scoped) ──
+
+const roots: string[] = [];
+function tmpRoot(): string {
+	const r = fs.mkdtempSync(join(tmpdir(), "pi-ext-"));
+	roots.push(r);
+	return r;
+}
+function writeExt(root: string, rel: string, content: string): void {
+	const file = join(root, ".pi", "extensions", rel);
+	fs.mkdirSync(dirname(file), { recursive: true });
+	fs.writeFileSync(file, content);
+}
+const regTool = (name: string): string => `.registerTool({ name: "${name}", description: "x" })`;
+
+afterEach(() => {
+	for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true });
+});
+
+describe("discoverExtensionTools", () => {
+	it("regression: honors cwd — two cwds return their own extension sets", () => {
+		const a = tmpRoot();
+		writeExt(a, "extA.ts", regTool("toolA"));
+		const b = tmpRoot();
+		writeExt(b, "extB.ts", regTool("toolB"));
+
+		assert.deepEqual(discoverExtensionTools(a).get("extA"), ["toolA"]);
+		assert.deepEqual(discoverExtensionTools(b).get("extB"), ["toolB"]);
+		assert.equal(discoverExtensionTools(a).has("extB"), false);
+		assert.equal(discoverExtensionTools(b).has("extA"), false);
+	});
+
+	it("order independence: reverse order yields same cwd-scoped results", () => {
+		const a = tmpRoot();
+		writeExt(a, "extA.ts", regTool("toolA"));
+		const b = tmpRoot();
+		writeExt(b, "extB.ts", regTool("toolB"));
+
+		assert.deepEqual(discoverExtensionTools(b).get("extB"), ["toolB"]);
+		assert.deepEqual(discoverExtensionTools(a).get("extA"), ["toolA"]);
+	});
+
+	it("interleaved A,B,A: no cross-contamination", () => {
+		const a = tmpRoot();
+		writeExt(a, "extA.ts", regTool("toolA"));
+		const b = tmpRoot();
+		writeExt(b, "extB.ts", regTool("toolB"));
+
+		discoverExtensionTools(a);
+		discoverExtensionTools(b);
+		const third = discoverExtensionTools(a);
+		assert.deepEqual(third.get("extA"), ["toolA"]);
+		assert.equal(third.has("extB"), false);
+	});
+
+	it("cwd with no .pi/extensions dir → empty map, no throw", () => {
+		const r = tmpRoot();
+		assert.deepEqual([...discoverExtensionTools(r)], []);
+	});
+
+	it("empty-dir cwd first does not poison later valid cwd", () => {
+		const empty = tmpRoot();
+		const valid = tmpRoot();
+		writeExt(valid, "extB.ts", regTool("toolB"));
+
+		discoverExtensionTools(empty);
+		assert.deepEqual(discoverExtensionTools(valid).get("extB"), ["toolB"]);
+	});
+
+	it("file without .registerTool is absent from map", () => {
+		const r = tmpRoot();
+		writeExt(r, "noTools.ts", "export default {};");
+		assert.equal(discoverExtensionTools(r).has("noTools"), false);
+	});
+
+	it("file with two registerTool calls keeps both, in source order", () => {
+		const r = tmpRoot();
+		writeExt(r, "multi.ts", `${regTool("t1")};\n${regTool("t2")};`);
+		assert.deepEqual(discoverExtensionTools(r).get("multi"), ["t1", "t2"]);
+	});
+
+	it("directory extension keys on dir name and reads index.ts", () => {
+		const r = tmpRoot();
+		writeExt(r, "dirExt/index.ts", regTool("dirTool"));
+		assert.deepEqual(discoverExtensionTools(r).get("dirExt"), ["dirTool"]);
+		assert.equal(discoverExtensionTools(r).has("index"), false);
+	});
+
+	it("no-arg defaults to process.cwd()", () => {
+		assert.deepEqual(
+			[...discoverExtensionTools()],
+			[...discoverExtensionTools(process.cwd())],
+		);
+	});
+});
+
+describe("resolveTools", () => {
+	it("reflects the passed cwd, not the first caller's", () => {
+		const a = tmpRoot();
+		writeExt(a, "extA.ts", regTool("toolA"));
+		const b = tmpRoot();
+		writeExt(b, "extB.ts", regTool("toolB"));
+
+		assert.equal(resolveTools("base", "extA", a), "base,toolA");
+		assert.equal(resolveTools("base", "extB", b), "base,toolB");
+	});
+
+	it("extension missing in cwd → agent tools only", () => {
+		const b = tmpRoot();
+		writeExt(b, "extB.ts", regTool("toolB"));
+		assert.equal(resolveTools("base", "extA", b), "base");
+	});
+
+	it("filters supervisor from ext list, merges the rest", () => {
+		const a = tmpRoot();
+		writeExt(a, "extA.ts", regTool("toolA"));
+		assert.equal(resolveTools("base", "supervisor,extA", a), "base,toolA");
+	});
+
+	it("undefined/empty ext names leaves agent tools unchanged", () => {
+		assert.equal(resolveTools("base", undefined), "base");
+		assert.equal(resolveTools("base", "   "), "base");
 	});
 });

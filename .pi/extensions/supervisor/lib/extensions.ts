@@ -141,11 +141,7 @@ export function resolveSkillPaths(skillsRaw: string | undefined, cwd?: string): 
 
 // ─── Tool discovery ────────────────────────────────────────────────
 
-let _extToolsCache: Map<string, string[]> | null = null;
-
 export function discoverExtensionTools(cwd?: string): Map<string, string[]> {
-	if (_extToolsCache) return _extToolsCache;
-
 	const map = new Map<string, string[]>();
 	const baseCwd = cwd || process.cwd();
 	const extDir = resolvePath(baseCwd, ".pi/extensions");
@@ -154,7 +150,6 @@ export function discoverExtensionTools(cwd?: string): Map<string, string[]> {
 	try {
 		files = readdirSync(extDir);
 	} catch {
-		_extToolsCache = map;
 		return map;
 	}
 
@@ -195,7 +190,6 @@ export function discoverExtensionTools(cwd?: string): Map<string, string[]> {
 		}
 	}
 
-	_extToolsCache = map;
 	return map;
 }
 
