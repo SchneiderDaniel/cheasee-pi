@@ -1,6 +1,7 @@
 ---
 name: audit-codeflow-analysis
 description: "Fetch the CodeFlow structural analysis report, verify every finding against the source with read-only subagents, turn the survivors into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
+disable-model-invocation: true
 metadata:
   steps: fetch-report-parse-validate-group-confirm-file
   scope: issues-only-no-commits
