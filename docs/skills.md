@@ -117,11 +117,11 @@ File high-quality issues on external public GitHub repos. Enforces a strict 5-st
 
 ### ponytail (lazy senior dev mode)
 
-Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills:
+Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills, of which cheasee-pi registers only the core one by default (the package's `packages` entry in `.pi/settings.json` carries a `skills: ["!ponytail-*"]` filter — see [Ponytail](extensions/ponytail.md)):
 
 | Skill | Trigger | Purpose |
 |-------|---------|--------|
-| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) |
+| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) — installed by default |
 | ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review: yagni, stdlib, native, shrink tags |
 | ponytail-audit | `/skill:ponytail-audit` | Whole-repo bloat scan (same tags, repo-wide) |
 | ponytail-debt | `/skill:ponytail-debt` | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger |
@@ -130,7 +130,7 @@ Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automat
 
 **Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package symlinked into `.pi/skills/ponytail/`.
 
-**Mode:** Auto — all 7 ponytail skills are agent-invocable (descriptions injected every turn).
+**Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
 
 ### writing-voice
 

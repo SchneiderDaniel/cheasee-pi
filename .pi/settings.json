@@ -14,7 +14,12 @@
     "email": ""
   },
   "packages": [
-    "https://github.com/DietrichGebert/ponytail",
+    {
+      "source": "https://github.com/DietrichGebert/ponytail",
+      "skills": [
+        "!ponytail-*"
+      ]
+    },
     "https://github.com/SchneiderDaniel/private-pi"
   ],
   "prompts": [

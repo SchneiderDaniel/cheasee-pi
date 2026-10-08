@@ -13,7 +13,19 @@ nav_order: 18
 
 **Why.** Prevents over-engineering by injecting lazy senior dev rules into every session. Saves code, dependencies, and complexity. YAGNI, stdlib-first, one-line ladder.
 
-**How it works.** Installed as a project package via `packages` in `.pi/settings.json`. Cloned to `.pi/git/github.com/DietrichGebert/ponytail/`. Symlinked into `.pi/extensions/ponytail/` for pi auto-discovery and supervisor sub-agent resolution. Hooks `before_agent_start` to inject rules into system prompt. Registers `/ponytail` commands and skill aliases (`/ponytail-review`, `/ponytail-audit`, etc.).
+**How it works.** Installed as a project package via `packages` in `.pi/settings.json`. Cloned to `.pi/git/github.com/DietrichGebert/ponytail/`. Symlinked into `.pi/extensions/ponytail/` for pi auto-discovery and supervisor sub-agent resolution. Hooks `before_agent_start` to inject rules into system prompt. Registers the `/ponytail` command family and the `ponytail` skill.
+
+**Resource filter.** The entry is the object form, not a bare URL:
+
+```json
+"packages": [
+  { "source": "https://github.com/DietrichGebert/ponytail", "skills": ["!ponytail-*"] }
+]
+```
+
+pi's `applyPatterns` treats a bare `!glob` exclusion as "everything minus the matches", and matches it against a skill's parent directory name — so `!ponytail-*` excludes the five auxiliary skills and keeps `ponytail` (no dash). `extensions` is omitted, so the extension still loads in full. `cheasee-pi start` writes this form for the default source before the container entrypoint's `pi install`, which no-ops on a source already present. Nothing is injected for the core ladder at load time: `ponytail-instructions.js` reads `skills/ponytail/SKILL.md` by absolute path, so filtering skills never disables lazy mode.
+
+To load all six skills instead, run `pi config --local` and enable them (a hand-added `https://…ponytail.git` or `@ref` source variant is left untouched by the reconciler).
 
 **Location:** `.pi/extensions/ponytail/` (symlink to `.pi/git/github.com/DietrichGebert/ponytail/pi-extension/`)
 
@@ -37,14 +49,14 @@ Agents default to over-building — interfaces before they're needed, factories 
 | `/ponytail ultra` | YAGNI extremist |
 | `/ponytail off` | Disable ponytail for session |
 | `/ponytail status` | Show current + default mode |
-| `/ponytail review` | Run ponytail-review skill |
-| `/ponytail-audit` | Whole-repo bloat scan |
+| `/ponytail review` | Forward to `/skill:ponytail-review` (needs the skill enabled) |
+| `/ponytail-audit` | Forward to `/skill:ponytail-audit` (needs the skill enabled) |
 
 Deactivate with `stop ponytail` or `normal mode`. Resume with `/ponytail`.
 
 ## Skills
 
-Ponytail ships 6 skills for manual invocation:
+Ponytail ships 6 skills. Only `ponytail` is registered by default — the five below are excluded by the package resource filter and can be enabled with `pi config --local`.
 
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
@@ -54,6 +66,8 @@ Ponytail ships 6 skills for manual invocation:
 | ponytail-debt | `/skill:ponytail-debt` | Track deliberate shortcuts |
 | ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard |
 | ponytail-help | `/skill:ponytail-help` | Reference card |
+
+(`/ponytail review|audit|gain|debt|help` and the `/ponytail-audit` aliases forward to those auxiliary skills via `/skill:…`, so they need the skills enabled with `pi config --local`. The mode commands — `/ponytail`, `/ponytail lite|full|ultra`, `/ponytail off|status` — are extension-only and keep working.)
 
 ## Agent integration
 
