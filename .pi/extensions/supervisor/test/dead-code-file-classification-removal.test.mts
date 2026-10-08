@@ -57,7 +57,8 @@ function importedNames(source: string): Set<string> {
 	)) {
 		for (const clause of m[0].matchAll(/\{([^}]*)\}/g)) {
 			for (const spec of clause[1].split(",")) {
-				const name = spec.trim().split(/\s+as\s+/).pop()?.trim();
+				// Imported export name is the spec before any `as` alias.
+				const name = spec.trim().split(/\s+as\s+/)[0]?.trim();
 				if (name) names.add(name);
 			}
 		}
@@ -135,6 +136,12 @@ describe("file-classification export surface", () => {
 		const synthetic = "export function phantomThing(): void {}\n";
 		const commentOnly = "// phantomThing is mentioned here but never imported\n";
 		assert.deepEqual(unreferencedExports(synthetic, [commentOnly]), ["phantomThing"]);
+	});
+
+	it("counts an aliased import as a consumer of the imported name", () => {
+		const synthetic = "export function phantomThing(): void {}\n";
+		const aliased = 'import { phantomThing as classify } from "../checks/file-classification.ts";\n';
+		assert.deepEqual(unreferencedExports(synthetic, [aliased]), []);
 	});
 
 	it("excludes the defining file so isTestableFile cannot self-satisfy", () => {
