@@ -15,6 +15,7 @@ Closes #<!-- issue number -->
 
 - [ ] `npm test` passes
 - [ ] `npm run tsc:extensions` passes
+- [ ] `go test ./cmd/cheasee-pi/ -count=1` passes
 - [ ] Tests cover the changes (where applicable)
 
 ## Checklist

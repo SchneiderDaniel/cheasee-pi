@@ -11,7 +11,8 @@ a workspace, launches pi inside a container with provider keys injected, and
 manages the container lifecycle. This page is the command reference — every
 command's **does**, **checks**, and **inputs** at a glance. For step-by-step
 setup and daily walkthroughs, see [Installation](installation.md) and
-[Daily Usage](daily-usage.md).
+[Daily Usage](daily-usage.md). Workspace values and credential storage are
+covered in [Configuration](configuration.md).
 
 ## At a glance
 
@@ -27,9 +28,25 @@ setup and daily walkthroughs, see [Installation](installation.md) and
 | `cheasee-pi prune-images` | Delete ALL tagged cheasee-pi images (every repo) — recreated on next build | confirmation, `--dry-run` / `--yes` |
 | `cheasee-pi uninstall` | Delete cheasee-pi itself: cache, auth config, binaries | confirmation |
 | `cheasee-pi about` (alias `intro`) | Print a ~10-line glossary of core concepts + workflow links | — |
+| `cheasee-pi completion <shell>` | Generate a completion script for Bash, Fish, PowerShell, or Zsh | shell |
 
 `cheasee-pi --version` prints the CLI version. `cheasee-pi --help` lists every
-subcommand.
+subcommand. File paths shown with Linux conventions resolve through the
+operating system's user directories; see [Configuration](configuration.md)
+for Linux, macOS, and Windows locations.
+
+## Shell completion
+
+Cobra provides shell completion for Bash, Fish, PowerShell, and Zsh. The
+command emits a script for the selected shell; each shell's help page describes
+how to install or source it:
+
+```bash
+cheasee-pi completion bash --help
+cheasee-pi completion fish --help
+cheasee-pi completion powershell --help
+cheasee-pi completion zsh --help
+```
 
 ## Lifecycle
 
@@ -122,9 +139,9 @@ path (no clone, no repo URL).
 
 ## `cheasee-pi auth`
 
-Manage provider API keys. Keys live in `~/.config/cheasee-pi/auth.json`
-(0600, atomic writes) and the last-added provider becomes the default in the
-workspace settings.
+Manage provider API keys. Keys live in
+`<UserConfigDir>/cheasee-pi/auth.json` (0600, atomic writes) and the
+last-added provider becomes the default in the workspace settings.
 
 | Subcommand | Does | Inputs / checks |
 |---|---|---|
@@ -204,7 +221,7 @@ CHEASEE_REF — plus the one-sentence workflow, linking the long-form docs
 
 ## Environment variables
 
-Provider keys are read from `~/.config/cheasee-pi/auth.json`, not the
+Provider keys are read from `<UserConfigDir>/cheasee-pi/auth.json`, not the
 environment — the mapping below is what the CLI injects into the container.
 `cheasee-pi auth envvars` is the canonical live source.
 
@@ -235,13 +252,13 @@ Other variables the CLI reads:
 | `CODEFLOW_HOST_IP` | Host-side bind IP for the CodeFlow sidecar's published port. Default `127.0.0.1` — loopback only, matching the printed `localhost` URL (the sidecar serves the workspace source read-only). `0.0.0.0` is the explicit remote-access opt-in |
 | `PI_UI_PORT` | Host port for the `ui` control-center sidecar. Resolution order: `docker.uiPort` in `cheasee-settings.json` → env `PI_UI_PORT` → derived `9500 + fnv32(repo-slug) % 1024`, probed next-free. The host bind is bound to `127.0.0.1` by configuration (no opt-in). See [UI](#ui-web-control-center) |
 | `CHEASEEPI_MEMORY` | Build arg passed by `build`/`rebuild` from `docker.memory` in `cheasee-settings.json` |
-| `XDG_CACHE_HOME` (Unix) / `LocalAppData` (Windows) | Base for the CLI cache dir via `os.UserCacheDir` |
+| OS user cache directory | CLI cache base from `os.UserCacheDir`: Linux uses `XDG_CACHE_HOME` or `~/.cache`, macOS uses `~/Library/Caches`, and Windows uses `%LocalAppData%` |
 
 ## Files and artifacts
 
 | Path | Role |
 |---|---|
-| `~/.config/cheasee-pi/auth.json` | Provider API keys + GitHub token/user (0600, atomic writes) |
+| `<UserConfigDir>/cheasee-pi/auth.json` | Provider API keys + GitHub token/user (0600, atomic writes) |
 | `<workspace>/cheasee-settings.json` | Initialized marker; `defaultProvider`/`defaultModel`, docker settings, skill repos (tab-indented, never overwritten by init) |
 | `<UserCacheDir>/cheasee-pi/<version>` | CLI-managed cache: `docker-compose.yml`, `Dockerfile` (extracted on demand) |
 | `<workspace>/.pi/` | pi agent config (settings, agent settings) |
