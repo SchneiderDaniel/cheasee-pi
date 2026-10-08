@@ -308,12 +308,10 @@ async function readBoardAndGates(runCtx: RunContext): Promise<boolean> {
 	// Read project board
 	ctx.ui.setStatus("supervisor", "Reading project board...");
 	const { fields, items, projectId, statusField } = await readProjectBoard(
-		exec,
 		notify,
 		config,
-		issueNum,
-		collector,
 		port,
+		collector,
 	);
 	if (!fields || !statusField) {
 		getDebugLogger().error("handler", "Project board read failed", {
@@ -344,7 +342,7 @@ async function readBoardAndGates(runCtx: RunContext): Promise<boolean> {
 
 	// Dependency gate
 	ctx.ui.setStatus("supervisor", "Checking dependencies...");
-	if (!(await checkDependencies(exec, notify, config, issueNum, collector, port))) {
+	if (!(await checkDependencies(notify, config, issueNum, port, collector))) {
 		getDebugLogger().warn("handler", "Dependency check blocked", { issueNum });
 		return false;
 	}
