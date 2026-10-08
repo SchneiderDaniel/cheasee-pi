@@ -178,6 +178,27 @@ else
 fi
 assert_append_marker "fixed run (cheasee-pi repo)"
 
+# The repo links only the core ponytail skill (#1936): after re_point, the
+# global skills dir must carry `ponytail` (→ live repo) and no auxiliary link.
+core_skill="$(docker run --rm \
+    -v "$ROOT:/workspaces/main" \
+    -v "$ROOT:/opt/cheasee-pi" \
+    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/ponytail 2>/dev/null || true)"
+if [ "$core_skill" = "/workspaces/main/.pi/skills/ponytail" ]; then
+    pass "global ponytail skill link re-pointed at live repo ($core_skill)"
+else
+    fail "global ponytail skill link not re-pointed (got '$core_skill')"
+fi
+global_aux="$(docker run --rm \
+    -v "$ROOT:/workspaces/main" \
+    -v "$ROOT:/opt/cheasee-pi" \
+    "$IMAGE" bash -c 'for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
+if [ -z "$global_aux" ]; then
+    pass "no auxiliary ponytail skills linked in the global skills dir"
+else
+    fail "auxiliary ponytail skills still linked globally: $(echo "$global_aux" | tr '\n' ' ')"
+fi
+
 # ------------------------------------------------------------------
 echo "== Phase 2: duplication-sensitive control — detection disabled =="
 git checkout -- .pi/settings.json
@@ -200,6 +221,14 @@ inject_marker ".pi/extensions/marker-dedup"
 # from the same global symlinks and the second run must be a no-op re-point.
 mkdir -p "$AGENT_STATE"
 docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'tar -C /home/agentuser -cf - .' | tar -C "$AGENT_STATE" -xf -
+# Seed stale auxiliary ponytail links exactly as a pre-#1936 run would have
+# left them in a persisted home (re_point'd at the live repo, sources since
+# deleted). The prune must drop them on the first restart while the core link
+# survives and is re-pointed.
+mkdir -p "$AGENT_STATE/.pi/agent/skills"
+for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do
+    ln -sfn "/workspaces/main/.pi/skills/$n" "$AGENT_STATE/.pi/agent/skills/$n"
+done
 run_pi "$OUT_DIR/pi-idem1.log" -v "$AGENT_STATE:/home/agentuser"
 c1=$(wc -l < "$MARKER_LOG_HOST")
 run_pi "$OUT_DIR/pi-idem2.log" -v "$AGENT_STATE:/home/agentuser"
@@ -208,6 +237,27 @@ if [ "$c1" -eq 1 ] && [ "$c2" -eq 1 ]; then
     pass "exactly one load per restart (run1=$c1, run2=$c2)"
 else
     fail "load counts across restarts: run1=$c1, run2=$c2 (expected 1 then 1)"
+fi
+# The seeded stale auxiliary links must be pruned, the core link re-pointed.
+persisted_aux="$(docker run --rm \
+    -v "$ROOT:/workspaces/main" \
+    -v "$ROOT:/opt/cheasee-pi" \
+    -v "$AGENT_STATE:/home/agentuser" \
+    "$IMAGE" bash -c 'for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
+if [ -z "$persisted_aux" ]; then
+    pass "stale auxiliary ponytail links pruned from persisted agent home"
+else
+    fail "stale auxiliary ponytail links survived prune in persisted home: $(echo "$persisted_aux" | tr '\n' ' ')"
+fi
+persisted_core="$(docker run --rm \
+    -v "$ROOT:/workspaces/main" \
+    -v "$ROOT:/opt/cheasee-pi" \
+    -v "$AGENT_STATE:/home/agentuser" \
+    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/ponytail 2>/dev/null || true)"
+if [ "$persisted_core" = "/workspaces/main/.pi/skills/ponytail" ]; then
+    pass "core ponytail skill re-pointed in persisted agent home ($persisted_core)"
+else
+    fail "core ponytail skill not re-pointed in persisted home (got '$persisted_core')"
 fi
 l1="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
 l2="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
