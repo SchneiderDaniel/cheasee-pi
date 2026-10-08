@@ -23,6 +23,41 @@ const REPO_ROOT = resolve(TEST_DIR, "../../../..");
 const adapterSource = readFileSync(ADAPTER_PATH, "utf-8");
 const indexSource = readFileSync(INDEX_PATH, "utf-8");
 
+// `--listFiles` also emits the compiled program's file list, which lets the
+// oracle prove the adapter was actually analysed instead of passing vacuously.
+const TSC_CMD =
+	"npx tsc --noEmit --noUnusedLocals --listFiles --project .pi/tsconfig.json";
+
+/**
+ * Run the strict compiler and return its combined output.
+ *
+ * A diagnostics-bearing run exits 1/2 (pre-existing TS6133s in this repo make a
+ * clean 0 unreachable). Any other exit — spawn ENOENT, signal kill, crash — or a
+ * nonzero exit without a real `error TS` line means the compiler never verified
+ * the program; fail loudly rather than let the symbol assertion pass vacuously.
+ */
+function runStrictTsc(): string {
+	try {
+		return execSync(TSC_CMD, {
+			cwd: REPO_ROOT,
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+	} catch (err) {
+		const e = err as { status?: number | null; stdout?: string; stderr?: string };
+		const output = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+		assert.ok(
+			e.status === 1 || e.status === 2,
+			`tsc did not run to diagnostics (status=${String(e.status)}):\n${output}`,
+		);
+		assert.ok(
+			/error TS\d+/.test(output),
+			`tsc exited ${String(e.status)} with no TS diagnostic — abnormal exit, cannot verify:\n${output}`,
+		);
+		return output;
+	}
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1 — dead import removed (static absence + compiler oracle)
 // ═══════════════════════════════════════════════════════════════════════
@@ -47,20 +82,19 @@ describe("Phase 1 — dead existsSync import removed", () => {
 	});
 
 	it("tsc --noUnusedLocals reports no TS6133 for existsSync in prettier-adapter.mts", () => {
-		let output = "";
-		try {
-			output = execSync(
-				"npx tsc --noEmit --noUnusedLocals --project .pi/tsconfig.json",
-				{ cwd: REPO_ROOT, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
-			);
-		} catch (err) {
-			// Pre-existing out-of-scope TS6133 (projectRoot) makes tsc exit non-zero.
-			const e = err as { stdout?: string; stderr?: string };
-			output = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-		}
+		const output = runStrictTsc();
+
+		// Proof the compiler included the target file in its program (via
+		// --listFiles). Without this the symbol assertion could pass even though
+		// the adapter was never compiled.
+		assert.ok(
+			output.includes("format-on-save/prettier-adapter.mts"),
+			`compiler file list does not include prettier-adapter.mts — oracle inconclusive:\n${output}`,
+		);
+
 		const adapterErrors = output
 			.split("\n")
-			.filter((line) => line.includes("prettier-adapter.mts"))
+			.filter((line) => line.includes("prettier-adapter.mts") && line.includes("error TS"))
 			.join("\n");
 		assert.ok(
 			!adapterErrors.includes("'existsSync' is declared but its value is never read"),
