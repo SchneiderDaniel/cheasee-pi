@@ -127,11 +127,7 @@ func TestRunUpE_autoInitStopsAfterInit(t *testing.T) {
 	// Empty folder → runUpE runs init and STOPS (init never launches pi): no
 	// compose, no docker exec. The next-step hint tells the user to re-run
 	// start — the initialized-workspace start path is covered separately.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -243,11 +239,7 @@ func TestRunUpE_autoInitWithoutMarkerThenNextRunRefuses(t *testing.T) {
 	// folder branch stops after init (it no longer re-resolves the workspace),
 	// so the residue lingers — the NEXT start classifies the folder as
 	// non-initialized and refuses. No compose, no exec.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -300,11 +292,7 @@ func TestRunUpE_autoInitFailureSurfaces(t *testing.T) {
 	// init fails in the API-key phase → error wrapped with plain empty-folder
 	// wording (no "auto-init" jargon) and the freshly cloned residue (worktree
 	// + .bare) is cleaned to an empty folder; no compose, no exec.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -356,11 +344,7 @@ func TestRunUpE_autoInitDockerMissingExplainsWhy(t *testing.T) {
 	// step — wrapped in the plain empty-folder wording, never 'auto-init
 	// failed'. The announce line stays; init aborts before touching auth,
 	// compose, or exec.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -411,11 +395,7 @@ func TestRunUpE_autoInitDockerMissingExplainsWhy(t *testing.T) {
 func TestRunUpE_autoInitPreCancelledFailsFast(t *testing.T) {
 	// A pre-cancelled parent ctx propagates into the 5-min initTimeout child
 	// ctx → auto-init fails fast with the ctx error; no compose, no exec.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	setUpRunMode(t, workdir, false)
 	testutil.RedirectConfigHome(t)
 	testutil.SetGitConfig(t, testGitIdentityConfig)
@@ -442,11 +422,7 @@ func TestRunUpE_autoInitPreCancelledFailsFast(t *testing.T) {
 func TestRunUpE_autoInitDsStoreOnlyFolder(t *testing.T) {
 	// A Finder-touched folder (.DS_Store only) classifies as empty and takes
 	// the same init-then-stop path: init runs, no compose, no exec.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	if err := os.WriteFile(filepath.Join(workdir, ".DS_Store"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}

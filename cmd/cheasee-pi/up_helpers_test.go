@@ -59,30 +59,10 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 	c := &upCapture{}
 	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
 	saved := runCommandContext
+	git := gitRootMock(root, saved)
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name == "git" {
-			if slices.Contains(arg, "--is-inside-work-tree") {
-				return &mockCmd{outputFn: func() ([]byte, error) { return []byte("true"), nil }}
-			}
-			if slices.Contains(arg, "--show-prefix") {
-				// Mirror git: trailing slash when non-empty, "" at toplevel.
-				workdir := ""
-				for i, a := range arg {
-					if a == "-C" && i+1 < len(arg) {
-						workdir = arg[i+1]
-					}
-				}
-				prefix := ""
-				if rel, err := filepath.Rel(root, workdir); err == nil && rel != "." {
-					prefix = filepath.ToSlash(rel) + "/"
-				}
-				return &mockCmd{outputFn: func() ([]byte, error) { return []byte(prefix), nil }}
-			}
-			if slices.Contains(arg, "config") {
-				// Real .bare config read for identity derivation (fixture remotes).
-				return saved(ctx, name, arg...)
-			}
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(root), nil }}
+			return git(ctx, name, arg...)
 		}
 		if name == "docker" && slices.Contains(arg, "compose") {
 			m := &mockCmd{}

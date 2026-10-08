@@ -80,15 +80,8 @@ func TestInitUseCase_PostCloneFailureCleansResidue(t *testing.T) {
 	// worktree + sibling .bare, announces the cleanup, and leaves the folder
 	// empty — otherwise both init (non-empty probe) and start (WorkspaceRefuse)
 	// would refuse the stranded folder.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	_, workdir := newWorkspace(t)
+	stubInitFlow(t)
 
 	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
 		d.ConfirmFn = mockConfirmFn(false, fmt.Errorf("declined"))
@@ -122,11 +115,7 @@ func TestInitUseCase_PreCloneFailureLeavesNoResidue(t *testing.T) {
 	testutil.SetGitConfig(t, testGitIdentityConfig)
 	stubDockerCheck(t, nil, "24.0.9", nil)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 	deps := initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
 		d.NoInput = false
@@ -206,11 +195,7 @@ func TestInitUseCase_UnparsableRepoURLErrorsBeforeGit(t *testing.T) {
 		return saved(ctx, name, arg...)
 	})
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	parent, workdir := newWorkspace(t)
 
 	err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
@@ -273,11 +258,7 @@ func TestInitUseCase_InvalidWorkspaceFolderNameRejected(t *testing.T) {
 				return saved(ctx, name, arg...)
 			})
 
-			parent := t.TempDir()
-			workdir := filepath.Join(parent, "ws")
-			if err := os.MkdirAll(workdir, 0755); err != nil {
-				t.Fatal(err)
-			}
+			parent, workdir := newWorkspace(t)
 			_, input := mockQueuePrompt(t, nil, []string{"owner/repo", name})
 			err := runInit(context.Background(), initDeps(t, func(d *InitDeps) {
 				d.Workdir = workdir
@@ -300,16 +281,9 @@ func TestInitUseCase_InvalidWorkspaceFolderNameRejected(t *testing.T) {
 func TestInitUseCase_BlankWorkspaceFolderDefaultsToMain(t *testing.T) {
 	// A blank (whitespace-only) folder-name input still defaults to the main
 	// leaf — the boundary is preserved under the rename.
-	testutil.RedirectConfigHome(t)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := initDepsWithRepoURL(t, workdir, func(d *InitDeps) {
 		_, input := mockQueuePrompt(t, nil, []string{"owner/repo", "   "})
 		d.InputFn = input

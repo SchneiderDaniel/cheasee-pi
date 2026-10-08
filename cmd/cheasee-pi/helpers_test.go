@@ -432,6 +432,45 @@ func stubLookPath(t *testing.T, fn func(string) (string, error)) {
 	t.Cleanup(func() { lookPath = saved })
 }
 
+// runSeam is the runCommandContext seam shape the mock factories wrap.
+type runSeam func(context.Context, string, ...string) runner
+
+// gitRootMock answers the git worktree probes the up/init flows depend on:
+// `rev-parse` resolves to root, `--is-inside-work-tree` is true, `--show-prefix`
+// mirrors git's trailing-slash / ""-at-toplevel output, and `git config`
+// passes through so the fixture `.bare` identity read still reaches the real
+// binary. Non-git names fall through to passthrough too, so the factory can be
+// the outer seam when a caller has no docker dispatch to compose with.
+func gitRootMock(root string, passthrough runSeam) runSeam {
+	return func(ctx context.Context, name string, arg ...string) runner {
+		if name != "git" {
+			return passthrough(ctx, name, arg...)
+		}
+		if slices.Contains(arg, "--is-inside-work-tree") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("true"), nil }}
+		}
+		if slices.Contains(arg, "--show-prefix") {
+			// Mirror git: trailing slash when non-empty, "" at toplevel.
+			workdir := ""
+			for i, a := range arg {
+				if a == "-C" && i+1 < len(arg) {
+					workdir = arg[i+1]
+				}
+			}
+			prefix := ""
+			if rel, err := filepath.Rel(root, workdir); err == nil && rel != "." {
+				prefix = filepath.ToSlash(rel) + "/"
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(prefix), nil }}
+		}
+		if slices.Contains(arg, "config") {
+			// Real .bare config read for identity derivation (fixture remotes).
+			return passthrough(ctx, name, arg...)
+		}
+		return &mockCmd{outputFn: func() ([]byte, error) { return []byte(root), nil }}
+	}
+}
+
 // exitStatusError fabricates a real *exec.ExitError with the given exit code
 // by running a throwaway `sh -c "exit N"` child: a hand-constructed
 // os.ProcessState always reports exit 0 (its status field is unexported), so
@@ -469,6 +508,32 @@ func stubDockerCheck(t *testing.T, daemonErr error, version string, versionErr e
 		}
 		return &mockCmd{runFn: func() error { return daemonErr }}
 	})
+}
+
+// newWorkspace returns a fresh parent dir holding an empty `ws` workdir — the
+// folder shape the init/up flows require (init refuses a non-empty directory).
+// Distinct from mkWorkspace, which additionally seeds cheasee-settings.json and
+// the sibling `.bare`.
+func newWorkspace(t *testing.T) (parent, workdir string) {
+	t.Helper()
+	parent = t.TempDir()
+	workdir = filepath.Join(parent, "ws")
+	if err := os.MkdirAll(workdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	return parent, workdir
+}
+
+// stubInitFlow installs the init-test preamble in the one order that keeps the
+// seams chained: hermetic config home + git identity, the docker check, then
+// the clone git stub (whose passthrough must be the docker stub, not the real
+// seam). Returns the clone/worktree capture for the caller's assertions.
+func stubInitFlow(t *testing.T) *cloneCapture {
+	t.Helper()
+	testutil.RedirectConfigHome(t)
+	testutil.SetGitConfig(t, testGitIdentityConfig)
+	stubDockerCheck(t, nil, "24.0.9", nil)
+	return stubInitGit(t)
 }
 
 // ──────────────────────────────────────────────
@@ -792,4 +857,136 @@ func composeEnvForTest(t *testing.T, root string) []string {
 		t.Setenv(key, value)
 	}
 	return env
+}
+
+// ──────────────────────────────────────────────
+// Extracted seam-factory tests
+// ──────────────────────────────────────────────
+
+func TestGitRootMock(t *testing.T) {
+	root := t.TempDir()
+	type call struct {
+		name string
+		arg  []string
+	}
+	var passCalls []call
+	sentinel := &mockCmd{outputFn: func() ([]byte, error) { return []byte("sentinel"), nil }}
+	seam := gitRootMock(root, func(_ context.Context, name string, arg ...string) runner {
+		passCalls = append(passCalls, call{name, append([]string(nil), arg...)})
+		return sentinel
+	})
+	ctx := context.Background()
+	out := func(name string, arg ...string) string {
+		b, _ := seam(ctx, name, arg...).Output()
+		return string(b)
+	}
+
+	if got := out("git", "rev-parse", "--is-inside-work-tree"); got != "true" {
+		t.Errorf("--is-inside-work-tree = %q, want true", got)
+	}
+	if got := out("git", "-C", root, "rev-parse", "--show-prefix"); got != "" {
+		t.Errorf("--show-prefix at toplevel = %q, want %q", got, "")
+	}
+	if got := out("git", "-C", filepath.Join(root, "sub"), "rev-parse", "--show-prefix"); got != "sub/" {
+		t.Errorf("--show-prefix sub = %q, want sub/", got)
+	}
+	if got := out("git", "-C", filepath.Join(root, "sub", "deep"), "rev-parse", "--show-prefix"); got != "sub/deep/" {
+		t.Errorf("--show-prefix deep = %q, want sub/deep/", got)
+	}
+	// No -C: filepath.Rel errors on the empty target, so git reports "" too.
+	if got := out("git", "rev-parse", "--show-prefix"); got != "" {
+		t.Errorf("--show-prefix without -C = %q, want %q", got, "")
+	}
+	if got := out("git", "-C", filepath.Join(root, "first"), "-C", filepath.Join(root, "sub"), "rev-parse", "--show-prefix"); got != "sub/" {
+		t.Errorf("duplicate -C must take the last, got %q, want sub/", got)
+	}
+	if got := out("git", "rev-parse", "--show-toplevel"); got != root {
+		t.Errorf("unknown git arg = %q, want root %q", got, root)
+	}
+	// Documents the filepath.Rel dependency: outside root yields "../<sibling>/".
+	if got := out("git", "-C", filepath.Join(filepath.Dir(root), "sibling"), "rev-parse", "--show-prefix"); got != "../sibling/" {
+		t.Errorf("--show-prefix outside root = %q, want ../sibling/", got)
+	}
+
+	if got := seam(ctx, "git", "config", "--get", "remote.origin.url"); got != sentinel {
+		t.Errorf("git config must return the passthrough runner")
+	}
+	if len(passCalls) != 1 || passCalls[0].name != "git" || !slices.Equal(passCalls[0].arg, []string{"config", "--get", "remote.origin.url"}) {
+		t.Errorf("git config passthrough = %+v, want one identical call", passCalls)
+	}
+
+	if got := seam(ctx, "docker", "version"); got != sentinel {
+		t.Errorf("non-git must return the passthrough runner")
+	}
+	if len(passCalls) != 2 || passCalls[1].name != "docker" || !slices.Equal(passCalls[1].arg, []string{"version"}) {
+		t.Errorf("non-git passthrough = %+v, want one identical call", passCalls)
+	}
+}
+
+func TestNewWorkspace(t *testing.T) {
+	parent, workdir := newWorkspace(t)
+	if workdir != filepath.Join(parent, "ws") {
+		t.Errorf("workdir = %q, want %q", workdir, filepath.Join(parent, "ws"))
+	}
+	for _, dir := range []string{parent, workdir} {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Errorf("%q must exist as a dir: %v", dir, err)
+		}
+	}
+	// Empty: no settings file, no sibling .bare — deliberately NOT mkWorkspace.
+	for _, p := range []string{filepath.Join(workdir, "cheasee-settings.json"), filepath.Join(parent, ".bare")} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%q must not exist, got err=%v", p, err)
+		}
+	}
+	if parent2, _ := newWorkspace(t); parent2 == parent {
+		t.Error("two calls must return disjoint roots")
+	}
+}
+
+func TestStubInitFlow(t *testing.T) {
+	c := stubInitFlow(t)
+	if c == nil {
+		t.Fatal("stubInitFlow must return a clone capture")
+	}
+	ctx := context.Background()
+
+	if out, err := runCommandContext(ctx, "docker", "version").Output(); err != nil || string(out) != "24.0.9" {
+		t.Errorf("docker version = %q, %v; want 24.0.9", out, err)
+	}
+	if err := runCommandContext(ctx, "docker", "info").Run(); err != nil {
+		t.Errorf("docker info must succeed: %v", err)
+	}
+
+	// Detached worktree add keeps the target last, matching the real argv the
+	// stub materializes (the branch-form bare-HEAD probe fails against the fake
+	// .bare, so the init flow lands here).
+	parent := t.TempDir()
+	bare := filepath.Join(parent, ".bare")
+	if err := runCommandContext(ctx, "git", "clone", "--bare", "https://example.com/o/r", bare).Run(); err != nil {
+		t.Fatalf("stubbed git clone: %v", err)
+	}
+	if len(c.cloneArgs) != 1 || c.cloneArgs[0][len(c.cloneArgs[0])-1] != bare {
+		t.Errorf("clone argv not captured: %v", c.cloneArgs)
+	}
+	if _, err := os.Stat(bare); err != nil {
+		t.Errorf("bare dir must be materialized: %v", err)
+	}
+
+	wt := filepath.Join(parent, "ws")
+	if err := runCommandContext(ctx, "git", "--git-dir", bare, "worktree", "add", "--detach", wt).Run(); err != nil {
+		t.Fatalf("stubbed worktree add: %v", err)
+	}
+	if len(c.worktreeAdd) != 1 {
+		t.Errorf("worktree argv not captured: %v", c.worktreeAdd)
+	}
+	if b, err := os.ReadFile(filepath.Join(wt, ".git")); err != nil || string(b) != "gitdir: ../.bare/worktrees/main\n" {
+		t.Errorf("worktree .git = %q, %v", b, err)
+	}
+
+	// Non-docker/non-git falls through to the real seam: the hermetic identity
+	// read still resolves.
+	if out, err := runCommandContext(ctx, "git", "config", "--global", "user.name").Output(); err != nil || strings.TrimSpace(string(out)) != "Test User" {
+		t.Errorf("git identity read = %q, %v; want Test User", out, err)
+	}
 }

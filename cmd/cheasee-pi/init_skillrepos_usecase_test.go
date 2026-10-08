@@ -18,16 +18,9 @@ func TestInitUseCase_SkillReposInteractiveFlow(t *testing.T) {
 	// User journey: repo URL prompt → clone → "Add a custom skill
 	// repository?" → enter DietrichGebert/ponytail → done → init complete;
 	// cheasee-settings.json carries the canonical skillRepos entry.
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := skillRepoFlowDeps(t, workdir, []bool{true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("full interactive flow: %v", err)
@@ -46,16 +39,9 @@ func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
 	// "You can add several": the prompt loop records every entered spec, not
 	// just the first — two confirms + two specs → both canonical URLs in
 	// cheasee-settings.json skillRepos.
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := skillRepoFlowDeps(t, workdir, []bool{true, true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail", "some-org/another-skill"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("full interactive flow: %v", err)
@@ -79,16 +65,9 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	// Full flow without user skill repos: the skill-repo phase records nothing
 	// and performs no Save — cheasee-settings.json stays byte-identical to the
 	// scaffold template output, which now carries the default repos (ponytail).
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := skillRepoFlowDeps(t, workdir, []bool{false}, []string{"owner/repo"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("flow without skill repos: %v", err)
@@ -131,16 +110,9 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 func TestInitUseCase_NoInputSkillRepoFlagsNoPrompts(t *testing.T) {
 	// --no-input + repeated --skill-repo: no prompt fires, canonical specs
 	// are persisted.
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := initDeps(t, func(d *InitDeps) {
 		d.Workdir = workdir
 		d.RepoURL = "owner/repo"
@@ -233,15 +205,8 @@ func TestInitUseCase_SkillRepoFailureCleansResidue(t *testing.T) {
 	// A post-clone failure in the skill-repo phase (invalid spec entered)
 	// runs removeInitResidue — worktree + sibling .bare removed, cleanup
 	// announced on stderr.
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	_, workdir := newWorkspace(t)
+	stubInitFlow(t)
 
 	deps := skillRepoFlowDeps(t, workdir, []bool{true}, []string{"owner/repo", "main", "not a repo"})
 	stderr := testutil.CaptureStderr(t, func() {
@@ -264,16 +229,9 @@ func TestInitUseCase_SkillRepoFailureCleansResidue(t *testing.T) {
 func TestInitUseCase_SkillRepoAnnouncementBetweenScaffoldAndAuthSave(t *testing.T) {
 	// The skill-repo step announcement appears on stderr between the scaffold
 	// line and the auth-save line; the completion message is unchanged.
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := skillRepoFlowDeps(t, workdir, []bool{false}, []string{"owner/repo"})
 	output := testutil.CaptureStderr(t, func() {
 		if err := runInit(context.Background(), deps); err != nil {
@@ -301,16 +259,9 @@ func TestInitUseCase_SkillRepoPromptDeclaresDefault(t *testing.T) {
 	// uninstall — the entrypoint only installs), and carries the trust caveat
 	// — all before the user chooses. The copy stays progressive-disclosure
 	// consistent (no "loads into every session").
-	testutil.RedirectConfigHome(t)
-	testutil.SetGitConfig(t, testGitIdentityConfig)
-	stubDockerCheck(t, nil, "24.0.9", nil)
-	stubInitGit(t)
+	stubInitFlow(t)
 
-	parent := t.TempDir()
-	workdir := filepath.Join(parent, "ws")
-	if err := os.MkdirAll(workdir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	_, workdir := newWorkspace(t)
 	deps := skillRepoFlowDeps(t, workdir, []bool{false}, []string{"owner/repo"})
 	output := testutil.CaptureStderr(t, func() {
 		if err := runInit(context.Background(), deps); err != nil {
