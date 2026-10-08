@@ -1012,6 +1012,16 @@ describe("buildAgentResultEntry()", () => {
 		assert.equal(entry.status, "FAILED");
 	});
 
+	it("maps success=false + timedOut=true to 'FAILED' while preserving timeout metadata", () => {
+		const entry = buildAgentResultEntry(
+			{ ...baseResult, success: false, timedOut: true, configuredTimeoutMs: 60_000 },
+			false,
+		);
+		assert.equal(entry.status, "FAILED");
+		assert.equal(entry.timedOut, true);
+		assert.equal(entry.configuredTimeoutMs, 60_000);
+	});
+
 	it("copies durationMs/tokenCount/toolCount/agentName from result", () => {
 		const entry = buildAgentResultEntry(
 			{
