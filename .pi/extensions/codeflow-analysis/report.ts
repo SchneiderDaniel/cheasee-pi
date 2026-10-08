@@ -66,13 +66,26 @@ function isPathLike(token: string): boolean {
 	return /\.[A-Za-z0-9]+$/.test(t);
 }
 
+/**
+ * Drop a trailing display count the exporter inlines into an item's `name` for
+ * the derived architecture metrics — `index.test.ts (46 fns)`, `capture.test.mts
+ * (73 imports)`, `prune_test.go (206)`. The markdown format emits only
+ * `x.name || x.file` (`generateReport('md')`), so without this the item's real
+ * path is lost and the whitespace makes `isPathLike` reject the whole token,
+ * silently dropping every architecture issue from the report.
+ */
+function stripTrailingCount(token: string): string {
+	return token.replace(/\s*\([^()]*\)\s*$/, "").trim();
+}
+
 /** Every path-like token in a line's backticks, in order. */
 function backtickPaths(line: string): string[] {
 	const out: string[] = [];
 	const re = /`([^`]+)`/g;
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(line)) !== null) {
-		if (isPathLike(m[1])) out.push(m[1].trim());
+		const token = stripTrailingCount(m[1]);
+		if (isPathLike(token)) out.push(token);
 	}
 	return out;
 }

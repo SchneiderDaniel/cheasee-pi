@@ -16,7 +16,13 @@ import assert from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
-import { groupIssues, parseBestReport, parseReport, parseReportJson, type IssueFact } from "../report.ts";
+import {
+	groupIssues,
+	parseBestReport,
+	parseReport,
+	parseReportJson,
+	type IssueFact,
+} from "../report.ts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 const FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
@@ -56,8 +62,14 @@ describe("parseReport (captured markdown fixture)", () => {
 	});
 
 	it("extracts design patterns and anti-patterns (previously unmapped headings)", () => {
-		assert.deepStrictEqual(byKind(facts, "pattern").map((p) => p.files), [["src/registry.ts"]]);
-		assert.deepStrictEqual(byKind(facts, "anti-pattern").map((p) => p.files), [["src/god.ts"]]);
+		assert.deepStrictEqual(
+			byKind(facts, "pattern").map((p) => p.files),
+			[["src/registry.ts"]],
+		);
+		assert.deepStrictEqual(
+			byKind(facts, "anti-pattern").map((p) => p.files),
+			[["src/god.ts"]],
+		);
 	});
 
 	it("returns empty for the sections the markdown exporter omits", () => {
@@ -94,7 +106,11 @@ describe("parseReportJson (captured JSON fixture)", () => {
 	it("includes affectedItems[].toFile so layer-violation targets join the conflict graph", () => {
 		const json = JSON.stringify({
 			architectureIssues: [
-				{ title: "Target only", affectedFiles: ["src/a.ts"], affectedItems: [{ file: "src/a.ts", toFile: "src/target.ts" }] },
+				{
+					title: "Target only",
+					affectedFiles: ["src/a.ts"],
+					affectedItems: [{ file: "src/a.ts", toFile: "src/target.ts" }],
+				},
 			],
 		});
 		assert.deepStrictEqual(parseReportJson(json)[0].files, ["src/a.ts", "src/target.ts"]);
@@ -169,8 +185,14 @@ describe("parseReportJson (captured JSON fixture)", () => {
 			patterns: [null, { name: "p", files: ["p.ts"], fileDetails: [null, { path: "pd.ts" }] }],
 		});
 		const facts = parseReportJson(json);
-		assert.deepStrictEqual(byKind(facts, "architecture").map((f) => f.files), [["a.ts", "b.ts"]]);
-		assert.deepStrictEqual(byKind(facts, "duplicate").map((f) => f.files), [["d.ts"]]);
+		assert.deepStrictEqual(
+			byKind(facts, "architecture").map((f) => f.files),
+			[["a.ts", "b.ts"]],
+		);
+		assert.deepStrictEqual(
+			byKind(facts, "duplicate").map((f) => f.files),
+			[["d.ts"]],
+		);
 		assert.deepStrictEqual(byKind(facts, "pattern")[0].files, ["p.ts", "pd.ts"]);
 		assert.deepStrictEqual(byKind(facts, "layer-violation"), []);
 		assert.deepStrictEqual(byKind(facts, "suggestion"), []);
@@ -182,12 +204,21 @@ describe("parseReportJson (captured JSON fixture)", () => {
 describe("parseBestReport", () => {
 	it("prefers the structured JSON when it yields facts", () => {
 		const best = parseBestReport(FIXTURE, FIXTURE_JSON);
-		assert.ok(best.some((f) => f.kind === "duplicate"), "JSON-only duplicate category missing");
+		assert.ok(
+			best.some((f) => f.kind === "duplicate"),
+			"JSON-only duplicate category missing",
+		);
 		assert.ok(best.some((f) => f.kind === "layer-violation"));
 		// Pattern categories live in both formats; the JSON branch must not drop
 		// them when it wins.
-		assert.ok(best.some((f) => f.kind === "pattern"), "JSON design patterns missing");
-		assert.ok(best.some((f) => f.kind === "anti-pattern"), "JSON anti-patterns missing");
+		assert.ok(
+			best.some((f) => f.kind === "pattern"),
+			"JSON design patterns missing",
+		);
+		assert.ok(
+			best.some((f) => f.kind === "anti-pattern"),
+			"JSON anti-patterns missing",
+		);
 	});
 
 	it("falls back to markdown when JSON is absent or unusable", () => {
@@ -223,26 +254,77 @@ describe("parseReport (defensive)", () => {
 		assert.deepStrictEqual(byKind(facts, "suggestion")[0].files, ["src/god.ts"]);
 	});
 
+	it("recovers paths from the counts the exporter inlines into architecture affected lists", () => {
+		// Live exporter shape: items are `{ name: f.name+' ('+n+' fns)', file: f.path }`
+		// and the md branch emits `x.name || x.file`, so the name carries the count.
+		const md = [
+			"## Architecture Issues",
+			"",
+			"### 74 Large Files",
+			"Files with 15+ functions",
+			"",
+			"**Affected:** `index.test.ts (46 fns)`, `jsonl-logger.ts (21 fns)`",
+			"",
+			"### 193 Highly Coupled",
+			"",
+			"**Affected:** `capture.test.mts (73 imports)`",
+			"",
+			"### 275 High Complexity Files",
+			"",
+			"**Affected:** `prune_test.go (206)`, `utils → ui`, `execFn (3 files)`",
+			"",
+		].join("\n");
+		const facts = parseReport(md);
+		assert.deepStrictEqual(
+			facts.map((f) => f.title),
+			["74 Large Files", "193 Highly Coupled", "275 High Complexity Files"],
+		);
+		assert.deepStrictEqual(facts[0].files, ["index.test.ts", "jsonl-logger.ts"]);
+		assert.deepStrictEqual(facts[1].files, ["capture.test.mts"]);
+		// Bare function names, layer labels and count-only names stay dropped.
+		assert.deepStrictEqual(facts[2].files, ["prune_test.go"]);
+	});
+
 	it("drops non-path backticked names (function names) from affected lists", () => {
-		const md = ["## Architecture Issues", "", "### Mixed", "**Affected:** `doThing`, `src/a.ts`", ""].join("\n");
+		const md = [
+			"## Architecture Issues",
+			"",
+			"### Mixed",
+			"**Affected:** `doThing`, `src/a.ts`",
+			"",
+		].join("\n");
 		const facts = parseReport(md);
 		assert.deepStrictEqual(facts[0].files, ["src/a.ts"]);
 	});
 
 	it("deduplicates paths within a single issue", () => {
-		const md = ["## Architecture Issues", "", "### Dup", "**Affected:** `src/a.ts`, `src/a.ts`", ""].join("\n");
+		const md = [
+			"## Architecture Issues",
+			"",
+			"### Dup",
+			"**Affected:** `src/a.ts`, `src/a.ts`",
+			"",
+		].join("\n");
 		assert.deepStrictEqual(parseReport(md)[0].files, ["src/a.ts"]);
 	});
 
 	it("returns an empty list for empty, unknown and truncated input without throwing", () => {
 		assert.deepStrictEqual(parseReport(""), []);
 		assert.deepStrictEqual(parseReport("no headings here\njust prose"), []);
-		assert.deepStrictEqual(parseReport("# CodeFlow Analysis Report\n## Architecture Issues\n### cut off"), []);
+		assert.deepStrictEqual(
+			parseReport("# CodeFlow Analysis Report\n## Architecture Issues\n### cut off"),
+			[],
+		);
 	});
 });
 
 describe("groupIssues", () => {
-	const fact = (id: string, files: string[]): IssueFact => ({ id, kind: "architecture", title: id, files });
+	const fact = (id: string, files: string[]): IssueFact => ({
+		id,
+		kind: "architecture",
+		title: id,
+		files,
+	});
 
 	it("keeps disjoint issues in separate isolated groups", () => {
 		const groups = groupIssues([fact("a", ["src/a.ts"]), fact("b", ["src/b.ts"])]);
@@ -251,7 +333,10 @@ describe("groupIssues", () => {
 	});
 
 	it("merges overlapping issues into one group and reports the shared paths", () => {
-		const groups = groupIssues([fact("a", ["src/x.ts", "src/shared.ts"]), fact("b", ["src/shared.ts"])]);
+		const groups = groupIssues([
+			fact("a", ["src/x.ts", "src/shared.ts"]),
+			fact("b", ["src/shared.ts"]),
+		]);
 		assert.strictEqual(groups.length, 1);
 		assert.strictEqual(groups[0].isolated, false);
 		assert.deepStrictEqual(groups[0].overlaps, ["src/shared.ts"]);
@@ -264,7 +349,11 @@ describe("groupIssues", () => {
 	});
 
 	it("partitions every input issue into exactly one group", () => {
-		const issues = [fact("a", ["src/a.ts"]), fact("b", ["src/a.ts", "src/b.ts"]), fact("c", ["src/c.ts"])];
+		const issues = [
+			fact("a", ["src/a.ts"]),
+			fact("b", ["src/a.ts", "src/b.ts"]),
+			fact("c", ["src/c.ts"]),
+		];
 		const seen = groupIssues(issues).flatMap((g) => g.issues.map((i) => i.id));
 		assert.deepStrictEqual([...seen].sort(), ["a", "b", "c"]);
 		assert.strictEqual(seen.length, new Set(seen).size);
@@ -282,6 +371,9 @@ describe("groupIssues", () => {
 	it("is deterministic for the same input", () => {
 		const issues = parseReport(FIXTURE);
 		assert.deepStrictEqual(groupIssues(issues), groupIssues(parseReport(FIXTURE)));
-		assert.deepStrictEqual(groupIssues(parseReportJson(FIXTURE_JSON)), groupIssues(parseReportJson(FIXTURE_JSON)));
+		assert.deepStrictEqual(
+			groupIssues(parseReportJson(FIXTURE_JSON)),
+			groupIssues(parseReportJson(FIXTURE_JSON)),
+		);
 	});
 });
