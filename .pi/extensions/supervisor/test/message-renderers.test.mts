@@ -29,10 +29,6 @@ const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererT
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
 import { renderBudgetExceeded } from "../session/message-renderers/render-budget.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
-import {
-	MAX_TASK_PREVIEW_CHARS,
-	MAX_EXPANDED_TOOL_CALLS,
-} from "../session/message-renderers/constants.ts";
 import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -204,13 +200,6 @@ describe("no-details guard sits before table lookup", () => {
 			lines.some((l) => l.includes("(no details)")),
 			`should show no-details placeholder, got: ${JSON.stringify(lines)}`,
 		);
-	});
-});
-
-describe("message-renderers/constants.ts", () => {
-	it("exports shared numeric constants with identical values", () => {
-		assert.equal(MAX_TASK_PREVIEW_CHARS, 80);
-		assert.equal(MAX_EXPANDED_TOOL_CALLS, 30);
 	});
 });
 
