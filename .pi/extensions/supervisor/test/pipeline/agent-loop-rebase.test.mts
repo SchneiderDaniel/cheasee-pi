@@ -20,9 +20,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const AGENT_LOOP_TS = resolve(__dirname, "../../pipeline/handler/agent-loop.ts");
+const AGENT_LOOP_STEPS_TS = resolve(__dirname, "../../pipeline/handler/agent-loop-steps.ts");
 
 function agentLoopSource(): string {
 	return readFileSync(AGENT_LOOP_TS, "utf-8");
+}
+
+function agentLoopStepsSource(): string {
+	return readFileSync(AGENT_LOOP_STEPS_TS, "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -107,17 +112,21 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 		assert.ok(graph.specifiers.includes("../rebase.ts"), "imported from pipeline/rebase.ts");
 	});
 
-	it("refreshWorktreeBeforeImplementation invoked inside the loop BEFORE `const task = buildAgentTask(`", () => {
+	it("refreshWorktreeBeforeImplementation invoked inside the loop; task assembly in agent-loop-steps.ts", () => {
 		const src = agentLoopSource();
 		const loopIdx = src.indexOf("for (let i = 0; i < MAX_PIPELINE_LOOPS");
 		const refreshIdx = src.indexOf("refreshWorktreeBeforeImplementation(runCtx, worktreePath)");
-		const taskIdx = src.indexOf("const task = buildAgentTask(");
 		assert.ok(loopIdx >= 0, "loop found");
 		assert.ok(refreshIdx >= 0, "helper invoked");
-		assert.ok(taskIdx >= 0, "buildAgentTask call found");
 		assert.ok(
-			refreshIdx > loopIdx && refreshIdx < taskIdx,
-			"refresh fires on every developer dispatch, before task build (incl. Audit→Implementation loop-back)",
+			refreshIdx > loopIdx,
+			"refresh fires on every developer dispatch, inside the loop (incl. Audit→Implementation loop-back)",
+		);
+		// Issue #1886: task assembly (and its buildAgentTask call) moved to the
+		// sibling step module; the rebase call stays in the loop.
+		assert.ok(
+			agentLoopStepsSource().includes("const task = buildAgentTask("),
+			"buildAgentTask call lives in agent-loop-steps.ts",
 		);
 		// The helper itself invokes the rebase mechanics
 		const helperIdx = src.indexOf("async function refreshWorktreeBeforeImplementation");
@@ -164,14 +173,14 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 			"task context derived from conflict files",
 		);
 		// Developer dispatched normally regardless of conflict state: the loop
-		// builds the task unconditionally, feeding it the helper's context.
-		const taskIdx = src.indexOf("const task = buildAgentTask(");
+		// refreshes (with conflict context) before the task is assembled in the
+		// sibling step module (issue #1886).
 		const guardIdx = src.indexOf("refreshWorktreeBeforeImplementation(runCtx, worktreePath)");
-		assert.ok(taskIdx >= 0, "buildAgentTask call present");
 		assert.ok(
-			guardIdx < taskIdx,
-			"refresh (with conflict context) completes before the task is built",
+			agentLoopStepsSource().includes("const task = buildAgentTask("),
+			"buildAgentTask call present in agent-loop-steps.ts",
 		);
+		assert.ok(guardIdx >= 0, "refresh (with conflict context) runs in the loop before task assembly");
 	});
 
 	it("fetch/non-conflict failure — fail-open: warning surfaced, context NOT set, stale base proceeds", () => {
@@ -213,12 +222,12 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 	});
 
 	it("regression — context builders are consumed by the developer dispatch", () => {
-		const graph = readGraph(AGENT_LOOP_TS);
+		const graph = readGraph(AGENT_LOOP_STEPS_TS);
 		for (const name of ["buildDeadCodeContext", "buildVulnContext", "buildDuplicateCodeContext"]) {
-			assert.ok(graph.importedNames.includes(name), `${name} imported by agent-loop.ts`);
+			assert.ok(graph.importedNames.includes(name), `${name} imported by agent-loop-steps.ts`);
 		}
 
-		const src = agentLoopSource();
+		const src = agentLoopStepsSource();
 		// New param appended AFTER systemPromptOptions — prior arg ordering preserved
 		const taskCallStart = src.indexOf("const task = buildAgentTask(");
 		const taskCall = src.slice(taskCallStart, taskCallStart + 1600);

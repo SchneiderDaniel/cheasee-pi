@@ -111,6 +111,7 @@ const FILES_TO_CHECK: Array<string | string[]> = [
 		"pipeline/handler/index.ts",
 		"pipeline/handler/preflight.ts",
 		"pipeline/handler/agent-loop.ts",
+		"pipeline/handler/agent-loop-steps.ts",
 		"pipeline/handler/post-pipeline.ts",
 		"pipeline/handler/shared.ts",
 	],

@@ -21,6 +21,7 @@ const PACKAGE_FILES = [
 	"index.ts",
 	"preflight.ts",
 	"agent-loop.ts",
+	"agent-loop-steps.ts",
 	"post-pipeline.ts",
 	"pr-gates.ts",
 	"shared.ts",
@@ -250,15 +251,15 @@ describe("stages/checks — pass-through wrappers deleted", () => {
 		assert.ok(!src.includes("buildVulnContextInner"), "vuln alias dropped");
 	});
 
-	it("agent-loop.ts imports the formatters directly from checks/, not the stage barrel", () => {
-		const src = pkgSource("agent-loop.ts");
+	it("agent-loop-steps.ts imports the formatters directly from checks/, not the stage barrel", () => {
+		const src = pkgSource("agent-loop-steps.ts");
 		assert.ok(
 			src.includes('import { buildDeadCodeContext } from "../../checks/dead-code.ts"'),
-			"agent-loop imports buildDeadCodeContext from checks/dead-code.ts",
+			"agent-loop-steps imports buildDeadCodeContext from checks/dead-code.ts",
 		);
 		assert.ok(
 			src.includes('import { buildVulnContext } from "../../checks/osv-scanner.ts"'),
-			"agent-loop imports buildVulnContext from checks/osv-scanner.ts",
+			"agent-loop-steps imports buildVulnContext from checks/osv-scanner.ts",
 		);
 		const barrelSpecifiers = stagesBarrelSpecifiers(src);
 		assert.ok(
@@ -271,8 +272,8 @@ describe("stages/checks — pass-through wrappers deleted", () => {
 		);
 	});
 
-	it("agent-loop.ts guards the null case before calling the non-null vuln builder", () => {
-		const src = pkgSource("agent-loop.ts");
+	it("agent-loop-steps.ts guards the null case before calling the non-null vuln builder", () => {
+		const src = pkgSource("agent-loop-steps.ts");
 		assert.ok(
 			src.includes("buildVulnContext(stageState.vulnResult)"),
 			"vuln call text preserved",

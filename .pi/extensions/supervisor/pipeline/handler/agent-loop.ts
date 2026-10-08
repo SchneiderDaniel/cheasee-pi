@@ -1,17 +1,27 @@
 // ─── Pipeline Handler Package: Agent Loop ────────────────────────
-// The MAX_PIPELINE_LOOPS stage machine (issue #1395 split of handler.ts).
-// Iterates Backlog → Research → Architecture → TestDesign → Implementation
-// → Audit → Done, incl. PR creation on approval, budget-exceeded
-// degradation, empty-worktree classification and pre-transition hooks.
+// The MAX_PIPELINE_LOOPS stage machine (issue #1395 split of handler.ts;
+// issue #1886 extracted the per-iteration concerns). Iterates Backlog →
+// Research → Architecture → TestDesign → Implementation → Audit → Done,
+// incl. PR creation on approval, budget-exceeded degradation,
+// empty-worktree classification and pre-transition hooks.
 //
 // runAgentLoop is intentionally a dispatch skeleton rather than a ≤100-line
-// function: supervisor-pipeline.test.mts / supervisor-issue-525.test.mts /
-// agent-loop-rebase.test.mts / gate-failure-context.test.mts source-pin the
-// task-context assembly, dispatch+retry+push, budget degradation and
-// pre-transition hooks inline in this file (S138 exemption contract, ≤800).
-// Per-stage logic that is not source-pinned lives in stages/
-// (empty-worktree.ts, auditor-output.ts, git-ops.ts) and handler/pr-gates.ts
+// function: it owns the loop primitives (loopStatus / stopReason /
+// prCreationResult) and translates each helper's signal into a break/continue
+// (S138 exemption contract, ≤800; issue #1886 target ≤400). The per-iteration
+// concerns live in the sibling module agent-loop-steps.ts (resolveStep,
+// runBacklogStep, runDoneStep, resolveLoopAgent, loadLoopIssue,
+// runResearcherDedupGate, writePreAuditorCheckpoint, loadLoopAgentFile,
+// assembleAgentTask, recordPostDispatch).
+//
+// Unpinned per-stage logic lives in stages/ (empty-worktree.ts,
+// auditor-output.ts, git-ops.ts) and handler/pr-gates.ts
 // (handlePrApprovalFlow). Same-file helpers below are ≤100 lines each.
+// Source pins (agent-loop-split.test.mts / handler-structure.test.mts,
+// agent-loop-rebase.test.mts / pipeline-worktree-integration.test.mts)
+// are split across agent-loop.ts and agent-loop-steps.ts — see #1866.
+// Each `// ─── <concern> ───` marker in runAgentLoop labels one extracted
+// helper call.
 
 import type {
 	AgentRunResult,
@@ -21,47 +31,45 @@ import type {
 	PipelineAgentResult,
 	ProjectField,
 	ProjectItem,
-	RefusedOutput,
 	SupervisorConfig,
 } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { GitHubPort } from "../../github/ports.ts";
 import { resolveTimeoutPolicy } from "../../config/config.ts";
-import { buildAgentTask, summarizeComments } from "../../agent/task.ts";
 import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
-import { WORKFLOW, GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
+import { GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
 import { validateAgentResult } from "../output.ts";
 import { getRefusalInfo } from "../../agent/output.ts";
-import { writeCheckpointFile } from "../state-checkpoint.ts";
 import {
 	MAX_PIPELINE_LOOPS,
-	handleBacklogTransition,
-	resolveAgentName,
-	isRejectionLimitReached,
 	calculateNextStatus,
-	trackAuditScore,
 	applyStatusTransition,
+	inferForwardStatus,
 	buildAgentResultEntry,
 	handlePostAgentSuccess,
-	shouldSkipResearcher,
-	inferForwardStatus,
-	buildDuplicateCodeContext,
 	applyGateFailureContext,
-	computeAuditGateRejection,
 	handleEmptyWorktree,
 	type EmptyWorktreeOutcome,
 	type StageState,
 } from "../stages/index.ts";
-import { buildDeadCodeContext } from "../../checks/dead-code.ts";
-import { buildVulnContext } from "../../checks/osv-scanner.ts";
-import { fetchFreshIssueData, loadAgentFile as loadAgentFileHelper } from "../helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { RunContext } from "./shared.ts";
 import { handlePrApprovalFlow } from "./pr-gates.ts";
+import {
+	assembleAgentTask,
+	loadLoopAgentFile,
+	loadLoopIssue,
+	recordPostDispatch,
+	resolveLoopAgent,
+	resolveStep,
+	runBacklogStep,
+	runDoneStep,
+	runResearcherDedupGate,
+	writePreAuditorCheckpoint,
+} from "./agent-loop-steps.ts";
 
 /**
  * Runs the pipeline loop until a terminal status, stop reason or budget
@@ -78,14 +86,11 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		issueTitle,
 		worktreePath,
 		worktreeBranch,
-		systemPromptOptions,
-		exec,
 		notify,
 		collector,
 		port,
 		stageState,
 		agentResults,
-		issueData,
 		loopItem,
 		fields,
 		statusField,
@@ -103,129 +108,65 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			iteration: i,
 		});
 
-		const step = WORKFLOW.find((s) => s.status.toLowerCase() === loopStatus.toLowerCase());
-		if (!step) {
-			stopReason = `No workflow step for status '${loopStatus}'`;
-			ctx.ui.notify(
-				`No workflow step for status '${loopStatus}'. Available: ${WORKFLOW.map((s) => s.status).join(", ")}`,
-				"error",
-			);
-			getDebugLogger().error("handler", "No workflow step", { loopStatus });
+		// ─── Resolve workflow step ───
+		const stepResolution = resolveStep(runCtx, loopStatus);
+		if (stepResolution.kind === "terminal") {
+			stopReason = stepResolution.stopReason;
 			break;
 		}
+		const step = stepResolution.step;
 
-		// Built-in: Backlog → Research
-		if (step.builtIn === "backlog") {
-			loopStatus = await handleBacklogTransition(
-				port,
-				fields,
-				statusField.id,
-				loopItem.id,
-				projectId,
-			);
-			ctx.ui.notify(`Issue #${issueNum} moved: Backlog → Research`, "info");
-			getDebugLogger().info("handler", "Backlog → Research");
+		// ─── Backlog step (builtIn checks precede agent resolution) ───
+		const backlogStatus = await runBacklogStep(runCtx, step);
+		if (backlogStatus) {
+			loopStatus = backlogStatus;
 			continue;
 		}
 
-		// Built-in: Done
-		if (step.builtIn === "done") {
-			ctx.ui.notify(`Issue #${issueNum} is Done. Pipeline complete.`, "info");
-			getDebugLogger().info("handler", "Pipeline complete — Done status");
+		// ─── Done step ───
+		if (runDoneStep(runCtx, step)) {
 			break;
 		}
 
-		// Resolve agent for this status
-		const agentName = resolveAgentName(loopStatus, config);
-		if (!agentName) {
-			stopReason = `No agent for status '${loopStatus}'`;
-			ctx.ui.notify(`No agent for status '${loopStatus}'`, "error");
-			getDebugLogger().error("handler", "No agent for status", { loopStatus });
+		// ─── Resolve agent ───
+		const agentResolution = resolveLoopAgent(runCtx, loopStatus);
+		if (agentResolution.kind === "terminal") {
+			stopReason = agentResolution.stopReason;
 			break;
 		}
+		const agentName = agentResolution.agentName;
 
-		const loopFilteredData = await fetchFreshIssueData(
-			exec,
-			config,
-			issueNum,
-			issueData,
-			collector,
+		// ─── Fetch fresh issue data + rejection limit ───
+		const issueResolution = await loadLoopIssue(runCtx, step);
+		if (issueResolution.kind === "terminal") {
+			stopReason = issueResolution.stopReason;
+			break;
+		}
+		const loopFilteredData = issueResolution.data;
+
+		// ─── Deduplication gate (rejection limit precedes it) ───
+		const dedup = await runResearcherDedupGate(
+			runCtx,
+			step,
+			loopStatus,
+			agentName,
+			loopFilteredData,
 		);
+		if (dedup.kind === "advanced") {
+			loopStatus = dedup.loopStatus;
+			continue;
+		}
 
-		// Rejection limit check (issue #1668: reports the real count, not the
-		// threshold; only position-0 `## Audit Rejected` comments count).
-		const rejectionLimit = isRejectionLimitReached(
-			loopFilteredData.comments,
-			step.maxRejections,
-		);
-		if (rejectionLimit.reached) {
-			stopReason = `Rejection limit reached (${rejectionLimit.count})`;
-			ctx.ui.notify(
-				`Issue #${issueNum} rejected ${rejectionLimit.count} times. Human intervention required.`,
-				"error",
-			);
-			getDebugLogger().warn("handler", "Rejection limit reached", {
-				maxRejections: step.maxRejections,
-				rejectionCount: rejectionLimit.count,
-			});
+		// ─── Pre-auditor checkpoint ───
+		writePreAuditorCheckpoint(runCtx, agentName);
+
+		// ─── Load agent file ───
+		const agentFile = await loadLoopAgentFile(runCtx, agentName);
+		if (agentFile.kind === "missing") {
+			stopReason = agentFile.stopReason;
 			break;
 		}
-
-		// Deduplication gate: skip researcher if findings already exist
-		if (agentName === "researcher" && shouldSkipResearcher(loopStatus, loopFilteredData)) {
-			ctx.ui.notify(
-				`Issue #${issueNum} already has research findings — skipping researcher`,
-				"info",
-			);
-			getDebugLogger().info("handler", "Skipping researcher — findings exist");
-			stageState.researcherSkipped = true;
-			// Find the next forward status for the researcher step
-			const nextStatus = inferForwardStatus(step);
-			if (nextStatus) {
-				loopStatus = await applyStatusTransition(
-					port,
-					loopItem.id,
-					projectId,
-					fields,
-					statusField.id,
-					nextStatus,
-				);
-				ctx.ui.notify(
-					`Issue #${issueNum} moved: Research → ${nextStatus} (deduplication gate)`,
-					"info",
-				);
-				getDebugLogger().info("handler", `Research → ${nextStatus} (dedup gate)`);
-				continue;
-			}
-		}
-
-		// Write checkpoint before auditor dispatch (heavy/long-running operation)
-		if (agentName === "auditor" && worktreePath && worktreeBranch) {
-			const checkpointResult = writeCheckpointFile(ctx.cwd, {
-				issueNum,
-				checkpoint: "pre-auditor",
-				worktreePath,
-				worktreeBranch,
-				startedAt: new Date().toISOString(),
-			});
-			if (!checkpointResult.ok) {
-				ctx.ui.notify(
-					`Warning: Failed to write pre-auditor checkpoint: ${checkpointResult.error}`,
-					"warning",
-				);
-				getDebugLogger().warn("handler", "Failed to write pre-auditor checkpoint", {
-					error: checkpointResult.error,
-				});
-			}
-		}
-
-		// Load agent
-		const agent = await loadAgentFileHelper(exec, notify, ctx.cwd, agentName, collector);
-		if (!agent) {
-			stopReason = `Agent file not found: ${agentName}`;
-			getDebugLogger().error("handler", "Agent file not found", { agentName });
-			break;
-		}
+		const agent = agentFile.agent;
 
 		ctx.ui.setStatus("supervisor", `Running ${agent.config.name}...`);
 		ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
@@ -233,83 +174,20 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// timeout) → agentTimeoutsMin (legacy minutes) → 30-min default.
 		const timeoutMs = resolveTimeoutPolicy(agentName, config).timeoutMs;
 
-		// Build task
-		const dupContext: string | undefined =
-			agentName === "auditor"
-				? (buildDuplicateCodeContext(stageState.duplicateCodeResult) ?? undefined)
-				: undefined;
-		// Extract research findings from issue comments for architect
-		const researchFindings: string | undefined =
-			agentName === "architect"
-				? loopFilteredData.comments
-						.map((c) => c.body)
-						.find((body) => /##\s*Research\s*Findings/i.test(body))
-				: undefined;
-		// Extract latest audit rejection comment for developer feedback loop
-		// When audit rejects and pipeline loops back to Implementation, the developer
-		// needs to see EXACTLY what the auditor found wrong — not just a generic
-		// list of trusted comments where audit feedback is buried.
-		const auditFeedback: string | undefined =
-			agentName === "developer"
-				? (() => {
-						// Find the latest comment BEGINNING with the "## Audit Rejected"
-						// heading (position-0 only — quoted occurrences must not be fed
-						// to the developer as rejection feedback, issue #1668).
-						for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
-							const body = loopFilteredData.comments[i]?.body || "";
-							if (isAuditRejectedComment(body)) {
-								return body;
-							}
-						}
-						return undefined;
-					})()
-				: undefined;
-		// Build dead code context for auditor
-		const deadContext: string | undefined =
-			agentName === "auditor"
-				? (buildDeadCodeContext(stageState.deadCodeResult) ?? undefined)
-				: undefined;
-		// Build vuln context for auditor
-		const vulnContext: string | undefined =
-			agentName === "auditor" && stageState.vulnResult
-				? buildVulnContext(stageState.vulnResult)
-				: undefined;
-		// Pre-Implementation rebase (issue #1473): refresh the worktree onto the
-		// latest default branch before every developer dispatch (incl. Audit→
-		// Implementation loop-backs), so same-family PRs landing mid-pipeline
-		// don't produce late PR-creation conflicts. Conflicts are resolved by
-		// the developer with full context (mergeFallback:false — the fallback
-		// merge commit would pollute hasBranchCommits). Fail-open on network
-		// failure: the end-rebase at PR creation remains the backstop.
+		// Pre-Implementation rebase (issue #1473) — policy lives in the helper.
+		// Refresh the worktree onto the latest default branch before every
+		// developer dispatch (incl. Audit→Implementation loop-backs), so
+		// same-family PRs landing mid-pipeline don't produce late PR-creation
+		// conflicts. Policy lives in refreshWorktreeBeforeImplementation
+		// (mergeFallback:false, fail-open on network failure; the end-rebase at
+		// PR creation remains the backstop).
 		const rebaseConflictContext =
 			agentName === "developer" && worktreePath && worktreeBranch
 				? await refreshWorktreeBeforeImplementation(runCtx, worktreePath)
 				: undefined;
 
-		const task = buildAgentTask(
-			agentName,
-			issueNum,
-			config.repo,
-			issueTitle,
-			loopFilteredData,
-			config.defaultBranch!,
-			config.remote!,
-			config.worktreeBase!,
-			config.branchPrefix!,
-			ctx.cwd, // mainRepoPrefix
-			worktreePath,
-			worktreeBranch,
-			summarizeComments(loopFilteredData.comments),
-			dupContext,
-			researchFindings,
-			auditFeedback,
-			deadContext,
-			vulnContext,
-
-			stageState.gateFailureContext,
-			systemPromptOptions,
-			rebaseConflictContext,
-		);
+		// ─── Assemble task ───
+		const task = assembleAgentTask(runCtx, agentName, loopFilteredData, rebaseConflictContext);
 
 		getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
 			model: agent.config.model,
@@ -334,50 +212,8 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			agentName,
 		);
 
-		// Debug tracing: agentResults after push (R3 requirement)
-		getDebugLogger().info("handler", "agentResults after push", {
-			length: agentResults.length,
-			lastAgent: agentResults[agentResults.length - 1]?.agentName,
-			iteration: i,
-		});
-
-		// Track audit score
-		const auditInfo = trackAuditScore(result.textOnly, stageState, new Set(result.toolCalls ?? []));
-		if (auditInfo) {
-			ctx.ui.notify(
-				`Audit #${auditInfo.cycleCount} score: ${auditInfo.score.passing}/${auditInfo.score.total}${auditInfo.trend ? ` (${auditInfo.trend})` : ""}`,
-				"info",
-			);
-			getDebugLogger().info("handler", "Audit score tracked", {
-				cycleCount: auditInfo.cycleCount,
-				score: auditInfo.score,
-				trend: auditInfo.trend,
-			});
-		}
-
-		// Pre-compute audit score gate decision for auditor
-		// This runs BEFORE handlePostAgentSuccess so the gate rejection
-		// comment can replace the normal approval comment.
-		const gateRejected = computeAuditGateRejection(agentName, result, config, stageState, ctx);
-
-		// Agent result is already sent by executeAgent with eventType: "subagent-result".
-
-		// Refusal short-circuit (issue #1618): when the agent declined the task
-		// via the documented `refusal` field it owns no post-success side effects.
-		// Without this the auditor path falls through to the text-marker fallback,
-		// whose bare-text matcher reads the JSON `"action": "REJECTED"` prose as an
-		// audit decision — posting a false verdict comment before the refusal branch
-		// below posts the refusal note (duplicate comments, bogus approval/rejection).
-		// Developer commits / agent comments are equally pointless on a refusal.
-		// Parse matches calculateNextStatus' refusal detection (textOutput) and is
-		// NOT gated on result.success: a budget-exceeded run reports success=false
-		// yet may still carry a structured refusal, which must override the
-		// budget-degradation path below (audit fix). Unparseable failed output
-		// degrades to FailedParse → isRefused false → null.
-		const refusedOutput: RefusedOutput | null = getRefusalInfo(
-			result.textOutput,
-			new Set(result.toolCalls ?? []),
-		);
+		// ─── Post-dispatch bookkeeping: trace, audit score, gate, refusal ───
+		const { gateRejected, refusedOutput } = recordPostDispatch(runCtx, agentName, result, i);
 
 		// Post-processing — pass pre-computed gateRejected so auditor
 		// comment posting can show gate rejection instead of approval

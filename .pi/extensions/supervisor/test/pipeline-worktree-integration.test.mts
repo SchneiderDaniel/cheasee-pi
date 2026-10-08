@@ -27,6 +27,7 @@ const __dirname = dirname(__filename);
 // and the post-loop cleanup in handler/post-pipeline.ts.
 const PREFLIGHT_TS = resolve(__dirname, "../pipeline/handler/preflight.ts");
 const AGENT_LOOP_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const AGENT_LOOP_STEPS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-steps.ts");
 const POST_PIPELINE_TS = resolve(__dirname, "../pipeline/handler/post-pipeline.ts");
 
 function readPreflightSource(): string {
@@ -34,6 +35,9 @@ function readPreflightSource(): string {
 }
 function readAgentLoopSource(): string {
 	return readFileSync(AGENT_LOOP_TS, "utf-8");
+}
+function readAgentLoopStepsSource(): string {
+	return readFileSync(AGENT_LOOP_STEPS_TS, "utf-8");
 }
 function readPostPipelineSource(): string {
 	return readFileSync(POST_PIPELINE_TS, "utf-8");
@@ -48,18 +52,21 @@ function run(cmd: string, cwd: string): string {
 // ---------------------------------------------------------------------------
 
 describe("pipeline-worktree integration — lifecycle order", () => {
-	it("worktree creation comment lives in preflight, build task comment in agent loop", () => {
+	it("worktree creation comment lives in preflight, task assembly in agent-loop-steps", () => {
 		const preflightSrc = readPreflightSource();
-		const loopSrc = readAgentLoopSource();
+		const stepsSrc = readAgentLoopStepsSource();
 		assert.ok(preflightSrc.includes("// Create worktree before loop"), "Worktree creation comment");
-		assert.ok(loopSrc.includes("// Build task"), "Build task comment");
+		assert.ok(
+			stepsSrc.includes("const task = buildAgentTask("),
+			"Task assembly lives in agent-loop-steps.ts (issue #1886)",
+		);
 	});
 
-	it("buildAgentTask call appears in agent loop, after the preflight worktree section", () => {
+	it("buildAgentTask call appears in agent-loop-steps.ts, after the preflight worktree section", () => {
 		const preflightSrc = readPreflightSource();
-		const loopSrc = readAgentLoopSource();
+		const stepsSrc = readAgentLoopStepsSource();
 		assert.ok(preflightSrc.includes("// Create worktree before loop"), "Worktree creation section");
-		assert.ok(loopSrc.includes("const task = buildAgentTask("), "buildAgentTask call exists");
+		assert.ok(stepsSrc.includes("const task = buildAgentTask("), "buildAgentTask call exists");
 	});
 
 	it("worktreePath and worktreeBranch destructured from RunContext before the loop", () => {
