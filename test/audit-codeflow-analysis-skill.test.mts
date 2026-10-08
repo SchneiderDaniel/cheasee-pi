@@ -3,7 +3,7 @@
  *
  * Text-analysis tests that read SKILL.md and assert the required contract:
  * tool/report references, the ask_user confirmation gate before any
- * `gh issue create`, issues-only scope with a locked main, create-internal-issue
+ * `gh issue create`, issues-only scope with a locked main, git-issue-create-internal
  * delegation, best-effort isolation disclosure, and package.json wiring.
  *
  * Run with:
@@ -77,10 +77,10 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 		assert.match(body, /before/i, "must state the gate ordering");
 	});
 
-	it("states issues only, main locked, and delegates filing to create-internal-issue", () => {
+	it("states issues only, main locked, and delegates filing to git-issue-create-internal", () => {
 		assert.match(body, /issues only/i);
 		assert.match(body, /main.*locked|locked.*main/i);
-		assert.match(body, /create-internal-issue/);
+		assert.match(body, /git-issue-create-internal/);
 	});
 
 	it("requires best-effort file isolation and overlap disclosure", () => {

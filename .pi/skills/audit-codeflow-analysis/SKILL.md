@@ -4,7 +4,7 @@ description: "Fetch the CodeFlow structural analysis report, turn it into file-i
 metadata:
   steps: fetch-report-parse-group-confirm-file
   scope: issues-only-no-commits
-  dependencies: codeflow_analysis_report, create-internal-issue, ask_user
+  dependencies: codeflow_analysis_report, git-issue-create-internal, ask_user
 ---
 
 # CodeFlow Analysis
@@ -24,7 +24,7 @@ Load this skill when the user asks to:
 
 - **Issues only.** Do not create branches, commits, or PRs. `main` is locked.
 - **Confirm before filing.** No `gh issue create` (directly or via
-  `create-internal-issue`) until the user has explicitly confirmed via
+  `git-issue-create-internal`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
 - **One subject per issue** with the best-effort file isolation described below,
   and any remaining overlap disclosed in the issue body.
@@ -111,7 +111,7 @@ fully split: list the files, and say which are shared (disclose the overlap).
 
 ### Step 4 — Draft the issues
 
-For each group, draft an issue using the `create-internal-issue` skill (load it
+For each group, draft an issue using the `git-issue-create-internal` skill (load it
 for the repo's issue template, duplicate check, and project-board wiring). Use
 the group's affected files as the scope and include:
 
@@ -135,7 +135,7 @@ Never proceed to Step 6 without the user's answer.
 
 ### Step 6 — File the confirmed issues
 
-Only now file the confirmed drafts via `create-internal-issue` (template,
+Only now file the confirmed drafts via `git-issue-create-internal` (template,
 duplicate check already done, add to the project board). Issues only — no
 commits, no branches, no PRs. Report the created issue URLs back to the user.
 
