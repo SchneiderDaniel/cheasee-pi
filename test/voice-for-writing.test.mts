@@ -7,7 +7,7 @@
  * voice-trainer skill, so this test targets that tracked source.
  *
  * Run with:
- *   node --experimental-strip-types --test test/writing-voice.test.mts
+ *   node --experimental-strip-types --test test/voice-for-writing.test.mts
  */
 
 import assert from "node:assert";
@@ -200,10 +200,10 @@ describe("Phase 3: Style analysis completeness", () => {
 		);
 	});
 
-	it("generated voice file is written to .pi/skills/writing-voice/references/", () => {
+	it("generated voice file is written to .pi/skills/voice-for-writing/references/", () => {
 		assert.ok(
-			body.includes(".pi/skills/writing-voice/references"),
-			"Must name .pi/skills/writing-voice/references/ as the voice file location",
+			body.includes(".pi/skills/voice-for-writing/references"),
+			"Must name .pi/skills/voice-for-writing/references/ as the voice file location",
 		);
 	});
 
