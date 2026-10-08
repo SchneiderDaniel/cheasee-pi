@@ -265,6 +265,79 @@ export function parseBestReport(markdown: string, json?: string | null): IssueFa
 }
 
 /**
+ * Drop exact-duplicate facts. The exporter emits the same finding more than
+ * once (two `on_open()` entries in one file, a security issue per matching
+ * line), and validation runs per fact — so a duplicate is both a wasted
+ * read-only subagent run and a duplicate candidate at the confirmation gate.
+ * Preserves input order; keeps the first of each `(kind, title, files)` group.
+ */
+export function dedupeIssues(issues: IssueFact[]): IssueFact[] {
+	const seen = new Set<string>();
+	const out: IssueFact[] = [];
+	for (const issue of issues) {
+		const key = `${issue.kind}\u0000${issue.title}\u0000${issue.files.join("\u0000")}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(issue);
+	}
+	return out;
+}
+
+export interface SectionCoverage {
+	kind: string;
+	/** The `## ` heading that declared this kind, as written by the exporter. */
+	heading: string;
+	/** `### ` items the exporter emitted under that heading. */
+	items: number;
+	/** Facts `parseReport` extracted for this kind. */
+	candidates: number;
+}
+
+/**
+ * Reconcile the `###` items each markdown section declares against the
+ * candidates `parseReport` extracts for that kind.
+ *
+ * A section that emits items but yields zero candidates means the parser is
+ * dropping the entire section, not that the section is empty: the architecture
+ * metrics arrive as `index.test.ts (46 fns)` and a token with whitespace is not
+ * path-like, so every entry loses its file and `flush()` discards the fact.
+ * Callers must treat `items > 0 && candidates === 0` as an unreadable section
+ * and stop, never as "no findings here".
+ */
+export function reportSectionCoverage(markdown: string): SectionCoverage[] {
+	const md = markdown ?? "";
+	const byKind = new Map<string, { heading: string; items: number }>();
+	let kind: string | null = null;
+
+	for (const raw of md.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		const h2 = /^##\s+(.*)$/.exec(line);
+		if (h2) {
+			const heading = h2[1].trim();
+			kind = sectionKind(heading);
+			if (kind && !byKind.has(kind)) byKind.set(kind, { heading, items: 0 });
+			continue;
+		}
+		if (/^###\s+/.test(line) && kind) {
+			const entry = byKind.get(kind);
+			if (entry) entry.items++;
+		}
+	}
+
+	const candidatesByKind = new Map<string, number>();
+	for (const fact of parseReport(md)) {
+		candidatesByKind.set(fact.kind, (candidatesByKind.get(fact.kind) ?? 0) + 1);
+	}
+
+	return [...byKind.entries()].map(([k, entry]) => ({
+		kind: k,
+		heading: entry.heading,
+		items: entry.items,
+		candidates: candidatesByKind.get(k) ?? 0,
+	}));
+}
+
+/**
  * Group issues so each group's issues can be reasoned about as one unit:
  * issues that share any file are merged (transitively) into a single group.
  * Deterministic (input order), and every input issue lands in exactly one group.

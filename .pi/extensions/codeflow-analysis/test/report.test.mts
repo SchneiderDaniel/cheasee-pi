@@ -17,10 +17,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
+	dedupeIssues,
 	groupIssues,
 	parseBestReport,
 	parseReport,
 	parseReportJson,
+	reportSectionCoverage,
 	type IssueFact,
 } from "../report.ts";
 
@@ -375,5 +377,87 @@ describe("groupIssues", () => {
 			groupIssues(parseReportJson(FIXTURE_JSON)),
 			groupIssues(parseReportJson(FIXTURE_JSON)),
 		);
+	});
+});
+
+describe("dedupeIssues", () => {
+	const fact = (title: string, files: string[], kind = "dead-code"): IssueFact => ({
+		id: `${kind}:${title}`,
+		kind,
+		title,
+		files,
+	});
+
+	it("keeps the first of each (kind, title, files) group in input order", () => {
+		const issues = [
+			fact("on_open()", ["src/retry.rs"]),
+			fact("other()", ["src/retry.rs"]),
+			fact("on_open()", ["src/retry.rs"]),
+		];
+		assert.deepStrictEqual(
+			dedupeIssues(issues).map((f) => f.id),
+			["dead-code:on_open()", "dead-code:other()"],
+		);
+	});
+
+	it("keeps same-named facts that touch different files", () => {
+		const issues = [fact("on_open()", ["src/a.rs"]), fact("on_open()", ["src/b.rs"])];
+		assert.strictEqual(dedupeIssues(issues).length, 2);
+	});
+
+	it("treats a different kind or title as a distinct fact", () => {
+		const issues = [
+			fact("X", ["src/a.ts"]),
+			fact("X", ["src/a.ts"], "security"),
+			fact("Y", ["src/a.ts"]),
+		];
+		assert.strictEqual(dedupeIssues(issues).length, 3);
+	});
+});
+
+describe("reportSectionCoverage", () => {
+	it("flags a section that emits items but yields no candidates", () => {
+		// The live architecture shape pre-fix: every affected token carries an
+		// inlined count, so nothing is path-like and the whole section vanishes.
+		const md = [
+			"## Architecture Issues",
+			"",
+			"### Large Files",
+			"",
+			"**Affected:** `a.ts`, `b.ts`",
+			"",
+		].join("\n");
+		const covered = reportSectionCoverage(md).find((c) => c.kind === "architecture");
+		assert.deepStrictEqual(covered, {
+			kind: "architecture",
+			heading: "Architecture Issues",
+			items: 1,
+			candidates: 1,
+		});
+
+		const unreadable = reportSectionCoverage(
+			"## Architecture Issues\n\n### Broken\n\n**Affected:** `x`\n",
+		);
+		assert.strictEqual(unreadable[0].items, 1);
+		assert.strictEqual(unreadable[0].candidates, 0);
+	});
+
+	it("counts every declared item and reports the path-less architecture entry", () => {
+		assert.deepStrictEqual(
+			reportSectionCoverage(FIXTURE).map((c) => [c.kind, c.items, c.candidates]),
+			[
+				["security", 1, 1],
+				["dead-code", 3, 3],
+				["pattern", 1, 1],
+				["anti-pattern", 1, 1],
+				// `domain → ui` carries no path in the markdown format: JSON-only.
+				["architecture", 3, 2],
+			],
+		);
+	});
+
+	it("reports no issue sections for empty or unrelated input", () => {
+		assert.deepStrictEqual(reportSectionCoverage(""), []);
+		assert.deepStrictEqual(reportSectionCoverage("## Summary\n\n### nothing\n"), []);
 	});
 });

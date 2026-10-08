@@ -17,7 +17,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseBestReport, type IssueFact } from "../../../extensions/codeflow-analysis/report.ts";
+import {
+	dedupeIssues,
+	parseBestReport,
+	reportSectionCoverage,
+	type IssueFact,
+} from "../../../extensions/codeflow-analysis/report.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VALIDATOR = join(HERE, "validate-finding.sh");
@@ -269,7 +274,23 @@ async function main(): Promise<void> {
 		process.stderr.write(`no findings parsed from ${reportPath}\n`);
 		process.exit(2);
 	}
-	const selected = facts.slice(0, args.limit);
+
+	// Guardrail: a section that emitted `###` items but parsed to zero candidates
+	// means the parser is dropping it whole, not that the section is empty. The
+	// markdown export is the only source with sections to count.
+	const coverage = reportSectionCoverage(markdown);
+	const uncovered = coverage.filter((c) => c.items > 0 && c.candidates === 0);
+	if (uncovered.length > 0) {
+		process.stdout.write(
+			`WARNING: ${uncovered.length} section(s) emitted items but yielded no candidates — ` +
+				`the parser is dropping them:\n` +
+				uncovered.map((c) => `  ${c.heading}: ${c.items} item(s), 0 candidates\n`).join("") +
+				`Fix the extraction before trusting this candidate set.\n\n`,
+		);
+	}
+
+	const unique = dedupeIssues(facts);
+	const selected = unique.slice(0, args.limit);
 
 	const basenameIndex = indexBasenames(
 		execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf-8" })
@@ -290,6 +311,15 @@ async function main(): Promise<void> {
 		}
 		const unresolved = cited.filter((r) => r.how === "unresolved");
 		process.stdout.write(
+			"\nsection coverage (### items the exporter emitted vs candidates parsed):\n",
+		);
+		for (const c of coverage) {
+			const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
+			process.stdout.write(
+				`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s)${flag}\n`,
+			);
+		}
+		process.stdout.write(
 			`\n${selected.length} finding(s), ${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
 				`${unresolved.length} unresolved. No validation run, no issues created.\n`,
 		);
@@ -298,8 +328,9 @@ async function main(): Promise<void> {
 
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
-		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ${facts.length} findings)\n` +
-			`Validating first ${selected.length} finding(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
+		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ` +
+			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped)\n` +
+			`Validating first ${selected.length} unique finding(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
 	);
 
 	const findingsDir = join(repoRoot, "ignore/codeflow-findings");
