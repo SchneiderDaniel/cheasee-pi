@@ -14,6 +14,12 @@ maintainer who reads the cited code agree the finding is real?
   described pattern, or the claim is a bare style preference with no defect.
 - VALID when the cited code matches the claim and the defect is real. Severity
   and priority are not your call — a small real defect is still VALID.
+- INVALID when there is nothing to remediate, even if the claim is true. A
+  design pattern being present (`dataclasses are used`), a size or count
+  threshold being crossed (`this file is over 500 lines`), or a stylistic
+  preference is a descriptive observation, not a defect. VALID asserts that a
+  maintainer must change the code; if the only honest action is "keep doing
+  this", the verdict is INVALID.
 - Ambiguous or unverifiable evidence is INVALID. Never guess. Never say "cannot
   determine" — pick INVALID and state what was missing.
 

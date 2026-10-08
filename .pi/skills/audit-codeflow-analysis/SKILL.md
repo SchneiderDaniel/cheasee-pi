@@ -27,9 +27,20 @@ Load this skill when the user asks to:
 ## Hard Rules
 
 - **Issues only.** Do not create branches, commits, or PRs. `main` is locked.
-- **Verify before filing.** Every candidate goes through Step 4. A finding whose
+- **Verify before filing.** Every candidate goes through Step 3. A finding whose
   validation exits `1` is dropped, never filed or re-framed. One whose validation
   exits `2`/`3` is unverified: not filed, and disclosed as unverified.
+- **Reconcile every section before validating.** A section present in the report
+  must yield candidates. A section that emitted `###` items but produced zero
+  candidates is being dropped whole by the parser, not empty — stop and fix
+  extraction before validating anything. Never present a partial candidate set
+  as a complete audit.
+- **Re-check freshness before filing.** The shim replaces the report when a new
+  browser run finishes. If `analyzedAt` moved since Step 1, the validated set no
+  longer describes the current analysis: stop and restart from Step 1.
+- **Informational findings are not issues.** A `pattern` fact (a design pattern
+  exists) is never filed. An `anti-pattern` fact that survives validation is
+  chore/refactor scope, never bug-template scope.
 - **Confirm before filing.** No `gh issue create` (directly or via
   `create-internal-issue`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
@@ -62,6 +73,11 @@ CodeFlow UI, then retry with `refresh: true`.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
 `ignore/codeflow-report.json` when `jsonPath` is non-null.
+
+Record the returned `analyzedAt` and the `## Summary` table. Every later step
+works from that snapshot: the freshness check in Step 7 compares against it, and
+filed issue bodies name it so a finding can be traced to the analysis it came
+from.
 
 ### Step 2 — Extract issue candidates
 
@@ -97,6 +113,25 @@ Markdown fallback sections:
 The markdown exporter does **not** emit duplicates, layer violations, or
 suggestions — those come from the JSON export only. When `jsonPath` is null, say
 so and proceed with the markdown categories rather than silently omitting them.
+
+Then, before validating anything, run the two checks that keep the candidate set
+honest. Both are pure functions in the same module:
+
+1. **Dedupe.** `dedupeIssues(facts)` drops facts whose `(kind, title, files)`
+   already appeared. The exporter repeats findings (two `on_open()` entries in
+   one file, one security issue per matching line) and validation is per fact, so
+   every duplicate is a wasted read-only subagent run. Report the dropped count;
+   never remove findings silently.
+2. **Reconcile.** `reportSectionCoverage(markdown)` counts the `###` items each
+   `## ` section declares against the candidates extracted for that kind. Any
+   section with `items > 0 && candidates === 0` is unreadable: stop, fix the
+   extraction, and only then continue. Include the coverage table in the run
+   report, and read a zero there as "the parser is dropping this", never as "no
+   findings in this section".
+
+The check is cheap and catches a whole class of silent loss: CodeFlow's derived
+architecture metrics arrive as `index.test.ts (46 fns)`, and a section whose every
+entry is unparseable disappears without a single error.
 
 Only keep tokens that name a file path (contain `/` or an extension); drop bare
 function names and layer labels. Unknown, absent, or truncated sections yield no
@@ -155,7 +190,14 @@ the group's affected files as the scope and include:
 
 - the CodeFlow signal (kind, section/field, title, description),
 - the file list (marking shared files when the group is not isolated),
-- the best-effort isolation note.
+- the best-effort isolation note,
+- the `analyzedAt` of the report the finding came from.
+
+**Kind → issue type.** `pattern` is informational — record it in the run summary
+and stop there, it is not a defect and has no issue. `anti-pattern` is
+chore/refactor work: draft it through the freeform "Other" path. `security`,
+`dead-code`, `architecture`, `duplicate`, `layer-violation` and `suggestion` use
+the bug template.
 
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
@@ -177,6 +219,11 @@ Never proceed to Step 7 without the user's answer.
 Only now file the confirmed drafts via `create-internal-issue` (template,
 duplicate check already done, add to the project board). Issues only — no
 commits, no branches, no PRs. Report the created issue URLs back to the user.
+
+Immediately before the first creation, re-fetch with `refresh: true` and compare
+`analyzedAt` with Step 1. If it changed, the shim has absorbed a newer browser
+analysis and every verdict was reached against a superseded report: stop, tell
+the user, and restart from Step 1.
 
 ## Dry run (creates nothing)
 
@@ -200,6 +247,12 @@ false, `2` for bad usage or a missing report.
 - `ignore/codeflow-report.md` exists and is non-empty before parsing.
 - When `jsonPath` is null, the run discloses that the JSON-only categories
   (duplicates, layer violations, suggestions) were unavailable.
+- Every `## ` section that emitted `###` items produced at least one candidate,
+  or the run stopped and named the unreadable section. A partial candidate set is
+  never presented as a complete audit.
+- The `analyzedAt` re-fetch before filing matches the Step 1 value.
+- Duplicates dropped by `dedupeIssues` are reported as a count.
+- No `pattern` fact was filed, and no `anti-pattern` fact used the bug template.
 - Every proposed issue names at least one file (except file-less suggestions,
   which must reference the signal that produced them).
 - Every filed issue's finding exited `0` from `validate-finding.sh`; every
