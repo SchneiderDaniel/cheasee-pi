@@ -37,6 +37,7 @@ import { dirname } from "node:path";
 import { codeflowServiceUrl } from "../../../extensions/lib/codeflow-endpoint.ts";
 import { isPathWithinBase, resolveWithinRoot } from "../../../extensions/lib/path-containment.ts";
 import { ensureReport } from "./codeflow-run.ts";
+import { hasStructuredFindings, JSON_ONLY_CATEGORIES } from "./report.ts";
 
 /** Markdown artifact path, relative to the session cwd (gitignored). */
 export const REPORT_REL_PATH = "ignore/codeflow-report.md";
@@ -49,16 +50,13 @@ interface ReportResult {
 	bytes: number;
 	analyzedAt: number | null;
 	warnings: string[];
-	/** True when no structured JSON artifact was stored; the run cannot see the JSON-only categories. */
+	/** True when no *usable* structured JSON artifact was stored; the run cannot see the JSON-only categories. */
 	partial: boolean;
-	/** Categories the markdown exporter never emits, empty when a JSON artifact was stored. */
+	/** Categories the markdown exporter never emits, empty when a usable JSON artifact was stored. */
 	unavailableCategories: string[];
 	/** True when a misrouted JSON body was recovered from the markdown route. */
 	recoveredFromMarkdownRoute?: boolean;
 }
-
-/** JSON-only categories the markdown exporter never emits. */
-const UNAVAILABLE_CATEGORIES = ["duplicate", "layer-violation", "suggestion"];
 
 /** `status` is the HTTP status for a failed fetch, or null for a thrown failure. */
 export type ReportOutcome =
@@ -341,54 +339,69 @@ export async function fetchAndStoreReport(opts: {
 
 	const warnings: string[] = [];
 	// Defense-in-depth: an old bridge or a manual POST can land a JSON body on
-	// the markdown route. Classify *before* persisting so a recovered JSON body
-	// is recovered into the structured artifact and never written as the
-	// markdown artifact (the shim's own routing is fixed in `_BRIDGE_JS.capture`;
-	// this bridges the gap only, and says so loudly).
-	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
-	const recoveredBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	// the markdown route. Classify by *format* first (so JSON is never written to
+	// the markdown path), then gate *usability* on the domain predicate: a JSON
+	// body that parses to zero facts (an empty stub) is not a structured export
+	// and must not be recovered as one.
+	const markdownBody = decodeBody(bytes);
+	const markdownIsJson = classifyReportBody(markdownBody) === "json";
+	const markdownUsable = markdownIsJson && hasStructuredFindings(markdownBody);
+	const recoveredBytes: Uint8Array | null = markdownUsable ? bytes : null;
 	let jsonBytes: Uint8Array | null = recoveredBytes;
+	const recoveredFromMarkdownRoute = markdownUsable;
 	// Byte count of the markdown artifact actually written to `path`.
 	let markdownBytes: Uint8Array = bytes;
-	if (recoveredFromMarkdownRoute) {
+	if (markdownIsJson) {
 		warnings.push(
-			"The markdown route returned a JSON export body (the browser bridge misrouted " +
-				"generateReport('json')); it was recovered as the structured artifact. This shim " +
-				"serves no markdown narration, so a placeholder markdown file was written to the " +
-				"markdown path.",
+			markdownUsable
+				? "The markdown route returned a JSON export body (the browser bridge misrouted " +
+						"generateReport('json')); it was recovered as the structured artifact. This shim " +
+						"serves no markdown narration, so a placeholder markdown file was written to the " +
+						"markdown path."
+				: "The markdown route returned a JSON body that yields no findings (a stub), so it " +
+						"was not stored as the structured artifact. A placeholder markdown file was written " +
+						"to the markdown path.",
 		);
 		// The JSON body must never sit at the markdown path, but `path` must stay a
 		// readable markdown file (Step 1 reads it), so overwrite it with narration.
 		markdownBytes = renderRecoveredMarkdown(analyzedAt);
-		writeAtomically(opts.cwd, target, markdownBytes);
-	} else {
-		writeAtomically(opts.cwd, target, bytes);
 	}
+	writeAtomically(opts.cwd, target, markdownBytes);
 
 	try {
 		const jsonResp = await getReport(`${base}/api/analysis/report.json`, opts.signal);
 		if (jsonResp.ok) {
 			const body = new Uint8Array(await jsonResp.arrayBuffer());
-			if (classifyReportBody(decodeBody(body)) === "json") {
+			const bodyText = decodeBody(body);
+			if (classifyReportBody(bodyText) !== "json") {
+				warnings.push(
+					"Structured JSON report route returned a body that is neither the JSON export " +
+						"nor markdown; it was not stored as the structured artifact.",
+				);
+			} else if (!hasStructuredFindings(bodyText)) {
+				// A JSON object with an `architectureIssues` array but no facts is a stub,
+				// not a report: never let it masquerade as a complete run.
+				warnings.push(
+					recoveredBytes !== null
+						? `The /api/analysis/report.json route served a smaller export (a fact-less stub, ` +
+								`${body.length} bytes) than the usable export recovered from the markdown route ` +
+								`(${recoveredBytes.length} bytes); the recovered body was kept so no findings are lost.`
+						: `The /api/analysis/report.json route served a stub export with no findings ` +
+								`(${body.length} bytes); it was not stored, so the JSON-only categories are unavailable.`,
+				);
+			} else if (recoveredBytes !== null && body.length < recoveredBytes.length) {
 				// The recovered body came from the markdown route (a browser misroute);
 				// a smaller JSON-route body is a stale or truncated slot, not a richer
 				// report. Keep the larger body so a full export is never silently
 				// replaced by a stub. shortcut: byte length proxies export richness,
 				// upgrade to a finding-count compare if exports can legitimately shrink.
-				if (recoveredBytes !== null && body.length < recoveredBytes.length) {
-					warnings.push(
-						`The /api/analysis/report.json route served a smaller export (${body.length} bytes) ` +
-							`than the JSON body recovered from the markdown route (${recoveredBytes.length} bytes); ` +
-							"the recovered body was kept so no findings are lost.",
-					);
-				} else {
-					jsonBytes = body;
-				}
-			} else {
 				warnings.push(
-					"Structured JSON report route returned a body that is neither the JSON export " +
-						"nor markdown; it was not stored as the structured artifact.",
+					`The /api/analysis/report.json route served a smaller export (${body.length} bytes) ` +
+						`than the JSON body recovered from the markdown route (${recoveredBytes.length} bytes); ` +
+						"the recovered body was kept so no findings are lost.",
 				);
+			} else {
+				jsonBytes = body;
 			}
 		} else if (jsonResp.status === 404) {
 			if (jsonBytes === null) warnings.push(await jsonUnavailableWarning(base, opts.signal));
@@ -422,7 +435,7 @@ export async function fetchAndStoreReport(opts: {
 	// carrying the list (from `jsonUnavailableWarning`) is enough.
 	if (partial && !warnings.some((w) => w.includes("duplicates, layer violations and suggestions"))) {
 		warnings.push(
-			`Structured JSON report unavailable, so ${UNAVAILABLE_CATEGORIES.join(", ")} categories cannot be extracted.`,
+			`Structured JSON report unavailable, so ${JSON_ONLY_CATEGORIES.join(", ")} categories cannot be extracted.`,
 		);
 	}
 
@@ -433,7 +446,7 @@ export async function fetchAndStoreReport(opts: {
 		analyzedAt,
 		warnings,
 		partial,
-		unavailableCategories: partial ? [...UNAVAILABLE_CATEGORIES] : [],
+		unavailableCategories: partial ? [...JSON_ONLY_CATEGORIES] : [],
 		recoveredFromMarkdownRoute,
 	};
 	cache = result;

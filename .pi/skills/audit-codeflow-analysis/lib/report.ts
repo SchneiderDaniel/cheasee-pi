@@ -243,8 +243,16 @@ export function parseReportJson(text: string): IssueFact[] {
 		const i = asRecord(issue);
 		if (!i) continue;
 		const files: string[] = [];
-		// affectedFiles is the generator's flattened `x.file || x.name`.
-		addFiles(files, i.affectedFiles);
+		// affectedFiles is the generator's flattened `x.file || x.name`; for
+		// symbol-level items it holds display strings (`execFn (3 files)`), so keep
+		// only path-shaped entries and recover the real paths from the nested shape.
+		const affected = i.affectedFiles;
+		if (Array.isArray(affected)) {
+			addFiles(
+				files,
+				affected.filter((v) => typeof v === "string" && isPathLike(v)),
+			);
+		}
 		// The generator drops `toFile` when flattening affectedFiles, but a
 		// layer-violation item carries the imported target there. Include both
 		// endpoints of every affected item or the target file is missing from
@@ -253,6 +261,12 @@ export function parseReportJson(text: string): IssueFact[] {
 			const a = asRecord(item);
 			if (!a) continue;
 			addFiles(files, [a.file, a.toFile]);
+			// A third, nested shape is used for the `Duplicate Function Names` and
+			// `Similar Code Blocks` items: affectedItems[].files[].file. Without it
+			// those items keep only display strings and are suppressed as unresolved.
+			for (const f of Array.isArray(a.files) ? a.files : []) {
+				addFiles(files, [asRecord(f)?.file]);
+			}
 		}
 		push("architecture", String(i.title ?? "").trim(), files);
 	}
@@ -323,6 +337,24 @@ export function parseBestReport(markdown: string, json?: string | null): IssueFa
 		if (fromJson.length > 0) return fromJson;
 	}
 	return parseReport(markdown);
+}
+
+/**
+ * Categories the markdown exporter never emits; the JSON export is their only
+ * source. A run without a *usable* structured export cannot see them.
+ */
+export const JSON_ONLY_CATEGORIES = ["duplicate", "layer-violation", "suggestion"] as const;
+
+/**
+ * Single definition of a "usable structured export": a JSON body that yields at
+ * least one fact. A body that classifies as JSON (an `architectureIssues` array)
+ * can still be an empty stub — the shim's empty slot serves exactly that — and
+ * must not count as a complete structured report. Shared by `fetch-report.ts`
+ * (storage gate, `partial`) and `dry-run.mts` (source label) so the rule cannot
+ * drift from `parseBestReport`.
+ */
+export function hasStructuredFindings(text: string | null | undefined): boolean {
+	return parseReportJson(text ?? "").length > 0;
 }
 
 /**
@@ -456,16 +488,59 @@ export function reportSectionCoverage(markdown: string): SectionCoverage[] {
 /**
  * Classify a fact as auto-suppressible noise or a candidate to validate.
  *
- * Only the *text-provable* LOW stylistic security categories qualify: CodeFlow
- * emits one `LOW: Code Comments` / `LOW: Debug Statements` per matching line and
- * both are known to fire on string literals in fixtures, ast-grep patterns and
- * JSON (see `references/known-false-positives.md`). Every code-read shape —
- * secrets, SQL injection, shell execution, command execution, dead code — stays
- * `keep`: its mechanism can only be disproved by reading the code, so it goes to
- * the validator, never to a text filter. Suppression depends on the fact alone,
- * never the filesystem.
+ * Only the *text-provable* shapes qualify: the LOW stylistic security
+ * categories and cross-language layer violations. CodeFlow emits one `LOW: Code
+ * Comments` / `LOW: Debug Statements` per matching line and both are known to
+ * fire on string literals in fixtures, ast-grep patterns and JSON (see
+ * `references/known-false-positives.md`). Every code-read shape — secrets, SQL
+ * injection, shell execution, command execution, dead code — stays `keep`: its
+ * mechanism can only be disproved by reading the code, so it goes to the
+ * validator, never to a text filter. Suppression depends on the fact alone, never
+ * the filesystem.
  */
+
+/**
+ * Language family of a path by extension, or null when the extension is
+ * unrecognised. `.ts`/`.mts`/`.tsx`/`.js`/`.mjs`/`.jsx` share one family: a
+ * TypeScript module can import a JavaScript one (and vice versa), so that pair
+ * is not a language boundary.
+ */
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+	ts: "js-ts",
+	mts: "js-ts",
+	cts: "js-ts",
+	tsx: "js-ts",
+	js: "js-ts",
+	mjs: "js-ts",
+	cjs: "js-ts",
+	jsx: "js-ts",
+	py: "python",
+	rs: "rust",
+	go: "go",
+	sh: "shell",
+	bash: "shell",
+};
+
+function languageFamily(path: string): string | null {
+	const m = /\.([A-Za-z0-9]+)\s*$/.exec(path.trim());
+	return m ? (LANGUAGE_BY_EXTENSION[m[1].toLowerCase()] ?? null) : null;
+}
+
+/** A layer edge whose two files cannot be imports of one another (no shared family). */
+function isCrossLanguageLayerViolation(files: string[]): boolean {
+	if (files.length < 2) return false;
+	const families = files.map(languageFamily);
+	// An unknown extension is kept: fail safe, never hide a finding on a guess.
+	if (families.some((f) => f === null)) return false;
+	return new Set(families).size > 1;
+}
+
 export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
+	if (fact.kind === "layer-violation") {
+		// CodeFlow layer violations are import-based, so a `.ts` → `.rs` edge cannot
+		// be an import: it is a bare-identifier match across a language boundary.
+		return isCrossLanguageLayerViolation(fact.files) ? "suppress" : "keep";
+	}
 	if (fact.kind !== "security") return "keep";
 	const title = fact.title.replace(/\s+/g, " ").trim().toLowerCase();
 	return /^low:\s*(code comments|debug statements)$/.test(title) ? "suppress" : "keep";
@@ -474,33 +549,58 @@ export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
 /** Issue type the triage policy assigns to a fact. */
 export type IssueType = "bug" | "chore" | "informational" | "out-of-scope";
 
+/** What Step 5/6 should do with a fact. */
+export type Disposition = "file-bug" | "file-refactor" | "offer-optional" | "drop";
+
 /** The derived architecture metrics the exporter emits as `<N> Metric` titles. */
 const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\b/i;
 
 /**
- * Triage policy: decide an issue type *before* any validator reads code, so scope
- * is never a validator's call. `pattern` is informational; `anti-pattern` and
- * the derived size/coupling/complexity metrics are chore/refactor scope; every
- * other known kind is bug-template scope. Pure and deterministic.
+ * Triage policy: decide an issue type *and* its disposition *before* any validator
+ * reads code, so scope is never a validator's call. `pattern` is informational and
+ * offered as an optional filing; `anti-pattern` and the derived
+ * size/coupling/complexity metrics are refactor scope and filed by default (with a
+ * Step 6 opt-out); every other known kind is bug-template scope. Pure and
+ * deterministic.
  */
-export function classifyFinding(fact: IssueFact): { issueType: IssueType; reason: string } {
+export function classifyFinding(fact: IssueFact): {
+	issueType: IssueType;
+	disposition: Disposition;
+	reason: string;
+} {
 	if (fact.kind === "pattern") {
-		return { issueType: "informational", reason: "design pattern present — informational, not a defect" };
+		return {
+			issueType: "informational",
+			disposition: "offer-optional",
+			reason: "design pattern present — informational; offered as an optional filing",
+		};
 	}
 	if (fact.kind === "anti-pattern") {
-		return { issueType: "chore", reason: "anti-pattern — chore/refactor scope, never the bug template" };
+		return {
+			issueType: "chore",
+			disposition: "file-refactor",
+			reason: "anti-pattern — refactor scope, never the bug template",
+		};
 	}
 	if (METRIC_TITLE.test(fact.title)) {
-		return { issueType: "chore", reason: "size/coupling/complexity metric — chore/refactor scope" };
+		return {
+			issueType: "chore",
+			disposition: "file-refactor",
+			reason: "size/coupling/complexity metric — refactor scope",
+		};
 	}
 	if (
 		["architecture", "security", "dead-code", "duplicate", "layer-violation", "suggestion"].includes(
 			fact.kind,
 		)
 	) {
-		return { issueType: "bug", reason: "bug-template kind" };
+		return { issueType: "bug", disposition: "file-bug", reason: "bug-template kind" };
 	}
-	return { issueType: "out-of-scope", reason: `unknown kind ${JSON.stringify(fact.kind)}` };
+	return {
+		issueType: "out-of-scope",
+		disposition: "drop",
+		reason: `unknown kind ${JSON.stringify(fact.kind)}`,
+	};
 }
 
 /**

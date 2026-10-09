@@ -216,6 +216,26 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 	});
 });
 
+describe("audit-codeflow-analysis SKILL.md — issue #1992 disposition routing", () => {
+	it("files chore metrics/anti-patterns as refactor issues, never route-or-drop", () => {
+		assert.match(body, /`chore`[^\n]*refactor/i);
+		assert.ok(
+			!body.includes("route it through the freeform"),
+			"the route-or-drop clause must be gone",
+		);
+		assert.doesNotMatch(body, /or\s+\n?\s*drop it, but never send it to the bug validator/i);
+	});
+
+	it("offers informational facts as an opt-in disposition", () => {
+		assert.match(body, /`offer-optional`/);
+		assert.match(body, /`informational`[^\n]*opt-in|opt-in[^\n]*`informational`/i);
+	});
+
+	it("documents the disposition field returned by classifyFinding", () => {
+		assert.match(body, /disposition/i);
+	});
+});
+
 describe("package.json test wiring", () => {
 	it("npm test globs register the codeflow skill test files", () => {
 		for (const file of [

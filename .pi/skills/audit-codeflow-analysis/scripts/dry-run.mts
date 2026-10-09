@@ -22,9 +22,11 @@ import {
 	classifyFinding,
 	classifyKnownNoise,
 	dedupeIssues,
+	hasStructuredFindings,
 	parseBestReport,
 	reportSectionCoverage,
 	reportUnparsedItems,
+	type Disposition,
 	type IssueFact,
 	type IssueType,
 	type SectionCoverage,
@@ -178,9 +180,9 @@ export function slugifyFinding(title: string): string {
 	return `${slug.slice(0, 80).replace(/-+$/, "")}-${hash}`;
 }
 
-/** Step 3 candidate body: kind, triage issue type, targets, id and the cited files. */
+/** Step 3 candidate body: kind, triage issue type/disposition, targets, id and the cited files. */
 function findingFileContent(fact: IssueFact): string {
-	const { issueType, reason } = classifyFinding(fact);
+	const { issueType, disposition, reason } = classifyFinding(fact);
 	const sample = sampleNote(fact);
 	return (
 		[
@@ -188,6 +190,7 @@ function findingFileContent(fact: IssueFact): string {
 			"",
 			`**Kind:** ${fact.kind}`,
 			`**Issue type:** ${issueType}`,
+			`**Disposition:** ${disposition}`,
 			`**Title:** ${fact.title}`,
 			`**Id:** ${fact.id}`,
 			`**Section:** ${fact.kind}`,
@@ -195,10 +198,29 @@ function findingFileContent(fact: IssueFact): string {
 			`**Files:** ${fact.files.length > 0 ? fact.files.join(", ") : "(none)"}`,
 			...(sample ? [sample] : []),
 			"",
-			`Triage: ${issueType} — ${reason}.`,
+			`Triage: ${issueType} (${disposition}) — ${reason}.`,
 			"The markdown/inspection export carries no description; read the cited code and",
 			"decide whether the finding is real.",
 		].join("\n") + "\n"
+	);
+}
+
+/**
+ * One line naming each nonzero disposition (file-bug, file-refactor,
+ * offer-optional, drop) with its count, so whatever triage routed is visible.
+ */
+function dispositionSummary(facts: IssueFact[]): string {
+	const order: Disposition[] = ["file-bug", "file-refactor", "offer-optional", "drop"];
+	const counts = new Map<Disposition, number>();
+	for (const fact of facts) {
+		const d = classifyFinding(fact).disposition;
+		counts.set(d, (counts.get(d) ?? 0) + 1);
+	}
+	return (
+		order
+			.filter((d) => (counts.get(d) ?? 0) > 0)
+			.map((d) => `${d} ${counts.get(d)}`)
+			.join(", ") || "none"
 	);
 }
 
@@ -387,6 +409,29 @@ function selfCheck(): number {
 			"unknown path flagged",
 			resolveCited(() => false, indexBasenames(["a/b.go"]), "ghost.md").how === "unresolved",
 		],
+		[
+			"stub JSON is not a structured export",
+			hasStructuredFindings('{"architectureIssues":[]}') === false,
+		],
+		[
+			"usable JSON is a structured export",
+			hasStructuredFindings('{"architectureIssues":[{"title":"x"}]}') === true,
+		],
+		[
+			"metric disposition is file-refactor",
+			classifyFinding({
+				id: "architecture:0",
+				kind: "architecture",
+				title: "81 Large Files",
+				targets: [],
+				files: [],
+			}).disposition === "file-refactor",
+		],
+		[
+			"pattern disposition is offer-optional",
+			classifyFinding({ id: "pattern:0", kind: "pattern", title: "Singleton", targets: [], files: [] })
+				.disposition === "offer-optional",
+		],
 	];
 	let failed = 0;
 	for (const [name, ok] of checks) {
@@ -460,7 +505,10 @@ async function main(): Promise<void> {
 	const jsonPath = args.json
 		? resolve(repoRoot, args.json)
 		: join(repoRoot, "ignore/codeflow-report.json");
-	const json = existsSync(jsonPath) ? readFileSync(jsonPath, "utf-8") : null;
+	const jsonContent = existsSync(jsonPath) ? readFileSync(jsonPath, "utf-8") : null;
+	// The single usability predicate: a format-valid but facts-less stub is not a
+	// structured export, so the run must fall back to markdown and disclose it.
+	const json = hasStructuredFindings(jsonContent) ? jsonContent : null;
 	const markdown = readFileSync(reportPath, "utf-8");
 
 	const facts = parseBestReport(markdown, json);
@@ -513,6 +561,7 @@ async function main(): Promise<void> {
 		process.stdout.write(
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
 				`${routed.length} finding(s) routed by triage (chore/informational, not bug-validated).\n` +
+				`dispositions: ${dispositionSummary(candidates)}\n` +
 				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
 				`\n${coverageReport(markdown, coverage)}` +
 				(!json ? `\n${jsonNote()}` : "") +
@@ -540,7 +589,9 @@ async function main(): Promise<void> {
 			`\n${candidates.length} finding(s), ${routed.length} routed by triage (chore/informational, not bug-validated), ` +
 				`${suppressed} suppressed as noise/unresolved, ` +
 				`${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
-				`${unresolved.length} unresolved. No validation run, no issues created.\n`,
+				`${unresolved.length} unresolved.\n` +
+				`dispositions: ${dispositionSummary(candidates)}\n` +
+				`No validation run, no issues created.\n`,
 		);
 		process.exit(0);
 	}
@@ -554,6 +605,7 @@ async function main(): Promise<void> {
 			`${suppressed} suppressed)\n` +
 			`${routed.length} finding(s) routed by triage, not validated:\n` +
 			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
+			`dispositions: ${dispositionSummary(candidates)}\n` +
 			`\n${coverageReport(markdown, coverage)}\n` +
 			(!json ? jsonNote() : "") +
 			`Validating first ${selected.length} of ${bugCandidates.length} bug candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,

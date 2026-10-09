@@ -236,6 +236,18 @@ describe("selectCandidates (pure)", () => {
 		);
 		assert.strictEqual(suppressed, 0);
 	});
+
+	it("suppresses a cross-language layer violation before a validator can read it", () => {
+		const crossLanguage = fact("layer-violation", "domain → ui", ["src/a.ts", "ui/src/lib.rs"]);
+		const sameLanguage = fact("layer-violation", "domain → ui", ["src/a.ts", "src/b.mts"]);
+		const { candidates, suppressed } = selectCandidates(
+			[crossLanguage, sameLanguage],
+			resolveWith(new Set()),
+		);
+		assert.deepStrictEqual(candidates.map((f) => f.title), ["domain → ui"]);
+		assert.deepStrictEqual(candidates[0].files, ["src/a.ts", "src/b.mts"]);
+		assert.strictEqual(suppressed, 1);
+	});
 });
 
 describe("slugifyFinding", () => {
@@ -691,6 +703,80 @@ describe("documented emit → validate loop", () => {
 		assert.ok(!all.includes("75 Large Files"), "a metric must never reach a validator");
 		assert.ok(!all.includes("196 Highly Coupled"), "a metric must never reach a validator");
 		assert.ok(!all.includes("276 High Complexity Files"), "a metric must never reach a validator");
+	});
+});
+
+describe("dry-run disposition routing (issue #1992)", () => {
+	it("names each nonzero disposition in the --list summary", () => {
+		const archFixture = join(dir, "disp-arch.md");
+		writeFileSync(archFixture, ARCH_FIXTURE, "utf-8");
+		const r = runDryRun(["--list", "--report", archFixture, "--json", join(dir, "absent.json")]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /file-bug \d+/);
+		assert.match(r.stdout, /file-refactor \d+/);
+	});
+
+	it("writes one candidate for every metric/anti-pattern and pattern, with its disposition", () => {
+		const json = join(dir, "dispositions.json");
+		writeFileSync(
+			json,
+			JSON.stringify({
+				architectureIssues: [
+					{ title: "81 Large Files", affectedFiles: [REAL_FILE] },
+					{ title: "6 Duplicate Function Names", affectedFiles: [REAL_FILE] },
+				],
+				patterns: [
+					{ name: "God Object", isAntiPattern: true, files: [REAL_FILE] },
+					{ name: "Singleton", files: [REAL_FILE] },
+				],
+			}),
+			"utf-8",
+		);
+		const outDir = join(dir, "dispositions-findings");
+		const r = runDryRun(["--report", fixture, "--json", json, "--emit-findings", outDir]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		const files = readdirSync(outDir);
+		assert.strictEqual(files.length, 4, files.join(","));
+		const content = (slug: string): string => {
+			const name = files.find((f) => f.endsWith(`${slug}.md`));
+			assert.ok(name, `no candidate for ${slug} in ${files.join(",")}`);
+			return readFileSync(join(outDir, name), "utf-8");
+		};
+		assert.match(content("81-large-files"), /\*\*Disposition:\*\* file-refactor/);
+		assert.match(content("god-object"), /\*\*Disposition:\*\* file-refactor/);
+		assert.match(content("singleton"), /\*\*Disposition:\*\* offer-optional/);
+		assert.match(content("singleton"), /\*\*Issue type:\*\* informational/);
+		assert.match(content("6-duplicate-function-names"), /\*\*Disposition:\*\* file-bug/);
+		assert.match(r.stdout, /file-refactor 2/);
+		assert.match(r.stdout, /offer-optional 1/);
+		assert.match(r.stdout, /file-bug 1/);
+	});
+
+	it("resolves architecture items from the nested files[].file shape", () => {
+		const json = join(dir, "nested.json");
+		writeFileSync(
+			json,
+			JSON.stringify({
+				architectureIssues: [
+					{
+						title: "6 Duplicate Function Names",
+						affectedFiles: ["execFn (3 files)", "info (4 files)"],
+						affectedItems: [{ files: [{ file: REAL_FILE }] }],
+					},
+				],
+			}),
+			"utf-8",
+		);
+		const r = runDryRun(["--list", "--report", fixture, "--json", json]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /6 Duplicate Function Names/);
+		assert.ok(!/\(unresolved\)/.test(r.stdout), "a nested path must resolve, not be suppressed");
+	});
+
+	it("--self-check covers the usability predicate and disposition mapping", () => {
+		const r = runDryRun(["--self-check"]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /self-check OK/);
 	});
 });
 
