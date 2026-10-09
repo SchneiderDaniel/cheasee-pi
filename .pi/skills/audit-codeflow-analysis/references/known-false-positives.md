@@ -28,8 +28,11 @@ Rows 1-4 are also suppressed deterministically at the producer: the headless
 runner and the served page both pass the analyzer's `data` through
 `fp-filter.js`, which drops HIGH findings citing an empty or comment-only
 snippet, a string-literal type union, an env-resolved value, or a symbol absent
-from the cited file (and layer violations whose endpoints cannot import each
-other). Those shapes therefore no longer reach this validator — a row 1-4 fact
+from the cited file, and layer violations whose endpoints cannot import each
+other (different extensions, no recorded connection) or whose layer label the
+endpoint path does not carry as a directory — CodeFlow's `utils` fallback and
+loose substrings (`/handler` -> `services`) name layers this repository does not
+define. Those shapes therefore no longer reach this validator — a row 1-4 fact
 that does appear here means the filter missed it, which is the bug to fix.
 
 Scope (is this a bug or a chore/refactor?) is decided before validation by

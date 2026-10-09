@@ -43,7 +43,12 @@ function fail(message) {
 // false-positive rules can see the cited code. An unreadable path returns null:
 // the filter keeps a finding it cannot disprove.
 function makeReadFile(sourceDir) {
-	const root = path.resolve(sourceDir);
+	let root;
+	try {
+		root = fs.realpathSync(path.resolve(sourceDir));
+	} catch {
+		return () => null;
+	}
 	return (rel) => {
 		if (typeof rel !== "string" || rel === "" || path.isAbsolute(rel) || rel.includes("..")) {
 			return null;
@@ -51,7 +56,11 @@ function makeReadFile(sourceDir) {
 		try {
 			const abs = path.resolve(root, rel);
 			if (!abs.startsWith(root + path.sep)) return null;
-			return fs.readFileSync(abs, "utf8");
+			// A tracked symlink may point outside the snapshot: a lexical check
+			// cannot see that, so resolve the real file and re-check containment.
+			const real = fs.realpathSync(abs);
+			if (!real.startsWith(root + path.sep)) return null;
+			return fs.readFileSync(real, "utf8");
 		} catch {
 			return null;
 		}

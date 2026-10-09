@@ -74,17 +74,17 @@ function sec(over: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 const LAYER_FILES = [
-	{ path: "src/layer/from.ts", layer: "ui" },
-	{ path: "src/layer/to.ts", layer: "ui" },
+	{ path: "src/ui/from.ts", layer: "ui" },
+	{ path: "src/ui/to.ts", layer: "ui" },
 	{ path: "cmd/build.go", layer: "cmd" },
 	{ path: "ui/src/retry.rs", layer: "ui" },
 ];
-const CONNECTIONS = [{ source: "src/layer/from.ts", target: "src/layer/to.ts", fn: "render", count: 2 }];
+const CONNECTIONS = [{ source: "src/ui/from.ts", target: "src/ui/to.ts", fn: "render", count: 2 }];
 
 function violation(over: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
-		from: "src/layer/from.ts",
-		to: "src/layer/to.ts",
+		from: "src/ui/from.ts",
+		to: "src/ui/to.ts",
 		fromLayer: "ui",
 		toLayer: "ui",
 		fn: "render",
@@ -322,13 +322,54 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 		assert.strictEqual(keepsViolation(violation({ toLayer: "shop" })), false, "one-sided mismatch");
 	});
 
+	it("drops an invented taxonomy the file table itself repeats (the 3 survivors)", () => {
+		// The pinned analyzer falls back to `utils` and matches `/handler` ->
+		// `services`, then repeats those labels in `files[].layer`, so the file-table
+		// check alone keeps the edge; neither path carries the label as a directory.
+		const from = ".pi/extensions/supervisor/pipeline/execute-agent.ts";
+		const to = ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts";
+		const edge = { from, fromLayer: "utils", to, toLayer: "services", fn: "result", suggestion: "invert" };
+		const input = {
+			files: [
+				{ path: from, layer: "utils" },
+				{ path: to, layer: "services" },
+			],
+			connections: [{ source: to, target: from, fn: "result", count: 1 }],
+			layerViolations: [edge],
+		};
+		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(suppressed.layerViolations, [edge]);
+		assert.deepStrictEqual(data.layerViolations, []);
+	});
+
+	it("drops a same-language edge whose layer label the path does not name", () => {
+		// Matching file-table labels are not enough: the paths name no layer folder.
+		const input = {
+			files: [
+				{ path: "src/layer/from.ts", layer: "utils" },
+				{ path: "src/layer/to.ts", layer: "services" },
+			],
+			connections: [{ source: "src/layer/from.ts", target: "src/layer/to.ts", fn: "render", count: 1 }],
+			layerViolations: [
+				violation({
+					from: "src/layer/from.ts",
+					to: "src/layer/to.ts",
+					fromLayer: "utils",
+					toLayer: "services",
+				}),
+			],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(data.layerViolations, []);
+	});
+
 	it("keeps a same-language edge the report itself recorded between matching layers", () => {
 		assert.strictEqual(keepsViolation(violation()), true);
 	});
 
 	it("drops a same-language pair with no recorded connection", () => {
 		assert.strictEqual(
-			keepsViolation(violation({ from: "src/layer/to.ts", to: "src/layer/from.ts" })),
+			keepsViolation(violation({ from: "src/ui/to.ts", to: "src/ui/from.ts" })),
 			false,
 			"to -> from is not an import edge",
 		);

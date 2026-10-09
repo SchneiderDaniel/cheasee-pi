@@ -165,8 +165,25 @@
 		return dot <= slash + 1 ? "" : path.slice(dot).toLowerCase();
 	}
 
+	// CodeFlow assigns a layer by loose substring match and falls back to `utils`
+	// for every path it does not recognise, so a label is only a layer this
+	// repository actually has when the endpoint path carries it as a directory
+	// (e.g. `src/ui/panel.ts`). This repo defines no layer taxonomy, so a label
+	// the path does not name — `utils` fallback, `/handler` -> `services` — is
+	// the analyzer's invention, not a violation.
+	function layerGroundsPath(layer, filePath) {
+		if (typeof layer !== "string" || layer === "" || typeof filePath !== "string") return false;
+		var wanted = layer.toLowerCase();
+		var segments = filePath.toLowerCase().split("/");
+		for (var i = 0; i < segments.length - 1; i++) {
+			if (segments[i] === wanted) return true;
+		}
+		return false;
+	}
+
 	// A violation is real only when the report's own file table agrees on both
-	// endpoints' layers and the analyzer recorded an import edge between them.
+	// endpoints' layers, each endpoint's path actually carries that layer, and
+	// the analyzer recorded an import edge between them.
 	function buildIndex(data) {
 		var byPath = Object.create(null);
 		var files = Array.isArray(data.files) ? data.files : [];
@@ -194,6 +211,7 @@
 		var toFile = index.byPath[to];
 		if (!fromFile || !toFile) return true;
 		if (violation.fromLayer !== fromFile.layer || violation.toLayer !== toFile.layer) return true;
+		if (!layerGroundsPath(violation.fromLayer, from) || !layerGroundsPath(violation.toLayer, to)) return true;
 		return index.connections[from + "\u0000" + to] !== true;
 	}
 

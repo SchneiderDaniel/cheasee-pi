@@ -13,7 +13,7 @@
 
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -281,6 +281,36 @@ describe("run-analysis.mjs headless producer", () => {
 		const kept = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"))
 			.securityIssues.map((s: { path: string }) => s.path);
 		assert.deepStrictEqual(kept, ["real.ts", "absent.ts"]);
+	});
+
+	it("refuses to read a cited file whose symlink escapes the snapshot", () => {
+		// A tracked symlink can point outside the archived tree; a lexical
+		// containment check cannot see that, so the reader must reject it and the
+		// finding whose disproof would have needed those contents must stand.
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "SYMLINK",
+				securityIssues: [
+					{
+						severity: "high",
+						title: "Shell Command Execution",
+						description: "Shell() call detected.",
+						path: "escape.ts",
+						line: 1,
+						code: "let a = 1;",
+					},
+				],
+			}),
+		});
+		const outside = join(dirname(fx.sourceDir), "outside.ts");
+		writeFileSync(outside, "export const a = 1;\n"); // lacks Shell(), so reading it would drop the finding
+		symlinkSync(outside, join(fx.sourceDir, "escape.ts"));
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const kept = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"))
+			.securityIssues.map((s: { path: string }) => s.path);
+		assert.deepStrictEqual(kept, ["escape.ts"], "a symlink target outside the snapshot must not be read");
 	});
 
 	it("leaves data without securityIssues/layerViolations alone and stays quiet", () => {

@@ -70,6 +70,14 @@ const SKIP = `pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR or CODEF
 
 const ext = (p: string) => p.slice(p.lastIndexOf(".")).toLowerCase();
 
+// A layer label is real only when the endpoint path carries it as a directory.
+const groundsLayer = (layer: string, p: string): boolean =>
+	p
+		.toLowerCase()
+		.split("/")
+		.slice(0, -1)
+		.includes(String(layer).toLowerCase());
+
 describe("fp-filter — acceptance against the pinned analyzer", () => {
 	it(
 		"headless report scores an A and carries none of the false positives",
@@ -118,6 +126,14 @@ describe("fp-filter — acceptance against the pinned analyzer", () => {
 				(v) => ext(v.from) !== ext(v.to),
 			);
 			assert.deepStrictEqual(crossLanguage, [], "cross-language layer edges must not be emitted");
+
+			// No surviving edge may carry a layer the endpoint path does not name:
+			// CodeFlow's `utils` fallback and loose substrings (`/handler` ->
+			// `services`) invented the 3 edges the previous audit found.
+			const invented = (
+				report.layerViolations as Array<{ from: string; to: string; fromLayer: string; toLayer: string }>
+			).filter((v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to));
+			assert.deepStrictEqual(invented, [], "unsupported layer labels must not survive");
 
 			// Guard: the test is only meaningful if the pinned analyzer actually
 			// produced false positives on this snapshot (it did: the issue's 9 HIGH
