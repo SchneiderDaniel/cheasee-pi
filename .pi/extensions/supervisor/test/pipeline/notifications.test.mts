@@ -196,6 +196,43 @@ describe("sendPipelineSummary()", () => {
 		assert.ok(summaryMsg!.content.includes("Pipeline Failed"), "should say Pipeline Failed");
 	});
 
+	it("surfaces the timeout stopReason in a FAILED summary (audit finding #1987)", async () => {
+		const pi = createMockPi();
+		const ctx = createMockCtx();
+		const timedOut: PipelineAgentResult = {
+			agentName: "developer",
+			status: "FAILED",
+			durationMs: 3_600_123,
+			tokenCount: 1000,
+			toolCount: 5,
+		};
+		const stopReason =
+			"Agent developer timed out (configured 3600s, actual 3600123ms; tier large, base 1800000ms, effective 3600000ms, preserved 2 file(s) as abc1234)";
+		sendPipelineSummary(
+			pi,
+			ctx,
+			[timedOut],
+			"failed",
+			1987,
+			"Large issue",
+			mockConfig as any,
+			stopReason,
+		);
+		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
+		assert.ok(summaryMsg, "should send summary message");
+		assert.ok(summaryMsg!.content.includes("❌"), "failed header still rendered");
+		assert.ok(summaryMsg!.content.includes("tier large"), "tier is user-visible");
+		assert.ok(
+			summaryMsg!.content.includes("effective 3600000ms"),
+			"effective timeout is user-visible",
+		);
+		assert.ok(summaryMsg!.content.includes("preserved 2 file(s)"), "preserved work is user-visible");
+		assert.ok(
+			!summaryMsg!.content.includes("— agent failed"),
+			"summary does not collapse to the generic agent-failed line",
+		);
+	});
+
 	it("reports 'stopped' status correctly with stopReason", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();

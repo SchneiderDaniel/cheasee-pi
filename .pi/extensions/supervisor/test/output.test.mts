@@ -949,6 +949,33 @@ describe("buildPipelineSummary — errorMsg in failed branch", () => {
 		assert.ok(stoppedIdx >= 0 && errorIdx >= 0 && stoppedIdx < errorIdx, "Stopped at before Error");
 	});
 
+	// Audit finding #1987: a timed-out agent is recorded FAILED, so the
+	// detailed stopReason must survive into the failed summary rather than
+	// collapsing to the generic "agent failed" line.
+	it("failed + detailed stopReason — renders the reason, not the generic 'agent failed' line", () => {
+		const timeoutReason =
+			"Agent developer timed out (configured 3600s, actual 3600123ms; tier large, base 1800000ms, effective 3600000ms, preserved 2 file(s) as abc1234)";
+		const output = buildPipelineSummary(
+			[failedAgent()],
+			"failed",
+			1987,
+			"Large issue",
+			defaultConfig,
+			timeoutReason,
+		);
+		assert.ok(
+			output.includes("**Stopped at:** Agent developer timed out"),
+			"detailed stopReason rendered",
+		);
+		assert.ok(output.includes("tier large"), "declared tier is user-visible");
+		assert.ok(output.includes("effective 3600000ms"), "effective timeout is user-visible");
+		assert.ok(output.includes("preserved 2 file(s)"), "preserved work is user-visible");
+		assert.ok(
+			!output.includes("— agent failed"),
+			"generic agent-failed line is suppressed when a stopReason is present",
+		);
+	});
+
 	it("errorMsg omitted (backward compat) — no Error line", () => {
 		const output = buildPipelineSummary(
 			[successAgent(), failedAgent()],

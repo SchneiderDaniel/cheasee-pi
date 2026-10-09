@@ -17,6 +17,7 @@ import type { RunContext } from "../../pipeline/handler/shared.ts";
 import type { PortCall } from "../helper/mock-github-port.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import { runAgentLoop } from "../../pipeline/handler/agent-loop.ts";
+import { buildPipelineSummary } from "../../pipeline/output.ts";
 import { createStageState } from "../../pipeline/stages/index.ts";
 import { ErrorCollector } from "../../pipeline/error-collector.ts";
 import { loadConfig, resolveTimeoutPolicy } from "../../config/config.ts";
@@ -225,6 +226,23 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 			0,
 			"partial output causes no status transition",
 		);
+
+		// The operator-visible pipeline summary must carry the same detail: a
+		// timed-out agent is recorded FAILED, so without surfacing stopReason the
+		// summary would collapse to the generic "agent failed" line (audit fix).
+		const summary = buildPipelineSummary(
+			runCtx.agentResults,
+			"failed",
+			1987,
+			"Large issue",
+			mockConfig,
+			runCtx.stopReason,
+		);
+		assert.ok(summary.includes("tier large"), "summary names the tier");
+		assert.ok(summary.includes("effective 3600000ms"), "summary names the effective timeout");
+		assert.ok(summary.includes("preserved 1 file(s)"), "summary names the preserved work");
+		assert.ok(summary.includes(WIP_SHA), "summary names the preserved sha");
+		assert.ok(!summary.includes("— agent failed"), "summary does not collapse to agent failed");
 	});
 
 	it("the next developer task instructs resume via the preserved WIP commit", async () => {
