@@ -201,6 +201,19 @@ describe("dry-run --emit-findings", () => {
 		assert.strictEqual(r.status, 2);
 		assert.ok(!existsSync(outDir), "must not create the target directory on a missing report");
 	});
+
+	it("fails closed instead of mixing a rerun with stale findings", () => {
+		const outDir = join(dir, "stale");
+		mkdirSync(outDir, { recursive: true });
+		const stale = join(outDir, "01-old-finding.md");
+		writeFileSync(stale, "old", "utf-8");
+
+		const r = runDryRun([...baseArgs(), "--emit-findings", outDir]);
+		assert.strictEqual(r.status, 2, r.stderr);
+		assert.match(r.stderr, /already contains 1 stale file/);
+		assert.strictEqual(readFileSync(stale, "utf-8"), "old", "stale file must be untouched");
+		assert.deepStrictEqual(readdirSync(outDir), ["01-old-finding.md"], "no candidates written");
+	});
 });
 
 describe("operator journey: emit → validate → reconcile", () => {

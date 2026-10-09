@@ -32,7 +32,8 @@ Load this skill when the user asks to:
   mistake (`usage`/repo-root error) — fix the call and rerun; it describes the
   call, not the finding. Exit `3` (ran, printed no `VERDICT`) is unverified: never
   filed, and disclosed as unverified. Exit `4` (crash/timeout/spawn failure)
-  reached no verdict: retry it once, then treat the retry as unverified.
+  reached no verdict: retry it once, and record the retry's verdict when it
+  returns `0`/`1` — only a retry that still exits `3`/`4` is unverified.
 - **Reconcile every section before validating.** A section present in the report
   must yield candidates. A section that emitted `###` items but produced zero
   candidates is being dropped whole by the parser, not empty — stop and fix
@@ -208,11 +209,14 @@ codes:
 | `1` | `VERDICT: INVALID` | drop it; keep the `REASON` line for the confirmation list |
 | `2` | usage / repo-root error (agent mistake) | fix the call and rerun |
 | `3` | ran, printed no `VERDICT` | unverified — never file, disclose as unverified |
-| `4` | crash / timeout / spawn failure | retry once, then treat as unverified |
+| `4` | crash / timeout / spawn failure | retry once; a `0`/`1` retry is authoritative, a retry still exiting `3`/`4` is unverified |
 
 The `3`/`4` split matters: `4` reached no verdict, so retrying it is recovery,
-not answer-shopping. Retry a `4` at most once and record the retry's verdict.
-Never re-run a completed validator hoping for a different answer — the verdict it
+not answer-shopping. Retry a `4` at most once; the retry is a fresh attempt at a
+verdict, and a retry that returns `0`/`1` is authoritative and is the verdict the
+run records. Only a retry that still exits `3`/`4` leaves the finding unverified —
+never file it, disclose it as unverified. Never re-run a completed validator (one
+that already returned `0`/`1`/`3`) hoping for a different answer: the verdict it
 returned is the verdict the run records.
 
 Take the verdict from code the subagent read itself. Reject any verdict whose
@@ -304,6 +308,9 @@ node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-r
 post-suppression candidate (default `ignore/codeflow-findings/`), spawns no
 subagent, is not truncated by `--limit`, and leaves the directory in place. It
 prints the suppressed known-noise/unresolved count next to the written count.
+It fails closed (exit `2`, writes nothing) when the destination already holds
+`.md` findings, so a rerun can never mix stale candidates into the set: point at
+a fresh directory or remove the stale files first.
 
 It never calls `gh`. Exit `0` for a completed run even when every finding is
 false, `2` for bad usage or a missing report.

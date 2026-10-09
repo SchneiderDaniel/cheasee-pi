@@ -235,6 +235,32 @@ describe("transport + artifact", () => {
 		assert.match(outcome.ok ? outcome.result.warnings.join(" ") : "", /route is down/);
 	});
 
+	it("honors abort during the bridge-status probe after a JSON 404", async () => {
+		let statusProbeStarted: () => void = () => {};
+		const started = new Promise<void>((resolveStarted) => (statusProbeStarted = resolveStarted));
+		setFetchFactory((url, init) => {
+			const path = new URL(url).pathname;
+			if (path.endsWith("/api/analysis/report.json")) {
+				return Promise.resolve(new Response("nope", { status: 404 }));
+			}
+			if (path.endsWith("/api/analysis/bridge-status")) {
+				statusProbeStarted();
+				return new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError")),
+					);
+				});
+			}
+			return Promise.resolve(new Response("MD", { status: 200 }));
+		});
+
+		const controller = new AbortController();
+		const promise = fetchAndStoreReport({ cwd, signal: controller.signal });
+		await started;
+		controller.abort();
+		await assert.rejects(() => promise, "abort must not be swallowed as a successful result");
+	});
+
 	it("falls back to a generic warning when bridge-status is unavailable", async () => {
 		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
 		routeTo(s);

@@ -106,6 +106,11 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 		assert.match(body, /not answer-shopping/i);
 	});
 
+	it("makes a 0/1 retry verdict authoritative and only a still-crashing retry unverified", () => {
+		assert.match(body, /retry that returns `0`\/`1` is authoritative/i);
+		assert.match(body, /only a retry that still exits `3`\/`4` is unverified/i);
+	});
+
 	it("names the path-less architecture entries the markdown fallback omits", () => {
 		for (const entry of [
 			"154 Architecture Violations",

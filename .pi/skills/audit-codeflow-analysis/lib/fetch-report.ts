@@ -171,6 +171,9 @@ async function fetchBridgeStatus(
 		if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
 		return data as Record<string, Record<string, unknown>>;
 	} catch {
+		// A cancelled status probe stays in the abort channel so a caller awaiting
+		// the report sees the abort rather than a successful result.
+		signal?.throwIfAborted();
 		return null;
 	}
 }

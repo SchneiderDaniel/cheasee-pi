@@ -14,7 +14,7 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -155,8 +155,23 @@ function findingFileContent(fact: IssueFact): string {
 	);
 }
 
-/** Write one `NN-<slug>.md` candidate per fact; returns the written paths. */
+/**
+ * Write one `NN-<slug>.md` candidate per fact; returns the written paths.
+ *
+ * Fails closed when the destination already holds findings: a rerun that mixed
+ * a fresh candidate set with a prior run's files would feed stale candidates to
+ * the documented `*.md` validation loop. The operator must point at a fresh
+ * directory (or remove the stale files) instead.
+ */
 function writeFindingFiles(dir: string, facts: IssueFact[]): string[] {
+	const stale = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".md")) : [];
+	if (stale.length > 0) {
+		throw new Error(
+			`refusing to write findings into ${dir}: it already contains ${stale.length} stale file(s) ` +
+				`(${stale.slice(0, 3).join(", ")}${stale.length > 3 ? ", …" : ""}). ` +
+				`Use a fresh destination directory or remove the stale files first, so the candidate set is never mixed.`,
+		);
+	}
 	mkdirSync(dir, { recursive: true });
 	return facts.map((fact, i) => {
 		const file = join(dir, `${String(i + 1).padStart(2, "0")}-${slugifyFinding(fact.title)}.md`);

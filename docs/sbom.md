@@ -57,13 +57,15 @@ nav_order: 10
 
 Upstream advisories on transitive leptos-stack crates (tracked, not directly fixable here):
 
-- `paste` (RUSTSEC-2024-0436, unmaintained) — pulled by `leptos`, `tachys`,
-  `reactive_graph`, `reactive_stores`, and `either_of`. No maintained
+- `paste` `1.0.15` (RUSTSEC-2024-0436, unmaintained) — pulled by `leptos`,
+  `tachys`, `reactive_graph`, `reactive_stores`, and `either_of`. No maintained
   replacement exists in the pinned leptos 0.8 line; resolve by tracking the
-  upstream leptos migration off `paste`.
-- `proc-macro-error2` (RUSTSEC-2026-0173, unmaintained) — pulled by
+  upstream leptos migration off `paste`. Accepted maintenance risk: the advisory
+  reports unmaintained status, not an exploitable CVE.
+- `proc-macro-error2` `2.0.1` (RUSTSEC-2026-0173, unmaintained) — pulled by
   `rstml` → `syn_derive`. Same upstream-tracking resolution; there is no
-  reachable direct replacement through the leptos macro stack.
+  reachable direct replacement through the leptos macro stack. Accepted
+  maintenance risk: unmaintained, no exploitable CVE established.
 
 ## System dependencies
 
